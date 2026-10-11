@@ -64,13 +64,13 @@ GaussianVertex vertex_main(uint vertex_index : SV_VertexID, uint reference_index
     const float4 row1 = float4(pc.vp0.y, pc.vp1.y, pc.vp2.y, pc.vp3.y);
     const float4 row2 = float4(pc.vp0.z, pc.vp1.z, pc.vp2.z, pc.vp3.z);
     const float4 row3 = float4(pc.vp0.w, pc.vp1.w, pc.vp2.w, pc.vp3.w);
-    const float4 planes[6] = {row3 + row0, row3 - row0, row3 + row1, row3 - row1, row2, row3 - row2};
-    for (uint i = 0u; i < 6u; ++i)
+    const float4 planes[2] = {row2, row3 - row2};
+    for (uint i = 0u; i < 2u; ++i)
     {
         const float3 n = float3(dot(planes[i].xyz, m0.xyz), dot(planes[i].xyz, m1.xyz), dot(planes[i].xyz, m2.xyz));
         const float radius = 3.0 * sqrt(max(0.0, gaussian_covariance(n, n, covariance_x, covariance_yz)));
         const float distance = dot(planes[i], world);
-        if (!isfinite(radius) || distance + radius < 0.0 || (i == 4u && distance - radius <= 0.0))
+        if (!isfinite(radius) || distance + radius < 0.0 || (i == 0u && distance - radius <= 0.0))
         {
             return output;
         }
@@ -91,6 +91,13 @@ GaussianVertex vertex_main(uint vertex_index : SV_VertexID, uint reference_index
     const float cross_y = xy / root_x;
     const float2 basis_x = float2(root_x, cross_y);
     const float2 basis_y = float2(0.0, sqrt(max(gaussian_regularization, yy - cross_y * cross_y)));
+    const float2 center_pixel = (ndc.xy + 1.0) * 0.5 * float2(pc.viewport_width, pc.viewport_height);
+    const float2 radius = 3.0 * float2(root_x, length(float2(cross_y, basis_y.y)));
+    if (center_pixel.x + radius.x < 0.0 || center_pixel.x - radius.x > pc.viewport_width ||
+        center_pixel.y + radius.y < 0.0 || center_pixel.y - radius.y > pc.viewport_height)
+    {
+        return output;
+    }
     const float2 coordinates[6] = {
         float2(-3.0, -3.0), float2(3.0, -3.0), float2(3.0, 3.0),
         float2(-3.0, -3.0), float2(3.0, 3.0), float2(-3.0, 3.0)};

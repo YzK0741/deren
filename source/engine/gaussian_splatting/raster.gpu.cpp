@@ -85,6 +85,16 @@ namespace deren::engine::gaussian_splatting {
             } else if (projected->visibility == projection_visibility::outside) {
                 ++result->outside;
             } else {
+                auto const& source = input.asset->source();
+                auto const& particle = source.particles[reference.local_gaussian_index];
+                glm::vec3 const center{particle.center[0], particle.center[1], particle.center[2]};
+                glm::vec3 const eye{records[reference.instance_index].inverse_model * glm::vec4{camera.position, 1}};
+                sh_record sh;
+                sh.coefficients = particle.sh;
+                auto radiance = evaluate_sh(sh, source.sh_degree, glm::normalize(center - eye));
+                if (!radiance) {
+                    return std::unexpected(radiance.error());
+                }
                 result->reference_data.push_back(reference);
             }
         }

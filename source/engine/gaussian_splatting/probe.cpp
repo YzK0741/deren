@@ -199,7 +199,7 @@ namespace deren::engine::gaussian_splatting {
             return failure("Gaussian probe pipeline creation failed", error_code::unsupported);
         }
         raster_probe_report report;
-        auto check = [&](std::span<raster_instance const> inputs, raster_camera const& camera, float depth, char const* name, bool known_center = false) -> std::expected<void, foundation_error> {
+        auto check = [&](std::span<raster_instance const> inputs, raster_camera const& camera, float depth, char const* name, bool known_center = false, bool known_edge = false) -> std::expected<void, foundation_error> {
             auto frame = prepare_raster_frame(core, inputs, camera);
             if (!frame) {
                 return std::unexpected(frame.error());
@@ -216,6 +216,13 @@ namespace deren::engine::gaussian_splatting {
                 glm::vec3 const center = read_pixel(*actual, 16 * 33 + 16);
                 if (glm::any(glm::greaterThan(glm::abs(center - glm::vec3{0.5f, 0, 0.25f}), glm::vec3{tolerance}))) {
                     return failure(std::format("{}: center RGB {},{},{} expected0.5,0,0.25", name, center.x, center.y, center.z));
+                }
+            }
+            if (known_edge) {
+                glm::vec3 const edge = read_pixel(*actual, 16 * 33 + 32);
+                glm::vec3 const wanted{0, 0.5f * std::exp(-0.5f / 0.3f), 0};
+                if (glm::any(glm::greaterThan(glm::abs(edge - wanted), glm::vec3{tolerance}))) {
+                    return failure(std::format("{}: edge RGB {},{},{} expected green{}", name, edge.x, edge.y, edge.z, wanted.y));
                 }
             }
             for (std::size_t i = 0; i < expected->size(); ++i) {
@@ -285,6 +292,17 @@ namespace deren::engine::gaussian_splatting {
         projection[2][1] = -0.07f;
         camera.view_projection = projection * glm::lookAtRH(camera.position, glm::vec3{0}, glm::vec3{0, 1, 0});
         if (auto result = check(transformed_inputs, camera, 1, "transformed anisotropic SH3"); !result) {
+            return std::unexpected(result.error());
+        }
+        camera = simple_camera();
+        deren::gaussian::asset edge_source;
+        edge_source.particles = {particle({2.0f + 2.0f / 33.0f, 0, -2}, {0, 1, 0}, {1e-6f, 1e-6f, 1e-6f})};
+        auto edge_asset = make_raster_asset(core, std::move(edge_source));
+        if (!edge_asset) {
+            return std::unexpected(edge_asset.error());
+        }
+        std::array<raster_instance, 1> const edge_inputs = {raster_instance{*edge_asset, glm::mat4{1}, 30}};
+        if (auto result = check(edge_inputs, camera, 1, "regularized edge", false, true); !result) {
             return std::unexpected(result.error());
         }
         return report;

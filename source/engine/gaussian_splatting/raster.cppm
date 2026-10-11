@@ -46,6 +46,10 @@ export namespace deren::engine::gaussian_splatting {
     };
     class raster_asset {
     public:
+        raster_asset(raster_asset const&) = delete;
+        raster_asset& operator=(raster_asset const&) = delete;
+        raster_asset(raster_asset&&) = delete;
+        raster_asset& operator=(raster_asset&&) = delete;
         [[nodiscard]] deren::gaussian::asset const& source() const noexcept {
             return *cpu_asset;
         }
@@ -65,6 +69,10 @@ export namespace deren::engine::gaussian_splatting {
     };
     class raster_frame {
     public:
+        raster_frame(raster_frame const&) = delete;
+        raster_frame& operator=(raster_frame const&) = delete;
+        raster_frame(raster_frame&&) = delete;
+        raster_frame& operator=(raster_frame&&) = delete;
         [[nodiscard]] raster_push const& params() const noexcept {
             return push;
         }

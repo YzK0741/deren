@@ -5,6 +5,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <limits>
+#include <type_traits>
 import deren.engine.gaussian_splatting;
 import deren.engine.gaussian_splatting.raster;
 import deren.engine.gaussian_splatting.probe;
@@ -25,6 +26,16 @@ namespace {
     }
     gs::geometry_record geometry() {
         return {{0, 0, -2, 0.5f}, {0.01f, 0, 0, 0}, {0.04f, 0, 0.01f, 0}};
+    }
+    void test_immutable_owners() {
+        CHECK(!std::is_copy_constructible_v<gs::raster_asset>);
+        CHECK(!std::is_copy_assignable_v<gs::raster_asset>);
+        CHECK(!std::is_move_constructible_v<gs::raster_asset>);
+        CHECK(!std::is_move_assignable_v<gs::raster_asset>);
+        CHECK(!std::is_copy_constructible_v<gs::raster_frame>);
+        CHECK(!std::is_copy_assignable_v<gs::raster_frame>);
+        CHECK(!std::is_move_constructible_v<gs::raster_frame>);
+        CHECK(!std::is_move_assignable_v<gs::raster_frame>);
     }
     void test_layout() {
         CHECK(sizeof(gs::raster_push) == 112);
@@ -116,6 +127,25 @@ namespace {
         g = geometry();
         g.covariance_x[1] = 1;
         CHECK(!gs::project_splat(g, glm::mat4{1}, camera()));
+    }
+    void test_regularized_edge_coverage() {
+        auto g = geometry();
+        g.covariance_x = {1e-12f, 0, 0, 0};
+        g.covariance_yz = {1e-12f, 0, 1e-12f, 0};
+        for (glm::vec2 const center : {glm::vec2{2.01f, 0}, glm::vec2{-2.01f, 0}, glm::vec2{0, 2.01f}, glm::vec2{0, -2.01f}}) {
+            g.center_opacity = {center.x, center.y, -2, 0.5f};
+            auto projected = gs::project_splat(g, glm::mat4{1}, camera());
+            CHECK(projected && projected->visibility == gs::projection_visibility::visible);
+        }
+        g.center_opacity = {2.01f, 0, -2, 0.5f};
+        auto projected = gs::project_splat(g, glm::mat4{1}, camera());
+        if (projected && projected->visibility == gs::projection_visibility::visible) {
+            float const u = (199.5f - projected->center_pixel.x) / projected->basis_x.x;
+            CHECK(near(gs::fragment_alpha(0.5f, {u, 0}), 0.5f * std::exp(-0.5f / 0.3f)));
+        }
+        g.center_opacity = {2.10f, 0, -2, 0.5f};
+        projected = gs::project_splat(g, glm::mat4{1}, camera());
+        CHECK(projected && projected->visibility == gs::projection_visibility::outside);
     }
     void test_camera_jacobian() {
         auto c = camera();
@@ -299,6 +329,26 @@ namespace {
         CHECK(empty && (*empty)->params().visible_count == 0);
         CHECK(empty_probe.calls == 0);
     }
+    void test_view_dependent_sh_overflow() {
+        raster_probe_core core;
+        auto source = raster_source();
+        source.sh_degree = 2;
+        source.particles.resize(1);
+        source.particles[0].center = {0, 0, -2};
+        source.particles[0].sh[0] = std::numeric_limits<float>::max();
+        source.particles[0].sh[6] = -std::numeric_limits<float>::max();
+        source.particles[0].sh[18] = std::numeric_limits<float>::max();
+        auto asset = gs::make_raster_asset(core, std::move(source));
+        CHECK(asset);
+        if (!asset) {
+            return;
+        }
+        unsigned const before = core.calls;
+        std::array<gs::raster_instance, 1> const items = {gs::raster_instance{*asset, glm::mat4{1}, 1}};
+        auto frame = gs::prepare_raster_frame(core, items, camera());
+        CHECK(!frame && frame.error().code == gs::error_code::invalid_argument);
+        CHECK(core.calls == before);
+    }
     struct push_probe {
         bool refused = false;
         std::vector<std::byte> bytes;
@@ -376,11 +426,14 @@ namespace {
     }
 } // namespace
 int main() {
+    test_immutable_owners();
     test_layout();
     test_projection();
+    test_regularized_edge_coverage();
     test_camera_jacobian();
     test_sh_kernel();
     test_frame_upload();
+    test_view_dependent_sh_overflow();
     test_raster_pass();
     raster_probe_core unsupported_probe;
     auto missing_stages = gs::run_raster_probe(unsupported_probe, {}, {});

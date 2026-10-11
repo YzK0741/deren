@@ -122,7 +122,9 @@ namespace deren::engine::gaussian_splatting {
                 }
             }
         }
-        std::array<glm::dvec4, 6> const planes = {row(vp, 3) + row(vp, 0), row(vp, 3) - row(vp, 0), row(vp, 3) + row(vp, 1), row(vp, 3) - row(vp, 1), row(vp, 2), row(vp, 3) - row(vp, 2)};
+        // Depth support is three dimensional. Side coverage is tested after
+        // projection so the pixel regularization participates in culling.
+        std::array<glm::dvec4, 2> const planes = {row(vp, 2), row(vp, 3) - row(vp, 2)};
         double near_distance = 0;
         double near_radius = 0;
         for (std::size_t i = 0; i < planes.size(); ++i) {
@@ -135,7 +137,7 @@ namespace deren::engine::gaussian_splatting {
             if (distance + radius < 0) {
                 return out;
             }
-            if (i == 4) {
+            if (i == 0) {
                 near_distance = distance;
                 near_radius = radius;
             }
@@ -159,6 +161,11 @@ namespace deren::engine::gaussian_splatting {
         glm::dvec2 const pixel{(ndc.x + 1) * 0.5 * camera.extent.width, (ndc.y + 1) * 0.5 * camera.extent.height};
         if (!float_finite(xx) || !float_finite(xy) || !float_finite(yy) || !float_finite(bx) || !float_finite(by) || !float_finite(cy) || !float_finite(pixel.x) || !float_finite(pixel.y)) {
             return invalid("projected covariance exceeds float32 range");
+        }
+        glm::dvec2 const radius{3 * bx, 3 * std::hypot(by, cy)};
+        if (pixel.x + radius.x < 0 || pixel.x - radius.x > camera.extent.width ||
+            pixel.y + radius.y < 0 || pixel.y - radius.y > camera.extent.height) {
+            return out;
         }
         out.visibility = projection_visibility::visible;
         out.center_pixel = glm::vec2{pixel};
