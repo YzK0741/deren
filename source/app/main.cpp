@@ -2588,7 +2588,12 @@ int main(int argc, char** argv) {
                                   model_path, static_cast<int32_t>(cloud.error().code), cloud.error().byte_offset);
         }
         deren::utility::log("gaussian: read {} splats; uploading the static tables", cloud->particles.size());
-        auto asset = deren::engine::gaussian_splatting::make_raster_asset(*core, std::move(*cloud), {});
+        // THE FACE IS THE RUNTIME'S, NOT THE LOCAL `core`, and that is not style: `core` was MOVED INTO the
+        // runtime when it was constructed (see "STEP ONE" above), so a dereference here is a null shared_ptr and
+        // the first virtual call through it reads a vtable at address zero - measured as an 0xC0000005 from the
+        // upload, with every log before it printed. The runtime owns the root and outlives this call, which is
+        // exactly what `rhi_face()` is public for.
+        auto asset = deren::engine::gaussian_splatting::make_raster_asset(runtime.rhi_face(), std::move(*cloud), {});
         if (!asset) {
             deren::utility::panic(std::source_location::current(), "failed to upload the gaussian splat cloud '{}': error code {}",
                                   model_path, static_cast<int32_t>(asset.error().code));

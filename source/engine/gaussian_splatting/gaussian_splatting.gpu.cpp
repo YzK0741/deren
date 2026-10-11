@@ -122,15 +122,14 @@ namespace deren::engine::gaussian_splatting {
         deren::utility::log("gaussian upload: result fields written; asking whether device_address is announced");
         // ASK THE BIT BEFORE THE OBJECT, which is what the contract's own words prescribe ("a bit is announced only
         // if the ability object exists AND can serve the objects this backend produces"; for every set bit
-        // query_extension() must answer). The Vulkan backend's own header says it reports vulkan_escape and NOTHING
-        // ELSE - device_address among the deferred ones - so this path must REFUSE cleanly here rather than query an
-        // ability the backend does not serve. Measured: querying anyway ended the process with 0xC0000005 inside
-        // query_extension(), which is what this guard turns into the diagnostic below.
+        // query_extension() must answer). The Vulkan backend does announce and serve it today (core.api_core.cpp's
+        // abilities() sets the bit and query_extension() answers with the address view), so this guard is the
+        // contract's rule obeyed rather than a workaround: a backend that does NOT announce it gets one named
+        // refusal instead of an upload that cannot project.
         if ((core.abilities() & rhi::to_bits(rhi::extension_kind::device_address)) == 0) {
             return failure(error_code::unsupported, "backend does not announce device_address (the Gaussian raster path projects through buffer addresses)");
         }
         auto* address = rhi::query_extension<rhi::device_address>(core);
-        deren::utility::log("gaussian upload: device_address query returned {}", address != nullptr);
         if (!address) {
             return failure(error_code::unsupported, "backend lacks device_address");
         }
