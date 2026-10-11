@@ -37,6 +37,12 @@ namespace deren::engine::gaussian_splatting {
         if (inputs.size() > std::numeric_limits<std::uint32_t>::max()) {
             return failure(error_code::limit_exceeded, "too many raster instances");
         }
+        // CHECKED THE HOUSE WAY (see pack_asset): the count is compared against max/stride BEFORE the multiply, so a
+        // size_t that would wrap cannot quietly pass the budget test below with a small product.
+        if (inputs.size() > limits.max_packed_bytes / sizeof(instance_record) ||
+            inputs.size() > std::numeric_limits<std::size_t>::max() / sizeof(instance_record)) {
+            return failure(error_code::limit_exceeded, "raster instances exceed frame byte budget");
+        }
         std::uint64_t const instance_bytes = inputs.size() * sizeof(instance_record);
         if (instance_bytes > limits.max_packed_bytes) {
             return failure(error_code::limit_exceeded, "raster instances exceed frame byte budget");
@@ -101,6 +107,12 @@ namespace deren::engine::gaussian_splatting {
         result->push.visible_count = static_cast<std::uint32_t>(result->reference_data.size());
         if (result->push.visible_count == 0) {
             return std::shared_ptr<raster_frame const>{std::move(result)};
+        }
+        // The same checked shape as the instance count above. The subtraction that follows cannot underflow:
+        // instance_bytes was already capped by the byte budget.
+        if (result->reference_data.size() > limits.max_packed_bytes / sizeof(draw_reference) ||
+            result->reference_data.size() > std::numeric_limits<std::size_t>::max() / sizeof(draw_reference)) {
+            return failure(error_code::limit_exceeded, "raster uploads exceed frame byte budget");
         }
         std::uint64_t const reference_bytes = result->reference_data.size() * sizeof(draw_reference);
         if (reference_bytes > limits.max_packed_bytes - instance_bytes) {

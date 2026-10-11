@@ -78,6 +78,16 @@ namespace {
         return true;
     }
 
+    /// The whole of a file, or an empty string when it cannot be read (the CHECKs report that elsewhere).
+    std::string read_text(std::string const& path) {
+        std::string text;
+        for (std::string const& line : read_lines(path)) {
+            text += line;
+            text += '\n';
+        }
+        return text;
+    }
+
     /// Every entry in @p path that is a quoted PowerShell list element or a bare list line, i.e. both scripts'
     /// spellings, with the trailing comma/quote stripped.
     std::set<std::string> entries_in_script(std::string const& path) {
@@ -275,6 +285,64 @@ int32_t main() {
             CHECK_MSG(std::filesystem::exists(root + "/source/shaders/" + include), include.c_str());
             CHECK_MSG(listed.contains(include), ("an included shader is not in CMakeLists' VR_SHADER_INCLUDES, so editing it leaves stale SPIR-V: " + include).c_str());
         }
+    }
+
+    // ---- 6. THE HEAP PUSH LANE CONTRACT: a pass that pushes a block loads only stages that declare the lanes ----
+    // runtime.cpp's push_with_lanes() appends index lanes AFTER the block a pass hands over (two for
+    // push_index_block, three for push_stage_block, whose third is the post chain's own source slot), and the heap
+    // accessors reach the per-frame slot arrays only through them. A stage that pushes a block and declares no lanes
+    // still compiles and still renders - until it reads one, and then the read is past the block it declared, so the
+    // producer and the consumer disagree by 8 or 12 bytes with nothing to catch it. That is a live finding, not a
+    // hypothetical: gaussian_raster.slang was the single converted stage without them (the raster batch's own
+    // independent review found it), while declared-versus-transmitted size is exactly what nothing in the build
+    // compares. The rule is derived rather than tabulated - a pass source names the .spv it loads, the canonical list
+    // names the .slang that produces it, and that source is the one that must declare the lanes.
+    {
+        std::vector<std::pair<std::string, std::string>> source_of; // .spv -> .slang
+        for (std::string const& entry : cmake) {
+            std::size_t const first = entry.find(':');
+            std::size_t const last = entry.rfind(':');
+            if (first == std::string::npos || last == std::string::npos || first == last) {
+                continue;
+            }
+            source_of.emplace_back(entry.substr(last + 1u), entry.substr(0u, first));
+        }
+        CHECK_MSG(!source_of.empty(), "the canonical list gives a .slang source for every .spv");
+
+        std::set<std::string> lane_sources;
+        for (auto const& file : std::filesystem::directory_iterator(root + "/source/engine/pass")) {
+            if (!file.is_regular_file() || file.path().extension() != ".cpp") {
+                continue;
+            }
+            std::string const pass_text = read_text(file.path().string());
+            if (pass_text.find("push_block(") == std::string::npos) {
+                continue; // a pass that pushes nothing has no lanes to declare
+            }
+            for (std::string const& output : loaded_spv_names(file.path().string())) {
+                for (auto const& [name, source] : source_of) {
+                    if (name != output) {
+                        continue;
+                    }
+                    std::string const source_path = root + "/source/shaders/" + source;
+                    std::string const source_text = read_text(source_path);
+                    if (source_text.find("[[vk::push_constant]]") == std::string::npos) {
+                        continue; // a stage of the pass that declares no block at all
+                    }
+                    lane_sources.insert(source);
+                    for (std::string const& lane : {"frame_slot", "image_index"}) {
+                        CHECK_MSG(source_text.find(lane) != std::string::npos,
+                                  (source + " is pushed by a pass that appends index lanes but does not declare " + lane)
+                                      .c_str());
+                    }
+                }
+            }
+        }
+        // THE COVERAGE IS WHAT THE TREE MAKES DERIVABLE, and it is asserted rather than assumed: a pass that names
+        // the .spv it loads binds its stage here, while the stages whose shaders the APP registers (most of them -
+        // chores.cpp) are bound too far away for this scan and are covered by section 4's registration check. The
+        // gaussian raster stage is the one this batch added, so the contract must at least see it; when another
+        // converted pass names its shader inline, it joins this rule for free.
+        CHECK_MSG(lane_sources.contains("gaussian_raster.slang"), "the derived lane contract covers gaussian_raster.slang");
     }
 
     // Runtime sources are entirely Slang. GLSL originals live in source/reference/shaders/.

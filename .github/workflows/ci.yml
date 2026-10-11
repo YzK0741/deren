@@ -143,13 +143,13 @@ jobs:
           TIDY_FILES="source/engine/gaussian_splatting/gaussian_splatting.cppm \
             source/engine/gaussian_splatting/gaussian_splatting.cpp \
             source/engine/gaussian_splatting/gaussian_splatting.gpu.cpp \
-          source/engine/gaussian_splatting/raster.cppm \
-          source/engine/gaussian_splatting/raster.cpp \
-          source/engine/gaussian_splatting/raster.gpu.cpp \
-          source/engine/gaussian_splatting/probe.cppm \
-          source/engine/gaussian_splatting/probe.cpp \
-          source/engine/pass/gaussian_splatting.cppm \
-          source/engine/pass/gaussian_splatting.cpp \
+            source/engine/gaussian_splatting/raster.cppm \
+            source/engine/gaussian_splatting/raster.cpp \
+            source/engine/gaussian_splatting/raster.gpu.cpp \
+            source/engine/gaussian_splatting/probe.cppm \
+            source/engine/gaussian_splatting/probe.cpp \
+            source/engine/pass/gaussian_splatting.cppm \
+            source/engine/pass/gaussian_splatting.cpp \
             source/application_configuration/application_configuration.cppm \
             source/application_configuration/application_configuration.cpp \
             source/utility/data_block.cppm source/utility/utility.cppm source/utility/utility.cpp \

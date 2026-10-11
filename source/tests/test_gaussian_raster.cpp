@@ -1,10 +1,12 @@
 #include "vk_test.h"
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <limits>
+#include <string>
 #include <type_traits>
 import deren.engine.gaussian_splatting;
 import deren.engine.gaussian_splatting.raster;
@@ -128,6 +130,80 @@ namespace {
         g.covariance_x[1] = 1;
         CHECK(!gs::project_splat(g, glm::mat4{1}, camera()));
     }
+
+    /// The local covariance matrix both sides share: covariance_x is (c00, c01, c02) and covariance_yz is
+    /// (c11, c12, c22), which is how the packer writes them.
+    glm::mat3 local_covariance(gs::geometry_record const& g) {
+        return glm::mat3{{g.covariance_x[0], g.covariance_x[1], g.covariance_x[2]},
+                         {g.covariance_x[1], g.covariance_yz[0], g.covariance_yz[1]},
+                         {g.covariance_x[2], g.covariance_yz[1], g.covariance_yz[2]}};
+    }
+
+    /// THE SHADER'S near/far plane rejection, transcribed from source/shaders/gaussian_raster.slang (its loop over
+    /// row2 and row3 - row2). Two details are the whole point of having it here, because each is easy to get wrong
+    /// in a way that only shows up near the planes:
+    ///   - the distance is the FULL homogeneous dot (plane.xyz * world.xyz + plane.w), so the plane's translation
+    ///     participates instead of being dropped;
+    ///   - the radius comes from the UNNORMALIZED plane normal, which is what scales it by |n| and makes this a
+    ///     world-space sphere test. Normalizing `n` on its own would shrink the support where |n| is small -
+    ///     near the far plane, where |n| is far/(far - near) for the near plane and (far - near)/far for the far
+    ///     one - so the two sides would disagree by a world unit exactly where a splat cloud meets the plane.
+    bool shader_plane_drawn(glm::mat4 const& vp, glm::mat4 const& model, gs::geometry_record const& g) {
+        glm::vec4 const world = model * glm::vec4{g.center_opacity[0], g.center_opacity[1], g.center_opacity[2], 1.0f};
+        glm::vec4 const row2{vp[0][2], vp[1][2], vp[2][2], vp[3][2]};
+        glm::vec4 const row3{vp[0][3], vp[1][3], vp[2][3], vp[3][3]};
+        glm::vec4 const planes[2] = {row2, row3 - row2};
+        glm::mat3 const cov = local_covariance(g);
+        for (int i = 0; i < 2; ++i) {
+            glm::vec3 const plane{planes[i]};
+            glm::vec3 const n{glm::dot(plane, glm::vec3{model[0]}), glm::dot(plane, glm::vec3{model[1]}),
+                              glm::dot(plane, glm::vec3{model[2]})};
+            float const radius = 3.0f * std::sqrt(std::max(0.0f, glm::dot(n, cov * n)));
+            float const distance = glm::dot(planes[i], world);
+            if (!std::isfinite(radius) || distance + radius < 0.0f || (i == 0 && distance - radius <= 0.0f)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// THE TWO SIDES MUST AGREE ON THE PLANE TESTS, in both directions and in the bands where a mistake hides.
+    /// The cases sit in the far plane's neighbourhood and the near plane's: the far plane culls only a support that
+    /// is ENTIRELY beyond it (radius included), the near plane culls as soon as a support touches it, and the
+    /// covariances and centres are chosen so that the viewport-side test cannot be the one that decided any of
+    /// them (every centre projects to the viewport's centre, and the support stays a few pixels wide). The
+    /// expected verdicts are pinned as well as the agreement, because two implementations can agree and both be
+    /// wrong.
+    void test_plane_agreement() {
+        auto c = camera();
+        struct probe_case {
+            char const* what;
+            float z;
+            float variance;
+            bool visible;
+        };
+        std::array<probe_case, 6> const cases = {{
+            {"control, well inside", -2.0f, 0.01f, true},
+            {"support crosses the far plane from inside", -99.9f, 1.0f, true},
+            {"entirely beyond the far plane", -101.0f, 0.01f, false},
+            {"support crosses the far plane from outside", -100.2f, 0.01f, true},
+            {"centre exactly on the near plane", -0.1f, 0.01f, false},
+            {"support reaches the near plane", -0.2f, 0.01f, false},
+        }};
+        for (probe_case const& item : cases) {
+            gs::geometry_record g{{0, 0, item.z, 0.5f}, {item.variance, 0, 0, 0}, {item.variance, 0, item.variance, 0}};
+            auto const p = gs::project_splat(g, glm::mat4{1}, c);
+            CHECK(p);
+            if (!p) {
+                continue;
+            }
+            bool const cpu_visible = p->visibility == gs::projection_visibility::visible;
+            CHECK_MSG(cpu_visible == item.visible, item.what);
+            CHECK_MSG(cpu_visible == shader_plane_drawn(c.view_projection, glm::mat4{1}, g),
+                      (std::string("the reference and the shader's plane test disagree: ") + item.what).c_str());
+        }
+    }
+
     void test_regularized_edge_coverage() {
         auto g = geometry();
         g.covariance_x = {1e-12f, 0, 0, 0};
@@ -429,6 +505,7 @@ int main() {
     test_immutable_owners();
     test_layout();
     test_projection();
+    test_plane_agreement();
     test_regularized_edge_coverage();
     test_camera_jacobian();
     test_sh_kernel();

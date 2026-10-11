@@ -24,6 +24,9 @@ export namespace deren::engine::gaussian_splatting {
         std::uint32_t visible_count = 0, flags = 0;
     };
     static_assert(sizeof(raster_push) == 112 && offsetof(raster_push, camera_position) == 64 && offsetof(raster_push, references_address) == 80 && offsetof(raster_push, instances_address) == 88 && offsetof(raster_push, viewport_width) == 96 && offsetof(raster_push, visible_count) == 104 && offsetof(raster_push, flags) == 108);
+    /// Which half of the frustum decision a reference landed in. `outside` is the default and covers BOTH a support
+    /// that the plane tests reject and a center the projection cannot place (clip.w <= 0, i.e. behind the camera):
+    /// both mean "this reference draws nothing", and the frame's outside_count is the total of them.
     enum class projection_visibility { visible,
                                        outside,
                                        near_omitted };

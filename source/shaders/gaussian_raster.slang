@@ -14,6 +14,17 @@ struct GaussianPush
     float viewport_height; // 100
     uint visible_count; // 104
     uint flags; // 108
+    // THE THREE INDEX LANES THE HEAP PUSH APPENDS. runtime.cpp's push_with_lanes() writes them AFTER the block a
+    // pass hands over, and this pass's endpoint (runtime::push_stage_block) always passes three: frame_slot and
+    // image_index address the per-frame slot arrays, and the third is the post chain's own source slot - which is
+    // why shadow.slang says the cascade has to sit after all three. Every other converted stage declares them and
+    // this one did not, which made the block this shader DECLARES 12 bytes shorter than the block the pass
+    // TRANSMITS: harmless only while nothing here reads a lane, and a read past the declared block the moment the
+    // heap accessors are used. The host's raster_push stays 112 bytes; these lanes exist in the transmitted block,
+    // and test_shader_sources' lane contract now fails if a block-pushing stage stops declaring them.
+    uint frame_slot; // 112
+    uint image_index; // 116
+    uint spare_lane; // 120
 };
 [[vk::push_constant]] ConstantBuffer<GaussianPush> pc;
 

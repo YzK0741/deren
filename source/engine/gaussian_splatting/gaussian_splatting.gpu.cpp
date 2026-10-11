@@ -120,8 +120,13 @@ namespace deren::engine::gaussian_splatting {
             return failure(error_code::unsupported, "backend lacks device_address");
         }
         rhi::buffer_desc desc{};
-        // storage_gpu_only is allocate-only. This existing GPU upload intent
-        // accepts initial bytes; the storage flag additionally permits SSBO reads.
+        // THE INTENT IS NAMED FOR THE ONLY UPLOAD PATH THAT EXISTS, NOT FOR WHAT THIS BUFFER IS. storage_gpu_only
+        // is allocate-only: its Vk usage carries no TRANSFER_DST and create_buffer refuses initial contents
+        // (measured in vma.cppm), so an immutable, GPU-only table has to be created through uniform_gpu_only -
+        // whose staging copy IS the upload mechanism - and the storage flag below is what makes it readable as an
+        // SSBO instead. This splat table is never bound as a uniform buffer and is not one. A dedicated
+        // upload-capable storage intent is the honest home for this and is left as a follow-up rather than added
+        // here: this batch's constraint is no ABI change.
         desc.usage = rhi::buffer_usage::uniform_gpu_only;
         desc.flags = rhi::to_bits(rhi::buffer_flag::storage) | rhi::to_bits(rhi::buffer_flag::device_address);
         desc.initial_bytes = std::as_bytes(std::span{asset.geometry});
