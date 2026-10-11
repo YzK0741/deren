@@ -147,4 +147,20 @@ What survives is the VISUAL evidence only, and it is unambiguous: three captures
 
 The lesson is the one this repository keeps re-learning: a metric that is not validated against a known-good case is not a measurement, it is a number. A validated metric here would compare the frame against a SAME-SIZE capture taken without any resize, not against itself before a resize.
 
+### The validated metric was tried, and it fails its own validation
+
+The same-size comparison was built and used: capture a frame from a run that STARTED at the target size (never resized) and compare it with a frame from a run resized to that size, same configuration, same camera. The numbers:
+
+| comparison | difference |
+| --- | --- |
+| cloud, two clean frames, same size, neither resized (the BASELINE) | 29 |
+| cloud, resized frame against the same-size reference | 72.9 |
+| helmet, resized frame against the same-size reference | 51.1 |
+
+The helmet's 51.1 is the disqualifying one: that frame was LOOKED at and it is a perfectly clean helmet at 239.9 fps. A resize changes the camera's aspect and what the frame shows, so "resized against not-resized" contains a legitimate difference of the same order as the corruption - the metric separates "was resized" from "was not", not "is corrupt" from "is clean".
+
+SO THE EVIDENCE IS VISUAL ONLY, and on that evidence the corruption is real and it belongs to the cloud-only path: five captures of a cloud-only viewer after a resize show garbage (random saturated noise with only the GUI drawn, olive blocks over a blue field, blocky splats, and the user's own screenshot), while the helmet after a resize is clean in three captures - the last of them with EXACTLY this configuration and only the `model` line changed, which is the strongest control available here.
+
+ONE MORE MISTAKE WORTH RECORDING, because it cost a wrong conclusion: an earlier "control 2" (this configuration with the model swapped to the helmet) never ran that configuration at all. The file had been produced by substituting the model path with `..\gltf_model\DamagedHelmet.gltf`, whose single backslashes are an INVALID TOML escape, so the parse failed and the run silently used the defaults. The valid control (`..\\gltf_model\\DamagedHelmet.gltf`, escaping the backslashes) is the one whose capture is clean above.
+
 TO RUN IT: put the cloud's path in `model`, keep `gltf_model/DamagedHelmet.gltf` (or another model) findable from the working directory so the scene lookup succeeds, and start the viewer from the project root or the build directory. Left-drag orbits, the wheel zooms, F12 writes a screenshot through `[paths] screenshot_dir`, F1 toggles the panel and Escape quits; the panel's `gpu (60f)` and `cpu (60f)` rows are the costs measured above.
