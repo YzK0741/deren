@@ -127,4 +127,9 @@ So neither the resize path in general nor any key in the viewer's configuration 
 
 NOT YET FIXED. The two candidate fixes, both bounded: publish that state per generation in the runtime (the engine fix), or move the placeholder onto the import path, which is the route the controls above prove is generation-correct.
 
+TWO MORE MEASUREMENTS NARROW IT FURTHER, both taken after the report above:
+
+* IT IS NOT RARE. Four consecutive runs of the same scripted resize at four different sizes corrupted all four (a pixel difference of 40 to 111 against the pre-resize frame over the sky region, where a clean frame is 0 to 2). The single clean run that first suggested a race was the outlier, not the rule.
+* IT IS UNINITIALISED MEMORY, NOT A STALE LEAF. The placeholder was temporarily given a bright red material as a probe: the corruption came out as dense random saturated noise (orange, green, blue, magenta) across the whole frame with only the GUI panel drawn correctly - not red. So what is on screen was never written by the frame's own passes: the leaf's data is not what is displayed, and the stale thing is the frame's TARGET/RESOLUTION path - a post/upscale or scene resolve that still names the previous generation's image after the swapchain is rebuilt.
+
 TO RUN IT: put the cloud's path in `model`, keep `gltf_model/DamagedHelmet.gltf` (or another model) findable from the working directory so the scene lookup succeeds, and start the viewer from the project root or the build directory. Left-drag orbits, the wheel zooms, F12 writes a screenshot through `[paths] screenshot_dir`, F1 toggles the panel and Escape quits; the panel's `gpu (60f)` and `cpu (60f)` rows are the costs measured above.

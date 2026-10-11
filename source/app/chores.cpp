@@ -586,6 +586,9 @@ namespace deren::chores {
         info.index_count = static_cast<std::uint32_t>(indices.size());
         // OPAQUE BLACK: opaque is what writes the depth the splat pass tests against, and black is what this frame
         // showed anyway (see the note above), so the viewer's background stays what it was - the cloud on black.
+        // (It was made RED once, as a probe for the resize corruption: the corruption came out as random saturated
+        // NOISE rather than red, which ruled this leaf's own data out and pointed at the frame's target/resolution
+        // path instead - see the known-issue section in docs/gaussian_splatting.md.)
         info.factors.base_color_factor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
         info.factors.metallic_factor = 0.0f;
         info.factors.roughness_factor = 1.0f;
