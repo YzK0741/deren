@@ -132,7 +132,8 @@ namespace deren::engine::gaussian_splatting {
             }
             std::array<rhi::image_barrier, 2> const initial = {
                 rhi::image_barrier{.resource = color.get(), .from = rhi::image_use::undefined, .to = rhi::image_use::color_attachment},
-                rhi::image_barrier{.resource = depth.get(), .from = rhi::image_use::undefined, .to = rhi::image_use::depth_attachment}};
+                rhi::image_barrier{.resource = depth.get(), .from = rhi::image_use::undefined, .to = rhi::image_use::depth_attachment},
+            };
             if (commands->barrier({.images = initial}) != rhi::error::ok) {
                 return failure("Gaussian probe target transition refused");
             }
@@ -156,9 +157,12 @@ namespace deren::engine::gaussian_splatting {
             io.target_storage[0] = {.image_handle = color.get(), .view_handle = color_view.get()};
             io.target_storage[1] = {.image_handle = depth.get(), .view_handle = depth_view.get()};
             io.targets = std::span{io.target_storage}.first(2);
-            io.push_block = {&heap, [](void* owner, rhi::command_buffer& list, std::span<std::byte const> bytes, std::uint32_t offset) {
-                                 return static_cast<rhi::descriptor_heap*>(owner)->push_data({.commands = &list, .offset = offset, .data = bytes}) == rhi::error::ok;
-                             }};
+            io.push_block = {
+                &heap,
+                [](void* owner, rhi::command_buffer& list, std::span<std::byte const> bytes, std::uint32_t offset) {
+                    return static_cast<rhi::descriptor_heap*>(owner)->push_data({.commands = &list, .offset = offset, .data = bytes}) == rhi::error::ok;
+                },
+            };
             raster.record(io);
             if (raster.last_error() != rhi::error::ok) {
                 return failure("Gaussian probe raster recording refused");

@@ -65,7 +65,8 @@ namespace deren::engine::pass {
         }
         std::array<rhi::image_barrier, 2> const barriers = {
             rhi::image_barrier{.resource = io.targets[1].image_handle, .from = rhi::image_use::shader_read, .to = rhi::image_use::depth_attachment},
-            rhi::image_barrier{.resource = io.targets[0].image_handle, .from = rhi::image_use::color_attachment, .to = rhi::image_use::color_attachment}};
+            rhi::image_barrier{.resource = io.targets[0].image_handle, .from = rhi::image_use::color_attachment, .to = rhi::image_use::color_attachment},
+        };
         record_error = io.list->barrier(rhi::barrier_group{.images = barriers});
         if (record_error != rhi::error::ok) {
             return;

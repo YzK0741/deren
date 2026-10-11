@@ -29,7 +29,8 @@ export namespace deren::engine::gaussian_splatting {
     /// both mean "this reference draws nothing", and the frame's outside_count is the total of them.
     enum class projection_visibility { visible,
                                        outside,
-                                       near_omitted };
+                                       near_omitted,
+    };
     struct projected_splat {
         projection_visibility visibility = projection_visibility::outside;
         glm::vec2 center_pixel{0}, basis_x{0}, basis_y{0};
