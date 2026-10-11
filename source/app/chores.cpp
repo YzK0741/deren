@@ -503,6 +503,12 @@ namespace deren::chores {
             runtime.register_shader("heap_probe.comp.spv", heap_probe_code);
             // ... and its GRAPHICS half: the same read through a graphics pipeline, which is a different question
             // (a fragment stage reading the heap, and a pipeline created with the flag and no layout).
+            std::vector<uint8_t> gaussian_vertex_code;
+            std::vector<uint8_t> gaussian_fragment_code;
+            load_shader(shaders_dir, "gaussian_raster.vert.spv", gaussian_vertex_code);
+            load_shader(shaders_dir, "gaussian_raster.frag.spv", gaussian_fragment_code);
+            runtime.register_shader("gaussian_raster.vert.spv", gaussian_vertex_code);
+            runtime.register_shader("gaussian_raster.frag.spv", gaussian_fragment_code);
             std::vector<uint8_t> heap_probe_vertex_code;
             load_shader(shaders_dir, "heap_probe.vert.spv", heap_probe_vertex_code);
             runtime.register_shader("heap_probe.vert.spv", heap_probe_vertex_code);

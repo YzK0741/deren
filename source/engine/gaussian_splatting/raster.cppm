@@ -3,8 +3,12 @@ module;
 #include <cstdint>
 #include <expected>
 #include <glm/glm.hpp>
+#include <memory>
+#include <span>
+#include <vector>
 export module deren.engine.gaussian_splatting.raster;
-import deren.engine.gaussian_splatting;
+export import deren.engine.gaussian_splatting;
+export import deren.gaussian_loader;
 import deren.promise.rhi;
 export namespace deren::engine::gaussian_splatting {
     struct raster_camera {
@@ -33,4 +37,67 @@ export namespace deren::engine::gaussian_splatting {
     [[nodiscard]] std::expected<projected_splat, foundation_error> project_splat(geometry_record const&, glm::mat4 const&, raster_camera const&);
     [[nodiscard]] std::expected<glm::vec3, foundation_error> evaluate_sh(sh_record const&, std::uint32_t, glm::vec3 const&);
     [[nodiscard]] float fragment_alpha(float, glm::vec2 const&) noexcept;
+
+    class raster_asset;
+    struct raster_instance {
+        std::shared_ptr<raster_asset const> asset;
+        glm::mat4 model{1};
+        std::uint64_t stable_id = 0;
+    };
+    class raster_asset {
+    public:
+        [[nodiscard]] deren::gaussian::asset const& source() const noexcept {
+            return *cpu_asset;
+        }
+        [[nodiscard]] std::span<geometry_record const> geometry_records() const noexcept {
+            return geometry;
+        }
+        [[nodiscard]] std::shared_ptr<gpu_asset const> const& gpu() const noexcept {
+            return gpu_owner;
+        }
+
+    private:
+        raster_asset() = default;
+        friend std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(deren::promise::rhi::api_core&, deren::gaussian::asset, foundation_limits const&);
+        std::shared_ptr<deren::gaussian::asset const> cpu_asset;
+        std::shared_ptr<gpu_asset const> gpu_owner;
+        std::vector<geometry_record> geometry;
+    };
+    class raster_frame {
+    public:
+        [[nodiscard]] raster_push const& params() const noexcept {
+            return push;
+        }
+        [[nodiscard]] std::span<draw_reference const> references() const noexcept {
+            return reference_data;
+        }
+        [[nodiscard]] std::span<instance_record const> instances() const noexcept {
+            return instance_data;
+        }
+        [[nodiscard]] std::uint64_t byte_size() const noexcept {
+            return bytes;
+        }
+        [[nodiscard]] std::uint32_t total_count() const noexcept {
+            return total;
+        }
+        [[nodiscard]] std::uint32_t near_omitted_count() const noexcept {
+            return near_omitted;
+        }
+        [[nodiscard]] std::uint32_t outside_count() const noexcept {
+            return outside;
+        }
+
+    private:
+        raster_frame() = default;
+        friend std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const&);
+        raster_push push;
+        std::vector<draw_reference> reference_data;
+        std::vector<instance_record> instance_data;
+        std::vector<std::shared_ptr<raster_asset const>> owners;
+        deren::promise::rhi::object_manager<deren::promise::rhi::buffer> reference_buffer, instance_buffer;
+        std::uint64_t bytes = 0;
+        std::uint32_t total = 0, near_omitted = 0, outside = 0;
+    };
+    [[nodiscard]] std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(deren::promise::rhi::api_core&, deren::gaussian::asset, foundation_limits const& = {});
+    [[nodiscard]] std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const& = {});
 } // namespace deren::engine::gaussian_splatting

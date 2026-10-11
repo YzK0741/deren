@@ -43,6 +43,8 @@ $slangSources = @(
     "fxaa.slang:main:fragment:fxaa.frag.spv",
     "upscale.slang:main:fragment:upscale.frag.spv",
     "post.slang:main:vertex:post.vert.spv",
+    "gaussian_raster.slang:vertex_main:vertex:gaussian_raster.vert.spv",
+    "gaussian_raster.slang:fragment_main:fragment:gaussian_raster.frag.spv",
     "post.slang:frag_main:fragment:post.frag.spv",
     "gbuffer_debug.slang:main:fragment:gbuffer_debug.frag.spv",
     "taa.slang:main:fragment:taa.frag.spv",

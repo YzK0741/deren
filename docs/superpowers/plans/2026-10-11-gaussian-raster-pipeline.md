@@ -53,12 +53,12 @@ Files: extend raster.cppm, create raster.gpu.cpp, source/engine/pass/gaussian_sp
 
 Interfaces: make_raster_asset(core, gaussian::asset by value, limits) binds immutable CPU source/geometry and GPU asset; raster_instance references that shared asset/model/stable ID. prepare_raster_frame(core, instances, camera, limits) returns immutable shared raster_frame holding instance/reference buffers and all asset owners. gaussian_splatting_pass owns its pipeline and receives one shared frame snapshot.
 
-- [ ] Add RED tests for paired asset ownership, globally sorted/cull-filtered references, count/byte limits, second upload failure, invalid/unaligned addresses, no GPU allocations on invalid input, snapshot unload retention.
-- [ ] Implement coherent initial-byte uploads, structured errors and zero-count no-allocation behavior. Include instance+reference upload bytes in the frame budget; scratch is separate.
-- [ ] Add RED pass tests for alpha/depth pipeline recipe, six-vertex draw count, LOAD attachments, depth transitions, disabled cull/depth write, 112-byte push, and refused bind/push/barrier/render begin.
-- [ ] Implement the dedicated pass and Slang entry points using BDA word loads, explicit GLM column storage, direct VP Jacobian, shared SH constants and kernel parameters.
-- [ ] Register both shader entries in CMake and both standalone scripts; register shared include dependency and app shader loader.
-- [ ] Build shaders, validate SPIR-V offsets/strides and run shader-source plus raster tests. Commit only after green.
+- [x] Add RED tests for paired asset ownership, globally sorted/cull-filtered references, count/byte limits, second upload failure, invalid/unaligned addresses, no GPU allocations on invalid input, snapshot unload retention.
+- [x] Implement coherent initial-byte uploads, structured errors and zero-count no-allocation behavior. Include instance+reference upload bytes in the frame budget; scratch is separate.
+- [x] Add RED pass tests for alpha/depth pipeline recipe, six-vertex draw count, LOAD attachments, depth transitions, disabled cull/depth write, 112-byte push, and refused bind/push/barrier/render begin.
+- [x] Implement the dedicated pass and Slang entry points using BDA word loads, explicit GLM column storage, direct VP Jacobian, shared SH constants and kernel parameters.
+- [x] Register both shader entries in CMake and both standalone scripts; register shared include dependency and app shader loader.
+- [x] Build shaders, validate SPIR-V offsets/strides and run shader-source plus raster tests. Commit only after green.
 
 ## Task 3: offscreen GPU verification and final gate
 

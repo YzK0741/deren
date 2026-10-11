@@ -626,6 +626,7 @@ target_sources(deren_engine
         source/engine/pass/taa.cppm
         source/engine/pass/scene.cppm
         source/engine/pass/transparent.cppm
+        source/engine/pass/gaussian_splatting.cppm
         source/engine/pass/character_forward.cppm
         source/engine/pass/toon_screen_rim.cppm
         source/engine/pass/goo_rim.cppm
@@ -661,11 +662,13 @@ target_sources(deren_engine
         source/engine/gaussian_splatting/gaussian_splatting.cpp
         source/engine/gaussian_splatting/gaussian_splatting.gpu.cpp
         source/engine/gaussian_splatting/raster.cpp
+        source/engine/gaussian_splatting/raster.gpu.cpp
         source/engine/math/math.cpp
         ${VR_RUNTIME_PRIVATE_SOURCES}
         source/engine/pass/taa.cpp
         source/engine/pass/scene.cpp
         source/engine/pass/transparent.cpp
+        source/engine/pass/gaussian_splatting.cpp
         source/engine/pass/character_forward.cpp
         source/engine/pass/toon_screen_rim.cpp
         source/engine/pass/goo_rim.cpp
@@ -1781,6 +1784,7 @@ set(VR_SHADER_INCLUDES
     "${VR_SHADER_SRC_DIR}/heap_access.slang"
     "${VR_SHADER_SRC_DIR}/texture_group.slang"
     "${VR_SHADER_SRC_DIR}/mesh_geometry.slang"
+    "${VR_SHADER_SRC_DIR}/gaussian_common.slang"
     # character_forward.slang IS INCLUDED BY A LEAF NOW, which is why it is here: the outline fragment stage
     # includes it for `toon_diffuse` (the same reason `toon_params.slang` is above - a second copy of that chain
     # is the duplicate this repository refuses), so editing it must rebuild `outline.frag.spv` too.
@@ -1857,6 +1861,8 @@ set(VR_SLANG_SOURCES
     # output and the pass's feature gate is false, which is why no capture scenario records it.
     upscale.slang:main:fragment:upscale.frag.spv
     post.slang:main:vertex:post.vert.spv
+    gaussian_raster.slang:vertex_main:vertex:gaussian_raster.vert.spv
+    gaussian_raster.slang:fragment_main:fragment:gaussian_raster.frag.spv
     # post.frag is the post chain's stage for ALL THREE modes (bright pass / downsample / composite), so every
     # scenario records it - the widest verification a single port can have.
     post.slang:frag_main:fragment:post.frag.spv

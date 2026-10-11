@@ -1,8 +1,8 @@
-# Gaussian rendering foundation
+# Gaussian rendering
 
 Import `deren.engine.gaussian_splatting` and `deren.gaussian_loader`. The engine namespace is `deren::engine::gaussian_splatting`.
 
-This module supplies CPU packing, global sorting and static GPU upload. It does not yet draw Gaussian assets; projection, SH evaluation, the Slang raster shader, pass integration and a viewer are the next stage.
+The foundation module supplies CPU packing, global sorting and static GPU upload. Import `deren.engine.gaussian_splatting.raster` for validated projection, SH evaluation and immutable draw snapshots, and `deren.engine.pass.gaussian_splatting` for the dedicated raster pass. Normal viewer/frame-chain integration is a subsequent stage.
 
 ## Data and validation
 
@@ -17,7 +17,7 @@ GPU records use float32 with compile-time size/offset guards:
 | instance_record | 160 | two uint64 addresses; model at 16; inverse model at 80; degree at 144; padding at 148 |
 | draw_reference | 8 | instance index; local particle index |
 
-Geometry and instance records have 16-byte alignment. Matrix storage is the existing column-major GLM convention. Padding is zero initialized. `instance_record` is a layout contract in this stage, not an automatically uploaded table.
+Geometry and instance records have 16-byte alignment. Matrix storage is the existing column-major GLM convention. Padding is zero initialized. `prepare_raster_frame` uploads the instance table without changing that layout.
 
 Covariance is computed in double precision, then checked for finite float32 representation. Bounds are recomputed from the 3-sigma support; user-provided CPU bounds are ignored. Conditional outward rounding also handles a radius lost when added to a very large center. If finite conservative float bounds cannot represent the support, packing fails.
 
@@ -43,8 +43,24 @@ Packed input is validated again: counts, degree, finite geometry/SH, opacity, pa
 
 Both buffers must be created successfully with adequate sizes and valid aligned nonzero addresses. Allocation or address failure releases earlier handles and publishes no partial asset. Initial bytes are borrowed only by buffer creation. `gpu_asset` exposes count, degree, byte size, addresses and bounds and retains the buffers through the existing RHI owning handles. Dropping the last shared asset reference releases each owned reference once.
 
-The engine/device/backend root must outlive these buffer owners. This asset does not keep a backend DLL loaded on its own. Future frame snapshots must hold shared GPU assets until their frame slot has completed; factory ownership is not GPU submission lifetime tracking. This stage records no commands and never calls wait_idle.
+The engine/device/backend root must outlive these buffer owners. This asset does not keep a backend DLL loaded on its own. Raster frame snapshots hold shared assets; the host must retain each submitted snapshot until its completion slot has finished; factory ownership is not GPU submission lifetime tracking. This stage records no commands and never calls wait_idle.
 
 ## Validation
 
 `test_gaussian_splatting` is headless and included in normal CTest and the ASan/UBSan build list. It checks fixed byte layouts, analytic rotated covariance, SH bands, conservative bounds, invalid inputs, budgets, transforms, multi-instance sorting/ties and RHI descriptor/bytes/failure cleanup using fake buffers. GPU shader interpretation and actual draws still require the next-stage layout probe and HDR readback tests.
+
+## Raster snapshots and pass
+
+`make_raster_asset(core, gaussian::asset by value, limits)` validates, packs and uploads one immutable CPU/GPU pair. Move the loaded asset into this factory to avoid copying its CPU particles. The returned shared asset retains CPU source, packed geometry and static GPU buffers. Assets, frame uploads and pipelines must use the same device; the backend root outlives all owners.
+
+`prepare_raster_frame(core, span<raster_instance const>, raster_camera, limits)` validates input, globally sorts references, rejects support outside the frustum and omits support intersecting the near plane. It uploads an immutable coherent instance table and visible references with initial bytes. The byte budget includes both uploads; the existing sorting scratch and retained CPU sources are separate. Invalid inputs fail before frame GPU allocation. A frame with no visible splats uploads nothing. Failures release partial uploads.
+
+`raster_camera` contains the real VP matrix, world camera position and pixel viewport. The accepted camera is a finite, nonsingular forward-depth [0,1] perspective projection with finite far plane; orthographic, reversed depth and infinite far are rejected. Include the engine's projection Y flip in the matrix. Model transforms retain the positive uniform scale restriction. Projection uses the actual VP Jacobian in pixel units, 0.3 pixel² covariance regularization and a Cholesky square root. CPU helpers `project_splat`, `evaluate_sh` and `fragment_alpha` provide numerical references.
+
+The Slang pair reads 48/192/160/8-byte BDA records and a 112-byte push block. Explicit VP/model columns match GLM storage. SH degree 0..3 uses the local camera-to-center direction, adds 0.5 and clamps negative radiance without an upper HDR clamp. Six vertices form each splat quad. The fragment kernel uses radius² <=9, alpha <=0.99 and discards alpha <1/255. Back-to-front drawing uses unpremultiplied color with ordinary alpha blending.
+
+Create `gaussian_splatting_pass` with the HDR target format (default RGBA16F), supply its two registered shaders through `pass_context`, then call `set_frame(snapshot)`. Resolve the existing scene-color and opaque-depth targets with the snapshot's viewport and a push-data callback. The pass LOADs both attachments, disables face culling and depth writes, depth-tests the center, draws six vertices per visible reference and returns depth to `shader_read`. It reports recording refusals through `last_error()` and performs no draw on failed prerequisites.
+
+The pass owns its currently assigned snapshot only. The render host must separately keep every submitted snapshot until GPU completion before replacing/releasing it; use completion slots, not swapchain image indices. Immutable uploads avoid overwriting pending device addresses, with a per-frame allocation cost to measure at viewer integration. Snapshot preparation and the normal pass never call `wait_idle`.
+
+Headless `test_gaussian_raster` checks mathematical references, a rotated/transformed off-center camera against numerical differentiation, snapshot sorting/culling/budgets/unload retention, failed uploads and pass recording behavior. Both shaders are built by CMake and the standalone scripts and loaded by the app. SPIR-V validation confirms push offsets 0/16/32/48/64/80/88/96/100/104/108. Actual GPU output is checked by the subsequent isolated probe; headless checks alone do not prove rendering.
