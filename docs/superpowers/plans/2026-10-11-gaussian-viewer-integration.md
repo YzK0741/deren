@@ -87,6 +87,15 @@ the contract's buffer interface may expose a mapped pointer, a `write`, or nothi
 a per-slot buffer created once with `initial_bytes` sized to the frame's own budget (`limits.max_packed_bytes`) and
 never grown - the sizes are then stable by construction.
 
+ANSWERED: the contract has exactly the verb needed. `rhi.api_core.cppm:822` declares
+`[[nodiscard]] virtual std::span<std::byte> mapped() noexcept = 0;`, whose own header comment says a host-visible
+buffer's bytes are handed to the caller that way ("buffer::mapped() hands the caller the bytes of a host-visible
+buffer", and line 1570: upload at creation and a later write are two moments, the second being `mapped()` once the
+frame lands). `buffer_usage::storage_coherent` is defined as "a storage buffer the host also writes (e.g. a table the
+GPU reads)" - which is what these two buffers already are - so `refill` writes into `mapped()` and the
+create-once-at-max-bytes fallback is not needed. The one rule to respect is the one the same comment states: read or
+overwrite only after the frame that wrote it has completed, which is what the per-slot ring guarantees.
+
 ACCEPTANCE, both measurable:
 - [ ] the per-frame `create_buffer` lines disappear from a normal run (they are 2 per frame today);
 - [ ] the visual protocol passes: three scripted resizes, every capture LOOKED at, no garbage;
