@@ -47,7 +47,7 @@ export namespace deren::engine::render_layout {
 
     /**
      * @brief formats of the G-buffer targets, in attachment order (= the fragment output locations
-     *        of source/shaders/gbuffer.slang), and the reason the deferred path is cheap to store:
+     *        of source/shaders/scene/gbuffer.slang), and the reason the deferred path is cheap to store:
      *        - 0 RGBA8_UNORM: albedo.rgb (base color, linear) + metallic in a
      *        - 1 RGBA16F: world normal.xyz (no encoding - the conservative layout trades 4 bytes per
      *          pixel for not having to reason about octahedral precision) + roughness in a

@@ -5,6 +5,18 @@ Pinned versions + local patches for the vendored code under `third_party/`
 uses; system-package equivalents (e.g. MSYS2 packages) are not vendored and
 are not listed here.
 
+## VRDX (Vulkan Radix Sort)
+
+- version: 0.6.0 (`VRDX_VERSION_*` in `vrdx/include/vk_radix_sort.h`)
+- upstream: https://github.com/jaesung-cs/vulkan_radix_sort
+- revision: `b0db22b0c65e17a9b803bc4daf20354898b820eb`
+- local changes: none; complete upstream source archive copied byte-for-byte
+- license: MIT (`vrdx/LICENSE`)
+- build: integrated as a private Vulkan-backend header-only sorting
+  dependency using the checked-in generated header, without upstream's
+  configure-time Slang download or shader regeneration
+- provenance and archive checksum: [vrdx/VENDOR.md](vrdx/VENDOR.md)
+
 ## imgui
 
 - version: 1.92.9b (`IMGUI_VERSION` in `third_party/imgui/imgui.h`)

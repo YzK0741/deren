@@ -85,12 +85,12 @@ export namespace deren::engine::pass {
      */
     enum class upscale_filter : uint8_t {
         linear, // one tap of the shared linear sampler per output pixel: a bilinear resample of the whole chain
-        easu,   // FSR 1's edge-adaptive spatial upsampling (see source/shaders/upscale.slang's port and its license note)
+        easu,   // FSR 1's edge-adaptive spatial upsampling (see source/shaders/post/upscale.slang's port and its license note)
     };
 
     /// @brief EASU's four constants, as the shader's push block carries them
     /// @note a free function rather than a lambda inside `record`: it is `FsrEasuCon` ported (see
-    ///       source/shaders/upscale.slang), it is pure arithmetic on two extents, and that makes it pinnable by a test
+    ///       source/shaders/post/upscale.slang), it is pure arithmetic on two extents, and that makes it pinnable by a test
     ///       instead of only observable through a rendered frame - a transposed or half-pixel-shifted constant
     ///       still produces a plausible image.
     struct easu_constants {

@@ -121,6 +121,8 @@ export namespace deren::promise::rhi {
         indirect = 1u << 4,                     ///< it carries indirect dispatch/draw commands
         shader_binding_table = 1u << 5,         ///< it carries a ray-tracing shader binding table
         micromap_build_input = 1u << 6,         ///< readable by an opacity-micromap build
+        transfer_destination = 1u << 7,         ///< receives GPU fill/update/copy commands
+        transfer_source = 1u << 8,              ///< permits diagnostic GPU buffer readback copies
     };
 
     /// A set of `buffer_flag` bits, spelled the way the ability set is (`to_bits` + `has_flag`).
@@ -336,6 +338,9 @@ export namespace deren::promise::rhi {
         /// series can order).
         micromap_write,
         micromap_read,
+        indirect_read,
+        shader_read_write,
+        host_read,
     };
 
     /// One buffer's transition. `size == 0` means "the whole buffer" (the plan's spelling).
@@ -1263,6 +1268,31 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual image_format format() const noexcept = 0;
     };
 
+    /// For a nonzero count, scratch_bytes == 0 means the backend cannot serve that count.
+    struct radix_sort_requirements {
+        std::uint64_t scratch_bytes = 0, buffer_alignment = 1;
+        buffer_flags scratch_flags = no_buffer_flags;
+    };
+    struct radix_sort_info {
+        std::uint32_t element_count = 0;
+        buffer* keys = nullptr;
+        buffer* values = nullptr;
+        buffer* scratch = nullptr;
+        std::uint64_t keys_offset = 0, values_offset = 0, scratch_offset = 0;
+    };
+    /// Stable ascending uint32 key/value sort. Operands are borrowed until GPU completion.
+    /// Caller publishes writes before record and publishes output reads afterward.
+    /// Recording overwrites pipeline, layout and push bindings; consumers must rebind.
+    struct radix_sorter : object {
+        explicit radix_sorter(std::string_view name) noexcept
+            : object(name) {
+        }
+        virtual ~radix_sorter() noexcept = default;
+        virtual void release() noexcept = 0;
+        [[nodiscard]] virtual radix_sort_requirements requirements(std::uint32_t count) const noexcept = 0;
+        [[nodiscard]] virtual error record(command_buffer&, radix_sort_info const&) = 0;
+    };
+
     struct query : object {
 
         explicit query(std::string_view const name) noexcept
@@ -1480,6 +1510,23 @@ export namespace deren::promise::rhi {
     ///
     /// A FIELD ADDED HERE IS NOT A FREE CHANGE: this value is what a caller passes as the stride, so the layout
     /// is as frozen as the verb that consumes it.
+    struct draw_indirect_command {
+        std::uint32_t vertex_count = 0, instance_count = 0, first_vertex = 0, first_instance = 0;
+    };
+    static_assert(sizeof(draw_indirect_command) == 16u);
+    [[nodiscard]] constexpr error validate_draw_indirect_range(std::uint64_t size, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) noexcept {
+        if (offset % 4u != 0u || stride < 16u || stride % 4u != 0u || offset > size) {
+            return error::invalid_argument;
+        }
+        if (count == 0u) {
+            return error::ok;
+        }
+        std::uint64_t const remaining = size - offset;
+        return remaining >= 16u && (static_cast<std::uint64_t>(count) - 1u) <= (remaining - 16u) / stride
+                   ? error::ok
+                   : error::invalid_argument;
+    }
+
     struct mesh_task_command {
         std::uint32_t groups_x = 0;
         std::uint32_t groups_y = 0;
@@ -1632,6 +1679,8 @@ export namespace deren::promise::rhi {
         // draw
         virtual void draw(std::uint32_t vertex_count, std::uint32_t instance_count, std::uint32_t first_vertex, std::uint32_t first_instance) noexcept = 0;
         virtual void draw_indexed(std::uint32_t index_count, std::uint32_t instance_count, std::uint32_t first_index, std::int32_t vertex_offset, std::uint32_t first_instance) noexcept = 0;
+
+        [[nodiscard]] virtual error draw_indirect(buffer const& arguments, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) = 0;
 
         // compute + geometry
         virtual void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;

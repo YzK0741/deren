@@ -26,6 +26,8 @@
 // ============================================================================
 module;
 
+#include <chrono>
+#include <fstream>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <memory> // std::shared_ptr: the frame's command buffer and the caller-owned secondaries are spelled in this interface (abi 21)
@@ -40,11 +42,12 @@ export module deren.engine.runtime:declarations;
 export import deren.promise.gui;
 
 import deren.engine.profiling;
-import deren.engine.pass;                       // the pass framework: the host the runner talks to, and the stage runner
-import deren.engine.pass.taa;                   // the second, and the first GRAPHICS one
-import deren.engine.pass.scene;                 // the third: the scene itself, whose work is DATA rather than a declaration
-import deren.engine.pass.transparent;           // the fourth: the blended geometry, over the shaded frame
-import deren.engine.gaussian_splatting.raster;  // the Gaussian splat cloud's own layer: the immutable asset, the sorted per-frame snapshot and the camera it projects through
+import deren.engine.pass;                      // the pass framework: the host the runner talks to, and the stage runner
+import deren.engine.pass.taa;                  // the second, and the first GRAPHICS one
+import deren.engine.pass.scene;                // the third: the scene itself, whose work is DATA rather than a declaration
+import deren.engine.pass.transparent;          // the fourth: the blended geometry, over the shaded frame
+import deren.engine.gaussian_splatting.raster; // the Gaussian splat cloud's own layer: the immutable asset, the sorted per-frame snapshot and the camera it projects through
+import deren.engine.gaussian_splatting.gpu_frame;
 import deren.engine.pass.character_forward;     // ... and the toon character stage, which re-shades the OPAQUE leaves over it
 import deren.engine.pass.toon_screen_rim;       // ... and its second rim, a fullscreen additive contour from the depth
 import deren.engine.pass.goo_rim;               // ... and the REWRITTEN chain's rim, a fullscreen additive stage of its own
@@ -147,7 +150,7 @@ namespace deren::engine {
      * backend symbol into the engine half, which is what the boundary meter counts.
      *
      * THE TWO MIRRORED CONSTANTS ARE THE ONE DELIBERATE DUPLICATION, and they are named so a reader
-     * cannot mistake them for shared ones: the backend's `gpu_timing_mark_capacity` (16) and
+     * cannot mistake them for shared ones: the backend's `gpu_timing_mark_capacity` (32) and
      * `scene_texture_capacity` (128) live in `deren.vulkan.core`, which this half may not import. Both
      * are capacities the ENGINE sizes its own arrays by, so a mismatch would be a silent overrun rather
      * than an error - which is why each carries the number AND its origin here, and why a change on the
@@ -156,7 +159,7 @@ namespace deren::engine {
     namespace runtime_detail {
         /// the timestamp pool's per-frame mark capacity, mirroring `deren::engine::gpu_timing_mark_capacity`
         /// (core.declarations.cppm:210) - the ENGINE's per-frame mark table is sized by it
-        inline constexpr std::uint32_t gpu_timing_mark_capacity = 16;
+        inline constexpr std::uint32_t gpu_timing_mark_capacity = 32;
         /// the bindless texture array's capacity, mirroring `deren::engine::scene_texture_capacity`
         /// (core.declarations.cppm:113) - the engine's own texture-view table refuses past it
         inline constexpr std::uint32_t scene_texture_capacity = 128;
@@ -613,22 +616,25 @@ namespace deren::engine {
                              // mark because it sits BETWEEN the G-buffer pass and the lighting stage:
                              // without it the traversals were reported as lighting time, which made the
                              // lighting interval look four times more expensive with rays on
-            lighting_end,    // after the deferred path's shading work: the lighting stage and, in the
-                             // same interval, the transparent pass that composites over it (~0 in the
-                             // old forward path, where both of those happened inside the scene instance)
-            taa_end,         // after the TAA resolve + its history copy (~0 when TAA is off)
-            main_end,        // after the last scene-side work of the frame (the debug view, when it runs)
-                             // those passes are the only compute work in the post chain: without it their
-                             // cost was reported as bloom time, which is where a traced GI's price was
-                             // invisible in the one report a user reads
-                             // own mark for the same reason gi_end has one: it is compute work in the
-                             // same stretch of the frame, and folding it into "gi" would hide which of
-                             // the two the GI budget is going to
-            bloom_end,       // after the bloom prefilter/downsample chain
-            composite_end,   // after the composite (exposure + ACES + display encode)
-            fxaa_end,        // after the FXAA pass (and the overlay, when FXAA draws it)
-            frame_end,       // last command of the frame (the screenshot copy + present barrier)
-            count,           // not a mark: the number of marks a frame writes
+            lighting_end,    // after deferred lighting, before Gaussian preparation and transparent work
+            gaussian_prepare_end,
+            gaussian_sort_end,
+            gaussian_finalize_end,
+            gaussian_raster_end,
+            transparent_end,
+            taa_end,       // after the TAA resolve + its history copy (~0 when TAA is off)
+            main_end,      // after the last scene-side work of the frame (the debug view, when it runs)
+                           // those passes are the only compute work in the post chain: without it their
+                           // cost was reported as bloom time, which is where a traced GI's price was
+                           // invisible in the one report a user reads
+                           // own mark for the same reason gi_end has one: it is compute work in the
+                           // same stretch of the frame, and folding it into "gi" would hide which of
+                           // the two the GI budget is going to
+            bloom_end,     // after the bloom prefilter/downsample chain
+            composite_end, // after the composite (exposure + ACES + display encode)
+            fxaa_end,      // after the FXAA pass (and the overlay, when FXAA draws it)
+            frame_end,     // last command of the frame (the screenshot copy + present barrier)
+            count,         // not a mark: the number of marks a frame writes
         };
         static constexpr uint32_t gpu_mark_count = static_cast<uint32_t>(gpu_mark_id::count);
         static_assert(gpu_mark_count <= runtime_detail::gpu_timing_mark_capacity, "the core's timestamp pool must hold one frame's marks");
@@ -650,6 +656,11 @@ namespace deren::engine {
             {"scene", false},
             {"rt shadow", false},
             {"lighting", false},
+            {"gaussian prepare", false},
+            {"gaussian sort", false},
+            {"gaussian finalize", false},
+            {"gaussian raster", false},
+            {"transparent", false},
             {"taa", false},
             {"debug", true},
             {"bloom", false},
@@ -967,6 +978,19 @@ namespace deren::engine {
          * says so, and the two differ the moment the image count changes).
          */
         std::array<std::shared_ptr<gaussian_splatting::raster_frame>, rhi::max_frames_in_flight> gaussian_frames = {};
+        std::array<std::shared_ptr<gaussian_splatting::gpu_frame>, rhi::max_frames_in_flight> gaussian_gpu_frames = {};
+        std::array<std::uint64_t, rhi::max_frames_in_flight> gaussian_gpu_frame_ids = {}, gaussian_reported_slot_bytes = {};
+        std::uint64_t gaussian_gpu_serial = 0;
+        bool gaussian_gpu_unavailable = false, gaussian_path_reported = false;
+        std::array<double, rhi::max_frames_in_flight> gaussian_cpu_prepare_ms = {}, gaussian_frame_wall_ms = {};
+        std::chrono::steady_clock::time_point gaussian_last_present = {};
+        std::ofstream gaussian_benchmark;
+        std::uint64_t gaussian_benchmark_rows = 0;
+        std::uint64_t gaussian_trace_frames = 0;
+        rhi::object_manager<rhi::buffer> gaussian_hdr_readback;
+        rhi::image_extent gaussian_hdr_extent = {};
+        // Enable only after the image and performance acceptance checks pass.
+        static constexpr bool gaussian_gpu_auto_enabled = true;
         /**
          * THE CHARACTER-FORWARD PASS (deren.engine.pass.character_forward): the same OPAQUE leaves a second time,
          * shaded by the toon pipeline and written OVER the deferred result at depth-EQUAL. It sits after the
@@ -1049,7 +1073,7 @@ namespace deren::engine {
         /// the bytes of a shader the app registered, by file name (empty when it did not)
         [[nodiscard]] std::span<uint8_t const> registered_shader(std::string_view name) const noexcept;
         /**
-         * @brief run the HEAP-NATIVE probe once (see source/shaders/heap_probe_comp.slang): the first pipeline in this renderer
+         * @brief run the HEAP-NATIVE probe once (see source/shaders/debug/heap_probe_comp.slang): the first pipeline in this renderer
          *        with NO layout at all, its parameters through vkCmdPushDataEXT, reading a texture from the resource
          *        heap through a sampler from the sampler heap
          * @param texture_slot the ABSOLUTE grid slot of the texture to sample (heap_slots::textures + an index)
@@ -1093,7 +1117,7 @@ namespace deren::engine {
          */
         [[nodiscard]] bool submit_probe_commands(rhi::command_buffer& commands);
         /**
-         * @brief run the GRAPHICS half of the heap-native probe once (see source/shaders/heap_probe.slang)
+         * @brief run the GRAPHICS half of the heap-native probe once (see source/shaders/debug/heap_probe.slang)
          * @param material_slot the ABSOLUTE grid slot of the material table the fragment stage reads; the caller
          *        runs it once with the right slot and once with a deliberately WRONG one, because a probe that can
          *        only say "fine" would pass every check
@@ -1433,7 +1457,7 @@ namespace deren::engine {
         // import (like set_shadow_cascades, the resources are created when the first scene set binds
         // them); changing it afterwards would need the image, the views and the descriptor rewritten.
         uint32_t shadow_map_size = 2048;
-        // Layers currently owned by shadow_images: one per ACTIVE cascade (see ensure_shadow_resources).
+        // Layers currently owned by shadow_images: one per ACTIVE cascade (see create_shadow_resources).
         // Tracked separately from shadow_cascades because shrinking the count keeps the layers that are
         // already allocated - only growing it costs a rebuild.
         uint32_t shadow_allocated_layers = 0;
@@ -1986,7 +2010,7 @@ namespace deren::engine {
          * real but does not need the list to express it (`vulkan_core` is declared above everything).
          */
         ray_tracing::structure_set structures{this->vulkan_core};
-        // The alphaMode MASK bake (see source/shaders/mask_bake.slang): ONE JOB OBJECT owns its pipeline
+        // The alphaMode MASK bake (see source/shaders/geometry/mask_bake.slang): ONE JOB OBJECT owns its pipeline
         // (vulkan.pass.mask_bake_job), because it is not a frame pass at all -
         // it runs once, inside the same command buffer as the bottom level builds it feeds, and its input is
         // the caster list this renderer is walking at that moment. It is OFF by default and the shipped shadow
@@ -2012,7 +2036,7 @@ namespace deren::engine {
         // Whether that bake runs at all ([render] rt_mask_bake). Off by default: the per-triangle rule
         bool rt_mask_bake = false;
 
-        // ---- skinned meshes (see source/shaders/compute_skin.slang) ----
+        // ---- skinned meshes (see source/shaders/geometry/compute_skin.slang) ----
         // This engine skins in the VERTEX shader, so the deformed positions never reach memory a build can
         // read, and a skinned mesh's traced shadow is its BIND POSE (measured: the traced shadow's pose
         // section). The pass below writes the same vertices the vertex shader computes into the buffer the
@@ -2288,14 +2312,14 @@ namespace deren::engine {
          *       they stay with the two call sites that do
          */
         void reset_image_generation_state();
-        void ensure_shadow_resources(); // (lazily) layered shadow map + light UBO buffers
-        void ensure_cluster_buffers();  // (lazily) per-slot cluster count/index buffers (M5)
+        void create_shadow_resources(); // (lazily) layered shadow map + light UBO buffers
+        void create_cluster_buffers();  // (lazily) per-slot cluster count/index buffers (M5)
         // Diagnostics for the optional features (see log_feature_status / warn_missing_feature): a
         // toggle whose prerequisites are missing would otherwise do nothing at all - the user clicks,
         // nothing changes, and the log has no trace to explain it. Each message is emitted at most
         // once per session, keyed by the feature name.
         std::vector<std::string> warned_features = {};
-        void ensure_scene_heap_slots();                                   // (lazily) create the shadow map and the clustered-light buffers, and write their heap slots
+        void prepare_scene_resources();                                   // (lazily) create the shadow map and the clustered-light buffers, and write their heap slots
         void write_light_and_shadow_bindings();                           // write the light UBO and the shadow map into each frame slot's heap block
         material_id register_material(primitive_create_info const& info); // upload textures into the array, append a material_record, return its index
 
@@ -2314,6 +2338,7 @@ namespace deren::engine {
             /// frame's history flag for THIS image is set from it
             bool megalights_temporal_resolved = false;
             bool taa_wrote_history = false;
+            rhi::error gaussian_record_error = rhi::error::ok;
         };
 
         /**
@@ -2424,6 +2449,8 @@ namespace deren::engine {
             /// because it owns the camera and the frame's completion points. An empty pointer means "nothing to
             /// draw this frame", which the pass's own record() already treats as a no-op.
             std::shared_ptr<gaussian_splatting::raster_frame const> (*make_gaussian_frame)(void* owner) = nullptr;
+            std::shared_ptr<gaussian_splatting::gpu_frame const> (*make_gaussian_gpu_frame)(void* owner, bool pipelines_ready) = nullptr;
+            gaussian_splatting::gpu_frame_timing (*gaussian_timing)(void* owner) = nullptr;
             // ---- the frame's ORDERING RULES a stage preamble runs: the runtime's per-image bookkeeping, whose
             //      flags belong to the passes that WROTE those images (see each accessor). Each takes the FRAME's
             //      contract buffer (see `cmd` above) and derives the native handle internally. ----
@@ -3147,7 +3174,7 @@ namespace deren::engine {
          * scene is shaded by, and this step of the rewrite implements ONE reference group - so it is a switch a
          * run asks for rather than a state a frame drifts into.
          *
-         * @param enabled true = the stage draws with `source/shaders/goo_toon.slang` (when that pipeline was created);
+         * @param enabled true = the stage draws with `source/shaders/toon/goo_toon.slang` (when that pipeline was created);
          *        false = it draws with the old `character_forward.slang`
          * @note CPU-side only, like `set_character_forward`: it is read while the frame is COMPOSED, so a toggle
          *       mid-run is seen by the next frame and disturbs no in-flight recording.
@@ -3666,7 +3693,7 @@ namespace deren::engine {
         static constexpr std::string_view outline_pipeline_name = "outline";
 
         /**
-         * @brief the name the REWRITTEN TOON CHAIN's fragment stage is registered under (`source/shaders/goo_toon.slang`)
+         * @brief the name the REWRITTEN TOON CHAIN's fragment stage is registered under (`source/shaders/toon/goo_toon.slang`)
          *
          * THE SAME PASS, THE SAME FRAME AND THE SAME STATE AS `character_forward_pipeline_name` ABOVE, and that
          * is the whole design: this name differs from it in ONE thing - which `.spv` the fragment stage came from
@@ -3777,16 +3804,17 @@ namespace deren::engine {
          * THE APP OWNS THE DECISION AND THE LOADING (it is the side that knows what a file is: the model path's
          * extension picks the loader - see app_config::model_format_of), and the renderer owns the drawing: it
          * keeps the asset alive for as long as any submitted snapshot refers to it, projects it with the camera
-         * it is already animating, and records it in the frame's own stage. One identity instance is built
-         * here; per-instance transforms are the viewer's next step.
+         * it is already animating, and records it in the frame's own stage. One instance is built with the
+         * supplied model transform, which defaults to identity.
          *
          * A null asset stops the stage without touching anything else: the next frame's snapshot is empty and
          * the pass records nothing, which is the same path a session that never configured a cloud takes.
          */
-        void set_gaussian_asset(std::shared_ptr<gaussian_splatting::raster_asset const> asset) noexcept;
+        void set_gaussian_asset(std::shared_ptr<gaussian_splatting::raster_asset const> asset, glm::mat4 const& model = glm::mat4{1.0f}) noexcept;
 
         /// @brief this frame's immutable splat snapshot, or an empty pointer when there is nothing to draw
         [[nodiscard]] std::shared_ptr<gaussian_splatting::raster_frame const> make_gaussian_frame() noexcept;
+        [[nodiscard]] std::shared_ptr<gaussian_splatting::gpu_frame const> make_gaussian_gpu_frame(bool pipelines_ready) noexcept;
 
         /// @brief whether a cloud is set to draw (`feature_active`'s half of the splat stage's gate)
         ///

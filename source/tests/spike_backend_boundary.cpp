@@ -181,6 +181,9 @@ namespace {
         }
         void draw_mesh_tasks(std::uint32_t, std::uint32_t, std::uint32_t) noexcept override {
         }
+        [[nodiscard]] rhi::error draw_indirect(rhi::buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override {
+            return rhi::error::unsupported;
+        }
         [[nodiscard]] rhi::error draw_mesh_tasks_indirect(rhi::buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override {
             return rhi::error::invalid_argument;
         }

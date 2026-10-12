@@ -1,0 +1,26 @@
+#include "benchmark_factory.h"
+
+#include <stdexcept>
+
+#include "cpu_benchmark.h"
+#include "vulkan_benchmark.h"
+
+#ifdef BENCH_CUDA
+#include "cuda_benchmark.h"
+#endif
+
+#include "fuchsia_benchmark.h"
+
+std::unique_ptr<BenchmarkBase> BenchmarkFactory::Create(const std::string& type, bool validation,
+                                                        bool timestamps) {
+  if (type == "cpu") return std::make_unique<CpuBenchmark>();
+  if (type == "vulkan") return std::make_unique<VulkanBenchmark>(validation, timestamps);
+
+#ifdef BENCH_CUDA
+  if (type == "cuda") return std::make_unique<CudaBenchmark>();
+#endif
+
+  if (type == "fuchsia") return std::make_unique<FuchsiaBenchmark>();
+
+  throw std::runtime_error("Unavailable benchmark type: " + type);
+}

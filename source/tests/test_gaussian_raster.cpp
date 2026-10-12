@@ -11,6 +11,7 @@
 import deren.engine.gaussian_splatting;
 import deren.engine.gaussian_splatting.raster;
 import deren.engine.gaussian_splatting.probe;
+import deren.engine.gaussian_splatting.gpu_frame;
 import deren.engine.pass;
 import deren.engine.pass.gaussian_splatting;
 #include "raster_probe.hpp"
@@ -139,7 +140,7 @@ namespace {
                          {g.covariance_x[2], g.covariance_yz[1], g.covariance_yz[2]}};
     }
 
-    /// THE SHADER'S near/far plane rejection, transcribed from source/shaders/gaussian_raster.slang (its loop over
+    /// THE SHADER'S near/far plane rejection, transcribed from source/shaders/gaussian/gaussian_raster.slang (its loop over
     /// row2 and row3 - row2). Two details are the whole point of having it here, because each is easy to get wrong
     /// in a way that only shows up near the planes:
     ///   - the distance is the FULL homogeneous dot (plane.xyz * world.xyz + plane.w), so the plane's translation
@@ -502,6 +503,24 @@ namespace {
     }
 } // namespace
 int main() {
+    {
+        raster_probe_core core;
+        auto empty = gs::prepare_gpu_frame(core, {}, camera());
+        CHECK(empty && (*empty)->candidate_count() == 0u && core.calls == 0u);
+        std::array<gs::raster_instance, 1> const invalid = {gs::raster_instance{}};
+        auto rejected = gs::prepare_gpu_frame(core, invalid, camera());
+        CHECK(!rejected && rejected.error().code == gs::error_code::invalid_argument && core.calls == 0u);
+        auto bad_camera = camera();
+        bad_camera.extent.width = 0u;
+        CHECK(!gs::prepare_gpu_frame(core, {}, bad_camera));
+        auto asset = gs::make_raster_asset(core, raster_source());
+        CHECK(asset);
+        std::array<gs::raster_instance, 1> const items = {gs::raster_instance{*asset, glm::mat4{1}, 1}};
+        auto unsupported = gs::prepare_gpu_frame(core, items, camera());
+        CHECK(!unsupported && unsupported.error().code == gs::error_code::unsupported);
+        auto limited = gs::prepare_gpu_frame(core, items, camera(), {.max_references = 0u});
+        CHECK(!limited && limited.error().code == gs::error_code::limit_exceeded);
+    }
     test_immutable_owners();
     test_layout();
     test_projection();

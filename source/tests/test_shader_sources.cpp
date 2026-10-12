@@ -9,7 +9,7 @@
 //
 // A drift between 1 and 2/3 is silent: the build produces the file, the script does not, and the
 // escape hatch quietly builds one shader fewer - which is exactly what was found the moment this test
-// was written (`heap_probe.slang:mesh_main:mesh:heap_probe.mesh.spv` was in CMakeLists.txt and in
+// was written (`debug/heap_probe.slang:mesh_main:mesh:heap_probe.mesh.spv` was in CMakeLists.txt and in
 // neither script, so a machine using the scripts would have lost the mesh probe). A drift between 1
 // and 4 is louder (a load logs "no shader"), but it is the same class of mistake and it is checkable
 // here too.
@@ -203,7 +203,7 @@ int32_t main() {
     for (std::string const& required : {"shadow.mesh.spv", "pbr.mesh.spv", "heap_probe.mesh.spv"}) {
         CHECK_MSG(outputs.contains(required), required.c_str());
     }
-    for (auto const& file : std::filesystem::directory_iterator(root + "/source/shaders")) {
+    for (auto const& file : std::filesystem::recursive_directory_iterator(root + "/source/shaders")) {
         if (!file.is_regular_file() || file.path().extension() != ".slang") {
             continue;
         }
@@ -216,7 +216,7 @@ int32_t main() {
         if (!declares_mesh_entry) {
             continue;
         }
-        std::string const source = file.path().filename().string();
+        std::string const source = file.path().lexically_relative(std::filesystem::path(root + "/source/shaders")).generic_string();
         std::size_t const entries_for_source = static_cast<std::size_t>(std::count_if(cmake.begin(), cmake.end(), [&source](std::string const& entry) {
             return entry.rfind(source + ":mesh_main:mesh:", 0) == 0;
         }));
@@ -232,7 +232,7 @@ int32_t main() {
     }
 
     // ---- 5. EVERY #include A LEAF PULLS IN IS A BUILD DEPENDENCY OF THE RULE THAT COMPILES IT ----
-    // This is the check that was missing when the mesh geometry fetch arrived: `mesh_geometry.slang` was included
+    // This is the check that was missing when the mesh geometry fetch arrived: `geometry/mesh_geometry.slang` was included
     // by every geometry leaf and absent from CMakeLists' VR_SHADER_INCLUDES, so editing it left STALE SPIR-V in
     // the build tree - the two halves of one pipeline declared different push blocks, and nothing but a byte
     // comparison against the escape-hatch scripts' output showed it. The list is the transitive closure by hand,
@@ -256,9 +256,9 @@ int32_t main() {
                 listed.insert(name.substr(0, end));
             }
         }
-        CHECK_MSG(listed.contains("heap_access.slang"), "VR_SHADER_INCLUDES lists heap_access.slang");
+        CHECK_MSG(listed.contains("common/heap_access.slang"), "VR_SHADER_INCLUDES lists common/heap_access.slang");
         std::set<std::string> found;
-        for (auto const& file : std::filesystem::directory_iterator(root + "/source/shaders")) {
+        for (auto const& file : std::filesystem::recursive_directory_iterator(root + "/source/shaders")) {
             if (!file.is_regular_file()) {
                 continue;
             }
@@ -293,7 +293,7 @@ int32_t main() {
     // accessors reach the per-frame slot arrays only through them. A stage that pushes a block and declares no lanes
     // still compiles and still renders - until it reads one, and then the read is past the block it declared, so the
     // producer and the consumer disagree by 8 or 12 bytes with nothing to catch it. That is a live finding, not a
-    // hypothetical: gaussian_raster.slang was the single converted stage without them (the raster batch's own
+    // hypothetical: gaussian/gaussian_raster.slang was the single converted stage without them (the raster batch's own
     // independent review found it), while declared-versus-transmitted size is exactly what nothing in the build
     // compares. The rule is derived rather than tabulated - a pass source names the .spv it loads, the canonical list
     // names the .slang that produces it, and that source is the one that must declare the lanes.
@@ -342,11 +342,11 @@ int32_t main() {
         // chores.cpp) are bound too far away for this scan and are covered by section 4's registration check. The
         // gaussian raster stage is the one this batch added, so the contract must at least see it; when another
         // converted pass names its shader inline, it joins this rule for free.
-        CHECK_MSG(lane_sources.contains("gaussian_raster.slang"), "the derived lane contract covers gaussian_raster.slang");
+        CHECK_MSG(lane_sources.contains("gaussian/gaussian_raster.slang"), "the derived lane contract covers gaussian/gaussian_raster.slang");
     }
 
     // Runtime sources are entirely Slang. GLSL originals live in source/reference/shaders/.
-    for (auto const& file : std::filesystem::directory_iterator(root + "/source/shaders")) {
+    for (auto const& file : std::filesystem::recursive_directory_iterator(root + "/source/shaders")) {
         if (!file.is_regular_file()) {
             continue;
         }

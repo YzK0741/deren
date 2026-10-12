@@ -9,6 +9,8 @@ namespace raster_test {
         unsigned index;
         int& releases;
         std::uint64_t capacity;
+        bool host_enabled = false;
+        std::vector<std::byte> storage;
         raster_probe_buffer(unsigned i, int& r, std::uint64_t size)
             : buffer("gaussian_raster_probe_buffer")
             , index(i)
@@ -23,7 +25,7 @@ namespace raster_test {
             return capacity;
         }
         std::span<std::byte> mapped() noexcept override {
-            return {};
+            return host_enabled ? std::span{storage} : std::span<std::byte>{};
         }
     };
     struct raster_probe_address : rhi::device_address {
@@ -260,6 +262,7 @@ namespace raster_test {
             (void)groups_y;
             (void)groups_z;
         }
+        rhi::error draw_indirect(buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override { return rhi::error::unsupported; }
         rhi::error draw_mesh_tasks_indirect(buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) override {
             (void)argument_buffer;
             (void)offset;

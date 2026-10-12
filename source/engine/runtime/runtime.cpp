@@ -4,7 +4,9 @@ module;
 #include <algorithm> // std::min in the resource publication
 #include <bit>       // std::bit_cast for the caster world-matrix hash
 #include <chrono>
+#include <cstdlib>
 #include <cstring> // std::memcpy, for composing a pass's push block
+#include <fstream>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <memory>          // std::shared_ptr: the frame's borrowed command buffer (see frame_command_buffer)
@@ -451,17 +453,35 @@ namespace deren::engine {
         // no stage (get_stage_info answers not_ready for it), hence the - 1.
         uint32_t const intervals = std::min(stages - 1, static_cast<uint32_t>(gpu_timing_labels.size()));
         std::uint32_t measured = 0;
+        std::array<double, gpu_mark_count - 1u> sample{};
         for (uint32_t interval = 0; interval < intervals; ++interval) {
             std::uint64_t duration_ns = 0;
             if (profiler.get_stage_info(interval, nullptr, &duration_ns) != rhi::error::ok) {
                 break; // a read-back failure answers device_lost: report what measured, nothing fake
             }
             this->gpu_timing_sum[interval] += static_cast<double>(duration_ns) * 1.0e-6; // ns -> ms
+            sample[interval] = static_cast<double>(duration_ns) * 1.0e-6;
             ++measured;
         }
         this->gpu_timing_marks_measured = measured;
         if (measured == 0) {
             return; // the same no-data early return the raw VkResult path had: no window accounting
+        }
+        if (auto const* path = std::getenv("DEREN_GAUSSIAN_BENCHMARK")) {
+            if (!this->gaussian_benchmark.is_open()) {
+                this->gaussian_benchmark.open(path);
+                this->gaussian_benchmark << "sample,frame_ms,cpu_prepare_ms";
+                for (auto const& label : gpu_timing_labels)
+                    this->gaussian_benchmark << ',' << label.name;
+                this->gaussian_benchmark << '\n';
+            }
+            if (measured == gpu_timing_labels.size()) {
+                auto const slot = static_cast<std::size_t>(this->frame_ring().position());
+                this->gaussian_benchmark << ++this->gaussian_benchmark_rows << ',' << this->gaussian_frame_wall_ms[slot] << ',' << this->gaussian_cpu_prepare_ms[slot];
+                for (auto const duration : sample)
+                    this->gaussian_benchmark << ',' << duration;
+                this->gaussian_benchmark << '\n';
+            }
         }
         if (++this->gpu_timing_window_frames < GPU_TIMING_WINDOW) {
             return;
@@ -976,8 +996,8 @@ namespace deren::engine {
         // Only meaningful once the startup is complete: the app applies the config to the runtime
         // BEFORE the pipelines exist (main sets the toggles, chores then creates the pipelines), so
         // warning there would claim "TAA has no effect" one line above "TAA pipeline
-        // created". The scene's resources exist once `ensure_scene_heap_slots` has run, i.e. once the first primitive
-        // (or the first recorded frame) has asked for them - which is the moment every optional pipeline exists.
+        // created". The scene's resources exist once the first frame has called `prepare_scene_resources`,
+        // after application setup has had the opportunity to create optional pipelines.
         if (this->cluster_count_buffers.empty()) {
             return;
         }
@@ -1289,7 +1309,7 @@ namespace deren::engine {
             this->shadow_images.clear();
             this->shadow_array_views.clear();
             this->shadow_layer_views.clear();
-            this->ensure_shadow_resources();
+            this->create_shadow_resources();
             this->write_light_and_shadow_bindings();
         }
         // a different cascade layout invalidates the cached fit (and the one-time density log)
@@ -1314,14 +1334,17 @@ namespace deren::engine {
         this->shadow_scene_center = scene_center;
         // a new light setup invalidates the cached fit (see update_shadow_frustum)
         this->shadow_frustum_valid = false;
-        if (!this->pass_ready("shadow") || this->light_mapped.empty()) {
-            deren::utility::log("shadow mapping not enabled (no shadow pipeline / light buffer)");
+        if (!this->pass_ready("shadow")) {
+            deren::utility::log("shadow mapping not enabled (no shadow pipeline)");
             return;
         }
         // light UBO: orthographic light view-proj framing the scene + the light direction.
         // Fill the CPU-side mirror only - pace_and_acquire copies it into every slot's own
         // light buffer as each slot is paced (nothing here touches mapped memory directly).
-        this->light_state = make_directional_light_ubo(this->sun_direction, scene_center, scene_radius, static_cast<float>(this->shadow_map_size));
+        // An empty scene has zero radius; give the initial CPU-side frustum a finite size.
+        // Shared GPU buffers are created separately by the first frame's resource preparation.
+        float const initial_radius = scene_radius > 0.0f ? scene_radius : 1.0f;
+        this->light_state = make_directional_light_ubo(this->sun_direction, scene_center, initial_radius, static_cast<float>(this->shadow_map_size));
         // the cascade settings are the runtime's, not the UBO builder's: re-apply them over the defaults
         this->light_state.cascade_count = static_cast<float>(std::clamp(this->shadow_cascades, 1u, deren::engine::max_shadow_cascades));
         this->light_state.cascade_blend = this->shadow_cascade_blend;
@@ -1869,7 +1892,6 @@ namespace deren::engine {
                 return nullptr;
             }
         }
-        this->ensure_scene_heap_slots();
 
         auto result = std::make_unique<normal_draw_primitive>();
 
@@ -2030,7 +2052,6 @@ namespace deren::engine {
         if (count == 0 || this->instance_mapped == nullptr || !source.is_valid()) {
             return nullptr;
         }
-        this->ensure_scene_heap_slots();
 
         // The instance buffer is one shared region; THIS primitive gets the slice starting at
         // instance_cursor (mat4 units). Writing only its own slice keeps several instanced

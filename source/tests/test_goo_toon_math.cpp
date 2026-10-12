@@ -1,6 +1,6 @@
 // Headless unit tests: THE REWRITTEN TOON CHAIN'S IRIS MATH ==================================
 //
-// WHAT THIS FILE IS FOR, and what it deliberately is not. `source/shaders/goo_toon.slang` is a Slang stage: its
+// WHAT THIS FILE IS FOR, and what it deliberately is not. `source/shaders/toon/goo_toon.slang` is a Slang stage: its
 // arithmetic only exists inside a compiled module, and evaluating it needs a device, a swapchain and a
 // character asset - none of which a CI machine has (the capture gate's references are tied to one machine's
 // driver and cannot run there at all; that is why this repository's OTHER invariants are asserted on text).
@@ -46,7 +46,7 @@ namespace {
     //
     // Every one of these is a socket value or a factor in `gooblender/nodes.json`'s
     // `Arknights: Endfield_PBRToon_irisBase`, named by the node it belongs to. THEY ARE ALSO SPELLED OUT IN
-    // `source/shaders/goo_toon.slang`, where the spelling is asserted below - so a shader edit that changes one of them
+    // `source/shaders/toon/goo_toon.slang`, where the spelling is asserted below - so a shader edit that changes one of them
     // without changing this file fails here rather than quietly re-tuning the eye.
 
     /// `运算.Value` in `Arknights: Endfield_PBRToon_irisBase` - what the azimuth is subtracted from. THE GOO
@@ -159,7 +159,7 @@ namespace {
         return iris_layer(albedo, ball, angle) * iris_strength(angle, albedo_alpha, k_eyes_brightness, k_eyes_highlight_brightness);
     }
 
-    /// the sphere map, AS THE OLD CHAIN BUILDS IT (`character_forward.slang`'s `toon_matcap_uv`): a view basis
+    /// the sphere map, AS THE OLD CHAIN BUILDS IT (`toon/character_forward.slang`'s `toon_matcap_uv`): a view basis
     /// from the surface-to-camera vector, with V negated for this renderer's texture convention.
     vec2 toon_matcap_uv(vec3 const n, vec3 const v) {
         vec3 const up = std::abs(v.y) < 0.99f ? vec3{0.0f, 1.0f, 0.0f} : vec3{1.0f, 0.0f, 0.0f};
@@ -207,7 +207,7 @@ namespace {
     constexpr float k_dv_half_inverse_pi = 0.3183099925518036f * 0.5f;
     /// `DV_SmithJointGGX_Aniso :: 运算.017` - the MAXIMUM's floor, `f32(1.17549e-35)`. The dump stores it at full
     /// precision as `1.1754899742869237e-35` (bit pattern `0x0579FFC3`, i.e. `999.9962768554688 * FLT_MIN`), and
-    /// `source/shaders/character_forward.slang` spells the same literal, because a "cleaned up" `1.17549e-35` is a
+    /// `source/shaders/toon/character_forward.slang` spells the same literal, because a "cleaned up" `1.17549e-35` is a
     /// different float32 and `1e-35` a different one again. It is NOT `FLT_MIN`.
     constexpr float k_dv_denominator_floor = 1.1754899742869237e-35f;
 
@@ -227,7 +227,7 @@ namespace {
     constexpr float k_desaturation_neutral = 1.0f;
 
     /// `DecodeNormal :: 运算.002.Value_001` - the MAXIMUM the reconstructed `z` is floored at, spelled to all
-    /// seventeen digits because `source/shaders/character_forward.slang`'s `goo_normal_z_floor` is the same literal and a
+    /// seventeen digits because `source/shaders/toon/character_forward.slang`'s `goo_normal_z_floor` is the same literal and a
     /// "cleaned up" `1e-16f` would be a different float32.
     constexpr float k_goo_normal_z_floor = 1.0000000168623835e-16f;
     /// `DecodeNormal :: interface[]` - `NormalStrength`'s own group default, `1.0`: the value a
@@ -778,7 +778,7 @@ namespace {
     // The five reference sub-groups' own closed forms, evaluated. Every constant below is quoted with the NODE
     // it comes from so it can be re-read out of `deren-ab/gooblender/nodes.json` rather than trusted, and the
     // arithmetic is written out under each expected value. THEY ARE THE SAME FIVE FUNCTIONS
-    // `source/shaders/goo_toon.slang` implements, spelled a second time - so this half catches DRIFT (an edit to one
+    // `source/shaders/toon/goo_toon.slang` implements, spelled a second time - so this half catches DRIFT (an edit to one
     // side that leaves the other alone), exactly as the iris half above does, and the source checks in section
     // 8 are what pin the constants themselves.
 
@@ -883,7 +883,7 @@ namespace {
 
     // ================================ STEP 13: `RS EFF` (MECHANISM TABLE #14) ================================
     //
-    // THE CLOSED FORMS THE RS BLOCK IN `source/shaders/goo_toon.slang` EVALUATES, transcribed in the reference's own op
+    // THE CLOSED FORMS THE RS BLOCK IN `source/shaders/toon/goo_toon.slang` EVALUATES, transcribed in the reference's own op
     // order so a drift on either side fails here. WHAT IS BEING PINNED, and why each of these is worth a test:
     //
     //   * `float_from_vec4` is the reference's Rec.709 LUMINANCE (`dot(rgb, (0.2126, 0.7152, 0.0722))`), NOT the
@@ -1187,7 +1187,7 @@ int32_t main() {
 
     // ---- 6. THE SPHERE MAP: the two spellings agree, and the V axis is this renderer's ----
     //
-    // `goo_toon.slang` builds the map from the CAMERA MATRIX (`mul(view, n)`), which is the reference's own
+    // `toon/goo_toon.slang` builds the map from the CAMERA MATRIX (`mul(view, n)`), which is the reference's own
     // `矢量变换(WORLD -> CAMERA)`; the old chain builds the same map from a view BASIS (`toon_matcap_uv`). The
     // two are the same function when the camera matrix's rows are that basis - which is the claim the shader's
     // header makes, and the reason a matcap does not care about the camera's roll (a ball has no distinguished
@@ -1308,7 +1308,7 @@ int32_t main() {
         // implementation from one that applies `运算.029`'s `MINIMUM(_, 0.5)` to the STRENGTH: with the ceiling
         // in the wrong place every laevatain material would read 0.5 and the three authored values (1, 2, 5)
         // would be indistinguishable. Spec §3.1 and 附录 Z put that `MINIMUM` on `DepthRim`'s output
-        // (`转接点.092`), whose factor is the deferred one; see the note in `source/shaders/goo_toon.slang`.
+        // (`转接点.092`), whose factor is the deferred one; see the note in `source/shaders/toon/goo_toon.slang`.
         CHECK_MSG(std::abs(rim_red - 0.5f) > 1e-3f, "the strength is NOT the thing `运算.029` clamps to 0.5");
         CHECK_MSG(std::abs(5.0f - 2.0f) > 1e-3f, "and the three authored strengths stay distinguishable");
     }
@@ -1399,7 +1399,7 @@ int32_t main() {
 
     // ---- 8i. THE DEPTH <-> VIEW-DISTANCE CONVERSION (step 3's dependency, checked by round trip) ----
     //
-    // `source/shaders/goo_rim.slang`'s `goo_rim_view_depth` is the engine's `rim_view_depth`, and the claim it embodies
+    // `source/shaders/toon/goo_rim.slang`'s `goo_rim_view_depth` is the engine's `rim_view_depth`, and the claim it embodies
     // is that it IS the quantity Goo's `-get_view_z_from_depth` answers: a POSITIVE distance in metres along the
     // camera's axis. The check is the round trip on the projection THIS renderer builds
     // (`glm::perspectiveRH_ZO(45deg, ..., 0.1, far)`, `source/engine/primitive/primitive.cpp`): the two terms come from
@@ -1421,7 +1421,7 @@ int32_t main() {
             CHECK_MSG(std::abs(back - distance) <= 1e-3f * distance, "the conversion is the inverse of the projection: distance -> window -> distance");
         }
         // THE BACKGROUND'S ANSWER, and it is the one the pass depends on: the cleared far value converts to the
-        // FAR PLANE's distance (the same expression `gbuffer_debug.slang` uses for its own far plane), which makes
+        // FAR PLANE's distance (the same expression `debug/gbuffer_debug.slang` uses for its own far plane), which makes
         // a silhouette against the sky answer a large `dz` rather than a broken number.
         CHECK_MSG(std::abs(view_depth_from_window(1.0f, proj_22, proj_32) - far_plane) < 1e-2f, "the cleared depth converts to the far plane's distance");
         CHECK_MSG(view_depth_from_window(1.0f, proj_22, proj_32) > view_depth_from_window(0.5f, proj_22, proj_32), "and it is the LARGEST distance the conversion can answer");
@@ -2032,7 +2032,7 @@ int32_t main() {
     //     is: that is `1/(1 + 0.001) = 0.9990009996687309`. Its FINAL answer (`ramp_u = 0.5854986799208568`)
     //     survives, because `运算.014`'s MINIMUM against `CastShadows = 0.4` discards the value either way.
     //   * §11-U1's `值(明度) = 1.0` is `-1.0` in BOTH dumps, which the parent re-read and which
-    //     `source/shaders/goo_toon.slang` was already built on. That INVERTS §10-A10's numbers, and A10 below is the
+    //     `source/shaders/toon/goo_toon.slang` was already built on. That INVERTS §10-A10's numbers, and A10 below is the
     //     corrected derivation: a sun in front of the face is `AngleThreshold = 0`, the spec's `π/3` example is
     //     `1/3` and its `2π/3` example is `2/3`.
     {
@@ -2313,7 +2313,7 @@ int32_t main() {
         // A5: THE `saturate`'S OWN EDGE CASES, which are why the engine's expression is kept whole instead of being
         // folded into `z1`: below 1 the mix bends `z` TOWARDS the flat normal while `xy` keeps the raw scale, and at
         // or below 0 it answers the flat `z` with - for a negative strength - a flipped `xy`. The port passes such a
-        // value TODAY: the hair's `0.5`, whose row step 14 added (see this block's note in `character_forward.slang`),
+        // value TODAY: the hair's `0.5`, whose row step 14 added (see this block's note in `toon/character_forward.slang`),
         // so the three pins below are a SHIPPED-PATH check and not insurance against a value that never arrives - and
         // the assertions themselves are unchanged by that, because they pin the closed form rather than its callers.
         vec3 const at_half = shipped(0.75f, 0.5f, 0.5f);
@@ -2541,15 +2541,15 @@ int32_t main() {
             CHECK_MSG(file.is_open(), relative);
             return std::string{std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{}};
         };
-        std::string const shader = slurp("source/shaders/goo_toon.slang");
+        std::string const shader = slurp("source/shaders/toon/goo_toon.slang");
         std::string const primitive = slurp("source/engine/primitive/primitive.cppm");
         std::string const constructor = slurp("source/engine/runtime/runtime.constructor.cppm");
         std::string const app = slurp("source/app/main.cpp");
         std::string const config = slurp("source/application_configuration/application_configuration.cpp");
         // the files the two suppressions live in, and the two other readers of the colour table's stride
-        std::string const character_forward = slurp("source/shaders/character_forward.slang");
-        std::string const outline = slurp("source/shaders/outline.slang");
-        std::string const pbr = slurp("source/shaders/pbr.slang");
+        std::string const character_forward = slurp("source/shaders/toon/character_forward.slang");
+        std::string const outline = slurp("source/shaders/toon/outline.slang");
+        std::string const pbr = slurp("source/shaders/scene/pbr.slang");
         std::string const rim_pass = slurp("source/engine/pass/toon_screen_rim.cpp");
         std::string const demo = slurp("source/engine/render_start_demo/render_start_demo.cpp");
 
@@ -2619,7 +2619,7 @@ int32_t main() {
         // (c3) STEP 3'S WIDTH LANE, in every place it has to exist: the enum entry and count (above and here),
         // its sidecar row name, its neutral in the THREE tables a colour lane lives in - the app's lookup, the
         // host's `toon_inputs` and the GPU buffer's initialiser - and the STAGE side, which is the half this
-        // step's criterion turns on: `source/shaders/goo_rim.slang` names it by index (`+ 9u`) and the lane sits at 9 in
+        // step's criterion turns on: `source/shaders/toon/goo_rim.slang` names it by index (`+ 9u`) and the lane sits at 9 in
         // the enum, so the two spellings and the stride have to move together (the stride itself is pinned by
         // `test_toon_material_sidecar` from the other side).
         {
@@ -2818,7 +2818,7 @@ int32_t main() {
             CHECK_MSG(character_forward.find("return float4(lit_final, out_alpha);") != std::string::npos,
                       "and the pixel that is written is the desaturated one");
             // THE STAGE THAT WRITES THE PIXEL THE RIM IS ADDED TO does the same thing, and for the same reason.
-            std::string const goo_toon = slurp("source/shaders/goo_toon.slang");
+            std::string const goo_toon = slurp("source/shaders/toon/goo_toon.slang");
             // STEP 13 MOVED THE TERM'S INPUT WITHOUT MOVING THE TERM: the desaturation still takes the FINISHED
             // PIXEL (the rim is ADDed to it one stage later, so the term belongs on it), but that pixel is now
             // `rs_final` - `colour + s.emissive` folded with `RS EFF` - rather than the bare sum this pin used to
@@ -2826,7 +2826,7 @@ int32_t main() {
             CHECK_MSG(goo_toon.find("const float3 lit_base = colour + s.emissive;") != std::string::npos &&
                           goo_toon.find("const float3 lit_final = goo_hsv_desaturate(rs_final, desaturation);") != std::string::npos &&
                           goo_toon.find("return float4(lit_final, out_alpha);") != std::string::npos,
-                      "goo_toon.slang's pixel still desaturates the same way - through 色相/饱和度/明度 on the finished pixel, "
+                      "toon/goo_toon.slang's pixel still desaturates the same way - through 色相/饱和度/明度 on the finished pixel, "
                       "which is now `rs_final` (step 13) rather than the bare `colour + s.emissive`");
             CHECK_MSG(goo_toon.find("goo_hsv_desaturate(colour + s.emissive, desaturation);") == std::string::npos,
                       "and the PRE-STEP-13 spelling is gone: a `goo_hsv_desaturate` fed the raw sum would drop the whole RS term while still compiling");
@@ -2837,11 +2837,11 @@ int32_t main() {
         }
 
         // THE RIM'S CLOSED FORMS ARE SPELLED IN THE STAGE THAT SHIPS THEM, and that stage is now
-        // `source/shaders/goo_rim.slang` (step 3 moved the whole rim out of the surface shader - see its header): the C++
+        // `source/shaders/toon/goo_rim.slang` (step 3 moved the whole rim out of the surface shader - see its header): the C++
         // in sections 8a-8m cannot drift from the arithmetic that runs, and the two `character_toon_colour_lanes`
-        // reads in `goo_toon.slang` (the iris' own two lanes) are checked where they still are.
+        // reads in `toon/goo_toon.slang` (the iris' own two lanes) are checked where they still are.
         {
-            std::string const goo_rim = slurp("source/shaders/goo_rim.slang");
+            std::string const goo_rim = slurp("source/shaders/toon/goo_rim.slang");
             for (char const* const spelling : {"goo_rim_dir_atten_default = 0.8999999761581421",
                                                "goo_rim_fresnel_pow_default = 2.0",
                                                "goo_rim_limitation_default = 0.0",
@@ -3550,8 +3550,8 @@ int32_t main() {
         CHECK_MSG(character_forward.find("family == VR_FAMILY_BASE || family == VR_FAMILY_SKIN || family == VR_FAMILY_CLOTH || family == VR_FAMILY_HAIR") != std::string::npos,
                   "and the four families are the ones it covers (the face is NOT among them)");
         // the OTHER consumer of `toon_diffuse` must NOT define it, or the outline would lose the old rim
-        CHECK_MSG(outline.find("VR_GOO_TOON_CHAIN") == std::string::npos, "`outline.slang` leaves the old rim switched on");
-        CHECK_MSG(pbr.find("VR_GOO_TOON_CHAIN") == std::string::npos, "and so does `pbr.slang`");
+        CHECK_MSG(outline.find("VR_GOO_TOON_CHAIN") == std::string::npos, "`toon/outline.slang` leaves the old rim switched on");
+        CHECK_MSG(pbr.find("VR_GOO_TOON_CHAIN") == std::string::npos, "and so does `scene/pbr.slang`");
         CHECK_MSG(rim_pass.find("return \"toon_screen_rim\";") != std::string::npos, "the screen rim asks under its own feature name");
         CHECK_MSG(demo.find("self.runtime_owner->goo_toon_active()") != std::string::npos, "the rewritten chain switches the article's contour off");
         // (f) STEP 3'S OWN GATE, and it is the one this step's byte-identity criterion rests on: the new rim stage
@@ -3583,7 +3583,7 @@ int32_t main() {
     // (spec §5 A1..A7) in the reference's own op order: `float_from_vec4`'s Rec.709 luminance, the `_M`
     // `SmoothStep` subgroup on top of it, `混合.029`'s LIGHTEN semantics, the bitwise identities the frozen `if`
     // gate buys, and the host's two new lanes. The second half pins the SOURCE TEXT (A8) - the sync points a
-    // compiler cannot see: which FILE the RS block landed in (the rewritten chain `source/shaders/goo_toon.slang`, NOT
+    // compiler cannot see: which FILE the RS block landed in (the rewritten chain `source/shaders/toon/goo_toon.slang`, NOT
     // the old one), which stride literals moved, and the two row names without which every sidecar row is
     // unreachable while the build stays green.
     //
@@ -3711,7 +3711,7 @@ int32_t main() {
         // (`_ref/gooengine_src/gpu_shader_material_layer_weight.glsl:24`), and the sheet is addressed with
         // `u = clamp(Facing + Layer weight Value Offset, 0, 1)` (spec `:107`). So the net form is
         //     u = 1 - |V.n|^remap(b) + w
-        // and NOT the complement `u = 1 - (1 - |V.n|)^remap(b) + w` that `source/shaders/goo_toon.slang` computed until
+        // and NOT the complement `u = 1 - (1 - |V.n|)^remap(b) + w` that `source/shaders/toon/goo_toon.slang` computed until
         // 2026-10-01. The two agree ONLY at `b == 0` (both give `u == w`) and at `|V.n| == 0.5` (their one
         // fixpoint), which is why every `b == 0` fixture in the world stays green under either form.
         // Instrument: `deren-ab/s15impl/u_net_form_check.py` (32-point grid over `b x |V.n| x w`, both forms, f64
@@ -3816,16 +3816,16 @@ int32_t main() {
         // reads its neutral); a MISORDERED name is the same failure one lane over, and no frame can show either.
 
         // ---- A8: the source-text sync points (structure / boundary / reverse drift guards) ----
-        // AFTER the landing-point correction every RS-block pin is taken on `goo_toon.slang` (the REWRITTEN chain);
-        // `character_forward.slang` keeps only its stride pin and the positive "old chain untouched" pin.
-        std::string const goo_toon = slurp("source/shaders/goo_toon.slang");
-        std::string const character_forward = slurp("source/shaders/character_forward.slang");
-        std::string const goo_rim = slurp("source/shaders/goo_rim.slang");
-        std::string const pbr = slurp("source/shaders/pbr.slang");
+        // AFTER the landing-point correction every RS-block pin is taken on `toon/goo_toon.slang` (the REWRITTEN chain);
+        // `toon/character_forward.slang` keeps only its stride pin and the positive "old chain untouched" pin.
+        std::string const goo_toon = slurp("source/shaders/toon/goo_toon.slang");
+        std::string const character_forward = slurp("source/shaders/toon/character_forward.slang");
+        std::string const goo_rim = slurp("source/shaders/toon/goo_rim.slang");
+        std::string const pbr = slurp("source/shaders/scene/pbr.slang");
         std::string const primitive = slurp("source/engine/primitive/primitive.cppm");
         CHECK_MSG(goo_toon.find("const float3 lit_base = colour + s.emissive;") != std::string::npos &&
                       goo_toon.find("rs_final") != std::string::npos,
-                  "RS A8: the RS block exists in goo_toon.slang (the REWRITE chain), not in character_forward.slang");
+                  "RS A8: the RS block exists in toon/goo_toon.slang (the REWRITE chain), not in toon/character_forward.slang");
         CHECK_MSG(goo_toon.find("max(lit_base, rs_eff)") != std::string::npos && goo_toon.find("saturate(rs_scalars.y)") != std::string::npos,
                   "RS A8: it is the LIGHTEN form mix(lit_base, max(lit_base, rs_eff), ...), not a bare max");
         CHECK_MSG(goo_toon.find("3.0f - 2.0f * t") != std::string::npos,
@@ -3836,7 +3836,7 @@ int32_t main() {
                   "RS A8: the three carriers are lanes 27/28/29 and the character stride is 30 (it was 29 from step 13)");
         CHECK_MSG(goo_rim.find("goo_rim_colour_lanes = 30u") != std::string::npos &&
                       pbr.find("pbr_toon_colour_lanes = 30u") != std::string::npos,
-                  "RS A8: the other two stride copies moved to 30 too (outline.slang reuses the character one)");
+                  "RS A8: the other two stride copies moved to 30 too (toon/outline.slang reuses the character one)");
         CHECK_MSG(primitive.find("count = 30,") != std::string::npos && primitive.find("goo_rs_scalars = 27,") != std::string::npos &&
                       primitive.find("goo_rs_tint = 28,") != std::string::npos && primitive.find("goo_rs_arm0 = 29,") != std::string::npos,
                   "RS A8: toon_colour_lane's count moved 29 -> 30 for step 15's `_GooRSArm0` and the three earlier names are still there");
@@ -3850,12 +3850,12 @@ int32_t main() {
                       app.find("\"_GooRSArm0\"") != std::string::npos,
                   "RS A8: toon_colour_row names lanes 27/28/29 (one row name per lane)");
         CHECK_MSG(goo_toon.find("goo_hsv_desaturate(rs_final, desaturation)") != std::string::npos,
-                  "RS A8: goo_toon.slang:374's FIRST argument is rs_final - the RS block has to reach 色相/饱和度/明度; "
+                  "RS A8: toon/goo_toon.slang:374's FIRST argument is rs_final - the RS block has to reach 色相/饱和度/明度; "
                   "goo_hsv_desaturate(colour + s.emissive, ...) would silently drop the whole RS term while still compiling");
         CHECK_MSG(goo_toon.find("goo_hsv_desaturate(colour + s.emissive,") == std::string::npos,
                   "RS A8: and the pre-step call site must be GONE - the guard against someone 'fixing it back'");
         CHECK_MSG(character_forward.find("goo_hsv_desaturate(lit, desaturation)") != std::string::npos,
-                  "RS A8: character_forward.slang's OLD chain tail is untouched - its desaturation still takes `lit`");
+                  "RS A8: toon/character_forward.slang's OLD chain tail is untouched - its desaturation still takes `lit`");
         CHECK_MSG(goo_toon.find("eyes.xy") != std::string::npos,
                   "RS A8: lane 6's own consumers are untouched - the RETRACTED F3 carrier (lane 4/5/6 reserved components) is gone");
         CHECK_MSG(goo_toon.find("const float3 lit_base = colour + s.emissive;") < goo_toon.find("rs_final =") &&
@@ -3922,7 +3922,7 @@ int32_t main() {
         CHECK_MSG(goo_toon.find("ramp_u") == std::string::npos &&
                       goo_toon.find("remap_half_lambert_sigmoid") == std::string::npos,
                   "RS A8 (step 15), SPEC L3: NOT the `ramp_u = min(cast_sigmoid, remap_half_lambert_sigmoid)` consumer "
-                  "at character_forward.slang:2535 - that is a different quantity with a different curve, and reusing "
+                  "at toon/character_forward.slang:2535 - that is a different quantity with a different curve, and reusing "
                   "it here would be the easiest way to make this arm look plausible and be wrong");
         CHECK_MSG(goo_toon.find("rs_eff = ((((rs_sheet * rs_tint_lane.rgb) * rs_arm0_lane.y) * rs_ndotl) * rs_cast_sigmoid) * rs_mask;") != std::string::npos,
                   "RS A8 (step 15), SPEC §1.3: the landing line, VERBATIM and in the reference's parenthesis order "
@@ -3937,7 +3937,7 @@ int32_t main() {
         // (its `_RD` ramps are continuous remaps, not steps; see `deren-ab/goo_debt_s_armA_verify.md` §2.4):
         // the engine's cel knob is port-side and OFF by default, so `calc_shadow_cascade` returns raw visibility.
         {
-            std::string const shading = slurp("source/shaders/shading.slang");
+            std::string const shading = slurp("source/shaders/lighting/shading.slang");
 
             // STRUCTURE PIN: the raw per-cascade visibility is what `calc_shadow_cascade` returns.
             // The anchor pair matters: a bare `find("return shadow;")` is toothless because `:325` in
@@ -3981,7 +3981,7 @@ int32_t main() {
 
             // THE NAMED COST, which is the whole reason this is a fix and not a no-op. The structure pin
             // above proves the quantizer is GONE; this one proves it was DOING something, so that removing
-            // it is a real behaviour change when the knob is on. A C++ mirror of `source/shaders/shading.slang:223`
+            // it is a real behaviour change when the knob is on. A C++ mirror of `source/shaders/lighting/shading.slang:223`
             // (`toon_band`) is the falsifier: at the probe's own settings it must NOT be the identity.
             auto const toon_band_mirror = [](float x, float steps, float softness) {
                 if (steps < 1.5f) {
@@ -4039,7 +4039,7 @@ int32_t main() {
         // world-scale PCF below - and NOTHING in the shaders reads the `area_light` lane any more. The shadow
         // switch still rides the light UBO's TAIL and nothing else: `area_light` / `area_light_axis` are appended
         // after `cluster_depth`, so every offset above them - and the SHORTER prefix copies of `LightUBO` that
-        // `source/shaders/light_cluster.slang` and `source/shaders/rt_shadow.slang` declare - stays exactly what it is. The
+        // `source/shaders/lighting/light_cluster.slang` and `source/shaders/lighting/rt_shadow.slang` declare - stays exactly what it is. The
         // lane's SIGN encoding stays pinned: w == 0 (the default, `[lighting] area_light_size = 0`) means no area
         // light at all, and a NEGATIVE half side means "the light exists but does not contribute energy", so both
         // switch states land on the SHIPPED expression - kept for the wire layout and a v2 area integral, which
@@ -4048,7 +4048,7 @@ int32_t main() {
         // Nothing here re-implements the shader: what is pinned is the shape that keeps the SHADOW switchable -
         // the shipped early out inside the kernel, the call-site route, and the ABSENCE of the deleted gain.
         {
-            std::string const shading = slurp("source/shaders/shading.slang");
+            std::string const shading = slurp("source/shaders/lighting/shading.slang");
 
             // 1.2: the two lanes are the LAST members of the struct, in this order, and inside it.
             std::size_t const cluster_depth = shading.find("float4 cluster_depth;");
@@ -4077,7 +4077,7 @@ int32_t main() {
             // has been silently reverted and this test says so.
             CHECK_MSG(shading.find("area_light_irradiance_gain") == std::string::npos,
                       "AREA LIGHT 3.1 (v1.1): `area_light_irradiance_gain` was deleted by the A' decision and must "
-                      "not reappear in shading.slang");
+                      "not reappear in lighting/shading.slang");
 
             // 3.2: the shadow kernel. `<= 0` returns the SHIPPED calc_shadow itself, and the tap extent is the
             // world radius converted per cascade - never a constant kernel width.
@@ -4127,7 +4127,7 @@ int32_t main() {
                               std::string::npos &&
                           character_forward.find("area_light_irradiance_gain") == std::string::npos,
                       "AREA LIGHT v1.1: `main_light_intensity` must be the shipped one-liner and the deleted gain "
-                      "must not be called from character_forward.slang");
+                      "must not be called from toon/character_forward.slang");
         }
 
         // ---- A8.rsi (step 15, `RS_Index`): THE SECOND `_RS` SHEET IS RESOLVED BY THE HOST, BY NAME ----
@@ -4158,7 +4158,7 @@ int32_t main() {
                       "would move `toon_slot::count` and with it the whole lane block - `toon_lane_blocks` 3 -> 4, "
                       "one more `uint4` per lane in the same heap slot that already holds them "
                       "(`source/engine/render_layout/render_layout.cppm`'s `heap_slots::toon_lanes`) plus a FOURTH accessor "
-                      "beside `source/shaders/heap_access.slang`'s `toon_lanes_at`/`toon_lanes2_at`/`toon_lanes3_at`. It is "
+                      "beside `source/shaders/common/heap_access.slang`'s `toon_lanes_at`/`toon_lanes2_at`/`toon_lanes3_at`. It is "
                       "not a fourth descriptor set, and it is not the proposal "
                       "(spec §9.4: the rejected route `Rb`, still unselected)");
             CHECK_MSG(lane_table.find("{\"_GooRSSheet\", \"_UseGooRSSheet\"}") != std::string::npos,
@@ -4231,7 +4231,7 @@ int32_t main() {
             std::string const primitive_folded = ascii_lower(primitive);
             CHECK_MSG(goo_toon_folded.find("not honoured") == std::string::npos &&
                           goo_toon.find("`RS_Index`") != std::string::npos,
-                      "RS A8.rsi: `source/shaders/goo_toon.slang`'s L1 no longer claims `RS_Index` is not honoured in ANY "
+                      "RS A8.rsi: `source/shaders/toon/goo_toon.slang`'s L1 no longer claims `RS_Index` is not honoured in ANY "
                       "casing, and still says what does happen to it");
             CHECK_MSG(goo_toon.find("`RS_Index` IS NOT READ **HERE**") != std::string::npos,
                       "RS A8.rsi: the sampling site's note says WHERE the index is answered instead of that it is "

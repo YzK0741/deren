@@ -21,6 +21,7 @@
 import deren.promise.rhi;
 import deren.engine.pass;
 import deren.engine.pass.chain;
+import deren.engine.pass.scene;
 import deren.engine.render_resource;
 import deren.engine.render_resource.shared;
 
@@ -55,6 +56,16 @@ namespace {
     /// verb that would need one is a no-op; the two timing verbs answer `unsupported`, the honest
     /// answer for an object that cannot timestamp (the probe backend's own rule).
     struct contract_command_buffer final : deren::promise::rhi::command_buffer {
+        std::uint32_t rendering_begins = 0;
+        std::uint32_t rendering_ends = 0;
+        std::uint32_t secondary_executions = 0;
+        deren::promise::rhi::error rendering_result = deren::promise::rhi::error::ok;
+        deren::promise::rhi::rect rendering_area = {};
+        std::vector<deren::promise::rhi::color_attachment> rendering_colors;
+        deren::promise::rhi::depth_attachment rendering_depth = {};
+        bool rendering_has_depth = false;
+        bool rendering_secondary_contents = true;
+
         contract_command_buffer() noexcept
             : deren::promise::rhi::command_buffer("contract_command_buffer") {
         }
@@ -70,6 +81,7 @@ namespace {
         }
 
         [[nodiscard]] deren::promise::rhi::error execute(deren::promise::rhi::command_buffer&) override {
+            ++this->secondary_executions;
             return deren::promise::rhi::error::ok;
         }
 
@@ -103,11 +115,18 @@ namespace {
             return deren::promise::rhi::error::unsupported;
         }
 
-        [[nodiscard]] deren::promise::rhi::error begin_rendering(deren::promise::rhi::rendering_info const&) override {
-            return deren::promise::rhi::error::ok;
+        [[nodiscard]] deren::promise::rhi::error begin_rendering(deren::promise::rhi::rendering_info const& info) override {
+            ++this->rendering_begins;
+            this->rendering_area = info.area;
+            this->rendering_colors.assign(info.colors.begin(), info.colors.end());
+            this->rendering_depth = info.depth;
+            this->rendering_has_depth = info.has_depth;
+            this->rendering_secondary_contents = info.secondary_contents;
+            return this->rendering_result;
         }
 
         void end_rendering() noexcept override {
+            ++this->rendering_ends;
         }
 
         [[nodiscard]] deren::promise::rhi::error bind_pipeline(deren::promise::rhi::pipeline const&) override {
@@ -134,6 +153,9 @@ namespace {
         void draw_mesh_tasks(std::uint32_t, std::uint32_t, std::uint32_t) noexcept override {
         }
 
+        [[nodiscard]] deren::promise::rhi::error draw_indirect(deren::promise::rhi::buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override {
+            return deren::promise::rhi::error::unsupported;
+        }
         [[nodiscard]] deren::promise::rhi::error draw_mesh_tasks_indirect(deren::promise::rhi::buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override {
             return deren::promise::rhi::error::ok;
         }
@@ -423,6 +445,49 @@ namespace {
 
 int32_t main() {
     using namespace deren::engine::pass;
+
+    // Culling every mesh must still replace last frame's surface, motion, emissive and depth.
+    // Lighting and splats consume those targets even when there is no secondary draw to execute.
+    {
+        namespace rhi = deren::promise::rhi;
+        scene_pass scene;
+        scene_frame const empty_frame{.extent = {.width = 128u, .height = 64u}};
+        scene.set_frame(empty_frame); // No leaves, secondary buffers, or draw environment are needed for a clear.
+        contract_command_buffer commands;
+        std::array<resolved_binding, 6> targets = {};
+        for (std::size_t i = 0; i < targets.size(); ++i) {
+            targets[i].view_handle = reinterpret_cast<rhi::image_view*>(std::uintptr_t{0x1000} + i * 16u);
+        }
+        resolved_io io;
+        io.list = &commands;
+        io.targets = targets;
+        scene.record(io);
+        CHECK(commands.rendering_begins == 1u);
+        CHECK(commands.rendering_ends == 1u);
+        CHECK(commands.secondary_executions == 0u);
+        CHECK(!commands.rendering_secondary_contents);
+        CHECK(commands.rendering_area.width == 128u);
+        CHECK(commands.rendering_area.height == 64u);
+        CHECK(commands.rendering_colors.size() == 5u);
+        for (auto const& color : commands.rendering_colors) {
+            CHECK(color.load == rhi::load_op::clear);
+            CHECK(color.store == rhi::store_op::store);
+            CHECK(color.clear[0] == 0.0f && color.clear[1] == 0.0f && color.clear[2] == 0.0f && color.clear[3] == 0.0f);
+        }
+        CHECK(commands.rendering_has_depth);
+        CHECK(commands.rendering_depth.load == rhi::load_op::clear);
+        CHECK(commands.rendering_depth.store == rhi::store_op::store);
+        CHECK(commands.rendering_depth.clear_depth == 1.0f);
+
+        scene.set_frame(scene_frame{}); // An uninitialized frame must not open a zero-area instance.
+        scene.record(io);
+        CHECK(commands.rendering_begins == 1u);
+        scene.set_frame(empty_frame);
+        commands.rendering_result = rhi::error::invalid_argument;
+        scene.record(io);
+        CHECK(commands.rendering_begins == 2u);
+        CHECK(commands.rendering_ends == 1u); // Never close a scope whose begin was refused.
+    }
 
     host_state state;
     pass_host const host = make_host(state);

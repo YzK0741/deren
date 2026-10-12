@@ -19,11 +19,14 @@
 // ============================================================================
 module;
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>  // std::memcpy of an RGBA frame
 #include <expected> // std::unexpected for the failure strings
-#include <span>     // the bytes the contract's buffer view hands back
+#include <fstream>
+#include <span> // the bytes the contract's buffer view hands back
 #include <string>
 #include <vector>
 
@@ -70,6 +73,18 @@ namespace deren::engine {
         // the caller's pacing - this wait, which is the context's own - is the ordering. The same rule
         // the contract states for `buffer::mapped()`.
         device.wait_idle();
+        if (auto const* path = std::getenv("DEREN_GAUSSIAN_HDR_CAPTURE"); path && this->gaussian_hdr_readback) {
+            auto const bytes = this->gaussian_hdr_readback->mapped();
+            std::uint64_t const required = static_cast<std::uint64_t>(this->gaussian_hdr_extent.width) * this->gaussian_hdr_extent.height * 8u;
+            if (!required || bytes.size() < required)
+                return std::unexpected(std::string("Gaussian HDR capture: FAIL unavailable readback"));
+            std::ofstream output(path, std::ios::binary);
+            std::array<std::uint32_t, 2> const dimensions = {this->gaussian_hdr_extent.width, this->gaussian_hdr_extent.height};
+            output.write(reinterpret_cast<char const*>(dimensions.data()), sizeof(dimensions));
+            output.write(reinterpret_cast<char const*>(bytes.data()), static_cast<std::streamsize>(required));
+            if (!output)
+                return std::unexpected(std::string("Gaussian HDR capture: FAIL file write"));
+        }
 
         std::size_t const buffer_size = static_cast<std::size_t>(extent.width) * static_cast<std::size_t>(extent.height) * 4u;
         std::span<std::byte> const mapped = slot->mapped();

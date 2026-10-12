@@ -22,4 +22,4 @@ Default limits: 4,000,000 particles, 1 GiB file bytes, 1 GiB output bytes. Heade
 
 Malformed fields, nonfinite values, zero quaternions, unusable float32 scales/covariance, trailing payload, truncation and exceeded limits return errors. No partially converted asset is returned. Diagnostics identify byte offset and property when available.
 
-This module does not upload resources or display a scene. GPU packing and rendering follow the Gaussian design specification separately.
+This module does not upload resources or display a scene by itself. The viewer now integrates static upload, CPU/GPU preparation and raster rendering; see \ref md_docs_2gaussian__splatting "Gaussian splatting" for the current frame pipeline, ownership, controls and validation.

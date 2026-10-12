@@ -52,7 +52,7 @@ namespace {
     //   1. the ASSET'S `extras` block (`deren::gltf::material::extras_floats`, read by the loader from the game's own
     //      exported table that ships inside the .glb) - the ORIGINAL;
     //   2. the `.toon.tsv` SIDECAR beside the model - this port's TRANSCRIPTION of a subset of the same tables;
-    //   3. the family table in `source/shaders/toon_params.slang` - the port's own fallback.
+    //   3. the family table in `source/shaders/toon/toon_params.slang` - the port's own fallback.
     // EXTRAS WINS, and the reason is what the two files ARE rather than which is newer: extras is written by the
     // game's own material pipeline and travels inside the asset, while the sidecar is a copy this repository made
     // from the game's JSON tables - a copy can be incomplete (it carries 109 of the 194 names) and can be stale,
@@ -322,7 +322,7 @@ namespace {
     /// become one. `toon_lane` below is sized by `deren::engine::toon_slot::count`, so a second sheet slot AS A LANE would
     /// cost a 17th vocabulary entry, a wider lane block (`toon_lane_blocks` 3 -> 4, in the SAME heap slot:
     /// `source/backends/vulkan/core/core.declarations.cppm`'s `heap_slots::toon_lanes`) and a FOURTH accessor beside the three that
-    /// exist (`source/shaders/heap_access.slang`'s `toon_lanes_at`/`toon_lanes2_at`/`toon_lanes3_at`, one `uint4` column
+    /// exist (`source/shaders/common/heap_access.slang`'s `toon_lanes_at`/`toon_lanes2_at`/`toon_lanes3_at`, one `uint4` column
     /// each) - a fourth DESCRIPTOR SET is NOT the cost and was never the proposal
     /// (`goo_step15_lane_rs_index_spec.md` §3.5/§9.4: the rejected `Rb`).
     /// The reference needs none of that: `RS_Index` is a per-material CONSTANT (§1.3 - no material link in either
@@ -507,19 +507,8 @@ int main(int argc, char** argv) {
                               "model '{}' has no extension this build reads: name a .gltf/.glb scene or a .ply gaussian splat cloud",
                               model_path);
     }
-    // A .ply NAMES THE CLOUD, and the cloud is what the run is ABOUT - but a scene is still loaded, and that is an
-    // INTERIM with a measured reason: THE ENGINE CANNOT PRESENT A FRAME WITH NO IMPORTED GEOMETRY. With an empty
-    // scene, the first frame's submission and the next frame's open both fail 11 = device_lost, with ZERO VUIDs, an
-    // empty stderr, and unchanged by `shadow`, `clustered_lights`, `gui`, `unlit`, by switching the splat stage off
-    // entirely, or by adding a geometry-carrying instancing grid; a frame WITH a model submits fine, and a plain
-    // model frame does too. So the model below is imported as usual and then PUSHED OUT OF FRAME (see
-    // scene_import_shift), which is what leaves the flowers as the only thing on screen. The honest fix belongs to
-    // the engine - an empty scene has to be drivable - and it is recorded in
-    // docs/superpowers/plans/2026-10-11-gaussian-viewer-integration.md.
-    // A .ply NAMES THE CLOUD AND NO MODEL IS LOADED WITH IT: the frame instead gets the PLACEHOLDER leaf that
-    // `deren::chores::add_placeholder_triangle` builds below - see its own note for why the engine needs one and why
-    // it is a transparent triangle - so nothing of a model is read, shaded or shown. The glTF path is untouched,
-    // async overlap with the cubemap above included.
+    // A PLY renders directly in an empty mesh scene. Shared frame resources are prepared
+    // by the runtime independently of geometry; the glTF path keeps its asynchronous load.
     bool const gaussian_only = model_format == deren::app_config::model_format::gaussian_ply;
     auto load_future = gaussian_only ? std::future<std::expected<deren::gltf::scenes, deren::gltf::error_code>>{}
                                      : deren::gltf::load_model_async(model_path);
@@ -592,7 +581,7 @@ int main(int argc, char** argv) {
     //      root, both as panics - the consumption-side half of the same handshake.
     deren::engine::runtime runtime{std::move(core), core_options};
     runtime.background_color = glm::vec3(settings.render.clear_color[0], settings.render.clear_color[1], settings.render.clear_color[2]);
-    // shadow is applied after enable_shadows() below (it needs the shadow maps to exist)
+    // Shadow setup below initializes the CPU-side lighting configuration before the first frame.
     // per-pass GPU timings (timestamp queries): on by default, reported in the log + overlay
     runtime.set_gpu_timings(settings.render.gpu_timings);
     // Shadow cascades: applied here (BEFORE the scene import) because the shadow map's layered image
@@ -686,7 +675,24 @@ int main(int argc, char** argv) {
         deren::utility::log("gaussian: '{}' - {} splats, SH degree {}, bounds ({:.2f}, {:.2f}, {:.2f})..({:.2f}, {:.2f}, {:.2f}), static tables about {} MB",
                             model_path, source.particles.size(), source.sh_degree, gaussian_min.x, gaussian_min.y, gaussian_min.z, gaussian_max.x, gaussian_max.y, gaussian_max.z,
                             (source.particles.size() * (48u + 192u)) / (1024u * 1024u));
-        runtime.set_gaussian_asset(gaussian_asset);
+        // The viewer bouquet's flower faces point along local -Y, not along its horizontal axes.
+        // Align that face with the same surface-to-sun direction used by the sky, around the cloud centre.
+        glm::vec3 const gaussian_front{0.0f, -1.0f, 0.0f};
+        glm::vec3 const gaussian_sun = glm::normalize(glm::vec3{sun_direction[0], sun_direction[1], sun_direction[2]});
+        glm::vec3 const gaussian_axis = glm::cross(gaussian_front, gaussian_sun);
+        float const gaussian_cosine = glm::clamp(glm::dot(gaussian_front, gaussian_sun), -1.0f, 1.0f);
+        glm::mat4 gaussian_rotation{1.0f};
+        if (glm::dot(gaussian_axis, gaussian_axis) > 1.0e-8f) {
+            gaussian_rotation = glm::rotate(gaussian_rotation, std::acos(gaussian_cosine), glm::normalize(gaussian_axis));
+        } else if (gaussian_cosine < 0.0f) {
+            gaussian_rotation = glm::rotate(gaussian_rotation, glm::radians(180.0f), glm::vec3{1.0f, 0.0f, 0.0f});
+        }
+        glm::vec3 const gaussian_center = (gaussian_min + gaussian_max) * 0.5f;
+        glm::mat4 const gaussian_model = glm::translate(glm::mat4{1.0f}, gaussian_center) * gaussian_rotation * glm::translate(glm::mat4{1.0f}, -gaussian_center);
+        runtime.set_gaussian_asset(gaussian_asset, gaussian_model);
+        glm::vec3 const gaussian_world_front = glm::vec3{gaussian_rotation * glm::vec4{gaussian_front, 0.0f}};
+        deren::utility::log("gaussian: local -Y flower face aligned toward sky sun ({:.4f}, {:.4f}, {:.4f}), direction agreement {:.6f}",
+                            gaussian_world_front.x, gaussian_world_front.y, gaussian_world_front.z, glm::dot(gaussian_world_front, gaussian_sun));
     }
 
     // 8. Whole-model world AABB + loader diagnostics (gltf_loader, pure CPU over the retained
@@ -705,7 +711,7 @@ int main(int argc, char** argv) {
         bounds.valid = true;
         bounds.min = gaussian_min;
         bounds.max = gaussian_max;
-        deren::utility::log("gaussian: no model is imported - the frame's only leaf is the placeholder triangle");
+        deren::utility::log("gaussian: rendering the cloud without mesh geometry");
     } else {
         bounds = deren::gltf::log_scene_diagnostics(*scenes);
     }
@@ -855,7 +861,7 @@ int main(int argc, char** argv) {
         // `_GooRSSheet`/`_UseGooRSSheet` rather than a game property name for the mask's own reason: the reference
         // reads it through a `组输入` socket, so there is no `_Use...` row to copy. A material with no row here and
         // `RS Model = 0` gets `arm0 = 0` - the branch must NOT fall back to the white texture at index 0. See
-        // `toon_slot::goo_rs_sheet` and the `armA` block in `source/shaders/goo_toon.slang`.
+        // `toon_slot::goo_rs_sheet` and the `armA` block in `source/shaders/toon/goo_toon.slang`.
         //
         // AND IT IS ONE OF THE REFERENCE'S TWO SHEETS, WHICH IS WHY THERE IS NO SECOND ENTRY HERE: `RS_Index`
         // (`_GooRSArm0`'s `.x`, a `color` row) chooses between this sheet and the second one, and the host
@@ -1047,7 +1053,7 @@ int main(int argc, char** argv) {
         //
         // THE NEUTRAL OF BOTH IS `(0,0,0,0)`, which is a value and not a placeholder: `.x` of lane 27 is the
         // branch's switch, and zero there is what makes the stage's identity BITWISE (see the `float3
-        // rs_final = lit;` / `if (rs_use > 0.0f && ...)` pair in `source/shaders/goo_toon.slang`, which does no
+        // rs_final = lit;` / `if (rs_use > 0.0f && ...)` pair in `source/shaders/toon/goo_toon.slang`, which does no
         // floating-point work at all when the gate is shut).
         "_GooRSScalars",
         "_GooRSTint",
@@ -1057,7 +1063,7 @@ int main(int argc, char** argv) {
         // four-component form for exactly that. Its neutral is `(0,0,0,0)`, which is ALSO the arm's off switch
         // (`RS Strength = 0` zeroes the product), so a material that states no row gets an `armA` that changes
         // nothing - but note it is not the same as `Use RS_Eff? = 0`: a zeroed `armA` still passes through the
-        // LIGHTEN below. See `toon_colour_lane::goo_rs_arm0` and the `armA` block in `source/shaders/goo_toon.slang`.
+        // LIGHTEN below. See `toon_colour_lane::goo_rs_arm0` and the `armA` block in `source/shaders/toon/goo_toon.slang`.
         "_GooRSArm0",
     }};
     // The declared flag for a toon lane; the `_Use<Slot>` convention for every OTHER slot, which the diagnostic
@@ -1772,7 +1778,7 @@ int main(int argc, char** argv) {
         // `RampSelect` may be (see the branch above): `RS_Index` has NO MATERIAL LINK in either dump, so it is a
         // per-material CONSTANT and the answer cannot change inside a frame (spec §1.3, §9.1).
         //
-        // WHY THIS IS A HOST RULE AND NOT A SHADER ONE: `rs_arm0_lane.x` stays UNREAD in `source/shaders/goo_toon.slang`
+        // WHY THIS IS A HOST RULE AND NOT A SHADER ONE: `rs_arm0_lane.x` stays UNREAD in `source/shaders/toon/goo_toon.slang`
         // (see the L1 note there) - the lane carries the reference's socket, the HOST answers it, and the shader's
         // `u` derivation and its single `heap_texel` fetch are untouched by this step. THE `.spv` FILES ARE THE
         // EVIDENCE: this branch must not move a single one of them.
@@ -1859,7 +1865,7 @@ int main(int argc, char** argv) {
          // `CastShadow_center` is `-0.10000000149011612` on both body materials and
          // `GlobalShadowBrightnessAdjustment` is `-1.7999999523162842` on the cloth - so a neutral inside the
          // values' own range would make the stage read an authored number as "not stated". See
-         // `goo_lane_absent` in `source/shaders/character_forward.slang` and each lane's note in
+         // `goo_lane_absent` in `source/shaders/toon/character_forward.slang` and each lane's note in
          // `deren::engine::toon_colour_lane`.
          glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
          // STEP 5'S FOUR, WHOSE NEUTRALS ARE THE REFERENCE'S OWN `interface[]` DEFAULTS rather than the `-1000`
@@ -2173,7 +2179,7 @@ int main(int argc, char** argv) {
         // THE TOON CHAIN'S SHADOW SOFTNESS LADDER (`[render] toon_shadow_softness`, already rounded and clamped
         // by `analyse_config`): 0 is the shipped 3x3 PCF and the default, so this line changes nothing unless a
         // config asked for a wider kernel. The lane is read by the shared `toon_diffuse` body in
-        // `source/shaders/character_forward.slang`, which is compiled into the `character_forward`, `goo_toon` and
+        // `source/shaders/toon/character_forward.slang`, which is compiled into the `character_forward`, `goo_toon` and
         // `outline` stages (`goo_toon.slang`'s own `rs_shadow` lookup is a different call site and stays 3x3 at
         // every level; `overlay` has no shadow sample at all).
         rig.shadow_softness.x = settings.render.toon_shadow_softness;
@@ -2631,10 +2637,6 @@ int main(int argc, char** argv) {
     // the cloud's own centre and a distance that holds two and a half of its radii - and because this runs BEFORE
     // the capture-camera override below, an explicit --capture-camera still wins over it.
     if (gaussian_only) {
-        // THE LEAF THAT MAKES THE FRAME LEGAL, built here rather than loaded and attached AFTER the scene tree is
-        // bound (the import above is what binds it, so this cannot move earlier): one fully transparent triangle a
-        // kilometre below the world, and the only geometry in the scene - it draws nothing (see the helper's note).
-        deren::chores::add_placeholder_triangle(runtime);
         runtime.camera.target = (gaussian_min + gaussian_max) * 0.5f;
         runtime.camera.distance = glm::length(gaussian_max - gaussian_min) * 0.5f * 2.5f;
     }

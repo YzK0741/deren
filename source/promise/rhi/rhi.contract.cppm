@@ -290,7 +290,8 @@ export namespace deren::promise::rhi {
     /// 28 -> 29: image::share() and image_view::get_image() append owning parent-reference access.
     /// 29 -> 30: object stores a concrete implementation name instead of an interface enum.
     /// 30 -> 31: immutable texture groups and command-buffer group loading.
-    inline constexpr std::uint32_t abi_version = 31u;
+    // ABI 32 adds ordinary indirect drawing to the recording interface.
+    inline constexpr std::uint32_t abi_version = 32u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

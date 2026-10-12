@@ -364,7 +364,7 @@ namespace {
         // LANE bake and the stage that reads that lane, which is what this test is about - and because a test
         // target of its own would have to be mirrored into VR_TEST_TARGETS, the workflow and the docs.
         std::ifstream host_file{VR_TEST_SOURCE_DIR "/source/app/main.cpp"};
-        std::ifstream shader_file{VR_TEST_SOURCE_DIR "/source/shaders/character_forward.slang"};
+        std::ifstream shader_file{VR_TEST_SOURCE_DIR "/source/shaders/toon/character_forward.slang"};
         CHECK(host_file.good());
         CHECK(shader_file.good());
         if (!host_file.good() || !shader_file.good()) {
@@ -425,21 +425,21 @@ namespace {
             CHECK(shader.find("character_toon_colour_lanes = 30u") != std::string::npos);
             CHECK(primitive.find("count = 16,") != std::string::npos);
             // ... AND THE OTHER READER OF THE SAME TABLE, which carries its OWN copy of the stride because a
-            // stage cannot include `character_forward.slang` without inheriting its entry point: the outline's
+            // stage cannot include `toon/character_forward.slang` without inheriting its entry point: the outline's
             // geometry stage. It reads ONE lane of the table and still needs the whole stride - a copy left at an
             // older lane count addresses a neighbouring MATERIAL's lane, which is why it is asserted here too.
-            std::ifstream pbr_file{VR_TEST_SOURCE_DIR "/source/shaders/pbr.slang"};
+            std::ifstream pbr_file{VR_TEST_SOURCE_DIR "/source/shaders/scene/pbr.slang"};
             CHECK(pbr_file.good());
             if (pbr_file.good()) {
                 std::string const pbr{std::istreambuf_iterator<char>{pbr_file}, std::istreambuf_iterator<char>{}};
                 CHECK(pbr.find("pbr_toon_colour_lanes = 30u") != std::string::npos);
             }
             // ... AND THE THIRD READER, which step 3 added: the REWRITTEN chain's rim is a fullscreen stage of its
-            // own (`source/shaders/goo_rim.slang`) and it reads FIVE lanes of this table, so a copy left at the old count
+            // own (`source/shaders/toon/goo_rim.slang`) and it reads FIVE lanes of this table, so a copy left at the old count
             // would give every material another material's rim colour, rim scalars AND rim widths - the loudest
             // form of the silent failure this check exists for. The file is spelled here rather than reached
-            // through `character_forward.slang` because it is not part of that include chain at all.
-            std::ifstream goo_rim_file{VR_TEST_SOURCE_DIR "/source/shaders/goo_rim.slang"};
+            // through `toon/character_forward.slang` because it is not part of that include chain at all.
+            std::ifstream goo_rim_file{VR_TEST_SOURCE_DIR "/source/shaders/toon/goo_rim.slang"};
             CHECK(goo_rim_file.good());
             if (goo_rim_file.good()) {
                 std::string const goo_rim{std::istreambuf_iterator<char>{goo_rim_file}, std::istreambuf_iterator<char>{}};
@@ -457,7 +457,7 @@ namespace {
             // material read another material's lanes and the frame merely looked like a character. The spellings
             // below are what the two sides must agree on, and they are asserted rather than measured on a frame
             // because a wrong lane is invisible in most of them.
-            std::ifstream heap_access_file{VR_TEST_SOURCE_DIR "/source/shaders/heap_access.slang"};
+            std::ifstream heap_access_file{VR_TEST_SOURCE_DIR "/source/shaders/common/heap_access.slang"};
             CHECK(heap_access_file.good());
             if (heap_access_file.good()) {
                 std::string const access{std::istreambuf_iterator<char>{heap_access_file}, std::istreambuf_iterator<char>{}};
@@ -539,7 +539,7 @@ namespace {
     /// table's initial fill in the runtime (which is what an unvisited lane actually holds on the GPU), and the
     /// lookup's fallback in the application.
     void test_the_two_asset_scalar_lanes_hold_on_both_sides() {
-        std::ifstream shader_file{VR_TEST_SOURCE_DIR "/source/shaders/character_forward.slang"};
+        std::ifstream shader_file{VR_TEST_SOURCE_DIR "/source/shaders/toon/character_forward.slang"};
         std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/source/engine/primitive/primitive.cppm"};
         std::ifstream runtime_file{VR_TEST_SOURCE_DIR "/source/engine/runtime/runtime.constructor.cppm"};
         std::ifstream host_file{VR_TEST_SOURCE_DIR "/source/app/main.cpp"};

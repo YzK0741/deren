@@ -51,11 +51,14 @@ second look.
 | `write_` | write into something that already exists (a heap descriptor, a buffer) |
 | `set_` | change one tunable; no work beyond recording the choice |
 | `update_` | refresh per-frame state |
-| `ensure_` | idempotent lazy creation: make it if it is not there yet |
+| `prepare_` | make resources and their bindings ready for a lifecycle phase; reuse existing resources |
 | `record_` | record commands into a command buffer |
 
 They are not interchangeable, and the difference is what makes a call site readable at a glance:
-`set_shadow_cascades` is a knob, `ensure_shadow_resources` allocates, `record_shadow_content` draws.
+`set_shadow_cascades` is a knob, `create_shadow_resources` allocates, `prepare_scene_resources`
+prepares shared resources and bindings for a frame, and `record_shadow_content` draws.
+Prefer these concrete verbs over `ensure_` in new or revised names. Existing `ensure_` helpers
+outside the shared scene-resource initialization path retain their names until their own code is revised.
 
 ## Partitions
 

@@ -15,6 +15,7 @@ module;
 #include <algorithm> // std::min in the resource publication
 #include <bit>       // std::bit_cast for the caster world-matrix hash
 #include <chrono>
+#include <cstdlib>
 #include <cstring> // std::memcpy, for composing a pass's push block
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -202,6 +203,11 @@ namespace deren::engine {
                 this->next_frame_deadline = now; // fell behind: resync, do not bank debt
             }
         }
+
+        // Configuration is now applied. Create shared scene resources before the first frame's
+        // light updates and resource publication, including scenes with no mesh primitives.
+        // Later frames reuse the same resources and bindings.
+        this->prepare_scene_resources();
 
         // THE FRAME OPENS THROUGH THE CONTRACT (abi 13): the walker fuses today's prologue - wait this
         // slot's timeline, latch the slot's previous frame's GPU timings, acquire the next image - and
@@ -980,7 +986,7 @@ namespace deren::engine {
     // `resolve_shadow_pass` because the declaration could name only ONE layer of the map, and the vocabulary that
     // replaced it is a RUN of elements (`render_target::count`) - the declaration now claims every cascade layer
     // the map can hold and the resource table answers how many it HAS this frame, which is the cascade knob's
-    // (`ensure_shadow_resources`). What is left here is what the pass genuinely cannot know: which secondaries to
+    // (`create_shadow_resources`). What is left here is what the pass genuinely cannot know: which secondaries to
     // record into, and what a caster's draw state is (the scene block, the live depth-bias state, the two-sided
     // policy, the secondary's own begin info) - so that arrives as a callback, and the map's edge with it.
     bool runtime::record_shadow_cascade(void* const owner, rhi::command_buffer& secondary, uint32_t const cascade_index, rhi::pipeline* const pipeline, bool const mesh_stage, bool const meshlets) {
@@ -1377,7 +1383,7 @@ namespace deren::engine {
     // The G-buffer pass is the forward opaque pass with a different fragment stage: same vertex
     // stage, same primitives, same scene set, same instancing/skinning/morphing. What changes is
     // where the fragments go (three 1x targets + a 1x depth image instead of the scene color)
-    // and that nothing is lit - see source/shaders/gbuffer.slang.
+    // and that nothing is lit - see source/shaders/scene/gbuffer.slang.
     std::expected<void, std::string> runtime::make_gbuffer_pipeline(std::span<uint8_t const> const fragment_shader_code,
                                                                     std::span<uint8_t const> const mesh_vertex_shader_code, std::span<uint8_t const> const meshlet_vertex_shader_code) {
         // ---- THE VERTEX FORM IS GONE (docs/mesh_shaders.md step 4): the G-buffer pass's surface write is fed by a
@@ -2430,15 +2436,16 @@ namespace deren::engine {
         };
     }
 
-    void runtime::set_gaussian_asset(std::shared_ptr<gaussian_splatting::raster_asset const> asset) noexcept {
+    void runtime::set_gaussian_asset(std::shared_ptr<gaussian_splatting::raster_asset const> asset, glm::mat4 const& model) noexcept {
         this->gaussian_asset = std::move(asset);
         this->gaussian_instances.clear();
+        this->gaussian_gpu_unavailable = false;
+        this->gaussian_path_reported = false;
         if (this->gaussian_asset) {
-            // ONE IDENTITY INSTANCE until the viewer grows transforms: the cloud stands where the asset's own
-            // coordinates put it, and the app frames the camera from the bounds the loader reported.
+            // The application supplies the cloud's placement; CPU and GPU preparation share this instance.
             this->gaussian_instances.push_back(gaussian_splatting::raster_instance{
                 .asset = this->gaussian_asset,
-                .model = glm::mat4{1.0f},
+                .model = model,
                 .stable_id = 0u,
             });
             deren::utility::log("gaussian: the cloud is set for every frame that follows ({} instance(s), {} particle(s))",
@@ -2449,6 +2456,12 @@ namespace deren::engine {
     }
 
     std::shared_ptr<gaussian_splatting::raster_frame const> runtime::make_gaussian_frame() noexcept {
+        if (auto const* mode = std::getenv("DEREN_GAUSSIAN_PATH"); mode && std::string_view{mode} == "gpu")
+            return {};
+        if (!this->gaussian_path_reported && this->gaussian_asset) {
+            deren::utility::log("gaussian path: CPU");
+            this->gaussian_path_reported = true;
+        }
         // THIS SLOT'S SNAPSHOT, and the slot is the ring's position - which is the only index under which retaining
         // one snapshot per frame is correct (see the member's note: the swapchain image index is NOT it).
         std::shared_ptr<gaussian_splatting::raster_frame>& slot = this->gaussian_frames[static_cast<std::size_t>(this->frame_ring().position()) % this->gaussian_frames.size()];
@@ -2467,7 +2480,9 @@ namespace deren::engine {
         // has (4.5 MB at the acceptance cloud, created and released every frame before this) and allocates nothing:
         // the contract's `mapped()` is the write for a `storage_coherent` buffer, and this slot's own frame has
         // completed by the time the ring comes round again, which is the rule that comment states.
+        auto const started = std::chrono::steady_clock::now();
         auto const frame = gaussian_splatting::prepare_raster_frame(this->rhi_face(), this->gaussian_instances, camera, gaussian_splatting::foundation_limits{}, slot.get());
+        this->gaussian_cpu_prepare_ms[static_cast<std::size_t>(this->frame_ring().position())] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         if (!frame) {
             // THE FRAME IS SKIPPED, NOT FAKED, and the reason is the error's: the pass records nothing this frame
             // and the mesh rendering that surrounds it is untouched (the design's own failure rule).
@@ -2483,6 +2498,60 @@ namespace deren::engine {
         // would release the old value while the returned alias still named it. That is why the assignment is gated.
         if (!slot) {
             slot = std::const_pointer_cast<gaussian_splatting::raster_frame>(*frame);
+        }
+        return slot;
+    }
+    std::shared_ptr<gaussian_splatting::gpu_frame const> runtime::make_gaussian_gpu_frame(bool pipelines_ready) noexcept {
+        auto const index = static_cast<std::size_t>(this->frame_ring().position()) % this->gaussian_gpu_frames.size();
+        auto& slot = this->gaussian_gpu_frames[index];
+        // This provider runs after pace_and_acquire completed this slot's previous submission.
+        if (slot) {
+            auto const stats = slot->completed_stats(this->gaussian_gpu_frame_ids[index]);
+            if (stats.errors)
+                deren::utility::log("gaussian GPU frame {} skipped: {} numeric errors", stats.frame_id, stats.errors);
+        }
+        if (!this->gaussian_asset) {
+            slot.reset();
+            return {};
+        }
+        auto const* requested = std::getenv("DEREN_GAUSSIAN_PATH");
+        std::string_view const mode = requested ? std::string_view{requested} : "auto";
+        bool const forced = mode == "gpu";
+        if (mode == "cpu" || (!forced && !gaussian_gpu_auto_enabled))
+            return {};
+        if (this->gaussian_gpu_unavailable)
+            return {};
+        if (!pipelines_ready) {
+            deren::utility::log("gaussian GPU initialization: {} preparation pipelines unavailable", forced ? "FAIL" : "CPU fallback:");
+            this->gaussian_gpu_unavailable = true;
+            return {};
+        }
+        gaussian_splatting::raster_camera camera;
+        camera.view_projection = this->current_ubo.view_proj_unjittered;
+        camera.position = glm::vec3(glm::inverse(this->current_ubo.view)[3]);
+        camera.extent = this->render_extent();
+        auto const started = std::chrono::steady_clock::now();
+        auto prepared = gaussian_splatting::prepare_gpu_frame(this->rhi_face(), this->gaussian_instances, camera, {}, slot.get());
+        this->gaussian_cpu_prepare_ms[index] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+        if (!prepared) {
+            deren::utility::log("gaussian GPU initialization: {} {}", forced ? "FAIL" : "CPU fallback:", prepared.error().message);
+            slot.reset();
+            this->gaussian_gpu_unavailable = true;
+            return {};
+        }
+        slot = *prepared;
+        this->gaussian_gpu_frame_ids[index] = ++this->gaussian_gpu_serial;
+        if (!this->gaussian_path_reported) {
+            deren::utility::log("gaussian path: GPU ({} candidates)", slot->candidate_count());
+            this->gaussian_path_reported = true;
+        }
+        if (this->gaussian_reported_slot_bytes[index] != slot->byte_size()) {
+            this->gaussian_reported_slot_bytes[index] = slot->byte_size();
+            std::uint64_t total_bytes = 0;
+            for (auto const& frame : this->gaussian_gpu_frames)
+                if (frame)
+                    total_bytes += frame->byte_size();
+            deren::utility::log("gaussian GPU memory: slot {} bytes {}, total completed-slot resources {} bytes", index, slot->byte_size(), total_bytes);
         }
         return slot;
     }
@@ -2669,6 +2738,11 @@ namespace deren::engine {
             .make_transparent_frame = [](void* owner) { return static_cast<runtime*>(owner)->make_transparent_frame(); },
             .make_character_forward_frame = [](void* owner) { return static_cast<runtime*>(owner)->make_character_forward_frame(); },
             .make_gaussian_frame = [](void* owner) { return static_cast<runtime*>(owner)->make_gaussian_frame(); },
+            .make_gaussian_gpu_frame = [](void* owner, bool ready) { return static_cast<runtime*>(owner)->make_gaussian_gpu_frame(ready); },
+            .gaussian_timing = [](void* owner) { return gaussian_splatting::gpu_frame_timing{owner, [](void* context, std::uint32_t phase) {
+                                                                                                 if (phase < 3u)
+                                                                                                     static_cast<runtime*>(context)->gpu_mark(static_cast<gpu_mark_id>(static_cast<std::uint32_t>(gpu_mark_id::gaussian_prepare_end) + phase));
+                                                                                             }}; },
             .ensure_gbuffer_targets_sampled =
                 [](void* owner, std::shared_ptr<rhi::command_buffer> cmd, uint32_t image) { return static_cast<runtime*>(owner)->ensure_gbuffer_targets_sampled(cmd, image); },
             .ensure_gbuffer_depth_sampled =
@@ -2752,6 +2826,9 @@ namespace deren::engine {
         }
         frame_results results = {};
         this->frame_wiring.collect(this->frame_wiring.owner, stage, results);
+        if (results.gaussian_record_error != rhi::error::ok) {
+            deren::utility::log("gaussian recording: FAIL error {}; this frame's splats were skipped", static_cast<std::uint32_t>(results.gaussian_record_error));
+        }
         // WHAT THE FRAME LOOP DECIDES ON, once per stage that reports: the composite's GI weight is a frame
         // CONSTANT (the composite reads it while recording), and the two flags are the renderer's per-image
         // bookkeeping.
@@ -2832,6 +2909,16 @@ namespace deren::engine {
         // four bloom levels record with the composite's R16F variant, and a copy per level would be five identical
         // pipelines. Asking every pass by NAME is what keeps this chain-agnostic - the renderer does not know, and
         // does not need to know, which pass owns what; a pass answers for the names it publishes and nothing else.
+        if (this->frame_chain != nullptr) {
+            for (pass::frame_pass const* const provider : this->frame_chain->as_stage().passes) {
+                if (provider != nullptr) {
+                    pass::owned_pipeline const found = provider->named_pipeline(name);
+                    if (found.contract != nullptr) {
+                        return found;
+                    }
+                }
+            }
+        }
         return {};
     }
 
@@ -3195,8 +3282,39 @@ namespace deren::engine {
             // frame, so a session with no cloud configured records exactly what it recorded before this stage
             // existed (which is what keeps the frozen capture scenarios byte-identical).
             pass::stage const gaussian_stage = {.name = "gaussian", .passes = this->gaussian_pass, .marks = false};
+            this->gpu_mark(gpu_mark_id::lighting_end);
             this->prepare_stage(gaussian_stage);
             [[maybe_unused]] pass::run_report const gaussian_report = pass::record_stage(gaussian_stage, this->make_pass_host());
+            if (gaussian_report.recorded != 0) {
+                this->collect_stage("gaussian");
+            }
+            if (gaussian_report.recorded == 0) {
+                this->gpu_mark(gpu_mark_id::gaussian_prepare_end);
+                this->gpu_mark(gpu_mark_id::gaussian_sort_end);
+                this->gpu_mark(gpu_mark_id::gaussian_finalize_end);
+            }
+            this->gpu_mark(gpu_mark_id::gaussian_raster_end);
+            if (this->screenshot_requested && std::getenv("DEREN_GAUSSIAN_HDR_CAPTURE")) {
+                auto* hdr = this->hdr_images[this->current_image_index].get();
+                auto* commands = this->frame_command_buffer().get();
+                auto const extent = this->render_extent();
+                rhi::buffer_desc desc;
+                desc.size = static_cast<std::uint64_t>(extent.width) * extent.height * 8u;
+                desc.usage = rhi::buffer_usage::readback_coherent;
+                this->gaussian_hdr_readback = rhi::object_manager<rhi::buffer>{this->rhi_face().create_buffer(desc)};
+                if (!hdr || !this->gaussian_hdr_readback || commands->barrier(rhi::image_barrier{.resource = hdr, .from = rhi::image_use::color_attachment, .to = rhi::image_use::transfer_source}) != rhi::error::ok) {
+                    deren::utility::log("Gaussian HDR capture: FAIL allocation or entry barrier");
+                } else {
+                    auto const copied = commands->copy_image_to_buffer(*this->gaussian_hdr_readback, *hdr, {.extent = extent});
+                    auto const restored = commands->barrier(rhi::image_barrier{.resource = hdr, .from = rhi::image_use::transfer_source, .to = rhi::image_use::color_attachment});
+                    rhi::buffer_barrier const host{.resource = this->gaussian_hdr_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read};
+                    auto const published = commands->barrier(rhi::barrier_group{.buffers = std::span{&host, 1}});
+                    if (copied != rhi::error::ok || restored != rhi::error::ok || published != rhi::error::ok)
+                        deren::utility::log("Gaussian HDR capture: FAIL copy or publication");
+                    else
+                        this->gaussian_hdr_extent = extent;
+                }
+            }
             this->record_transparent_pass();
 
             // THE TOON CHARACTER STAGE, and its position here is the whole point of it: AFTER the lighting
@@ -3246,8 +3364,13 @@ namespace deren::engine {
             // no G-buffer to start rays from), but every mark is written in order on every frame - the
             // report's labels are positional. Written next to scene_end, so the interval is 0 ms.
             this->gpu_mark(gpu_mark_id::rt_shadow_end);
+            this->gpu_mark(gpu_mark_id::lighting_end);
+            this->gpu_mark(gpu_mark_id::gaussian_prepare_end);
+            this->gpu_mark(gpu_mark_id::gaussian_sort_end);
+            this->gpu_mark(gpu_mark_id::gaussian_finalize_end);
+            this->gpu_mark(gpu_mark_id::gaussian_raster_end);
         }
-        this->gpu_mark(gpu_mark_id::lighting_end);
+        this->gpu_mark(gpu_mark_id::transparent_end);
 
         // TAA resolve: blend the scene color with the reprojected history into the HDR target the post
         // chain reads, then copy the result into the history image for the next frame that renders this
@@ -3744,6 +3867,12 @@ namespace deren::engine {
             return frame_status::present_failed;
         }
         // THE RING ADVANCES THROUGH THE FACE (today's to_next_frame, walked, not poked).
+        auto const now = std::chrono::steady_clock::now();
+        if (this->gaussian_last_present != std::chrono::steady_clock::time_point{})
+            this->gaussian_frame_wall_ms[static_cast<std::size_t>(this->frame_ring().position())] = std::chrono::duration<double, std::milli>(now - this->gaussian_last_present).count();
+        this->gaussian_last_present = now;
+        if (std::getenv("DEREN_GAUSSIAN_RESIZE_TRACE"))
+            deren::utility::log("gaussian completed frame: {}", ++this->gaussian_trace_frames);
         this->frame_ring().walk_to_next();
         return frame_status::proceed;
     }

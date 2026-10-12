@@ -49,12 +49,41 @@
 import deren.promise.rhi;
 import deren.engine.runtime;
 import deren.engine.scene_tree;
+import deren.engine.pass;
+import deren.engine.pass.chain;
 
 // The injection source: the probe backend's test-only factory (see the header's own note).
 #include "probe_backend.hpp"
 
 namespace {
     namespace rhi = deren::promise::rhi;
+    namespace pass = deren::engine::pass;
+    struct shared_pipeline_provider : pass::frame_pass {
+        rhi::pipeline* shared = nullptr;
+        explicit shared_pipeline_provider(rhi::pipeline* pipeline)
+            : shared(pipeline) {
+        }
+        deren::engine::render_resource::pass_io const& io() const noexcept override {
+            static deren::engine::render_resource::pass_io const declaration{.name = "shared_provider"};
+            return declaration;
+        }
+        pass::behaviour const& behaviour() const noexcept override {
+            static pass::behaviour const value{};
+            return value;
+        }
+        pass::owned_pipeline named_pipeline(std::string_view name) const noexcept override {
+            return name == "post_hdr" ? pass::owned_pipeline{.contract = shared} : pass::owned_pipeline{};
+        }
+        std::string_view feature() const noexcept override {
+            return {};
+        }
+        void create(pass::pass_context const&) override {
+        }
+        void on_swapchain_recreated(pass::pass_host const&) override {
+        }
+        void record(pass::resolved_io const&) override {
+        }
+    };
 
     /// The child's modes: each constructs a runtime that MUST abort, and the parent checks which.
     constexpr char const* mismatch_mode = "--child-version-mismatch";
@@ -183,6 +212,7 @@ int main(int const argc, char** const argv) {
         CHECK(root->query_extension(rhi::extension_kind::vulkan_escape) == nullptr);
         auto* const identity = root.get();
         deren::engine::scene_tree::scene scene{};
+        pass::pass_chain shared_chain;
         deren::engine::runtime engine{root, options};
         engine.set_scene(scene);
         CHECK(&engine.rhi_face() == identity);
@@ -197,6 +227,13 @@ int main(int const argc, char** const argv) {
         CHECK(frames->position() == (initial_slot + 1u) % frames->slot_count());
         CHECK(root->begin_commands() == nullptr);
         CHECK(root->query_extension(rhi::extension_kind::vulkan_escape) == nullptr);
+        auto* const shared = reinterpret_cast<rhi::pipeline*>(std::uintptr_t{0x1234});
+        CHECK(engine.resolve_pipeline("post_hdr").contract == nullptr);
+        shared_chain.emplace<shared_pipeline_provider>(nullptr);
+        shared_chain.emplace<shared_pipeline_provider>(shared);
+        engine.set_pass_chain(shared_chain, {});
+        CHECK(engine.resolve_pipeline("post_hdr").contract == shared);
+        CHECK(engine.resolve_pipeline("unknown_shared_pipeline").contract == nullptr);
         return deren::vk_test::finish("portable_runtime_frame");
     }
 

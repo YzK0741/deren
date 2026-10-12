@@ -146,6 +146,9 @@ jobs:
             source/engine/gaussian_splatting/raster.cppm \
             source/engine/gaussian_splatting/raster.cpp \
             source/engine/gaussian_splatting/raster.gpu.cpp \
+            source/engine/gaussian_splatting/gpu_frame.cppm \
+            source/engine/gaussian_splatting/gpu_frame.cpp \
+            source/engine/gaussian_splatting/gpu_probe.cpp \
             source/engine/gaussian_splatting/probe.cppm \
             source/engine/gaussian_splatting/probe.cpp \
             source/engine/pass/gaussian_splatting.cppm \
@@ -317,7 +320,7 @@ jobs:
         # anchors resolving, fences balanced, quoted heap slots declared).
         run: >-
           cmake --build build-asan --target
-          test_app_config test_utility test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_toon_material_sidecar
+          test_app_config test_utility test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar
           test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs
           test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection
 

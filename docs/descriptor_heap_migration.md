@@ -487,7 +487,7 @@ descriptor heap: slot grid at 1048576 (1024 slots x 64 B; textures 0 materials 5
 ```
 
 - The resource grid's base is **1 MiB** and its stride **64 B**; the slot numbers (relative to that base) are
-  the constants in `source/shaders/heap_slots.slang` and `core::heap_slots`. 703 of the 1024 slots are named.
+  the constants in `source/shaders/common/heap_slots.slang` and `core::heap_slots`. 703 of the 1024 slots are named.
 - The SAMPLER heap is a second grid at a **64 KiB** base with the device's 32 B stride: the API caps that heap
   at 128 KiB, so it cannot use the resource grid's 1 MiB. Refused unless the device's reserved window fits
   below the base and its sampler stride is 32 B.

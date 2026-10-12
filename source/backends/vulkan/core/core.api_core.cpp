@@ -807,7 +807,7 @@ namespace deren::vulkan {
         // construction). Until this batch nobody served the ability and the bit was therefore not set -
         // and the engine's heap probes called the device entry point off `core` instead; that is the
         // consumer this bit was waiting for.
-        return rhi::to_bits(rhi::extension_kind::vulkan_escape) | rhi::to_bits(rhi::extension_kind::device_address) |
+        return (this->gpu_sorting_available ? rhi::to_bits(rhi::extension_kind::gpu_sorting) : 0u) | rhi::to_bits(rhi::extension_kind::vulkan_escape) | rhi::to_bits(rhi::extension_kind::device_address) |
                (this->heap_view.ready() ? rhi::to_bits(rhi::extension_kind::descriptor_heap) : 0u) |
                (this->host_image_copy_available ? rhi::to_bits(rhi::extension_kind::host_image_copy) : 0u) |
                // AND THE DEVICE'S OWN FACTS, SERVABLE THE MOMENT THE DEVICE EXISTS (a device with no mesh shader
@@ -1082,6 +1082,9 @@ namespace deren::vulkan {
         // (core.constructor.cppm, gate G2) and on the probe backend in source/tests/test_dynamic_link.cpp
         // (G1). Every kind this backend announces answers with an object whose kind() is the kind that
         // was asked for, and every kind it does not announce answers nullptr.
+        if (kind == rhi::extension_kind::gpu_sorting && this->gpu_sorting_available) {
+            return &this->sorting_view;
+        }
         if (kind == rhi::extension_kind::vulkan_escape) {
             return &this->escape_view;
         }
@@ -1198,6 +1201,12 @@ namespace deren::vulkan {
         if (rhi::has_flag(desc.flags, rhi::buffer_flag::storage)) {
             extra_usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
         }
+        if (rhi::has_flag(desc.flags, rhi::buffer_flag::transfer_destination)) {
+            extra_usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        }
+        if (rhi::has_flag(desc.flags, rhi::buffer_flag::transfer_source)) {
+            extra_usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        }
         if (rhi::has_flag(desc.flags, rhi::buffer_flag::indirect)) {
             extra_usage |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
         }
@@ -1226,7 +1235,9 @@ namespace deren::vulkan {
         }
         answer->size_bytes = desc.size;
         answer->addressable = rhi::has_flag(desc.flags, rhi::buffer_flag::device_address);
+        answer->readback = desc.usage == rhi::buffer_usage::readback_coherent;
         answer->declared_flags = desc.flags;
+        answer->owner = this;
 
         // THE DETAIL IS READ, NEVER KEPT: `get_buffer_detail` answers with a pointer into the
         // allocator's own map and has already released its lock by the time it returns, so what is
@@ -2581,6 +2592,41 @@ namespace deren::vulkan {
                                                           rhi::image const& source,
                                                           rhi::image_copy_region const& region) noexcept {
         core* const self = this->owner;
+        if (source.type == "deren_image_vulkan") {
+            if (!self || !this->recording || this->native() == VK_NULL_HANDLE)
+                return rhi::error::not_ready;
+            if (destination.type != "deren_buffer_vulkan")
+                return rhi::error::invalid_argument;
+            {
+                std::lock_guard const lock(self->contract_images_mutex);
+                if (!self->contract_images.contains(&source))
+                    return rhi::error::invalid_argument;
+            }
+            auto const& image = static_cast<core::owned_image const&>(source);
+            auto const& buffer = static_cast<core::owned_buffer const&>(destination);
+            if (image.owner != self || buffer.owner != self || !buffer.readback)
+                return rhi::error::invalid_argument;
+            if (!rhi::has_flag(image.declared_flags, rhi::image_flag::transfer_source))
+                return rhi::error::unsupported;
+            auto const bpp = rhi::bytes_per_pixel(image.declared_format);
+            if (!bpp || region.mip_level >= image.mip_levels || region.base_array_layer >= image.array_layers ||
+                !region.array_layer_count || region.array_layer_count > image.array_layers - region.base_array_layer ||
+                !region.extent.width || !region.extent.height || region.extent.depth != 1u || region.offset_z != 0u)
+                return rhi::error::invalid_argument;
+            auto const width = std::max(1u, image.width >> region.mip_level);
+            auto const height = std::max(1u, image.height >> region.mip_level);
+            if (region.offset_x > width || region.extent.width > width - region.offset_x || region.offset_y > height || region.extent.height > height - region.offset_y)
+                return rhi::error::invalid_argument;
+            std::uint64_t needed = static_cast<std::uint64_t>(region.extent.width) * region.extent.height;
+            if (needed > buffer.size_bytes / bpp / region.array_layer_count)
+                return rhi::error::invalid_argument;
+            VkBufferImageCopy copy{};
+            copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, region.mip_level, region.base_array_layer, region.array_layer_count};
+            copy.imageOffset = {static_cast<std::int32_t>(region.offset_x), static_cast<std::int32_t>(region.offset_y), 0};
+            copy.imageExtent = {region.extent.width, region.extent.height, 1u};
+            vkCmdCopyImageToBuffer(this->native(), image.native_handle, VK_IMAGE_LAYOUT_GENERAL, buffer.native, 1u, &copy);
+            return rhi::error::ok;
+        }
         // WHAT CAN SAY NO, in the contract's own vocabulary (batch-2 spec §6.1): `unsupported` = this
         // surface cannot be a copy source at all; `invalid_argument` = the region does not fit, or the
         // destination is too small; `not_ready` = there is no frame to record into.
@@ -2660,6 +2706,18 @@ namespace deren::vulkan {
             case rhi::buffer_use::shader_write:
                 stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
                 access = VK_ACCESS_2_SHADER_WRITE_BIT;
+                return true;
+            case rhi::buffer_use::indirect_read:
+                stage = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+                access = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+                return true;
+            case rhi::buffer_use::shader_read_write:
+                stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                access = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+                return true;
+            case rhi::buffer_use::host_read:
+                stage = VK_PIPELINE_STAGE_2_HOST_BIT;
+                access = VK_ACCESS_2_HOST_READ_BIT;
                 return true;
             case rhi::buffer_use::transfer_source:
                 stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
@@ -3792,6 +3850,29 @@ namespace deren::vulkan {
             this->storage->release();
         }
     }
+    rhi::error core::frame_commands::draw_indirect(rhi::buffer const& arguments, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) {
+        static_assert(sizeof(VkDrawIndirectCommand) == sizeof(rhi::draw_indirect_command));
+        if (this->owner == nullptr || !this->recording || this->native() == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        if (arguments.type != "deren_buffer_vulkan") {
+            return rhi::error::invalid_argument;
+        }
+        auto const& owned = static_cast<owned_buffer const&>(arguments);
+        if (owned.owner != this->owner || !rhi::has_flag(owned.declared_flags, rhi::buffer_flag::indirect)) {
+            return rhi::error::invalid_argument;
+        }
+        auto const valid = rhi::validate_draw_indirect_range(owned.size_bytes, offset, count, stride);
+        if (valid != rhi::error::ok || count == 0u) {
+            return valid;
+        }
+        // One command at a time also supports devices without multiDrawIndirect enabled.
+        for (std::uint32_t i = 0; i < count; ++i) {
+            vkCmdDrawIndirect(this->native(), owned.native, offset + static_cast<std::uint64_t>(i) * stride, 1u, stride);
+        }
+        return rhi::error::ok;
+    }
+
     rhi::error core::frame_commands::draw_mesh_tasks_indirect(rhi::buffer const& argument_buffer, std::uint64_t const offset, std::uint32_t const count, std::uint32_t const stride) {
         // THE CONTRACT'S RECORD LAYOUT IS THE API'S, AND THIS IS WHERE THAT IS PROVEN: callers write
         // `rhi::mesh_task_command` records into their argument buffer and pass `mesh_task_command_size` as the

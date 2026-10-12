@@ -454,6 +454,9 @@ namespace {
             this->last_mesh_tasks = {groups_x, groups_y, groups_z};
         }
 
+        [[nodiscard]] rhi::error draw_indirect(rhi::buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override {
+            return rhi::error::unsupported;
+        }
         [[nodiscard]] rhi::error draw_mesh_tasks_indirect(rhi::buffer const& handle, std::uint64_t const offset, std::uint32_t const count, std::uint32_t const stride) noexcept override {
             this->last_indirect_mesh = {&handle, offset, count, stride};
             return rhi::error::ok;

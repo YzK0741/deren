@@ -1,0 +1,7 @@
+.vscode
+.clangd
+
+/src/generated/
+
+/build/
+/benchmarks/

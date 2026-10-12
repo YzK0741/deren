@@ -1,9 +1,9 @@
 // The scene pass's implementation: the rendering instance, the parallel segments, and the draw loop that used
-// to live in `runtime::record_opaque_scene` / `record_main_segment` / `sub_render_task`. Moved unchanged in
-// behaviour - same attachment order, same clear values, same segment count rule, same per-segment bind and
+// to live in `runtime::record_opaque_scene` / `record_main_segment` / `sub_render_task`. Keeps the
+// same attachment order, same clear values, same segment count rule, same per-segment bind and
 // draw order, same secondary inheritance - so the capture gate decides the move on the twelve scenarios, which
 // between them cover the deferred surface write, the forward shading path and the lighting stage that reads the
-// depth this pass writes.
+// depth this pass writes. Clearing is unconditional for a valid frame, including when no mesh is visible.
 
 module;
 
@@ -109,7 +109,9 @@ namespace deren::engine::pass {
     }
 
     void scene_pass::record(resolved_io const& io) {
-        if (this->pass_frame.make_environment == nullptr || this->pass_frame.segments.empty() || this->pass_frame.leaves.empty() || io.targets.empty() || io.list == nullptr) {
+        bool const has_draws = !this->pass_frame.leaves.empty();
+        if (io.targets.empty() || io.list == nullptr || this->pass_frame.extent.width == 0 || this->pass_frame.extent.height == 0 ||
+            (has_draws && (this->pass_frame.make_environment == nullptr || this->pass_frame.segments.empty()))) {
             return; // the runner resolves all of this or skips the pass (see runtime::resolve_scene_pass)
         }
 
@@ -148,10 +150,16 @@ namespace deren::engine::pass {
             .colors = std::span<rhi::color_attachment const>(color_attachments.data(), color_count),
             .depth = depth_attachment,
             .has_depth = has_depth,
-            .secondary_contents = true, // the raw call passed VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT
+            .secondary_contents = has_draws,
         };
         if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
             return; // a refused scope would leave the targets in a state nobody declared
+        }
+        if (!has_draws) {
+            // The clear is frame initialization, even when culling removed every mesh. Lighting and splats
+            // still consume these targets; retaining their previous contents accumulates ghosts on camera motion.
+            io.list->end_rendering();
+            return;
         }
 
         // THE SEGMENTS: the renderer's own rule, kept exactly - one segment when there is only one, or when

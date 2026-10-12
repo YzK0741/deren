@@ -184,7 +184,13 @@ namespace deren::engine {
             // The SNAPSHOT is the runtime's, because it owns the camera and the frame's completion points (see
             // make_gaussian_frame); an empty one means this frame draws no splats, which the pass treats as a no-op.
             if (self.gaussian != nullptr) {
-                self.gaussian->set_frame(services.make_gaussian_frame(services.owner));
+                if (services.gaussian_timing)
+                    self.gaussian->set_timing(services.gaussian_timing(services.owner));
+                auto gpu = services.make_gaussian_gpu_frame ? services.make_gaussian_gpu_frame(services.owner, self.gaussian->gpu_ready()) : nullptr;
+                if (gpu)
+                    self.gaussian->set_gpu_frame(std::move(gpu));
+                else
+                    self.gaussian->set_frame(services.make_gaussian_frame(services.owner));
             }
         } else if (stage == "character_forward") {
             // NO FRAME-ORDER DUTY of its own: this stage's two declared targets were both published long before
@@ -288,6 +294,10 @@ namespace deren::engine {
 
     void render_start_demo::collect(void* const owner, std::string_view const stage, runtime::frame_results& out) {
         render_start_demo& self = *static_cast<render_start_demo*>(owner);
+        if (stage == "gaussian") {
+            out.gaussian_record_error = self.gaussian ? self.gaussian->last_error() : deren::promise::rhi::error::ok;
+            return;
+        }
         if (stage == "megalights") {
             // THE ONE ANSWER THIS STAGE GIVES THE FRAME LOOP: whether the temporal resolve wrote its accumulation,
             // which is what sets this IMAGE's history flag for the next frame. The chain's other answer

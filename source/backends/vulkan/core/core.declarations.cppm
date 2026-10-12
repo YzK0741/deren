@@ -85,7 +85,7 @@ namespace deren::vulkan {
 
     /**
      * @ingroup vulkan_core
-     * @brief agreed flat layout of the scene block, shared by every pipeline (see source/shaders/pbr.slang):
+     * @brief agreed flat layout of the scene block, shared by every pipeline (see source/shaders/scene/pbr.slang):
      *        set 0 binding 0 = CameraUBO (uniform buffer; one per frame slot, each slot's block
      *              points at its own - static, no per-frame descriptor writes),
      *              binding 1 = sampler2D textures[] (runtime array, partially bound + non-uniform index),
@@ -172,7 +172,7 @@ namespace deren::vulkan {
     /**
      * @ingroup vulkan_core
      * @brief formats of the G-buffer targets, in attachment order (= the fragment output locations
-     *        of source/shaders/gbuffer.slang), and the reason the deferred path is cheap to store:
+     *        of source/shaders/scene/gbuffer.slang), and the reason the deferred path is cheap to store:
      *        - 0 RGBA8_UNORM: albedo.rgb (base color, linear) + metallic in a
      *        - 1 RGBA16F: world normal.xyz (no encoding - the conservative layout trades 4 bytes per
      *          pixel for not having to reason about octahedral precision) + roughness in a
@@ -233,7 +233,7 @@ namespace deren::vulkan {
      *       that records more marks than this silently stops marking (the extra passes are simply
      *       not measured) instead of overflowing into the next slot's range.
      */
-    export inline constexpr uint32_t gpu_timing_mark_capacity = 16;
+    export inline constexpr uint32_t gpu_timing_mark_capacity = 32;
 
     /**
      * @ingroup vulkan_core
@@ -357,6 +357,7 @@ namespace deren::vulkan {
             void draw_indexed(std::uint32_t index_count, std::uint32_t instance_count, std::uint32_t first_index, std::int32_t vertex_offset, std::uint32_t first_instance) noexcept override;
             void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept override;
             void draw_mesh_tasks(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error draw_indirect(deren::promise::rhi::buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override;
             [[nodiscard]] deren::promise::rhi::error draw_mesh_tasks_indirect(deren::promise::rhi::buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) override;
             /// abi 24: the ray-tracing LAUNCH, through the entry point resolved once at startup
             /// (`core::ray_trace_launch`). It records nothing when the device published no `vkCmdTraceRaysKHR`.
@@ -565,6 +566,8 @@ namespace deren::vulkan {
             /// when it did not, because Vulkan only gives an address to a buffer created with the usage
             /// - asking for one this object never declared is the caller's bug, not a backend guess.
             bool addressable = false;
+            bool readback = false;
+            core* owner = nullptr;
             /// the capability bits the descriptor declared, kept for the diagnostic a failed address
             /// query needs (nothing else reads it)
             deren::promise::rhi::buffer_flags declared_flags = deren::promise::rhi::no_buffer_flags;
@@ -1028,6 +1031,15 @@ namespace deren::vulkan {
         std::mutex contract_command_buffers_mutex;
         std::unordered_set<deren::promise::rhi::command_buffer const*> contract_command_buffers;
         /// the tier-2 address object `query_extension(device_address)` answers with
+        struct frame_gpu_sorting final : deren::promise::rhi::gpu_sorting {
+            frame_gpu_sorting() noexcept
+                : deren::promise::rhi::gpu_sorting("deren_gpu_sorting_vulkan") {
+            }
+            core* owner = nullptr;
+            [[nodiscard]] deren::promise::rhi::radix_sorter* create_radix_sorter() override;
+        };
+        bool gpu_sorting_available = false;
+        frame_gpu_sorting sorting_view;
         buffer_address_view address_view;
         /// the tier-2 host-copy object `query_extension(host_image_copy)` answers with (③-D/E step 2) -
         /// the first thing that serves that ability, which the contract had announced from the start

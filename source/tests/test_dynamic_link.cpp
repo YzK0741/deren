@@ -38,6 +38,19 @@ namespace {
     namespace fs = std::filesystem;
     namespace rhi = deren::promise::rhi;
 
+    // Indirect commands must reject misalignment, truncated records and overflow before recording.
+    static_assert(sizeof(rhi::draw_indirect_command) == 16u);
+    static_assert(offsetof(rhi::draw_indirect_command, instance_count) == 4u);
+    static_assert(rhi::validate_draw_indirect_range(16u, 0u, 1u, 16u) == rhi::error::ok);
+    static_assert(rhi::validate_draw_indirect_range(36u, 4u, 2u, 16u) == rhi::error::ok);
+    static_assert(rhi::validate_draw_indirect_range(0u, 0u, 0u, 16u) == rhi::error::ok);
+    static_assert(rhi::validate_draw_indirect_range(16u, 1u, 1u, 16u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_draw_indirect_range(15u, 0u, 1u, 16u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_draw_indirect_range(32u, 0u, 2u, 12u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_draw_indirect_range(40u, 0u, 2u, 17u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_draw_indirect_range(UINT64_MAX, UINT64_MAX - 3u, 1u, 16u) == rhi::error::invalid_argument);
+    static_assert(rhi::has_ability(rhi::all_abilities(), rhi::extension_kind::gpu_sorting));
+
     static_assert(std::is_same_v<decltype(rhi::object::type), std::string_view const>);
 
     // 推送常量的地址与长度都以4字节为单位；越界检查必须避免加法溢出。
@@ -176,6 +189,9 @@ namespace {
         }
         void draw_mesh_tasks(std::uint32_t, std::uint32_t, std::uint32_t) noexcept override {
         }
+        [[nodiscard]] rhi::error draw_indirect(rhi::buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override {
+            return rhi::error::unsupported;
+        }
         [[nodiscard]] rhi::error draw_mesh_tasks_indirect(rhi::buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override {
             return rhi::error::invalid_argument;
         }
@@ -301,7 +317,7 @@ namespace {
         // interface, which is what the number exists for. The PODs of the same batch (the compute pipeline
         // spelling, the barrier stage hint, the global memory barrier) are `struct_size`-guarded appends and
         // do not move it.
-        CHECK(rhi::abi_version == 31u);
+        CHECK(rhi::abi_version == 32u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 

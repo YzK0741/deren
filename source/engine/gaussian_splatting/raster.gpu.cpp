@@ -1,6 +1,7 @@
 module;
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <expected>
 #include <glm/glm.hpp>
@@ -202,9 +203,11 @@ namespace deren::engine::gaussian_splatting {
             result->reference_data.insert(result->reference_data.end(), chunk.references.begin(), chunk.references.end());
         }
         result->push.visible_count = static_cast<std::uint32_t>(result->reference_data.size());
-        deren::utility::log("gaussian frame cost: gather {:.1f} ms, sort {:.1f} ms, project+SH {:.1f} ms ({} visible of {})",
-                            std::chrono::duration<double, std::milli>(sort_started - frame_started).count(), std::chrono::duration<double, std::milli>(sorted_at - sort_started).count(),
-                            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - sorted_at).count(), result->reference_data.size(), sorted->size());
+        if (std::getenv("DEREN_GAUSSIAN_CPU_TRACE")) {
+            deren::utility::log("gaussian frame cost: gather {:.1f} ms, sort {:.1f} ms, project+SH {:.1f} ms ({} visible of {})",
+                                std::chrono::duration<double, std::milli>(sort_started - frame_started).count(), std::chrono::duration<double, std::milli>(sorted_at - sort_started).count(),
+                                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - sorted_at).count(), result->reference_data.size(), sorted->size());
+        }
         if (result->push.visible_count == 0) {
             return std::shared_ptr<raster_frame const>{std::move(result)};
         }

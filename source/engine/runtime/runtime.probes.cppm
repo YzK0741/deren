@@ -72,7 +72,7 @@ namespace deren::engine {
     }
 
     void runtime::run_heap_probe(uint32_t const texture_slot) {
-        // ---- THE HEAP-NATIVE PROBE (see source/shaders/heap_probe_comp.slang and docs/descriptor_heap_migration.md) ----
+        // ---- THE HEAP-NATIVE PROBE (see source/shaders/debug/heap_probe_comp.slang and docs/descriptor_heap_migration.md) ----
         //
         // The whole migration assumes four things about the native path, and this is where they stop being
         // assumptions: a pipeline created with VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT and NO layout, a
@@ -175,7 +175,7 @@ namespace deren::engine {
     }
 
     void runtime::run_heap_graphics_probe(uint32_t const material_slot, bool const mesh_shader) {
-        // ---- THE GRAPHICS HALF OF THE HEAP-NATIVE PROBE (see source/shaders/heap_probe.slang) ----
+        // ---- THE GRAPHICS HALF OF THE HEAP-NATIVE PROBE (see source/shaders/debug/heap_probe.slang) ----
         //
         // The compute probe proved the mechanism for a compute pipeline; this is the same question for the kind
         // the frame is mostly made of. It renders into a target CLEARED TO BLACK first, so a white pixel can only

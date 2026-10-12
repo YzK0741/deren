@@ -2,7 +2,7 @@
 // module: deren.engine.runtime:constructor  - construction, initialisation and resource creation
 //
 // The two contiguous runs of runtime.cpp that BUILD a runtime rather than drive one: the constructors
-// and the whole init/ensure run (init_scene_resources through ensure_scene_heap_slots), then
+// and the resource initialization (init_scene_resources through prepare_scene_resources), then
 // write_light_and_shadow_bindings, set_ibl and register_material. What stayed behind runs per frame or
 // is a diagnostic (the two heap probes, which get their own partition).
 //
@@ -437,11 +437,11 @@ namespace deren::engine {
         this->reset_image_generation_state();
         // (The furnace cube is a new image too - its level is part of the generation reset above.)
         // NOTE: the shadow resources (map layers + light UBO buffers) are created LAZILY, by
-        // ensure_shadow_resources() from ensure_scene_heap_slots(). The shadow map is a layered 2D array
+        // create_shadow_resources() from prepare_scene_resources(). The shadow map is a layered 2D array
         // whose layer count is [render] shadow_cascades, and the app config that carries it is applied
         // after this constructor returns - creating them here would freeze the count at its default.
-        // Everything between here and the first scene set works with them empty (the light-buffer
-        // writes are guarded, and nothing samples the shadow map before a scene set exists).
+        // Setup can leave these empty. The first frame prepares them before updating light
+        // buffers or publishing resources, even when no geometry was imported.
     }
 
     // The destructor body runs before member destruction, so vulkan_core (and the VkDevice it
@@ -702,7 +702,7 @@ namespace deren::engine {
                 // `GlobalShadowBrightnessAdjustment` is `-1.8` on the cloth - and a `-1` neutral would make the
                 // stage read those authored values as "not stated" (see `goo_lane_absent` in the shader).
                 // The stage resolves each sentineled component to its group's default - see
-                // `toon_colour_lane::goo_base_colour` .. `goo_direct_occlusion` and `source/shaders/goo_toon.slang`.
+                // `toon_colour_lane::goo_base_colour` .. `goo_direct_occlusion` and `source/shaders/toon/goo_toon.slang`.
                 neutral_colours[material * static_cast<size_t>(deren::engine::toon_colour_lane::count) + static_cast<size_t>(deren::engine::toon_colour_lane::goo_base_colour)] =
                     glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
                 neutral_colours[material * static_cast<size_t>(deren::engine::toon_colour_lane::count) + static_cast<size_t>(deren::engine::toon_colour_lane::goo_direct_occlusion)] =
@@ -1564,7 +1564,7 @@ namespace deren::engine {
         }
     }
 
-    void runtime::ensure_shadow_resources() {
+    void runtime::create_shadow_resources() {
         if (!this->shadow_images.empty() && this->shadow_allocated_layers == this->shadow_cascades) {
             return; // already created for this cascade count
         }
@@ -1689,7 +1689,7 @@ namespace deren::engine {
         }
     } // namespace
 
-    void runtime::ensure_cluster_buffers() {
+    void runtime::create_cluster_buffers() {
         if (!this->cluster_count_buffers.empty()) {
             return;
         }
@@ -1737,7 +1737,7 @@ namespace deren::engine {
         // the same slot worked. See docs/slang_migration.md, "the storage class that has to match".
         write_heap_scene_buffer(this->vulkan_core, this->camera_buffers, deren::engine::render_layout::heap_slots::scene_camera, sizeof(camera_ubo), rhi::descriptor_type::storage_buffer);
         // ... and the rest of the per-frame arrays, from the same place and with the SAME sizes the scene block
-        // writes them with (see ensure_scene_heap_slots's write_buffer_binding calls): motion (binding 13), skin (9) and
+        // writes them with (see prepare_scene_resources's write_buffer_binding calls): motion (binding 13), skin (9) and
         // morph (10), each a two-slot array whose slot is the frame's. Bound here rather than in the per-slot loop
         // because a heap descriptor is an ADDRESS: the buffers are allocated once, so their addresses do not
         // change per frame, and only the CONTENTS are rewritten (see the per-frame slot rule in runtime.cppm).
@@ -1757,16 +1757,14 @@ namespace deren::engine {
         }
     }
 
-    void runtime::ensure_scene_heap_slots() {
+    void runtime::prepare_scene_resources() {
         if (!this->cluster_count_buffers.empty()) {
-            return; // the scene's heap slots are already written (the first primitive asked for them)
+            return; // shared resources and heap slots were prepared by an earlier frame
         }
-        // THERE IS NO SCENE SET TO ENSURE ANY MORE - what this function still does is what the heap needs: the
-        // shadow map and the clustered-light buffers must exist before the heap slots that name them are written,
-        // and their creation is deferred to here so the app config that sets the cascade count has already run
-        // (see the constructor note).
-        this->ensure_shadow_resources();
-        this->ensure_cluster_buffers();
+        // A frame needs these resources even when no mesh was imported. Defer allocation until
+        // application configuration is applied, then publish their heap bindings once.
+        this->create_shadow_resources();
+        this->create_cluster_buffers();
         // binding 7 (light UBO, per-slot) is bound into each slot's heap block here, together with the shadow map's
         // grid slot.
         this->write_light_and_shadow_bindings();
@@ -2020,7 +2018,7 @@ namespace deren::engine {
             // so an sRGB decode would bend both of them.
             std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::split_normal)], rhi::image_format::rgba8_unorm},
             // THE GOO IRIS BALL IS COLOUR, so it takes the ramps' treatment rather than the masks': the reference
-            // samples it and adds it to the albedo (`source/shaders/goo_toon.slang`), i.e. it is light, not a number.
+            // samples it and adds it to the albedo (`source/shaders/toon/goo_toon.slang`), i.e. it is light, not a number.
             std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_matcap05)], rhi::image_format::rgba8_srgb},
             // THE GOO BASE RAMP IS COLOUR, so it takes the treatment the reference gives it rather than the
             // masks': `images[...].colorspace = 'sRGB'` on all seven `_RD` images means Blender LINEARIZES each

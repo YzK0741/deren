@@ -34,7 +34,7 @@ Additional checks:
 
 Do not infer that the old corruption is resolved solely from these results. Several genuine resizes were already visually clean before this patch; the reproducible before/after difference is the validation error. The hidden-window checks also do not cover every interaction with a visible desktop window.
 
-Independent read-only review found the two barrier changes sound and no blocking issues. Its minor observation about fast clouds and spaced resize thresholds was fixed and checked with the one-splat cloud. The user subsequently reported that resizing appears fixed, then reported model ghosting and an abnormal background when rotating the camera; that camera-dependent issue is a separate follow-up investigation.
+Independent read-only review found the two barrier changes sound and no blocking issues. Its minor observation about fast clouds and spaced resize thresholds was fixed and checked with the one-splat cloud. The user subsequently reported that resizing appears fixed, then reported model ghosting and an abnormal background when rotating the camera. That separate issue was traced to missing scene clears when all opaque meshes are culled; see [the camera-clear report](2026-10-11-gaussian-camera-clears.md).
 
 ## Repeating the GPU check
 

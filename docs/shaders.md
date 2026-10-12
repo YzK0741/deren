@@ -4,9 +4,26 @@
  *        records, and how they are compiled.
  *
  * The renderer has no shader reflection and no runtime shader compilation: `dsh`-style `.spv`
- * files sit next to their sources, are loaded by `deren::chores::setup_pipeline()` and are turned into
+ * files live in the build's `shaders/` directory beside the executable, are loaded by `deren::chores::setup_pipeline()` and are turned into
  * `vk_pipeline` objects through the `runtime::make_*_pipeline()` calls (which own the render
  * state: color format, depth, and the shared scene pipeline layout).
+ *
+ * @section shader_folders Source folders
+ *
+ * Shader sources under `source/shaders/` are grouped by purpose:
+ * - `common/`: heap access, material records, surface gathering and texture groups.
+ * - `geometry/`: shared mesh geometry, skinning and alpha-mask baking.
+ * - `scene/`: PBR geometry, G-buffer and unlit stages.
+ * - `lighting/`: shared shading, IBL, sky, clustered lights, shadows and Megalights.
+ * - `toon/`: character shading, outlines, overlays and toon parameters.
+ * - `gaussian/`: Gaussian preparation, projection cache and rasterization.
+ * - `post/`: composition, TAA, FXAA and upscaling.
+ * - `debug/`: G-buffer inspection and heap, texture and traversal probes.
+ *
+ * Includes use paths relative to `source/shaders/`; the compiler keeps that root as
+ * its include search directory. `compile_shaders.ps1` and `compile_shaders.sh` remain
+ * at the root. Compiled `.spv` names remain flat and unchanged, so the runtime loads
+ * the same names. CMake's include dependency list and source checks cover subfolders.
  *
  * @section shader_passes The pass chain
  *
@@ -92,7 +109,7 @@
  *
  * The motion vectors carry CAMERA motion, RIGID object motion and a DEFORMING mesh's own movement. The
  * camera half is the unjittered view-projection pair; the object half is binding 13, where the geometry
- * stage (`pbr_shade_vertex` in `source/shaders/pbr.slang` - one body for every entry in the file) reads the world
+ * stage (`pbr_shade_vertex` in `source/shaders/scene/pbr.slang` - one body for every entry in the file) reads the world
  * matrix this draw had one frame ago (`runtime::advance_motion_transforms()` publishes
  * it, once per frame, before anything is recorded) and passes the resulting previous world position down
  * as `v_prev_world_pos`. A vertex's movement INSIDE its own object space is the second half of that
@@ -115,7 +132,7 @@
  * @section shader_surface The shared material-surface gather (surface.slang)
  *
  * `pbr.frag` and `gbuffer.frag` answer the same question - "what is this surface made of?" - and both
- * do it through `gather_surface()` in `source/shaders/surface.slang`: the material table lookup, the glTF
+ * do it through `gather_surface()` in `source/shaders/common/surface.slang`: the material table lookup, the glTF
  * alpha tests (the MASK `discard` lives in there, so no pass can forget it), the tangent-space normal
  * map with the double-sided flip, and the texture-derived factors. The include declares the descriptor
  * bindings and the push constant block it depends on (bindings 1 and 5, the shared material push
@@ -123,13 +140,13 @@
  *
  * @section shader_shading The shared lighting (shading.slang)
  *
- * `shade_surface()` in `source/shaders/shading.slang` is the engine's SINGLE lighting entry point: the
+ * `shade_surface()` in `source/shaders/lighting/shading.slang` is the engine's SINGLE lighting entry point: the
  * directional sun through the shadow test, the punctual lights, the split-sum IBL ambient, the
  * selectable BRDF/diffuse presets and the cel-shading bands. It takes a `shade_input` - world position,
  * normal, albedo, emissive, metallic, roughness, AO - which the caller fills from whatever it has (the
  * deferred path from G-buffer texels, a forward-style stage from its interpolated fragment inputs), so
  * the lighting cannot tell where the surface came from. The include reaches the resources it needs
- * through the descriptor heap, with `source/shaders/heap_slots.slang` naming the slots (the camera UBO, the IBL
+ * through the descriptor heap, with `source/shaders/common/heap_slots.slang` naming the slots (the camera UBO, the IBL
  * maps, the light UBO and the shadow map).
  *
  * This section used to read ONE FUNCTION, TWO PATHS - `pbr.frag` (forward) and `deferred.frag`
@@ -148,7 +165,7 @@
  *
  * @section shader_clusters Clustered light culling (M5)
  *
- * `source/shaders/light_cluster.slang` runs once per frame on the graphics queue, one invocation per
+ * `source/shaders/lighting/light_cluster.slang` runs once per frame on the graphics queue, one invocation per
  * cluster: the screen cut into 64 px tiles and 16 EXPONENTIAL depth slices. It rebuilds the
  * cluster's view-space box (its tile's corner rays unprojected at the slice's near and far depth)
  * and appends every light whose bounding sphere intersects that box to the cluster's fixed-capacity

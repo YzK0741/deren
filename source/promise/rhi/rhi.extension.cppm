@@ -66,6 +66,7 @@ export namespace deren::promise::rhi {
     // source/promise/rhi/rhi.api_core.cppm: an ability is a tier-2 view of the same backend, so it
     // speaks about the same objects.
     struct api_core;
+    struct radix_sorter;
     struct image_view_desc;
     struct descriptor_heap_properties;
     struct heap_bindings;
@@ -113,6 +114,7 @@ export namespace deren::promise::rhi {
         /// acceleration-structure numbers - while the BACKEND had already made the same queries to decide what
         /// to enable. Asking it is both the smaller code and the only shape a second backend can serve.
         device_capabilities = 1u << 6,
+        gpu_sorting = 1u << 8,         ///< stable ascending uint32 key/value radix sort
         shader_group_access = 1u << 7, ///< portable SBT group data for a pipeline
     };
 
@@ -132,7 +134,7 @@ export namespace deren::promise::rhi {
         return (abilities & to_bits(kind)) != no_abilities;
     }
 
-    /// Every bit defined here: what a backend with all seven abilities reports, and the
+    /// Every bit defined here: what a backend with all eight abilities reports, and the
     /// set the plan's §8 consistency gate iterates.
     [[nodiscard]] constexpr auto all_abilities() noexcept -> ability_bits {
         // `extension_kind::ray_tracing` IS NOT HERE ANY MORE (abi 26): its whole shape moved to tier-1, so no
@@ -141,15 +143,15 @@ export namespace deren::promise::rhi {
         return to_bits(extension_kind::device_address) | to_bits(extension_kind::descriptor_heap) |
                to_bits(extension_kind::mesh_shader) |
                to_bits(extension_kind::host_image_copy) | to_bits(extension_kind::vulkan_escape) |
-               to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access);
+               to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access) | to_bits(extension_kind::gpu_sorting);
     }
 
-    /// The same seven, as a LIST: what a gate walks to check one bit at a time.
+    /// The same eight, as a LIST: what a gate walks to check one bit at a time.
     ///
     /// `all_abilities()` is the set as a bitmask; this is the enumeration the consistency gates and
     /// the tests iterate (`abilities()` set => `query_extension()` non-null, and the reverse), so the
     /// list is spelled in ONE place instead of per caller.
-    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> std::array<extension_kind, 7> {
+    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> std::array<extension_kind, 8> {
         return {
             extension_kind::device_address,
             extension_kind::descriptor_heap,
@@ -158,11 +160,12 @@ export namespace deren::promise::rhi {
             extension_kind::vulkan_escape,
             extension_kind::device_capabilities,
             extension_kind::shader_group_access,
+            extension_kind::gpu_sorting,
         };
     }
 
     static_assert(to_bits(extension_kind::device_address) == 0x1u, "the ability bits are ABI: they do not move");
-    static_assert(all_abilities() == 0xF7u, "seven active abilities: `ray_tracing` (bit 3 = 0x08) is RETIRED in abi 26 and a retired bit is never reused");
+    static_assert(all_abilities() == 0x1F7u, "eight active abilities: `ray_tracing` (bit 3 = 0x08) is RETIRED in abi 26 and a retired bit is never reused");
 
     /// The common root of the tier-2 abilities.
     ///
@@ -194,6 +197,18 @@ export namespace deren::promise::rhi {
     /// operation the ability declares must be performable on something the backend can hand out") held
     /// it hostage to a resource the backend could not yet make. One ability per operand stays honest;
     /// bundling an unreachable operand with a reachable one gets the bit announced never, or wrongly.
+    struct gpu_sorting : extension {
+        static constexpr extension_kind extension_id = extension_kind::gpu_sorting;
+        explicit gpu_sorting(std::string_view name) noexcept
+            : extension(name) {
+        }
+        [[nodiscard]] extension_kind kind() const noexcept final {
+            return extension_id;
+        }
+        /// Returns one owning reference, or null on unsupported/allocation failure.
+        [[nodiscard]] virtual radix_sorter* create_radix_sorter() = 0;
+    };
+
     struct device_address : extension {
 
         static constexpr extension_kind extension_id = extension_kind::device_address;
@@ -360,7 +375,7 @@ export namespace deren::promise::rhi {
     /// enabled-extension list (by naming `VK_KHR_ray_query`) and from `vkGetPhysicalDeviceFeatures2`. Asking
     /// the backend for the answer it already computed to make its own enabling decision is smaller, cannot
     /// disagree with it, and is the only shape a second backend can serve: a D3D12 backend answers the same
-    /// seven questions from ITS own caps, and the engine keeps compiling.
+    /// eight questions from ITS own caps, and the engine keeps compiling.
     ///
     /// THE METHODS ARE THE MEASURED SET, not a device dump: each one is read by the engine today. A fact nobody reads is dead
     /// vocabulary, so a later need adds a method rather than this type carrying a `VkPhysicalDeviceProperties`.

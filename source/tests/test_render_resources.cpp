@@ -488,7 +488,7 @@ int32_t main() {
         CHECK(rr::shadow_io.targets[0].element == 0); // the first cascade; the run is consecutive from there
         CHECK(rr::shadow_io.targets[0].kind == rr::target_kind::depth);
         CHECK(rr::shadow_io.targets[0].count == 4); // every layer max_shadow_cascades allows
-        // ... and the map family holds exactly that many layers: FOUR, like the image ensure_shadow_resources
+        // ... and the map family holds exactly that many layers: FOUR, like the image create_shadow_resources
         // creates (the count was 1 until this declaration, the same correction the bloom family needed)
         CHECK(rr::find(rr::resource_id::shadow_map)->count == 4);
         CHECK(rr::shadow_io.barrier_images.empty()); // each layer is moved through its own target
@@ -498,7 +498,7 @@ int32_t main() {
         // THE HEAP INDEX LANES - three of them - at exactly that offset for every stage. The cascade used to be
         // declared at 96, which put it UNDER the first lane: the shader read frame_slot as its cascade, the pass
         // rendered every caster into the wrong cascade layer, and the lanes themselves were shifted. It rides
-        // after the third lane now, which is why this offset moved with it (see source/shaders/shadow.slang's block).
+        // after the third lane now, which is why this offset moved with it (see source/shaders/lighting/shadow.slang's block).
         CHECK(rr::shadow_io.push->offset == 108); // scene_push_constant_size + three 4-byte heap index lanes
         CHECK(rr::shadow_io.push->stages == (rr::stage_flag::vertex | rr::stage_flag::fragment));
 
@@ -584,7 +584,7 @@ int32_t main() {
     }
 
     // ---- the SLOT GRID's two sources of truth, compared: the host reserves it in core::heap_slots and the
-    //      shaders BAKE the same numbers out of source/shaders/heap_slot_constants.slang. Both are text, neither is generated from
+    //      shaders BAKE the same numbers out of source/shaders/common/heap_slot_constants.slang. Both are text, neither is generated from
     //      the other, and a drift between them is invisible to validation - it shows up only as a wrong picture,
     //      because a heap-native shader indexes the heap by the number it was compiled with. The capture gate
     //      cannot run in CI at all (its references are tied to one machine's driver) and this can, so the two
@@ -630,7 +630,7 @@ int32_t main() {
 
         std::map<std::string, uint64_t> shader_scalars;
         std::map<std::string, uint64_t> shader_slots; // the `heap_slots_<name>` arrays
-        for (std::string const& line : read_lines(std::string(VR_TEST_SOURCE_DIR) + "/source/shaders/heap_slot_constants.slang")) {
+        for (std::string const& line : read_lines(std::string(VR_TEST_SOURCE_DIR) + "/source/shaders/common/heap_slot_constants.slang")) {
             if (line.rfind("static const uint ", 0) != 0) {
                 continue;
             }
@@ -738,20 +738,20 @@ int32_t main() {
             auto const found = shader_scalars.find(std::string(sampler_slots[i]));
             auto const base = shader_scalars.find("heap_sampler_base");
             CHECK_MSG(found != shader_scalars.end(), sampler_slots[i].data());
-            CHECK_MSG(base != shader_scalars.end(), "heap_sampler_base is not declared in source/shaders/heap_slot_constants.slang");
+            CHECK_MSG(base != shader_scalars.end(), "heap_sampler_base is not declared in source/shaders/common/heap_slot_constants.slang");
             if (found == shader_scalars.end() || base == shader_scalars.end()) {
                 continue; // a reported failure, not a thrown std::out_of_range from map::at
             }
-            CHECK_MSG(found->second == base->second + i, "a sampler slot is out of order in source/shaders/heap_slot_constants.slang");
+            CHECK_MSG(found->second == base->second + i, "a sampler slot is out of order in source/shaders/common/heap_slot_constants.slang");
             shader_scalars.erase(found);
         }
 
         // the scalars a shader bakes: the grid's base, its stride, how many slots it holds, and the sampler grid's
         CHECK(!shader_scalars.empty());
         CHECK(!host_scalars.empty());
-        CHECK_MSG(shader_scalars == host_scalars, "the grid's scalar constants differ between source/shaders/heap_slot_constants.slang and core.declarations.cppm");
+        CHECK_MSG(shader_scalars == host_scalars, "the grid's scalar constants differ between source/shaders/common/heap_slot_constants.slang and core.declarations.cppm");
         CHECK_MSG(shader_slots.size() == host_slots.size(), "the grid has a different number of arrays on the two sides");
-        CHECK_MSG(shader_slots == host_slots, "a grid array's slot differs between source/shaders/heap_slot_constants.slang and core.declarations.cppm");
+        CHECK_MSG(shader_slots == host_slots, "a grid array's slot differs between source/shaders/common/heap_slot_constants.slang and core.declarations.cppm");
         // ---- ... and every slot the header names must be one the HOST actually WRITES ----
         //
         // The comparison above keeps the two tables equal; this keeps them MEANINGFUL. A slot no host code ever

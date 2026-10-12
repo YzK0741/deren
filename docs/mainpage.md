@@ -10,6 +10,80 @@ Current version: **0.3.0** - single source is `project(VERSION)` in `CMakeLists.
 (surfaced by `--version`, the startup log banner and the instance's `app_info`); bump it there
 and keep this line in sync.
 
+## Highlights
+
+The main capabilities and the design choices behind them. Follow the links for
+implementation details, measured results and the limits of each feature.
+
+- **Dynamic graphics API.** The engine uses a shared C++ RHI contract and loads the Vulkan
+  backend DLL by name at run time. A versioned entry point checks ABI compatibility;
+  optional capabilities are queried through extensions. The executable has no graphics-API
+  imports. A second backend can implement the same contract; Vulkan is the implemented
+  graphics backend today. See \ref md_docs_2dynamic__runtime "The dynamic API".
+- **Gaussian splatting.** Trained PLY clouds retain their anisotropic shape, opacity and
+  view-dependent spherical-harmonic color. GPU preparation, VRDX stable sorting, cached
+  projection/color and indirect draws accelerate the frame; a CPU reference path supports
+  comparison and fallback. See \ref md_docs_2gaussian__splatting "Gaussian splatting" for
+  setup, validation and measured costs. These trained colors are separate from mesh PBR lighting.
+- **PBR with image-based lighting.** glTF metallic-roughness materials use Cook-Torrance
+  direct lighting (GGX with Smith visibility and Schlick Fresnel by default), directional
+  and punctual lights, and split-sum IBL from diffuse irradiance, a prefiltered specular
+  environment and a BRDF lookup table. Normal maps, occlusion and emissive feed the shared
+  material and lighting functions. The scene uses a deferred G-buffer path; direct-light
+  BRDF/diffuse presets remain selectable. See \ref md_docs_2shaders "Shaders".
+- **Declared pass inputs and outputs.** Each pass describes its resource uses once;
+  the declaration layer resolves those uses against the render resources. A composable
+  pass chain separates scene rendering, lighting and post processing, with shared named
+  pipelines available to its stages. See \ref md_docs_2pass__io__design "Pass I/O design"
+  and \ref md_docs_2runtime__split "Runtime split".
+- **Temporal anti-aliasing on a 1x G-buffer.** A Halton(2,3) projection jitter, per-pixel
+  camera motion vectors written by the G-buffer, and a reprojected, neighborhood-clamped
+  history with a view-depth disocclusion guard. TAA is the engine's anti-aliasing because a
+  1x G-buffer cannot be multisampled; it replaces a multisampled path rather than adding to
+  one.
+- **Cascaded shadow maps plus pass-graph-driven reuse.** One layered 2D-array depth map,
+  three cascades by default, practical split scheme with lambda 0.75, per-pixel cascade
+  selection blended across the boundary. A slot's cascades are re-rendered only when the
+  fitted matrices, the caster world matrices, the uploaded skin matrices or a morph-scratch
+  revision changed - the skip is byte-identical by construction.
+- **Clustered light culling.** `source/shaders/lighting/light_cluster.slang` sorts up to 128 punctual lights
+  into a 64 px-tile x 16-exponential-depth-slice grid once per frame with one atomic counter
+  per cluster. The recorded 64-light comparison reduced
+  deferred lighting from 0.25 to 0.08 ms with a byte-identical image; see
+  \ref md_docs_2megalights "Megalights" for the broader many-light path.
+- **Screen-space occlusion with no extra pass.** A golden-angle hemisphere spiral traced
+  against the G-buffer depth and normals, folded into `shade_input.ao` so it scales the IBL
+  ambient exactly like a baked AO map. No extra pass, no extra render target.
+- **Deformation motion vectors.** The previous-frame skin matrices and previous-frame morph
+  weights are both stored, so a skinned or morphed vertex reprojects where it actually was.
+  See \ref md_docs_2deformation__motion__vectors "Deformation motion vectors" for the
+  design, the measurements and the two half-steps it was built in.
+- **Mesh shaders.** See \ref md_docs_2mesh__shaders "Mesh shaders" for the geometry
+  path, its measurements and the migration that got there.
+- **Megalights.** See \ref md_docs_2megalights "Megalights" for the many-light
+  sampling, its reservoirs and its temporal reuse.
+- **Ray-traced shadows.** `deren.engine.pass.ray_traced_shadow` sits beside the cascade path; see
+  the module documentation and `docs/reference/` for the source notes it was built from.
+- **A toon character pipeline.** Per-material families (base / skin / face / hair / eye /
+  cloth) select which shader lanes run; five optional sidecar lanes (diffuse ramp, shadow
+  LUT, specular ramp, matcap, SDF lightmap) come from a `<model>.glb.toon.tsv` file so a
+  model can be tuned without recompiling; the face terminator is a distance field
+  thresholded against the light angle **in the head's own frame**, not against N.L. The
+  MMD/VMD motion path (IK, retargeting, morph tracks, physics baking) lives entirely in
+  `deren.engine.animation.mmd_motion`. A missing sidecar is an empty sidecar - the toon lanes
+  simply stay off.
+- **Heap-native scene descriptors.** Scene bindings live in a heap the renderer manages.
+  Backend integrations such as VRDX sorting and the GUI may use traditional descriptors;
+  the sorting wrapper restores heap bindings before subsequent stages. \ref md_docs_2descriptor__heap__migration "Descriptor heap migration" and
+  \ref md_docs_2descriptor__heap__handover "Descriptor heap handover" are the record of
+  how it got there and what it cost.
+- **Reproducible image and performance checks.** Frozen poses and reference captures,
+  CPU/GPU Gaussian comparisons, synchronization validation, resize stress runs and per-pass
+  GPU timings make visual changes and costs reviewable. Boundary checks also verify the
+  separation between engine and backend. Measurements in this manual retain their device,
+  workload and limitations; see \ref md_docs_2gaussian__splatting "Gaussian splatting"
+  for a worked acceptance example.
+
 This page is the map: the dynamic API this build is organised around, what is worth reading first,
 the order the rest of the manual is written in, and where the generated reference begins. The
 reference half of this PDF (module / topic / class / file documentation) is mechanical - it is the
@@ -20,6 +94,45 @@ now use `deren.engine.*` and `deren::engine`; native Vulkan implementations reta
 `deren.vulkan.*` and `deren::vulkan`. Project code is under `source/`, with the engine
 in `source/engine/`, backend implementation in `source/backends/vulkan/`, and contracts
 in `source/promise/`. `ENABLE_VULKAN_RENDERDOC_CAPTURE` is RenderDoc's own variable.
+
+## How to read this manual
+
+The pages are ordered as a reading path, not alphabetically: the dynamic API and the code rules
+first, then the shader contract, the frame structure, the frontier subsystems, the usage guide, and
+finally the migration history.
+
+| # | Document | What it answers |
+|---|----------|-----------------|
+| 1 | \subpage md_docs_2conventions "Conventions" | Naming, file layout and the code rules the rest of the manual assumes. |
+| 2 | \subpage md_docs_2dynamic__runtime "The dynamic API" | The contract every backend implements, the loaders that resolve one by name, the run-time package, and how the migration got there. |
+| 3 | \subpage md_docs_2shaders "Shaders" | How shaders are written and bound: the pass chain, the shared scene set, the slot conventions. |
+| 4 | \subpage md_docs_2pass__io__design "Pass I/O design" | The declared contract a pass states about what it reads and writes, and how it is resolved. |
+| 5 | \subpage md_docs_2runtime__split "Runtime split" | How the runtime, the scene tree and the render environment divide the frame between them. |
+| 6 | \subpage md_docs_2mesh__shaders "Mesh shaders" | The mesh-shader geometry path: what it replaced, what it measured. |
+| 7 | \subpage md_docs_2megalights "Megalights" | Stochastic many-light sampling and its temporal reuse. |
+| 8 | \subpage md_docs_2deformation__motion__vectors "Deformation motion vectors" | Why a deforming mesh needs more than a camera motion vector, and what was stored. |
+| 9 | \subpage md_docs_2gltf__loader__usage "glTF loader usage" | Loading models, animations, skins, morph targets and punctual lights. |
+| 10 | \subpage md_docs_2gaussian__loader "Gaussian PLY loader" | Trained PLY conventions, validation, limits and loading diagnostics. |
+| 11 | \subpage md_docs_2gaussian__splatting "Gaussian splatting" | Viewer setup, GPU preparation/sorting/cache, rendering rules, measurements and repaired failures. |
+| 12 | \subpage md_docs_2slang__migration "Slang migration" | Moving the shaders to Slang and compiling to SPIR-V. |
+| 13 | \subpage md_docs_2descriptor__heap__migration "Descriptor heap migration" | Replacing descriptor sets with a renderer-managed heap. |
+| 14 | \subpage md_docs_2descriptor__heap__handover "Descriptor heap handover" | How the heap is handed to the passes, and the constraints that imposes. |
+| 15 | \subpage md_docs_2migration__tradeoffs "Migration tradeoffs" | What each of those migrations cost, and what was given up for it. |
+| 16 | \subpage md_docs_2compiler__tolerance "Compiler tolerance" | What the build needs from a toolchain, what a second one (GCC) measured, and what still stops it. |
+| 17 | \subpage md_docs_2unified__image__layouts "Unified image layouts" | One layout vocabulary for render targets, uploads and read-back. |
+| 18 | \subpage md_docs_2host__image__copy "Host image copy" | The VK_EXT_host_image_copy path: a texture uploaded without a staging buffer. |
+
+Three shorter paths, if you are not reading front to back:
+
+- **Run it and see a frame:** the README at the repository root for controls and the config
+  reference, then \ref md_docs_2gltf__loader__usage "glTF loader usage" for the model
+  side.
+- **Extend the renderer** (a new pass, primitive strategy or loader):
+  \ref md_docs_2pass__io__design "Pass I/O design",
+  \ref md_docs_2runtime__split "Runtime split",
+  \ref md_docs_2shaders "Shaders".
+- **Understand why the code looks like this:** the four migration pages (12-15 above), in
+  order.
 
 ## The dynamic API
 
@@ -54,92 +167,6 @@ symbols and the engine sources' vocabulary), `source/scripts/check_backend_bound
 plus the whitelist) and the per-image checks in CI. Measured at this version: **0** graphics-API
 imports in `deren.exe`, **0** unresolved `vk*` symbols in the engine's objects, **0** engine sources
 naming the graphics API.
-
-## Highlights
-
-The parts of this renderer that carry the most design weight, in the order a reader
-usually meets them. Each one links to the page or module that holds the detail.
-
-- **Deferred-only scene path.** The G-buffer path is the ONLY scene path; the forward one was
-  removed. Every shading stage in the engine calls one function,
-  `shade_surface()` in `source/shaders/shading.slang`, and shares the material-surface gather in
-  `source/shaders/surface.slang`.
-- **Temporal anti-aliasing on a 1x G-buffer.** A Halton(2,3) projection jitter, per-pixel
-  camera motion vectors written by the G-buffer, and a reprojected, neighborhood-clamped
-  history with a view-depth disocclusion guard. TAA is the engine's anti-aliasing because a
-  1x G-buffer cannot be multisampled; it replaces a multisampled path rather than adding to
-  one.
-- **Cascaded shadow maps plus pass-graph-driven reuse.** One layered 2D-array depth map,
-  three cascades by default, practical split scheme with lambda 0.75, per-pixel cascade
-  selection blended across the boundary. A slot's cascades are re-rendered only when the
-  fitted matrices, the caster world matrices, the uploaded skin matrices or a morph-scratch
-  revision changed - the skip is byte-identical by construction.
-- **Clustered light culling.** `source/shaders/light_cluster.slang` sorts up to 128 punctual lights
-  into a 64 px-tile x 16-exponential-depth-slice grid once per frame with one atomic counter
-  per cluster. Measured with 64 lights the forward shading pass drops 1.28 -> 0.44 ms and
-  the deferred lighting pass 0.25 -> 0.08 ms, with a byte-identical image.
-- **Screen-space occlusion with no extra pass.** A golden-angle hemisphere spiral traced
-  against the G-buffer depth and normals, folded into `shade_input.ao` so it scales the IBL
-  ambient exactly like a baked AO map. No extra pass, no extra render target.
-- **Deformation motion vectors.** The previous-frame skin matrices and previous-frame morph
-  weights are both stored, so a skinned or morphed vertex reprojects where it actually was.
-  See \ref md_docs_2deformation__motion__vectors "Deformation motion vectors" for the
-  design, the measurements and the two half-steps it was built in.
-- **Mesh shaders.** See \ref md_docs_2mesh__shaders "Mesh shaders" for the geometry
-  path, its measurements and the migration that got there.
-- **Megalights.** See \ref md_docs_2megalights "Megalights" for the many-light
-  sampling, its reservoirs and its temporal reuse.
-- **Ray-traced shadows.** `deren.engine.pass.ray_traced_shadow` sits beside the cascade path; see
-  the module documentation and `docs/reference/` for the source notes it was built from.
-- **A toon character pipeline.** Per-material families (base / skin / face / hair / eye /
-  cloth) select which shader lanes run; five optional sidecar lanes (diffuse ramp, shadow
-  LUT, specular ramp, matcap, SDF lightmap) come from a `<model>.glb.toon.tsv` file so a
-  model can be tuned without recompiling; the face terminator is a distance field
-  thresholded against the light angle **in the head's own frame**, not against N.L. The
-  MMD/VMD motion path (IK, retargeting, morph tracks, physics baking) lives entirely in
-  `deren.engine.animation.mmd_motion`. A missing sidecar is an empty sidecar - the toon lanes
-  simply stay off.
-- **Heap-native descriptors.** No descriptor sets: bindings live in a heap the renderer
-  manages. \ref md_docs_2descriptor__heap__migration "Descriptor heap migration" and
-  \ref md_docs_2descriptor__heap__handover "Descriptor heap handover" are the record of
-  how it got there and what it cost.
-
-## How to read this manual
-
-The pages are ordered as a reading path, not alphabetically: the dynamic API and the code rules
-first, then the shader contract, the frame structure, the frontier subsystems, the usage guide, and
-finally the migration history.
-
-| # | Document | What it answers |
-|---|----------|-----------------|
-| 1 | \subpage md_docs_2conventions "Conventions" | Naming, file layout and the code rules the rest of the manual assumes. |
-| 2 | \subpage md_docs_2dynamic__runtime "The dynamic API" | The contract every backend implements, the loaders that resolve one by name, the run-time package, and how the migration got there. |
-| 3 | \subpage md_docs_2shaders "Shaders" | How shaders are written and bound: the pass chain, the shared scene set, the slot conventions. |
-| 4 | \subpage md_docs_2pass__io__design "Pass I/O design" | The declared contract a pass states about what it reads and writes, and how it is resolved. |
-| 5 | \subpage md_docs_2runtime__split "Runtime split" | How the runtime, the scene tree and the render environment divide the frame between them. |
-| 6 | \subpage md_docs_2mesh__shaders "Mesh shaders" | The mesh-shader geometry path: what it replaced, what it measured. |
-| 7 | \subpage md_docs_2megalights "Megalights" | Stochastic many-light sampling and its temporal reuse. |
-| 8 | \subpage md_docs_2deformation__motion__vectors "Deformation motion vectors" | Why a deforming mesh needs more than a camera motion vector, and what was stored. |
-| 9 | \subpage md_docs_2gltf__loader__usage "glTF loader usage" | Loading models, animations, skins, morph targets and punctual lights. |
-| 10 | \subpage md_docs_2slang__migration "Slang migration" | Moving the shaders to Slang and compiling to SPIR-V. |
-| 11 | \subpage md_docs_2descriptor__heap__migration "Descriptor heap migration" | Replacing descriptor sets with a renderer-managed heap. |
-| 12 | \subpage md_docs_2descriptor__heap__handover "Descriptor heap handover" | How the heap is handed to the passes, and the constraints that imposes. |
-| 13 | \subpage md_docs_2migration__tradeoffs "Migration tradeoffs" | What each of those migrations cost, and what was given up for it. |
-| 14 | \subpage md_docs_2compiler__tolerance "Compiler tolerance" | What the build needs from a toolchain, what a second one (GCC) measured, and what still stops it. |
-| 15 | \subpage md_docs_2unified__image__layouts "Unified image layouts" | One layout vocabulary for render targets, uploads and read-back. |
-| 16 | \subpage md_docs_2host__image__copy "Host image copy" | The VK_EXT_host_image_copy path: a texture uploaded without a staging buffer. |
-
-Three shorter paths, if you are not reading front to back:
-
-- **Run it and see a frame:** the README at the repository root for controls and the config
-  reference, then \ref md_docs_2gltf__loader__usage "glTF loader usage" for the model
-  side.
-- **Extend the renderer** (a new pass, primitive strategy or loader):
-  \ref md_docs_2pass__io__design "Pass I/O design",
-  \ref md_docs_2runtime__split "Runtime split",
-  \ref md_docs_2shaders "Shaders".
-- **Understand why the code looks like this:** the four migration pages (9-12 above), in
-  order.
 
 ## What is in the box
 
@@ -220,16 +247,16 @@ G-buffer path is the only scene path, and the forward one is gone") - so everyth
 describes what the engine does rather than what it is becoming. **M1 (done)** is the
 G-buffer: the opaque pass stores the surface (albedo/metallic, world normal/roughness,
 material id/AO/flags) in three 1x targets, with a channel debug view. **M2 (done)** is the
-deferred lighting stage: `source/shaders/deferred.slang` shades every pixel from those targets and
+deferred lighting stage: `source/shaders/lighting/deferred.slang` shades every pixel from those targets and
 adds the result into the HDR target (sky where no geometry wrote depth), through
-`shade_surface()` - the SINGLE lighting entry point (`source/shaders/shading.slang`) that every
+`shade_surface()` - the SINGLE lighting entry point (`source/shaders/lighting/shading.slang`) that every
 shading stage in the engine now calls - with emissive added by the base pass and the
-material-surface gather shared in `source/shaders/surface.slang`. While the forward path still
+material-surface gather shared in `source/shaders/common/surface.slang`. While the forward path still
 existed the two were A/B references and agreed to 0.32/255 mean absolute luminance
 difference on Sponza; that number is a HISTORICAL measurement, not a current comparison -
 there is no longer a second path to compare against, the shared shading code simply IS the
 path. **M3 (done)** is temporal anti-aliasing on that path: a Halton(2,3) projection jitter,
-per-pixel camera motion vectors written by the G-buffer, and `source/shaders/taa.slang` resolving
+per-pixel camera motion vectors written by the G-buffer, and `source/shaders/post/taa.slang` resolving
 the jitter against a reprojected, neighborhood-clamped history (with a view-depth guard for
 disocclusions) - measured against the same frame without TAA, 1.05/255 mean difference with
 9% less high-frequency energy, and, as the measurement was taken at the time, the
@@ -239,7 +266,7 @@ pass fills a layered 2D-array depth map (1..4 cascades, three by default), each 
 fitting its own light-space box to its own slice of the view range (practical split scheme,
 lambda 0.75), with the fragment shader selecting its cascade per pixel from the view depth
 and blending across the boundary - one cascade is byte-identical to the pre-M4 single-map
-path. **M5 (done)** is clustered light culling: `source/shaders/light_cluster.slang` (the engine's
+path. **M5 (done)** is clustered light culling: `source/shaders/lighting/light_cluster.slang` (the engine's
 first compute pipeline, on the graphics queue) sorts up to 128 punctual lights into a 64
 px-tile x 16-exponential-depth-slice grid once per frame with one atomic counter per
 cluster, and the shading stage loops only its own cluster's list - measured with 64 lights,

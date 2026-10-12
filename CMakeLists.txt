@@ -530,6 +530,7 @@ target_sources(deren_vulkan
         # The RHI contract's virtuals for this backend (plan §11.4, S1-C): `core` derives from
         # `deren::promise::rhi::api_core`, so this is where abilities() and the frame calls live.
         source/backends/vulkan/core/core.api_core.cpp
+        source/backends/vulkan/core/radix_sort.cpp
         source/backends/vulkan/core/core.texture_groups.cpp
         source/backends/vulkan/core/core.submission_lifetimes.cpp
         # The ONE C entry point, DEFINED for the real backend (source/promise/rhi/backend_entry.hpp, abi 18).
@@ -616,6 +617,7 @@ target_sources(deren_engine
         source/engine/filters/filters.cppm
         source/engine/gaussian_splatting/gaussian_splatting.cppm
         source/engine/gaussian_splatting/raster.cppm
+        source/engine/gaussian_splatting/gpu_frame.cppm
         source/engine/gaussian_splatting/probe.cppm
         source/engine/math/math.cppm
         ${VR_RUNTIME_MODULES}
@@ -664,7 +666,9 @@ target_sources(deren_engine
         source/engine/gaussian_splatting/gaussian_splatting.gpu.cpp
         source/engine/gaussian_splatting/raster.cpp
         source/engine/gaussian_splatting/probe.cpp
+        source/engine/gaussian_splatting/gpu_probe.cpp
         source/engine/gaussian_splatting/raster.gpu.cpp
+        source/engine/gaussian_splatting/gpu_frame.cpp
         source/engine/math/math.cpp
         ${VR_RUNTIME_PRIVATE_SOURCES}
         source/engine/pass/taa.cpp
@@ -1177,7 +1181,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_app_config test_utility test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection)
+    set(VR_TEST_TARGETS test_app_config test_utility test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1219,7 +1223,7 @@ if(VR_BUILD_TESTS)
     # for the same reason test_gltf_loader does - and it asserts the MISSING-file path too, which is a path
     # that must NOT exist, so the root has to be the real one rather than the build tree.
     target_compile_definitions(test_toon_material_sidecar PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    # test_render_resources reads source/shaders/heap_slots.slang and source/backends/vulkan/core/core.declarations.cppm to compare the slot grid's two
+    # test_render_resources reads source/shaders/common/heap_slots.slang and source/backends/vulkan/core/core.declarations.cppm to compare the slot grid's two
     # sources of truth (see the last block of that test): both are text, neither is generated from the other.
     target_compile_definitions(test_render_resources PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     # test_shader_sources parses the FOUR places a .spv is named (VR_SLANG_SOURCES, the two compile scripts, and
@@ -1285,6 +1289,7 @@ if(VR_BUILD_TESTS)
     # test loads the repo's gltf_model/DamagedHelmet sample from the working directory.
     target_link_libraries(test_gaussian_splatting PRIVATE deren_engine)
     target_link_libraries(test_gaussian_raster PRIVATE deren_engine)
+    target_link_libraries(test_gaussian_gpu_frame PRIVATE deren_engine)
     target_link_libraries(test_gaussian_loader PRIVATE gaussian_loader)
     target_link_libraries(test_gltf_loader
             deren_assets
@@ -1721,7 +1726,7 @@ target_sources(static_utility PRIVATE
 #    gitignore by hand, or forget to regenerate;
 #  - the runtime finds it without any search-order guesswork, because that directory is a sibling of
 #    the executable and locate_shaders_dir() prefers a sibling of the running binary;
-#  - -I still points at the SOURCE directory, so #include "surface.slang" resolves against the real
+#  - -I still points at the SOURCE directory, so #include "common/surface.slang" resolves against the real
 #    sources rather than against copies.
 # A mirror/ POST_BUILD step was tried first and is worse: a POST_BUILD command only runs when the
 # executable is RELINKED, so a shader-only edit recompiled the .spv and left the copy stale (measured).
@@ -1752,29 +1757,29 @@ endif()
 # files and glslc takes milliseconds, so recompiling an unaffected shader is cheaper than the
 # dependency bookkeeping that would avoid it.
 set(VR_SHADER_INCLUDES
-    "${VR_SHADER_SRC_DIR}/surface.slang"
+    "${VR_SHADER_SRC_DIR}/common/surface.slang"
     # material_record.slang is the Material LAYOUT, split out of surface.slang so a FULLSCREEN stage can name
     # the type it reads from the material table - a fullscreen stage cannot include surface.slang at all (its
     # shared scene push block is 144 bytes, over the 128-byte limit). It is here for the same reason the
     # other bodies are: a field added to it must rebuild every stage that reads the table.
-    "${VR_SHADER_SRC_DIR}/material_record.slang"
+    "${VR_SHADER_SRC_DIR}/common/material_record.slang"
     # toon_params.slang is the TOON FAMILY TABLE, shared by every stage that shades a character (the
     # character-forward stage and the screen-space rim). It is here for the reason the bodies below are:
     # editing a family's parameters must rebuild every stage that read them, and a stage left on stale SPIR-V
     # would shade with the previous table - which looks like a tuning that did not take rather than like a
     # build error.
-    "${VR_SHADER_SRC_DIR}/toon_params.slang"
-    "${VR_SHADER_SRC_DIR}/shading.slang"
-    "${VR_SHADER_SRC_DIR}/sky.slang"
+    "${VR_SHADER_SRC_DIR}/toon/toon_params.slang"
+    "${VR_SHADER_SRC_DIR}/lighting/shading.slang"
+    "${VR_SHADER_SRC_DIR}/lighting/sky.slang"
     # ibl_specular.slang is included by shading.slang, so it belongs here for the same reason the three above
     # do: editing it alone must not leave stale SPIR-V behind.
-    "${VR_SHADER_SRC_DIR}/ibl_specular.slang"
+    "${VR_SHADER_SRC_DIR}/lighting/ibl_specular.slang"
     # heap_slot_constants.slang is the SLOT GRID's shader-side source of truth (render_layout.cppm is the
     # host's): a shader that includes it and is not rebuilt after it changes would index the heap by stale
     # numbers, which validation cannot see. The C++ side is compared against it by a test (see
     # test_render_resources). heap_slots.slang and heap_access.slang include the same constants.
-    "${VR_SHADER_SRC_DIR}/heap_slot_constants.slang"
-    "${VR_SHADER_SRC_DIR}/heap_slots.slang"
+    "${VR_SHADER_SRC_DIR}/common/heap_slot_constants.slang"
+    "${VR_SHADER_SRC_DIR}/common/heap_slots.slang"
     # heap_access.slang and mesh_geometry.slang are the two OTHER includes every leaf pulls in - the shim's heap
     # accessors, and the device-address geometry fetch a mesh stage uses instead of the input assembler. Both were
     # missing from this list, and the mesh one cost a measurement to find: the build tree's pbr.vert.spv and
@@ -1783,29 +1788,30 @@ set(VR_SHADER_INCLUDES
     # byte difference against the escape-hatch scripts' output, never as a wrong picture.
     # `test_shader_sources` now compares this list against every #include in source/shaders/, so the next include cannot
     # be forgotten the same way.
-    "${VR_SHADER_SRC_DIR}/heap_access.slang"
-    "${VR_SHADER_SRC_DIR}/texture_group.slang"
-    "${VR_SHADER_SRC_DIR}/mesh_geometry.slang"
-    "${VR_SHADER_SRC_DIR}/gaussian_common.slang"
+    "${VR_SHADER_SRC_DIR}/common/heap_access.slang"
+    "${VR_SHADER_SRC_DIR}/common/texture_group.slang"
+    "${VR_SHADER_SRC_DIR}/geometry/mesh_geometry.slang"
+    "${VR_SHADER_SRC_DIR}/gaussian/gaussian_common.slang"
+    "${VR_SHADER_SRC_DIR}/gaussian/gaussian_projection.slang"
     # character_forward.slang IS INCLUDED BY A LEAF NOW, which is why it is here: the outline fragment stage
     # includes it for `toon_diffuse` (the same reason `toon_params.slang` is above - a second copy of that chain
     # is the duplicate this repository refuses), so editing it must rebuild `outline.frag.spv` too.
     # `test_shader_sources` requires every `#include` found in source/shaders/ to be listed here, which is what would
     # have caught the omission: an unlisted include leaves STALE SPIR-V that nothing but a byte comparison sees.
-    "${VR_SHADER_SRC_DIR}/character_forward.slang"
+    "${VR_SHADER_SRC_DIR}/toon/character_forward.slang"
     # goo_toon.slang IS INCLUDED BY THE REWRITTEN CHAIN'S OWN STAGE, and it is listed here for the SAME reason
-    # character_forward.slang is one line above: `source/shaders/goo_toon.slang` includes it for `toon_diffuse` (the old
+    # character_forward.slang is one line above: `source/shaders/toon/goo_toon.slang` includes it for `toon_diffuse` (the old
     # body every non-iris family is still shaded by), so editing it must rebuild `goo_toon.frag.spv` as well -
     # otherwise the old chain's fix lands in one .spv and not the other, which is a difference between two stages
     # that must agree, visible only as a byte comparison. See `goo_toon_pipeline_name`'s note for why the two
     # stages share one body on purpose.
-    "${VR_SHADER_SRC_DIR}/goo_toon.slang"
+    "${VR_SHADER_SRC_DIR}/toon/goo_toon.slang"
     # goo_rim.slang is THE REWRITTEN CHAIN'S THIRD STAGE and it is listed for the reason the two lines above are:
     # it reads the same two shared tables those stages do (`toon_params.slang`'s family table and
     # `material_record.slang`'s layout), so an edit to either must rebuild `goo_rim.frag.spv` as well - a stage left
     # on stale SPIR-V would read a material record with different field offsets, which is a wrong texture or a
     # wrong family rather than a build error.
-    "${VR_SHADER_SRC_DIR}/goo_rim.slang"
+    "${VR_SHADER_SRC_DIR}/toon/goo_rim.slang"
 )
 # (THE GLSL STAGE LIST USED TO LIVE HERE: twenty-four names, glslc's input, kept in step with the sources by
 # hand. Every one of them is in source/reference/shaders/glsl.old/ now and built from Slang instead, so the list is gone -
@@ -1829,12 +1835,12 @@ set(VR_SHADER_OUTPUTS "")
 # `mat4` and therefore what matches the host's column-major glm::mat4. MEASURED, and the HLSL keyword reads
 # backwards here: `column_major float4x4` emits RowMajor, `row_major float4x4` emits ColMajor.
 set(VR_SLANG_SOURCES
-    unlit.slang:main:fragment:unlit.frag.spv
+    scene/unlit.slang:main:fragment:unlit.frag.spv
     # character_forward.slang is the toon character stage: the same leaves the scene pass drew, shaded a
     # second time OVER the deferred result. It is gated behind the `character_forward` feature, which is OFF
     # by default, so none of the fourteen capture scenarios records it until a scenario turns it on - which is
     # what makes its landing behaviour-neutral.
-    character_forward.slang:main:fragment:character_forward.frag.spv
+    toon/character_forward.slang:main:fragment:character_forward.frag.spv
     # goo_toon.slang is THE REWRITTEN TOON CHAIN's fragment stage: the same geometry, the same pass and the same
     # frame as the entry above, with the shading model replaced by the one XIYAG's Goo node presets describe
     # (see build-release-clang64/deren-ab/goo_toon_plan.md). ITS ENTRY IS `goo_toon_frag_main`, NOT `main`, for the
@@ -1842,57 +1848,60 @@ set(VR_SLANG_SOURCES
     # `[shader("fragment")] main` with it, and a plain `-entry main` then names an overload set that Slang refuses
     # to resolve (E38000). It is selected at run time by `[render] goo_toon` - OFF by default, so none of the ten
     # capture scenarios draws it, and its landing is behaviour-neutral until a run asks for it.
-    goo_toon.slang:goo_toon_frag_main:fragment:goo_toon.frag.spv
+    toon/goo_toon.slang:goo_toon_frag_main:fragment:goo_toon.frag.spv
     # toon_screen_rim.slang is the toon stage's SECOND rim: a fullscreen additive contour from the depth,
     # gated by the SAME `character_forward` feature, so no capture scenario records it either.
-    toon_screen_rim.slang:main:fragment:toon_screen_rim.frag.spv
+    toon/toon_screen_rim.slang:main:fragment:toon_screen_rim.frag.spv
     # goo_rim.slang is THE REWRITTEN CHAIN'S rim, and it is a stage of its own for the constraint its header
     # records: the reference's rim is a PRODUCT of three attenuations and a screen-space depth factor, and the
     # depth it samples is the character-forward stage's own ATTACHMENT - so the surface shader cannot compute it.
     # It is gated by `[render] goo_toon` (through a name the chain owner composes), so, like the two entries above,
     # no capture scenario records it until one turns the rewritten chain on.
-    goo_rim.slang:main:fragment:goo_rim.frag.spv
+    toon/goo_rim.slang:main:fragment:goo_rim.frag.spv
     # overlay.slang is the article's TWO FRAMEBUFFER MULTIPLIES (an eye shadow and a hair shadow), drawn by the
     # `character_forward` stage's overlay group with the multiply blend and gated by that same feature - so, like
     # the two entries above, no capture scenario records it until one turns the toon stage on. It shares
     # pbr.mesh.spv as its geometry entry: an overlay is a normal mesh (see the file's header).
-    overlay.slang:main:fragment:overlay.frag.spv
-    fxaa.slang:main:fragment:fxaa.frag.spv
+    toon/overlay.slang:main:fragment:overlay.frag.spv
+    post/fxaa.slang:main:fragment:fxaa.frag.spv
     # upscale.slang is the RESOLVE: the render chain's display-referred LDR image onto the presented swapchain,
     # by a linear (bilinear) filter. It runs only below `[render] render_scale = 1.0` - at 1.0 the chain IS the
     # output and the pass's feature gate is false, which is why no capture scenario records it.
-    upscale.slang:main:fragment:upscale.frag.spv
-    post.slang:main:vertex:post.vert.spv
-    gaussian_raster.slang:vertex_main:vertex:gaussian_raster.vert.spv
-    gaussian_raster.slang:fragment_main:fragment:gaussian_raster.frag.spv
+    post/upscale.slang:main:fragment:upscale.frag.spv
+    post/post.slang:main:vertex:post.vert.spv
+    gaussian/gaussian_raster.slang:vertex_main:vertex:gaussian_raster.vert.spv
+    gaussian/gaussian_raster.slang:fragment_main:fragment:gaussian_raster.frag.spv
+    gaussian/gaussian_prepare.slang:reset_main:compute:gaussian_reset.comp.spv
+    gaussian/gaussian_prepare.slang:prepare_main:compute:gaussian_prepare.comp.spv
+    gaussian/gaussian_prepare.slang:finalize_main:compute:gaussian_finalize.comp.spv
     # post.frag is the post chain's stage for ALL THREE modes (bright pass / downsample / composite), so every
     # scenario records it - the widest verification a single port can have.
-    post.slang:frag_main:fragment:post.frag.spv
-    gbuffer_debug.slang:main:fragment:gbuffer_debug.frag.spv
-    taa.slang:main:fragment:taa.frag.spv
+    post/post.slang:frag_main:fragment:post.frag.spv
+    debug/gbuffer_debug.slang:main:fragment:gbuffer_debug.frag.spv
+    post/taa.slang:main:fragment:taa.frag.spv
     # gbuffer.slang IS the first stage that reads a shared body AND a heap UBO, and it cost two bugs, both
     # documented in docs/slang_migration.md section 9 because neither is visible in the SPIR-V's shape:
     # `mul(M, v)` on a `row_major float4x4` emits the TRANSPOSED product (the GLSL spelling `M * v` does
     # not), and a heap descriptor's TYPE has to match the storage class the shader reads it through - a
     # UNIFORM descriptor read through Slang's StorageBuffer pointer returns zeros with NO validation
     # finding. That is also why the camera and the light are written as STORAGE descriptors.
-    gbuffer.slang:main:fragment:gbuffer.frag.spv
+    scene/gbuffer.slang:main:fragment:gbuffer.frag.spv
     # pbr.slang is the FORWARD path's shader PAIR: the fragment stage is where the sun/shadow/punctual/
     # cluster/IBL fetches are proven under Slang, and its GEOMETRY entry is what the G-BUFFER pass loads for
     # every opaque draw - so it is verified by all fourteen scenarios, and by the transparent pass's
     # forward default too. THAT ENTRY IS THE MESH ONE SINCE STEP 4 (docs/mesh_shaders.md): `pbr.vert.spv`
     # was removed with the rest of the vertex geometry path, so there is no vertex entry to list here.
-    pbr.slang:main:fragment:pbr.frag.spv
+    scene/pbr.slang:main:fragment:pbr.frag.spv
     # ... the same file's MESH entry (docs/mesh_shaders.md step 2): the G-buffer/forward geometry as
     # dispatches, which is what the scene's opaque, forward and transparent leaves are drawn with.
-    pbr.slang:mesh_main:mesh:pbr.mesh.spv
+    scene/pbr.slang:mesh_main:mesh:pbr.mesh.spv
     # ... and the MESHLET entry (docs/mesh_shaders.md step 3): one workgroup per meshlet, camera-culled.
-    pbr.slang:meshlet_main:mesh:pbr.meshlet.spv
+    scene/pbr.slang:meshlet_main:mesh:pbr.meshlet.spv
     # ... and THE OUTLINE'S MESH ENTRY: `mesh_main`'s triangle loop with the author's normal expansion applied
     # to the clip position before the vertex is written (`build-release-clang64/deren-ab/outline_plan.md` ①). It is
     # the SAME FILE because the hull has to be skinned, morphed and placed by the same body as the surface it
     # outlines - a second copy of that body is how an outline detaches from a deforming character.
-    pbr.slang:outline_mesh_main:mesh:outline.mesh.spv
+    scene/pbr.slang:outline_mesh_main:mesh:outline.mesh.spv
     # ... and the outline's FRAGMENT stage, which shades that hull with the G-buffer normal of the surface
     # BEHIND it (the author's `MyZmdOutlineShader.shader:196-198`). ITS ENTRY IS `frag_main`, NOT `main`, and the
     # reason is measured rather than stylistic: it INCLUDES character_forward.slang for `toon_diffuse`, which
@@ -1901,53 +1910,53 @@ set(VR_SLANG_SOURCES
     # overload set. One file with several distinctly-named entries is this repository's existing shape
     # (`post.slang`'s `frag_main`, `heap_probe.slang`'s three), and the .spv name - which is what the host loads
     # - is unaffected by the entry's name.
-    outline.slang:frag_main:fragment:outline.frag.spv
+    toon/outline.slang:frag_main:fragment:outline.frag.spv
     # shadow.slang shares no body: the material table and the albedo fetch through the shim's accessors
     # (`material_at`, `heap_sample`), and the entry returns void because a depth-only stage has no output.
     # Its MESH entry reuses the same matrix-array accessors pbr.slang does, which is the point of the pair:
     # both stages must place the geometry identically or the shadow silhouette detaches from the surface.
     # Its vertex entry went the same way as pbr's in step 4.
-    shadow.slang:main:fragment:shadow.frag.spv
+    lighting/shadow.slang:main:fragment:shadow.frag.spv
     # ... and the SAME file's MESH entry (docs/mesh_shaders.md step 1): the depth pass drawn as dispatches
     # instead of indexed draws. It REPLACES the vertex entry rather than joining it (one pipeline is MESH +
     # fragment), and the host keeps both - a device without VK_EXT_mesh_shader has no mesh stage at all.
-    shadow.slang:mesh_main:mesh:shadow.mesh.spv
+    lighting/shadow.slang:mesh_main:mesh:shadow.mesh.spv
     # ... and the MESHLET entry (docs/mesh_shaders.md step 3): one workgroup per meshlet, window read from the table.
-    shadow.slang:meshlet_main:mesh:shadow.meshlet.spv
+    lighting/shadow.slang:meshlet_main:mesh:shadow.meshlet.spv
     # light_cluster.slang is the FIRST compute stage: the clustered-light sort, dispatched once per frame by
     # default (clustered_lights = true), so every scenario records it. Its writable buffers are the heap slots
     # the GLSL declares as `writeonly buffer`.
-    light_cluster.slang:main:compute:light_cluster.comp.spv
+    lighting/light_cluster.slang:main:compute:light_cluster.comp.spv
     # heap_probe.slang is the graphics half of the heap-native probe. No gate scenario renders it, but it is
     # the one group that VERIFIES ITSELF: the runtime dispatches it at startup, reads a pixel back and logs it
     # against the value it knows, so this port is accepted by comparing those log lines (see the file).
-    heap_probe.slang:main:vertex:heap_probe.vert.spv
-    heap_probe.slang:frag_main:fragment:heap_probe.frag.spv
+    debug/heap_probe.slang:main:vertex:heap_probe.vert.spv
+    debug/heap_probe.slang:frag_main:fragment:heap_probe.frag.spv
     # The MESH half of the same probe (docs/mesh_shaders.md step 0): the same triangle, the same fragment
     # stage, the same 4x4 readback, emitted by a mesh pipeline instead of a vertex one. A mesh stage is a
     # different stage type, so this .spv name is new - the host learns it explicitly.
-    heap_probe.slang:mesh_main:mesh:heap_probe.mesh.spv
+    debug/heap_probe.slang:mesh_main:mesh:heap_probe.mesh.spv
     # The COMPUTE half is its own file because it has its own push layout (one push block per stage).
-    heap_probe_comp.slang:comp_main:compute:heap_probe.comp.spv
-    texture_group_probe.slang:main:compute:texture_group_probe.comp.spv
+    debug/heap_probe_comp.slang:comp_main:compute:heap_probe.comp.spv
+    debug/texture_group_probe.slang:main:compute:texture_group_probe.comp.spv
     # compute_skin.slang feeds the acceleration structures the deformed vertex positions; its A/B needs the
     # skinned fixture with rt_shadow on (see docs/slang_migration.md).
-    compute_skin.slang:comp_main:compute:compute_skin.comp.spv
+    geometry/compute_skin.slang:comp_main:compute:compute_skin.comp.spv
     # mask_bake.slang is the alphaMode MASK bake (off by default; [render] rt_mask_bake turns it on, which is
     # also how its A/B is run).
-    mask_bake.slang:comp_main:compute:mask_bake.comp.spv
+    geometry/mask_bake.slang:comp_main:compute:mask_bake.comp.spv
     # megalights_temporal.slang is the stochastic lighting's denoise (off by default; [render] megalights = true
     # turns the path on, which is also how its A/B is run).
-    megalights_temporal.slang:comp_main:compute:megalights_temporal.comp.spv
+    lighting/megalights_temporal.slang:comp_main:compute:megalights_temporal.comp.spv
     # megalights_trace.slang is the stochastic punctual lighting tracer the temporal pass denoises.
-    megalights_trace.slang:comp_main:compute:megalights_trace.comp.spv
+    lighting/megalights_trace.slang:comp_main:compute:megalights_trace.comp.spv
     # rt_shadow.slang is the ray-traced shadow's shader file, growing one stage at a time; it starts with the
     # closest-hit stage, whose whole job is the payload contract (see the file). No gate scenario enables
     # rt_shadows, so this port is shape-verified and belongs to the A/B capture route in docs/slang_migration.md.
-    rt_shadow.slang:chit_main:closesthit:rt_shadow.rchit.spv
-    rt_shadow.slang:miss_main:miss:rt_shadow.rmiss.spv
-    rt_shadow.slang:rgen_main:raygeneration:rt_shadow.rgen.spv
-    rt_shadow.slang:ahit_main:anyhit:rt_shadow.rahit.spv
+    lighting/rt_shadow.slang:chit_main:closesthit:rt_shadow.rchit.spv
+    lighting/rt_shadow.slang:miss_main:miss:rt_shadow.rmiss.spv
+    lighting/rt_shadow.slang:rgen_main:raygeneration:rt_shadow.rgen.spv
+    lighting/rt_shadow.slang:ahit_main:anyhit:rt_shadow.rahit.spv
 
     # deferred.slang is the deferred path's lighting stage: the shared shading code again (so the forward and
     # the deferred image are comparable rather than merely similar), plus the screen-space AO it owns. It is
@@ -1956,15 +1965,15 @@ set(VR_SLANG_SOURCES
     # GLSL.std.450 instructions; their SEQUENCES differ, and the driver contracts the multiply-adds
     # differently). It was accepted by an explicit re-baseline with the reason written down: see
     # docs/slang_migration.md section 9, "the last stage, and the one-pixel re-baseline".
-    deferred.slang:main:fragment:deferred.frag.spv
+    lighting/deferred.slang:main:fragment:deferred.frag.spv
 )
 # These entries belong to the GPU test, rather than the application's shader catalogue.
 if(TARGET test_acceleration_structures)
     list(APPEND VR_SLANG_SOURCES
-        rt_traversal_probe.slang:rgen_main:raygeneration:rt_traversal_probe.rgen.spv
-        rt_traversal_probe.slang:native_main:raygeneration:rt_traversal_probe.native.spv
-        rt_traversal_probe.slang:chit_main:closesthit:rt_traversal_probe.rchit.spv
-        rt_traversal_probe.slang:miss_main:miss:rt_traversal_probe.rmiss.spv
+        debug/rt_traversal_probe.slang:rgen_main:raygeneration:rt_traversal_probe.rgen.spv
+        debug/rt_traversal_probe.slang:native_main:raygeneration:rt_traversal_probe.native.spv
+        debug/rt_traversal_probe.slang:chit_main:closesthit:rt_traversal_probe.rchit.spv
+        debug/rt_traversal_probe.slang:miss_main:miss:rt_traversal_probe.rmiss.spv
     )
 endif()
 set(VR_SLANG_OUTPUTS "")

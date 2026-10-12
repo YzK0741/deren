@@ -7,7 +7,9 @@ param(
     [ValidateRange(320, 3840)][int]$Width = 960,
     [ValidateRange(240, 2160)][int]$Height = 640,
     [switch]$EarlyCapture,
-    [switch]$RapidResize
+    [switch]$RapidResize,
+    [switch]$MaximizeRestore,
+    [string]$Camera = ''
 )
 $ErrorActionPreference = 'Stop'
 if ($EarlyCapture -and $RapidResize) { throw 'Choose either EarlyCapture or RapidResize' }
@@ -38,6 +40,7 @@ Add-Type -Namespace GaussianResizeCheck -Name Windows -MemberDefinition @'
 [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr window, System.Text.StringBuilder text, int length);
 [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
 [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command);
 public delegate bool Enumerate(IntPtr window, IntPtr parameter);
 public struct Rect { public int Left; public int Top; public int Right; public int Bottom; }
 '@
@@ -48,9 +51,15 @@ $start.CreateNoWindow = $true
 $start.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
 $start.RedirectStandardOutput = $true
 $start.RedirectStandardError = $true
-$start.Environment['VK_LAYER_ENABLES'] = 'VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT'
+[void]$start.Environment.Remove('VK_LAYER_ENABLES')
+$start.Environment['VK_LAYER_VALIDATE_SYNC'] = '1'
+$start.Environment['DEREN_GAUSSIAN_RESIZE_TRACE'] = '1'
 # F12 ends capture mode after the requested resizes; a fast cloud must not exhaust a small frame budget first.
 foreach ($argument in @('--config', $probeConfig, '--capture-frames', '1000000')) { $start.ArgumentList.Add($argument) }
+if ($Camera) {
+    $start.ArgumentList.Add('--capture-camera')
+    $start.ArgumentList.Add($Camera)
+}
 $startedAt = Get-Date
 $process = [System.Diagnostics.Process]::Start($start)
 $standardOutput = $process.StandardOutput.ReadToEndAsync()
@@ -58,7 +67,7 @@ $standardError = $process.StandardError.ReadToEndAsync()
 $resizeCount = 0
 $lastResizeFrame = 0
 $captureRequested = $false
-$expectedResizes = if ($EarlyCapture) { 1 } elseif ($RapidResize) { 20 } else { 3 }
+$expectedResizes = if ($EarlyCapture -and $MaximizeRestore) { 2 } elseif ($EarlyCapture) { 1 } elseif ($RapidResize) { 20 } elseif ($MaximizeRestore) { 6 } else { 3 }
 $expectedSize = [GaussianResizeCheck.Windows+Rect]::new()
 $timer = [System.Diagnostics.Stopwatch]::StartNew()
 $previousDpiContext = [GaussianResizeCheck.Windows]::SetThreadDpiAwarenessContext([IntPtr](-4))
@@ -68,7 +77,7 @@ try {
         $logFile = Get-Item -LiteralPath $logPath -ErrorAction SilentlyContinue
         # Repeated runs must wait for this process's log rather than count frames from the previous run.
         if ($logFile -and $logFile.LastWriteTime -ge $startedAt) {
-            $costs = @(Select-String -LiteralPath $logPath -Pattern 'gaussian frame cost:')
+            $costs = @(Select-String -LiteralPath $logPath -Pattern 'gaussian completed frame:')
             $frameThreshold = if ($RapidResize -or $resizeCount -eq 0) { 8 } else { $lastResizeFrame + 16 }
             if ($resizeCount -lt $expectedResizes -and $costs.Count -ge $frameThreshold) {
                 $script:renderWindow = [IntPtr]::Zero
@@ -92,8 +101,14 @@ try {
                 [void][GaussianResizeCheck.Windows]::EnumWindows($callback, [IntPtr]::Zero)
                 if ($script:renderWindow -eq [IntPtr]::Zero) { throw 'No GLFW render window for this process' }
                 $sizeStep = if ($RapidResize) { $resizeCount % 3 } else { $resizeCount }
-                if (-not [GaussianResizeCheck.Windows]::MoveWindow($script:renderWindow, 80, 80, $Width + $sizeStep * 112, $Height + $sizeStep * 70, $true)) {
-                    throw 'MoveWindow failed'
+                if ($MaximizeRestore) {
+                    $showCommand = if ($resizeCount % 2 -eq 0) { 3 } else { 9 }
+                    [void][GaussianResizeCheck.Windows]::ShowWindow($script:renderWindow, $showCommand)
+                    [void][GaussianResizeCheck.Windows]::ShowWindow($script:renderWindow, 0)
+                } else {
+                    if (-not [GaussianResizeCheck.Windows]::MoveWindow($script:renderWindow, 80, 80, $Width + $sizeStep * 112, $Height + $sizeStep * 70, $true)) {
+                        throw 'MoveWindow failed'
+                    }
                 }
                 if (-not [GaussianResizeCheck.Windows]::GetClientRect($script:renderWindow, [ref]$expectedSize)) { throw 'Cannot read resized client dimensions' }
                 $resizeCount++
@@ -121,7 +136,7 @@ if ($resizeCount -ne $expectedResizes) { throw "Only $resizeCount of $expectedRe
 $log = Get-Content -LiteralPath (Join-Path $workPath 'debug.log') -Raw
 if ($log -notmatch 'validation layers enabled') { throw 'The config must enable validation_layers' }
 if ($log -notmatch 'recreat') { throw 'No swapchain rebuild was recorded' }
-if ($log -match '(?m)^\[ERROR\]|Validation Error|VUID-') { throw 'Validation or rendering reported an error; inspect debug.log' }
+if ($log -match '(?m)^\[ERROR\]|Validation Error|VUID-|SYNC-HAZARD|gaussian recording: FAIL|initialization: FAIL|numeric errors') { throw 'Validation or rendering reported an error; inspect debug.log' }
 $screenshot = Get-ChildItem -LiteralPath $workPath -Filter 'screenshot_*.png' -File |
     Where-Object { $_.LastWriteTime -ge $startedAt } | Sort-Object LastWriteTime | Select-Object -Last 1
 if (-not $screenshot) { throw 'No new screenshot was produced' }

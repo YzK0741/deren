@@ -212,7 +212,7 @@ namespace deren::engine::acceleration_structure {
          * @param source the geometry's addresses and triangle count
          * @param refittable build with ALLOW_UPDATE so record_update() may refit it every frame - for
          *        geometry whose BYTES change while its addresses and counts do not (a skinned mesh's
-         *        vertices, written by source/shaders/compute_skin.slang). It costs traversal efficiency, which is
+         *        vertices, written by source/shaders/geometry/compute_skin.slang). It costs traversal efficiency, which is
          *        why it is per geometry rather than a flag on the whole structure set.
          * @return the index this geometry got, or an error message on failure
          * @note this is HOST work (a size query plus an allocation); the GPU build happens in
@@ -239,7 +239,7 @@ namespace deren::engine::acceleration_structure {
          * @return success, or an error message
          * @note a refit is legal exactly when the geometry's ADDRESSES AND COUNTS are unchanged and only
          *       the memory they point at has been rewritten - which is the zero-copy shape a compute
-         *       skinning pass produces (see source/shaders/compute_skin.slang). It reuses the scratch the build
+         *       skinning pass produces (see source/shaders/geometry/compute_skin.slang). It reuses the scratch the build
          *       allocated, so it is cheap: no size query, no allocation, no rebuild of the structure.
          * @note the caller must have made the writes visible to the acceleration structure build stage
          *       first (a command-level barrier), or the refit reads whatever was there before

@@ -314,6 +314,7 @@ namespace deren::vulkan {
         this->escape_view.owner = this;
         this->heap_view.owner = this;
         this->address_view.owner = this;
+        this->sorting_view.owner = this;
         this->host_copy_view.owner = this;
         // THE DEVICE-CAPABILITY VIEW READS THIS CORE'S CACHED FACTS, so it needs the owner exactly as the views
         // above do - and the omission is not silent: with no owner every method answers its zero/false default,
@@ -638,6 +639,26 @@ namespace deren::vulkan {
         constexpr char const* fifo_latest_ready_extension = "VK_EXT_present_mode_fifo_latest_ready";
 
         creation_info.extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+        VkPhysicalDeviceSubgroupProperties subgroup{};
+        subgroup.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
+        VkPhysicalDevicePushDescriptorPropertiesKHR push{};
+        push.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR;
+        subgroup.pNext = &push;
+        VkPhysicalDeviceProperties2 sort_properties{};
+        sort_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        sort_properties.pNext = &subgroup;
+        vkGetPhysicalDeviceProperties2(this->physical_device, &sort_properties);
+        VkSubgroupFeatureFlags const required_ops = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT | VK_SUBGROUP_FEATURE_ARITHMETIC_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_BIT;
+        this->gpu_sorting_available = check_device_extension_support(this->physical_device, std::vector<char const*>{VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME}) &&
+                                      capabilities.features_1_3.synchronization2 && push.maxPushDescriptors >= 7u &&
+                                      (subgroup.subgroupSize == 32u || subgroup.subgroupSize == 64u) &&
+                                      (subgroup.supportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0u &&
+                                      (subgroup.supportedOperations & required_ops) == required_ops &&
+                                      this->device_properties.limits.maxComputeSharedMemorySize >= 20u * 1024u &&
+                                      this->device_properties.limits.maxComputeWorkGroupInvocations >= 512u && this->device_properties.limits.maxComputeWorkGroupSize[0] >= 512u;
+        if (this->gpu_sorting_available) {
+            creation_info.extensions.push_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
+        }
 
         // VK_EXT_present_mode_fifo_latest_ready is asked for only when the device has it, so the
         // extension is never enabled blindly and the present mode that needs it is only ever chosen

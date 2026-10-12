@@ -1,256 +1,152 @@
-# Gaussian rendering
+# Gaussian splatting
 
-Import `deren.engine.gaussian_splatting` and `deren.gaussian_loader`. The engine namespace is `deren::engine::gaussian_splatting`.
+The viewer loads trained Gaussian PLY assets and renders them through the normal frame chain. GPU preparation, VRDX stable sorting, a projection/color cache and indirect drawing are enabled by default when supported. A CPU reference path remains available. This chapter describes the implementation as of 2026-10-12; earlier development notes are historical evidence, not the current operating instructions.
 
-The foundation module supplies CPU packing, global sorting and static GPU upload. Import `deren.engine.gaussian_splatting.raster` for validated projection, SH evaluation and immutable draw snapshots, and `deren.engine.pass.gaussian_splatting` for the dedicated raster pass. Normal viewer/frame-chain integration is a subsequent stage.
+## Run the viewer
 
-## Data and validation
+Set the top-level `model` to a trained `.ply` file. The extension selects the loader: `.gltf` and `.glb` use the mesh importer; `.ply` uses the Gaussian loader. There is no separate Gaussian enable key. The loader contract is described in \ref md_docs_2gaussian__loader "Gaussian PLY loader".
 
-`pack_asset(asset, limits)` returns `std::expected<packed_asset, foundation_error>`. It validates manual assets as well as loader output: finite centers, positive scales, quaternion wxyz norm within 1e-4, opacity in [0,1], finite SH and degree 0..3. Quaternions within the accepted tolerance are normalized for covariance computation. Unused SH bands are zeroed; non-finite unused coefficients are still rejected.
-
-GPU records use float32 with compile-time size/offset guards:
-
-| Record | Bytes | Contents |
-| --- | --- | --- |
-| geometry_record | 48 | center/opacity; xx/xy/xz/0; yy/yz/zz/0 |
-| sh_record | 192 | 48 coefficient-major RGB scalars |
-| instance_record | 160 | two uint64 addresses; model at 16; inverse model at 80; degree at 144; padding at 148 |
-| draw_reference | 8 | instance index; local particle index |
-
-Geometry and instance records have 16-byte alignment. Matrix storage is the existing column-major GLM convention. Padding is zero initialized. `prepare_raster_frame` uploads the instance table without changing that layout.
-
-Covariance is computed in double precision, then checked for finite float32 representation. Bounds are recomputed from the 3-sigma support; user-provided CPU bounds are ignored. Conditional outward rounding also handles a radius lost when added to a very large center. If finite conservative float bounds cannot represent the support, packing fails.
-
-Default `foundation_limits` allow 4,000,000 references/particles and 1 GiB packed output. `packed_byte_size(count, limits)` checks count and multiplication before allocation; count additionally cannot exceed uint32. Packed bytes are 240 per particle. These limits describe allocation budgets, not a frame-rate promise. The process follows the existing no-exceptions allocation policy: an allocator exhausting host memory can terminate; structured budget errors do not guarantee recovery from OS allocation failure.
-
-## Global sorting
-
-`sort_draw_references(span<sort_instance const>, sort_camera, limits)` consumes borrowed CPU asset pointers only during the call. An instance is an asset, model matrix and unique uint64 stable ID; empty instances also need unique IDs. The camera needs finite position and a unit forward vector within 1e-5.
-
-`validate_model(model)` returns the inverse. Accepted transforms are affine translation, rotation and positive uniform scale. It rejects non-finite values, non-affine bottom rows, zero scale, reflection, shear, non-uniform scale or a non-finite float32 inverse. Scale equality and axis orthogonality use relative tolerance 1e-5.
-
-Sort keys use double world-center depth along camera forward. The complete scene is sorted far to near, then stable instance ID and local index. Output indices refer to the supplied instance table, even if input order changes. Static attributes are not moved. Invalid assets, transforms, cameras, non-finite/unrepresentable world centers and excessive counts/budgets produce errors. Count/budget checks and particle/transformed-center validation finish before allocating scene-sized sorting scratch.
-
-This stage emits every valid particle, including particles behind the camera. It does not perform frustum or near-plane culling. The raster stage must apply conservative support-domain visibility and the planned near-plane omission policy.
-
-Reference output is 8 bytes per particle and is checked against the byte budget. Sorting additionally uses a 16-byte key/reference per particle and 8-byte stable ID per instance; this temporary scratch is separate from that output budget. Caller-owned CPU assets and instance tables are also separate.
-
-## Static GPU upload and ownership
-
-`upload_asset(core, packed, limits)` returns `expected<shared_ptr<gpu_asset const>, foundation_error>`. It uses only the existing RHI APIs: the upload-capable `uniform_gpu_only` memory intent plus the `storage` flag, initial bytes and `device_address`. `storage_gpu_only` is allocate-only and cannot receive initial bytes. A nonempty asset on a backend without that extension returns unsupported. Empty assets create no buffers and have zero addresses.
-
-Packed input is validated again: counts, degree, finite geometry/SH, opacity, padding, unused SH bands, valid bounds and positive-semidefinite covariance. Covariance validation requires the normalized matrix plus 1e-6 times identity to be positive semidefinite. This bounds any negative eigenvalue directly by 1e-6 times the largest absolute entry, allowing float rounding without a separate tolerance on its principal minors or determinant. GPU bounds are recomputed conservatively from the actual packed covariance, so they may differ slightly from CPU bounds. Supplied bounds must be finite, ordered and contain centers; narrowing them cannot narrow the published GPU bounds.
-
-Both buffers must be created successfully with adequate sizes and valid aligned nonzero addresses. Allocation or address failure releases earlier handles and publishes no partial asset. Initial bytes are borrowed only by buffer creation. `gpu_asset` exposes count, degree, byte size, addresses and bounds and retains the buffers through the existing RHI owning handles. Dropping the last shared asset reference releases each owned reference once.
-
-The engine/device/backend root must outlive these buffer owners. This asset does not keep a backend DLL loaded on its own. Raster frame snapshots hold shared assets; the host must retain each submitted snapshot until its completion slot has finished; factory ownership is not GPU submission lifetime tracking. This stage records no commands and never calls wait_idle.
-
-## Validation
-
-`test_gaussian_splatting` is headless and included in normal CTest and the ASan/UBSan build list. It checks fixed byte layouts, analytic rotated covariance, SH bands, conservative bounds, invalid inputs, budgets, transforms, multi-instance sorting/ties and RHI descriptor/bytes/failure cleanup using fake buffers. The isolated raster probe checks actual shader interpretation and HDR readback as described below.
-
-## Raster snapshots and pass
-
-`make_raster_asset(core, gaussian::asset by value, limits)` validates, packs and uploads one immutable CPU/GPU pair. Move the loaded asset into this factory to avoid copying its CPU particles. The returned shared asset retains CPU source, packed geometry and static GPU buffers. Asset and frame objects cannot be copied, moved or assigned; share their immutable owning pointers. Assets, frame uploads and pipelines must use the same device; the backend root outlives all owners.
-
-`prepare_raster_frame(core, span<raster_instance const>, raster_camera, limits)` validates input, globally sorts references, rejects support outside the frustum and omits support intersecting the near plane. Side culling uses the projected regularized 3-sigma footprint, preserving tiny edge splats; depth planes use the 3D support. It uploads an immutable coherent instance table and visible references with initial bytes. The byte budget includes both uploads; the existing sorting scratch and retained CPU sources are separate. Invalid inputs fail before frame GPU allocation, including active view-dependent SH radiance overflow. A frame with no visible splats uploads nothing. Failures release partial uploads.
-
-`raster_camera` contains the real VP matrix, world camera position and pixel viewport. The accepted camera is a finite, nonsingular forward-depth [0,1] perspective projection with finite far plane; orthographic, reversed depth and infinite far are rejected. Include the engine's projection Y flip in the matrix. Model transforms retain the positive uniform scale restriction. Projection uses the actual VP Jacobian in pixel units, 0.3 pixel^2 covariance regularization and a Cholesky square root. CPU helpers `project_splat`, `evaluate_sh` and `fragment_alpha` provide numerical references.
-
-The Slang pair reads 48/192/160/8-byte BDA records, and a push block whose host struct is 112 bytes. The transmitted block is larger: the runtime's heap push appends its index lanes after whatever a pass hands over (three for `push_stage_block`), so the shader declares them at 112/116/120 and the block it declares spans 124 bytes - leaving the 112-byte struct, and every offset the host asserts, unchanged. Explicit VP/model columns match GLM storage. SH degree 0..3 uses the local camera-to-center direction, adds 0.5 and clamps negative radiance without an upper HDR clamp. Six vertices form each splat quad. The fragment kernel uses radius^2 <=9, alpha <=0.99 and discards alpha <1/255. Back-to-front drawing uses unpremultiplied color with ordinary alpha blending.
-
-Create `gaussian_splatting_pass` with the HDR target format (default RGBA16F), supply its two registered shaders through `pass_context`, then call `set_frame(snapshot)`. Resolve the existing scene-color and opaque-depth targets with the snapshot's viewport and a push-data callback. The pass LOADs both attachments, disables face culling and depth writes, depth-tests the center, draws six vertices per visible reference and returns depth to `shader_read`. It reports recording refusals through `last_error()` and performs no draw on failed prerequisites.
-
-The pass owns its currently assigned snapshot only. The render host must separately keep every submitted snapshot until GPU completion before replacing/releasing it; use completion slots, not swapchain image indices. Immutable uploads avoid overwriting pending device addresses, with a per-frame allocation cost to measure at viewer integration. Snapshot preparation and the normal pass never call `wait_idle`.
-
-Headless `test_gaussian_raster` checks mathematical references, a rotated/transformed off-center camera against numerical differentiation, the near/far plane agreement with the shader's own rejection (including a support that crosses either plane), snapshot sorting/culling/budgets/unload retention, failed uploads and pass recording behavior. Both shaders are built by CMake and the standalone scripts and loaded by the app. The push layout is pinned on both sides of the boundary: `test_gaussian_raster` asserts the host struct's size and offsets 64/80/88/96/104/108, and `test_shader_sources` asserts that a stage pushed by a lane-appending pass declares the index lanes (the emitted SPIR-V was checked by hand with `spirv-dis` at this revision: members at 0/16/32/48/64/80/88/96/100/104/108/112/116/120). The isolated probe below checks actual GPU output; headless checks alone do not prove rendering.
-
-## Isolated GPU probe
-
-`run_raster_probe(core, vertex_spirv, fragment_spirv)` renders five tiny RGBA16F scenes and compares all RGB pixels with the CPU reference. It uses only RHI creation, a primary command buffer, the pass and `image::get_content`. Cases cover known red/blue alpha 0.5 overlap (center RGB (0.5,0,0.25)), opaque depth occlusion, degree 1 SH direction, and degree 3 HDR anisotropy with two rotated/scaled instances, a noncentral camera and nonzero record indices, plus a tiny splat just outside the viewport whose regularized footprint reaches the last pixel. The absolute RGB tolerance is 0.005, covering RGBA16F storage and blend rounding.
-
-This diagnostic explicitly waits for its own submissions; it is disabled during normal startup. Set `DEREN_GAUSSIAN_PROBE=1` to opt in, or run the hidden Windows helper with an existing valid app config:
-
-```powershell
-./source/scripts/windows/gaussian_raster_probe.ps1 -Config <config.toml> -BuildDir build-release-dyn-clang64
+```toml
+model = "gaussian-viewer/flowers/flowers_1/flowers_1.ply"
+grid_side = 0
+[render]
+window_width = 1280
+window_height = 720
+taa = false
+[lighting]
+sun_direction = [0.0, 0.25, 1.0]
 ```
 
-The config must locate this build's shaders and an available model, as for any app run. The helper runs two capture frames, requires a probe PASS and refuses validation errors. Its log lives under the build's `gaussian-raster-probe` directory (or `-WorkDir`). This does not wire Gaussian assets into the normal viewer or scene frame chain.
+NVIDIA's Bouquet of Flowers is the acceptance asset: 562,974 particles, SH degree 3, CC BY-SA 4.0, credited to Jean-Eudes Marvie. Fetch it with `source/scripts/fetch_gaussian_viewer_asset.ps1`; the large asset is not committed. A missing or malformed file is reported at startup rather than presented as a successful blank scene.
 
-Verified 2026-10-11 on NVIDIA GeForce RTX 4060 Laptop GPU, driver 617.42: five cases / 5181 pixels, maximum RGB error 0.0008074641, no Vulkan validation errors. The clear-only negative run failed the overlap center with RGB (0,0,0), proving the readback comparison can detect a missing draw. The same run exposed and corrected the static factory's earlier allocate-only upload mismatch.
+The camera is fitted to the cloud's conservative bounds. `--capture-camera` overrides the fit for reproducible images. The bouquet viewer aligns its local -Y flower face toward the configured sky sun while rotating about the bounds center. This is a placement convention for the bouquet, not automatic front-face detection for arbitrary assets. SH appearance includes captured lighting; changing the sky sun does not physically relight the cloud.
 
-The projection/SH/raster approach follows NVIDIA's [vk_gaussian_splatting vertex reference](https://github.com/nvpro-samples/vk_gaussian_splatting/blob/main/shaders/threedgs_raster.vert.slang). Our record layout, Cholesky ellipse basis, 3-sigma domain and frame ownership follow this engine's design.
+## Select and diagnose a path
 
-## The viewer: the whole path, and what it costs
-
-THE `.ply` TO PIXELS PATH IS IN THE APPLICATION NOW, and it is one decision wide: the model path's extension picks the loader (`deren::app_config::model_format_of` - `.gltf`/`.glb` to the scene importer, `.ply` to `deren::gaussian::load_ply`, anything else refused by name). There is no `gaussian` configuration key and there is not meant to be one: the path IS the interface, so a second key could only drift away from it. The cloud is then packed onto the device once (`make_raster_asset`) and drawn every frame by a `gaussian` stage the runtime records between the lighting stage and the blended geometry - the order the design fixes, because the splats composite into the lit HDR image over the opaque depth and the blended meshes have to see them under themselves.
-
-MEASURED ON THE ACCEPTANCE ASSET (NVIDIA's Bouquet of Flowers, `flowers_1.ply`, CC BY-SA 4.0, 562,974 splats, SH degree 3, 133.2 MB on disk; fetched rather than committed, by `source/scripts/fetch_gaussian_viewer_asset.ps1`):
-
-| what | measured |
+| Environment variable | Purpose |
 | --- | --- |
-| `load_ply` | 0.4 s for the whole file |
-| static tables | 562,974 geometry + 562,974 SH records = 135,113,760 bytes, uploaded once |
-| the CPU frame, first version | 93 ms sort + 240 ms projection/SH = 334 ms, i.e. 2.9 fps on ONE thread |
-| the CPU frame, now | 67 ms sort + 33 ms projection/SH = about 100 ms on 16 threads, i.e. 8-10 fps |
-| validation | zero VUIDs with the layers on, at 1280x720 |
+| `DEREN_GAUSSIAN_PATH` | `auto` (default), `cpu`, or `gpu` |
+| `DEREN_GAUSSIAN_PROBE=1` | Original CPU-prepared GPU raster oracle |
+| `DEREN_GPU_SORT_PROBE=1` | Native stable key/value sorting oracle |
+| `DEREN_GAUSSIAN_GPU_PROBE=1` | GPU preparation, references, indirect count and pixels |
+| `DEREN_GAUSSIAN_BENCHMARK` | Path for buffered timing CSV |
+| `DEREN_GAUSSIAN_HDR_CAPTURE` | Path for requested pre-post RGBA16F capture |
+| `DEREN_GAUSSIAN_CPU_TRACE` | Opt-in per-frame CPU preparation log |
 
-THE FRAME'S COST IS CPU-SIDE, WHICH IS WHY THE GPU LOOKS IDLE, and both halves are the design's own reference implementation: the depth sort and the per-splat projection/SH evaluation. They are now split across the machine's cores WITHOUT changing their answers - each worker fills its own storage and the results are concatenated in chunk order, and the sort's comparator is unchanged, so the draw order and the reported totals are the serial ones (the Gaussian tests pin that). What remains on the CPU is exactly what the design's out-of-scope item would remove: sorting and culling on the GPU.
+`auto` uses GPU preparation when its requirements are met and falls back to CPU on initialization failure. Forced `gpu` reports failure without silently using the CPU path. Startup logs identify the actual path and candidate count. Recording refusals are consumed through the stage collection seam and logged; failed frames do not reuse an old Gaussian snapshot.
 
-THE FRAME'S ONLY OTHER LEAF IS A PLACEHOLDER, and it is scaffolding rather than scenery. Two measured reasons, and the second is why it is opaque:
+The normal path does not wait for readback. Probes and screenshots explicitly wait for their own submissions and should be disabled during performance measurements.
 
-* THE ENGINE CANNOT YET DRIVE A FRAME WITH NO IMPORTED GEOMETRY. With an empty scene the first frame's submission and the next frame's open both fail `11 = device_lost`, with zero VUIDs and an empty stderr, and unchanged by `shadow`, `clustered_lights`, `gui`, `unlit`, by removing the splat pass from the chain entirely, or by adding a geometry-carrying instancing grid.
-* THE DEPTH BUFFER HAS TO BE WRITTEN BY SOMETHING OPAQUE. With a transparent placeholder the frame was legal and the splat pass recorded a full draw (562,974 visible splats, `record error 0`) and the image was still black, because every splat failed a depth test against a depth nothing had written.
+## Frame pipeline and ownership
 
-So `deren::chores::add_placeholder_triangle` builds one triangle in the runtime's scene tree: opaque black, one unit across, sixty units behind the cloud (about seven pixels at the camera's 45 degree field, and inside the orbit camera's `max(100, ...)` far plane, because a clipped leaf is no opaque leaf). It is black and the frame's clear is black, so it is invisible wherever it lands - its first, full-frustum version was not, and it covered the sky until it was shrunk, which is how the background turned out to have been the environment all along rather than a clear colour.
+Static geometry and SH tables are validated and uploaded once. The CPU updates only camera and instance metadata on the GPU path. Each completed frame-ring slot owns its dynamic buffers and retains every asset used by that submission; a swapchain image index is not a completion slot.
 
-TWO CORRECTNESS RULES EARNED THEIR COMMITS HERE, both from measurements rather than reviews:
+The GPU frame records these operations before raster rendering:
 
-* SNAPSHOT RETENTION IS BY FRAME SLOT. The design says snapshots are retained until their frame slot completes and are never keyed by the swapchain image index; holding ONE latest snapshot instead released the buffers of a frame the GPU could still be executing (`rhi::max_frames_in_flight` is 2), which showed up as blocky splats over an uninitialised background the moment a window resize put more frames in flight. `gaussian_frames` is one snapshot per slot now, indexed by the ring's position.
-* A STAGE THAT SAMPLES OWES THE FRAME-ORDER DUTY. The splat stage reads the lit HDR image and the opaque depth, so it publishes their attachment writes the way the G-buffer samplers do. In a mixed scene the lighting stage has already done it; in a cloud-only one nothing else would.
+1. Reset four status counters and the indirect draw command.
+2. Prepare fixed candidate slots in stable instance-ID/local-index order. Validate transformed data, test visibility, generate float32 forward-depth keys, and cache visible projections and colors.
+3. Sort uint32 keys with original candidate indices as values. Float flip of negative forward depth produces far-to-near order; invisible keys are UINT32_MAX. Stable sorting preserves ties without moving static attributes.
+4. Expand the visible prefix into instance/local references and write a 16-byte draw command. Any numeric error suppresses the entire Gaussian draw.
+5. Publish references and cached projections for shader reads and arguments for indirect reads. Rebind pipelines and push data after sorting.
 
-WHAT IS STILL OPEN, in the order it matters: (1) a frame with no imported geometry must be drivable, and (2) the depth clear must not depend on a leaf being present - which together would let the placeholder go back to being transparent, or disappear. Both are engine work rather than viewer work.
+The pass runs after lighting and before transparent meshes. It LOADs lit HDR color and opaque depth, tests center depth, disables depth writes and culling, then draws six vertices per visible reference. The host `visible_count` is a candidate bound on the GPU path; the indirect command supplies the actual visible draw count. Completed statistics are read only after the slot's completion point.
 
-### Resize synchronization update (2026-10-11)
+The engine/device/backend root must outlive its resource owners. Slot growth allocates replacements before publishing them, includes retained capacity and queried sorting scratch in its byte budget, and releases partial allocations on failure. No pending slot may be reused before completion.
 
-The rebuilt `fb6c5b02` baseline did not reproduce the earlier colored-block corruption in the inspected resize captures. Synchronization validation did reproduce a separate, definite WSI error: the swapchain layout transition could execute before the acquire semaphore's wait. The submit waits at `COLOR_ATTACHMENT_OUTPUT`, but the initial color barrier's source stage was `TOP_OF_PIPE`. The initial color and undefined-to-present barriers now use `COLOR_ATTACHMENT_OUTPUT` as their source stage so the transition chains the acquire wait.
+## Modules and entry points
 
-The same test that reported `WRITE_AFTER_READ` before the change is validation-clean afterward. Early capture, repeated resizing, and rapid resizing were also exercised; the existing fourteen render hashes still match their frozen baseline. This verifies the synchronization fix, but does not establish it as the cause of the earlier intermittent visual corruption. See [the resize report](reviews/2026-10-11-resize-synchronization.md) for evidence, limits and the reusable GPU check.
+- `deren.gaussian_loader`: `load_ply` and `parse_ply`, standalone CPU loading with structured diagnostics.
+- `deren.engine.gaussian_splatting`: `pack_asset`, `upload_asset`, `validate_model` and `sort_draw_references`.
+- `deren.engine.gaussian_splatting.raster`: `make_raster_asset`, `prepare_raster_frame`, `project_splat`, `evaluate_sh` and `fragment_alpha`.
+- `deren.engine.gaussian_splatting.gpu_frame`: `prepare_gpu_frame`, preparation command recording and completed-slot statistics.
+- `deren.engine.pass.gaussian_splatting`: mutually exclusive CPU/GPU snapshot setters and `last_error`.
 
-### Earlier resize investigation (historical)
+The asset factory retains both validated CPU data and immutable GPU tables. The CPU frame factory globally sorts in double precision, evaluates conservative visibility and uploads references. The GPU factory validates camera/instance metadata, prepares reusable slot resources and records the compute/sort/finalize sequence. It returns an owning shared frame; pipeline pointers used during recording are borrowed from the pass.
 
-The following entries retain the earlier observations and rejected hypotheses. Read their retractions before using them as evidence; the current verified status is above.
+## Data layout and rendering rules
 
-REPRODUCED, and it is specific to this path rather than to resizing in general. Recipe: start the viewer with the cloud's path in `model`, let it settle, then resize the window once (any size) and look - the frame fills with blue and olive blocks (splats projected through garbage) with the bouquet pushed into a corner. Resizing a SECOND time clears it, which is the sharpest clue in the report: generation 0 to generation 1 is the transition that leaves something stale, and the next one is fine.
+| Record | Bytes | Main contents |
+| --- | ---: | --- |
+| geometry_record | 48 | Center, opacity, six covariance entries |
+| sh_record | 192 | 48 coefficient-major RGB scalars |
+| instance_record | 160 | Geometry/SH addresses, model/inverse, SH degree |
+| draw_reference | 8 | Original instance index and local particle index |
+| GPU projection cache | 48 | Three float4 values: center, ellipse basis, color/opacity |
+| raster_push | 112 | VP, camera, addresses, viewport, count and flags |
+| GPU preparation parameters | 176 | Raster parameters, forward, ranges and buffer addresses |
+| indirect draw command | 16 | Vertex count, instance count and first indices |
 
-THE THREE RUNS THAT LOCALISE IT (same binary, same window, same scripted `MoveWindow` resize):
+Geometry/instance/cache records use 16-byte alignment and column-major GLM transforms. Raster push data is followed by three heap lanes at byte offsets 112, 116 and 120, making the transmitted block 124 bytes. Preparation pushes only the address of its 176-byte parameter buffer plus the heap lanes.
 
-| run | config | after one resize |
-| --- | --- | --- |
-| cloud only (the viewer as shipped) | `model` = the `.ply` | CORRUPT |
-| control 1 | `model` = `gltf_model/DamagedHelmet.gltf`, minimal config | clean |
-| control 2 | THIS viewer config with `model` swapped to the helmet | clean |
+Raster flag bit 0 enables the GPU projection cache. Reserved instance words 37/38 (byte offsets 148/152) carry that instance's cache base address; the CPU instance path leaves padding zero. References and their original instance/local index semantics stay unchanged. Preparation parameters use uncached projection, then the six raster vertices read its float32 results. Unwritten invisible cache entries are never referenced.
 
-So neither the resize path in general nor any key in the viewer's configuration is at fault: the difference is the cloud plus the placeholder - that is, a scene whose only leaf was created by `runtime::make_primitive` and a frame that draws splats, versus a scene built by `import_scene`. The suspected state is the per-generation publication of the scene's own data (the material/instance records `make_primitive` writes, and the push/heap binding the splat stage is resolved through) rather than any image the engine recreates, because the engine recreates those for every generation and a model frame proves that half works.
+Packing accepts finite centers, positive scales, opacity in [0,1], finite SH degree 0..3 and wxyz quaternions within 1e-4 of unit norm. Accepted quaternions are normalized; unused SH bands are zeroed. Covariance and conservative 3-sigma bounds are computed and checked before upload. Packed GPU input is validated again, including padding and positive-semidefinite covariance tolerance.
 
-NOT YET FIXED. The two candidate fixes, both bounded: publish that state per generation in the runtime (the engine fix), or move the placeholder onto the import path, which is the route the controls above prove is generation-correct.
+Instances require unique uint64 stable IDs. Model transforms allow affine translation, rotation and positive uniform scale; reflection, shear, nonuniform/zero scale and nonfinite inverses are rejected. Cameras require a finite, nonsingular perspective projection with forward depth [0,1], finite far plane and the engine's projection Y flip. Orthographic, reversed-depth and infinite-far projections are not supported.
 
-TWO MORE MEASUREMENTS NARROW IT FURTHER, both taken after the report above:
+Projection uses the actual VP Jacobian in pixel units, covariance regularization of 0.3 pixel squared and a Cholesky ellipse basis. Side rejection uses the regularized footprint. Near-plane-intersecting support is omitted. SH degree 0..3 uses the local camera-to-center direction, adds 0.5 and clamps negative color without clamping HDR highlights. The fragment support is radius squared <=9, alpha is capped at 0.99, and alpha below 1/255 is discarded. Composition uses ordinary unpremultiplied back-to-front alpha blending.
 
-* IT IS NOT RARE. Four consecutive runs of the same scripted resize at four different sizes corrupted all four (a pixel difference of 40 to 111 against the pre-resize frame over the sky region, where a clean frame is 0 to 2). The single clean run that first suggested a race was the outlier, not the rule.
-* IT IS UNINITIALISED MEMORY, NOT A STALE LEAF. The placeholder was temporarily given a bright red material as a probe: the corruption came out as dense random saturated noise (orange, green, blue, magenta) across the whole frame with only the GUI panel drawn correctly - not red. So what is on screen was never written by the frame's own passes: the leaf's data is not what is displayed, and the stale thing is the frame's TARGET/RESOLUTION path - a post/upscale or scene resolve that still names the previous generation's image after the swapchain is rebuilt.
-* IT IS THE `make_primitive` LEAF, NOT THE SPLAT STAGE. Removing the splat pass from the chain entirely - so the frame draws no splat at all and the scene is that one placeholder leaf - still corrupts on the first resize (a sky-region difference of 64.5 against 0 to 2 for a clean frame). With the two controls above that leaves one variable standing: a leaf created by `runtime::make_primitive` at startup, whose scene data the generation rebuild does not republish, where `import_scene`'s does (which is why a model frame is immune).
+## VRDX and memory budgets
 
-THE FIXES, in the order they are worth doing: publish the scene's own data per generation in the runtime (`register_material`'s and `make_primitive`'s writes are the ones that survive only generation 0); or move the placeholder onto the import path, which the controls prove is generation-correct; or, as an interim only, re-add the placeholder after a detected swapchain recreation - correct because the new registration republishes the table, and ugly because it leaves one seven-pixel leaf behind per resize.
+VRDX 0.6.0 is vendored unchanged in `source/third_party/vrdx`, with its MIT license and provenance. Its pinned revision is:
 
-CORRECTION, AND THE PROBE THAT FOLLOWED IT: the import route was IMPLEMENTED (`add_placeholder_triangle` now builds a duck-typed node/drawable pair that satisfies `scene_drawable_iterator` and calls `import_scene`) and it does NOT fix the corruption - a scripted resize still measures 44.3 in the sky region, against 0 to 2 for a clean frame. So the `make_primitive`-versus-`import_scene` difference was NOT the cause, and that candidate fix is withdrawn.
+```text
+b0db22b0c65e17a9b803bc4daf20354898b820eb
+```
 
-WHAT THAT LEAVES: the placeholder's creation route is exonerated, the resize path is exonerated (the helmet controls are clean with this very configuration), and the configuration is exonerated (control 2 used all of it). The one variable left standing is THE CLOUD ASSET ITSELF: every corrupt run had the 135 MB of static tables loaded, and the run that removed the splat pass from the chain - so that the frame drew no splat at all - still corrupted, while both helmet controls (no cloud loaded) are clean. The next probe is therefore one line and already named: skip `set_gaussian_asset` (then skip `make_raster_asset`) and see which half of the cloud's presence matters.
+The backend wraps VRDX through the optional RHI sorting extension; engine code does not include Vulkan or VRDX headers. RHI ABI is 32.
 
-### Retraction: the numbers above were measured with a metric that cannot tell corruption from a resize
+The Vulkan 1.3 implementation checks synchronization2, VK_KHR_push_descriptor, subgroup operations, workgroup size and shared-memory limits. Sorting scratch uses the requirements returned by the backend; zero scratch size for a nonzero count means unsupported. Traditional sorting descriptors invalidate heap bindings, so the wrapper restores the core's heaps and subsequent stages rebind their state.
 
-EVERY RATE AND EVERY "STILL CORRUPTS" ABOVE IS WITHDRAWN, and the reason is a measurement error worth recording: the metric was the mean absolute pixel difference over a sky region between the frames before and after a resize. A resize moves what that region SHOWS - the sky is a gradient - so a perfectly clean resize measures 40 to 70, the same band the "corruption" was reported in. The decisive counter-example was produced by running the HELMET control three times and then LOOKING at the capture: the metric said 44.8 / 60.2 / 67.2 and the image was a clean helmet at 186 fps.
+Default foundation budgets are 4,000,000 particles/references and 1 GiB packed output. Static packed data costs 240 bytes per particle. Dynamic GPU budgets include instances, ranges, keys, values, references, projection cache, scratch, parameters, counters and draw arguments. One-X-dispatch preparation also caps candidates at 65,535 * 128. Structured budget errors do not promise recovery from system host-memory exhaustion.
 
-What survives is the VISUAL evidence only, and it is unambiguous: three captures of a cloud-only viewer after a resize show garbage (random saturated noise across the frame with only the GUI drawn, olive blocks over a blue field, and the user's own screenshot), while three captures of the helmet are clean. So the corruption is real and it appears in the cloud-only configuration - but "4 of 4 runs", "the splat stage is not involved", "the asset is exonerated" and "import_scene does not fix it" were all concluded from numbers in that unusable band, and each of them needs re-testing by looking at the image instead.
+The flower asset has 135,113,760 bytes of static GPU tables. With projection caching, requested dynamic capacity is 40,680,448 bytes per slot, 81,360,896 for two slots. The cache alone adds 27,022,752 bytes per slot. Immutable CPU assets and allocator block overhead are separate.
 
-The lesson is the one this repository keeps re-learning: a metric that is not validated against a known-good case is not a measurement, it is a number. A validated metric here would compare the frame against a SAME-SIZE capture taken without any resize, not against itself before a resize.
+## Measurements and their limits
 
-### The validated metric was tried, and it fails its own validation
+Measurements below use an RTX 4060 Laptop GPU, driver 617.42, Release, 562,974 SH3 particles and 1280x720. GUI, TAA, VSync, validation and frame cap were disabled; each path discarded 60 warmup frames and sampled 300 frames, with three static and three rotating runs. Rotation advanced 0.5 degrees per frame.
 
-The same-size comparison was built and used: capture a frame from a run that STARTED at the target size (never resized) and compare it with a frame from a run resized to that size, same configuration, same camera. The numbers:
-
-| comparison | difference |
+| Change | Measured result |
 | --- | --- |
-| cloud, two clean frames, same size, neither resized (the BASELINE) | 29 |
-| cloud, resized frame against the same-size reference | 72.9 |
-| helmet, resized frame against the same-size reference | 51.1 |
+| CPU to GPU preparation/sort | Frame median 116.8-157.8 ms to 5.89-7.12 ms; 19.5-26.6x |
+| CPU preparation work | About 92 ms to about 0.002 ms of instance/camera metadata |
+| Projection/color cache | Gaussian GPU interval total reduced 14-28% in six pairs |
+| Cached raster stage | About 1.62-1.66 ms to 0.87-1.12 ms; 31-47% reduction |
 
-The helmet's 51.1 is the disqualifying one: that frame was LOOKED at and it is a perfectly clean helmet at 239.9 fps. A resize changes the camera's aspect and what the frame shows, so "resized against not-resized" contains a legitimate difference of the same order as the corruption - the metric separates "was resized" from "was not", not "is corrupt" from "is clean".
+These are historical measurements taken before the later Bloom pipeline wiring repair. That repair restores real Bloom work, so the earlier whole-frame times are not current FPS guarantees. Cache tests show a repeatable reduction in Gaussian GPU work; scheduling/presentation variation prevented an equivalent whole-frame FPS claim. The two optimizations' percentages must not be multiplied into an unmeasured combined speedup.
 
-SO THE EVIDENCE IS VISUAL ONLY, and on that evidence the corruption is real and it belongs to the cloud-only path: five captures of a cloud-only viewer after a resize show garbage (random saturated noise with only the GUI drawn, olive blocks over a blue field, blocky splats, and the user's own screenshot), while the helmet after a resize is clean in three captures - the last of them with EXACTLY this configuration and only the `model` line changed, which is the strongest control available here.
+Six static/rotating before/after cache PNGs are pixel-exact; an additional pre-post RGBA16F capture is byte-exact. CPU/GPU float32 versus double ordering is not claimed identical for the full flower scene. Acceptance uses maximum RGB error <=0.005 for small scenes, flower HDR RGB RMSE <=0.005 and final per-channel RGB RMSE <=1/255; local differences are recorded alongside averages.
 
-ONE MORE MISTAKE WORTH RECORDING, because it cost a wrong conclusion: an earlier "control 2" (this configuration with the model swapped to the helmet) never ran that configuration at all. The file had been produced by substituting the model path with `..\gltf_model\DamagedHelmet.gltf`, whose single backslashes are an INVALID TOML escape, so the parse failed and the run silently used the defaults. The valid control (`..\\gltf_model\\DamagedHelmet.gltf`, escaping the backslashes) is the one whose capture is clean above.
+## Regression checks and repaired failures
 
-### Probe B, under the visual protocol: the corruption needs the STAGE's work, not the asset
+Headless tests cover loading, layouts, covariance/SH math, camera/model validation, budgets, sorting, allocation rollback, resource retention, indirect recording and runtime injection. Native probes cover 48 stable-sort cases and 11 GPU raster scenes; the latter compares 10,626 pixels with maximum HDR RGB error 0.0008074641, maximum depth difference 1 float32 ULP and zero small-sample double-order differences. Clean validation alone is not a pixel-correctness test.
 
-Three runs with a scripted resize, judged by looking at the captures: with the splat pass REMOVED from the chain the
-stage's gate is false, so the stage does nothing at all - no scene-order ensure calls, no snapshot, no draw - while
-the application still hands the cloud asset to the runtime. All three captures are clean (one was looked at: sky with
-the little black placeholder triangle now visible because nothing covers it, 175.8 fps), and the three files are 44-45
-KB against the 280-330 KB a corrupt frame produces and the 226-278 KB a clean cloud frame produces.
+Reproduce image and performance checks with the Windows helpers:
 
-So the cloud asset's presence is not the cause. The stage's OWN runtime work is required - the two G-buffer ensure
-calls, the per-frame snapshot `prepare_raster_frame` builds, or the draw itself. The next split needs no rebuild:
-keep the stage and cull every splat with a far-away camera (`--capture-camera 0,0,3,1000,0,0` leaves
-`visible_count` at zero), which keeps the ensures and the snapshot and removes only the draw.
+```powershell
+$build = 'build-release-dyn-clang64'
+$scripts = 'source/scripts/windows'
+& "$scripts/check_gaussian_gpu.ps1" -BuildDir $build
+& "$scripts/benchmark_gaussian_gpu.ps1" -BuildDir $build
+& "$scripts/check_gaussian_resize.ps1" -BuildDir $build `
+    -Config '<viewer.toml>' -MaximizeRestore -EarlyCapture
+```
 
-TO RUN IT: put the cloud's path in `model`, keep `gltf_model/DamagedHelmet.gltf` (or another model) findable from the working directory so the scene lookup succeeds, and start the viewer from the project root or the build directory. Left-drag orbits, the wheel zooms, F12 writes a screenshot through `[paths] screenshot_dir`, F1 toggles the panel and Escape quits; the panel's `gpu (60f)` and `cpu (60f)` rows are the costs measured above.
+The resize helper also accepts `-RapidResize` for twenty actions and `-Camera` for a fixed capture pose. Inspect early restored frames as well as final output. The following fixes are part of the current viewer:
 
-### What NVIDIA's own implementation does differently (`src/splat_sorter_async.{h,cpp}`, Apache-2.0)
-
-Read after probe B narrowed the corruption to the stage's own runtime work, and it is a direct contrast with what this viewer does:
-
-| `vk_gaussian_splatting` | this viewer |
+| Failure | Current behavior |
 | --- | --- |
-| `sortAsync(camDir, camCop, ...)` with `lazy = true` starts a sort ONLY when the viewpoint changed | sorts 562,974 splats every frame, unconditionally |
-| the result is handed over by `consume(std::vector<uint32_t>& indices)`, which `swap`s into the CALLER'S vector, and the sorter keeps `m_indices` and `distances` as MEMBERS - a frame allocates nothing | `prepare_raster_frame` creates a new GPU buffer (4.5 MB at the acceptance cloud) plus new vectors every frame |
-| `waitUntilIdleAndReset()` carries an explicit contract: "wait for any in-flight sort to complete and clear stale data. Must be called before deleting splat sets whose positions may be referenced" | the per-slot retention in `gaussian_frames` covers the snapshot's lifetime; nothing covers a buffer a frame may still be reading |
+| Empty mesh scene depended on a placeholder triangle | Shared resources are prepared before frame acquire; geometry-free scenes clear color/depth |
+| Camera movement exposed stale background/depth | The scene pass records a clear-only rendering scope when no opaque meshes are visible |
+| Swapchain transition preceded the acquire wait | Initial transitions chain the COLOR_ATTACHMENT_OUTPUT semaphore wait |
+| VRDX traditional descriptors invalidated heap state | Heap bindings are restored and later pipelines/push data rebound |
+| Recording errors were not collected | Invoked Gaussian passes report refused recording through the stage collection seam |
+| Left gray band after maximize/restore | Named shared-pipeline lookup restores all four Bloom passes before the composite reads them |
 
-THE CHANGE THAT FOLLOWS, one change with two payoffs: allocate the reference/instance buffers ONCE PER FRAME SLOT in the runtime and refill them in place - the design's "retained until the slot completes", read the way NVIDIA reads it - instead of creating them per frame inside `prepare_raster_frame`. If the per-frame creation through the contract's `create_buffer` is what a swapchain rebuild trips over (probe B says the corruption lives in the stage's own work), that removes it; and it removes the per-frame allocation and staging copy the performance work measured. The `lazy` viewpoint check is the second, independent win: a static camera should not re-sort at all.
+The gray-band diagnosis compared healthy pre-post HDR with corrupted final PNGs, ruled out GUI draw submission and observed four unresolved Bloom passes at nonzero intensity. The runtime now searches both its legacy registry and the attached passes' named pipelines. Five early restored captures, a final early capture and twenty maximize/restore actions were clean, with full CTest 24/24 and independent review. Bloom now works as configured: 13 of 14 old frozen images change; omitting only Bloom addition in an isolated diagnostic matches all 14. References were not updated to conceal this intended visual change.
 
-### Probes C and D: the draw and the ensure calls are both exonerated - the snapshot write is what is left
+Detailed measurements and historical investigations remain in the repository's `docs/reviews` records for GPU frame acceptance, projection cache acceptance, empty-scene resources, camera clears, resize synchronization and maximize/restore. Rejected hypotheses and withdrawn image-difference metrics are not current guidance and are not repeated in this chapter.
 
-TWO MORE RUNS, both under the visual protocol (scripted resize, every capture looked at), and both subtract one thing
-from probe B's "the stage's own work":
+## Current boundaries
 
-* PROBE C, the draw removed: with the camera pointed 1000 units off the cloud every splat is culled (`0 visible of
-  562,974`, logged), so the pass records nothing while the stage still resolves, still ensures and still builds a
-  snapshot. Three runs: two clean, one corrupt. The DRAW is not the cause.
-* PROBE D, the ensures removed: the two `ensure_gbuffer_*` calls were deleted from the stage (its neighbours declare
-  "no frame-order duty of its own" for the same reason: the lighting stage is what samples the depth, and the pass's
-  own record owns the transitions it needs). Four runs: two corrupt. The ENSURES are not the cause either.
-
-WHAT IS LEFT is the one thing every corrupt configuration has in common and no clean one does: THE SNAPSHOT WRITE
-ITSELF - `make_gaussian_frame` filling the slot's buffers through `mapped()` (or, before Task 8, creating and
-uploading new ones). And that is precisely the hazard NVIDIA's own API names in its contract:
-
-    waitUntilIdleAndReset() - "Wait for any in-flight sort to complete and clear stale data. Must be called before
-    deleting splat sets whose positions may be referenced."
-
-The intermittent rate fits that reading rather than a wrong layout: a resize changes how many frames the presentation
-engine has in flight, and the per-slot ring tracks frames the QUEUE has completed, which is not the same moment as a
-frame no longer being PRESENTED. Rewriting a slot's bytes in the window between those two moments corrupts exactly
-what a scripted resize perturbs.
-
-THE NEXT STEP, one line of research rather than a guess: find which completion the runtime's ring actually waits on
-for a slot (the timeline it signals on submit), and whether the presented image can still be read when the same slot
-comes round. If it can, the honest fix is to wait for that slot's presentation before refilling it (or to keep one
-more slot than the presentation engine holds).
-
-### The comparison that names the class of bug: where the per-frame upload is ORDERED
-
-NVIDIA's splat data is organized as ONE long-lived device buffer per semantic role, with the per-frame CONTENT
-arriving through an upload recorded INSIDE the frame's command buffer:
-
-    // ===== SORTING BUFFERS =====  (splat_set_manager_vk.h)
-    nvvk::LargeBuffer m_splatSortingIndicesDevice;    // one, not one per frame
-    nvvk::LargeBuffer m_splatSortingDistancesDevice;
-    nvvk::Buffer      m_splatSortingIndicesHost;      // the CPU sort's result lands here
-    void tryConsumeAndUploadCpuSortingResult(VkCommandBuffer cmd, ...);   // host -> device, IN the frame
-    bool updateSortingBuffers(...);                   // creates/destroys on mode or size change, not per frame
-
-THIS VIEWER DOES THE OPPOSITE: prepare_raster_frame writes the device-visible buffers from the CPU - through
-mapped() since Task 8, through create_buffer(initial_bytes) before it - at a moment that has NO ordering relationship
-with any frame's execution. The device buffer is correct in both variants; what is missing is that the write is not
-*in* the frame.
-
-That is exactly the shape of every observation collected here: the corruption requires the stage's own runtime work
-(probe B, and it survives removing the draw in probe C and the ensure calls in probe D), it is intermittent rather
-than deterministic, and it is unaffected by per-frame creation, per-slot retention, in-place mapped() refill or a
-generation reset - because none of those changes WHERE the write sits relative to the frame.
-
-THE NEXT STEP IT POINTS AT: upload the frame's references inside the frame's own command buffer, the way
-tryConsumeAndUploadCpuSortingResult does - a staging buffer written from the CPU, then a recorded host-to-device copy
-into the long-lived device buffer - and check first whether the contract offers a buffer-copy verb for a frame's
-command buffer (the static asset path uploads through create_buffer(initial_bytes), which is a creation-time copy,
-not a frame-ordered one).
+Center-depth global sorting is an approximation, not per-pixel volumetric order. Near-plane support is omitted rather than clipped. The current renderer does not provide Gaussian PBR relighting, Gaussian-generated mesh shadows, mesh-shader splats, SH compression, asynchronous old-camera sorting, stochastic transparency or a Gaussian-specific TAA treatment. Their absence is not covered by the measured performance claims.

@@ -280,7 +280,7 @@ namespace deren::chores {
             //
             // THE GEOMETRY IS THE OUTLINE'S OWN MESH STAGE, not pbr's: pushing each vertex outward in clip space
             // is the one thing that turns a second copy of a mesh into an outline, and it lives in the
-            // `outline_mesh_main` entry of `pbr.slang` (see `source/shaders/outline.slang` for why the fragment entry is
+            // `outline_mesh_main` entry of `pbr.slang` (see `source/shaders/toon/outline.slang` for why the fragment entry is
             // `frag_main`).
             //
             // THERE IS NO MESHLET FORM, AND THAT IS DELIBERATE RATHER THAN AN OMISSION:
@@ -482,8 +482,8 @@ namespace deren::chores {
             load_shader(shaders_dir, "rt_shadow.rahit.spv", rt_shadow_any_hit_code);
             runtime.register_shader("rt_shadow.rahit.spv", rt_shadow_any_hit_code);
 
-            // The alphaMode MASK bake (source/shaders/mask_bake.slang) and the compute skinning job
-            // (source/shaders/compute_skin.slang) are TWO JOBS rather than frame passes - one runs once inside the
+            // The alphaMode MASK bake (source/shaders/geometry/mask_bake.slang) and the compute skinning job
+            // (source/shaders/geometry/compute_skin.slang) are TWO JOBS rather than frame passes - one runs once inside the
             // command buffer that builds the bottom level structures (without it a MASK surface is solid to
             // a ray), the other re-skins the casters and refits their structures per frame (without it a
             // skinned caster's traced shadow is cast by its BIND POSE). Both are built by `create_passes()`
@@ -496,7 +496,7 @@ namespace deren::chores {
             load_shader(shaders_dir, "compute_skin.comp.spv", compute_skin_code);
             runtime.register_shader("compute_skin.comp.spv", compute_skin_code);
 
-            // The HEAP-NATIVE PROBE (source/shaders/heap_probe_comp.slang): registered like the jobs above, and for a purpose
+            // The HEAP-NATIVE PROBE (source/shaders/debug/heap_probe_comp.slang): registered like the jobs above, and for a purpose
             // of the same kind - it is not part of any frame, it runs once at scene setup in a command buffer of
             // its own (runtime::run_heap_probe) and its answer is a log line. It exists because the migration's
             // four assumptions about the native path (a heap-flagged pipeline with NO layout, `descriptor_heap`
@@ -513,6 +513,20 @@ namespace deren::chores {
             load_shader(shaders_dir, "gaussian_raster.frag.spv", gaussian_fragment_code);
             runtime.register_shader("gaussian_raster.vert.spv", gaussian_vertex_code);
             runtime.register_shader("gaussian_raster.frag.spv", gaussian_fragment_code);
+            std::array<std::vector<uint8_t>, 3> gaussian_compute_code;
+            std::array<std::string_view, 3> const gaussian_compute_names = {"gaussian_reset.comp.spv", "gaussian_prepare.comp.spv", "gaussian_finalize.comp.spv"};
+            for (std::size_t i = 0; i < gaussian_compute_names.size(); ++i) {
+                load_shader(shaders_dir, gaussian_compute_names[i].data(), gaussian_compute_code[i]);
+                runtime.register_shader(gaussian_compute_names[i], gaussian_compute_code[i]);
+            }
+            if (auto const* enabled = std::getenv("DEREN_GPU_SORT_PROBE"); enabled != nullptr && std::string_view{enabled} == "1") {
+                auto report = deren::engine::gaussian_splatting::run_gpu_sort_probe(runtime.rhi_face());
+                if (report) {
+                    deren::utility::log("GPU sort probe: PASS {} cases", *report);
+                } else {
+                    deren::utility::log("GPU sort probe: FAIL {}", report.error().message);
+                }
+            }
             if (auto const* enabled = std::getenv("DEREN_GAUSSIAN_PROBE"); enabled != nullptr && std::string_view{enabled} == "1") {
                 auto report = deren::engine::gaussian_splatting::run_raster_probe(runtime.rhi_face(), gaussian_vertex_code, gaussian_fragment_code);
                 if (report) {
@@ -520,6 +534,12 @@ namespace deren::chores {
                 } else {
                     deren::utility::log("Gaussian raster probe: FAIL {}", report.error().message);
                 }
+            }
+            if (auto const* enabled = std::getenv("DEREN_GAUSSIAN_GPU_PROBE"); enabled != nullptr && std::string_view{enabled} == "1") {
+                std::array<std::span<uint8_t const>, 3> const compute = {gaussian_compute_code[0], gaussian_compute_code[1], gaussian_compute_code[2]};
+                auto report = deren::engine::gaussian_splatting::run_raster_probe(runtime.rhi_face(), gaussian_vertex_code, gaussian_fragment_code, compute, true);
+                if (report) deren::utility::log("Gaussian GPU raster probe: PASS {} cases / {} pixels, maximum RGB error {}, depth max {} ULP, double-order differences {}", report->cases, report->pixels, report->maximum_error, report->maximum_depth_ulp, report->depth_order_differences);
+                else deren::utility::log("Gaussian GPU raster probe: FAIL {}", report.error().message);
             }
             std::vector<uint8_t> heap_probe_vertex_code;
             load_shader(shaders_dir, "heap_probe.vert.spv", heap_probe_vertex_code);
@@ -541,152 +561,7 @@ namespace deren::chores {
         }
     }
 
-    // Optional instancing stress: grid_side > 1 (config or argv) draws the first imported
-    // primitive as a grid_side x grid_side grid in ONE instanced draw call (an
-    // instanced_draw_primitive appended to the scene tree - the frame loop is untouched)
-    namespace {
-        // THE ADAPTER `import_scene` ASKS FOR, AND NOTHING ELSE. Its node and drawable streams are duck-typed: the
-        // ITERATOR is the element (runtime.declarations.cppm's fill_info calls these accessors on the iterator
-        // itself), so a type with exactly these members satisfies it - no need to build the loader's `scenes`, its
-        // accessors, or its material resolution:
-        //   node:     get_depth / get_name / get_source_index / get_local_transform / get_drawable_count
-        //   drawable: get_vertex / get_index / get_albedo / get_metallic_roughness / get_normal / get_occlusion /
-        //             get_emissive / get_factors / get_double_sided / get_toon_family / get_overlay_kind /
-        //             get_material_name
-        // Both sides compare against a default-constructed instance for "end" and advance with operator++.
-        //
-        // WHY THE IMPORT ROUTE AND NOT make_primitive: a leaf created by `runtime::make_primitive` loses its scene
-        // data when the swapchain is rebuilt - that is the viewer's resize corruption, measured on 4 of 4 runs as
-        // uninitialised memory across the whole frame - while an imported leaf survives it (the helmet controls are
-        // clean). See the known-issue section of docs/gaussian_splatting.md.
-        struct placeholder_vertex_view {
-            std::span<std::uint8_t const> data = {};
-            std::uint32_t stride = 0;
-            std::uint32_t count = 0;
-        };
-        struct placeholder_index_view {
-            std::span<std::uint8_t const> data = {};
-            std::uint8_t width = 2;
-            std::uint32_t count = 0;
-        };
-        struct placeholder_image { // what `to_texture` reads, and only that
-            std::span<std::uint8_t const> data = {};
-            std::uint32_t width = 0;
-            std::uint32_t height = 0;
-            std::uint32_t mip_levels = 1;
-            bool valid = false;
-        };
-        struct placeholder_factors { // the fields fill_info copies, and only those
-            glm::vec4 base_color_factor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
-            glm::vec4 emissive_factor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-            float metallic_factor = 1.0f;
-            float roughness_factor = 1.0f;
-            float normal_scale = 1.0f;
-            float occlusion_strength = 1.0f;
-            float alpha_cutoff = 0.5f;
-            bool alpha_mask = false;
-            bool alpha_blend = false;
-        };
-        /// one drawable, then exhausted: the stream `import_scene` walks for the node's single primitive
-        struct placeholder_drawable {
-            std::span<std::uint8_t const> vertex_bytes = {};
-            std::span<std::uint8_t const> index_bytes = {};
-            std::uint32_t vertex_count = 0;
-            std::uint32_t index_count = 0;
-            bool exhausted = false;
-
-            [[nodiscard]] placeholder_vertex_view get_vertex() const { return {.data = vertex_bytes, .stride = 64u, .count = vertex_count}; }
-            [[nodiscard]] placeholder_index_view get_index() const { return {.data = index_bytes, .width = 2u, .count = index_count}; }
-            /// the concept requires it (`scene_drawable_iterator`, primitive.cppm:477) even though the import takes the
-            /// placement from the NODE stream: the drawable's own transform is the identity here.
-            [[nodiscard]] glm::mat4 get_transform() const { return glm::mat4(1.0f); }
-            [[nodiscard]] placeholder_image get_albedo() const { return {}; }
-            [[nodiscard]] placeholder_image get_metallic_roughness() const { return {}; }
-            [[nodiscard]] placeholder_image get_normal() const { return {}; }
-            [[nodiscard]] placeholder_image get_occlusion() const { return {}; }
-            [[nodiscard]] placeholder_image get_emissive() const { return {}; }
-            /// OPAQUE BLACK, and the only part of this adapter that is a MATERIAL rather than a shape: opaque is what
-            /// writes the depth the splat pass tests against, and black is what the frame showed anyway.
-            [[nodiscard]] placeholder_factors get_factors() const {
-                placeholder_factors factors = {};
-                factors.base_color_factor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-                factors.metallic_factor = 0.0f;
-                factors.roughness_factor = 1.0f;
-                return factors;
-            }
-            [[nodiscard]] bool get_double_sided() const { return true; }
-            [[nodiscard]] std::uint32_t get_toon_family() const { return 0u; }
-            [[nodiscard]] std::uint32_t get_overlay_kind() const { return 0u; }
-            [[nodiscard]] std::string_view get_material_name() const { return "deren.placeholder"; }
-            [[nodiscard]] bool operator!=(placeholder_drawable const& other) const { return exhausted != other.exhausted; }
-            placeholder_drawable& operator++() {
-                exhausted = true;
-                return *this;
-            }
-        };
-        /// one root node carrying that one drawable
-        struct placeholder_node {
-            bool exhausted = false;
-
-            [[nodiscard]] std::size_t get_depth() const { return 0u; }
-            [[nodiscard]] std::string_view get_name() const { return "deren.placeholder"; }
-            [[nodiscard]] std::size_t get_source_index() const { return 0u; }
-            [[nodiscard]] glm::mat4 get_local_transform() const { return glm::mat4(1.0f); }
-            [[nodiscard]] std::size_t get_drawable_count() const { return 1u; }
-            [[nodiscard]] bool operator!=(placeholder_node const& other) const { return exhausted != other.exhausted; }
-            placeholder_node& operator++() {
-                exhausted = true;
-                return *this;
-            }
-        };
-    } // namespace
-
-    void add_placeholder_triangle(deren::engine::runtime& runtime) {
-        // THE GAUSSIAN VIEWER'S PLACEHOLDER SCENE, BUILT AND THEN IMPORTED - see the declaration for why it exists
-        // at all, and the adapter above for why it goes through import_scene rather than make_primitive.
-        //
-        // THE VERTEX LAYOUT IS THE ENGINE'S (gltf_loader's `vertex`: position, normal, uv, joints, weights = 64 B),
-        // because the pbr pipeline's input state is built from that same structure: a mismatch here is a GPU fault
-        // rather than a compile error, which is exactly why the fields are laid out the way the loader lays them out
-        // instead of in some local order that happens to look tidy.
-        struct placeholder_vertex {
-            glm::vec3 position;
-            glm::vec3 normal;
-            glm::vec2 uv;
-            glm::uvec4 joints = glm::uvec4(0u);
-            glm::vec4 weights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
-        };
-        // A SMALL TRIANGLE, WELL BEHIND THE CLOUD - and every one of those three words is a constraint:
-        //   * OPAQUE, because the depth buffer has to be written by something in the opaque pass: with a transparent
-        //     placeholder the frame was legal and the splat pass recorded a full draw (562,974 visible, record error
-        //     0) and the image was still black, because every splat failed a depth test against a depth nothing had
-        //     written.
-        //   * BEHIND the cloud (z = -60 against the cloud's own [-0.81, 1.50]), so the splats pass that test and
-        //     composite over it instead of being occluded by it.
-        //   * SMALL: one unit across, about seven pixels at that distance with the camera's 45 degree field - and
-        //     the orbit camera's far plane is `max(100, ...)`, so it stays inside the frustum rather than being
-        //     clipped (a clipped leaf is NO opaque leaf, which is the state this exists to avoid).
-        // It is black, and the frame's clear is black, so wherever it lands it is indistinguishable from no
-        // background at all - which is the point: it is scaffolding, not scenery.
-        std::array<placeholder_vertex, 3> const vertices = {{
-            {.position = {-0.5f, -0.5f, -60.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.0f, 0.0f}},
-            {.position = {0.5f, -0.5f, -60.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {1.0f, 0.0f}},
-            {.position = {0.0f, 0.5f, -60.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.5f, 1.0f}},
-        }};
-        std::array<std::uint16_t, 3> const indices = {0u, 1u, 2u};
-        placeholder_drawable const drawable{
-            .vertex_bytes = std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const*>(vertices.data()), sizeof(vertices)},
-            .index_bytes = std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const*>(indices.data()), sizeof(indices)},
-            .vertex_count = static_cast<std::uint32_t>(vertices.size()),
-            .index_count = static_cast<std::uint32_t>(indices.size()),
-        };
-        deren::engine::scene_import_result const imported = runtime.import_scene(placeholder_node{}, placeholder_node{.exhausted = true}, drawable, placeholder_drawable{.exhausted = true}, glm::vec3(0.0f));
-        if (imported.primitive_count != 1u) {
-            deren::utility::panic(std::source_location::current(), "the placeholder triangle could not be imported (is the 'pbr' pipeline missing?)");
-        }
-        deren::utility::log("placeholder scene: one opaque triangle imported at (0, 0, -60), 1 unit across ({} byte vertices, {} primitive)", sizeof(placeholder_vertex), imported.primitive_count);
-    }
-
+    // Optional instancing stress: draw the first imported primitive as a grid.
     void add_instancing_grid(deren::engine::runtime& runtime, int32_t const grid_side, float const scene_radius) {
         if (grid_side <= 1) {
             return;

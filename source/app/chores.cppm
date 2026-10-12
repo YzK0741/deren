@@ -31,8 +31,8 @@ namespace deren::chores {
      */
     export struct startup_config {
         deren::app_config::app_settings settings = {}; // merged config-file + argv settings
-        std::filesystem::path shaders_dir = {}; // shader SPIR-V directory (configured or located)
-        std::string model_path = {};            // glTF file to load (configured, model_dir, or located)
+        std::filesystem::path shaders_dir = {};        // shader SPIR-V directory (configured or located)
+        std::string model_path = {};                   // glTF file to load (configured, model_dir, or located)
     };
 
     /**
@@ -65,34 +65,6 @@ namespace deren::chores {
      *        (gltf_model/DamagedHelmet.gltf); nullopt when not found within 4 levels
      */
     export std::optional<std::filesystem::path> locate_model_file();
-
-    /**
-     * @ingroup chores
-     * @brief attach the gaussian viewer's PLACEHOLDER scene to @p runtime: one small opaque black triangle, far behind the cloud
-     *
-     * IT IS SCAFFOLDING, NOT SCENERY, and it was mistaken for scenery the moment it existed: a full-frustum version of
-     * it covered the sky and made the frame look like "the cloud on black". Shrinking it to one unit, sixty units
-     * behind the cloud (about seven pixels at the camera's 45 degree field) revealed what the background had really
-     * been all along - the environment - and it now hides behind the bouquet instead.
-     *
-     * TWO MEASURED REASONS, and the second one is why it is not transparent:
-     *   * THE ENGINE CANNOT YET DRIVE A FRAME WITH NO IMPORTED GEOMETRY. With an empty scene the first frame's
-     *     submission and the next frame's open both fail 11 = device_lost, with zero VUIDs and an empty stderr, and
-     *     unchanged by `shadow`, `clustered_lights`, `gui`, `unlit`, by switching the splat stage off entirely, or by
-     *     adding a geometry-carrying instancing grid - while a frame WITH a leaf submits fine.
-     *   * THE DEPTH BUFFER HAS TO BE WRITTEN BY SOMETHING OPAQUE. With a transparent leaf (the first version of
-     *     this) the frame was legal and the splat pass recorded a full draw - 562,974 visible splats, `record_error
-     *     0` - and the image was still black, because every splat failed the depth test against a depth buffer
-     *     nothing had written. The black backdrop writes it, and the cloud then shows over it.
-     *
-     * So a splat-cloud-only run gives the frame the smallest leaf that satisfies both: a big opaque black triangle
-     * eight units behind the cloud, built here rather than loaded, so no model is ever read, shaded or shown and the
-     * viewer's background is the black it would have been anyway.
-     *
-     * @note call it before the first frame and while the runtime is idle, like every other scene-tree writer
-     *       (`register_material`'s timing rule)
-     */
-    export void add_placeholder_triangle(deren::engine::runtime& runtime);
 
     /**
      * @ingroup chores
@@ -143,38 +115,38 @@ namespace deren::chores {
         bool shadow_enabled = true;        // shadow checkbox (initial: settings.render.shadow)
         float shadow_bias_constant = 0.0f; // shadow depth-bias sliders (constant factor)
         float shadow_bias_slope = 1.5f;    // shadow depth-bias sliders (slope factor)
-        int32_t shadow_cascades = 3;           // cascade-count combo (1..4; index 0 = single map)
+        int32_t shadow_cascades = 3;       // cascade-count combo (1..4; index 0 = single map)
         float shadow_cascade_blend = 0.1f; // cascade blend-band slider (fraction of the range)
         float anim_time = 0.0f;            // animation time slider (mirror of the controller clock)
         bool anim_playing = true;          // play/pause checkbox (mirror of controller state)
-        int32_t anim_index = 0;                // animation combo selection (0 = the auto-played one)
-        int32_t current_camera = 0;            // camera combo selection (0 = orbit, 1..N = authored)
-        int32_t render_mode = 0;               // render-mode combo (0 = pbr, 1 = unlit); main applies it
+        int32_t anim_index = 0;            // animation combo selection (0 = the auto-played one)
+        int32_t current_camera = 0;        // camera combo selection (0 = orbit, 1..N = authored)
+        int32_t render_mode = 0;           // render-mode combo (0 = pbr, 1 = unlit); main applies it
                                            // between frames via set_default_pipeline
-        int32_t brdf_model = 0;                // brdf-model combo (0 = GGX+joint, 1 = GGX+height-corr,
+        int32_t brdf_model = 0;            // brdf-model combo (0 = GGX+joint, 1 = GGX+height-corr,
                                            // 2 = Beckmann, 3 = Blinn-Phong); write-through to runtime
-        int32_t diffuse_model = 0;             // diffuse combo (0 = Lambert, 1 = Oren-Nayar)
+        int32_t diffuse_model = 0;         // diffuse combo (0 = Lambert, 1 = Oren-Nayar)
         float exposure = 1.0f;             // linear exposure slider (runtime::set_exposure)
         // bloom on/off (M9): the checkbox gates the whole chain; the intensity slider keeps its value
         // while it is off, so toggling back restores the previous look. main() mirrors it by pushing an
         // intensity of 0 when the box is clear, which is what runtime::active_features() gates the
         // bloom passes on.
         bool bloom_enabled = true;
-        float bloom_intensity = 0.8f;      // bloom blend weight slider (runtime::set_bloom; 0 = off)
-        int32_t toon_bands_index = 0;          // cel-shading combo: index into toon_band_counts (0 = plain PBR)
-        float sun_intensity = 1.0f;        // a scale on the sun's radiance (0..3; 1.0 = unchanged)
-        float toon_softness = 0.15f;       // cel-shading band edge softness slider (smaller = harder edges)
-        float bloom_threshold = 0.35f;     // bloom bright-pass threshold (visible range 0..0.75)
+        float bloom_intensity = 0.8f;  // bloom blend weight slider (runtime::set_bloom; 0 = off)
+        int32_t toon_bands_index = 0;  // cel-shading combo: index into toon_band_counts (0 = plain PBR)
+        float sun_intensity = 1.0f;    // a scale on the sun's radiance (0..3; 1.0 = unchanged)
+        float toon_softness = 0.15f;   // cel-shading band edge softness slider (smaller = harder edges)
+        float bloom_threshold = 0.35f; // bloom bright-pass threshold (visible range 0..0.75)
         // FXAA (runtime::set_fxaa): checkbox + the two shader knobs. The checkbox is mirrored by
         // main into the runtime every frame like the other post-process values.
-        bool fxaa_enabled = false;         // FXAA on/off (initial: settings.render.fxaa)
-        float fxaa_subpixel = 0.75f;       // sub-pixel term strength (0 = pure directional blend)
+        bool fxaa_enabled = false;          // FXAA on/off (initial: settings.render.fxaa)
+        float fxaa_subpixel = 0.75f;        // sub-pixel term strength (0 = pure directional blend)
         float fxaa_edge_threshold = 0.166f; // relative luma contrast below which a pixel is "flat"
         // G-buffer debug view (runtime::set_gbuffer_debug / set_gbuffer_channel): the deferred
         // path's stored surface, one channel at a time. Mirrored into the runtime every frame like
         // the FXAA state, so these fields carry the config's initial values.
-        bool gbuffer_debug = false; // draw the G-buffer + its debug view instead of the shaded scene
-        int32_t gbuffer_channel = 1;    // 0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 id, 6 depth, 7 flags, 8 motion
+        bool gbuffer_debug = false;  // draw the G-buffer + its debug view instead of the shaded scene
+        int32_t gbuffer_channel = 1; // 0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 id, 6 depth, 7 flags, 8 motion
         // TAA (runtime::set_taa): the engine's anti-aliasing. Mirrored into the runtime every
         // frame like the other render toggles; the blend weights are the two shader knobs.
         bool taa_enabled = false;

@@ -201,7 +201,7 @@ export namespace deren::engine::render_resource {
         // this": UE keeps it in an R8_UINT image of its own, and the alpha lane is the free one here.
         {.id = resource_id::ml_resolve, .name = "ml_resolve", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::ml_history, .name = "ml_history", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::persistent},
-        // FOUR LAYERS, not one: the runtime creates the shadow map as ONE layered image (`max_shadow_cascades` layers, one per cascade, plus the spare layers a shrank count leaves behind - see ensure_shadow_resources), and the shadow pass renders into them one at a time. The count was 1 (the default) until that pass was declared, which made `element = cascade` illegal for every cascade but the first - the same correction the bloom family needed, and the validator`s element check is what says so.
+        // FOUR LAYERS, not one: the runtime creates the shadow map as ONE layered image (`max_shadow_cascades` layers, one per cascade, plus the spare layers a shrank count leaves behind - see create_shadow_resources), and the shadow pass renders into them one at a time. The count was 1 (the default) until that pass was declared, which made `element = cascade` illegal for every cascade but the first - the same correction the bloom family needed, and the validator`s element check is what says so.
         {.id = resource_id::shadow_map, .name = "shadow_map", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame, .count = 4},
         {.id = resource_id::rt_shadow_visibility, .name = "rt_shadow_visibility", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::camera_ubo, .name = "camera_ubo", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
@@ -414,7 +414,7 @@ export namespace deren::engine::render_resource {
          * of ONE family, so the host had to hand them over itself (`runtime::resolve_shadow_pass`, now gone).
          *
          * A CEILING RATHER THAN A PROMISE: how many elements a family HAS this frame is the FRAME's fact (the
-         * shadow map allocates the layers the cascade knob asks for - one to four - and `ensure_shadow_resources`
+         * shadow map allocates the layers the cascade knob asks for - one to four - and `create_shadow_resources`
          * may keep spare layers a shrank count left behind), so resolution hands over the first @c count elements
          * that EXIST and the pass renders what it is given. `element + count` past the family's own count is a
          * declaration error the validator refuses, so this field is a claim about the SCHEMA, and the frame's
@@ -714,7 +714,7 @@ export namespace deren::engine::render_resource {
     // =============================================================================================
 
     // =============================================================================================
-    // 5. THE SECOND DECLARATION - the TAA resolve, read off source/shaders/taa.slang
+    // 5. THE SECOND DECLARATION - the TAA resolve, read off source/shaders/post/taa.slang
     // =============================================================================================
 
     /**
@@ -1270,7 +1270,7 @@ export namespace deren::engine::render_resource {
      * FXAA's does). It is deliberately NOT `post_push_bytes`: the resolve samples one image and filters it, so
      * every lane of the post chain's block would be a dead field. The shader's block is this size PLUS the two
      * heap index lanes the framework appends (the LDR image is a per-swapchain-image heap slot the shader names
-     * itself - see source/shaders/upscale.slang).
+     * itself - see source/shaders/post/upscale.slang).
      */
     inline constexpr pass_io upscale_io = {
         .name = "upscale",
@@ -1321,7 +1321,7 @@ export namespace deren::engine::render_resource {
     /// second DEPTH target, because a rendering instance has one depth attachment - but it was never a fact about
     /// the shadow pass: that pass renders 1..`max_shadow_cascades` LAYERS of ONE array image, one instance per
     /// cascade, which is exactly a run of elements. The count is the schema's own four (the family's count), and
-    /// the FRAME caps it: `ensure_shadow_resources` allocates the layers the cascade knob asks for, and only
+    /// the FRAME caps it: `create_shadow_resources` allocates the layers the cascade knob asks for, and only
     /// those layers are published - so a one-cascade frame resolves one target and a three-cascade frame three.
     inline constexpr std::array<render_target, 1> shadow_targets = {{render_target{.resource = resource_id::shadow_map, .element = 0, .kind = target_kind::depth, .count = 4}}};
     /**

@@ -7,6 +7,7 @@ import deren.promise.rhi;
 import deren.engine.pass;
 import deren.engine.render_resource;
 import deren.engine.gaussian_splatting.raster;
+import deren.engine.gaussian_splatting.gpu_frame;
 export namespace deren::engine::pass {
     class gaussian_splatting_pass final : public frame_pass {
     public:
@@ -32,7 +33,18 @@ export namespace deren::engine::pass {
             return {name == "gaussian" ? pipeline.get() : nullptr};
         }
         void set_frame(std::shared_ptr<gaussian_splatting::raster_frame const> snapshot) noexcept {
+            gpu_snapshot.reset();
             frame = std::move(snapshot);
+        }
+        void set_gpu_frame(std::shared_ptr<gaussian_splatting::gpu_frame const> snapshot) noexcept {
+            frame.reset();
+            gpu_snapshot = std::move(snapshot);
+        }
+        [[nodiscard]] bool gpu_ready() const noexcept {
+            return ready() && compute[0] && compute[1] && compute[2];
+        }
+        void set_timing(gaussian_splatting::gpu_frame_timing points) noexcept {
+            timing = points;
         }
         [[nodiscard]] deren::promise::rhi::error last_error() const noexcept {
             return record_error;
@@ -42,6 +54,9 @@ export namespace deren::engine::pass {
         deren::promise::rhi::image_format color_format;
         deren::promise::rhi::object_manager<deren::promise::rhi::pipeline> pipeline;
         std::shared_ptr<gaussian_splatting::raster_frame const> frame;
+        std::shared_ptr<gaussian_splatting::gpu_frame const> gpu_snapshot;
+        std::array<deren::promise::rhi::object_manager<deren::promise::rhi::pipeline>, 3> compute;
+        gaussian_splatting::gpu_frame_timing timing;
         deren::promise::rhi::error record_error = deren::promise::rhi::error::ok;
     };
 } // namespace deren::engine::pass
