@@ -22,6 +22,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <future>
+#include <span>
 
 namespace deren::vk_test {
     /// A probe `api_core` built from @p desc, answering @p reported_api_version from `api_version()`.
@@ -31,4 +33,12 @@ namespace deren::vk_test {
     /// object behaves exactly like the one the entry hands out - it is the same `impl`.
     [[nodiscard]] std::shared_ptr<deren::promise::rhi::api_core>
     probe_make_core(deren::promise::rhi::create_info const& desc, std::uint32_t reported_api_version, bool portable_mode = false);
+
+    /// Borrow a portable probe's heap buffer while the runtime owning it is alive.
+    [[nodiscard]] std::span<std::byte> probe_heap_buffer(deren::promise::rhi::api_core& core, std::uint64_t offset);
+    // Fail one image/buffer creation after N successful creations (portable probe only).
+    [[nodiscard]] deren::promise::rhi::image const* probe_heap_image(deren::promise::rhi::api_core& core, std::uint64_t offset);
+    void probe_buffer_allocation_fill(deren::promise::rhi::api_core& core, std::uint8_t value);
+    void probe_resource_failure(deren::promise::rhi::api_core& core, std::int32_t successful_creations);
+    void probe_present_completion(deren::promise::rhi::api_core& core, std::shared_future<deren::promise::rhi::error> completion);
 } // namespace deren::vk_test

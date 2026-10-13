@@ -364,5 +364,20 @@ int32_t main() {
         }
     }
 
+    // The forward path must not feed undefined control lanes into shared lighting.
+    std::string forward;
+    for (auto const& line : read_lines(std::string(VR_TEST_SOURCE_DIR) + "/source/shaders/scene/pbr.slang"))
+        forward += line + "\n";
+    CHECK(forward.find("si.shadow_override = -1.0;") != std::string::npos);
+    CHECK(forward.find("si.punctual_replaced = 0.0;") != std::string::npos);
+    // The shared light-count lane is a float on the host and in the compute prefix. Reading its
+    // bits as uint turns 32 lights into 0x42000000 and makes the traversal visit inactive slots.
+    auto const shading = read_text(std::string(VR_TEST_SOURCE_DIR) + "/source/shaders/lighting/shading.slang");
+    CHECK(shading.find("float light_count;") != std::string::npos);
+    // The host/shader validity lane must gate the history texture fetch, not only its image layout.
+    auto const temporal = read_text(root + "/source/shaders/lighting/megalights_temporal.slang");
+    CHECK(temporal.find("pc.extents.w > 0.5") != std::string::npos);
+    auto const temporal_host = read_text(root + "/source/engine/pass/megalights_temporal.cpp");
+    CHECK(temporal_host.find("this->pass_frame.history_valid ? 1.0f : 0.0f") != std::string::npos);
     return deren::vk_test::finish("test_shader_sources");
 }

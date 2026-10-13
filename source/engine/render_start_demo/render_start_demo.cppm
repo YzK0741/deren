@@ -39,6 +39,8 @@ import deren.engine.pass;
 import deren.engine.pass.chain;              // pass_chain: the chain the runtime owns its passes in, looked up by declaration name
 import deren.engine.pass.gaussian_splatting; // the splat cloud's pass: an immutable upload per frame, recorded between the lighting stage and the blended geometry
 import deren.engine.pass.cluster;
+import deren.engine.pass.scene_constants;
+import deren.engine.pass.output_targets;
 import deren.engine.pass.deferred;
 import deren.engine.pass.fxaa;
 import deren.engine.pass.geometry_buffer_debug;

@@ -202,6 +202,8 @@ namespace deren::engine {
     }
 
     frame_status runtime::poll_events() {
+        if (this->create_options.native_window == nullptr)
+            return frame_status::proceed;
         GLFWwindow* window = static_cast<GLFWwindow*>(this->create_options.native_window);
 
         // Window events first: respond to ESC / native close before any GPU work
@@ -307,6 +309,13 @@ namespace deren::engine {
     }
 
     void runtime::on_swapchain_recreated() {
+        // The backend has drained the presentation call before replacing the generation. An
+        // out-of-date answer for that retired generation must not rebuild the new one again.
+        if (this->pending_present.valid() && this->pending_present.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            rhi::error const result = this->pending_present.get();
+            if (result == rhi::error::ok || result == rhi::error::out_of_date)
+                this->pending_present = {};
+        }
         // THE GENERATION'S SIZES FIRST: a rebuild is exactly when the presentation extent can move,
         // so the engine re-reads it from the contract (`frame_swapchain()->extent()`) and recomputes
         // the render extent the rest of this function's work is sized by. Nothing was rebuilt on the
@@ -528,6 +537,8 @@ namespace deren::engine {
     }
 
     bool runtime::enable_debug_gui() {
+        if (this->create_options.native_window == nullptr)
+            return false;
         // THE PLUGIN IS LOADED ON DEMAND (plan X2): the GUI lives in `deren_gui_<api>.dll`, resolved BY NAME
         // through the loader, so the engine has no link-time dependency on it at all - and this is the one
         // place that decides which API it asks for (the renderer this runtime drives).
@@ -1273,6 +1284,7 @@ namespace deren::engine {
         params.scene_radius = this->scene_extent_radius;
         params.caster_extent = this->shadow_caster_extent;
         params.cascades = this->shadow_cascades;
+        params.cascade_blend = this->shadow_cascade_blend;
         params.map_size = this->shadow_map_size;
         params.unbounded_caster = unbounded_caster;
         params.log_summary = !this->shadow_cascade_logged;
@@ -1302,15 +1314,8 @@ namespace deren::engine {
         // afterwards because it holds their array view. Shrinking keeps the layers (no second
         // rebuild when the user cycles the combo, and the spare ones simply go unused).
         if (!this->shadow_images.empty() && clamped > this->shadow_allocated_layers) {
-            // THE WAIT IS THE CONTRACT'S (the native device tear-down the frame's in-flight work needed): `wait_idle()`'s
-            // doc says exactly this - the backend owns the device, so the engine asks it to be idle rather than
-            // calling an entry point on a handle it borrowed from it.
-            (void)this->rhi_face().wait_idle();
-            this->shadow_images.clear();
-            this->shadow_array_views.clear();
-            this->shadow_layer_views.clear();
+            // prepare_managed_resources drains before switching the borrowed views and heap descriptors.
             this->create_shadow_resources();
-            this->write_light_and_shadow_bindings();
         }
         // a different cascade layout invalidates the cached fit (and the one-time density log)
         this->shadow_frustum_valid = false;
@@ -1320,7 +1325,10 @@ namespace deren::engine {
 
     void runtime::set_shadow_cascade_blend(float const blend) noexcept {
         // a band wider than half a cascade would reach back into the previous one
-        this->shadow_cascade_blend = std::clamp(blend, 0.0f, 0.5f);
+        float const clamped = std::clamp(blend, 0.0f, 0.5f);
+        if (clamped != this->shadow_cascade_blend)
+            this->shadow_frustum_valid = false;
+        this->shadow_cascade_blend = clamped;
         this->light_state.cascade_blend = this->shadow_cascade_blend;
     }
     void runtime::enable_shadows(glm::vec3 const& scene_center, float const scene_radius) {
@@ -1429,7 +1437,8 @@ namespace deren::engine {
                 deren::utility::log("heap push: a block of {} B plus {} index lanes does not fit the push-data window", bytes.size(), lanes);
                 return false;
             }
-            std::memcpy(staging.data(), bytes.data(), bytes.size());
+            if (!bytes.empty())
+                std::memcpy(staging.data(), bytes.data(), bytes.size());
             std::array<uint32_t, 3> const indices = {frame_slot, image_index, extra_lane};
             std::memcpy(staging.data() + bytes.size(), indices.data(), lane_bytes);
             return contract_push_heap_data(face, command_buffer, 0u, std::span<std::byte const>(staging.data(), bytes.size() + lane_bytes));
@@ -2139,15 +2148,22 @@ namespace deren::engine {
     }
 
     void runtime::set_skin_matrices(std::span<glm::mat4 const> const matrices, uint32_t const slot) {
-        if (slot >= this->skin_mapped.size() || this->skin_mapped[slot] == nullptr) {
+        if (slot >= this->skin_mapped.size() || slot >= this->skin_current.size() || this->skin_mapped[slot] == nullptr) {
             return;
         }
         std::size_t const bytes = std::min(matrices.size_bytes(), static_cast<std::size_t>(deren::engine::scene_skin_capacity) * sizeof(glm::mat4));
-        std::memcpy(this->skin_mapped[slot], matrices.data(), bytes);
+        auto& current = this->skin_current[slot];
+        std::size_t const count = bytes / sizeof(glm::mat4);
+        if (current.size() < count)
+            current.resize(count, glm::mat4(0.0f));
+        if (bytes != 0) {
+            std::memcpy(current.data(), matrices.data(), bytes);
+            std::memcpy(this->skin_mapped[slot], matrices.data(), bytes);
+        }
         // Content fingerprint of this upload: the only per-frame signal that a skinned caster moved
         // (its push.model is constant, the pose lives in these matrices). XXH3 rather than a byte
         // loop - 1.3 us for an 840-joint rig against 43.7 us, and this runs on every frame.
-        this->skin_matrix_hash = deren::utility::xxh3_64bits({static_cast<uint8_t const*>(this->skin_mapped[slot]), bytes});
+        this->skin_matrix_hash = deren::utility::xxh3_64bits({reinterpret_cast<uint8_t const*>(matrices.data()), bytes});
     }
 
     void* runtime::morph_scratch() noexcept {

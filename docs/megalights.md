@@ -1,5 +1,14 @@
 # Stochastic punctual lighting (MegaLights-style): shadowed point and spot lights at a fixed ray budget
 
+Current status (2026-10-14): trace and temporal resolve are both wired into the MegaLights stage.
+The passchain manages trace, resolve and history images. Temporal feedback marks an output image's
+history valid only after a successful copy; shader sampling checks that bit in `extents.w`.
+Feature toggles, resource replacement, skipped stages and recording/submission failures invalidate
+history. See [managed resources](managed_resources.md) and the
+[history fix review](reviews/2026-10-14-megalights-history-fix.md).
+The sections below retain the original implementation notes and earlier checkpoint findings;
+their statements about unrecorded temporal work and open wiring defects are historical.
+
 This renderer's punctual lights are unshadowed. `source/shaders/lighting/shading.slang`'s cluster loop accumulates
 `light.punctual_lights[]` with no visibility term, so a demo light behind a column lights the wall in front
 of it; the sun is the only shadowed light (cascades, or one ray-traced ray per pixel in

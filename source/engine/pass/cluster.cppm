@@ -19,7 +19,7 @@
  * cannot honour (and one the pass would have to ignore), so the pass declares that it sizes its own work and
  * reads the count from its own frame - the same split as the scene pass's leaves.
  *
- * WHAT IT DOES NOT OWN: the two cluster buffers themselves (the renderer allocates them per frame slot, and
+ * WHAT IT DOES NOT OWN: the two cluster buffers themselves (the passchain allocates them per frame slot, and
  * they live in the shared scene block as bindings 11 and 12) and the grid's dimensions, which the renderer derives
  * from the swapchain extent once per frame.
  */
@@ -32,6 +32,7 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 export module deren.engine.pass.cluster;
 import deren.promise.rhi;
@@ -69,6 +70,11 @@ export namespace deren::engine::pass {
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
         [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
+        void describe_resources(render_resource::instances::resource_context const& context,
+                                std::vector<render_resource::instances::request>& requests) const override;
+        void bind_resources(render_resource::instances::resource_snapshot const& snapshot) override {
+            resource_view = snapshot;
+        }
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
         void record(resolved_io const& io) override;
@@ -111,6 +117,7 @@ export namespace deren::engine::pass {
             .pipelines = pipeline_names,
             .resync_viewport = false,
         };
+        render_resource::instances::resource_snapshot resource_view;
         void release_owned() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline_handle() and a member of that name

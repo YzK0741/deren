@@ -44,6 +44,32 @@ The keyword that makes a symbol visible across a DLL boundary lives in ONE heade
 `source/utility/abi_export.hpp`, chosen from the build mode rather than from a platform `#ifdef` at every
 declaration.
 
+## Windowed and windowless rendering
+
+The caller owns any window. A non-null `create_info::native_window` binds the backend to that
+window; null selects windowless rendering. The Vulkan backend then creates ordinary device-local
+images, with no GLFW initialization, surface, swapchain or WSI acquire/present calls. Output size
+comes from `window_width` and `window_height`; the images reuse the existing two frame slots and
+timeline completion waits. `frame_image()` and readback retain their normal recording contract.
+For compatibility, `frame_swapchain()` still supplies the output format and extent, but its
+`recreate()` and the core's `present()` return `error::unsupported` in windowless mode. The async
+presentation extension is absent. The runtime closes an offscreen frame after submitting its commands.
+
+The application's `config.toml` selects startup mode and optional window presentation overlap:
+
+```toml
+[render]
+async_present = false # experimental; window presentation only
+offscreen = false   # true creates no application window
+```
+
+`--capture-frames N` automatically selects windowless rendering and keeps image readback, animation
+stepping and GPU timings. `--capture-windowed` retains a hidden window for explicit resize/presentation
+regressions when `offscreen` is false. The GUI is disabled without a window. The Vulkan driver may
+create its own internal temporary HWND; the renderer creates none. Async presentation now reads the
+configuration key; `DEREN_ASYNC_PRESENT` no longer selects it in current builds. Historical benchmark
+snapshots retain the environment switch they were measured with.
+
 ## Capabilities: abilities and extensions
 
 A backend is not asked what it is; it is asked what it can do.

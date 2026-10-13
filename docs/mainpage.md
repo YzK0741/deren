@@ -291,3 +291,6 @@ needs is done: the previous-frame skin matrices and the previous-frame morph wei
 both stored, so a skinned or morphed vertex reprojects where it actually was - see
 \ref md_docs_2deformation__motion__vectors "Deformation motion vectors" for the design,
 the measurements and the two half-steps it was built in.
+
+Resource ownership and dynamic pass requirements are described in \ref managed_resources; the
+[pass inventory](render_resource_inventory.md) lists the current GPU access methods.

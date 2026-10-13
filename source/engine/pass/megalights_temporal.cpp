@@ -14,11 +14,13 @@ module;
 #include <glm/glm.hpp>
 #include <span>
 #include <string>
+#include <vector>
 
 module deren.engine.pass.megalights_temporal;
 
 import deren.promise.rhi; // the record series (abi 20): the barriers, the copy and the dispatch
 import deren.engine.render_resource;
+import deren.engine.pass.output_targets;
 import deren.engine.pipelines; // build_megalights_temporal: the compute pipeline this pass owns
 import deren.utility;
 
@@ -29,6 +31,22 @@ namespace deren::engine::pass {
 
     megalights_temporal_pass::~megalights_temporal_pass() {
         this->release_owned();
+    }
+
+    void megalights_temporal_pass::describe_resources(render_resource::instances::resource_context const& context,
+                                                      std::vector<render_resource::instances::request>& out) const {
+        for (auto const& value : output_targets_pass::descriptions(context))
+            if (value.id == render_resource::resource_id::ml_resolve || value.id == render_resource::resource_id::ml_history)
+                out.push_back(value);
+    }
+
+    void megalights_temporal_pass::bind_resources(render_resource::instances::resource_snapshot const& snapshot) {
+        if (resource_view.find(render_resource::resource_id::ml_resolve) != snapshot.find(render_resource::resource_id::ml_resolve) ||
+            resource_view.find(render_resource::resource_id::ml_history) != snapshot.find(render_resource::resource_id::ml_history)) {
+            pass_frame.history_valid = false;
+            accumulation_resolved = false;
+        }
+        resource_view = snapshot;
     }
 
     void megalights_temporal_pass::release_owned() noexcept {
@@ -159,9 +177,10 @@ namespace deren::engine::pass {
 
         push_constants push = {};
         push.params = glm::vec4(io.constants.proj[2][2], io.constants.proj[3][2], this->accumulation_frames, this->temporal_depth_tolerance);
-        push.extents = glm::vec4(static_cast<float>(io.extent.width), static_cast<float>(io.extent.height), this->denoise_sigma, 0.0f);
+        push.extents = glm::vec4(static_cast<float>(io.extent.width), static_cast<float>(io.extent.height), this->denoise_sigma, this->pass_frame.history_valid ? 1.0f : 0.0f);
         static_assert(sizeof(push) <= pass::max_push_bytes, "the resolve's push block must fit the guaranteed minimum");
-        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
+        if (!io.push_block(*io.cmd, pass::push_bytes(push)))
+            return; // no valid control lanes were submitted, so no new history may be claimed
         io.list->dispatch((io.extent.width + group_size - 1u) / group_size, (io.extent.height + group_size - 1u) / group_size, 1);
 
         // ---- the accumulation becomes the next frame's history ----

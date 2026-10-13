@@ -1,0 +1,147 @@
+{
+  "date": "2026-10-13",
+  "binary_hashes_recorded_after_capture": {
+    "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\managed-resources-check\\runtime.before\\deren.exe": {
+      "sha256": "ee7a0af98e693a3a350e0fac72dcb6155c04761cf5b025773ae9e4bb2f03fa7e",
+      "modified_unix_seconds": 1791818467.4494588
+    },
+    "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deren.exe": {
+      "sha256": "9bd2d3aa44369eba8ab86c74abffeef148fa3f6e9bb6a771fe315acc7056b46a",
+      "modified_unix_seconds": 1791865335.6142254
+    },
+    "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deren_vulkan.dll": {
+      "sha256": "969f1e172934976bac053aa2b4427d552bb809259507e8dccbabb4eec6471663",
+      "modified_unix_seconds": 1791816843.4853358
+    }
+  },
+  "results": [
+    {
+      "scenario": "deferred",
+      "captures": {
+        "baseline": {
+          "source_directory": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\managed-resources-check\\baseline-deferred",
+          "files_sha256": {
+            "screenshot_20261013_041427.png": "c678da3ce42ef685e66fbe5569932c8c9e8d6a98acd7728f5f97d9bff8816651",
+            "viewer.toml": "ae1a40620e88affae0a2c30fa973320ca8588b8653d3c1669978d5c1cad62192",
+            "debug.log": "d7b9492282fb676a072642f172b5cfcf97052d4b005266f853a7ded853ae2647",
+            "stdout.log": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+            "stderr.log": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+          },
+          "sync_validation_clean": true
+        },
+        "candidate-final": {
+          "source_directory": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\managed-resources-check\\candidate-final-deferred",
+          "files_sha256": {
+            "screenshot_20261013_042411.png": "c678da3ce42ef685e66fbe5569932c8c9e8d6a98acd7728f5f97d9bff8816651",
+            "viewer.toml": "d39ef1574d3cfdd0f13f3703cf6404105c9b15092d392d94a46953134df82951",
+            "debug.log": "87ca9f7eb23dc8ccb416f78416656dd73fa808c2e9155a56843cb5f092950bd1",
+            "stdout.log": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+            "stderr.log": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+          },
+          "sync_validation_clean": true
+        }
+      },
+      "size": [
+        1280,
+        720
+      ],
+      "pixels_identical": true
+    },
+    {
+      "scenario": "shadow_single",
+      "captures": {
+        "baseline": {
+          "source_directory": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\managed-resources-check\\baseline-shadow_single",
+          "files_sha256": {
+            "screenshot_20261013_041429.png": "45f80665abca93b0c08b511cfa0fb91fbb4b7064815b6d49fbafa6555f6bc9b0",
+            "viewer.toml": "881c7ab8669a20ad97942a3f0e7a25bf4c612fa317fac091da8f6c0e92627165",
+            "debug.log": "f3cf4488156a2ccee75aa3d366c372089564273b85b5630e65b089d4ed28face",
+            "stdout.log": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+            "stderr.log": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+          },
+          "sync_validation_clean": true
+        },
+        "candidate-final": {
+          "source_directory": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\managed-resources-check\\candidate-final-shadow_single",
+          "files_sha256": {
+            "screenshot_20261013_042413.png": "45f80665abca93b0c08b511cfa0fb91fbb4b7064815b6d49fbafa6555f6bc9b0",
+            "viewer.toml": "7b8db9ca0755299086e68b9b18053eab16b1ee870a9e784518d965b3c1d1a4d5",
+            "debug.log": "f5223cb04248b88738127c06d455bfc9c869ec6cdf12dab99827ea2241aa9d3d",
+            "stdout.log": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+            "stderr.log": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+          },
+          "sync_validation_clean": true
+        }
+      },
+      "size": [
+        1280,
+        720
+      ],
+      "pixels_identical": true
+    },
+    {
+      "scenario": "transparent_blend",
+      "captures": {
+        "baseline": {
+          "source_directory": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\managed-resources-check\\baseline-transparent_blend",
+          "files_sha256": {
+            "screenshot_20261013_041431.png": "030ae2f122360da2a394e03263172bb969876480d65a7c7b80cf4baee773f924",
+            "viewer.toml": "b27fe643e2cee8576cb1ccace1389d711b097a5bf05f43e5451b64255468afc8",
+            "debug.log": "18bff5e332ee03f6a4d9a5fdbe2c91412d5a5fbc9acf079dc57e633b82477f32",
+            "stdout.log": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+            "stderr.log": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+          },
+          "sync_validation_clean": true
+        },
+        "candidate-final": {
+          "source_directory": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\managed-resources-check\\candidate-final-transparent_blend",
+          "files_sha256": {
+            "screenshot_20261013_042415.png": "030ae2f122360da2a394e03263172bb969876480d65a7c7b80cf4baee773f924",
+            "viewer.toml": "a6d36bc99ba4324b5bedd1d4fb6aeb12a06989ca5f875d31394e3ac43b845897",
+            "debug.log": "cd56f4ed13e8fe7e12f8b6cfc02f5f92d494886716fe0ffe63c08d75078a0a18",
+            "stdout.log": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+            "stderr.log": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+          },
+          "sync_validation_clean": true
+        }
+      },
+      "size": [
+        1280,
+        720
+      ],
+      "pixels_identical": true
+    },
+    {
+      "scenario": "sponza",
+      "captures": {
+        "baseline": {
+          "source_directory": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\managed-resources-check\\baseline-sponza",
+          "files_sha256": {
+            "screenshot_20261013_041435.png": "5a553ee14652fd46bb7ea772de1d0b2fa7572a837196bd0ccb1a667c29694118",
+            "viewer.toml": "7906dbfe838beda750bc2cd86043a2e4fb8fc6eac9dc3d0128f26b31f9f9b09a",
+            "debug.log": "01ddb7b175bb25f086cce8fe31d54bb9dbb1931edec4e1d0723d26a05a712c72",
+            "stdout.log": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+            "stderr.log": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+          },
+          "sync_validation_clean": true
+        },
+        "candidate-final": {
+          "source_directory": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\managed-resources-check\\candidate-final-sponza",
+          "files_sha256": {
+            "screenshot_20261013_042418.png": "5a553ee14652fd46bb7ea772de1d0b2fa7572a837196bd0ccb1a667c29694118",
+            "viewer.toml": "cc6404abf3073a4ee6dd9e0f6f55c9e966510897f0196519b4c9a6f9ccf17992",
+            "debug.log": "7ef17698d9ccf55256b1045eb286042e493785fd4074b9138f747b78ca68610d",
+            "stdout.log": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+            "stderr.log": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+          },
+          "sync_validation_clean": true
+        }
+      },
+      "size": [
+        1280,
+        720
+      ],
+      "pixels_identical": true
+    }
+  ]
+}

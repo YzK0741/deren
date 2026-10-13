@@ -436,8 +436,8 @@ namespace deren::engine {
         // two lists cannot drift (which they already had).
         this->reset_image_generation_state();
         // (The furnace cube is a new image too - its level is part of the generation reset above.)
-        // NOTE: the shadow resources (map layers + light UBO buffers) are created LAZILY, by
-        // create_shadow_resources() from prepare_scene_resources(). The shadow map is a layered 2D array
+        // NOTE: shadow, cluster and constant resources are created lazily by
+        // prepare_managed_resources() at the start of pace_and_acquire(). The shadow map is a layered 2D array
         // whose layer count is [render] shadow_cascades, and the app config that carries it is applied
         // after this constructor returns - creating them here would freeze the count at its default.
         // Setup can leave these empty. The first frame prepares them before updating light
@@ -457,6 +457,12 @@ namespace deren::engine {
         // may still be executing and destroying in-use resources would violate VUIDs (~core()
         // also waits, but that runs after this body — too late for the VMA frees here).
         this->vulkan_core.wait_idle();
+        if (this->pending_present.valid()) {
+            rhi::error const result = this->pending_present.get();
+            if (result != rhi::error::ok && result != rhi::error::out_of_date)
+                deren::utility::log("runtime: pending present was refused during shutdown ({})", static_cast<uint32_t>(result));
+            this->pending_present = {};
+        }
 
         this->pipelines.clear();
         // THE SESSION'S CULLING TOTALS, printed HERE rather than per frame: the counters are cumulative, and this is
@@ -1047,14 +1053,14 @@ namespace deren::engine {
                        std::as_bytes(std::span(zeroed_skins)),
                        "skin matrix buffer",
                        &this->skin_mapped);
+        this->skin_current.resize(this->skin_mapped.size());
 
         // The SAME joint blocks as of ONE FRAME AGO (heap: skin_matrices_previous), one buffer per frame
         // slot: a DEFORMING vertex's motion vector is the difference between the two frames' skinning, so
         // these are as load-bearing as the current ones, and a frame in flight must not share the buffer the
-        // next frame rewrites. Zero-filled on the GPU like its sibling; skin_previous is the CPU-side copy
-        // ("the matrices one frame ago") that advance_motion_deformations() publishes from, initialised to
-        // IDENTITY exactly as motion_previous is - an unskinned or not-yet-animated vertex then reports no
-        // deformation, and the one frame that could read it is a frame TAA gives no history to.
+        // next frame rewrites. Zero-filled on the GPU like its sibling. CPU history stores only the
+        // uploaded extent, publishes identity for a first-frame upload, and thereafter follows the
+        // preceding rendered slot's CPU source. No upload means no history-buffer write.
         std::vector<uint8_t> const zeroed_previous_skins(static_cast<size_t>(deren::engine::scene_skin_capacity) * sizeof(glm::mat4), 0);
         create_buffers(this->vulkan_core,
                        this->skin_buffers_previous,
@@ -1063,7 +1069,8 @@ namespace deren::engine {
                        std::as_bytes(std::span(zeroed_previous_skins)),
                        "previous skin matrix buffer",
                        &this->skin_previous_mapped);
-        this->skin_previous.assign(deren::engine::scene_skin_capacity, glm::mat4(1.0f));
+        this->skin_previous.clear();
+        this->skin_history_started = false;
 
         // Morph data (set 0 binding 10): one buffer PER FRAME SLOT (scene_morph_capacity floats
         // each, host-visible); the caller bakes per-primitive morph blocks (deltas + weights)
@@ -1252,263 +1259,14 @@ namespace deren::engine {
     // (the constructor for generation 0, `on_swapchain_recreated` for every later one), and two copies of a
     // creation loop is how two generations drift - the same argument `reset_image_generation_state` makes.
     void runtime::create_render_chain_targets() {
-        // RELEASE BEFORE RE-CREATE, on BOTH paths: the previous generation's views and images go first, so
-        // a view never outlives the image it was made over (the borrowed-image view lifetime rule, abi 16).
-        // On generation 0 every array is empty and this is a no-op.
-        this->taa_history_image_views = {};
-        this->taa_history_images = {};
-        this->hdr_image_views = {};
-        this->hdr_images = {};
-        this->ldr_image_views = {};
-        this->ldr_images = {};
-        for (auto& target_views : this->gbuffer_image_views) {
-            target_views = {};
-        }
-        for (auto& target_images : this->gbuffer_images) {
-            target_images = {};
-        }
-        this->velocity_image_views = {};
-        this->velocity_images = {};
-        this->scene_color_image_views = {};
-        this->scene_color_images = {};
-        this->gbuffer_depth_image_views = {};
-        this->gbuffer_depth_images = {};
-        this->ml_image_views = {};
-        this->ml_images = {};
-        this->ml_resolve_image_views = {};
-        this->ml_resolve_images = {};
-        this->ml_history_image_views = {};
-        this->ml_history_images = {};
-        for (auto& level_views : this->bloom_image_views) {
-            level_views = {};
-        }
-        for (auto& level_images : this->bloom_images) {
-            level_images = {};
-        }
+        // Constructor setup creates outputs only; configuration-dependent scene resources stay lazy.
+        if (this->prepare_managed_resources(this->light_buffers.empty()) != rhi::error::ok)
+            deren::utility::panic("failed to prepare output targets");
+
+        // All scene/post/ray targets are now passchain-owned. Only the furnace environment
+        // remains in the legacy creation path; its contents are reset with the generation.
         this->furnace_cube_view = {};
         this->furnace_cube_image = {};
-
-        rhi::image_extent const render = this->render_extent();
-        std::size_t const image_count = static_cast<std::size_t>(rhi::max_swapchain_images);
-        // THE CONTRACT'S BOUND IS THE ARRAY SIZE, so the backend keeps the promise (it refuses a driver
-        // that reports more) and this is the engine's side of it: a count past `rhi::max_swapchain_images`
-        // is a broken invariant, and clamping would leave holes in a generation's target set.
-        if (image_count == 0 || image_count > rhi::max_swapchain_images) {
-            deren::utility::panic(std::source_location::current(),
-                                  "runtime: the swapchain holds {} images but rhi::max_swapchain_images promises at most {} - "
-                                  "the engine's per-image arrays are sized by the contract's bound",
-                                  image_count,
-                                  rhi::max_swapchain_images);
-        }
-        // A device without the descriptor-heap extension leaves the heap unused; every other creation-time
-        // heap write in this file accepts that state rather than failing, and this one matches them.
-        bool const heap_ready = contract_heap_ready(this->rhi_face());
-        // ONE PER-IMAGE TARGET, THE WHOLE TRIPLE IN ONE PLACE: the image, the `sampled` view the resource
-        // table and the frame's attachment sites name, and the SAMPLED heap descriptor at the ABSOLUTE slot
-        // its reader bakes. The groups below differ only in the descriptor they hand in, so this is what
-        // keeps them from becoming copies that drift. `heap_slot` already includes the grid's base - the
-        // `reserve()` offsets are the backend's bookkeeping and nothing here repeats them.
-        auto const create_sampled_target = [this, heap_ready](rhi::image_desc const& desc, uint32_t const heap_slot,
-                                                              rhi::object_manager<rhi::image>& image, rhi::object_manager<rhi::image_view>& view,
-                                                              char const* const what) {
-            image = rhi::object_manager<rhi::image>{this->rhi_face().create_image(desc)};
-            if (!static_cast<bool>(image)) {
-                deren::utility::panic(std::source_location::current(), "failed to create {}", what);
-            }
-            rhi::image_view_desc range{};
-            range.role = rhi::view_role::sampled;
-            view = rhi::object_manager<rhi::image_view>{image->make_view(range)};
-            if (!static_cast<bool>(view)) {
-                deren::utility::panic(std::source_location::current(), "failed to create the view for {}", what);
-            }
-            if (heap_ready && !contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(heap_slot), *image,
-                                                         rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image)) {
-                deren::utility::log("descriptor heap: {} did not reach grid slot {}", what, heap_slot);
-            }
-        };
-        // THE SAME IMAGE AS A STORAGE DESCRIPTOR, for the images a compute pass WRITES: SAMPLED_IMAGE and
-        // STORAGE_IMAGE are different descriptor kinds and one heap descriptor is never both, so an image that
-        // a compute pass writes AND a later stage samples needs one of each. The ROLE in the range is what
-        // picks the kind - the backend refuses a storage descriptor over a sampled-role range and vice versa.
-        auto const create_storage_descriptor = [this, heap_ready](rhi::image const& image, uint32_t const heap_slot, char const* const what) {
-            rhi::image_view_desc range{};
-            range.role = rhi::view_role::storage;
-            if (heap_ready && !contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(heap_slot), image, range,
-                                                         rhi::descriptor_type::storage_image)) {
-                deren::utility::log("descriptor heap: {} did not reach grid slot {}", what, heap_slot);
-            }
-        };
-
-        // ---- THE TAA HISTORY (③-D/E A1.1) --------------------------------------------------------------
-        // deren::engine::render_layout::hdr_format, TRANSFER_DST | SAMPLED (the runtime copies the resolved frame into it, the next
-        // frame's resolve reads it), one mip, one layer - `create_image` derives the allocator's type and
-        // memory from the flags, exactly as the backend's `create_target_image` used to.
-        for (std::size_t i = 0; i < image_count; ++i) {
-            rhi::image_desc history_desc{};
-            history_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
-            history_desc.mip_levels = 1;
-            history_desc.array_layers = 1;
-            history_desc.format = deren::engine::render_layout::hdr_format;
-            history_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination);
-            history_desc.debug_name = "TAA history image";
-            create_sampled_target(history_desc, deren::engine::render_layout::heap_slots::taa_history + static_cast<uint32_t>(i),
-                                  this->taa_history_images[i], this->taa_history_image_views[i], "the TAA history target");
-        }
-
-        // ---- THE HDR SCENE TARGET AND THE DISPLAY-REFERRED TARGET (③-D/E A1.3) -------------------------
-        // One of each per swapchain image, both at the frame's render extent and in `deren::engine::render_layout::hdr_format`. The usage
-        // flags are the backend's: COLOR_ATTACHMENT | SAMPLED for both, plus TRANSFER_SRC on the HDR target -
-        // the TAA resolve copies the frame it wrote there into the history image, the screenshot read-back
-        // copies out of it, and vkCmdCopyImage requires the flag on the image copied FROM.
-        for (std::size_t i = 0; i < image_count; ++i) {
-            rhi::image_desc hdr_desc{};
-            hdr_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
-            hdr_desc.mip_levels = 1;
-            hdr_desc.array_layers = 1;
-            hdr_desc.format = deren::engine::render_layout::hdr_format;
-            hdr_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled) |
-                             rhi::to_bits(rhi::image_flag::transfer_source);
-            hdr_desc.debug_name = "HDR scene target";
-            create_sampled_target(hdr_desc, deren::engine::render_layout::heap_slots::post_color + static_cast<uint32_t>(i),
-                                  this->hdr_images[i], this->hdr_image_views[i], "the HDR scene target");
-
-            // ... and the display-referred target FXAA samples: the same size and lifetime, display-range
-            // values in the same deren::engine::render_layout::hdr_format so FXAA can threshold them without a per-tap decode, and no
-            // TRANSFER_SRC (nothing copies out of it).
-            rhi::image_desc ldr_desc{};
-            ldr_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
-            ldr_desc.mip_levels = 1;
-            ldr_desc.array_layers = 1;
-            ldr_desc.format = deren::engine::render_layout::hdr_format;
-            ldr_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
-            ldr_desc.debug_name = "display-referred target";
-            create_sampled_target(ldr_desc, deren::engine::render_layout::heap_slots::display_color + static_cast<uint32_t>(i),
-                                  this->ldr_images[i], this->ldr_image_views[i], "the display target");
-        }
-
-        // ---- THE G-BUFFER CLUSTER (③-D/E A1.4) ---------------------------------------------------------
-        // The three stored surface targets, the motion-vector target, the TAA working image and the G-buffer
-        // pass's own depth image - all at the frame's render extent, one set per swapchain image, single
-        // sampled (a G-buffer cannot be multisampled without per-sample shading). The heap array each one
-        // takes is named for what READS it: the three surface targets for the lighting/debug stages, the
-        // motion vectors and the depth for TAA and the lighting stage, and the scene colour for TAA's
-        // `current_color` input - which is what `taa_current` is named after every time.
-        for (std::size_t i = 0; i < image_count; ++i) {
-            for (std::size_t target = 0; target < this->gbuffer_images.size(); ++target) {
-                rhi::image_desc target_desc{};
-                target_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
-                target_desc.mip_levels = 1;
-                target_desc.array_layers = 1;
-                target_desc.format = deren::engine::render_layout::gbuffer_formats[target];
-                target_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
-                target_desc.debug_name = "G-buffer target";
-                uint32_t const target_slot = target == 0u ? deren::engine::render_layout::heap_slots::gbuffer_albedo : (target == 1u ? deren::engine::render_layout::heap_slots::gbuffer_normal : deren::engine::render_layout::heap_slots::gbuffer_material);
-                create_sampled_target(target_desc, target_slot + static_cast<uint32_t>(i),
-                                      this->gbuffer_images[target][i], this->gbuffer_image_views[target][i], "the G-buffer target");
-            }
-
-            // Motion vectors: the fourth G-buffer target, written by the G-buffer pass and read by TAA.
-            rhi::image_desc velocity_desc{};
-            velocity_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
-            velocity_desc.mip_levels = 1;
-            velocity_desc.array_layers = 1;
-            velocity_desc.format = deren::engine::render_layout::gbuffer_velocity_format;
-            velocity_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
-            velocity_desc.debug_name = "motion-vector target";
-            create_sampled_target(velocity_desc, deren::engine::render_layout::heap_slots::gbuffer_velocity + static_cast<uint32_t>(i),
-                                  this->velocity_images[i], this->velocity_image_views[i], "the motion-vector target");
-
-            // ... and TAA's `current_color` input: what the scene side writes when the resolve runs.
-            rhi::image_desc scene_desc{};
-            scene_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
-            scene_desc.mip_levels = 1;
-            scene_desc.array_layers = 1;
-            scene_desc.format = deren::engine::render_layout::hdr_format;
-            scene_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
-            scene_desc.debug_name = "scene-colour target";
-            create_sampled_target(scene_desc, deren::engine::render_layout::heap_slots::taa_current + static_cast<uint32_t>(i),
-                                  this->scene_color_images[i], this->scene_color_image_views[i], "the scene-colour target");
-
-            // THE DEPTH, through the contract's ROLE: the caller says "a depth attachment" and the backend
-            // resolves the device's own depth format - which is why the heap write's aspect is DEPTH (the
-            // role decides it) and why the engine never names a depth format of its own.
-            rhi::image_desc depth_desc{};
-            depth_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
-            depth_desc.mip_levels = 1;
-            depth_desc.array_layers = 1;
-            depth_desc.format = rhi::image_format::depth;
-            depth_desc.flags = rhi::to_bits(rhi::image_flag::depth_attachment) | rhi::to_bits(rhi::image_flag::sampled);
-            depth_desc.debug_name = "G-buffer depth target";
-            create_sampled_target(depth_desc, deren::engine::render_layout::heap_slots::gbuffer_depth + static_cast<uint32_t>(i),
-                                  this->gbuffer_depth_images[i], this->gbuffer_depth_image_views[i], "the G-buffer depth target");
-        }
-
-        // ---- THE HALF-RESOLUTION CHAIN (③-D/E A1.5) ----------------------------------------------------
-        // The stochastic punctual lighting trio and the four bloom levels. THEIR EXTENTS ARE DERIVED, not the
-        // frame's - the three share `max(1, render/2)`, and bloom level L is `max(1, render >> (L + 1))`, which
-        // is the same formula `resolve_resource_extent` answers a pass with over the same base, so a pass and the
-        // image it writes cannot disagree at any render scale. The flags are the backend's, and the two images a
-        // compute pass WRITES get both descriptors: sampled for their readers, storage for the writer.
-        uint32_t const half_width = std::max(1u, render.width / 2u);
-        uint32_t const half_height = std::max(1u, render.height / 2u);
-        for (std::size_t i = 0; i < image_count; ++i) {
-            uint32_t const image_slot = static_cast<uint32_t>(i);
-            // The raw estimate: STORAGE for the trace compute pass, SAMPLED for the lighting stage that adds it.
-            rhi::image_desc trace_desc{};
-            trace_desc.extent = rhi::image_extent{.width = half_width, .height = half_height, .depth = 1u};
-            trace_desc.mip_levels = 1;
-            trace_desc.array_layers = 1;
-            trace_desc.format = deren::engine::render_layout::hdr_format;
-            trace_desc.flags = rhi::to_bits(rhi::image_flag::storage) | rhi::to_bits(rhi::image_flag::sampled);
-            trace_desc.debug_name = "megalights trace image";
-            create_sampled_target(trace_desc, deren::engine::render_layout::heap_slots::ml_trace + image_slot,
-                                  this->ml_images[i], this->ml_image_views[i], "the megalights trace target");
-            create_storage_descriptor(*this->ml_images[i], deren::engine::render_layout::heap_slots::ml_trace_storage + image_slot, "the megalights trace STORAGE descriptor");
-
-            // The temporal accumulation: the same pair PLUS TRANSFER_SRC, because it is what the next frame's
-            // history is copied FROM.
-            rhi::image_desc resolve_desc{};
-            resolve_desc.extent = rhi::image_extent{.width = half_width, .height = half_height, .depth = 1u};
-            resolve_desc.mip_levels = 1;
-            resolve_desc.array_layers = 1;
-            resolve_desc.format = deren::engine::render_layout::hdr_format;
-            resolve_desc.flags = rhi::to_bits(rhi::image_flag::storage) | rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_source);
-            resolve_desc.debug_name = "megalights resolve image";
-            create_sampled_target(resolve_desc, deren::engine::render_layout::heap_slots::ml_resolved + image_slot,
-                                  this->ml_resolve_images[i], this->ml_resolve_image_views[i], "the megalights resolve target");
-            create_storage_descriptor(*this->ml_resolve_images[i], deren::engine::render_layout::heap_slots::ml_resolved_storage + image_slot, "the megalights resolve STORAGE descriptor");
-
-            // ... and the history beside the chain's, written only by that copy and read as the resolve's input
-            // - one sampled descriptor, because a copy is not a descriptor write.
-            rhi::image_desc history_desc{};
-            history_desc.extent = rhi::image_extent{.width = half_width, .height = half_height, .depth = 1u};
-            history_desc.mip_levels = 1;
-            history_desc.array_layers = 1;
-            history_desc.format = deren::engine::render_layout::hdr_format;
-            history_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination);
-            history_desc.debug_name = "megalights history image";
-            create_sampled_target(history_desc, deren::engine::render_layout::heap_slots::ml_history + image_slot,
-                                  this->ml_history_images[i], this->ml_history_image_views[i], "the megalights history target");
-        }
-
-        // The bloom chain: four levels, halved per level with a 1x1 floor, one target per level per image, and
-        // the grid packs the levels `heap_image_capacity` apart - the same stride the shaders bake as
-        // `bloom_l0 + level * heap_image_capacity`.
-        for (uint32_t level = 0; level < deren::engine::render_layout::bloom_level_count; ++level) {
-            uint32_t const level_width = std::max(1u, render.width >> (level + 1u));
-            uint32_t const level_height = std::max(1u, render.height >> (level + 1u));
-            for (std::size_t i = 0; i < image_count; ++i) {
-                rhi::image_desc level_desc{};
-                level_desc.extent = rhi::image_extent{.width = level_width, .height = level_height, .depth = 1u};
-                level_desc.mip_levels = 1;
-                level_desc.array_layers = 1;
-                level_desc.format = deren::engine::render_layout::hdr_format;
-                level_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
-                level_desc.debug_name = "bloom level target";
-                create_sampled_target(level_desc, deren::engine::render_layout::heap_slots::bloom_l0 + level * deren::engine::render_layout::heap_image_capacity + static_cast<uint32_t>(i),
-                                      this->bloom_images[level][i], this->bloom_image_views[level][i], "the bloom level target");
-            }
-        }
 
         // ---- THE FURNACE MODE'S CONSTANT ENVIRONMENT (③-D/E A1.6) --------------------------------------
         // ONE 1x1x6 cube, device-wide: TRANSFER_DST because a clear is what gives it contents, SAMPLED because
@@ -1535,113 +1293,255 @@ namespace deren::engine {
         if (!static_cast<bool>(this->furnace_cube_view)) {
             deren::utility::panic("failed to create the furnace environment cube view");
         }
-
-        // ---- THE RAY-TRACED VISIBILITY, ONE PER FRAME SLOT (③-D/E A1.2) --------------------------------
-        // The ONE group whose count is the RING's rather than the swapchain's - the rays are traced once per
-        // frame, not once per image - and it is rebuilt per generation all the same, because a resize moves
-        // the render extent it is created at. The same numbers the backend's loop used: R16F (the pass writes
-        // a single visibility factor per pixel - `image_format::r16_sfloat`, appended to the contract for
-        // exactly this image), STORAGE for the compute pass that writes it and SAMPLED for the lighting
-        // stage that multiplies the sun term by it.
-        this->rt_shadow_image_views = {};
-        this->rt_shadow_images = {};
-        for (uint32_t slot = 0; slot < rhi::max_frames_in_flight; ++slot) {
-            rhi::image_desc visibility_desc{};
-            visibility_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
-            visibility_desc.mip_levels = 1;
-            visibility_desc.array_layers = 1;
-            visibility_desc.format = rhi::image_format::r16_sfloat;
-            visibility_desc.flags = rhi::to_bits(rhi::image_flag::storage) | rhi::to_bits(rhi::image_flag::sampled);
-            visibility_desc.debug_name = "ray-traced visibility image";
-            // TWO HEAP DESCRIPTORS FOR THE ONE IMAGE, which is not redundancy: SAMPLED_IMAGE and STORAGE_IMAGE
-            // are different descriptor kinds and one heap descriptor is never both, while this image is WRITTEN
-            // by the visibility compute pass and SAMPLED by the lighting stage. Both sit at the ABSOLUTE slots
-            // the shaders bake. (A1.5 moved this group onto the same two helpers the rest of the chain uses -
-            // the group's numbers, its per-frame-slot count and its two descriptors are unchanged.)
-            create_sampled_target(visibility_desc, deren::engine::render_layout::heap_slots::rt_visibility + slot,
-                                  this->rt_shadow_images[slot], this->rt_shadow_image_views[slot], "the ray-traced visibility target");
-            create_storage_descriptor(*this->rt_shadow_images[slot], deren::engine::render_layout::heap_slots::rt_visibility_storage + slot, "the rt visibility STORAGE descriptor");
-        }
     }
 
-    void runtime::create_shadow_resources() {
-        if (!this->shadow_images.empty() && this->shadow_allocated_layers == this->shadow_cascades) {
-            return; // already created for this cascade count
-        }
-        // Shadow map: one layered depth image per frame slot (see the member docs), with one layer
-        // per cascade. Depth-only images carry no uploaded content (vma::create_image with data ==
-        // nullptr skips the digest / upload path), so each frame can render the scene's depth from
-        // the light's view into every layer.
+    rhi::error runtime::prepare_managed_resources(bool output_only) {
+        namespace managed = render_resource::instances;
         this->shadow_cascades = std::clamp(this->shadow_cascades, 1u, deren::engine::max_shadow_cascades);
-        this->shadow_images.reserve(this->frame_ring().slot_count());
-        this->shadow_array_views.reserve(this->frame_ring().slot_count());
-        this->shadow_layer_views.reserve(this->frame_ring().slot_count());
-        for (int32_t slot = 0; slot < static_cast<int32_t>(this->frame_ring().slot_count()); ++slot) {
-            rhi::image_desc shadow_desc{};
-            shadow_desc.extent = rhi::image_extent{.width = this->shadow_map_size, .height = this->shadow_map_size, .depth = 1u};
-            shadow_desc.mip_levels = 1;
-            // One layer per ACTIVE cascade, NOT max_shadow_cascades: the spare layers the old code
-            // always allocated were 2048x2048x4 B each per frame slot (33.5 MB with the default three
-            // cascades) that nothing ever fitted, rendered or sampled. Growing the count rebuilds
-            // these images (see set_shadow_cascades) and SHRINKING keeps the layers already owned,
-            // which is why shadow_allocated_layers - not shadow_cascades - is the image's real layer
-            // count and the value every subresource range over the whole array has to use.
-            shadow_desc.array_layers = this->shadow_cascades;
-            // THE `depth` ROLE (§17): which concrete depth format the device serves is the backend's
-            // capability question; the runtime names the ROLE and the flags it needs.
-            shadow_desc.format = rhi::image_format::depth;
-            shadow_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::depth_attachment);
-            shadow_desc.debug_name = "shadow map image";
-            rhi::object_manager<rhi::image> shadow_image{this->rhi_face().create_image(shadow_desc)};
-            if (!static_cast<bool>(shadow_image)) {
-                deren::utility::panic("failed to create shadow map image");
-            }
-            this->shadow_images.push_back(std::move(shadow_image));
-            rhi::image_view_desc whole_array{};
-            whole_array.layer_count = 0; // all remaining layers
-            whole_array.mip_count = 0;
-            this->shadow_array_views.push_back(rhi::object_manager<rhi::image_view>{this->shadow_images.back()->make_view(whole_array)});
-            std::vector<rhi::object_manager<rhi::image_view>> layers;
-            layers.reserve(this->shadow_cascades);
-            for (uint32_t cascade = 0; cascade < this->shadow_cascades; ++cascade) {
-                rhi::image_view_desc one_layer{};
-                one_layer.base_layer = cascade;
-                one_layer.layer_count = 1;
-                layers.push_back(rhi::object_manager<rhi::image_view>{this->shadow_images.back()->make_view(one_layer)});
-            }
-            this->shadow_layer_views.push_back(std::move(layers));
+        managed::resource_context const context{
+            .frame_slots = this->frame_ring().slot_count(),
+            .output_images = rhi::max_swapchain_images,
+            .shadow_map_size = this->shadow_map_size,
+            .shadow_layers = this->shadow_cascades,
+            .render_extent = this->render_extent(),
+        };
+        using render_resource::resource_id;
+        managed::resource_snapshot primary;
+        if (this->frame_chain != nullptr) {
+            auto const prepared = this->frame_chain->prepare_resources(this->core_owner, context);
+            if (prepared != rhi::error::ok)
+                return prepared;
+            primary = this->frame_chain->resources().snapshot();
         }
-        this->shadow_allocated_layers = this->shadow_cascades;
+        bool const missing_shadow = !primary.find(resource_id::shadow_map);
+        bool const missing_light = !primary.find(resource_id::light_ubo);
+        bool const missing_head = !primary.find(resource_id::head_ubo);
+        bool const missing_counts = !primary.find(resource_id::cluster_counts);
+        bool const missing_indices = !primary.find(resource_id::cluster_indices);
+        if (missing_counts != missing_indices)
+            return rhi::error::invalid_argument;
+        auto& fallback = this->shared_resource_fallback;
+        fallback.clear();
+        if (!output_only) {
+            if (missing_shadow) {
+                if (this->fallback_shadow_provider == nullptr)
+                    this->fallback_shadow_provider = &fallback.emplace<pass::shadow_pass>();
+                else
+                    fallback.add(*this->fallback_shadow_provider);
+            } else if (this->fallback_shadow_provider != nullptr)
+                this->fallback_shadow_provider->bind_resources({});
+            if (missing_counts) {
+                if (this->fallback_cluster_provider == nullptr)
+                    this->fallback_cluster_provider = &fallback.emplace<pass::cluster_pass>();
+                else
+                    fallback.add(*this->fallback_cluster_provider);
+            } else if (this->fallback_cluster_provider != nullptr)
+                this->fallback_cluster_provider->bind_resources({});
+            if (missing_light || missing_head) {
+                if (this->fallback_constants_provider == nullptr)
+                    this->fallback_constants_provider = &fallback.emplace<pass::scene_constants_pass>();
+                else
+                    fallback.add(*this->fallback_constants_provider);
+                this->fallback_constants_provider->select_resources(missing_light, missing_head);
+            } else if (this->fallback_constants_provider != nullptr)
+                this->fallback_constants_provider->bind_resources({});
+        }
+        std::array<bool, pass::output_targets_pass::resource_count> missing_output;
+        for (size_t i = 0; i < missing_output.size(); ++i)
+            missing_output[i] = !primary.find(pass::output_targets_pass::ids[i]);
+        if (std::any_of(missing_output.begin(), missing_output.end(), [](bool missing) { return missing; })) {
+            if (this->fallback_output_provider == nullptr)
+                this->fallback_output_provider = &fallback.emplace<pass::output_targets_pass>();
+            else
+                fallback.add(*this->fallback_output_provider);
+            this->fallback_output_provider->select_resources(missing_output);
+        } else if (this->fallback_output_provider != nullptr)
+            this->fallback_output_provider->bind_resources({});
+        auto const prepared = fallback.prepare_resources(this->core_owner, context);
+        if (prepared != rhi::error::ok)
+            return prepared;
+        auto const fallback_view = fallback.resources().snapshot();
+        auto const shadow_view = missing_shadow ? fallback_view : primary;
+        auto const cluster_view = missing_counts ? fallback_view : primary;
+        auto const light_view = missing_light ? fallback_view : primary;
+        auto const head_view = missing_head ? fallback_view : primary;
+        auto const light = light_view.find(resource_id::light_ubo);
+        auto const head = head_view.find(resource_id::head_ubo);
+        auto const shadow = shadow_view.find(resource_id::shadow_map);
+        auto const counts = cluster_view.find(resource_id::cluster_counts);
+        auto const indices = cluster_view.find(resource_id::cluster_indices);
+        uint64_t const count_bytes = uint64_t(deren::engine::max_cluster_count) * sizeof(uint32_t);
+        auto const valid_buffer = [&](std::shared_ptr<managed::generation const> const& value, uint64_t bytes) {
+            return value && value->description.type == managed::kind::buffer &&
+                   value->description.scope == render_resource::resource_scope::per_frame_slot &&
+                   value->objects.size() == context.frame_slots && value->description.buffer.size >= bytes &&
+                   value->description.buffer.usage == rhi::buffer_usage::storage_coherent &&
+                   (value->description.buffer.flags & rhi::to_bits(rhi::buffer_flag::device_address)) != 0 &&
+                   value->description.zero_on_create &&
+                   std::all_of(value->objects.begin(), value->objects.end(), [bytes](auto const& object) { return object.buffer->mapped().size() >= bytes; });
+        };
+        auto const valid_constant = [&](std::shared_ptr<managed::generation const> const& value, uint64_t bytes) {
+            return value && value->description.type == managed::kind::buffer &&
+                   value->description.scope == render_resource::resource_scope::per_frame_slot && value->objects.size() == context.frame_slots &&
+                   value->description.buffer.size >= bytes && !value->description.zero_on_frame &&
+                   ((value->description.buffer.usage == rhi::buffer_usage::uniform_coherent &&
+                     (value->description.buffer.flags & rhi::to_bits(rhi::buffer_flag::storage)) != 0) ||
+                    value->description.buffer.usage == rhi::buffer_usage::storage_coherent) &&
+                   (value->description.buffer.flags & rhi::to_bits(rhi::buffer_flag::device_address)) != 0 &&
+                   std::all_of(value->objects.begin(), value->objects.end(), [bytes](auto const& object) { return object.buffer->mapped().size() >= bytes; });
+        };
+        if (!output_only && (!valid_constant(light, sizeof(light_ubo)) || !valid_constant(head, sizeof(head_ubo)) ||
+                             !valid_buffer(counts, count_bytes) || !counts->description.zero_on_frame ||
+                             !valid_buffer(indices, count_bytes * deren::engine::cluster_light_capacity) ||
+                             shadow->description.type != managed::kind::image || shadow->objects.size() != context.frame_slots ||
+                             shadow->description.image.extent.width != context.shadow_map_size ||
+                             shadow->description.image.extent.height != context.shadow_map_size ||
+                             shadow->description.image.array_layers < context.shadow_layers))
+            return rhi::error::invalid_argument;
+        std::array<managed::resource_snapshot, pass::output_targets_pass::resource_count> output_views;
+        std::array<std::shared_ptr<managed::generation const>, pass::output_targets_pass::resource_count> outputs;
+        auto const required_outputs = pass::output_targets_pass::descriptions(context);
+        bool outputs_changed = false;
+        for (size_t i = 0; i < outputs.size(); ++i) {
+            auto const& expected = required_outputs[i];
+            output_views[i] = missing_output[i] ? fallback_view : primary;
+            auto const value = output_views[i].find(expected.id);
+            auto const& desc = value->description;
+            if (desc.type != managed::kind::image || desc.scope != expected.scope ||
+                desc.life != expected.life || value->objects.size() != (expected.scope == render_resource::resource_scope::per_frame_slot ? context.frame_slots : context.output_images) ||
+                desc.image.extent.width != expected.image.extent.width || desc.image.extent.height != expected.image.extent.height ||
+                desc.image.extent.depth != 1 || desc.image.format != expected.image.format ||
+                desc.image.array_layers != 1 || desc.image.mip_levels != 1 ||
+                (desc.image.flags & expected.image.flags) != expected.image.flags)
+                return rhi::error::invalid_argument;
+            outputs[i] = value;
+            outputs_changed |= this->output_resource_views[i].find(expected.id) != value;
+        }
+        bool const shadow_changed = !output_only && this->shadow_resource_view.find(resource_id::shadow_map) != shadow;
+        bool const cluster_changed = !output_only && (this->cluster_resource_view.find(resource_id::cluster_counts) != counts ||
+                                                      this->cluster_resource_view.find(resource_id::cluster_indices) != indices);
+        bool const light_changed = !output_only && this->light_resource_view.find(resource_id::light_ubo) != light;
+        bool const head_changed = !output_only && this->head_resource_view.find(resource_id::head_ubo) != head;
+        if ((shadow_changed && !this->shadow_images.empty()) || (cluster_changed && !this->cluster_count_buffers.empty()) ||
+            (light_changed && !this->light_buffers.empty()) || (head_changed && !this->head_buffers.empty()) ||
+            (outputs_changed && static_cast<bool>(this->hdr_images[0]))) {
+            this->rhi_face().wait_idle();
+        }
+        if (light_changed) {
+            auto& owner = missing_light ? fallback : *this->frame_chain;
+            light_ubo initial{};
+            for (uint32_t slot = 0; slot < context.frame_slots; ++slot) {
+                auto const copied = owner.write_frame_buffer(slot, resource_id::light_ubo, std::as_bytes(std::span(&initial, 1)));
+                if (copied != rhi::error::ok)
+                    return copied;
+            }
+            this->light_buffers.clear();
+            for (auto const& object : light->objects)
+                this->light_buffers.push_back({object.buffer.get()});
+        }
+        if (head_changed) {
+            auto& owner = missing_head ? fallback : *this->frame_chain;
+            head_ubo initial{}; // usable fallback axes, not an all-zero head basis
+            for (uint32_t slot = 0; slot < context.frame_slots; ++slot) {
+                auto const copied = owner.write_frame_buffer(slot, resource_id::head_ubo, std::as_bytes(std::span(&initial, 1)));
+                if (copied != rhi::error::ok)
+                    return copied;
+            }
+            this->head_buffers.clear();
+            for (auto const& object : head->objects)
+                this->head_buffers.push_back({object.buffer.get()});
+        }
+        if (shadow_changed) {
+            this->shadow_images.clear();
+            this->shadow_array_views.clear();
+            this->shadow_layer_views.clear();
+            for (auto const& object : shadow->objects) {
+                this->shadow_images.push_back({object.image.get()});
+                this->shadow_array_views.push_back({object.array_view.get()});
+                std::vector<managed::borrowed<rhi::image_view>> layers;
+                for (auto const& layer : object.layers)
+                    layers.push_back({layer.get()});
+                this->shadow_layer_views.push_back(std::move(layers));
+            }
+            this->shadow_allocated_layers = shadow->description.image.array_layers;
 
-        // Light UBO (scene block slot 7): one buffer PER FRAME SLOT (host-visible, mapped), so
-        // a frame being rendered never shares the buffer the next frame rewrites. CPU-side
-        // content lives in light_state; the frame loop memcpys it into the paced slot's buffer
-        // (pace_and_acquire) - see the member docs for the concurrency rationale.
-        light_ubo initial = {};
-        create_buffers(this->vulkan_core,
-                       this->light_buffers,
-                       rhi::buffer_usage::uniform_coherent,
-                       // it goes on the descriptor heap (a heap descriptor for a buffer is its
-                       // device address), so the address has to exist - validation states it as
-                       // VUID-VkBufferDeviceAddressInfo-buffer-02601 the moment it is queried -
-                       // and it is written as a STORAGE descriptor, so the buffer needs the
-                       // matching usage bit (see the camera UBO above and the note on
-                       // write_heap_scene_buffer)
-                       rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage),
-                       std::as_bytes(std::span(&initial, 1)),
-                       "light ubo buffer",
-                       &this->light_mapped);
+            ++this->shadow_content_version;
+            this->shadow_frustum_valid = false;
+        }
+        if (cluster_changed) {
+            this->cluster_count_buffers.clear();
+            this->cluster_index_buffers.clear();
+            for (uint32_t slot = 0; slot < context.frame_slots; ++slot) {
+                this->cluster_count_buffers.push_back({counts->objects[slot].buffer.get()});
+                this->cluster_index_buffers.push_back({indices->objects[slot].buffer.get()});
+            }
+            this->publish_cluster_bindings();
+        }
+        if (shadow_changed || light_changed || head_changed)
+            this->write_light_and_shadow_bindings();
+        if (outputs_changed) {
+            auto const adopt = [&](size_t family, auto& images, auto& views) {
+                auto const& generation = outputs[family];
+                for (uint32_t i = 0; i < generation->objects.size(); ++i) {
+                    images[i] = {generation->objects[i].image.get()};
+                    views[i] = {generation->objects[i].array_view.get()};
+                    if (contract_heap_ready(this->rhi_face()) &&
+                        !contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(pass::output_targets_pass::heap_slots[family] + i),
+                                                   *images[i], rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image))
+                        deren::utility::log("descriptor heap: managed output target publication failed");
+                    uint32_t const storage_slot = pass::output_targets_pass::storage_slots[family];
+                    if (storage_slot != 0 && contract_heap_ready(this->rhi_face())) {
+                        rhi::image_view_desc range{};
+                        range.role = rhi::view_role::storage;
+                        if (!contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(storage_slot + i),
+                                                       *images[i], range, rhi::descriptor_type::storage_image))
+                            deren::utility::log("descriptor heap: managed storage target publication failed");
+                    }
+                }
+            };
+            adopt(0, this->hdr_images, this->hdr_image_views);
+            for (size_t target = 0; target < this->gbuffer_images.size(); ++target)
+                adopt(target + 1, this->gbuffer_images[target], this->gbuffer_image_views[target]);
+            adopt(4, this->velocity_images, this->velocity_image_views);
+            adopt(5, this->scene_color_images, this->scene_color_image_views);
+            adopt(6, this->gbuffer_depth_images, this->gbuffer_depth_image_views);
+            adopt(7, this->taa_history_images, this->taa_history_image_views);
+            adopt(8, this->ldr_images, this->ldr_image_views);
+            for (size_t level = 0; level < this->bloom_images.size(); ++level)
+                adopt(9 + level, this->bloom_images[level], this->bloom_image_views[level]);
+            adopt(13, this->ml_images, this->ml_image_views);
+            adopt(14, this->ml_resolve_images, this->ml_resolve_image_views);
+            adopt(15, this->ml_history_images, this->ml_history_image_views);
+            adopt(16, this->rt_shadow_images, this->rt_shadow_image_views);
+            bool ml_changed = false;
+            for (size_t family = 13; family <= 15; ++family)
+                ml_changed |= this->output_resource_views[family].find(pass::output_targets_pass::ids[family]) != outputs[family];
+            if (ml_changed)
+                this->megalights_history_valid.assign(context.output_images, false);
+            this->reset_image_generation_state();
+        }
+        this->output_resource_views = output_views;
+        if (!output_only) {
+            this->light_resource_view = light_view;
+            this->head_resource_view = head_view;
+            this->shadow_resource_view = shadow_view;
+            this->cluster_resource_view = cluster_view;
+        }
+        return rhi::error::ok;
+    }
 
-        // THE HEAD FRAME (scene block slot 749): the same per-frame-slot arrangement as the light UBO above, and
-        // `head_state` starts at the reference's fallback frame - see that member for why it is not zeros.
-        head_ubo initial_head = {};
-        create_buffers(this->vulkan_core,
-                       this->head_buffers,
-                       rhi::buffer_usage::uniform_coherent,
-                       rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage),
-                       std::as_bytes(std::span(&initial_head, 1)),
-                       "head frame buffer",
-                       &this->head_mapped);
+    rhi::error runtime::upload_scene_constant(uint32_t completed_slot, render_resource::resource_id id, std::span<std::byte const> bytes) {
+        auto* owner = &this->shared_resource_fallback;
+        if (this->frame_chain != nullptr && this->frame_chain->resources().snapshot().find(id))
+            owner = this->frame_chain;
+        return owner->write_frame_buffer(completed_slot, id, bytes);
+    }
+
+    // Explicit cascade growth retains the setter's existing fatal-error policy.
+    // Frame preparation calls prepare_managed_resources directly so it can report acquire_failed.
+    void runtime::create_shadow_resources() {
+        if (this->prepare_managed_resources() != rhi::error::ok)
+            deren::utility::panic("failed to prepare pass resources");
     }
 
     namespace {
@@ -1668,7 +1568,8 @@ namespace deren::engine {
          * neighbours). The heap is the only path now, so "the heap is not in use" is a startup
          * failure rather than a quiet fall back to a descriptor set.
          */
-        void write_heap_scene_buffer(rhi::api_core& vk, std::vector<rhi::object_manager<rhi::buffer>> const& buffers, uint32_t const slot_base, std::uint64_t const size, rhi::descriptor_type const type) {
+        template <typename Buffer>
+        void write_heap_scene_buffer(rhi::api_core& vk, std::vector<Buffer> const& buffers, uint32_t const slot_base, std::uint64_t const size, rhi::descriptor_type const type) {
             if (!contract_heap_ready(vk)) {
                 return;
             }
@@ -1689,46 +1590,16 @@ namespace deren::engine {
         }
     } // namespace
 
-    void runtime::create_cluster_buffers() {
-        if (!this->cluster_count_buffers.empty()) {
-            return;
-        }
-        // Clustered light culling (M5), scene set bindings 11/12: one count per cluster and one
-        // fixed-capacity index row per cluster, per frame slot (the compute pass writes them, the
-        // fragment stage reads them, so a slot in flight must not be overwritten).
-        //
-        // Allocated for the MAXIMUM grid (max_cluster_count) once: the active grid is capped to it
-        // every frame, so a resize only changes the grid dims in the light UBO - no reallocation, no
-        // in-flight buffer to retire. Both are host-visible + coherent: the counts are zeroed by the
-        // host each frame (that IS the pass's clear, see pace_and_acquire), and the indices only need
-        // to live on the GPU between the dispatch and the shading.
-        std::vector<uint8_t> const zero_counts(static_cast<std::size_t>(deren::engine::max_cluster_count) * sizeof(uint32_t), 0);
-        std::vector<uint8_t> const zero_indices(static_cast<std::size_t>(deren::engine::max_cluster_count) * deren::engine::cluster_light_capacity * sizeof(uint32_t), 0);
-        create_buffers(this->vulkan_core,
-                       this->cluster_count_buffers,
-                       rhi::buffer_usage::storage_coherent,
-                       rhi::to_bits(rhi::buffer_flag::device_address), // heap-bound
-                       std::as_bytes(std::span(zero_counts)),
-                       "cluster count buffer",
-                       &this->cluster_count_mapped);
-        // The index rows are host-visible for the same reason, but nothing on the CPU ever writes
-        // through the mapping: the dispatch fills them, so the mapped list stays a nullptr.
-        create_buffers(this->vulkan_core,
-                       this->cluster_index_buffers,
-                       rhi::buffer_usage::storage_coherent,
-                       rhi::to_bits(rhi::buffer_flag::device_address), // heap-bound
-                       std::as_bytes(std::span(zero_indices)),
-                       "cluster index buffer");
-
-        // The clustered-light pass's TWO buffers, into the heap's per-slot blocks (bindings 11 and 12): this stage
-        // is the first whose WHOLE set-0 interface is buffers (camera 0, light 7, counts 11, indices 12), which is
-        // what makes it the one to migrate first - no image descriptors, no embedded samplers, nothing but address
-        // ranges - and therefore the one that can be verified byte for byte before the image side is attempted.
-        // The sizes are the buffers' REAL sizes, not VK_WHOLE_SIZE: a heap buffer descriptor is an
-        // address RANGE, and validation states the rule as VUID-VkDeviceAddressRangeKHR-address-11365 - address plus
-        // size must stay inside the buffer, which VK_WHOLE_SIZE cannot satisfy.
+    void runtime::publish_cluster_bindings() {
         write_heap_scene_buffer(this->vulkan_core, this->cluster_count_buffers, deren::engine::render_layout::heap_slots::cluster_counts, static_cast<std::uint64_t>(deren::engine::max_cluster_count) * sizeof(uint32_t), rhi::descriptor_type::storage_buffer);
         write_heap_scene_buffer(this->vulkan_core, this->cluster_index_buffers, deren::engine::render_layout::heap_slots::cluster_indices, static_cast<std::uint64_t>(deren::engine::max_cluster_count) * deren::engine::cluster_light_capacity * sizeof(uint32_t), rhi::descriptor_type::storage_buffer);
+    }
+
+    void runtime::create_cluster_buffers() {
+        if (this->scene_heap_buffers_published)
+            return;
+        // The managed cluster pair is already published by prepare_managed_resources.
+        // Publish the remaining legacy scene-buffer bindings once.
         // A STORAGE DESCRIPTOR, NOT A UNIFORM ONE, and the shaders declare it as a `buffer` block: the storage
         // class a shader reads a heap descriptor through must match the descriptor's type, and a mismatch reads
         // as zeros with NO validation finding. Slang's `DescriptorHandle<ConstantBuffer<T>>` always fetches
@@ -1755,15 +1626,14 @@ namespace deren::engine {
                 deren::utility::log("descriptor heap: the instance transform table did not reach grid slot {}", deren::engine::render_layout::heap_slots::instance_transforms);
             }
         }
+        this->scene_heap_buffers_published = true;
     }
 
     void runtime::prepare_scene_resources() {
-        if (!this->cluster_count_buffers.empty()) {
-            return; // shared resources and heap slots were prepared by an earlier frame
-        }
+        if (this->scene_heap_buffers_published)
+            return;
         // A frame needs these resources even when no mesh was imported. Defer allocation until
         // application configuration is applied, then publish their heap bindings once.
-        this->create_shadow_resources();
         this->create_cluster_buffers();
         // binding 7 (light UBO, per-slot) is bound into each slot's heap block here, together with the shadow map's
         // grid slot.

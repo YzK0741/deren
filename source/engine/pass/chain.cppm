@@ -44,6 +44,8 @@ module;
 export module deren.engine.pass.chain;
 
 import deren.engine.pass;
+import deren.promise.rhi;
+import deren.engine.render_resource;
 
 export namespace deren::engine::pass {
 
@@ -55,6 +57,7 @@ export namespace deren::engine::pass {
      * report it produces are unchanged.
      */
     class pass_chain {
+        render_resource::instances::resource_registry managed_resources;
         // called chain_name, not name: pass_chain::name() declares that name and a member of it would
         // duplicate it and hide the accessor.
         /// the name the runner is handed for the whole chain (used by marks, which every chain here disables)
@@ -80,6 +83,35 @@ export namespace deren::engine::pass {
 
     public:
         pass_chain() = default;
+        ~pass_chain() {
+            // A chain may be destroyed before its renderer; stop GPU use before releasing passes and images.
+            managed_resources.drain();
+        }
+        pass_chain(pass_chain&&) = default;
+        pass_chain& operator=(pass_chain&&) = delete;
+        render_resource::instances::resource_registry& resources() noexcept {
+            return managed_resources;
+        }
+        deren::promise::rhi::error prepare_resources(std::shared_ptr<deren::promise::rhi::api_core> const& device, render_resource::instances::resource_context const& context) {
+            std::vector<render_resource::instances::request> requests;
+            for (auto* pass : passes)
+                pass->describe_resources(context, requests);
+            auto const result = managed_resources.reconcile(device, context, requests);
+            if (result == deren::promise::rhi::error::ok) {
+                auto const snapshot = managed_resources.snapshot();
+                for (auto* pass : passes)
+                    pass->bind_resources(snapshot);
+            }
+            return result;
+        }
+        deren::promise::rhi::error begin_frame(uint32_t completed_slot, std::span<render_resource::resource_id const> preserved = {}) {
+            return managed_resources.initialize_frame(completed_slot, preserved);
+        }
+
+        deren::promise::rhi::error write_frame_buffer(uint32_t completed_slot, render_resource::resource_id id, std::span<std::byte const> bytes) {
+            return managed_resources.write_frame_buffer(completed_slot, id, bytes);
+        }
+
         explicit pass_chain(std::string_view name, bool marks = false) noexcept
             : chain_name(name)
             , writes_marks(marks) {

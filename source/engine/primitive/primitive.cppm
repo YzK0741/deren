@@ -303,7 +303,7 @@ namespace deren::engine {
                                     // light_count on its 16-byte boundary.
         float sun_intensity = 1.0f; // 1.0 normally; 0.0 in the furnace mode, which turns the sun off
         float furnace_level = 0.0f; // 0.0 normally; the constant environment level in the furnace mode
-        glm::vec4 light_count = {}; // x = active punctual light count (GLSL: uint), y = exposure, z = toon shading steps (0 = PBR), w = toon band softness
+        glm::vec4 light_count = {}; // x = active punctual light count (shader: numeric float), y = exposure, z = toon shading steps (0 = PBR), w = toon band softness
         std::array<point_light, max_punctual_lights> punctual_lights = {};
         // Clustered light culling (M5), APPENDED after the light array so the array's offset (352)
         // stays what every shader and the earlier static_asserts already encode:
@@ -338,7 +338,7 @@ namespace deren::engine {
     };
     // std140 layout guard against the GLSL LightUBO: four cascade matrices (256 B), the direction,
     // the two per-cascade vec4s (304 B), four floats, light_count (a glm::vec4 whose x carries the
-    // count the shader reads as uint) and the punctual light array - which must start at a 16-byte
+    // numeric count the shader reads as float) and the punctual light array - which must start at a 16-byte
     // boundary. A vec3 pad anywhere on the GLSL side would push the array and shift every light.
     static_assert(offsetof(light_ubo, light_dir) == max_shadow_cascades * sizeof(glm::mat4));
     static_assert(offsetof(light_ubo, cascade_splits) == max_shadow_cascades * sizeof(glm::mat4) + sizeof(glm::vec4));

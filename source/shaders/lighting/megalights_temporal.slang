@@ -38,7 +38,7 @@ struct MlTemporalPush
     // x = projection[2][2], y = projection[3][2] (the view-depth linearization pair), z = the frame-count cap,
     // w = the history's relative depth tolerance (UE's 0.03).
     float4 params;
-    // xy = this pass's extent in texels, z = the spatial pre-filter's sigma (0 = off), w unused.
+    // xy = this pass's extent in texels, z = spatial sigma (0 = off), w = history-valid flag.
     float4 extents;
     uint frame_slot;
     uint image_index;
@@ -135,13 +135,14 @@ void comp_main(uint3 invocation : SV_DispatchThreadID)
         return;
     }
 
+    // Invalid/new history must contribute zero without reading its undefined texels.
     // ---- the reprojection and its rejection ----
     const float2 motion = ml_texel(heap_slots_gbuffer_velocity, uv).rg;
     const float2 previous_uv = uv - motion;
     const float view_here = view_depth(depth_here);
     float frames = 0.0;
     float3 history = float3(0.0, 0.0, 0.0);
-    if (previous_uv.x >= 0.0 && previous_uv.x <= 1.0 && previous_uv.y >= 0.0 && previous_uv.y <= 1.0)
+    if (pc.extents.w > 0.5 && previous_uv.x >= 0.0 && previous_uv.x <= 1.0 && previous_uv.y >= 0.0 && previous_uv.y <= 1.0)
     {
         const float4 fetched = ml_texel(heap_slots_ml_history, previous_uv);
         frames = fetched.a; // the frame count, which is 0 for a pixel with no accumulation

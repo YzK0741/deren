@@ -87,8 +87,7 @@ namespace {
     // THE WINDOW BELONGS TO THE APPLICATION NOW: this type initialises GLFW, creates the window the frame
     // is presented in, and destroys both on the way out. The engine only BINDS to it - the pointer travels
     // through `create_info::native_window`, the core builds its surface from it and never creates and
-    // never destroys a window (see core::init_window, which is the other path: the one taken when a caller
-    // hands over no window at all).
+    // never destroys a window. A null handle selects rendering into ordinary images.
     //
     // THE DECLARATION ORDER IS THE CONTRACT: an instance of this type is constructed BEFORE the runtime, so
     // that it is destroyed AFTER it. The core's surface was created from this window, and GLFW's
@@ -96,17 +95,14 @@ namespace {
     // runtime is still alive would pull it out from under a live surface. Default local destruction order
     // (reverse of construction) gives exactly the order this needs.
     //
-    // THE HINTS ARE COPIED VERBATIM FROM `core::init_window` (source/backends/vulkan/core/core.constructor.cppm), which is
-    // the path a caller without a window still takes: `GLFW_CLIENT_API = GLFW_NO_API` (Vulkan owns the
-    // drawing; GLFW must not create a GL context), `GLFW_RESIZABLE = GLFW_TRUE`, and `GLFW_VISIBLE` from
-    // the capture flag. A SCRIPTED CAPTURE ASKS FOR A HIDDEN WINDOW: `--capture-frames` runs this binary
-    // dozens of times in a row (the gate, the A/B batches) with nobody watching, so a visible window is a
-    // row of flashes - and the pixels cannot notice, because the screenshot is a read-back of the swapchain
-    // image, not a capture of the window (measured; see capture_options).
+    // Scripted captures use no window. The explicit --capture-windowed regression override
+    // creates a hidden window so resize and presentation can still be tested.
     struct glfw_window_host {
         GLFWwindow* window = nullptr;
 
-        glfw_window_host(int32_t const width, int32_t const height, char const* const title, bool const visible) {
+        glfw_window_host(int32_t const width, int32_t const height, char const* const title, bool const visible, bool const offscreen = false) {
+            if (offscreen)
+                return;
             // THE BACKEND USED TO CALL THIS AND IGNORE THE RESULT (`core::init_window`'s bare `glfwInit()`).
             // The application owns the initialisation now, so a failure is reported where it happens instead
             // of surfacing later as a null extension list or a window that never appears.
@@ -136,7 +132,8 @@ namespace {
             if (this->window != nullptr) {
                 glfwDestroyWindow(this->window);
             }
-            glfwTerminate();
+            if (this->window != nullptr)
+                glfwTerminate();
         }
     };
 
@@ -149,6 +146,7 @@ namespace {
     // Both are stripped from argv before app_config sees them, so the positional model /
     // grid-side slots keep their meaning.
     struct capture_options {
+        bool windowed = false;                                     // explicit window-system regression captures
         int32_t frames = 0;                                        // 0 = normal interactive run
         std::optional<std::array<float, 3>> camera = std::nullopt; // yaw(deg), pitch(deg), distance
         std::optional<glm::vec3> target = std::nullopt;            // orbit target override (optional)
@@ -207,6 +205,10 @@ namespace {
         };
         for (int32_t i = 1; i < argc; ++i) {
             std::string_view const arg(argv[i]);
+            if (arg == "--capture-windowed") {
+                options.windowed = true;
+                continue;
+            }
             // --mmd-motion is consumed here even though main scans argv for it itself: the app's
             // parser would otherwise treat the flag as the positional model path and panic with
             // 0xC0000409 (exactly what an unknown first positional does).
@@ -517,8 +519,9 @@ int main(int argc, char** argv) {
     //     created HERE, before the runtime, so that the declaration order above gives the teardown order the
     //     engine needs - the runtime (and the core's surface, built from this window) is destroyed first,
     //     then the window, then GLFW. What travels to the backend is the borrowed pointer, nothing else.
+    bool const offscreen = settings.render.offscreen || (capture.frames > 0 && !capture.windowed);
     glfw_window_host const window{settings.render.window_width, settings.render.window_height,
-                                  settings.render.window_title.c_str(), capture.frames == 0};
+                                  settings.render.window_title.c_str(), capture.frames == 0, offscreen};
 
     // 5. THE APPLICATION ACQUIRES THE DEVICE ROOT, THEN BUILDS THE RENDERER FROM IT (batch ⑥). Three
     //    steps, in this order, and the split is the point: the loader is the app's decision (which
@@ -584,6 +587,7 @@ int main(int argc, char** argv) {
     // Shadow setup below initializes the CPU-side lighting configuration before the first frame.
     // per-pass GPU timings (timestamp queries): on by default, reported in the log + overlay
     runtime.set_gpu_timings(settings.render.gpu_timings);
+    runtime.set_async_present(settings.render.async_present);
     // Shadow cascades: applied here (BEFORE the scene import) because the shadow map's layered image
     // is created when the first scene set binds it - see runtime::set_shadow_cascades.
     runtime.set_shadow_cascades(static_cast<uint32_t>(settings.render.shadow_cascades));
@@ -2291,7 +2295,7 @@ int main(int argc, char** argv) {
     deren::utility::log("rendering '{}' with PBR... left-drag to orbit, wheel to zoom, ESC to exit", model_path);
 
     // Dear ImGui debug overlay on by default ([gui] show)
-    bool const use_gui = settings.gui.show;
+    bool const use_gui = settings.gui.show && !offscreen;
 
     // FPS statistics (deren.utility:frame_stats): a rolling one-second window of frame gaps.
     // tick() once per presented frame, on_skipped() on minimized/recreate iterations, and
@@ -2820,7 +2824,8 @@ int main(int argc, char** argv) {
         deren::chores::apply_point_lights(runtime, gui, demo_lights);
         runtime.set_exposure(gui.exposure);                                                     // gui exposure slider -> linear scale (post-process pass)
         runtime.set_bloom(gui.bloom_enabled ? gui.bloom_intensity : 0.0f, gui.bloom_threshold); // bloom checkbox + knobs -> post pass
-        runtime.set_max_fps(config.settings.render.max_fps);                                    // 0 = uncapped (see config.example.toml)
+        runtime.set_async_present(config.settings.render.async_present);
+        runtime.set_max_fps(config.settings.render.max_fps); // 0 = uncapped (see config.example.toml)
         // FXAA: mirrored every frame like the other post-process values (the runtime clamps them and
         // ignores the flag when no fxaa pipeline was created)
         runtime.set_fxaa(gui.fxaa_enabled, gui.fxaa_subpixel, gui.fxaa_edge_threshold);

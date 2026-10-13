@@ -49,7 +49,7 @@ namespace deren::engine::shadow_fit {
         // inverse of a singular matrix under the frustum corners and the fit would be garbage
         // (measured: a light-space z span of 1631 for two unrelated scenes). The caller keeps the
         // enable_shadows() default for that frame and tries again next frame.
-        if (!(params.proj[2][2] != 0.0f) || params.scene_radius <= 0.0f) {
+        if (!(params.proj[2][2] != 0.0f) || params.scene_radius <= 0.0f || params.map_size <= 10u) {
             return result;
         }
 
@@ -104,7 +104,9 @@ namespace deren::engine::shadow_fit {
         // ---- one fit per cascade ----
         float last_texel_world = 0.0f;
         for (uint32_t cascade = 0; cascade < cascades; ++cascade) {
-            float const cascade_near = cascade == 0 ? split_near : split_distance(static_cast<float>(cascade) / static_cast<float>(cascades));
+            float const boundary = cascade == 0 ? split_near : split_distance(static_cast<float>(cascade) / static_cast<float>(cascades));
+            float const blend = std::clamp(params.cascade_blend, 0.0f, 0.5f);
+            float const cascade_near = cascade == 0 ? split_near : std::max(split_near, boundary - std::max(boundary * blend, 1e-4f));
             float const cascade_far = split_distance(static_cast<float>(cascade + 1) / static_cast<float>(cascades));
 
             // the camera projection restricted to THIS cascade's depth range (same x/y scaling)
@@ -112,6 +114,9 @@ namespace deren::engine::shadow_fit {
             fit_proj[2][2] = cascade_far / (cascade_near - cascade_far);
             fit_proj[3][2] = -(cascade_far * cascade_near) / (cascade_far - cascade_near);
             glm::mat4 const inverse_view_proj = glm::inverse(fit_proj * params.view);
+            glm::mat4 const inverse_fit_proj = glm::inverse(fit_proj);
+            std::array<glm::vec3, 8> view_corners{};
+            glm::vec3 center_view(0.0f);
 
             // the sub-frustum's corners, each extended up-light by the caster reach: a caster that far
             // up-sun can still throw its shadow into this cascade
@@ -121,6 +126,9 @@ namespace deren::engine::shadow_fit {
                 for (int32_t yi = 0; yi < 2; ++yi) {
                     for (int32_t xi = 0; xi < 2; ++xi) {
                         glm::vec4 const clip(xi == 0 ? -1.0f : 1.0f, yi == 0 ? -1.0f : 1.0f, zi == 0 ? 0.0f : 1.0f, 1.0f);
+                        glm::vec4 const view_corner = inverse_fit_proj * clip;
+                        view_corners[count / 2] = glm::vec3(view_corner) / view_corner.w;
+                        center_view += view_corners[count / 2];
                         glm::vec4 const world = inverse_view_proj * clip;
                         glm::vec3 const corner = glm::vec3(world) / world.w;
                         points[count++] = corner;
@@ -135,6 +143,26 @@ namespace deren::engine::shadow_fit {
                 min_ls = glm::min(min_ls, ls);
                 max_ls = glm::max(max_ls, ls);
             }
+
+            // A sphere fitted in camera space has the same radius when the camera rotates.
+            // Quantize with a scene-fixed world increment, not a unit derived from that radius.
+            center_view /= 8.0f;
+            float radius = 0.0f;
+            for (auto const& corner : view_corners)
+                radius = std::max(radius, glm::length(corner - center_view));
+            float const quantum = std::max(params.scene_radius / 1024.0f, 1e-6f);
+            float const radius_quantized = std::ceil(radius / quantum) * quantum;
+            // Five texels cover centre snapping, the receiver's two-texel normal offset and PCF taps.
+            float const half = radius_quantized / (1.0f - 10.0f / map_size);
+            float const texel = 2.0f * half / map_size;
+            glm::vec3 const sphere_center_world = glm::vec3(glm::inverse(params.view) * glm::vec4(center_view, 1.0f));
+            glm::vec3 const sphere_center_ls = glm::vec3(light_rotation * glm::vec4(sphere_center_world, 1.0f));
+            float const snapped_x = std::floor(sphere_center_ls.x / texel) * texel;
+            float const snapped_y = std::floor(sphere_center_ls.y / texel) * texel;
+            min_ls.x = snapped_x - half;
+            max_ls.x = snapped_x + half;
+            min_ls.y = snapped_y - half;
+            max_ls.y = snapped_y + half;
 
             // merge the casters that can shadow this cascade. Casters outside the view still cast into
             // it (a wall behind the camera), so fitting only the frustum corners would clip them and
@@ -178,21 +206,7 @@ namespace deren::engine::shadow_fit {
                                                     scene_sphere_ls.second.z));
             }
 
-            // square the box (isotropic resolution), quantize its size to whole texels and snap its
-            // center to the texel grid. Snapping the CENTER alone keeps the grid aligned while the
-            // camera translates, but the box SIZE follows the fitted footprint continuously, so every
-            // camera move rescaled the whole map and the shadow edges crawled anyway; rounding the size
-            // up to a texel multiple means small moves keep the same texel size. The extra texel is
-            // margin: without it the visible footprint touched the very edge of the map, where the
-            // outermost half texel used to fall outside the box and casters there had no shadow edge.
-            float const extent = std::max(max_ls.x - min_ls.x, max_ls.y - min_ls.y);
-            float const half_raw = std::max(extent * 0.5f, 0.001f);
-            float const texel_raw = (2.0f * half_raw) / map_size;
-            float const half = std::max(std::ceil(half_raw / texel_raw) * texel_raw + texel_raw, 0.001f);
-            float const texel = (2.0f * half) / map_size;
-            glm::vec3 center_ls = (min_ls + max_ls) * 0.5f;
-            center_ls.x = std::floor(center_ls.x / texel) * texel;
-            center_ls.y = std::floor(center_ls.y / texel) * texel;
+            glm::vec3 const center_ls(snapped_x, snapped_y, (min_ls.z + max_ls.z) * 0.5f);
             glm::vec3 const center_ws = glm::vec3(glm::inverse(light_rotation) * glm::vec4(center_ls, 1.0f));
 
             // light camera far enough up-sun to see every fitted point, then fit near/far to the SAME

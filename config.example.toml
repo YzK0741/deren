@@ -41,6 +41,8 @@ screenshot_dir = ""
 
 # ---- [render] window / presentation ----
 [render]
+async_present = false # overlap window presentation with preparation; currently experimental
+offscreen = false     # startup only: no window or surface; scripted captures select this automatically
 # Initial window size in pixels; the window is resizable, resizing rebuilds the
 # swapchain automatically.
 window_width  = 1080

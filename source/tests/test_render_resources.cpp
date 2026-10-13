@@ -60,9 +60,10 @@ int32_t main() {
     // ---- the schema describes itself, completely ----
     auto const schema = rr::validate_schema();
     CHECK_MSG(schema.has_value(), schema.has_value() ? "" : schema.error().c_str());
-    CHECK(rr::resource_schema.size() == 30);
-    CHECK(static_cast<uint32_t>(rr::resource_id::count) == 31); // 30 families plus `none`
+    CHECK(rr::resource_schema.size() == 39);
+    CHECK(static_cast<uint32_t>(rr::resource_id::count) == 40); // 39 families plus `none`
     CHECK(rr::find(rr::resource_id::none) == nullptr);
+    CHECK(rr::find(rr::resource_id::head_ubo) != nullptr && rr::find(rr::resource_id::head_ubo)->scope == rr::resource_scope::per_frame_slot);
     CHECK(rr::find(rr::resource_id::furnace_cube) != nullptr);
     CHECK(rr::find(rr::resource_id::shadow_map)->count == 4);      // one layer per cascade, as core indexes it
     CHECK(rr::find(rr::resource_id::gbuffer_targets)->count == 3); // albedo, normal+roughness, material+AO
@@ -351,9 +352,11 @@ int32_t main() {
     //      which is what the barrier_buffers channel was added for ----
     {
         CHECK(rr::validate(rr::cluster_io).has_value());
-        CHECK(rr::cluster_io.bindings.empty());       // it reaches the shared scene resources through the heap
-        CHECK(rr::cluster_io.targets.empty());        // a compute pass
-        CHECK(!rr::cluster_io.push.has_value());      // light_cluster.comp declares no push_constant block at all
+        CHECK(rr::cluster_io.bindings.empty()); // it reaches the shared scene resources through the heap
+        CHECK(rr::cluster_io.targets.empty());  // a compute pass
+        CHECK(rr::cluster_io.push.has_value()); // heap frame/image indices used by the compute shader
+        if (rr::cluster_io.push)
+            CHECK(rr::cluster_io.push->offset == 0 && rr::cluster_io.push->size == 8);
         CHECK(rr::cluster_io.barrier_images.empty()); // it moves no image
         CHECK(rr::cluster_io.barrier_buffers.size() == 2);
         CHECK(rr::cluster_io.barrier_buffers[0].resource == rr::resource_id::cluster_counts);

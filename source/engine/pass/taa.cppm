@@ -35,6 +35,7 @@ module;
 #include <optional>
 #include <span>
 #include <string_view>
+#include <vector>
 
 export module deren.engine.pass.taa;
 import deren.promise.rhi;
@@ -84,6 +85,8 @@ export namespace deren::engine::pass {
         [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
+        void describe_resources(render_resource::instances::resource_context const&, std::vector<render_resource::instances::request>&) const override;
+        void bind_resources(render_resource::instances::resource_snapshot const&) override;
         void on_swapchain_recreated(pass_host const& host) override;
         void record(resolved_io const& io) override;
 
@@ -119,6 +122,7 @@ export namespace deren::engine::pass {
         void reset_history() noexcept;
 
     private:
+        render_resource::instances::resource_snapshot resource_view;
         /// the four inputs the resolve reads, which the declaration numbers contiguously from zero
         static constexpr uint32_t own_binding_count = 4;
         static constexpr std::string_view vertex_shader_name = "post.vert.spv"; // the synthetic fullscreen triangle

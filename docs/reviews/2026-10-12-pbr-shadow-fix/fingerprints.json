@@ -1,0 +1,8 @@
+{
+  "source/shaders/scene/pbr.slang": "1fabab81e8d48c3229f9adcba863cb62f5ee410b2f3ac696614e5188033ba40f",
+  "source/engine/shadow_fit/shadow_fit.cpp": "a79cc1ff4618e4f28f8f1ff76e84b05fe6ecd662b59dcdb10bec3eca8d4fb376",
+  "source/engine/shadow_fit/shadow_fit.cppm": "9183751d902b9a045595fe2995ae4fac1cd073619274f3ea39da9d7c5bd1d3f9",
+  "source/engine/runtime/runtime.cpp": "cb324f0fc85fc1495b651795781ab3dbe2dd79cda53ee2c2fd0887e2e3d0eab2",
+  "source/tests/test_shadow_fit.cpp": "4761fb06f0855e46040f86b1792e89f5b06f307f473c71cafbf559ec05de2d56",
+  "source/tests/test_shader_sources.cpp": "333e0f767ef752ecd6c878e8148548cfc11897b157e312e3d458cdcfdae28783"
+}

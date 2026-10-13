@@ -1,0 +1,32 @@
+
+build-profile-gaussian-clang64/deren.exe:	file format coff-x86-64
+
+Disassembly of section .text:
+
+000000014007d4e0 <_ZN5deren6engineW5derenW6engineW7runtime7runtime15begin_recordingEv>:
+14007d840: 48 8b 97 68 02 00 00        	movq	0x268(%rdi), %rdx
+14007d847: 4c 8b 87 70 02 00 00        	movq	0x270(%rdi), %r8
+14007d84e: 49 29 d0                    	subq	%rdx, %r8
+14007d851: 49 c1 f8 03                 	sarq	$0x3, %r8
+14007d855: 49 39 c0                    	cmpq	%rax, %r8
+14007d858: 76 42                       	jbe	0x14007d89c <_ZN5deren6engineW5derenW6engineW7runtime7runtime15begin_recordingEv+0x3bc>
+14007d85a: 48 8b 0c c1                 	movq	(%rcx,%rax,8), %rcx
+14007d85e: 48 85 c9                    	testq	%rcx, %rcx
+14007d861: 74 39                       	je	0x14007d89c <_ZN5deren6engineW5derenW6engineW7runtime7runtime15begin_recordingEv+0x3bc>
+14007d863: 48 8b 1c c2                 	movq	(%rdx,%rax,8), %rbx
+14007d867: 48 85 db                    	testq	%rbx, %rbx
+14007d86a: 74 30                       	je	0x14007d89c <_ZN5deren6engineW5derenW6engineW7runtime7runtime15begin_recordingEv+0x3bc>
+14007d86c: 48 8b 97 b0 02 00 00        	movq	0x2b0(%rdi), %rdx
+14007d873: 4c 8b bf b8 02 00 00        	movq	0x2b8(%rdi), %r15
+14007d87a: 4c 39 fa                    	cmpq	%r15, %rdx
+14007d87d: 74 1d                       	je	0x14007d89c <_ZN5deren6engineW5derenW6engineW7runtime7runtime15begin_recordingEv+0x3bc>
+14007d87f: 49 29 d7                    	subq	%rdx, %r15
+14007d882: 4d 89 f8                    	movq	%r15, %r8
+14007d885: e8 06 0d 0c 00              	callq	0x14013e590 <memcpy>
+14007d88a: 48 8b 8f b0 02 00 00        	movq	0x2b0(%rdi), %rcx
+14007d891: 48 89 da                    	movq	%rbx, %rdx
+14007d894: 4d 89 f8                    	movq	%r15, %r8
+14007d897: e8 f4 0c 0c 00              	callq	0x14013e590 <memcpy>
+14007d89c: 4c 8d af b8 34 00 00        	leaq	0x34b8(%rdi), %r13
+14007d8a3: 48 8b 87 b8 34 00 00        	movq	0x34b8(%rdi), %rax
+14007d8aa: 48 89 87 c0 34 00 00        	movq	%rax, 0x34c0(%rdi)

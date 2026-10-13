@@ -24,6 +24,7 @@ module deren.engine.pass.ray_traced_shadow;
 
 import deren.promise.rhi; // the record series (abi 20): the two barriers, the push block's endpoint and the traceRays escape
 import deren.engine.render_resource;
+import deren.engine.pass.output_targets;
 import deren.engine.pipelines; // build_rt_shadow: the compute pipeline this pass owns
 import deren.utility;
 
@@ -34,6 +35,17 @@ namespace deren::engine::pass {
 
     rt_shadow_pass::~rt_shadow_pass() {
         this->release_owned();
+    }
+
+    void rt_shadow_pass::describe_resources(render_resource::instances::resource_context const& context,
+                                            std::vector<render_resource::instances::request>& out) const {
+        for (auto const& value : output_targets_pass::descriptions(context))
+            if (value.id == render_resource::resource_id::rt_shadow_visibility)
+                out.push_back(value);
+    }
+
+    void rt_shadow_pass::bind_resources(render_resource::instances::resource_snapshot const& snapshot) {
+        resource_view = snapshot;
     }
 
     void rt_shadow_pass::release_owned() noexcept {

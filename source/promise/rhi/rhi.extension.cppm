@@ -39,6 +39,7 @@ module;
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <future>
 #include <span>
 #include <string_view>
 
@@ -116,6 +117,7 @@ export namespace deren::promise::rhi {
         device_capabilities = 1u << 6,
         gpu_sorting = 1u << 8,         ///< stable ascending uint32 key/value radix sort
         shader_group_access = 1u << 7, ///< portable SBT group data for a pipeline
+        async_presentation = 1u << 9,  ///< snapshot and enqueue presentation without blocking the caller
     };
 
     /// What `api_core::abilities()` returns: a set of `extension_kind` bits.
@@ -134,7 +136,7 @@ export namespace deren::promise::rhi {
         return (abilities & to_bits(kind)) != no_abilities;
     }
 
-    /// Every bit defined here: what a backend with all eight abilities reports, and the
+    /// Every bit defined here: what a backend with all nine abilities reports, and the
     /// set the plan's §8 consistency gate iterates.
     [[nodiscard]] constexpr auto all_abilities() noexcept -> ability_bits {
         // `extension_kind::ray_tracing` IS NOT HERE ANY MORE (abi 26): its whole shape moved to tier-1, so no
@@ -143,15 +145,15 @@ export namespace deren::promise::rhi {
         return to_bits(extension_kind::device_address) | to_bits(extension_kind::descriptor_heap) |
                to_bits(extension_kind::mesh_shader) |
                to_bits(extension_kind::host_image_copy) | to_bits(extension_kind::vulkan_escape) |
-               to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access) | to_bits(extension_kind::gpu_sorting);
+               to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access) | to_bits(extension_kind::gpu_sorting) | to_bits(extension_kind::async_presentation);
     }
 
-    /// The same eight, as a LIST: what a gate walks to check one bit at a time.
+    /// The same nine, as a LIST: what a gate walks to check one bit at a time.
     ///
     /// `all_abilities()` is the set as a bitmask; this is the enumeration the consistency gates and
     /// the tests iterate (`abilities()` set => `query_extension()` non-null, and the reverse), so the
     /// list is spelled in ONE place instead of per caller.
-    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> std::array<extension_kind, 8> {
+    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> std::array<extension_kind, 9> {
         return {
             extension_kind::device_address,
             extension_kind::descriptor_heap,
@@ -161,11 +163,12 @@ export namespace deren::promise::rhi {
             extension_kind::device_capabilities,
             extension_kind::shader_group_access,
             extension_kind::gpu_sorting,
+            extension_kind::async_presentation,
         };
     }
 
     static_assert(to_bits(extension_kind::device_address) == 0x1u, "the ability bits are ABI: they do not move");
-    static_assert(all_abilities() == 0x1F7u, "eight active abilities: `ray_tracing` (bit 3 = 0x08) is RETIRED in abi 26 and a retired bit is never reused");
+    static_assert(all_abilities() == 0x3F7u, "nine active abilities; retired bits are never reused");
 
     /// The common root of the tier-2 abilities.
     ///
@@ -197,6 +200,20 @@ export namespace deren::promise::rhi {
     /// operation the ability declares must be performable on something the backend can hand out") held
     /// it hostage to a resource the backend could not yet make. One ability per operand stays honest;
     /// bundling an unreachable operand with a reachable one gets the bit announced never, or wrongly.
+    /// Optional presentation overlap. begin() snapshots the submitted image before returning.
+    /// Collect the result before submitting another frame. wait_idle() and teardown drain calls.
+    /// Completion means the host call returned, not that the GPU or display is idle.
+    struct async_presentation : extension {
+        static constexpr extension_kind extension_id = extension_kind::async_presentation;
+        explicit async_presentation(std::string_view type) noexcept
+            : extension(type) {
+        }
+        extension_kind kind() const noexcept override {
+            return extension_kind::async_presentation;
+        }
+        virtual std::shared_future<error> begin() = 0;
+    };
+
     struct gpu_sorting : extension {
         static constexpr extension_kind extension_id = extension_kind::gpu_sorting;
         explicit gpu_sorting(std::string_view name) noexcept

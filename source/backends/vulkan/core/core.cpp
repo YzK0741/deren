@@ -243,6 +243,10 @@ namespace deren::vulkan {
         submit_info.pCommandBuffers = &command_buffer;
         submit_info.signalSemaphoreCount = 2;
         submit_info.pSignalSemaphores = signal_semaphores;
+        if (this->create_options.native_window == nullptr) {
+            timeline_info.waitSemaphoreValueCount = submit_info.waitSemaphoreCount = 0;
+            timeline_info.signalSemaphoreValueCount = submit_info.signalSemaphoreCount = 1;
+        }
         auto submission = std::make_unique<pending_submission>();
         submission->owner = this;
         submission->timeline = frame_done_semaphores[slot];
@@ -254,6 +258,7 @@ namespace deren::vulkan {
             if (!secondary->executable || (!secondary->simultaneous_use && secondary->pending.load(std::memory_order_acquire)))
                 return VK_NOT_READY;
         pending_submissions.reserve(pending_submissions.size() + 1);
+        std::lock_guard queue_lock(this->vma.queue_access());
         VkResult const result = vkQueueSubmit(this->graphics_queue_handle, 1, &submit_info, VK_NULL_HANDLE);
         if (result == VK_SUCCESS) {
             submission->submitted = true;
@@ -272,7 +277,56 @@ namespace deren::vulkan {
         return result;
     }
 
+    std::shared_future<deren::promise::rhi::error> core::frame_async_presentation::begin() {
+        auto completion = std::make_shared<std::promise<deren::promise::rhi::error>>();
+        auto result = completion->get_future().share();
+        if (!owner->frame_acquired || owner->frame_in_flight || owner->async_present_queued) {
+            completion->set_value(deren::promise::rhi::error::not_ready);
+            return result;
+        }
+        if (owner->present_pending.valid())
+            owner->present_pending.wait();
+        if (!owner->present_worker)
+            owner->present_worker = std::make_unique<deren::utility::thread_pool>(1);
+        VkQueue const queue = owner->present_queue_handle;
+        VkSwapchainKHR const swapchain = owner->swap_chain;
+        uint32_t const image = owner->acquired_image_index;
+        VkSemaphore const ready = owner->present_ready_semaphores[image];
+        uint32_t const next_slot = (static_cast<uint32_t>(owner->current_frame) + 1u) % static_cast<uint32_t>(owner->image_available_semaphores.size());
+        uint64_t completed = 0;
+        bool const slot_idle = owner->frame_done_values[next_slot] == 0 ||
+                               (vkGetSemaphoreCounterValue(owner->logical_device, owner->frame_done_semaphores[next_slot], &completed) == VK_SUCCESS && completed >= owner->frame_done_values[next_slot]);
+        if (slot_idle && owner->prefetched_slot == UINT32_MAX) {
+            uint32_t next_image = 0;
+            VkResult const acquired = vkAcquireNextImageKHR(owner->logical_device, swapchain, 0,
+                                                            owner->image_available_semaphores[next_slot], VK_NULL_HANDLE, &next_image);
+            if (acquired == VK_SUCCESS || acquired == VK_SUBOPTIMAL_KHR) {
+                owner->prefetched_slot = next_slot;
+                owner->prefetched_image = next_image;
+            }
+        }
+        core* const retained = owner;
+        owner->async_present_queued = true;
+        owner->present_pending = result;
+        bool const posted = owner->present_worker->post([retained, completion, queue, swapchain, image, ready] {
+            VkPresentInfoKHR info{};
+            info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+            info.waitSemaphoreCount = 1;
+            info.pWaitSemaphores = &ready;
+            info.swapchainCount = 1;
+            info.pSwapchains = &swapchain;
+            info.pImageIndices = &image;
+            std::lock_guard queue_lock(retained->vma.queue_access());
+            completion->set_value(present_error(vkQueuePresentKHR(queue, &info)));
+        });
+        if (!posted)
+            completion->set_value(deren::promise::rhi::error::not_ready);
+        return result;
+    }
+
     deren::promise::rhi::error core::present(uint32_t const image_index) const {
+        if (this->create_options.native_window == nullptr)
+            return rhi::error::unsupported;
         // Wait this image's binary present-ready semaphore (signaled by submit() above);
         // vkQueuePresentKHR requires binary wait semaphores (VUID-vkQueuePresentKHR-pWaitSemaphores-03267).
         VkPresentInfoKHR present_info = {};
@@ -285,6 +339,7 @@ namespace deren::vulkan {
         // THE TRANSLATION IS THE BACKEND'S, at the present call site: the engine never sees a VkResult
         // (and the engine referencing a translator would JOIN the boundary worklist - the direction
         // the flip measures against).
+        std::lock_guard queue_lock(this->vma.queue_access());
         return present_error(vkQueuePresentKHR(this->present_queue_handle, &present_info));
     }
 
@@ -299,6 +354,8 @@ namespace deren::vulkan {
     }
 
     rhi::error core::swapchain_view::recreate() {
+        if (this->owner->create_options.native_window == nullptr)
+            return rhi::error::unsupported;
         // ok = a new generation was built; not_ready = the window reports a zero extent and nothing
         // was built - a DEFERRED recreate is a state, not a failure, and the caller retries when the
         // window is sized. Real build failures never reach here: they are the backend's named
@@ -339,6 +396,8 @@ namespace deren::vulkan {
     }
 
     bool core::recreate_swap_chain() {
+        if (this->create_options.native_window == nullptr)
+            return false;
         // 0. A minimized (or otherwise not-yet-sized) window reports currentExtent (0, 0). Building a
         //    swapchain and the per-image targets from that is invalid - vkCreateSwapchainKHR
         //    (VUID-VkSwapchainCreateInfoKHR-imageExtent-01689) and every vkCreateImage
@@ -357,8 +416,7 @@ namespace deren::vulkan {
         this->zero_extent_recreation_logged = false;
 
         // 1. Wait for the device to be idle
-        vkDeviceWaitIdle(logical_device);
-        poll_submissions(true);
+        this->wait_idle();
 
         // 2. AND EVERY RENDER TARGET BELONGS TO THE ENGINE (③-D/E A1.7), so this function destroys NOTHING
         //    of the chain: the HDR/LDR pair (A1.3), the G-buffer cluster (A1.4), the stochastic-chain trio
@@ -745,7 +803,24 @@ namespace deren::vulkan {
     }
 
     void core::wait_idle() const noexcept {
-        vkDeviceWaitIdle(this->logical_device);
+        if (this->present_pending.valid())
+            this->present_pending.wait();
+        {
+            std::lock_guard queue_lock(this->vma.queue_access());
+            if (this->prefetched_slot != UINT32_MAX) {
+                // A rebuild or shutdown may discard the prefetched frame. Consume its binary
+                // acquire signal before the same slot semaphore can be reused after a rebuild.
+                VkPipelineStageFlags const stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+                VkSubmitInfo drain{};
+                drain.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+                drain.waitSemaphoreCount = 1;
+                drain.pWaitSemaphores = &this->image_available_semaphores[this->prefetched_slot];
+                drain.pWaitDstStageMask = &stage;
+                (void)vkQueueSubmit(this->graphics_queue_handle, 1, &drain, VK_NULL_HANDLE);
+                this->prefetched_slot = UINT32_MAX;
+            }
+            vkDeviceWaitIdle(this->logical_device);
+        }
         poll_submissions(true);
     }
 

@@ -17,7 +17,7 @@
  * instance's end.
  *
  * WHAT IT DOES NOT OWN, each a shared thing rather than an omission: the shadow map IMAGES and their pool (the
- * renderer creates them and the scene shaders read them through the heap - a shared resource like the G-buffer
+ * passchain creates them and the scene shaders read them through the heap - a shared resource like the G-buffer
  * family); the HAND-BACK
  * barrier (it covers every ALLOCATED layer, including the spare ones a shrank cascade count left behind, which only
  * the image's creator knows - the composite's HDR transition, one resource class over); the content itself (the
@@ -34,6 +34,7 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 export module deren.engine.pass.shadow;
 import deren.promise.rhi;
@@ -102,6 +103,11 @@ export namespace deren::engine::pass {
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
         [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
+        void describe_resources(render_resource::instances::resource_context const& context,
+                                std::vector<render_resource::instances::request>& requests) const override;
+        void bind_resources(render_resource::instances::resource_snapshot const& snapshot) override {
+            resource_view = snapshot;
+        }
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
         void record(resolved_io const& io) override;
@@ -149,6 +155,7 @@ export namespace deren::engine::pass {
             // empty anyway.
             .resync_viewport = false,
         };
+        render_resource::instances::resource_snapshot resource_view;
         void release_owned() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;
         /// THE MESH FORM, and since step 4 (docs/mesh_shaders.md) it is the pass's ONLY form: the vertex pipeline is

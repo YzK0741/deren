@@ -1189,6 +1189,10 @@ queue_family_indices find_queue_families(VkPhysicalDevice device, VkSurfaceKHR s
         }
     }
 
+    // Windowless rendering has no separate presentation queue requirement.
+    if (surface == VK_NULL_HANDLE)
+        indices.present_family = indices.graphics_family;
+
     // Fallback: if no dedicated compute/transfer queue was found, use the graphics queue
     if (!indices.compute_family.has_value() && indices.graphics_family.has_value()) {
         indices.compute_family = indices.graphics_family;
@@ -1240,7 +1244,7 @@ VkPhysicalDevice pick_suitable_device(VkInstance instance, VkSurfaceKHR surface)
         std::vector<char const*> const required_extensions = {
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         };
-        if (!check_device_extension_support(device, required_extensions)) {
+        if (surface != VK_NULL_HANDLE && !check_device_extension_support(device, required_extensions)) {
             deren::utility::error("GPU [{}] rejected: VK_KHR_swapchain required", device_properties.deviceName);
             continue;
         }

@@ -84,9 +84,9 @@ struct CameraUBO {
 // light direction, followed by the active punctual lights. The direction is filled by the CPU
 // (make_directional_light_ubo) and matches the sky sun, so the direct light, the visible sun disc
 // and the shadows all agree. Layout must match deren::vulkan::light_ubo in primitive.cppm (std140):
-// mat4 | vec4 | 4 floats | uint + 3 pad floats | PunctualLight[4] - the CPU mirrors the "uint + pad"
-// slot with one glm::vec4, so the array starts at byte 112 and the block is 368 bytes. (A vec3 pad
-// would force 16-byte alignment to 128 and shift every light by 16.)
+// Four matrices, three vec4s and eight scalars precede the float4 count/exposure/toon lane.
+// The CPU stores the count as a numeric float. The 128-light array starts at byte 352; cluster_grid
+// and cluster_depth follow it at bytes 8544 and 8560. Scalar types and offsets must match the host.
 static const int MAX_PUNCTUAL_LIGHTS = 128; // deren::vulkan::max_punctual_lights
 static const int CLUSTER_TILE_SIZE = 64;    // deren::vulkan::cluster_tile_size (pixels per cluster tile)
 static const int CLUSTER_LIGHT_CAPACITY = 32; // deren::vulkan::cluster_light_capacity (lights stored per cluster)
@@ -122,7 +122,7 @@ struct LightUBO {
                       // light_count on its 16-byte boundary; see the CPU's light_ubo.
     float sun_intensity;
     float furnace_level;
-    uint light_count;
+    float light_count; // host light_ubo.light_count.x stores a numeric float, not uint bits
     float exposure; // y lane of the CPU's light_count vec4: linear exposure scale (pre-tonemap)
     float toon_steps;   // cel-shading quantization steps (LightUBO.light_count.z; 0 = PBR)
     float toon_softness; // band edge width in normalized [0,1] space (LightUBO.light_count.w)
@@ -755,7 +755,7 @@ int cluster_index_at(int2 pixel, float3 world_pos) {
  */
 int cluster_light_count_for(int cluster) {
     if (cluster < 0) {
-        return int(light_at(heap_light_slot).light_count);
+        return clamp(int(light_at(heap_light_slot).light_count), 0, MAX_PUNCTUAL_LIGHTS);
     }
     return int(min(cluster_count_at(heap_cluster_count_slot, cluster), uint(CLUSTER_LIGHT_CAPACITY)));
 }

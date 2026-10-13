@@ -32,6 +32,7 @@ module;
 #include <optional>
 #include <span>
 #include <string_view>
+#include <vector>
 
 export module deren.engine.pass.megalights_trace;
 import deren.promise.rhi;
@@ -70,6 +71,8 @@ export namespace deren::engine::pass {
         [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
+        void describe_resources(render_resource::instances::resource_context const&, std::vector<render_resource::instances::request>&) const override;
+        void bind_resources(render_resource::instances::resource_snapshot const&) override;
         void on_swapchain_recreated(pass_host const& host) override;
         void record(resolved_io const& io) override;
 
@@ -96,6 +99,7 @@ export namespace deren::engine::pass {
         static constexpr uint32_t max_samples = 4;
 
     private:
+        render_resource::instances::resource_snapshot resource_view;
         static constexpr std::string_view shader_name = "megalights_trace.comp.spv";
         static constexpr uint32_t group_size = 8; // `megalights_trace.comp`'s local_size_x/y
         static constexpr uint32_t barrier_output = 0;

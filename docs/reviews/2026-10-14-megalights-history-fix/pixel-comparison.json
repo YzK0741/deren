@@ -1,0 +1,145 @@
+[
+  {
+    "scenario": "clustered_lights",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0
+  },
+  {
+    "scenario": "clustered_lights_off",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0
+  },
+  {
+    "scenario": "deferred",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0
+  },
+  {
+    "scenario": "laevatain_goo_toon",
+    "shape": [
+      960,
+      1080,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0
+  },
+  {
+    "scenario": "ml_lights",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0
+  },
+  {
+    "scenario": "ml_scaled",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0
+  },
+  {
+    "scenario": "rt_smoke",
+    "shape": [
+      960,
+      1080,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0
+  },
+  {
+    "scenario": "scaled_taa",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0
+  },
+  {
+    "scenario": "shadow_single",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0
+  },
+  {
+    "scenario": "sponza",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0
+  },
+  {
+    "scenario": "taa_fxaa",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0
+  },
+  {
+    "scenario": "taa_on",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0
+  },
+  {
+    "scenario": "transparent_blend",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0
+  }
+]

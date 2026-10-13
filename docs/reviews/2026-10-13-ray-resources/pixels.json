@@ -1,0 +1,67 @@
+[
+  {
+    "scenario": "deferred",
+    "differing_pixels": 0,
+    "max_channel_delta": 0
+  },
+  {
+    "scenario": "shadow_single",
+    "differing_pixels": 0,
+    "max_channel_delta": 0
+  },
+  {
+    "scenario": "transparent_blend",
+    "differing_pixels": 0,
+    "max_channel_delta": 0
+  },
+  {
+    "scenario": "sponza",
+    "differing_pixels": 0,
+    "max_channel_delta": 0
+  },
+  {
+    "scenario": "clustered_lights",
+    "differing_pixels": 0,
+    "max_channel_delta": 0
+  },
+  {
+    "scenario": "clustered_lights_off",
+    "differing_pixels": 0,
+    "max_channel_delta": 0
+  },
+  {
+    "scenario": "laevatain_goo_toon",
+    "differing_pixels": 0,
+    "max_channel_delta": 0
+  },
+  {
+    "scenario": "taa_on",
+    "differing_pixels": 0,
+    "max_channel_delta": 0
+  },
+  {
+    "scenario": "scaled_taa",
+    "differing_pixels": 0,
+    "max_channel_delta": 0
+  },
+  {
+    "scenario": "taa_fxaa",
+    "differing_pixels": 0,
+    "max_channel_delta": 0
+  },
+  {
+    "scenario": "rt_smoke",
+    "differing_pixels": 0,
+    "max_channel_delta": 0
+  },
+  {
+    "scenario": "ml_lights",
+    "differing_pixels": 0,
+    "max_channel_delta": 0
+  },
+  {
+    "scenario": "ml_scaled",
+    "differing_pixels": 0,
+    "max_channel_delta": 0
+  }
+]

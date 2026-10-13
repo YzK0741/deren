@@ -196,7 +196,7 @@ namespace deren::vulkan {
         // Guards command_cache / fence_cache so uploads can safely reuse them outside access_mutex
         std::mutex cache_mutex = {};
         // VkQueue is an externally synchronized object; vkQueueSubmit must be serialized
-        std::mutex queue_mutex = {};
+        mutable std::mutex queue_mutex = {};
         // Staging buffer cache: avoids creating/destroying large staging memory on every upload
         struct staging_buffer_cache {
             VkBuffer buffer = VK_NULL_HANDLE;
@@ -245,6 +245,10 @@ namespace deren::vulkan {
         [[nodiscard]] std::pair<VkCommandPool, VkCommandBuffer> create_command_pair() const;
 
     public:
+        /// Serialize host access to the upload/graphics queue, including external presentation calls.
+        [[nodiscard]] std::mutex& queue_access() const noexcept {
+            return this->queue_mutex;
+        }
         /**
          * @ingroup vulkan_vma
          * @brief initialize the VMA allocator with the given vulkan objects

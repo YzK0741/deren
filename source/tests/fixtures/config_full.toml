@@ -7,6 +7,8 @@ shaders_dir = "shaders"
 screenshot_dir = "captures"
 
 [render]
+async_present = true
+offscreen = true
 window_width = 800
 window_height = 600
 window_title = "vk_test"

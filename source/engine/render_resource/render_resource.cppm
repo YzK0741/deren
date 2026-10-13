@@ -112,6 +112,15 @@ export namespace deren::engine::render_resource {
         brdf_lut,
         // ---- what every traced pass needs ----
         top_level_structure,
+        head_ubo, // shared character basis, appended to preserve existing id values
+        gbuffer_albedo,
+        gbuffer_normal,
+        gbuffer_material,
+        scene_input, // physical TAA input; scene_color remains a per-frame routing alias
+        bloom_level0,
+        bloom_level1,
+        bloom_level2,
+        bloom_level3,
         /// the number of enumerators, so the schema's completeness can be checked by ITERATING rather than
         /// against a hand-kept list: `validate_schema()` requires exactly one entry per id in [1, count)
         count,
@@ -179,7 +188,7 @@ export namespace deren::engine::render_resource {
      * `core.cpp` would be a second copy of a fact - the thing this file's header warns about.
      * @ingroup engine_render_resource
      */
-    inline constexpr std::array<resource_info, 30> resource_schema = {{
+    inline constexpr std::array<resource_info, static_cast<size_t>(resource_id::count) - 1> resource_schema = {{
         {.id = resource_id::swapchain_image, .name = "swapchain_image", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::imported},
         {.id = resource_id::hdr, .name = "hdr", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
         // FOUR LEVELS, not one: `core::bloom_images` is `std::array<std::vector<VkImage>, bloom_level_count>`
@@ -206,6 +215,15 @@ export namespace deren::engine::render_resource {
         {.id = resource_id::rt_shadow_visibility, .name = "rt_shadow_visibility", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::camera_ubo, .name = "camera_ubo", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::light_ubo, .name = "light_ubo", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::head_ubo, .name = "head_ubo", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::gbuffer_albedo, .name = "gbuffer_albedo", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::gbuffer_normal, .name = "gbuffer_normal", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::gbuffer_material, .name = "gbuffer_material", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::scene_input, .name = "scene_input", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::bloom_level0, .name = "bloom_level0", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::bloom_level1, .name = "bloom_level1", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::bloom_level2, .name = "bloom_level2", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::bloom_level3, .name = "bloom_level3", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::material_table, .name = "material_table", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::persistent},
         {.id = resource_id::instance_table, .name = "instance_table", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::motion_vectors, .name = "motion_vectors", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::persistent},
@@ -1055,8 +1073,9 @@ export namespace deren::engine::render_resource {
     /**
      * @brief the clustered-light sort's declaration: a one-dimensional compute dispatch over the cluster grid
      *
-     * It has no push block at all (the shader reads the light UBO and writes the cluster buffers through the
-     * frame's shared resources), no own binding, no target and no image to transition - the whole declaration is
+     * Its push block carries the heap frame/image indices, with no pass-specific payload. It reads the
+     * light UBO and writes the cluster buffers through shared resources, with no own binding, target or image
+     * transition - the resource declaration is
      * "the two buffers I write". Its dispatch size is neither the frame's nor half of
      * it: it is `tiles_x * tiles_y * slices`, which is why its behaviour declares `extent_rule::none` and the
      * host hands the count over in the pass's frame instead.
@@ -1068,7 +1087,7 @@ export namespace deren::engine::render_resource {
         .targets = {},
         .barrier_images = {},
         .barrier_buffers = cluster_barriers,
-        .push = std::nullopt,
+        .push = push_block{.offset = 0, .size = 8, .stages = stage_flag::compute},
     };
 
     /// @brief the resource the deferred lighting stage RENDERS INTO, by declaration

@@ -443,7 +443,17 @@ namespace {
                                                .pipelines = fullscreen_pipeline_names};
 } // namespace
 
+template <typename Chain>
+void check_managed_resource_api() {
+    if constexpr (requires(Chain& chain) { chain.resources(); }) {
+        CHECK(true);
+    } else {
+        CHECK_MSG(false, "passchain must own the resource registry");
+    }
+}
+
 int32_t main() {
+    check_managed_resource_api<deren::engine::pass::pass_chain>();
     using namespace deren::engine::pass;
 
     // Culling every mesh must still replace last frame's surface, motion, emissive and depth.

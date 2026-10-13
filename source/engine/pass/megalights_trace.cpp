@@ -15,11 +15,13 @@ module;
 #include <glm/glm.hpp>
 #include <span>
 #include <string>
+#include <vector>
 
 module deren.engine.pass.megalights_trace;
 
 import deren.promise.rhi; // the record series (abi 20): the two barriers and the dispatch
 import deren.engine.render_resource;
+import deren.engine.pass.output_targets;
 import deren.engine.pipelines; // build_megalights_trace: the compute pipeline this pass owns
 import deren.utility;
 
@@ -30,6 +32,19 @@ namespace deren::engine::pass {
 
     megalights_trace_pass::~megalights_trace_pass() {
         this->release_owned();
+    }
+
+    void megalights_trace_pass::describe_resources(render_resource::instances::resource_context const& context,
+                                                   std::vector<render_resource::instances::request>& out) const {
+        for (auto const& value : output_targets_pass::descriptions(context))
+            if (value.id == render_resource::resource_id::ml_trace)
+                out.push_back(value);
+    }
+
+    void megalights_trace_pass::bind_resources(render_resource::instances::resource_snapshot const& snapshot) {
+        if (resource_view.find(render_resource::resource_id::ml_trace) != snapshot.find(render_resource::resource_id::ml_trace))
+            frame_index = 0;
+        resource_view = snapshot;
     }
 
     void megalights_trace_pass::release_owned() noexcept {

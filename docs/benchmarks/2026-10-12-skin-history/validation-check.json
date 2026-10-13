@@ -1,0 +1,17 @@
+{
+  "channel_rmse_255": [
+    0.005892556509887896,
+    0.00914058790353346,
+    0.010775083784154793
+  ],
+  "maximum_channel_difference": 3.0,
+  "differing_pixels": 132,
+  "hdr_rmse": 2.3496915091607223e-05,
+  "hdr_maximum_rgb_difference": 0.009765625,
+  "frames_per_path": 12,
+  "validation_enabled": true,
+  "validation_error_counts": {
+    "cpu": 0,
+    "gpu": 0
+  }
+}

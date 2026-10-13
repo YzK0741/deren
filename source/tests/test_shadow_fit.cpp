@@ -5,6 +5,7 @@
 // without a device.
 #include "vk_test.h"
 
+#include <algorithm>
 #include <cmath>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -264,9 +265,55 @@ namespace {
             CHECK(std::abs((light[0].second.z - light[0].first.z) - world_size) < 1e-4f);
         }
     }
+
+    void test_orbit_preserves_shadow_resolution() {
+        for (uint32_t count = 1; count <= 4; ++count) {
+            auto params = make_params(count, 1.5f);
+            auto const base = deren::engine::shadow_fit::fit(params);
+            for (float angle : {0.0001f, 0.2f, 1.0f, 2.0f}) {
+                params.camera_pos = glm::vec3(5 * std::sin(angle), 0, -5 + 5 * std::cos(angle));
+                params.view = glm::lookAt(params.camera_pos, glm::vec3(0, 0, -5), glm::vec3(0, 1, 0));
+                auto const rotated = deren::engine::shadow_fit::fit(params);
+                CHECK(rotated.valid);
+                for (uint32_t i = 0; i < count; ++i)
+                    CHECK(rotated.cascade_texel_world[i] == base.cascade_texel_world[i]);
+            }
+        }
+    }
+
+    void test_cascade_blend_receivers_are_covered() {
+        for (uint32_t count = 2; count <= 4; ++count)
+            for (float blend : {0.0f, 0.1f, 0.5f}) {
+                auto params = make_params(count, 5.0f);
+                params.cascade_blend = blend;
+                params.proj = glm::perspective(glm::radians(45.f), 16.f / 9.f, near_plane, far_plane);
+                params.light_dir = glm::vec4(glm::normalize(glm::vec3(std::sin(glm::radians(40.f)), .125f, std::cos(glm::radians(40.f)))), 1);
+                auto const fitted = deren::engine::shadow_fit::fit(params);
+                for (uint32_t cascade = 1; cascade < count; ++cascade) {
+                    float const boundary = fitted.cascade_splits[cascade - 1];
+                    float const band = std::max(boundary * blend, 1e-4f);
+                    for (float fraction : {0.0f, 0.5f, 1.0f}) {
+                        float const depth = std::max(near_plane, boundary - band * fraction);
+                        float const k = std::tan(glm::radians(22.5f));
+                        for (int corner = 0; corner < 4; ++corner) {
+                            glm::vec3 const p((corner & 1 ? 1.f : -1.f) * depth * k * 16.f / 9.f, (corner & 2 ? 1.f : -1.f) * depth * k, -depth);
+                            for (auto const normal : {glm::vec3(params.light_dir), glm::vec3(1, 0, 0), glm::vec3(-1, 0, 0), glm::vec3(0, 1, 0), glm::vec3(0, -1, 0), glm::vec3(0, 0, 1), glm::vec3(0, 0, -1)}) {
+                                auto const clip = fitted.light_view_proj[cascade] * glm::vec4(p + normal * (2 * fitted.cascade_texel_world[cascade]), 1);
+                                auto const ndc = glm::vec3(clip) / clip.w;
+                                float const filter_margin = 3.0f / params.map_size;
+                                CHECK(std::abs(ndc.x) + filter_margin <= 1 && std::abs(ndc.y) + filter_margin <= 1 && ndc.z >= 0 && ndc.z <= 1);
+                            }
+                        }
+                    }
+                }
+            }
+    }
+
 } // namespace
 
 int32_t main() {
+    test_orbit_preserves_shadow_resolution();
+    test_cascade_blend_receivers_are_covered();
     test_degenerate_camera_is_rejected();
     test_texel_size_grows_with_distance();
     test_splits_are_monotonic_and_end_at_the_usable_far();

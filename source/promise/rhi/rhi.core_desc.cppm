@@ -81,10 +81,10 @@ export namespace deren::promise::rhi {
         bool vsync = true;
         /// ask for the validation layers: a debug aid, not a quality knob
         bool validation_layers = false;
-        /// whether a window the backend creates itself is shown; ignored when `native_window` is set
+        /// legacy compatibility field; the caller controls visibility of its own window
         bool window_visible = true;
         /// a window the CALLER owns (an HWND/GLFWwindow*/whatever the backend understands), or null to
-        /// have the backend create one. Borrowed, never freed by the backend.
+        /// select windowless rendering. Borrowed, never freed by the backend.
         void* native_window = nullptr;
     };
 

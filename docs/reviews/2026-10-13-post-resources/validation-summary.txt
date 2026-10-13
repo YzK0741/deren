@@ -1,0 +1,10 @@
+Release full build PASS
+CTest24/24,25.16sec
+post_resources42checks,PASS
+output_resources151checks,PASS
+output_first_failure7checks,PASS
+resource_schema603checks,PASS
+native runtime1164checks,PASS
+10captures identical RGBA with clean sync
+Gaussian CPU/GPU12frames each;44pixels,max5/255,HDR RMSE2.5238316397326248e-5
+PBR TAA/FXAA maximize-restore2resizes;clean sync1280x720

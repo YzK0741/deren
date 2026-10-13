@@ -46,6 +46,7 @@ import deren.promise.rhi;
 
 import deren.engine.render_resource;
 import deren.engine.render_resource.shared;
+export import deren.engine.render_resource.instances;
 
 export import deren.engine.frame_constants; // the per-frame constants a pass reads (see resolved_io::constants)
 
@@ -712,6 +713,10 @@ export namespace deren::engine::pass {
         frame_pass(frame_pass const&) = delete;
         frame_pass& operator=(frame_pass const&) = delete;
         virtual ~frame_pass() = default;
+        virtual void describe_resources(render_resource::instances::resource_context const&, std::vector<render_resource::instances::request>&) const {
+        }
+        virtual void bind_resources(render_resource::instances::resource_snapshot const&) {
+        }
 
         /// @brief the declaration: what it uses, in `deren.engine.render_resource`'s vocabulary
         [[nodiscard]] virtual render_resource::pass_io const& io() const noexcept = 0;

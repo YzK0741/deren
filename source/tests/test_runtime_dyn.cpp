@@ -33,12 +33,14 @@
 // runs anywhere. Run it with the flag in every slice of the port - that is what it is for.
 // ============================================================================
 #include "vk_test.h"
-
+#define NOMINMAX
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <future>
 #include <string_view>
+#include <windows.h>
 
 import deren.promise.rhi;
 import deren.engine.runtime;
@@ -49,6 +51,24 @@ import deren.engine.backend_loader; // load_api_core(): the acquisition lives ou
 
 namespace {
     namespace rhi = deren::promise::rhi;
+
+    unsigned renderer_window_count() {
+        unsigned count = 0;
+        EnumWindows([](HWND window, LPARAM state) -> BOOL {
+            DWORD process = 0;
+            GetWindowThreadProcessId(window, &process);
+            if (process == GetCurrentProcessId()) {
+                char name[256]{};
+                GetClassNameA(window, name, sizeof(name));
+                // The Vulkan driver may create its own temporary D3D HWND.
+                if (std::string_view{name} == "GLFW30")
+                    ++*reinterpret_cast<unsigned*>(state);
+            }
+            return TRUE;
+        },
+                    reinterpret_cast<LPARAM>(&count));
+        return count;
+    }
 
     struct foreign_image_view final : rhi::image_view {
         foreign_image_view() noexcept
@@ -80,7 +100,7 @@ int main(int const argc, char** const argv) {
     // abi 21 is the recording face's owner half (`api_core::make_command_buffer`); this pin moves with the
     // contract's constant, and the two spellings must never drift (see test_dynamic_link.cpp's own note).
     deren::vk_test::write_line("runtime_dyn: this executable compiled abi {} (the entry takes it as its first argument)", rhi::abi_version);
-    CHECK(rhi::abi_version == 31u);
+    CHECK(rhi::abi_version == 32u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("runtime_dyn: device path skipped (pass --with-device to construct the runtime)");
@@ -89,10 +109,8 @@ int main(int const argc, char** const argv) {
 
     // ---- 2/3/4. THE CONSTRUCTION, THE FACE, THE ESCAPE AND THE TEARDOWN, in one scope ----
     //
-    // `window_visible = false` is a MEASURED requirement of a sessioned run rather than a preference: a
-    // VISIBLE window does not come up in this environment at all (source/tests/spike_backend_boundary.cpp's own
-    // note records the hang), while the hidden path runs to completion. The pixels, the handles and the
-    // lifetime ordering are identical either way.
+    // A null native window selects the ordinary-image path, including on native device tests.
+    unsigned const windows_before = renderer_window_count();
     {
         rhi::create_info creation{};
         creation.window_width = 640;
@@ -105,6 +123,7 @@ int main(int const argc, char** const argv) {
         // that the loader already wrote; the runtime would refuse it anyway (loudly).
         std::shared_ptr<deren::promise::rhi::api_core> core = deren::engine::load_api_core(creation);
         CHECK(core != nullptr);
+        CHECK(renderer_window_count() == windows_before);
         if (core == nullptr) {
             return deren::vk_test::finish("test_runtime_dyn");
         }
@@ -117,6 +136,8 @@ int main(int const argc, char** const argv) {
         CHECK(&dynamic.rhi_face() == acquired); // the face IS the object the loader handed over
 
         CHECK(dynamic.valid());
+        CHECK(dynamic.poll_events() == deren::engine::frame_status::proceed);
+        CHECK(!dynamic.enable_debug_gui());
 
         rhi::api_core& face = dynamic.rhi_face();
         {
@@ -313,7 +334,18 @@ int main(int const argc, char** const argv) {
         CHECK(rhi::has_ability(abilities, rhi::extension_kind::device_address));
 
         CHECK(face.frame_swapchain() != nullptr);
+        auto const async_present = rhi::extension_kind::async_presentation;
+        CHECK_MSG(rhi::has_ability(face.abilities(), async_present) == (creation.native_window != nullptr) &&
+                      (face.query_extension(async_present) != nullptr) == (creation.native_window != nullptr),
+                  "the Vulkan backend must expose a usable asynchronous presentation capability");
+        if (auto* const overlap = rhi::query_extension<rhi::async_presentation>(face); overlap != nullptr) {
+            CHECK(overlap->begin().get() == rhi::error::not_ready);
+        }
         CHECK(face.frame_swapchain()->format() != rhi::image_format::unknown);
+        CHECK(face.present() == rhi::error::unsupported);
+        CHECK(face.frame_swapchain()->recreate() == rhi::error::unsupported);
+        CHECK(face.frame_swapchain()->extent().width == 640u);
+        CHECK(face.frame_swapchain()->extent().height == 480u);
         auto const acquired_frame = face.frame_begin();
         (void)acquired_frame;
         auto* const borrowed_image = face.frame_image();
@@ -331,9 +363,26 @@ int main(int const argc, char** const argv) {
                 CHECK(!borrowed_view->get_image());
             }
         }
+        // More than two submissions reuse both slots and prove no unsignalled WSI semaphore is awaited.
+        for (unsigned frame = 0; frame < 6; ++frame) {
+            if (frame != 0)
+                (void)face.walk_frames()->wait_and_acquire();
+            auto* const recording = face.begin_commands();
+            CHECK(recording != nullptr);
+            if (recording != nullptr) {
+                CHECK(recording->begin_recording({}) == rhi::error::ok);
+                CHECK(recording->end_recording() == rhi::error::ok);
+                CHECK(face.submit(*recording) == rhi::error::ok);
+            }
+            CHECK(face.present() == rhi::error::unsupported);
+            face.walk_frames()->walk_to_next();
+        }
+        face.wait_idle();
+        CHECK(renderer_window_count() == windows_before);
         deren::vk_test::write_line("runtime_dyn: constructed through deren_make_api_core(); presentation format = {}",
                                    static_cast<std::uint32_t>(face.frame_swapchain()->format()));
     }
+    CHECK(renderer_window_count() == windows_before);
     deren::vk_test::write_line("runtime_dyn: torn down (the backend's own deleter ran)");
 
     return deren::vk_test::finish("test_runtime_dyn");

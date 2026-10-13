@@ -166,25 +166,11 @@ namespace deren::vulkan {
         if (this->render_scale != this->create_options.render_scale) {
             deren::utility::log("core: render_scale {} clamped to {} (the supported range is 0.1 .. 1.0)", this->create_options.render_scale, this->render_scale);
         }
-        if (this->create_options.native_window != nullptr) {
-            // CALLER-PROVIDED WINDOW: THE CONTRACT'S OPAQUE HANDLE IS AN HWND (SHARED flip), and no GLFW
-            // call is made with it anywhere below. WHY IT HAD TO CHANGE: this image is a DLL with ITS OWN
-            // GLFW copy, and GLFW's state is per-image - a `GLFWwindow*` created by the EXECUTABLE's copy
-            // means nothing to this one, so `glfwCreateWindowSurface` on it fails (MEASURED: "can not init
-            // surface" in init_surface, exit 0xC0000409, for all fourteen render scenarios). The engine
-            // therefore converts its own window to the native handle before handing it over
-            // (runtime.constructor.cppm's to_rhi_create_info), and this half creates the surface with
-            // vkCreateWin32SurfaceKHR - the platform call GLFW would have made on its behalf.
-            // Ownership is unchanged: the window belongs to the caller, this core binds to it.
-            window = nullptr;
-        } else {
-            // the title is read HERE and nowhere else: it is the contract's borrowed `char const*`
-            // and GLFW copies the text into the window during this call (the member note says so).
-            init_window(this->create_options.window_width, this->create_options.window_height,
-                        this->create_options.window_title != nullptr ? this->create_options.window_title : "");
-        }
+        // Windows are caller-owned. A null handle selects ordinary offscreen images.
+        window = nullptr;
         init_instance();
-        init_surface();
+        if (this->create_options.native_window != nullptr)
+            init_surface();
         init_device_and_queue();
         init_swap_chain();
         init_image_views();
@@ -315,6 +301,7 @@ namespace deren::vulkan {
         this->heap_view.owner = this;
         this->address_view.owner = this;
         this->sorting_view.owner = this;
+        this->async_presentation_view.owner = this;
         this->host_copy_view.owner = this;
         // THE DEVICE-CAPABILITY VIEW READS THIS CORE'S CACHED FACTS, so it needs the owner exactly as the views
         // above do - and the omission is not silent: with no owner every method answers its zero/false default,
@@ -365,8 +352,8 @@ namespace deren::vulkan {
     };
 
     core::~core() {
-        vkDeviceWaitIdle(this->logical_device);
-        poll_submissions(true);
+        this->wait_idle();
+        this->present_worker.reset();
         commands_view.group_refs.clear();
         commands_view.secondary_refs.clear();
         texture_groups.cache.clear();
@@ -374,59 +361,6 @@ namespace deren::vulkan {
         texture_groups.dummy_image.reset();
         texture_groups.records.reset();
         this->do_cleanup();
-    }
-
-    // self-owned window path: only taken when create_options.native_window is null (a caller-provided
-    // window skips glfwInit/glfwCreateWindow entirely and registers no destroy cleanup).
-    //
-    // GLFW'S LIFETIME BELONGS TO WHOEVER INITIALISED IT. An application that owns its window (main.cpp)
-    // calls glfwInit before this core exists and glfwTerminate after it is gone, so this path is not
-    // reached there - and when it IS reached (no caller window) the core initialises GLFW here and never
-    // terminates it. glfwInit is idempotent: a caller that already initialised GLFW makes this a no-op.
-    void core::init_window(int32_t const width, int32_t const height, std::string_view const window_name) noexcept {
-        glfwInit();
-
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE); // resizing recreates the swapchain via render_frame's OUT_OF_DATE handling
-        // ---- AND WHETHER ANYONE IS EVER SHOWN THIS WINDOW, which is a creation-time answer: GLFW has no
-        //      "create it and never show it" afterwards that does not flash. A scripted capture passes
-        //      window_visible = false, and the reason is not cosmetic: `--capture-frames` is run by the
-        //      gate (20 launches) and by the A/B batches (dozens more), with nobody watching, and the
-        //      hidden-console STARTUPINFO the capture scripts use is a CONSOLE mechanism - a GUI process
-        //      ignores it, which is why the flashing survived it. What the window shows cannot matter to
-        //      the result: the screenshot is a vkCmdCopyImageToBuffer read-back of the SWAPCHAIN IMAGE
-        //      (the read-back copy recorded inside the frame - runtime.frames.cppm's end_recording), i.e.
-        //      of the render target, not of the window, so no
-        //      presented-window state can change a byte of it - measured, not asserted: the gate's ten
-        //      references and the four recorded A/B anchors are byte-identical either way.
-        //      GLFW_VISIBLE before glfwCreateWindow is the whole mechanism; GLFW's default is TRUE.
-        glfwWindowHint(GLFW_VISIBLE, this->create_options.window_visible ? GLFW_TRUE : GLFW_FALSE);
-
-        window = glfwCreateWindow(
-            width,
-            height,
-            window_name.empty() ? "vulkan" : window_name.data(),
-            nullptr,
-            nullptr);
-
-        if (window != nullptr) {
-            // ---- BELT AND BRACES, and each is needed for its own reason: `glfwShowWindow` is called for
-            //      the visible case because a platform is allowed to ignore the hint as well, and
-            //      `glfwHideWindow` for the hidden case for the same one from the other side. Calling
-            //      them unconditionally makes the window's visibility a property of this flag on every
-            //      platform rather than of the platform's hint handling. Both are idempotent.
-            if (this->create_options.window_visible) {
-                glfwShowWindow(window);
-            } else {
-                glfwHideWindow(window);
-            }
-        }
-
-        register_cleanup([this] {
-            if (window) {
-                glfwDestroyWindow(window);
-            }
-        });
     }
 
     void core::init_instance() noexcept {
@@ -443,19 +377,11 @@ namespace deren::vulkan {
         create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         create_info.pApplicationInfo = &app_info;
 
-        // THE SURFACE EXTENSIONS. With a caller-provided window they are the WIN32 PAIR, spelled here rather
-        // than asked of GLFW - and that is not a shortcut: this image's GLFW copy was never initialised in
-        // that mode (the CALLER owns GLFW's lifetime, and its copy is a different one), so
-        // `glfwGetRequiredInstanceExtensions` would answer nullptr here. With no caller window this core
-        // creates the window itself and GLFW's own answer is used, as before.
+        // Only windowed rendering needs WSI extensions. No GLFW calls are needed here.
         std::vector<char const*> extensions;
         if (this->create_options.native_window != nullptr) {
             extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
             extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
-        } else {
-            uint32_t glfw_extension_count = 0;
-            char const** glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
-            extensions.assign(glfw_extensions, glfw_extensions + glfw_extension_count);
         }
 
         // validation layers + debug messenger: runtime switch from create_options (app_config's
@@ -580,34 +506,18 @@ namespace deren::vulkan {
     }
 
     void core::init_surface() noexcept {
-        // CALLER WINDOW -> vkCreateWin32SurfaceKHR on the HWND (see the constructor's note): this image's
-        // GLFW cannot create a surface for a window it never made. OWN WINDOW -> GLFW, as before.
-        if (this->create_options.native_window != nullptr) {
-            VkWin32SurfaceCreateInfoKHR const win32_info{
-                .sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
-                .pNext = nullptr,
-                .flags = 0,
-                .hinstance = static_cast<HINSTANCE>(GetModuleHandleW(nullptr)),
-                // hwnd takes the native handle the engine converted its window to (MSG says HWND)
-                .hwnd = static_cast<HWND>(this->create_options.native_window),
-            };
-            if (vkCreateWin32SurfaceKHR(this->instance, &win32_info, nullptr, &this->surface) != VK_SUCCESS) {
-                deren::utility::panic("can not init surface (vkCreateWin32SurfaceKHR on the caller's HWND)");
-            }
-        } else if (glfwCreateWindowSurface(this->instance, this->window, nullptr, &this->surface) != VK_SUCCESS) {
-            deren::utility::panic("can not init surface");
-        }
-
-        // REGISTERED ON BOTH PATHS, AND THE `else if` ABOVE IS THE POINT: the caller-window path used to
-        // `return` right here, which skipped exactly this registration and leaked the surface - on every
-        // run, because that is the path the engine takes now (it hands the backend its own HWND). Measured
-        // with validation on: "vkDestroyInstance(): VkInstance ... has 1 leaked objects that have not been
-        // destroyed. VkSurfaceKHR ..." (VUID-vkDestroyInstance-instance-00629). The order is load-bearing
-        // too: cleanups run LIFO (deren::utility::enable_stack_destruct), and the instance registers its
-        // own cleanup earlier in the constructor, so the surface must be destroyed before it.
-        this->register_cleanup([this] {
-            vkDestroySurfaceKHR(this->instance, this->surface, nullptr);
-        });
+        if (this->create_options.native_window == nullptr)
+            deren::utility::panic("surface creation requires a caller-owned window");
+        VkWin32SurfaceCreateInfoKHR const info{
+            .sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
+            .pNext = nullptr,
+            .flags = 0,
+            .hinstance = static_cast<HINSTANCE>(GetModuleHandleW(nullptr)),
+            .hwnd = static_cast<HWND>(this->create_options.native_window),
+        };
+        if (vkCreateWin32SurfaceKHR(this->instance, &info, nullptr, &this->surface) != VK_SUCCESS)
+            deren::utility::panic("can not init surface (vkCreateWin32SurfaceKHR on the caller's HWND)");
+        register_cleanup([this] { vkDestroySurfaceKHR(this->instance, this->surface, nullptr); });
     }
 
     void core::init_device_and_queue() noexcept {
@@ -638,7 +548,8 @@ namespace deren::vulkan {
         // Vulkan headers are; it is only ever pushed when the device advertises it.
         constexpr char const* fifo_latest_ready_extension = "VK_EXT_present_mode_fifo_latest_ready";
 
-        creation_info.extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+        if (this->create_options.native_window != nullptr)
+            creation_info.extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
         VkPhysicalDeviceSubgroupProperties subgroup{};
         subgroup.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
         VkPhysicalDevicePushDescriptorPropertiesKHR push{};
@@ -663,7 +574,7 @@ namespace deren::vulkan {
         // VK_EXT_present_mode_fifo_latest_ready is asked for only when the device has it, so the
         // extension is never enabled blindly and the present mode that needs it is only ever chosen
         // from the surface's own list (see choose_swap_present_mode).
-        if (check_device_extension_support(physical_device, std::vector<char const*>{fifo_latest_ready_extension})) {
+        if (this->create_options.native_window != nullptr && check_device_extension_support(physical_device, std::vector<char const*>{fifo_latest_ready_extension})) {
             creation_info.extensions.push_back(fifo_latest_ready_extension);
         }
 
@@ -867,6 +778,44 @@ namespace deren::vulkan {
     }
 
     void core::init_swap_chain() noexcept {
+        if (this->create_options.native_window == nullptr) {
+            this->swap_chain_image_format = VK_FORMAT_B8G8R8A8_SRGB;
+            this->swap_chain_extent = {static_cast<uint32_t>(std::max(1, this->create_options.window_width)), static_cast<uint32_t>(std::max(1, this->create_options.window_height))};
+            this->swapchain_transfer_src_supported = true;
+            this->swap_chain_images.resize(deren::promise::rhi::max_frames_in_flight);
+            std::vector<VkDeviceMemory> allocations(this->swap_chain_images.size());
+            for (size_t i = 0; i < allocations.size(); ++i) {
+                VkImageCreateInfo info{};
+                info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+                info.imageType = VK_IMAGE_TYPE_2D;
+                info.format = this->swap_chain_image_format;
+                info.extent = {this->swap_chain_extent.width, this->swap_chain_extent.height, 1};
+                info.mipLevels = info.arrayLayers = 1;
+                info.samples = VK_SAMPLE_COUNT_1_BIT;
+                info.tiling = VK_IMAGE_TILING_OPTIMAL;
+                info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+                info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+                if (vkCreateImage(logical_device, &info, nullptr, &swap_chain_images[i]) != VK_SUCCESS)
+                    deren::utility::panic("failed to create offscreen image");
+                VkMemoryRequirements requirements{};
+                vkGetImageMemoryRequirements(logical_device, swap_chain_images[i], &requirements);
+                VkMemoryAllocateInfo allocation{};
+                allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+                allocation.allocationSize = requirements.size;
+                allocation.memoryTypeIndex = find_memory_type(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, physical_device);
+                if (vkAllocateMemory(logical_device, &allocation, nullptr, &allocations[i]) != VK_SUCCESS ||
+                    vkBindImageMemory(logical_device, swap_chain_images[i], allocations[i], 0) != VK_SUCCESS)
+                    deren::utility::panic("failed to allocate offscreen image memory");
+            }
+            register_cleanup([this, allocations] {
+                for (auto image : swap_chain_images)
+                    vkDestroyImage(logical_device, image, nullptr);
+                for (auto memory : allocations)
+                    vkFreeMemory(logical_device, memory, nullptr);
+            });
+            deren::utility::log("offscreen: {} owned images, no window, surface or swapchain", swap_chain_images.size());
+            return;
+        }
         auto const [capabilities, formats, present_modes] = query_swap_chain_support(this->physical_device, this->surface);
 
         // Add checks:
@@ -988,6 +937,7 @@ namespace deren::vulkan {
         }
         this->swap_chain_images.resize(image_count);
         vkGetSwapchainImagesKHR(logical_device, this->swap_chain, &image_count, this->swap_chain_images.data());
+        deren::utility::log("swapchain: {} images (requested {}), {} frame slots", image_count, create_info.minImageCount, deren::promise::rhi::max_frames_in_flight);
 
         this->swap_chain_image_format = format;
         this->swap_chain_extent = extent;

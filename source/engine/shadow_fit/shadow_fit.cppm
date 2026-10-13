@@ -77,6 +77,8 @@ namespace deren::engine::shadow_fit {
         float caster_extent = 1.0f;
         /// active cascades, 1..max_shadow_cascades (clamped here)
         uint32_t cascades = 1;
+        /// blend fraction before a split; the next cascade must cover this receiver band
+        float cascade_blend = 0.1f;
         /// shadow map edge length in texels; drives the texel-size quantization and the per-texel
         /// world size reported back
         uint32_t map_size = 2048;

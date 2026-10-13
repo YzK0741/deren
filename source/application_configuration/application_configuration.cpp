@@ -376,6 +376,14 @@ namespace deren::app_config {
                     settings.render.gpu_timings = *value;
                 }
             }
+            if (toml::node const* node = render->get("async_present")) {
+                if (auto value = node->value<bool>())
+                    settings.render.async_present = *value;
+            }
+            if (toml::node const* node = render->get("offscreen")) {
+                if (auto value = node->value<bool>())
+                    settings.render.offscreen = *value;
+            }
             if (toml::node const* node = render->get("validation_layers")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
                     settings.render.validation_layers = *value;

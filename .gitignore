@@ -17,6 +17,7 @@ docs/latex/
 
 #runtime artifacts (flushed logs; the Dear ImGui layout file is no longer written - io.IniFilename is null - but it stays ignored so a stale one cannot be committed)
 debug.log
+!docs/reviews/**/debug.log
 debug.log.old
 imgui_layout.ini
 # MSVC writes a compiler PDB next to the target when the link line leaves /Fd implied (vc140.pdb in

@@ -108,6 +108,7 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 export module deren.engine.pass.ray_traced_shadow;
 import deren.promise.rhi;
@@ -142,6 +143,8 @@ export namespace deren::engine::pass {
         [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
+        void describe_resources(render_resource::instances::resource_context const&, std::vector<render_resource::instances::request>&) const override;
+        void bind_resources(render_resource::instances::resource_snapshot const&) override;
         void on_swapchain_recreated(pass_host const& host) override;
         void record(resolved_io const& io) override;
 
@@ -155,6 +158,7 @@ export namespace deren::engine::pass {
         [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
     private:
+        render_resource::instances::resource_snapshot resource_view;
         // THREE GROUPS but FOUR stages: the shader binding table's order is raygen, miss, hit - the any-hit
         // shader is a SECOND STAGE of the hit group rather than a group of its own, so the regions below and the
         // stride they are addressed by are unchanged by it.

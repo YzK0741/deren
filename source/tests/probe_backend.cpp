@@ -73,6 +73,7 @@ import deren.promise.rhi;
 #include <cstddef>
 #include <cstdint>
 #include <expected> // std::expected: the contract's `image::get_content()` (abi 25) answers one
+#include <future>
 #include <source_location>
 #include <span>
 #include <string_view>
@@ -715,11 +716,22 @@ namespace {
             return 0;
         }
     };
+    struct cpu_device_address final : rhi::device_address {
+        cpu_device_address() noexcept
+            : rhi::device_address("deren_device_address_cpu_probe") {
+        }
+        std::uint64_t buffer_address(rhi::buffer const& resource, std::uint64_t offset) const noexcept override {
+            return reinterpret_cast<std::uintptr_t>(&resource) + offset;
+        }
+    };
     struct cpu_heap final : rhi::descriptor_heap {
         cpu_heap() noexcept
             : rhi::descriptor_heap("deren_descriptor_heap_cpu_probe") {
         }
         std::uint32_t image_writes = 0, buffer_writes = 0;
+        std::vector<rhi::heap_buffer_write_info> written_buffers;
+        // Retain only image identity and offset; view pointers in the write descriptor are transient.
+        std::vector<std::pair<std::uint64_t, rhi::image const*>> written_images;
         bool ready() const noexcept override {
             return true;
         }
@@ -738,12 +750,14 @@ namespace {
             if (info.resource == nullptr || info.view == nullptr || info.offset % 64 != 0)
                 return rhi::error::invalid_argument;
             ++image_writes;
+            written_images.emplace_back(info.offset, info.resource);
             return rhi::error::ok;
         }
         rhi::error write_buffer(rhi::heap_buffer_write_info const& info) noexcept override {
             if (info.address == 0 || info.size == 0 || info.offset % 64 != 0)
                 return rhi::error::invalid_argument;
             ++buffer_writes;
+            written_buffers.push_back(info);
             return rhi::error::ok;
         }
         rhi::error bind(rhi::heap_bind_info const& info) const noexcept override {
@@ -754,6 +768,15 @@ namespace {
         }
     };
 
+    struct cpu_async_presentation final : rhi::async_presentation {
+        cpu_async_presentation() noexcept
+            : rhi::async_presentation("deren_async_presentation_cpu_probe") {
+        }
+        std::shared_future<rhi::error> completion;
+        std::shared_future<rhi::error> begin() override {
+            return completion;
+        }
+    };
     struct impl final : rhi::api_core {
         /// THE CONTRACT'S THIRD HANDSHAKE (abi 19), with a knob: the engine checks this against its
         /// own `rhi::abi_version`, and the injection test needs BOTH answers - the agreeing one and
@@ -765,7 +788,7 @@ namespace {
 
         [[nodiscard]] rhi::ability_bits abilities() const noexcept override {
             if (portable_mode)
-                return rhi::to_bits(rhi::extension_kind::device_address) | rhi::to_bits(rhi::extension_kind::device_capabilities) | rhi::to_bits(rhi::extension_kind::descriptor_heap);
+                return (async_present.completion.valid() ? rhi::to_bits(rhi::extension_kind::async_presentation) : 0u) | rhi::to_bits(rhi::extension_kind::device_address) | rhi::to_bits(rhi::extension_kind::device_capabilities) | rhi::to_bits(rhi::extension_kind::descriptor_heap);
             // TWO ABILITIES SINCE abi 19: the escape joined device_address, because the ENGINE's runtime
             // asks it for the presentation format before any frame exists (`escape()` dereferences what
             // `query_extension<vulkan_escape>()` answers, so an injected root has to serve it - see
@@ -776,7 +799,11 @@ namespace {
 
         [[nodiscard]] rhi::extension* query_extension(rhi::extension_kind kind) noexcept override {
             switch (kind) {
+            case rhi::extension_kind::async_presentation:
+                return portable_mode && async_present.completion.valid() ? &async_present : nullptr;
             case rhi::extension_kind::device_address:
+                if (portable_mode)
+                    return &cpu_address;
                 return &this->address;
             case rhi::extension_kind::vulkan_escape:
                 return portable_mode ? nullptr : &this->escape;
@@ -794,13 +821,23 @@ namespace {
         }
 
         [[nodiscard]] rhi::buffer* create_buffer(rhi::buffer_desc const& desc) override {
-            if (portable_mode)
-                return desc.initial_bytes.size() <= desc.size ? new cpu_buffer(desc) : nullptr;
+            if (!accept_resource_creation())
+                return nullptr;
+            if (portable_mode) {
+                if (desc.initial_bytes.size() > desc.size)
+                    return nullptr;
+                auto* result = new cpu_buffer(desc);
+                if (desc.initial_bytes.empty())
+                    std::fill(result->content.begin(), result->content.end(), std::byte{buffer_allocation_fill});
+                return result;
+            }
             this->buffer.size_bytes = desc.size;
             return &this->buffer;
         }
 
         [[nodiscard]] rhi::image* create_image(rhi::image_desc const& desc) override {
+            if (!accept_resource_creation())
+                return nullptr;
             return portable_mode && desc.extent.width != 0 && desc.extent.height != 0 && desc.array_layers != 0 && desc.format != rhi::image_format::unknown ? new cpu_image(desc) : nullptr;
         }
 
@@ -948,8 +985,19 @@ namespace {
         }
 
         bool portable_mode = false;
+        std::uint8_t buffer_allocation_fill = 0;
+        std::int32_t resource_creations_until_failure = -1;
+        bool accept_resource_creation() {
+            if (resource_creations_until_failure < 0)
+                return true;
+            if (resource_creations_until_failure-- > 0)
+                return true;
+            return false;
+        }
         cpu_capabilities cpu_caps;
         cpu_heap heap;
+        cpu_device_address cpu_address;
+        cpu_async_presentation async_present;
         probe_buffer buffer{};
         probe_sampler sampler{};                  ///< abi 16: the descriptor echo the sampler test reads
         probe_frame_image borrowed_frame_image{}; ///< abi 16 (item B): the borrowed frame image and its owned view
@@ -1128,6 +1176,30 @@ deren_make_api_core(std::uint32_t abi_version, deren::promise::rhi::create_info 
 // object. Declared in source/tests/probe_backend.hpp so the test links the same TU the C entry lives in
 // instead of re-compiling the probe (two copies of it would drift).
 namespace deren::vk_test {
+    deren::promise::rhi::image const* probe_heap_image(deren::promise::rhi::api_core& core, std::uint64_t offset) {
+        auto const& images = static_cast<impl&>(core).heap.written_images;
+        for (auto i = images.rbegin(); i != images.rend(); ++i)
+            if (i->first == offset)
+                return i->second;
+        return nullptr;
+    }
+    void probe_buffer_allocation_fill(deren::promise::rhi::api_core& core, std::uint8_t value) {
+        static_cast<impl&>(core).buffer_allocation_fill = value;
+    }
+    void probe_resource_failure(deren::promise::rhi::api_core& core, std::int32_t successful_creations) {
+        static_cast<impl&>(core).resource_creations_until_failure = successful_creations;
+    }
+    void probe_present_completion(deren::promise::rhi::api_core& core, std::shared_future<deren::promise::rhi::error> completion) {
+        static_cast<impl&>(core).async_present.completion = std::move(completion);
+    }
+    std::span<std::byte> probe_heap_buffer(deren::promise::rhi::api_core& core, std::uint64_t offset) {
+        auto& probe = static_cast<impl&>(core);
+        for (auto it = probe.heap.written_buffers.rbegin(); it != probe.heap.written_buffers.rend(); ++it) {
+            if (it->offset == offset)
+                return reinterpret_cast<rhi::buffer*>(it->address)->mapped();
+        }
+        return {};
+    }
     std::shared_ptr<deren::promise::rhi::api_core> probe_make_core(deren::promise::rhi::create_info const& desc,
                                                                    std::uint32_t const reported_api_version, bool const portable_mode) {
         auto created = std::make_shared<impl>();

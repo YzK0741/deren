@@ -189,6 +189,8 @@ def write_toml(path: str, cfg: dict) -> None:
         f"gbuffer_debug = {str(cfg['gbuffer_debug']).lower()}",
         f"gbuffer_channel = {cfg['gbuffer_channel']}",
         f"gpu_timings = {str(cfg['gpu_timings']).lower()}",
+        f"async_present = {str(cfg['async_present']).lower()}",
+        f"offscreen = {str(cfg['offscreen']).lower()}",
         "",
         "# ---- [render] punctual lights + screen-space AO ----",
         f"clustered_lights = {str(cfg['clustered_lights']).lower()}",
@@ -319,6 +321,8 @@ def ask_all(output_dir: str) -> dict:
     gbuffer_channel = ask_int(
         "render.gbuffer_channel", 1, 0, 8, hint="0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 id, 6 depth, 7 flags, 8 motion"
     )
+    async_present = ask_bool("render.async_present", False, hint="overlap window presentation with frame preparation (experimental)")
+    offscreen = ask_bool("render.offscreen", False, hint="render to images without a window; scripted captures enable this automatically")
     gpu_timings = ask_bool("render.gpu_timings", True, hint="per-pass GPU timestamps (a no-op if the device cannot)")
 
     print("\n-- render (punctual lights + screen-space AO) --")
@@ -446,6 +450,8 @@ def ask_all(output_dir: str) -> dict:
         "gbuffer_debug": gbuffer_debug,
         "gbuffer_channel": gbuffer_channel,
         "gpu_timings": gpu_timings,
+        "async_present": async_present,
+        "offscreen": offscreen,
         "clustered_lights": clustered_lights,
         "ssao": ssao,
         "ssao_radius": ssao_radius,

@@ -106,6 +106,21 @@ namespace deren::engine::pass {
         }
     }
 
+    void shadow_pass::describe_resources(render_resource::instances::resource_context const& context,
+                                         std::vector<render_resource::instances::request>& requests) const {
+        namespace managed = render_resource::instances;
+        managed::request value;
+        value.id = render_resource::resource_id::shadow_map;
+        value.life = managed::lifetime::frame_slot;
+        value.scope = render_resource::resource_scope::per_frame_slot;
+        value.image.extent = {context.shadow_map_size, context.shadow_map_size, 1u};
+        value.image.array_layers = context.shadow_layers;
+        value.image.format = rhi::image_format::depth;
+        value.image.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::depth_attachment);
+        value.image.debug_name = "shadow map image";
+        requests.push_back(value);
+    }
+
     void shadow_pass::on_swapchain_recreated(pass_host const&) {
         // Nothing to reset: the pipeline depends on the DEPTH format and on nothing whose size changes, and the map
         // it renders into is sized by the frame's `map_size` rather than by the surface.
@@ -142,6 +157,9 @@ namespace deren::engine::pass {
         if (this->pass_frame.record_cascade == nullptr || this->pass_frame.run_tasks == nullptr || this->pass_frame.map_size == 0u) {
             return;
         }
+        auto const managed = this->resource_view.find(render_resource::resource_id::shadow_map);
+        if (managed && io.frame.slot >= managed->objects.size())
+            return;
         // ONE LAYER PER CASCADE, and never more than the map has: the DECLARATION claims a RUN of cascade layers
         // (render_resource::shadow_targets) and the FRAME caps it at the layers the image actually has - so the
         // two counts meet here. The secondaries are the frame's own count, and they are what decides how many
@@ -182,8 +200,15 @@ namespace deren::engine::pass {
         // ---- ONE INSTANCE PER CASCADE, in the primary ----
         rhi::image_extent const map_extent = {this->pass_frame.map_size, this->pass_frame.map_size};
         for (uint32_t cascade = 0; cascade < layers; ++cascade) {
-            rhi::image_view* const layer_view = io.targets[cascade].view_handle;
-            rhi::image* const layer_image = io.targets[cascade].image_handle;
+            rhi::image_view* layer_view = io.targets[cascade].view_handle;
+            rhi::image* layer_image = io.targets[cascade].image_handle;
+            if (managed) {
+                auto const& object = managed->objects[io.frame.slot];
+                if (cascade >= object.layers.size())
+                    return;
+                layer_view = object.layers[cascade].get();
+                layer_image = object.image.get();
+            }
             if (layer_view == nullptr || layer_image == nullptr) {
                 continue;
             }

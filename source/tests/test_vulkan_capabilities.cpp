@@ -254,6 +254,9 @@ int main() {
         CHECK(pick_suitable_device(VK_NULL_HANDLE, reinterpret_cast<VkSurfaceKHR>(uintptr_t(1))) == device(1));
     }
     reset();
+    CHECK(find_queue_families(device(1), VK_NULL_HANDLE).is_complete());
+    remove_extension(fixtures[0], VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+    CHECK(pick_suitable_device(VK_NULL_HANDLE, VK_NULL_HANDLE) == device(1));
     fixtures[0].extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     fixtures[0].dynamic_rendering = false;
     device_capabilities incomplete;

@@ -10,11 +10,13 @@ module;
 #include <cstring>
 #include <span>
 #include <string>
+#include <vector>
 
 module deren.engine.pass.taa;
 
 import deren.promise.rhi;
 import deren.engine.render_resource;
+import deren.engine.pass.output_targets;
 import deren.engine.pipelines;
 import deren.utility;
 
@@ -60,6 +62,21 @@ namespace deren::engine::pass {
         // history MORE than the still one, which is the opposite of what the two are for.
         this->blend_static = std::clamp(static_weight, 0.0f, 0.99f);
         this->blend_min = std::clamp(min_weight, 0.0f, this->blend_static);
+    }
+
+    void taa_pass::describe_resources(render_resource::instances::resource_context const& context,
+                                      std::vector<render_resource::instances::request>& out) const {
+        for (auto const& value : output_targets_pass::descriptions(context))
+            if (value.id == render_resource::resource_id::taa_history)
+                out.push_back(value);
+    }
+
+    void taa_pass::bind_resources(render_resource::instances::resource_snapshot const& snapshot) {
+        if (resource_view.find(render_resource::resource_id::taa_history) != snapshot.find(render_resource::resource_id::taa_history)) {
+            reset_history();
+            history_written = false;
+        }
+        resource_view = snapshot;
     }
 
     void taa_pass::reset_history() noexcept {

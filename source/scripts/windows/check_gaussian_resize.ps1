@@ -55,7 +55,7 @@ $start.RedirectStandardError = $true
 $start.Environment['VK_LAYER_VALIDATE_SYNC'] = '1'
 $start.Environment['DEREN_GAUSSIAN_RESIZE_TRACE'] = '1'
 # F12 ends capture mode after the requested resizes; a fast cloud must not exhaust a small frame budget first.
-foreach ($argument in @('--config', $probeConfig, '--capture-frames', '1000000')) { $start.ArgumentList.Add($argument) }
+foreach ($argument in @('--config', $probeConfig, '--capture-frames', '1000000', '--capture-windowed')) { $start.ArgumentList.Add($argument) }
 if ($Camera) {
     $start.ArgumentList.Add('--capture-camera')
     $start.ArgumentList.Add($Camera)

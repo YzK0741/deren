@@ -624,6 +624,7 @@ target_sources(deren_engine
         source/engine/pipelines/pipelines.cppm
         source/engine/render_resource/render_resource.cppm
         source/engine/render_resource/shared.cppm
+        source/engine/render_resource/instances.cppm
         source/engine/frame_constants/frame_constants.cppm
         source/engine/pass/pass.cppm
         source/engine/pass/taa.cppm
@@ -638,6 +639,8 @@ target_sources(deren_engine
         source/engine/pass/ray_traced_shadow.cppm
         source/engine/pass/mask_bake.cppm
         source/engine/pass/compute_skin.cppm
+        source/engine/pass/scene_constants.cppm
+        source/engine/pass/output_targets.cppm
         source/engine/pass/cluster.cppm
         source/engine/pass/deferred.cppm
         source/engine/pass/post.cppm

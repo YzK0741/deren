@@ -1,0 +1,15 @@
+455:        %4259 = OpVariable %_ptr_Function_float Function
+456:        %4258 = OpVariable %_ptr_Function_float Function
+465:        %4238 = OpVariable %_ptr_Function_float Function
+466:        %4237 = OpVariable %_ptr_Function_float Function
+1011:        %4248 = OpLoad %float %4238
+1012:        %4247 = OpLoad %float %4237
+1029:                OpStore %4258 %4247
+1030:                OpStore %4259 %4248
+1049:        %2213 = OpLoad %float %4259
+1050:        %2214 = OpFOrdGreaterThanEqual %bool %2213 %float_0
+1052:                OpBranchConditional %2214 %2231 %2215
+1890:                OpStore %2184 %2213
+2496:        %2263 = OpLoad %float %4258
+2497:        %2264 = OpFUnordNotEqual %bool %2263 %float_0
+2499:                OpBranchConditional %2264 %2267 %2265

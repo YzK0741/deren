@@ -21,6 +21,12 @@ NVIDIA's Bouquet of Flowers is the acceptance asset: 562,974 particles, SH degre
 
 The camera is fitted to the cloud's conservative bounds. `--capture-camera` overrides the fit for reproducible images. The bouquet viewer aligns its local -Y flower face toward the configured sky sun while rotating about the bounds center. This is a placement convention for the bouquet, not automatic front-face detection for arbitrary assets. SH appearance includes captured lighting; changing the sky sun does not physically relight the cloud.
 
+Scripted `--capture-frames` runs render directly into ordinary images without creating a window,
+surface or swapchain. `[render] offscreen = true` selects that startup mode explicitly. Windowed
+presentation overlap is controlled by `[render] async_present` in `config.toml` (default false).
+The resize regression helper explicitly requests `--capture-windowed` because it exercises real
+window restoration. See [the dynamic API](dynamic_runtime.md) for the null-window contract.
+
 ## Select and diagnose a path
 
 | Environment variable | Purpose |

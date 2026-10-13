@@ -31,6 +31,7 @@ module;
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <span>
@@ -1040,6 +1041,20 @@ namespace deren::vulkan {
         };
         bool gpu_sorting_available = false;
         frame_gpu_sorting sorting_view;
+        struct frame_async_presentation final : deren::promise::rhi::async_presentation {
+            frame_async_presentation() noexcept
+                : deren::promise::rhi::async_presentation("deren_async_presentation_vulkan") {
+            }
+            core* owner = nullptr;
+            std::shared_future<deren::promise::rhi::error> begin() override;
+        };
+        frame_async_presentation async_presentation_view;
+        std::unique_ptr<deren::utility::thread_pool> present_worker;
+        std::shared_future<deren::promise::rhi::error> present_pending;
+        bool async_present_queued = false;
+        // Acquired before the worker enters presentation, published only by the next frame open.
+        mutable uint32_t prefetched_slot = UINT32_MAX;
+        uint32_t prefetched_image = 0;
         buffer_address_view address_view;
         /// the tier-2 host-copy object `query_extension(host_image_copy)` answers with (③-D/E step 2) -
         /// the first thing that serves that ability, which the contract had announced from the start
@@ -1881,7 +1896,6 @@ namespace deren::vulkan {
         //      PUBLIC is the state they produce (the device, the queues, the samplers, the image views and the
         //      layouts) plus the facade operations (wait_idle, set_window_title).
         void init_instance() noexcept;
-        void init_window(int32_t width, int32_t height, std::string_view window_name = "") noexcept;
         void init_surface() noexcept;
         void init_device_and_queue() noexcept;
         void init_swap_chain() noexcept;

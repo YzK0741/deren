@@ -27,6 +27,7 @@ module;
 #include <optional>
 #include <span>
 #include <string_view>
+#include <vector>
 
 export module deren.engine.pass.megalights_temporal;
 import deren.promise.rhi;
@@ -62,7 +63,7 @@ export namespace deren::engine::pass {
         struct push_constants {
             /// x = proj[2][2], y = proj[3][2], z = the frame-count cap, w = the relative depth tolerance
             glm::vec4 params = glm::vec4(0.0f, 0.0f, 12.0f, 0.03f);
-            /// xy = the half-resolution extent, zw = the full-resolution extent (the clamp's tap stride)
+            /// xy = half-resolution extent, z = spatial sigma, w = history-valid flag
             glm::vec4 extents = glm::vec4(0.0f);
         };
 
@@ -73,6 +74,8 @@ export namespace deren::engine::pass {
         [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
+        void describe_resources(render_resource::instances::resource_context const&, std::vector<render_resource::instances::request>&) const override;
+        void bind_resources(render_resource::instances::resource_snapshot const&) override;
         void on_swapchain_recreated(pass_host const& host) override;
         void record(resolved_io const& io) override;
 
@@ -115,6 +118,7 @@ export namespace deren::engine::pass {
         static constexpr float max_frames_limit = 64.0f;
 
     private:
+        render_resource::instances::resource_snapshot resource_view;
         static constexpr std::string_view shader_name = "megalights_temporal.comp.spv";
         static constexpr uint32_t group_size = 8; // `megalights_temporal.comp`'s local_size_x/y
         static constexpr uint32_t barrier_resolve = 0;

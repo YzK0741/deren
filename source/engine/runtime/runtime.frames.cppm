@@ -207,6 +207,9 @@ namespace deren::engine {
         // Configuration is now applied. Create shared scene resources before the first frame's
         // light updates and resource publication, including scenes with no mesh primitives.
         // Later frames reuse the same resources and bindings.
+        // Creation failure, including first-frame initialization, must precede acquisition.
+        if (this->prepare_managed_resources() != rhi::error::ok)
+            return frame_status::acquire_failed;
         this->prepare_scene_resources();
 
         // THE FRAME OPENS THROUGH THE CONTRACT (abi 13): the walker fuses today's prologue - wait this
@@ -259,6 +262,9 @@ namespace deren::engine {
         // the cursor the backend answered (every use below reads this one, not a second counter).
         uint32_t const frame_slot = open.frame.frame_index;
         this->current_image_index = open.frame.image_index;
+        // wait_and_acquire succeeded: only this completed slot's former generation can be released/reset.
+        this->submitted_resource_views[frame_slot] = {};
+        this->submitted_fallback_views[frame_slot] = {};
         // ONE LINE, ONCE, SAYING HOW THE MESHLET DISPATCHES REACHED THE GPU (docs/mesh_shaders.md step 3): a frame
         // has been recorded by now, so the two counters answer the question the frame itself cannot - "is the
         // indirect seam the one in use, or did something fall back to the direct call". That is the exact hole a
@@ -321,7 +327,7 @@ namespace deren::engine {
         // in-flight slot's set points at its own buffer, so this host write can never race a GPU
         // read - which is why set_shadow_enabled() / enable_shadows() only touch light_state and
         // never mapped memory directly.
-        if (this->light_mapped.size() > static_cast<std::size_t>(frame_slot) && this->light_mapped[frame_slot] != nullptr) {
+        if (this->light_buffers.size() > static_cast<std::size_t>(frame_slot)) {
             // the light_count lane's y carries the exposure scale (pbr.frag / skybox.frag apply it
             // in linear space right before the tonemapper)
             // shadows follow the camera: refit the light frustum to this frame's camera before
@@ -370,23 +376,24 @@ namespace deren::engine {
                                                             cluster_far,
                                                             static_cast<float>(this->render_extent().width),
                                                             static_cast<float>(this->render_extent().height));
-                // the pass only APPENDS, so the counts are cleared here - the buffer is host-coherent
-                // (no flush) and this slot was just paced, so its previous GPU reads are done
-                // Gated on the SAME feature flag the dispatch uses: without an active punctual light,
-                // or in the flat render mode, nothing will ever read the counts (49 KB per frame).
-                bool const cluster_counts_used = this->active_features().clustered;
-                if (cluster_counts_used && this->cluster_count_mapped.size() > static_cast<std::size_t>(frame_slot) && this->cluster_count_mapped[frame_slot] != nullptr) {
-                    std::memset(this->cluster_count_mapped[frame_slot], 0, static_cast<std::size_t>(deren::engine::max_cluster_count) * sizeof(uint32_t));
-                }
             }
-            std::memcpy(this->light_mapped[frame_slot], &this->light_state, sizeof(light_ubo));
+            if (this->upload_scene_constant(frame_slot, render_resource::resource_id::light_ubo, std::as_bytes(std::span(&this->light_state, 1))) != rhi::error::ok)
+                deren::utility::panic("managed light constants: upload to completed slot failed");
         }
+        // Reset managed scratch after the completed-slot wait and after updating this frame's light facts.
+        // No clustered dispatch means no count clear, matching the former feature-gated memset.
+        std::array<render_resource::resource_id, 1> const preserved_counts = {render_resource::resource_id::cluster_counts};
+        std::span<render_resource::resource_id const> const preserved = this->active_features().clustered ? std::span<render_resource::resource_id const>{} : std::span<render_resource::resource_id const>{preserved_counts};
+        if ((this->frame_chain != nullptr && this->frame_chain->begin_frame(frame_slot, preserved) != rhi::error::ok) ||
+            this->shared_resource_fallback.begin_frame(frame_slot, preserved) != rhi::error::ok)
+            deren::utility::panic("managed resources: acquired frame slot is outside the prepared resource set");
         // THE HEAD FRAME RIDES THE SAME SLOT RULE, and for the same reason: it can change every frame on a model
         // whose head turns, so the paced slot gets its own copy and a frame in flight keeps reading the one it
         // started with. `head_state` is only ever written by set_head_basis, which is an arbitrary-time call -
         // this is where that value reaches the GPU, exactly as the light's does.
-        if (this->head_mapped.size() > static_cast<std::size_t>(frame_slot) && this->head_mapped[frame_slot] != nullptr) {
-            std::memcpy(this->head_mapped[frame_slot], &this->head_state, sizeof(head_ubo));
+        if (this->head_buffers.size() > static_cast<std::size_t>(frame_slot)) {
+            if (this->upload_scene_constant(frame_slot, render_resource::resource_id::head_ubo, std::as_bytes(std::span(&this->head_state, 1))) != rhi::error::ok)
+                deren::utility::panic("managed head constants: upload to completed slot failed");
         }
         // Remember the paced slot: the caller's per-frame host writes (set_skin_matrices /
         // morph_scratch) land in this slot's buffers and are safe to make now that the slot's
@@ -426,25 +433,30 @@ namespace deren::engine {
     }
 
     void runtime::advance_motion_deformations() {
-        if (this->skin_previous_mapped.empty() || this->skin_mapped.empty()) {
+        if (this->skin_previous_mapped.empty() || this->skin_current.empty()) {
             return;
         }
         uint32_t const slot = this->frame_ring().position();
-        if (slot >= this->skin_previous_mapped.size() || slot >= this->skin_mapped.size()) {
+        if (slot >= this->skin_previous_mapped.size() || slot >= this->skin_current.size()) {
             return; // no buffer for this slot: nothing to publish, and the shader reads slot 0's set
         }
         auto* const published = static_cast<glm::mat4*>(this->skin_previous_mapped[slot]);
-        auto const* const current = static_cast<glm::mat4 const*>(this->skin_mapped[slot]);
-        if (published == nullptr || current == nullptr || this->skin_previous.empty()) {
+        auto const& current = this->skin_current[slot];
+        if (published == nullptr) {
             return;
         }
-        // Publish what the PREVIOUS frame drew with, THEN remember this frame's - the same read-then-refresh
-        // advance_motion_transforms() does per leaf, here over the whole joint block in one memcpy each
-        // because the controller has already uploaded this frame's block through set_skin_matrices() (see the
-        // declaration for why the animation controller is deliberately not the writer).
-        size_t const bytes = this->skin_previous.size() * sizeof(glm::mat4);
-        std::memcpy(published, this->skin_previous.data(), bytes);
-        std::memcpy(this->skin_previous.data(), current, bytes);
+        // History follows rendered frames, not the last use of this ring slot. Upload allocations
+        // are write-oriented: both history and the upload fingerprint use CPU sources, never mapped reads.
+        // Include a larger preceding block when this slot has a shorter one. Missing matrices are zero
+        // after the first frame, matching the initially zero-filled current buffers; first-frame history
+        // remains identity. A scene that never uploads skin matrices does no buffer copy at all.
+        size_t const count = std::max(this->skin_previous.size(), current.size());
+        this->skin_previous.resize(count, this->skin_history_started ? glm::mat4(0.0f) : glm::mat4(1.0f));
+        if (count != 0) {
+            std::memcpy(published, this->skin_previous.data(), count * sizeof(glm::mat4));
+        }
+        this->skin_previous.assign(current.begin(), current.end());
+        this->skin_history_started = true;
     }
 
     frame_status runtime::begin_recording() {
@@ -809,6 +821,12 @@ namespace deren::engine {
             return; // no frame is open (see begin_recording): there is nothing to record into
         }
         uint32_t const frame_slot = this->frame_ring().position();
+
+        // Debug and unlit frames can skip the entire deferred stage; they must not retain its history.
+        this->megalights_resolved = false;
+        if (!this->megalights_active()) {
+            this->discard_megalights_frame();
+        }
 
         // ---- Clustered light culling (M5): one compute dispatch before anything renders. It sorts
         //      the punctual lights into the frame's cluster grid, and the shading stages (forward
@@ -1674,10 +1692,13 @@ namespace deren::engine {
 
     bool runtime::set_megalights_enabled(bool const enabled) noexcept {
         // adds the punctual lights itself, so it is a frame fact this renderer publishes), the sample count and
-        // the bias are the PASS's and the demo sets them. There is no history to reset on the off -> on edge
-        // yet - the chain is one pass until the temporal resolve lands (see docs/megalights.md's staging).
+        // the bias are the PASS's and the demo sets them. A toggle invalidates every output's history.
         bool const was_on = this->megalights_on;
         this->megalights_on = enabled;
+        if (enabled != was_on) {
+            std::fill(this->megalights_history_valid.begin(), this->megalights_history_valid.end(), false);
+            this->megalights_resolved = false;
+        }
         if (enabled && !this->pass_ready("megalights_trace")) {
             this->warn_missing_feature("megalights", "stochastic punctual lighting has no effect: its compute pipeline was not created (see the startup log)");
         } else if (enabled && !this->clustered_lights) {
@@ -1970,7 +1991,7 @@ namespace deren::engine {
         };
         // One buffer: the RAII wrapper holds a handle and the descriptor needs the VkBuffer behind it, so the
         // lookup goes through vma exactly where the renderer's own binding writes do.
-        auto const buffer = [&table](render_resource::resource_id const id, uint32_t const instance, rhi::object_manager<rhi::buffer> const& owned) {
+        auto const buffer = [&table](render_resource::resource_id const id, uint32_t const instance, auto const& owned) {
             table.publish(id, 0, instance, pass::resolved_binding{.buffer_handle = &*owned});
         };
         // One image, in the contract lane ONLY (plan X5 B2): the raw `VkImage` the binding used to carry is
@@ -2115,6 +2136,8 @@ namespace deren::engine {
             if (slot < this->light_buffers.size()) {
                 buffer(render_resource::resource_id::light_ubo, slot, this->light_buffers[slot]);
             }
+            if (slot < this->head_buffers.size())
+                buffer(render_resource::resource_id::head_ubo, slot, this->head_buffers[slot]);
             if (slot < this->motion_buffers.size()) {
                 buffer(render_resource::resource_id::motion_vectors, slot, this->motion_buffers[slot]);
             }
@@ -2820,12 +2843,23 @@ namespace deren::engine {
         this->frame_wiring.prepare(this->frame_wiring.owner, this->make_frame_services(this->frame_command_buffer()), stage.name);
     }
 
+    void runtime::discard_megalights_frame() noexcept {
+        this->megalights_resolved = false;
+        if (this->current_image_index < this->megalights_history_valid.size())
+            this->megalights_history_valid[this->current_image_index] = false;
+    }
+
     void runtime::collect_stage(std::string_view const stage) {
-        if (this->frame_wiring.collect == nullptr) {
-            return;
-        }
         frame_results results = {};
-        this->frame_wiring.collect(this->frame_wiring.owner, stage, results);
+        if (this->frame_wiring.collect != nullptr)
+            this->frame_wiring.collect(this->frame_wiring.owner, stage, results);
+        if (stage == "megalights") {
+            // A recorded trace is insufficient: only a successful temporal copy provides history
+            // and a resolved punctual term for the lighting stage.
+            this->megalights_resolved = results.megalights_temporal_resolved;
+            if (this->current_image_index < this->megalights_history_valid.size())
+                this->megalights_history_valid[this->current_image_index] = results.megalights_temporal_resolved;
+        }
         if (results.gaussian_record_error != rhi::error::ok) {
             deren::utility::log("gaussian recording: FAIL error {}; this frame's splats were skipped", static_cast<std::uint32_t>(results.gaussian_record_error));
         }
@@ -2849,7 +2883,7 @@ namespace deren::engine {
     // `extent_of` callback below), so the bridge had no callers left - the rule is in ONE place, which is what the
     // function's own comment argued for while it was the second copy.
 
-    rhi::image_extent runtime::render_target_extent(rhi::object_manager<rhi::image> const& image) const noexcept {
+    rhi::image_extent runtime::render_target_extent(rhi::image const* image) const noexcept {
         // THE CREATED IMAGE IS THE ANSWER (③-D/E A1.7, see the declaration): no size arithmetic lives here,
         // because the arithmetic already happened ONCE - when `create_render_chain_targets()` created this
         // image at the frame's render extent or at a size derived from it. An empty manager answers the
@@ -2868,11 +2902,11 @@ namespace deren::engine {
             // THE HALF-RESOLUTION CHAIN ANSWERS FROM ITS OWN IMAGES (③-D/E A1.7): the three ml images are
             // created at the same extent, so the first one is the whole answer - and the formula that used to
             // be repeated here (and, before A1.5, in the backend's creation loop) is gone.
-            return this->render_target_extent(this->ml_images[0]);
+            return this->render_target_extent(this->ml_images[0].get());
         case pass::resource_id::ml_resolve:
-            return this->render_target_extent(this->ml_resolve_images[0]);
+            return this->render_target_extent(this->ml_resolve_images[0].get());
         case pass::resource_id::ml_history:
-            return this->render_target_extent(this->ml_history_images[0]);
+            return this->render_target_extent(this->ml_history_images[0].get());
         case pass::resource_id::bloom: {
             // A bloom level is HALF the previous one, created at `max(1, render >> (level + 1))` - and this
             // answers the level's OWN created image rather than computing that formula a second time. The
@@ -2880,7 +2914,7 @@ namespace deren::engine {
             // element check is what limits the level, so the element is in range in every path that reaches
             // here; clamping it keeps an out-of-range answer an extent rather than an out-of-range read.
             std::size_t const level = std::min<std::size_t>(element, this->bloom_images.size() - 1u);
-            return this->render_target_extent(this->bloom_images[level][0]);
+            return this->render_target_extent(this->bloom_images[level][0].get());
         }
         case pass::resource_id::swapchain_image:
             // THE ONE RESOURCE WHOSE EXTENT IS NOT THE FRAME'S. Every other entry here answers a size that is
@@ -3230,17 +3264,13 @@ namespace deren::engine {
             // pass was gated off keeps the raster punctual loop instead of losing its lights. That is the same
             // "one predicate, two readers" arrangement, with the difference that here the predicate is a
             // RECORDED FACT rather than a knob.
-            this->megalights_resolved = false;
             if (this->megalights_active()) {
                 pass::stage const megalights_stage = {.name = "megalights", .passes = this->megalights_pass, .marks = false};
                 this->prepare_stage(megalights_stage);
                 pass::run_report const megalights_report = pass::record_stage(megalights_stage, this->make_pass_host());
                 this->megalights_resolved = megalights_report.recorded > 0;
 
-                // ... and the stage's own answer for the NEXT frame (this image's history flag), which is what
-
-                // makes the accumulation grow: without this call the resolve would restart at one frame forever.
-
+                // The temporal pass reports whether it copied a new history for this output image.
                 this->collect_stage("megalights");
             }
             if (!this->megalights_resolved && static_cast<std::size_t>(this->current_image_index) < rhi::max_swapchain_images &&
@@ -3694,6 +3724,7 @@ namespace deren::engine {
         deren::engine::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::post};
         rhi::api_core& vk = this->vulkan_core;
         if (!this->frame_command_buffer()) {
+            this->discard_megalights_frame();
             return frame_status::end_recording_failed; // no frame is open: there is nothing to close
         }
 
@@ -3784,7 +3815,7 @@ namespace deren::engine {
         // OWN contract handle (`frame_image()`), which the backend's registry accepts by identity.
         (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->rhi_face().frame_image(),
                                                                        .from = post_wrote_swapchain ? rhi::image_use::color_attachment : rhi::image_use::undefined,
-                                                                       .to = rhi::image_use::present,
+                                                                       .to = (this->create_options.native_window == nullptr) ? rhi::image_use::shader_read : rhi::image_use::present,
                                                                        .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
         // GPU timing: last mark of the frame. The interval it closes is everything after the FXAA
         // (or composite) pass - the screenshot read-back copy and the present barrier.
@@ -3793,6 +3824,7 @@ namespace deren::engine {
         // and the backend performs `vkEndCommandBuffer` - so no `VK_SUCCESS` stands between the frame's last
         // mark and the present transition any more.
         if (auto const frame_commands = this->frame_command_buffer(); !frame_commands || frame_commands->end_recording() != rhi::error::ok) {
+            this->discard_megalights_frame();
             return frame_status::end_recording_failed;
         }
         return frame_status::proceed;
@@ -3824,6 +3856,19 @@ namespace deren::engine {
         // RECORDED into is the one `begin_commands()` names (its raw handle came from that same buffer
         // through `native_frame_commands()` - see `frame_command_buffer`), so the verb submits exactly what
         // was recorded.
+        // Acquire, CPU preparation and recording overlap the preceding host presentation call.
+        // Collect its result before another queue submission; only the caller rebuilds resources.
+        rhi::error preceding_present = rhi::error::ok;
+        if (this->pending_present.valid()) {
+            auto const waiting = std::chrono::steady_clock::now();
+            preceding_present = this->pending_present.get();
+            this->pending_present = {};
+            this->cpu_timings.add(deren::engine::profiling::cpu_phase::present, std::chrono::steady_clock::now() - waiting);
+            if (preceding_present != rhi::error::ok && preceding_present != rhi::error::out_of_date) {
+                this->discard_megalights_frame();
+                return frame_status::present_failed;
+            }
+        }
         auto const submit_started = std::chrono::steady_clock::now(); // sub-phase marks: what of submit is the
         // queue submission (with its timeline signal) and what is the present call below
         rhi::command_buffer* const commands = this->rhi_face().begin_commands();
@@ -3833,6 +3878,7 @@ namespace deren::engine {
             // same answer `submit()` itself would give (`not_ready`), and it never appears as a
             // successful frame.
             deren::utility::log("runtime: submit called with no frame in flight");
+            this->discard_megalights_frame();
             return frame_status::submit_failed;
         }
         rhi::error const submitted = this->rhi_face().submit(*commands);
@@ -3840,8 +3886,12 @@ namespace deren::engine {
             // The contract's answer names WHAT failed (device_lost, out_of_*_memory, ...) - the
             // information the old `!= VK_SUCCESS` test threw away.
             deren::utility::log("runtime: frame submit was refused ({})", static_cast<std::uint32_t>(submitted));
+            this->discard_megalights_frame();
             return frame_status::submit_failed;
         }
+        if (this->frame_chain != nullptr)
+            this->submitted_resource_views[this->frame_ring().position()] = this->frame_chain->resources().snapshot();
+        this->submitted_fallback_views[this->frame_ring().position()] = this->shared_resource_fallback.resources().snapshot();
         this->cpu_timings.add(deren::engine::profiling::cpu_phase::submit_queue, std::chrono::steady_clock::now() - submit_started);
         auto const present_started = std::chrono::steady_clock::now();
         // THE PRESENT LADDER GOES THROUGH THE ERROR MECHANISM: `present()` answers the contract's
@@ -3849,7 +3899,21 @@ namespace deren::engine {
         // out_of_date HERE (the frame showed, but the surface is one resize from gone), the reading
         // the acquire site must NOT inherit. The engine reads the code; it never touches a VkResult
         // and never names the image: the backend presents the image its own acquire took.
-        rhi::error const presented = this->rhi_face().present();
+        rhi::error presented = preceding_present;
+        auto* const overlap = this->async_present_enabled
+                                  ? static_cast<rhi::async_presentation*>(this->rhi_face().query_extension(rhi::extension_kind::async_presentation))
+                                  : nullptr;
+        if (presented == rhi::error::ok && overlap != nullptr) {
+            if (!this->async_present_reported) {
+                deren::utility::log("async present: enabled; snapshot on caller, collect before next submit");
+                this->async_present_reported = true;
+            }
+            this->pending_present = overlap->begin();
+            if (!this->pending_present.valid())
+                return frame_status::present_failed;
+        } else if (presented == rhi::error::ok) {
+            presented = this->create_options.native_window == nullptr ? rhi::error::ok : this->rhi_face().present();
+        }
         this->cpu_timings.add(deren::engine::profiling::cpu_phase::present, std::chrono::steady_clock::now() - present_started);
         if (presented == rhi::error::out_of_date) {
             deren::utility::log("present out of date, recreating swapchain");

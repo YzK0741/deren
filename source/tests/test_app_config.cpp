@@ -13,10 +13,20 @@
 import deren.application_configuration;
 
 namespace {
+    template <typename Settings>
+    void check_presentation_settings(Settings const& settings, bool expected) {
+        if constexpr (requires { settings.render.async_present; settings.render.offscreen; }) {
+            CHECK(settings.render.async_present == expected);
+            CHECK(settings.render.offscreen == expected);
+        } else {
+            CHECK_MSG(false, "render.async_present and render.offscreen must be configuration settings");
+        }
+    }
     void test_load_settings_applies_toml() {
         deren::app_config::app_settings const settings = deren::app_config::load_settings(VR_TEST_SOURCE_DIR "/source/tests/fixtures/config_full.toml");
         CHECK(settings.model == "Models/tri.gltf");
         CHECK(settings.render.vsync);
+        check_presentation_settings(settings, true);
         CHECK(!settings.render.shadow);
         CHECK(settings.render.shadow_cascades == 2);
         CHECK(settings.render.shadow_cascade_blend > 0.24f && settings.render.shadow_cascade_blend < 0.26f);
@@ -70,6 +80,7 @@ namespace {
 
     void test_load_settings_missing_file_keeps_defaults() {
         deren::app_config::app_settings const settings = deren::app_config::load_settings(VR_TEST_SOURCE_DIR "/source/tests/fixtures/does_not_exist.toml");
+        check_presentation_settings(settings, false);
         CHECK(settings.model.empty());
         CHECK(settings.render.shadow);
         CHECK(!settings.render.fxaa);

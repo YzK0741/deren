@@ -807,7 +807,7 @@ namespace deren::vulkan {
         // construction). Until this batch nobody served the ability and the bit was therefore not set -
         // and the engine's heap probes called the device entry point off `core` instead; that is the
         // consumer this bit was waiting for.
-        return (this->gpu_sorting_available ? rhi::to_bits(rhi::extension_kind::gpu_sorting) : 0u) | rhi::to_bits(rhi::extension_kind::vulkan_escape) | rhi::to_bits(rhi::extension_kind::device_address) |
+        return (this->create_options.native_window != nullptr ? rhi::to_bits(rhi::extension_kind::async_presentation) : 0u) | (this->gpu_sorting_available ? rhi::to_bits(rhi::extension_kind::gpu_sorting) : 0u) | rhi::to_bits(rhi::extension_kind::vulkan_escape) | rhi::to_bits(rhi::extension_kind::device_address) |
                (this->heap_view.ready() ? rhi::to_bits(rhi::extension_kind::descriptor_heap) : 0u) |
                (this->host_image_copy_available ? rhi::to_bits(rhi::extension_kind::host_image_copy) : 0u) |
                // AND THE DEVICE'S OWN FACTS, SERVABLE THE MOMENT THE DEVICE EXISTS (a device with no mesh shader
@@ -1078,6 +1078,8 @@ namespace deren::vulkan {
     }
 
     rhi::extension* core::query_extension(rhi::extension_kind const kind) noexcept {
+        if (kind == rhi::extension_kind::async_presentation)
+            return this->create_options.native_window != nullptr ? &this->async_presentation_view : nullptr;
         // The invariant is two-way and is checked in two places: at startup on the REAL backend
         // (core.constructor.cppm, gate G2) and on the probe backend in source/tests/test_dynamic_link.cpp
         // (G1). Every kind this backend announces answers with an object whose kind() is the kind that
@@ -2382,7 +2384,7 @@ namespace deren::vulkan {
             // whose extent is this slot's whole size. The wait is on the replacement only; the
             // steady-state call is the three comparisons above and adds nothing to the frame.
             if (this->readback_slot_buffer.valid()) {
-                vkDeviceWaitIdle(this->logical_device);
+                this->wait_idle();
             }
             this->readback_slot_buffer.reset();
             this->readback_slot_handle = VK_NULL_HANDLE;
@@ -4458,19 +4460,37 @@ namespace deren::vulkan {
     }
 
     VkResult core::acquire_next_image(uint32_t& image_index) {
+        if (this->create_options.native_window == nullptr) {
+            image_index = static_cast<uint32_t>(current_frame);
+            acquired_image_index = image_index;
+            frame_in_flight = frame_acquired = true;
+            async_present_queued = false;
+            return VK_SUCCESS;
+        }
         // The frame slot in progress: submit() and wait_frame_slot() use `current_frame` for it, and
         // to_next_frame() advances it, so the acquire semaphore below is the one that slot's submission
         // will wait on (VUID-vkAcquireNextImageKHR-semaphore-01779 needs the slot to be idle - the
         // caller's wait_frame_slot() is what guarantees that).
         uint32_t const slot = static_cast<uint32_t>(this->current_frame);
-        VkResult const result = vkAcquireNextImageKHR(this->logical_device, this->swap_chain, UINT64_MAX,
-                                                      this->image_available_semaphores[slot], VK_NULL_HANDLE, &image_index);
+        VkResult result = VK_SUCCESS;
+        if (this->prefetched_slot == slot) {
+            image_index = this->prefetched_image;
+            this->prefetched_slot = UINT32_MAX;
+        } else {
+            // acquire requires exclusive host access to this swapchain. If prefetch could not
+            // acquire an image, wait for the worker before accessing the WSI object again.
+            if (this->present_pending.valid())
+                this->present_pending.wait();
+            result = vkAcquireNextImageKHR(this->logical_device, this->swap_chain, UINT64_MAX,
+                                           this->image_available_semaphores[slot], VK_NULL_HANDLE, &image_index);
+        }
         if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR) {
             // THE FRAME IN FLIGHT IS NOW THIS IMAGE, and that is all `frame_in_flight` means: from here
             // until submit() hands the frame over, `begin_commands()` and `frame_image()` answer for it.
             // Both spellings go through this one primitive - the contract's frame_begin() and the
             // runtime's own pacing path - so neither can be "in flight" without the other knowing.
             this->acquired_image_index = image_index;
+            this->async_present_queued = false;
             this->frame_in_flight = true;
             // and this is what makes `frame_image()` answer at all: before the first successful acquire
             // there is no last-acquired image, only a default index that happens to name one.
@@ -4492,6 +4512,8 @@ namespace deren::vulkan {
     }
 
     rhi::error core::present() {
+        if (this->create_options.native_window == nullptr)
+            return rhi::error::unsupported;
         // The contract's present() has no argument: it presents the image its own acquire took, and
         // the PRESENT call site's translation answers (out_of_date => the caller rebuilds; a failed
         // presentation never reports silence - the abi 14 note on the verb).
@@ -4570,6 +4592,7 @@ namespace deren::vulkan {
                 if (!secondary->executable || (!secondary->simultaneous_use && secondary->pending.load(std::memory_order_acquire)))
                     return rhi::error::not_ready;
             pending_submissions.reserve(pending_submissions.size() + 1);
+            std::lock_guard queue_lock(this->vma.queue_access());
             auto const submitted = vkQueueSubmit(graphics_queue_handle, 1, &one_shot, submission->fence);
             if (submitted == VK_SUCCESS) {
                 owned.pending.fetch_add(1, std::memory_order_release);

@@ -1,0 +1,11 @@
+{
+  "channel_rmse_255": [
+    0.002946278254943948,
+    0.009199750902424841,
+    0.0081356767457361
+  ],
+  "maximum_channel_difference": 5.0,
+  "differing_pixels": 44,
+  "hdr_rmse": 2.5238316397326248e-05,
+  "hdr_maximum_rgb_difference": 0.021728515625
+}
