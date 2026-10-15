@@ -1,0 +1,14 @@
+Test project C:/Users/23530/Desktop/yzk/deren/build-release-dyn-clang64
+    Start 6: test_stacktrace
+1/1 Test #6: test_stacktrace ..................***Failed    1.01 sec
+FAIL C:/Users/23530/Desktop/yzk/deren/source/tests/test_stacktrace.cpp:140: read_log("deren-crash.log").find("preopened fallback output") != vessel::string::npos
+[test_stacktrace] 37 checks, 1 failed -> FAIL
+
+
+0% tests passed, 1 tests failed out of 1
+
+Total Test time (real) =   1.02 sec
+
+The following tests FAILED:
+	  6 - test_stacktrace (Failed)
+Errors while running CTest

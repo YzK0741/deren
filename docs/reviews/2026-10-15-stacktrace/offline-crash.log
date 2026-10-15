@@ -1,0 +1,13 @@
+deren crash code=0xc0000005 fault_pc=0x7ff6683c22c8
+deren raw stack v1 frames=5 truncated=0
+frame pc=0x7ff6683c22c8 base=0x7ff6683b0000 rva=0x122c8 module=C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\test_stacktrace.exe
+trace_fault
+C:/Users/23530/Desktop/yzk/deren/source/tests/stacktrace_fault.cpp:18:11
+frame pc=0x7ff6683b217a base=0x7ff6683b0000 rva=0x217a module=C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\test_stacktrace.exe
+main
+C:/Users/23530/Desktop/yzk/deren/source/tests/test_stacktrace.cpp:62:17
+frame pc=0x7ff6683b10fb base=0x7ff6683b0000 rva=0x10fb module=C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\test_stacktrace.exe
+__tmainCRTStartup
+??:0:0
+frame pc=0x7ffffe89cd87 base=0x7ffffe870000 rva=0x2cd87 module=C:\Windows\System32\KERNEL32.DLL
+frame pc=0x7fffff54caec base=0x7fffff4a0000 rva=0xacaec module=C:\Windows\SYSTEM32\ntdll.dll

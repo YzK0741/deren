@@ -1,0 +1,9 @@
+Test project C:/Users/23530/Desktop/yzk/deren/build-vessel-asan-clang64
+    Start 6: test_vessel
+1/2 Test #6: test_vessel ......................   Passed    0.34 sec
+    Start 7: test_stacktrace
+2/2 Test #7: test_stacktrace ..................   Passed    1.00 sec
+
+100% tests passed out of 2
+
+Total Test time (real) =   1.35 sec

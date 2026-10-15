@@ -1,0 +1,7 @@
+[0/2] Re-checking globbed directories...
+[1/45] Formatting sources with clang-format
+[2/45] Scanning C:/Users/23530/Desktop/yzk/deren/source/utility/shared/stacktrace_native.cpp for CXX dependencies
+[3/45] Generating CXX dyndep file CMakeFiles/shared_utility.dir/CXX.dd
+[4/12] Generating CXX dyndep file CMakeFiles/test_vessel.dir/CXX.dd
+[5/10] Building CXX object CMakeFiles/shared_utility.dir/source/utility/shared/stacktrace_native.cpp.obj
+[6/10] Linking CXX shared library shared_utility.dll

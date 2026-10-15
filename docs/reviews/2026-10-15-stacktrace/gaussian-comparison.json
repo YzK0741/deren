@@ -1,0 +1,12 @@
+[
+  {
+    "mode": "cpu",
+    "different_pixels": 0,
+    "hdr_bytes_identical": true
+  },
+  {
+    "mode": "gpu",
+    "different_pixels": 0,
+    "hdr_bytes_identical": true
+  }
+]

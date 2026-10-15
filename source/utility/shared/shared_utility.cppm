@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.utility.shared
-// module version: 0.1.0a
+// module version: 1.2.0
 //
 // THE PROCESS-WIDE HALF OF utility (batch ④, the dynamic-backend flip's prerequisite).
 //
@@ -16,7 +16,7 @@
 //   - the log sink: the queue, its worker thread, and the file handle;
 //   - the startup rotation of the previous session's debug.log (and its once-per-process claim);
 //   - panic convergence: one `panic` for the whole process, flushing that one sink;
-//   - the allocator hook: `:better_pmr` sets the process's default `std::pmr` resource.
+//   - the mimalloc allocation/free service and allocation-failure convergence.
 // What stays in `deren.utility` (static_utility) is everything per-object or pure, plus the loader:
 // data_block / BVH / frame_clock / frame_stats / thread_pool / the platform_* TUs /
 // deren.utility.dynamic_link / every template. `dynamic_link` in particular stays on the
@@ -24,7 +24,7 @@
 // would build a bootstrap chain ("load shared_utility before you can load the backend").
 //
 // `deren.utility` RE-EXPORTS this module, so an existing `import deren.utility;` still names the
-// sink, `panic`, `log`, `error` and `init_pmr` - the call sites do not know which half a name
+// sink, `panic`, `log`, `error` and memory service - the call sites do not know which half a name
 // came from, and this batch changes no call site.
 //
 // THE EXPORT SURFACE IS C++ AND MAY CARRY STL (batch ④'s relaxed rules, set by the user after the first
@@ -106,7 +106,7 @@ namespace deren::utility {
                                    std::source_location source_location = std::source_location::current()) noexcept;
 } // namespace deren::utility
 
-// ---- the allocator hook, IN THIS INTERFACE (and not a partition - that is measured, not taste) ----
+// ---- Memory service and STL aliases in the primary interface. ----
 //
 // IT WAS A PARTITION (`deren.utility.shared:better_pmr`) AND IT CANNOT BE ONE. Measured: a partition
 // of a module that is ITSELF re-exported (`deren.utility` re-exports `deren.utility.shared`, which
@@ -114,43 +114,161 @@ namespace deren::utility {
 // signal` in a mere CONSUMER's translation unit - utility.cpp, while instantiating std::format in
 // write_png, with `-fsyntax-only` (so it is Sema, not codegen). Replacing the partition re-export
 // with a plain `import` makes it compile; the same file compiled against master's BMI compiles.
-// The state is process-wide either way, so the declarations live here and the definitions live in
-// better_pmr.cpp of this same target: no partition, no nesting, nothing lost.
-class mimalloc_memory_resource : public std::pmr::memory_resource // NOLINT
-{
-    void* do_allocate(std::size_t size, std::size_t alignment) override;
-    void do_deallocate(void* p, std::size_t size, std::size_t alignment) override;
-    [[nodiscard]] bool do_is_equal(memory_resource const& other) const noexcept override;
-};
+// One DLL owns mimalloc. Templates never link their own allocator instance, and
+// no default-resource registration or application startup hook is required.
+export namespace deren::utility::memory {
+    enum class allocation_error { invalid_alignment,
+                                  size_overflow,
+                                  out_of_memory };
 
-namespace deren::utility {
-    /**
-     * @defgroup better_pmr PMR Allocation Routing
-     * @ingroup utility
-     * @brief process-wide routing of std::pmr allocations through the vendored mimalloc
-     */
-    export class pmr_manager // NOLINT
-    {
-        std::unique_ptr<mimalloc_memory_resource> memory_resource = nullptr;
-        pmr_manager();
+    [[nodiscard]] std::expected<void*, allocation_error> try_allocate(
+        std::size_t bytes, std::size_t alignment = alignof(std::max_align_t)) noexcept;
+    [[nodiscard]] void* allocate(std::size_t bytes, std::size_t alignment = alignof(std::max_align_t)) noexcept;
+    void deallocate(void* pointer) noexcept;
+    [[noreturn]] void allocation_failure(allocation_error error, std::size_t bytes, std::size_t alignment) noexcept;
 
+    /** STL adapter: success returns storage; failure terminates without allocating a diagnostic. */
+    template <typename T>
+    class allocator {
     public:
-        pmr_manager(pmr_manager const&) = delete;
-        pmr_manager& operator=(pmr_manager const&) = delete;
-        ~pmr_manager();
-        friend pmr_manager& init_pmr();
-    };
+        using value_type = T;
+        using is_always_equal = std::true_type;
+        using propagate_on_container_move_assignment = std::true_type;
+        using propagate_on_container_swap = std::true_type;
 
-    /**
-     * @ingroup better_pmr
-     * @brief call this function to replace default memory resource to mimalloc memory resource
-     * @warning DO NOT use any pmr container (including static) before init_pmr(), it will lead memory fault
-     * @note in use: main.cpp and source/engine/runtime/runtime.cpp keep a file-scope
-     *     @c [[maybe_unused]] static auto& pmr = deren::utility::init_pmr(); whose dynamic
-     *     initialization runs before main(), so the runtime's per-frame std::pmr vectors
-     *     (cull_visible / frame_leaves / frame_visible) already allocate via mimalloc
-     * @note it sets the PROCESS's default resource, which is why it lives in this module rather than
-     *     in deren.utility (static_utility) - the same reason the log sink does
-     */
-    export pmr_manager& init_pmr();
+        allocator() noexcept = default;
+        template <typename U>
+        allocator(allocator<U> const&) noexcept {
+        }
+
+        [[nodiscard]] static constexpr std::size_t max_size() noexcept {
+            return static_cast<std::size_t>(std::numeric_limits<std::ptrdiff_t>::max()) / sizeof(T);
+        }
+        [[nodiscard]] T* allocate(std::size_t count) noexcept {
+            if (count > max_size()) {
+                constexpr auto limit = std::numeric_limits<std::size_t>::max();
+                auto const bytes = count > limit / sizeof(T) ? limit : count * sizeof(T);
+                allocation_failure(allocation_error::size_overflow, bytes, alignof(T));
+            }
+            return static_cast<T*>(memory::allocate(count * sizeof(T), alignof(T)));
+        }
+        void deallocate(T* pointer, [[maybe_unused]] std::size_t count) noexcept {
+            memory::deallocate(pointer);
+        }
+        template <typename U>
+        bool operator==([[maybe_unused]] allocator<U> const& other) const noexcept {
+            return true;
+        }
+    };
+} // namespace deren::utility::memory
+
+/** STL semantics with an explicit project allocation policy; methods are not universally noexcept. */
+export namespace deren::utility::vessel {
+    template <typename T, std::size_t N>
+    using array = std::array<T, N>;
+    template <typename T>
+    using vector = std::vector<T, memory::allocator<T>>;
+    template <typename T>
+    using deque = std::deque<T, memory::allocator<T>>;
+    template <typename T>
+    using list = std::list<T, memory::allocator<T>>;
+    template <typename Char, typename Traits = std::char_traits<Char>>
+    using basic_string = std::basic_string<Char, Traits, memory::allocator<Char>>;
+    using string = basic_string<char>;
+    using wstring = basic_string<wchar_t>;
+    using u8string = basic_string<char8_t>;
+    using u16string = basic_string<char16_t>;
+    using u32string = basic_string<char32_t>;
+    using istringstream = std::basic_istringstream<char, std::char_traits<char>, memory::allocator<char>>;
+    using ostringstream = std::basic_ostringstream<char, std::char_traits<char>, memory::allocator<char>>;
+    using stringstream = std::basic_stringstream<char, std::char_traits<char>, memory::allocator<char>>;
+
+    // Build the result directly in vessel storage instead of formatting a default-allocator string first.
+    template <typename... Args>
+    [[nodiscard]] string format(std::format_string<Args...> pattern, Args&&... args) {
+        string result;
+        std::format_to(std::back_inserter(result), pattern, std::forward<Args>(args)...);
+        return result;
+    }
+    template <typename Integer>
+        requires std::is_integral_v<Integer>
+    [[nodiscard]] string to_string(Integer value) {
+        if constexpr (std::is_same_v<Integer, bool>) {
+            return value ? "1" : "0";
+        } else {
+            char buffer[std::numeric_limits<Integer>::digits10 + 3];
+            auto const converted = std::to_chars(buffer, buffer + sizeof(buffer), value);
+            if (converted.ec != std::errc{})
+                memory::allocation_failure(memory::allocation_error::size_overflow, sizeof(buffer), alignof(char));
+            return string(buffer, converted.ptr);
+        }
+    }
+    template <typename K, typename V, typename Compare = std::less<K>>
+    using map = std::map<K, V, Compare, memory::allocator<std::pair<K const, V>>>;
+    template <typename K, typename V, typename Compare = std::less<K>>
+    using multimap = std::multimap<K, V, Compare, memory::allocator<std::pair<K const, V>>>;
+    template <typename K, typename Compare = std::less<K>>
+    using set = std::set<K, Compare, memory::allocator<K>>;
+    template <typename K, typename Compare = std::less<K>>
+    using multiset = std::multiset<K, Compare, memory::allocator<K>>;
+    template <typename K, typename V, typename Hash = std::hash<K>, typename Equal = std::equal_to<K>>
+    using unordered_map = std::unordered_map<K, V, Hash, Equal, memory::allocator<std::pair<K const, V>>>;
+    template <typename K, typename V, typename Hash = std::hash<K>, typename Equal = std::equal_to<K>>
+    using unordered_multimap = std::unordered_multimap<K, V, Hash, Equal, memory::allocator<std::pair<K const, V>>>;
+    template <typename K, typename Hash = std::hash<K>, typename Equal = std::equal_to<K>>
+    using unordered_set = std::unordered_set<K, Hash, Equal, memory::allocator<K>>;
+    template <typename K, typename Hash = std::hash<K>, typename Equal = std::equal_to<K>>
+    using unordered_multiset = std::unordered_multiset<K, Hash, Equal, memory::allocator<K>>;
+    template <typename T, typename Container = deque<T>>
+    using queue = std::queue<T, Container>;
+    template <typename T, typename Container = deque<T>>
+    using stack = std::stack<T, Container>;
+    template <typename T, typename Container = vector<T>, typename Compare = std::less<T>>
+    using priority_queue = std::priority_queue<T, Container, Compare>;
+} // namespace deren::utility::vessel
+
+export namespace deren::utility::diagnostics {
+    inline constexpr std::uint32_t max_stack_depth = 64;
+    struct stack_trace {
+        vessel::array<std::uintptr_t, max_stack_depth> addresses{};
+        std::uint32_t count = 0;
+        bool truncated = false;
+        // The leading addresses that are EXACT PCs rather than return addresses: a fault PC
+        // taken from an exception context (the crash handler's first frame is the exception
+        // address itself), or the matching raw record of a crash log. symbolize() decodes
+        // these unchanged and every later frame at pc - 1; capture_stack() returns return
+        // addresses only, so it leaves this at zero.
+        std::uint32_t exact_address_count = 0;
+    };
+    // skip=0 starts at the caller; excessive skip returns an empty trace.
+    [[nodiscard]] stack_trace capture_stack(std::uint32_t skip = 0, std::uint32_t depth = max_stack_depth) noexcept;
+    void write_stack(stack_trace const& trace) noexcept;
+    // Call at each external worker entry; the reserved overflow stack is per-thread.
+    [[nodiscard]] bool prepare_crash_thread() noexcept;
+    [[nodiscard]] bool install_crash_handler() noexcept;
+    enum class symbolizer_status { ok,
+                                   unavailable,
+                                   timeout,
+                                   output_limit,
+                                   failed };
+    struct symbolizer_options {
+        std::string_view executable{};                       // Empty uses CMake's configured absolute tool path; "off" disables it.
+        std::uint32_t timeout_ms = 1000;                     // Total child-process budget, clamped to 10 seconds.
+        std::size_t max_symbolizer_output_bytes = 64 * 1024; // Clamped to 1 MiB in total.
+        bool inlines = true;
+    };
+    struct symbolized_trace {
+        vessel::string text;
+        symbolizer_status status = symbolizer_status::ok;
+    };
+    // Healthy-context API: owns vessel storage and can start a bounded child process.
+    // The first `exact_address_count` frames are symbolized at the recorded PC; the rest are
+    // return addresses and are decoded at pc - 1. Raw records are written either way.
+    [[nodiscard]] symbolized_trace symbolize(stack_trace const& trace, symbolizer_options const& options = {});
+} // namespace deren::utility::diagnostics
+
+export namespace deren::utility {
+    // Fatal/OOM entry: bounded raw text then abort. No formatting, location,
+    // stack capture, heap objects, log queue/flush, GPU wait or subprocess.
+    [[noreturn]] void fast_panic(std::string_view message = {}) noexcept;
 } // namespace deren::utility

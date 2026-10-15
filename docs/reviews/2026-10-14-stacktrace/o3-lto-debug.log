@@ -1,0 +1,4 @@
+st::capture frames=4 operator_new_calls=1
+CaptureStackBackTrace frames=5 operator_new_calls=0
+requested_depth=2
+#0  ntdll.dll+0xacaec

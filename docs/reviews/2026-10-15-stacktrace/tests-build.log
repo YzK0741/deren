@@ -1,0 +1,28 @@
+[0/2] Re-checking globbed directories...
+[1/2] Re-running CMake...
+-- slangc: C:/VulkanSDK/1.4.357.0/Bin/slangc.exe - scene/unlit.slang:main:fragment:unlit.frag.spv;toon/character_forward.slang:main:fragment:character_forward.frag.spv;toon/goo_toon.slang:goo_toon_frag_main:fragment:goo_toon.frag.spv;toon/toon_screen_rim.slang:main:fragment:toon_screen_rim.frag.spv;toon/goo_rim.slang:main:fragment:goo_rim.frag.spv;toon/overlay.slang:main:fragment:overlay.frag.spv;post/fxaa.slang:main:fragment:fxaa.frag.spv;post/upscale.slang:main:fragment:upscale.frag.spv;post/post.slang:main:vertex:post.vert.spv;gaussian/gaussian_raster.slang:vertex_main:vertex:gaussian_raster.vert.spv;gaussian/gaussian_raster.slang:fragment_main:fragment:gaussian_raster.frag.spv;gaussian/gaussian_prepare.slang:reset_main:compute:gaussian_reset.comp.spv;gaussian/gaussian_prepare.slang:prepare_main:compute:gaussian_prepare.comp.spv;gaussian/gaussian_prepare.slang:finalize_main:compute:gaussian_finalize.comp.spv;post/post.slang:frag_main:fragment:post.frag.spv;debug/gbuffer_debug.slang:main:fragment:gbuffer_debug.frag.spv;post/taa.slang:main:fragment:taa.frag.spv;scene/gbuffer.slang:main:fragment:gbuffer.frag.spv;scene/pbr.slang:main:fragment:pbr.frag.spv;scene/pbr.slang:mesh_main:mesh:pbr.mesh.spv;scene/pbr.slang:meshlet_main:mesh:pbr.meshlet.spv;scene/pbr.slang:outline_mesh_main:mesh:outline.mesh.spv;toon/outline.slang:frag_main:fragment:outline.frag.spv;lighting/shadow.slang:main:fragment:shadow.frag.spv;lighting/shadow.slang:mesh_main:mesh:shadow.mesh.spv;lighting/shadow.slang:meshlet_main:mesh:shadow.meshlet.spv;lighting/light_cluster.slang:main:compute:light_cluster.comp.spv;debug/heap_probe.slang:main:vertex:heap_probe.vert.spv;debug/heap_probe.slang:frag_main:fragment:heap_probe.frag.spv;debug/heap_probe.slang:mesh_main:mesh:heap_probe.mesh.spv;debug/heap_probe_comp.slang:comp_main:compute:heap_probe.comp.spv;debug/texture_group_probe.slang:main:compute:texture_group_probe.comp.spv;geometry/compute_skin.slang:comp_main:compute:compute_skin.comp.spv;geometry/mask_bake.slang:comp_main:compute:mask_bake.comp.spv;lighting/megalights_temporal.slang:comp_main:compute:megalights_temporal.comp.spv;lighting/megalights_trace.slang:comp_main:compute:megalights_trace.comp.spv;lighting/rt_shadow.slang:chit_main:closesthit:rt_shadow.rchit.spv;lighting/rt_shadow.slang:miss_main:miss:rt_shadow.rmiss.spv;lighting/rt_shadow.slang:rgen_main:raygeneration:rt_shadow.rgen.spv;lighting/rt_shadow.slang:ahit_main:anyhit:rt_shadow.rahit.spv;lighting/deferred.slang:main:fragment:deferred.frag.spv;debug/rt_traversal_probe.slang:rgen_main:raygeneration:rt_traversal_probe.rgen.spv;debug/rt_traversal_probe.slang:native_main:raygeneration:rt_traversal_probe.native.spv;debug/rt_traversal_probe.slang:chit_main:closesthit:rt_traversal_probe.rchit.spv;debug/rt_traversal_probe.slang:miss_main:miss:rt_traversal_probe.rmiss.spv
+-- slangc: C:/VulkanSDK/1.4.357.0/Bin/slangc.exe - every build compiles source/shaders/*.spv into C:/Users/23530/Desktop/yzk/deren/build-release-dyn-clang64/shaders
+-- Configuring done (0.6s)
+-- Generating done (0.4s)
+-- Build files have been written to: C:/Users/23530/Desktop/yzk/deren/build-release-dyn-clang64
+[0/4] Re-checking globbed directories...
+[1/53] Generating CXX dyndep file CMakeFiles/vstd_lib.dir/CXX.dd
+[2/51] Generating CXX dyndep file CMakeFiles/stacktrace_symbolizer_fixture.dir/CXX.dd
+[3/49] Formatting sources with clang-format
+[4/49] Scanning C:/Users/23530/Desktop/yzk/deren/source/utility/shared/allocation_failure.cpp for CXX dependencies
+[5/49] Scanning C:/Users/23530/Desktop/yzk/deren/source/tests/test_stacktrace.cpp for CXX dependencies
+[6/49] Scanning C:/Users/23530/Desktop/yzk/deren/source/utility/shared/stacktrace_native.cpp for CXX dependencies
+[7/49] Generating CXX dyndep file CMakeFiles/shared_utility.dir/CXX.dd
+[8/44] Scanning C:/Users/23530/Desktop/yzk/deren/source/tests/stacktrace_fault.cpp for CXX dependencies
+[9/44] Generating CXX dyndep file CMakeFiles/promise.dir/CXX.dd
+[10/37] Generating CXX dyndep file CMakeFiles/vessel_probe.dir/CXX.dd
+[11/36] Scanning C:/Users/23530/Desktop/yzk/deren/source/tests/vessel_child.cpp for CXX dependencies
+[12/36] Generating CXX dyndep file CMakeFiles/static_utility.dir/CXX.dd
+[13/24] Generating CXX dyndep file CMakeFiles/test_stacktrace.dir/CXX.dd
+[14/24] Building CXX object CMakeFiles/shared_utility.dir/source/utility/shared/allocation_failure.cpp.obj
+[15/24] Building CXX object CMakeFiles/shared_utility.dir/source/utility/shared/stacktrace_native.cpp.obj
+[16/24] Building CXX object CMakeFiles/test_stacktrace.dir/source/tests/stacktrace_fault.cpp.obj
+[17/24] Building CXX object CMakeFiles/test_stacktrace.dir/source/tests/vessel_child.cpp.obj
+[18/24] Linking CXX shared library shared_utility.dll
+[19/23] Building CXX object CMakeFiles/test_stacktrace.dir/source/tests/test_stacktrace.cpp.obj
+[20/23] Linking CXX executable test_stacktrace.exe

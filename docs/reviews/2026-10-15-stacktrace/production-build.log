@@ -1,0 +1,41 @@
+[0/2] Re-checking globbed directories...
+[1/41] Building C object CMakeFiles/mimalloc_vendored.dir/source/third_party/mimalloc/src/arena-meta.c.obj
+[2/41] Building C object CMakeFiles/mimalloc_vendored.dir/source/third_party/mimalloc/src/alloc-posix.c.obj
+[3/41] Building C object CMakeFiles/mimalloc_vendored.dir/source/third_party/mimalloc/src/alloc-aligned.c.obj
+[4/41] Building C object CMakeFiles/mimalloc_vendored.dir/source/third_party/mimalloc/src/alloc.c.obj
+[5/41] Scanning C:/Users/23530/Desktop/yzk/deren/source/vstd/vstd.cppm for CXX dependencies
+[6/41] Building C object CMakeFiles/mimalloc_vendored.dir/source/third_party/mimalloc/src/arena.c.obj
+[7/41] Building C object CMakeFiles/mimalloc_vendored.dir/source/third_party/mimalloc/src/bitmap.c.obj
+[8/41] Generating CXX dyndep file CMakeFiles/vstd_lib.dir/CXX.dd
+[9/41] Building C object CMakeFiles/mimalloc_vendored.dir/source/third_party/mimalloc/src/heap.c.obj
+[10/41] Building C object CMakeFiles/mimalloc_vendored.dir/source/third_party/mimalloc/src/init.c.obj
+[11/41] Building C object CMakeFiles/mimalloc_vendored.dir/source/third_party/mimalloc/src/libc.c.obj
+[12/41] Building C object CMakeFiles/mimalloc_vendored.dir/source/third_party/mimalloc/src/options.c.obj
+[13/41] Building C object CMakeFiles/mimalloc_vendored.dir/source/third_party/mimalloc/src/os.c.obj
+[14/41] Building C object CMakeFiles/mimalloc_vendored.dir/source/third_party/mimalloc/src/page-map.c.obj
+[15/41] Building C object CMakeFiles/mimalloc_vendored.dir/source/third_party/mimalloc/src/page.c.obj
+[16/41] Building C object CMakeFiles/mimalloc_vendored.dir/source/third_party/mimalloc/src/random.c.obj
+[17/41] Building C object CMakeFiles/mimalloc_vendored.dir/source/third_party/mimalloc/src/theap.c.obj
+[18/41] Building C object CMakeFiles/mimalloc_vendored.dir/source/third_party/mimalloc/src/threadlocal.c.obj
+[19/41] Building C object CMakeFiles/mimalloc_vendored.dir/source/third_party/mimalloc/src/prim/prim.c.obj
+[20/41] Building C object CMakeFiles/mimalloc_vendored.dir/source/third_party/mimalloc/src/stats.c.obj
+[21/41] Linking C static library libmimalloc_vendored.a
+[22/41] Building CXX object CMakeFiles/vstd_lib.dir/source/vstd/vstd.cppm.obj
+[23/41] Linking CXX static library libvstd_lib.a
+[24/41] Formatting sources with clang-format
+[25/41] Scanning C:/Users/23530/Desktop/yzk/deren/source/utility/shared/shared_utility.cpp for CXX dependencies
+[26/41] Scanning C:/Users/23530/Desktop/yzk/deren/source/utility/shared/stacktrace.cpp for CXX dependencies
+[27/41] Scanning C:/Users/23530/Desktop/yzk/deren/source/utility/shared/shared_utility.cppm for CXX dependencies
+[28/41] Scanning C:/Users/23530/Desktop/yzk/deren/source/utility/shared/memory.cpp for CXX dependencies
+[29/41] Scanning C:/Users/23530/Desktop/yzk/deren/source/utility/shared/log_rotation_claim.cpp for CXX dependencies
+[30/41] Scanning C:/Users/23530/Desktop/yzk/deren/source/utility/shared/allocation_failure.cpp for CXX dependencies
+[31/41] Scanning C:/Users/23530/Desktop/yzk/deren/source/utility/shared/stacktrace_native.cpp for CXX dependencies
+[32/41] Generating CXX dyndep file CMakeFiles/shared_utility.dir/CXX.dd
+[33/41] Building CXX object CMakeFiles/shared_utility.dir/source/utility/shared/shared_utility.cppm.obj
+[34/41] Building CXX object CMakeFiles/shared_utility.dir/source/utility/shared/memory.cpp.obj
+[35/41] Building CXX object CMakeFiles/shared_utility.dir/source/utility/shared/log_rotation_claim.cpp.obj
+[36/41] Building CXX object CMakeFiles/shared_utility.dir/source/utility/shared/allocation_failure.cpp.obj
+[37/41] Building CXX object CMakeFiles/shared_utility.dir/source/utility/shared/stacktrace_native.cpp.obj
+[38/41] Building CXX object CMakeFiles/shared_utility.dir/source/utility/shared/stacktrace.cpp.obj
+[39/41] Building CXX object CMakeFiles/shared_utility.dir/source/utility/shared/shared_utility.cpp.obj
+[40/41] Linking CXX shared library shared_utility.dll

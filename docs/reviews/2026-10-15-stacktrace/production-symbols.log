@@ -1,0 +1,4 @@
+1800138f0 T deren::utility::diagnostics::capture_stack@deren.utility.shared(unsigned int, unsigned int)
+180015310 T deren::utility::detail::trace_native::fast_panic(char const*, unsigned long long)
+180014370 T deren::utility::fast_panic@deren.utility.shared(std::__1::basic_string_view<char, std::__1::char_traits<char>>)
+180063008 d deren::utility::detail::trace_native::fast_panic(char const*, unsigned long long)::reporting
