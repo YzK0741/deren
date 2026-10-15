@@ -1,0 +1,15 @@
+PASS vessel scenario=deferred frames=40 clean sync validation
+PASS vessel scenario=shadow_single frames=40 clean sync validation
+PASS vessel scenario=transparent_blend frames=40 clean sync validation
+PASS vessel scenario=sponza frames=40 clean sync validation
+PASS vessel scenario=clustered_lights frames=40 clean sync validation
+PASS vessel scenario=clustered_lights_off frames=40 clean sync validation
+PASS vessel scenario=laevatain_goo_toon frames=40 clean sync validation
+PASS vessel scenario=taa_on frames=40 clean sync validation
+PASS vessel scenario=scaled_taa frames=40 clean sync validation
+PASS vessel scenario=taa_fxaa frames=40 clean sync validation
+PASS vessel scenario=rt_smoke frames=40 clean sync validation
+PASS vessel scenario=ml_lights frames=40 clean sync validation
+PASS vessel scenario=ml_scaled frames=40 clean sync validation
+PASS vessel scenario=deformation frames=40 clean sync validation
+PASS vessel scenario=deformation_rt frames=40 clean sync validation

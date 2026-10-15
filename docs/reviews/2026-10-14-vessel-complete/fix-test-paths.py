@@ -1,0 +1,3 @@
+from pathlib import Path
+p=Path('source/tests/test_render_resources.cpp');s=p.read_text().replace('[](deren::utility::vessel::string const& path)','[](std::filesystem::path const& path)').replace('CHECK_MSG(file.is_open(), path.c_str());','CHECK_MSG(file.is_open(), path.string().c_str());').replace('deren::utility::vessel::string const extension = entry.path().extension().string();','auto const extension = entry.path().extension().string();');p.write_text(s)
+p=Path('source/tests/test_docs.cpp');s=p.read_text().replace('on_disk.push_back(file.path().filename().string());','on_disk.emplace_back(file.path().filename().string());');p.write_text(s)

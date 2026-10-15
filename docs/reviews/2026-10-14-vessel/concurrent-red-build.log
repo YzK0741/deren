@@ -1,0 +1,6 @@
+[0/2] Re-checking globbed directories...
+[1/31] Formatting sources with clang-format
+[2/31] Scanning C:/Users/23530/Desktop/yzk/deren/source/utility/shared/allocation_failure.cpp for CXX dependencies
+[3/31] Generating CXX dyndep file CMakeFiles/shared_utility.dir/CXX.dd
+[4/8] Building CXX object CMakeFiles/shared_utility.dir/source/utility/shared/allocation_failure.cpp.obj
+[5/8] Linking CXX shared library shared_utility.dll

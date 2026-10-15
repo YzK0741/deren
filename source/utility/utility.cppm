@@ -1,6 +1,6 @@
 // ============================================================================
 // module: utility
-// module version: 0.9.0a  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Pure-CPU toolkit: data_block, BVH, thread_pool, frame_clock / frame_stats,
 // content hashing, the platform entry points, and the loader. Standalone - no Vulkan
@@ -13,17 +13,16 @@
 //   - THE SPLIT IS ABOUT STATE, NOT MEMORY. Its one reason is that the log sink must exist once per
 //     process: two copies mean two `ofstream`s on one debug.log and two startup rotations, and
 //     `rotate_previous_log()` truncates the file the other copy is still writing. STL and the heap
-//     are NOT the reason and are not restricted here - the user's batch-④ ruling allows std::string /
-//     std::vector / std::function / std::pmr and format templates across the seam, on the measured
+//     are NOT the reason and are not restricted here - the user's batch-④ ruling allows containers /
+//     std::function and format templates across the seam, on the measured
 //     basis that the executable imports libc++.dll and uses the UCRT heap (one runtime, one heap; see
 //     the C++-runtime check in source/scripts/check_backend_boundary.py).
 //   - `log` / `error` / `panic` stay HERE as inline templates: the formatting happens in the
 //     caller's instantiation and the result is handed over as a std::string_view to the shared sink,
 //     so no template needs exporting. `panic` itself, `log_text` / `error_text` / `wait_log_all` and
-//     `init_pmr` come from deren.utility.shared - one per process, which is the whole point.
-// 0.8.0a -> 0.9.0a because `:better_pmr` moved to the shared module (a partition name is interface:
-// `import deren.utility:better_pmr;` no longer names it) and the sink/panic moved out; every
-// consumer of `import deren.utility;` is unchanged, because the shared module is re-exported below.
+//     the memory allocation service come from deren.utility.shared - one per process.
+// 1.0.0: project containers use utility::vessel and PMR startup hooks are removed.
+// All vessel allocation/deallocation goes through the same shared_utility DLL.
 //
 // evolve: bump MAJOR on breaking interface changes, MINOR on additive features,
 //         PATCH on internal fixes - independently of the rest of the project.
@@ -81,7 +80,7 @@ namespace deren::utility {
      */
     export class enable_handle_distribute {
 
-        std::set<uint64_t> recycled_handles = {};
+        deren::utility::vessel::set<uint64_t> recycled_handles = {};
         std::mutex access_mutex = {};
         uint64_t handle_upper_bound = 1;
 
@@ -121,7 +120,7 @@ namespace deren::utility {
         using destruct_type = std::function<void()>;
 
     private:
-        std::stack<destruct_type> destruct_stack = {};
+        deren::utility::vessel::stack<destruct_type> destruct_stack = {};
         std::mutex access_mutex = {};
 
     public:
@@ -153,7 +152,7 @@ namespace deren::utility {
      */
     export template <typename... Args>
     [[noreturn]] void panic(std::source_location source_location, std::format_string<Args...> fmt, Args&&... args) noexcept {
-        panic(std::format(fmt, std::forward<Args>(args)...), source_location);
+        panic(deren::utility::vessel::format(fmt, std::forward<Args>(args)...), source_location);
     }
 
     /**
@@ -194,7 +193,7 @@ namespace deren::utility {
      * @brief the engine-side failure type: a value or a fully described failure
      * @note the CONTRACT does not grow an `expected` - its two failure styles (factories answering
      *       nullptr, `command_buffer::use` answering rhi::error) stay what they are; this alias is the
-     *       SAME BINARY's richer channel, where std::string and a location are free because nothing
+     *       SAME BINARY's richer channel, where deren::utility::vessel::string and a location are free because nothing
      *       crosses a boundary carrying it
      */
     export template <typename value_type>
@@ -248,8 +247,8 @@ namespace deren::utility {
             return std::unexpected(failure->failure); // the rewritten error replaces the raw one
         }
         auto const& reason = std::get<fatal>(decided).reason;
-        panic(std::format("enforce: fatal outcome {} - {}",
-                          std::to_underlying(reason.code), reason.message),
+        panic(deren::utility::vessel::format("enforce: fatal outcome {} - {}",
+                                             std::to_underlying(reason.code), reason.message),
               reason.where);
     }
 
@@ -309,7 +308,7 @@ namespace deren::utility {
      */
     export template <typename... Args>
     void print(std::FILE* stream, std::format_string<Args...> fmt, Args&&... args) {
-        detail::write_text(stream, std::format(fmt, std::forward<Args>(args)...));
+        detail::write_text(stream, deren::utility::vessel::format(fmt, std::forward<Args>(args)...));
     }
 
     /// @brief the same as `print` above, written to `standard_output()`
@@ -327,7 +326,7 @@ namespace deren::utility {
     /// @brief `print` with the newline `std::println` adds
     export template <typename... Args>
     void println(std::FILE* stream, std::format_string<Args...> fmt, Args&&... args) {
-        std::string text = std::format(fmt, std::forward<Args>(args)...);
+        deren::utility::vessel::string text = deren::utility::vessel::format(fmt, std::forward<Args>(args)...);
         text.push_back('\n');
         detail::write_text(stream, text);
     }
@@ -435,7 +434,7 @@ namespace deren::utility {
         concept byte_range = std::ranges::contiguous_range<plain<T>> && (sizeof(std::ranges::range_value_t<plain<T>>) == 1);
 
         // a byte range, or a contiguous range of trivially copyable elements written as one block
-        // (std::array<float, 3>, std::span<glm::vec3>, std::vector<uint32_t>, ...)
+        // (deren::utility::vessel::array<float, 3>, std::span<glm::vec3>, deren::utility::vessel::vector<uint32_t>, ...)
         template <typename T>
         concept blittable_range = std::ranges::contiguous_range<plain<T>> && std::is_trivially_copyable_v<std::ranges::range_value_t<plain<T>>>;
 
@@ -452,10 +451,10 @@ namespace deren::utility {
          *       reversed when the host and the requested order disagree
          */
         template <typename T, endian Order>
-        [[nodiscard]] std::array<uint8_t, sizeof(T)> scalar_bytes(T const value) noexcept {
-            std::array<uint8_t, sizeof(T)> bytes = {};
+        [[nodiscard]] deren::utility::vessel::array<uint8_t, sizeof(T)> scalar_bytes(T const value) noexcept {
+            deren::utility::vessel::array<uint8_t, sizeof(T)> bytes = {};
             if constexpr (std::is_floating_point_v<T>) {
-                bytes = std::bit_cast<std::array<uint8_t, sizeof(T)>>(value);
+                bytes = std::bit_cast<deren::utility::vessel::array<uint8_t, sizeof(T)>>(value);
                 constexpr bool host_is_big = std::endian::native == std::endian::big;
                 if constexpr ((Order == endian::big) != host_is_big) {
                     std::ranges::reverse(bytes);
@@ -500,20 +499,20 @@ namespace deren::utility {
      */
     export template <byte_sink S, typename T>
         requires binary_writable<T>
-    std::expected<void, std::string> write_single(S& sink, T const& value) {
+    std::expected<void, deren::utility::vessel::string> write_single(S& sink, T const& value) {
         // a sink that exposes its state (std::ostream and friends) is checked after every write, so
         // a full disk / a broken pipe is reported instead of silently dropping the tail. It takes the
         // sink as a parameter rather than capturing it: the check is compiled out for a sink without
         // operator bool, and a named capture that only the discarded branch uses is a warning.
-        auto const check = [](S& out) -> std::expected<void, std::string> {
+        auto const check = [](S& out) -> std::expected<void, deren::utility::vessel::string> {
             if constexpr (requires { static_cast<bool>(out); }) {
                 if (!out) {
-                    return std::unexpected(std::string("write_single: sink is in a failed state"));
+                    return std::unexpected(deren::utility::vessel::string("write_single: sink is in a failed state"));
                 }
             }
             return {};
         };
-        auto const append = [&](void const* data, std::size_t const size) -> std::expected<void, std::string> {
+        auto const append = [&](void const* data, std::size_t const size) -> std::expected<void, deren::utility::vessel::string> {
             if (size == 0) {
                 return {}; // never hand a null pointer to the sink
             }
@@ -521,7 +520,7 @@ namespace deren::utility {
             return check(sink);
         };
 
-        std::expected<void, std::string> result = {};
+        std::expected<void, deren::utility::vessel::string> result = {};
         if constexpr (detail::ordered_value<T>) {
             // one scalar, written in the order its tag asks for
             using scalar_type = std::remove_cvref_t<decltype(value.value)>;
@@ -554,8 +553,8 @@ namespace deren::utility {
      */
     export template <byte_sink S, typename... Args>
         requires(binary_writable<Args> && ...)
-    std::expected<void, std::string> write_binary(S& sink, Args&&... args) {
-        std::expected<void, std::string> result = {};
+    std::expected<void, deren::utility::vessel::string> write_binary(S& sink, Args&&... args) {
+        std::expected<void, deren::utility::vessel::string> result = {};
         auto const write_one = [&sink, &result](auto const& value) {
             if (result) { // comma fold below is left-to-right and stops writing once it failed
                 result = write_single(sink, value);
@@ -577,20 +576,20 @@ namespace deren::utility {
      */
     export template <typename... Args>
         requires(binary_writable<Args> && ...)
-    std::expected<void, std::string> write_binary_file(std::filesystem::path const& path, Args&&... args) {
+    std::expected<void, deren::utility::vessel::string> write_binary_file(std::filesystem::path const& path, Args&&... args) {
         // std::ios::binary matters on Windows: text mode would translate '\n' to "\r\n" and
         // corrupt every binary format
         std::ofstream file(path, std::ios::binary | std::ios::trunc);
         if (!file) {
-            return std::unexpected(std::format("write_binary_file: cannot open '{}'", path.string()));
+            return std::unexpected(deren::utility::vessel::format("write_binary_file: cannot open '{}'", path.string()));
         }
-        std::expected<void, std::string> const written = write_binary(file, std::forward<Args>(args)...);
+        std::expected<void, deren::utility::vessel::string> const written = write_binary(file, std::forward<Args>(args)...);
         if (!written) {
             return written;
         }
         file.flush(); // a failed flush loses the tail: report it rather than returning success
         if (!file) {
-            return std::unexpected(std::format("write_binary_file: write failed for '{}'", path.string()));
+            return std::unexpected(deren::utility::vessel::format("write_binary_file: write failed for '{}'", path.string()));
         }
         return {};
     }
@@ -606,7 +605,7 @@ namespace deren::utility {
      * @note no external dependency: a minimal PNG writer (CRC32 + zlib stream of uncompressed
      *       deflate blocks + adler32), so captures work without pulling in an image library
      */
-    export std::expected<void, std::string> write_png(std::filesystem::path const& path, uint32_t width, uint32_t height, std::span<uint8_t const> rgba);
+    export std::expected<void, deren::utility::vessel::string> write_png(std::filesystem::path const& path, uint32_t width, uint32_t height, std::span<uint8_t const> rgba);
 
     /**
      * @ingroup utility
@@ -634,7 +633,7 @@ namespace deren::utility {
      * @param path the file path
      * @return the file contents, or std::nullopt if the file cannot be read
      */
-    export std::optional<std::vector<uint8_t>> read_binary_to_vector(std::filesystem::path const& path);
+    export std::optional<deren::utility::vessel::vector<uint8_t>> read_binary_to_vector(std::filesystem::path const& path);
 
     /**
      * @ingroup utility
@@ -642,7 +641,7 @@ namespace deren::utility {
      * @param path the file path
      * @return the file contents, or std::nullopt if the file cannot be read
      */
-    export std::optional<std::string> read_binary_to_string(std::filesystem::path const& path);
+    export std::optional<deren::utility::vessel::string> read_binary_to_string(std::filesystem::path const& path);
 
     // class log_sink is NOT declared here any more: the sink (queue, worker thread, file handle) is
     // deren.utility.shared's, so that ONE of it exists per process - the whole point of the split.
@@ -657,20 +656,20 @@ namespace deren::utility {
      * @param args arguments to format
      * @note output goes to the terminal in Debug builds, to a debug.log file in Release builds
      * @note THE FORMATTING HAPPENS HERE, IN THE CALLER'S INSTANTIATION: the formatted line is a
-     *       temporary std::string on this side and crosses to the sink as a std::string_view, which
+     *       temporary deren::utility::vessel::string on this side and crosses to the sink as a std::string_view, which
      *       the sink copies. A design choice rather than a restriction (STL is allowed across the
      *       seam - see the header): it keeps the template in the caller's instantiation and needs no
      *       exported symbol.
      */
     export template <typename... Args>
     void log(std::format_string<Args...> fmt, Args&&... args) {
-        log_text(std::format(fmt, std::forward<Args>(args)...));
+        log_text(deren::utility::vessel::format(fmt, std::forward<Args>(args)...));
     }
 
     /**
      * @ingroup utility
      * @brief asynchronous log: writes a single pre-formatted string as-is
-     * @param message the message (string literal, const char*, std::string or std::string_view)
+     * @param message the message (string literal, const char*, deren::utility::vessel::string or std::string_view)
      * @note
      *      - for runtime strings, which cannot construct the consteval std::format_string
      *      - for format-string usage prefer the template overload
@@ -690,14 +689,14 @@ namespace deren::utility {
      */
     export template <typename... Args>
     void error(std::format_string<Args...> fmt, Args&&... args) {
-        error_text(std::format(fmt, std::forward<Args>(args)...));
+        error_text(deren::utility::vessel::format(fmt, std::forward<Args>(args)...));
     }
 
     /**
      * @ingroup utility
      * @brief error log: in Debug builds prints directly to stderr in red (not queued);
      *        in Release builds hands the message to the log singleton with an [ERROR] prefix
-     * @param message the message (string literal, const char*, std::string or std::string_view)
+     * @param message the message (string literal, const char*, deren::utility::vessel::string or std::string_view)
      */
     export void error(std::string_view message) {
         error_text(message);

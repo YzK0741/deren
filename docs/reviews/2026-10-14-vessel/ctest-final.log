@@ -1,0 +1,55 @@
+Test project C:/Users/23530/Desktop/yzk/deren/build-release-dyn-clang64
+      Start 19: test_docs
+      Start  4: test_vessel
+      Start  1: test_native_boundary_zero
+      Start 25: test_acceleration_structures
+      Start 24: test_runtime_injection
+      Start  5: test_math
+      Start 11: test_gaussian_gpu_frame
+      Start  7: test_gltf_loader
+      Start  8: test_gaussian_loader
+      Start 10: test_gaussian_raster
+      Start  9: test_gaussian_splatting
+      Start  3: test_utility
+      Start 14: test_render_resources
+      Start 18: test_goo_toon_math
+ 1/25 Test #25: test_acceleration_structures .....   Passed    0.10 sec
+      Start 20: test_dynamic_link
+ 2/25 Test #19: test_docs ........................   Passed    0.13 sec
+ 3/25 Test #11: test_gaussian_gpu_frame ..........   Passed    0.09 sec
+ 4/25 Test  #8: test_gaussian_loader .............   Passed    0.07 sec
+ 5/25 Test  #9: test_gaussian_splatting ..........   Passed    0.05 sec
+ 6/25 Test #10: test_gaussian_raster .............   Passed    0.06 sec
+      Start 13: test_shadow_fit
+      Start 16: test_shader_sources
+      Start 12: test_toon_material_sidecar
+      Start  2: test_app_config
+      Start  6: test_animation
+ 7/25 Test #20: test_dynamic_link ................   Passed    0.09 sec
+ 8/25 Test #13: test_shadow_fit ..................   Passed    0.07 sec
+      Start 15: test_pass
+      Start 17: test_meshlet
+ 9/25 Test #18: test_goo_toon_math ...............   Passed    0.12 sec
+10/25 Test #14: test_render_resources ............   Passed    0.13 sec
+      Start 21: test_vulkan_capabilities
+      Start 23: test_error_mapping
+11/25 Test  #3: test_utility .....................   Passed    0.16 sec
+      Start 22: test_texture_upload_layout
+12/25 Test  #6: test_animation ...................   Passed    0.07 sec
+13/25 Test #16: test_shader_sources ..............   Passed    0.11 sec
+14/25 Test  #2: test_app_config ..................   Passed    0.08 sec
+15/25 Test #17: test_meshlet .....................   Passed    0.04 sec
+16/25 Test #15: test_pass ........................   Passed    0.05 sec
+17/25 Test #12: test_toon_material_sidecar .......   Passed    0.11 sec
+18/25 Test #22: test_texture_upload_layout .......   Passed    0.03 sec
+19/25 Test #21: test_vulkan_capabilities .........   Passed    0.04 sec
+20/25 Test #23: test_error_mapping ...............   Passed    0.03 sec
+21/25 Test  #4: test_vessel ......................   Passed    0.43 sec
+22/25 Test  #7: test_gltf_loader .................   Passed    0.61 sec
+23/25 Test  #5: test_math ........................   Passed    1.25 sec
+24/25 Test #24: test_runtime_injection ...........   Passed    2.12 sec
+25/25 Test  #1: test_native_boundary_zero ........   Passed    3.98 sec
+
+100% tests passed out of 25
+
+Total Test time (real) =   4.00 sec

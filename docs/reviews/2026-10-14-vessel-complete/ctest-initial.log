@@ -1,0 +1,65 @@
+Test project C:/Users/23530/Desktop/yzk/deren/build-release-dyn-clang64
+      Start  2: test_backend_boundary
+      Start  1: test_native_boundary_zero
+      Start 25: test_runtime_injection
+      Start 26: test_acceleration_structures
+      Start  5: test_vessel
+      Start  6: test_math
+      Start  8: test_gltf_loader
+      Start 12: test_gaussian_gpu_frame
+      Start  9: test_gaussian_loader
+      Start 11: test_gaussian_raster
+      Start 10: test_gaussian_splatting
+      Start  4: test_utility
+      Start 15: test_render_resources
+      Start 19: test_goo_toon_math
+ 1/26 Test #26: test_acceleration_structures .....   Passed    2.25 sec
+ 2/26 Test  #5: test_vessel ......................   Passed    2.00 sec
+ 3/26 Test #12: test_gaussian_gpu_frame ..........   Passed    1.62 sec
+ 4/26 Test  #9: test_gaussian_loader .............   Passed    1.44 sec
+ 5/26 Test #11: test_gaussian_raster .............   Passed    1.23 sec
+ 6/26 Test  #8: test_gltf_loader .................   Passed    1.75 sec
+ 7/26 Test #10: test_gaussian_splatting ..........   Passed    0.99 sec
+ 8/26 Test  #6: test_math ........................   Passed    1.88 sec
+ 9/26 Test  #4: test_utility .....................   Passed    0.76 sec
+10/26 Test #15: test_render_resources ............   Passed    0.52 sec
+11/26 Test #25: test_runtime_injection ...........   Passed    2.53 sec
+      Start 21: test_dynamic_link
+      Start 17: test_shader_sources
+      Start 13: test_toon_material_sidecar
+      Start  3: test_app_config
+      Start 14: test_shadow_fit
+      Start  7: test_animation
+      Start 16: test_pass
+      Start 18: test_meshlet
+      Start 22: test_vulkan_capabilities
+      Start 24: test_error_mapping
+      Start 23: test_texture_upload_layout
+12/26 Test #19: test_goo_toon_math ...............***Failed    1.73 sec
+FAIL C:/Users/23530/Desktop/yzk/deren/source/tests/test_goo_toon_math.cpp:2614: primitive.find("glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),\n                                                                                            glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f)") != deren::utility::vessel::string::npos  (both rim lanes' neutrals in `toon_inputs`)
+14-A7: sidecar artefact absent at C:/Users/23530/Desktop/yzk/deren/build-release-clang64/chars/laevatain_goo.glb.toon.tsv - the hair carrier row was NOT checked
+[test_goo_toon_math] 886 checks, 1 failed -> FAIL
+
+13/26 Test #21: test_dynamic_link ................   Passed    1.44 sec
+14/26 Test #17: test_shader_sources ..............   Passed    1.30 sec
+15/26 Test #13: test_toon_material_sidecar .......   Passed    1.15 sec
+16/26 Test  #3: test_app_config ..................   Passed    1.01 sec
+17/26 Test #14: test_shadow_fit ..................   Passed    0.82 sec
+18/26 Test  #7: test_animation ...................   Passed    0.70 sec
+19/26 Test #16: test_pass ........................   Passed    0.57 sec
+20/26 Test #18: test_meshlet .....................   Passed    0.45 sec
+21/26 Test #22: test_vulkan_capabilities .........   Passed    0.35 sec
+22/26 Test #24: test_error_mapping ...............   Passed    0.23 sec
+23/26 Test  #1: test_native_boundary_zero ........   Passed    3.98 sec
+      Start 20: test_docs
+24/26 Test #23: test_texture_upload_layout .......   Passed    0.25 sec
+25/26 Test #20: test_docs ........................   Passed    0.15 sec
+26/26 Test  #2: test_backend_boundary ............   Passed   21.47 sec
+
+96% tests passed, 1 tests failed out of 26
+
+Total Test time (real) =  21.48 sec
+
+The following tests FAILED:
+	 19 - test_goo_toon_math (Failed)
+Errors while running CTest

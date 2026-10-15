@@ -3,6 +3,7 @@ module;
 #include <glm/glm.hpp>
 
 export module deren.utility:bvh;
+export import deren.utility.shared;
 export import deren.vstd;
 
 export import :data_block;
@@ -13,7 +14,7 @@ export import :data_block;
  * @ingroup utility
  * @brief BVH acceleration structure: AABB boxes, morton-code building, ray hit test and frustum culling
  * @note
- *      - leaf nodes live in an internal std::vector, internal nodes are heap allocated
+ *      - leaf nodes live in an internal deren::utility::vessel::vector, internal nodes are heap allocated
  *      - make() builds the tree, rebuild() rebuilds it after leaves change
  *      - consumed by the renderer: the runtime builds a per-frame bvh over scene leaf world
  *        AABBs and frustum_culls the main pass against the camera frustum
@@ -117,7 +118,7 @@ namespace deren::utility {
      * @param scale quantization scale per axis
      * @return morton_code on success, error message if midpoint is out of [0, 1]
      */
-    std::expected<morton_code, std::string> generate_morton_from_midpoint(glm::vec3 const& midpoint, float scale);
+    std::expected<morton_code, deren::utility::vessel::string> generate_morton_from_midpoint(glm::vec3 const& midpoint, float scale);
 
     /**
      * @ingroup bvh
@@ -216,7 +217,7 @@ namespace deren::utility {
         // add() + rebuild() is a documented usage, so leaf addresses must be stable. Deque
         // swaps also keep references valid, which make() relies on when it hands its built tree
         // to the result.
-        std::deque<bvh_node<T>> leaves;
+        deren::utility::vessel::deque<bvh_node<T>> leaves;
         std::unique_ptr<bvh_node<T>> root;
         // normalization for morton coding: world-space midpoints are mapped into [0,1]^3 by
         // (mid - origin) * scale so the morton quantizer works for AABBs anywhere in space
@@ -235,7 +236,7 @@ namespace deren::utility {
             return all_finite(normalized) ? glm::clamp(normalized, glm::vec3(0.0f), glm::vec3(1.0f)) : glm::vec3(0.0f);
         }
         /** @brief compute origin/scale from a set of leaf AABBs (scene extent) */
-        void set_extent(std::deque<bvh_node<T>> const& leaf_nodes) {
+        void set_extent(deren::utility::vessel::deque<bvh_node<T>> const& leaf_nodes) {
             glm::vec3 min = glm::vec3(std::numeric_limits<float>::infinity());
             glm::vec3 max = glm::vec3(-std::numeric_limits<float>::infinity());
             for (bvh_node<T> const& leaf : leaf_nodes) {
@@ -255,11 +256,11 @@ namespace deren::utility {
          * @param scale normalization scale (1 / scene extent)
          * @return the root node on success, error message on failure
          */
-        static std::expected<std::unique_ptr<bvh_node<T>>, std::string> build_from_leaves( // NOLINT(*-function-cognitive-complexity)
-            std::deque<bvh_node<T>>& leaves,
+        static std::expected<std::unique_ptr<bvh_node<T>>, deren::utility::vessel::string> build_from_leaves( // NOLINT(*-function-cognitive-complexity)
+            deren::utility::vessel::deque<bvh_node<T>>& leaves,
             glm::vec3 const& origin,
             glm::vec3 const& scale) {
-            using fail = std::unexpected<std::string>;
+            using fail = std::unexpected<deren::utility::vessel::string>;
             // Same sanitizing guard as bvh<T>::normalize(): glm::clamp propagates NaN, so without it
             // a NaN component would reach generate_morton_from_midpoint(), whose own finite check
             // would then turn a degenerate extent into a failed BUILD. Mapping it to the origin
@@ -270,7 +271,7 @@ namespace deren::utility {
             };
             auto leave_it = leaves.begin();
 
-            std::vector<std::vector<bvh_node<T>*>> layers(1);
+            deren::utility::vessel::vector<deren::utility::vessel::vector<bvh_node<T>*>> layers(1);
 
             while (leave_it != leaves.end()) {
                 if (leave_it + 1 == leaves.end()) {
@@ -362,14 +363,14 @@ namespace deren::utility {
          * @param datas AABBs to build the tree from
          * @return the built bvh on success, error message on failure
          */
-        static std::expected<bvh, std::string> make(std::vector<aabb_box<T>> const& datas) {
-            using fail = std::unexpected<std::string>;
+        static std::expected<bvh, deren::utility::vessel::string> make(std::span<aabb_box<T> const> datas) {
+            using fail = std::unexpected<deren::utility::vessel::string>;
 
             if (datas.empty()) {
                 return fail("data is empty");
             }
 
-            std::deque<bvh_node<T>> leaves;
+            deren::utility::vessel::deque<bvh_node<T>> leaves;
             for (auto const& data : datas) {
                 // make_leaf, not a local + push_back: bvh_node is non-copyable by design (its links
                 // are raw pointers into this deque, so a copy would alias a subtree)
@@ -437,7 +438,7 @@ namespace deren::utility {
          * @note the tree is not rebuilt automatically, call rebuild() afterwards (rebuild
          *       recomputes the scene extent, so out-of-range boxes added here are fine)
          */
-        std::expected<void, std::string> add(aabb_box<T> const& box) {
+        std::expected<void, deren::utility::vessel::string> add(aabb_box<T> const& box) {
             // constructed in place: bvh_node is deliberately non-copyable (see its deleted copy ops)
             this->leaves.push_back(bvh_node<T>::make_leaf(box));
             return {};
@@ -452,8 +453,8 @@ namespace deren::utility {
          * @param t_max maximum hit distance
          * @return the hit leaf nodes (unsorted; compute the exact entry distance per hit if needed)
          */
-        std::vector<bvh_node<T>*> get_hit(glm::vec3 const& start, glm::vec3 const& direction, float t_min = 0.01f, float t_max = std::numeric_limits<float>::infinity()) const {
-            std::vector<bvh_node<T>*> hits;
+        deren::utility::vessel::vector<bvh_node<T>*> get_hit(glm::vec3 const& start, glm::vec3 const& direction, float t_min = 0.01f, float t_max = std::numeric_limits<float>::infinity()) const {
+            deren::utility::vessel::vector<bvh_node<T>*> hits;
             bvh_node<T>* root = this->root.get();
             if (root == nullptr) {
                 return hits;
@@ -466,7 +467,7 @@ namespace deren::utility {
                 return hits;
             }
 
-            std::stack<bvh_node<T>*> nodes_to_access;
+            deren::utility::vessel::stack<bvh_node<T>*> nodes_to_access;
             if (root->left != nullptr) {
                 nodes_to_access.push(root->left);
             }
@@ -498,8 +499,8 @@ namespace deren::utility {
          * @param f the frustum
          * @return leaf node pointers inside the frustum
          */
-        std::vector<bvh_node<T>*> frustum_cull(frustum const& f) const {
-            std::vector<bvh_node<T>*> result;
+        deren::utility::vessel::vector<bvh_node<T>*> frustum_cull(frustum const& f) const {
+            deren::utility::vessel::vector<bvh_node<T>*> result;
 
             if (root == nullptr) {
                 return result;
@@ -509,7 +510,7 @@ namespace deren::utility {
                 return result;
             }
 
-            std::stack<bvh_node<T>*> nodes_to_process;
+            deren::utility::vessel::stack<bvh_node<T>*> nodes_to_process;
             nodes_to_process.push(this->root.get());
 
             while (!nodes_to_process.empty()) {
@@ -609,8 +610,8 @@ namespace {
 
 namespace deren::utility {
 
-    std::expected<morton_code, std::string> generate_morton_from_midpoint(glm::vec3 const& midpoint, float const scale) {
-        using fail = std::unexpected<std::string>;
+    std::expected<morton_code, deren::utility::vessel::string> generate_morton_from_midpoint(glm::vec3 const& midpoint, float const scale) {
+        using fail = std::unexpected<deren::utility::vessel::string>;
 
         // NaN must be rejected explicitly: every "<" and ">" below is FALSE for a NaN operand, so a
         // NaN midpoint passes a range check written the obvious way and then reaches

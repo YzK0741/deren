@@ -5,7 +5,7 @@ module;
 #include <cstring>
 // DO NOT DELETE THIS LINE (clang 22.1.8): the aligned `operator new` declarations must be VISIBLE in
 // this TU. Without <new> the frontend dies with `clang frontend command failed due to signal` while
-// instantiating the `std::format` / `std::string` constructors in write_png below - the same measured
+// instantiating the `std::format` / `deren::utility::vessel::string` constructors in write_png below - the same measured
 // crash class that toon_screen_rim.cpp and upscale.cpp carry this include for (see their comments).
 #include <new>
 // The three platform entry points are declared in a HEADER rather than here: a global module fragment
@@ -17,6 +17,7 @@ module;
 #include <xxhash.h>
 
 module deren.utility;
+import deren.utility.shared;
 
 std::optional<uint64_t> deren::utility::enable_handle_distribute::distribute() noexcept {
     std::lock_guard guard(this->access_mutex);
@@ -47,7 +48,7 @@ void deren::utility::enable_stack_destruct::register_cleanup(std::function<void(
 void deren::utility::enable_stack_destruct::do_cleanup() noexcept {
     // Swap the stack out under the lock, then run the destructors unlocked: a callback may
     // itself call register_cleanup() (it takes the same mutex) and would deadlock otherwise.
-    std::stack<destruct_type> pending;
+    deren::utility::vessel::stack<destruct_type> pending;
     {
         std::lock_guard guard(this->access_mutex);
         pending.swap(this->destruct_stack); // noexcept
@@ -82,7 +83,7 @@ double deren::utility::timestamp_delta_milliseconds(uint64_t const begin_ticks, 
     return static_cast<double>(delta) * static_cast<double>(nanoseconds_per_tick) * 1.0e-6;
 }
 
-std::optional<std::vector<uint8_t>> deren::utility::read_binary_to_vector(std::filesystem::path const& path) {
+std::optional<deren::utility::vessel::vector<uint8_t>> deren::utility::read_binary_to_vector(std::filesystem::path const& path) {
     std::error_code error;
     uintmax_t const file_size = std::filesystem::file_size(path, error);
     if (error) {
@@ -93,7 +94,7 @@ std::optional<std::vector<uint8_t>> deren::utility::read_binary_to_vector(std::f
         return std::nullopt;
     }
     // Preallocate based on file size to avoid repeated reallocation while reading
-    std::vector<uint8_t> data;
+    deren::utility::vessel::vector<uint8_t> data;
     data.reserve(static_cast<size_t>(file_size));
     data.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
     if (file.bad()) {
@@ -102,7 +103,7 @@ std::optional<std::vector<uint8_t>> deren::utility::read_binary_to_vector(std::f
     return data;
 }
 
-std::optional<std::string> deren::utility::read_binary_to_string(std::filesystem::path const& path) {
+std::optional<deren::utility::vessel::string> deren::utility::read_binary_to_string(std::filesystem::path const& path) {
     std::error_code error;
     uintmax_t const file_size = std::filesystem::file_size(path, error);
     if (error) {
@@ -113,7 +114,7 @@ std::optional<std::string> deren::utility::read_binary_to_string(std::filesystem
         return std::nullopt;
     }
     // Preallocate based on file size to avoid repeated reallocation while reading
-    std::string data;
+    deren::utility::vessel::string data;
     data.reserve(static_cast<size_t>(file_size));
     data.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
     if (file.bad()) {
@@ -156,12 +157,12 @@ std::filesystem::path deren::utility::executable_directory() {
     // The platform half fills a plain buffer (see platform_path.cpp, which keeps <windows.h> out of
     // the module's global module fragment). A path that does not fit, and a platform with no answer,
     // both come back empty - the caller then falls back to its own lookup rather than failing.
-    std::array<char, 32768> buffer = {};
+    deren::utility::vessel::array<char, 32768> buffer = {};
     int32_t const written = utility_platform_executable_directory(buffer.data(), buffer.size());
     if (written <= 0) {
         return {};
     }
-    return std::filesystem::path(std::string(buffer.data(), static_cast<std::size_t>(written)));
+    return std::filesystem::path(deren::utility::vessel::string(buffer.data(), static_cast<std::size_t>(written)));
 }
 
 std::optional<std::filesystem::path> deren::utility::ask_open_file(std::string_view const title, std::string_view const filter_patterns) {
@@ -169,12 +170,12 @@ std::optional<std::filesystem::path> deren::utility::ask_open_file(std::string_v
     // platform_dialog.cpp, which keeps <windows.h> out of the module's global module fragment). Both
     // failures are "no path" here, but they are not the same news: one is the user saying no and the other
     // is the build having no way to ask, so they are logged apart.
-    std::array<char, 32768> buffer = {};
-    std::string const title_z(title);
-    std::string const patterns_z(filter_patterns);
+    deren::utility::vessel::array<char, 32768> buffer = {};
+    deren::utility::vessel::string const title_z(title);
+    deren::utility::vessel::string const patterns_z(filter_patterns);
     int32_t const result = utility_platform_ask_open_file(title_z.c_str(), patterns_z.c_str(), buffer.data(), buffer.size());
     if (result > 0) {
-        return std::filesystem::path(std::string(buffer.data()));
+        return std::filesystem::path(deren::utility::vessel::string(buffer.data()));
     }
     if (result == 0) {
         deren::utility::log("file dialog: cancelled by the user");
@@ -193,8 +194,8 @@ deren::utility::xxh3_digest deren::utility::xxh3_128bits(std::span<uint8_t const
 }
 namespace {
     // CRC32 (PNG chunk checksums) - table generated at compile time
-    constexpr std::array<uint32_t, 256> make_crc_table() {
-        std::array<uint32_t, 256> table = {};
+    constexpr deren::utility::vessel::array<uint32_t, 256> make_crc_table() {
+        deren::utility::vessel::array<uint32_t, 256> table = {};
         for (uint32_t i = 0; i < 256; ++i) {
             uint32_t c = i;
             for (int32_t k = 0; k < 8; ++k) {
@@ -204,7 +205,7 @@ namespace {
         }
         return table;
     }
-    constexpr std::array<uint32_t, 256> crc_table = make_crc_table();
+    constexpr deren::utility::vessel::array<uint32_t, 256> crc_table = make_crc_table();
 
     constexpr uint32_t crc32_update(uint32_t const crc, uint8_t const byte) {
         return crc_table[(crc ^ byte) & 0xFFu] ^ (crc >> 8);
@@ -250,21 +251,21 @@ namespace {
 
     // One PNG chunk: big-endian length, the 4 type bytes, the payload, then the CRC32 over
     // type+payload. The writer is append-only, so the length has to be known up front - which it is.
-    std::expected<void, std::string> write_png_chunk(std::ostream& sink, std::string_view const type, std::span<uint8_t const> const payload) {
+    std::expected<void, deren::utility::vessel::string> write_png_chunk(std::ostream& sink, std::string_view const type, std::span<uint8_t const> const payload) {
         return deren::utility::write_binary(sink, deren::utility::be(static_cast<uint32_t>(payload.size())), type, payload, deren::utility::be(png_crc32(type, payload)));
     }
 } // namespace
 
-std::expected<void, std::string> deren::utility::write_png(std::filesystem::path const& path, uint32_t const width, uint32_t const height, std::span<uint8_t const> const rgba) {
+std::expected<void, deren::utility::vessel::string> deren::utility::write_png(std::filesystem::path const& path, uint32_t const width, uint32_t const height, std::span<uint8_t const> const rgba) {
     std::size_t const expected = static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u;
     if (width == 0 || height == 0 || rgba.size() < expected) {
-        return std::unexpected(std::string("write_png: pixel data does not match the dimensions"));
+        return std::unexpected(deren::utility::vessel::string("write_png: pixel data does not match the dimensions"));
     }
 
     // raw scanlines: one filter byte (0 = none) followed by the RGBA row. The adler32 of that stream
     // is accumulated in the same pass (the zlib trailer needs it). This is the only buffer the encoder
     // keeps: a stored-deflate block carries its own length, so its length must be known up front.
-    std::vector<uint8_t> raw;
+    deren::utility::vessel::vector<uint8_t> raw;
     raw.reserve(expected + height);
     uint32_t adler_a = 1;
     uint32_t adler_b = 0;
@@ -287,39 +288,39 @@ std::expected<void, std::string> deren::utility::write_png(std::filesystem::path
     // frame - scanlines, the zlib stream and the finished PNG - this one holds the scanlines only.
     std::ofstream file(path, std::ios::binary | std::ios::trunc);
     if (!file) {
-        return std::unexpected(std::format("write_png: cannot open '{}'", path.string()));
+        return std::unexpected(deren::utility::vessel::format("write_png: cannot open '{}'", path.string()));
     }
-    auto const failed = [&path](std::expected<void, std::string> const& result) -> std::expected<void, std::string> {
+    auto const failed = [&path](std::expected<void, deren::utility::vessel::string> const& result) -> std::expected<void, deren::utility::vessel::string> {
         // NO std::format HERE, AND THAT IS A MEASURED COMPILER WORKAROUND RATHER THAN A STYLE CHOICE.
         // clang 22.1.8's FRONTEND DIES on this exact call: `clang frontend command failed due to
         // signal`, SIGSEGV in `Sema::SubstStmt` while instantiating
-        // `std::basic_format_string<char, std::string const&, std::string>::basic_format_string<char[21]>`
+        // `std::basic_format_string<char, deren::utility::vessel::string const&, deren::utility::vessel::string>::basic_format_string<char[21]>`
         // and its `__handles_` variable - i.e. a 21-element literal (this string, NUL included, is 20
-        // characters) with two `std::string` arguments, in THIS translation unit (reproduced with the
+        // characters) with two `deren::utility::vessel::string` arguments, in THIS translation unit (reproduced with the
         // preprocessed source clang saves; `-fsyntax-only` crashes the same way, so it is Sema, not
         // codegen). `#include <new>` is already at the top of this file for the older crash class and
         // does NOT help this one. Concatenation writes the same text and keeps the format machinery out
         // of this TU; the format-string spelling above (`cannot open '{}'`, one argument) is fine and
         // stays, which is what makes this a workaround for one shape rather than a blanket ban.
-        return std::unexpected("write_png: " + result.error() + " ('" + path.string() + "')");
+        return std::unexpected("write_png: " + result.error() + " ('" + deren::utility::vessel::string(path.string()) + "')");
     };
 
-    constexpr std::array<uint8_t, 8> signature = {0x89u, 'P', 'N', 'G', 0x0Du, 0x0Au, 0x1Au, 0x0Au};
+    constexpr deren::utility::vessel::array<uint8_t, 8> signature = {0x89u, 'P', 'N', 'G', 0x0Du, 0x0Au, 0x1Au, 0x0Au};
     if (auto const written = write_binary(file, signature); !written) {
         return failed(written);
     }
 
     // IHDR: 13 big-endian + fixed bytes, assembled through the same writer
-    std::vector<uint8_t> ihdr;
+    deren::utility::vessel::vector<uint8_t> ihdr;
     ihdr.reserve(13);
     struct vector_sink {
-        std::vector<uint8_t>& out;
+        deren::utility::vessel::vector<uint8_t>& out;
         void write(char const* data, std::size_t size) {
             out.insert(out.end(), data, data + size);
         }
     };
     vector_sink ihdr_sink{ihdr}; // non-const: the sink's write() mutates it (a const sink fails byte_sink)
-    if (auto const written = write_binary(ihdr_sink, be(width), be(height), std::array<uint8_t, 5>{8, 6, 0, 0, 0}); !written) {
+    if (auto const written = write_binary(ihdr_sink, be(width), be(height), deren::utility::vessel::array<uint8_t, 5>{8, 6, 0, 0, 0}); !written) {
         return failed(written);
     }
     if (auto const written = write_png_chunk(file, "IHDR", ihdr); !written) {
@@ -343,7 +344,7 @@ std::expected<void, std::string> deren::utility::write_png(std::filesystem::path
             return failed(written);
         }
         if (auto const written = write_binary(payload,
-                                              std::array<uint8_t, 2>{0x78u, 0x01u}); // CM/CINFO + FCHECK
+                                              deren::utility::vessel::array<uint8_t, 2>{0x78u, 0x01u}); // CM/CINFO + FCHECK
             !written) {
             return failed(written);
         }
@@ -352,7 +353,7 @@ std::expected<void, std::string> deren::utility::write_png(std::filesystem::path
             std::size_t const block = std::min<std::size_t>(raw.size() - offset, 65535u);
             bool const last = offset + block >= raw.size();
             // stored-block header: BFINAL/BTYPE byte then LEN and its complement, little-endian
-            std::array<uint8_t, 5> header = {
+            deren::utility::vessel::array<uint8_t, 5> header = {
                 static_cast<uint8_t>(last ? 1u : 0u),
                 static_cast<uint8_t>(block & 0xFFu),
                 static_cast<uint8_t>((block >> 8) & 0xFFu),
@@ -379,7 +380,7 @@ std::expected<void, std::string> deren::utility::write_png(std::filesystem::path
 
     file.flush(); // a failed flush loses the tail: report it instead of returning success
     if (!file) {
-        return std::unexpected(std::format("write_png: write failed for '{}'", path.string()));
+        return std::unexpected(deren::utility::vessel::format("write_png: write failed for '{}'", path.string()));
     }
     return {};
 }

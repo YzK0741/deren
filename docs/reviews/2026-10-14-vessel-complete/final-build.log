@@ -1,0 +1,6 @@
+[0/2] Re-checking globbed directories...
+[1/9] Scanning C:/Users/23530/Desktop/yzk/deren/source/app/chores.cpp for CXX dependencies
+[2/9] Generating CXX dyndep file CMakeFiles/chores.dir/CXX.dd
+[3/6] Building CXX object CMakeFiles/chores.dir/source/app/chores.cpp.obj
+[4/6] Linking CXX static library libchores.a
+[5/6] Linking CXX executable deren.exe

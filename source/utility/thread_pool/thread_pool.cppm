@@ -3,6 +3,7 @@ module;
 #include <cstdint>
 
 export module deren.utility:thread_pool;
+export import deren.utility.shared;
 export import deren.vstd;
 
 /**
@@ -53,7 +54,7 @@ namespace deren::utility {
 
         // NOT `tasks`: post_batch takes a parameter of that name, and a parameter would hide the
         // member - MSVC /W4 reports C4458, which /WX turns into an error (clang's -Wshadow is off).
-        std::priority_queue<task> task_queue;
+        deren::utility::vessel::priority_queue<task> task_queue;
         std::condition_variable cv;
         std::condition_variable idle;
         mutable std::mutex access_mutex; // mutable: is_free() const reads task_queue under the lock
@@ -63,12 +64,12 @@ namespace deren::utility {
         // task finishes (or is discarded at shutdown), and wait_until_priority_done() blocks on
         // it reaching zero - so a caller can wait for "its" priority group without waiting for
         // unrelated tasks posted by other users of a shared pool.
-        std::unordered_map<int32_t, std::size_t> pending_by_priority;
+        deren::utility::vessel::unordered_map<int32_t, std::size_t> pending_by_priority;
         shutdown_policy policy = shutdown_policy::wait;
         // Declared last so the jthreads are destroyed (auto-joined) FIRST, before the mutex /
         // condition variables above: worker threads still exiting would otherwise touch
         // already-destroyed synchronization state.
-        std::vector<std::jthread> threads;
+        deren::utility::vessel::vector<std::jthread> threads;
 
         void worker_loop(std::stop_token const& token);
         // lock-free helpers (caller holds access_mutex): bookkeeping for one posted/finished task
@@ -154,6 +155,7 @@ namespace deren::utility {
     }
 
     void thread_pool::worker_loop(std::stop_token const& token) {
+        static_cast<void>(deren::utility::diagnostics::prepare_crash_thread());
         this->active_thread.fetch_add(1);
         std::function<void()> current_task;
         while (true) {

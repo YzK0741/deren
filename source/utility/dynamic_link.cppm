@@ -1,4 +1,5 @@
 export module deren.utility.dynamic_link;
+export import deren.utility.shared;
 
 import deren.vstd;
 
@@ -104,7 +105,7 @@ export namespace deren::utility::dynamic_link {
      */
     struct load_error {
         std::int32_t code = 0;
-        std::string message = {};
+        deren::utility::vessel::string message = {};
     };
 
     /**
@@ -206,22 +207,22 @@ export namespace deren::utility::dynamic_link {
 namespace {
 
     /** @brief append the platform suffix when @p file_name does not already carry one */
-    std::string complete_file_name(std::string_view file_name) {
+    deren::utility::vessel::string complete_file_name(std::string_view file_name) {
 #ifdef _WIN32
         constexpr std::string_view suffix = ".dll";
         if (file_name.ends_with(suffix)) {
-            return std::string{file_name};
+            return deren::utility::vessel::string{file_name};
         }
-        return std::string{file_name} + std::string{suffix};
+        return deren::utility::vessel::string{file_name} + deren::utility::vessel::string{suffix};
 #else
         if (file_name.ends_with(".so") || file_name.find(".so.") != std::string_view::npos) {
-            return std::string{file_name};
+            return deren::utility::vessel::string{file_name};
         }
-        std::string completed{};
+        deren::utility::vessel::string completed{};
         if (file_name.find('/') == std::string_view::npos && !file_name.starts_with("lib")) {
             completed = "lib";
         }
-        completed += std::string{file_name};
+        completed += deren::utility::vessel::string{file_name};
         completed += ".so";
         return completed;
 #endif
@@ -229,7 +230,7 @@ namespace {
 
 #ifdef _WIN32
     /** @brief UTF-8 to UTF-16, with room for the terminating NUL LoadLibraryExW needs */
-    bool to_wide(std::string_view utf8, std::vector<wchar_t>& wide) {
+    bool to_wide(std::string_view utf8, deren::utility::vessel::vector<wchar_t>& wide) {
         if (utf8.empty()) {
             return false;
         }
@@ -253,7 +254,7 @@ namespace {
     }
 
     /** @brief GetLastError()'s text, trailing newlines removed; empty when the system has no text */
-    std::string system_message(unsigned long code) {
+    deren::utility::vessel::string system_message(unsigned long code) {
         char* buffer = nullptr;
         unsigned long const length =
             FormatMessageA(format_message_allocate_buffer | format_message_from_system | format_message_ignore_inserts,
@@ -261,7 +262,7 @@ namespace {
         if (length == 0 || buffer == nullptr) {
             return {};
         }
-        std::string message{buffer, length};
+        deren::utility::vessel::string message{buffer, length};
         LocalFree(buffer);
         while (!message.empty() && (message.back() == '\r' || message.back() == '\n')) {
             message.pop_back();
@@ -270,14 +271,14 @@ namespace {
     }
 
     /** @brief a message for a platform error code that has no text of its own */
-    std::string failed_message(std::string_view call, unsigned long code) {
-        return std::format("{} failed (GetLastError={})", call, code);
+    deren::utility::vessel::string failed_message(std::string_view call, unsigned long code) {
+        return deren::utility::vessel::format("{} failed (GetLastError={})", call, code);
     }
 #else
     /** @brief dlerror()'s pending text, consumed by the call */
-    std::string last_dl_error() {
+    deren::utility::vessel::string last_dl_error() {
         char const* const text = dlerror();
-        return text != nullptr ? std::string{text} : std::string{"dlopen/dlsym failed"};
+        return text != nullptr ? deren::utility::vessel::string{text} : deren::utility::vessel::string{"dlopen/dlsym failed"};
     }
 #endif
 } // namespace
@@ -291,15 +292,15 @@ namespace deren::utility::dynamic_link {
         if (name.empty() || name.contains('\0')) {
             return std::unexpected(load_error{0, "the symbol name is empty or contains a NUL byte"});
         }
-        std::string const terminated{name}; // GetProcAddress/dlsym want a NUL-terminated name
+        deren::utility::vessel::string const terminated{name}; // GetProcAddress/dlsym want a NUL-terminated name
 #ifdef _WIN32
         void* const address = GetProcAddress(this->handle, terminated.c_str());
         if (address == nullptr) {
             unsigned long const code = GetLastError();
             return std::unexpected(load_error{
                 static_cast<std::int32_t>(code),
-                std::format("the library has no symbol '{}' ({})", name,
-                            failed_message("GetProcAddress", code)),
+                deren::utility::vessel::format("the library has no symbol '{}' ({})", name,
+                                               failed_message("GetProcAddress", code)),
             });
         }
 #else
@@ -307,7 +308,7 @@ namespace deren::utility::dynamic_link {
         void* const address = dlsym(this->handle, terminated.c_str());
         if (address == nullptr) {
             return std::unexpected(
-                load_error{0, std::format("the library has no symbol '{}' ({})", name, last_dl_error())});
+                load_error{0, deren::utility::vessel::format("the library has no symbol '{}' ({})", name, last_dl_error())});
         }
 #endif
         return address;
@@ -330,19 +331,19 @@ namespace deren::utility::dynamic_link {
         if (file_name.empty() || file_name.contains('\0')) {
             return std::unexpected(load_error{0, "the file name is empty or contains a NUL byte"});
         }
-        std::string const path = complete_file_name(file_name);
+        deren::utility::vessel::string const path = complete_file_name(file_name);
 #ifdef _WIN32
-        std::vector<wchar_t> wide;
+        deren::utility::vessel::vector<wchar_t> wide;
         if (!to_wide(path, wide)) {
             return std::unexpected(
-                load_error{0, std::format("'{}' cannot be converted to a UTF-16 path", path)});
+                load_error{0, deren::utility::vessel::format("'{}' cannot be converted to a UTF-16 path", path)});
         }
         unsigned long const flags =
             is_absolute_path(path) ? (load_library_search_dll_load_dir | load_library_search_default_dirs) : 0ul;
         void* const handle = LoadLibraryExW(wide.data(), nullptr, flags);
         if (handle == nullptr) {
             unsigned long const code = GetLastError();
-            std::string message = system_message(code);
+            deren::utility::vessel::string message = system_message(code);
             if (message.empty()) {
                 message = failed_message("LoadLibraryExW", code);
             }
