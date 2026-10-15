@@ -22,24 +22,24 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
     auto const read_shader = [executable](char const* name) {
         auto const path = std::filesystem::absolute(executable).parent_path() / "shaders" / name;
         std::ifstream file(path, std::ios::binary | std::ios::ate);
-        if (!file) { return std::vector<std::byte>{}; }
+        if (!file) { return deren::utility::vessel::vector<std::byte>{}; }
         auto const size = file.tellg();
-        std::vector<std::byte> code(static_cast<std::size_t>(size));
+        deren::utility::vessel::vector<std::byte> code(static_cast<std::size_t>(size));
         file.seekg(0);
         file.read(reinterpret_cast<char*>(code.data()), size);
-        return file ? code : std::vector<std::byte>{};
+        return file ? code : deren::utility::vessel::vector<std::byte>{};
     };
     auto const raygen = read_shader(native_heap ? "rt_traversal_probe.native.spv" : "rt_traversal_probe.rgen.spv");
     auto const miss = read_shader("rt_traversal_probe.rmiss.spv");
     auto const hit = read_shader("rt_traversal_probe.rchit.spv");
     CHECK(!raygen.empty() && !miss.empty() && !hit.empty());
     if (raygen.empty() || miss.empty() || hit.empty()) { return; }
-    std::array<rhi::ray_tracing_stage, 3> const stages = {
+    deren::utility::vessel::array<rhi::ray_tracing_stage, 3> const stages = {
         rhi::ray_tracing_stage{.stage = rhi::shader_stage::ray_generation, .code = raygen},
         rhi::ray_tracing_stage{.stage = rhi::shader_stage::miss, .code = miss},
         rhi::ray_tracing_stage{.stage = rhi::shader_stage::closest_hit, .code = hit},
     };
-    std::array<rhi::ray_tracing_group, 3> const groups = {
+    deren::utility::vessel::array<rhi::ray_tracing_group, 3> const groups = {
         rhi::ray_tracing_group{.general = 0}, rhi::ray_tracing_group{.general = 1},
         rhi::ray_tracing_group{.closest_hit = 2},
     };
@@ -47,7 +47,7 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
     auto const heap_binding = heap->bindings().resource;
     CHECK(heap_binding.address != 0 && heap_binding.size >= offset + 64u + sizeof(std::uint64_t));
     if (heap_binding.address == 0 || heap_binding.size < offset + 64u + sizeof(std::uint64_t)) { return; }
-    std::array<rhi::acceleration_structure_heap_binding, 1> const bindings = {
+    deren::utility::vessel::array<rhi::acceleration_structure_heap_binding, 1> const bindings = {
         rhi::acceleration_structure_heap_binding{.binding = 7, .byte_offset = offset, .array_stride = 64, .array_count = 2},
     };
     rhi::pipeline_desc desc{};
@@ -64,7 +64,7 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
         invalid[0].array_count = 0xFFFFFFFFu;
         rhi::object_manager<rhi::pipeline> overflowing{core.create_pipeline(desc)};
         CHECK(!overflowing);
-        std::array<rhi::acceleration_structure_heap_binding, 2> const duplicates{bindings[0], bindings[0]};
+        deren::utility::vessel::array<rhi::acceleration_structure_heap_binding, 2> const duplicates{bindings[0], bindings[0]};
         desc.acceleration_structure_bindings = duplicates;
         rhi::object_manager<rhi::pipeline> duplicate{core.create_pipeline(desc)};
         CHECK(!duplicate);
@@ -78,7 +78,7 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
     CHECK(properties.handle_size != 0 && properties.base_alignment != 0);
     if (properties.handle_size == 0 || properties.base_alignment == 0) { return; }
     std::uint32_t const stride = ((properties.handle_size + properties.base_alignment - 1) / properties.base_alignment) * properties.base_alignment;
-    std::vector<std::uint8_t> handles(3u * properties.handle_size);
+    deren::utility::vessel::vector<std::uint8_t> handles(3u * properties.handle_size);
     auto* const group_access = rhi::query_extension<rhi::shader_group_access>(core);
     CHECK(group_access != nullptr);
     if (group_access == nullptr) { return; }
@@ -94,7 +94,7 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
         void release() noexcept override {}
     } foreign;
     CHECK(group_access->read(foreign, 0, 1, handles) == rhi::error::invalid_argument);
-    std::vector<std::uint8_t> legacy_handles(handles.size());
+    deren::utility::vessel::vector<std::uint8_t> legacy_handles(handles.size());
     auto* const basis = escape.get_basis();
     CHECK(basis != nullptr && escape.shader_group_handles(*basis, *pipeline, 0, 3, legacy_handles));
     CHECK(handles == legacy_handles);
@@ -167,7 +167,7 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
     if (waited != VK_SUCCESS) { core.wait_idle(); }
     vkDestroyFence(device, fence, nullptr);
     if (waited != VK_SUCCESS) { return; }
-    std::array<std::uint32_t, 6> values{};
+    deren::utility::vessel::array<std::uint32_t, 6> values{};
     std::memcpy(values.data(), output->mapped().data(), sizeof(values));
     for (std::size_t slot = 0; slot < 2; ++slot) {
         CHECK(values[slot * 3] == 1);     // known triangle hit

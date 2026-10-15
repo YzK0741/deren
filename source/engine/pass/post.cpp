@@ -15,6 +15,7 @@ module;
 #include <string>
 
 module deren.engine.pass.post;
+import deren.utility.shared;
 
 import deren.promise.rhi;      // the record series (abi 20): the barriers, the rendering scope, the draw
 import deren.engine.pipelines; // build_post: the chain's two pipelines, one per colour format the chain renders into
@@ -225,7 +226,7 @@ namespace deren::engine::pass {
         push.mode = 2.0f;
         // THE RENDERING SCOPE RIDES THE CONTRACT NOW (abi 20): one colour attachment, CLEAR + STORE (the
         // helper the raw spelling used), zero clear colour, no depth - the composite's whole scope.
-        std::array<rhi::color_attachment, 1> const colors = {
+        deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {
             rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::clear, .store = rhi::store_op::store, .clear = {}},
         };
         rhi::rendering_info const rendering_info{
@@ -348,7 +349,7 @@ namespace deren::engine::pass {
             .bloom_threshold = settings.bloom_threshold,
             .mode = this->bloom_level == 0u ? 0.0f : 1.0f,
         };
-        std::array<rhi::color_attachment, 1> const colors = {
+        deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {
             rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::clear, .store = rhi::store_op::store, .clear = {}},
         };
         rhi::rendering_info const rendering_info{

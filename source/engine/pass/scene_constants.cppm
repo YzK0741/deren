@@ -1,5 +1,5 @@
 /** @file
- * @brief Shared per-slot lighting and character constants, owned by the passchain.
+ * @brief Shared per-slot camera, lighting and character constants, owned by the passchain.
  * @defgroup engine_pass_scene_constants Shared Scene Constants
  * This resource producer records no GPU commands. The host derives values, and the chain uploads
  * them only after slot completion. Every shading pass reads the existing shared heap descriptors.
@@ -8,6 +8,7 @@ module;
 #include <string_view>
 #include <vector>
 export module deren.engine.pass.scene_constants;
+export import deren.utility.shared;
 import deren.engine.pass;
 import deren.engine.render_resource;
 import deren.engine.primitive;
@@ -17,15 +18,17 @@ export namespace deren::engine::pass {
     class scene_constants_pass final : public frame_pass {
         bool light_required = true;
         bool head_required = true;
+        bool camera_required = true;
         render_resource::instances::resource_snapshot resource_view;
 
     public:
-        void select_resources(bool light, bool head) noexcept {
+        void select_resources(bool light, bool head, bool camera = true) noexcept {
             light_required = light;
             head_required = head;
+            camera_required = camera;
         }
         void describe_resources(render_resource::instances::resource_context const&,
-                                std::vector<render_resource::instances::request>& requests) const override {
+                                deren::utility::vessel::vector<render_resource::instances::request>& requests) const override {
             namespace managed = render_resource::instances;
             namespace rhi = deren::promise::rhi;
             managed::request value;
@@ -42,6 +45,10 @@ export namespace deren::engine::pass {
             value.id = render_resource::resource_id::head_ubo;
             value.buffer.size = sizeof(deren::engine::head_ubo);
             if (head_required)
+                requests.push_back(value);
+            value.id = render_resource::resource_id::camera_ubo;
+            value.buffer.size = sizeof(deren::engine::camera_ubo);
+            if (camera_required)
                 requests.push_back(value);
         }
         void bind_resources(render_resource::instances::resource_snapshot const& snapshot) override {

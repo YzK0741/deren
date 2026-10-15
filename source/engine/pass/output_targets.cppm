@@ -9,6 +9,7 @@ module;
 #include <string_view>
 #include <vector>
 export module deren.engine.pass.output_targets;
+export import deren.utility.shared;
 import deren.engine.pass;
 import deren.engine.render_resource;
 import deren.engine.render_layout;
@@ -20,11 +21,11 @@ export namespace deren::engine::pass {
         static constexpr size_t resource_count = 17;
 
     private:
-        std::array<bool, resource_count> required = [] { std::array<bool, resource_count> values; values.fill(true); return values; }();
+        deren::utility::vessel::array<bool, resource_count> required = [] { deren::utility::vessel::array<bool, resource_count> values; values.fill(true); return values; }();
         render_resource::instances::resource_snapshot resource_view;
 
     public:
-        static constexpr std::array ids{
+        static constexpr deren::utility::vessel::array ids{
             render_resource::resource_id::hdr, render_resource::resource_id::gbuffer_albedo,
             render_resource::resource_id::gbuffer_normal, render_resource::resource_id::gbuffer_material,
             render_resource::resource_id::velocity, render_resource::resource_id::scene_input,
@@ -33,7 +34,7 @@ export namespace deren::engine::pass {
             render_resource::resource_id::bloom_level2, render_resource::resource_id::bloom_level3,
             render_resource::resource_id::ml_trace, render_resource::resource_id::ml_resolve,
             render_resource::resource_id::ml_history, render_resource::resource_id::rt_shadow_visibility};
-        static constexpr std::array heap_slots{
+        static constexpr deren::utility::vessel::array heap_slots{
             render_layout::heap_slots::post_color, render_layout::heap_slots::gbuffer_albedo,
             render_layout::heap_slots::gbuffer_normal, render_layout::heap_slots::gbuffer_material,
             render_layout::heap_slots::gbuffer_velocity, render_layout::heap_slots::taa_current,
@@ -44,23 +45,23 @@ export namespace deren::engine::pass {
             render_layout::heap_slots::bloom_l0 + 3u * render_layout::heap_image_capacity,
             render_layout::heap_slots::ml_trace, render_layout::heap_slots::ml_resolved,
             render_layout::heap_slots::ml_history, render_layout::heap_slots::rt_visibility};
-        static constexpr std::array<uint32_t, resource_count> storage_slots = [] {
-            std::array<uint32_t, resource_count> slots{};
+        static constexpr deren::utility::vessel::array<uint32_t, resource_count> storage_slots = [] {
+            deren::utility::vessel::array<uint32_t, resource_count> slots{};
             slots[13] = render_layout::heap_slots::ml_trace_storage;
             slots[14] = render_layout::heap_slots::ml_resolved_storage;
             slots[16] = render_layout::heap_slots::rt_visibility_storage;
             return slots;
         }();
-        static std::array<render_resource::instances::request, resource_count> descriptions(render_resource::instances::resource_context const& context) {
+        static deren::utility::vessel::array<render_resource::instances::request, resource_count> descriptions(render_resource::instances::resource_context const& context) {
             namespace managed = render_resource::instances;
             namespace rhi = deren::promise::rhi;
-            std::array<managed::request, resource_count> values;
-            constexpr std::array formats{render_layout::hdr_format, render_layout::gbuffer_formats[0],
-                                         render_layout::gbuffer_formats[1], render_layout::gbuffer_formats[2],
-                                         render_layout::gbuffer_velocity_format, render_layout::hdr_format, rhi::image_format::depth,
-                                         render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format,
-                                         render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format,
-                                         render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format, rhi::image_format::r16_sfloat};
+            deren::utility::vessel::array<managed::request, resource_count> values;
+            constexpr deren::utility::vessel::array formats{render_layout::hdr_format, render_layout::gbuffer_formats[0],
+                                                            render_layout::gbuffer_formats[1], render_layout::gbuffer_formats[2],
+                                                            render_layout::gbuffer_velocity_format, render_layout::hdr_format, rhi::image_format::depth,
+                                                            render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format,
+                                                            render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format,
+                                                            render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format, rhi::image_format::r16_sfloat};
             for (size_t i = 0; i < values.size(); ++i) {
                 auto& value = values[i];
                 value.id = ids[i];
@@ -88,11 +89,11 @@ export namespace deren::engine::pass {
             }
             return values;
         }
-        void select_resources(std::array<bool, resource_count> selection) noexcept {
+        void select_resources(deren::utility::vessel::array<bool, resource_count> selection) noexcept {
             required = selection;
         }
         void describe_resources(render_resource::instances::resource_context const& context,
-                                std::vector<render_resource::instances::request>& requests) const override {
+                                deren::utility::vessel::vector<render_resource::instances::request>& requests) const override {
             auto const values = descriptions(context);
             for (size_t i = 0; i < values.size(); ++i)
                 if (required[i])

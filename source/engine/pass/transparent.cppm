@@ -31,6 +31,7 @@ module;
 #include <string_view>
 
 export module deren.engine.pass.transparent;
+export import deren.utility.shared;
 
 import deren.promise.rhi; // the contract command buffer the frame's secondary is
 import deren.engine.pass;
@@ -83,7 +84,7 @@ export namespace deren::engine::pass {
         void set_frame(transparent_frame const& frame) noexcept;
 
     private:
-        static constexpr std::array<std::string_view, 0> pipeline_names = {}; // the leaves name their pipelines
+        static constexpr deren::utility::vessel::array<std::string_view, 0> pipeline_names = {}; // the leaves name their pipelines
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
         inline static constexpr deren::engine::pass::behaviour pass_behaviour = {

@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.engine.acceleration_structure
-// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 2.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Ray-tracing acceleration structures: the bottom level structures of the
 // scene's shadow casters, built from the geometry buffers the raster passes
@@ -23,8 +23,13 @@ module;
 #include <vector>
 
 export module deren.engine.acceleration_structure;
+export import deren.utility.shared;
 
 import deren.promise.rhi; // the contract's buffer handle + object_manager: the storage/scratch owners
+import deren.engine.pass.chain;
+import deren.engine.pass.buffer_storage;
+import deren.engine.render_resource;
+import deren.engine.render_resource.instances;
 export import deren.vstd;
 // (③-D/E step 1b: the `export import deren.vulkan.core;` that used to sit here is GONE - these
 //  classes hold `rhi::api_core&` plus a device resolved through the escape, so this module no longer
@@ -185,7 +190,9 @@ namespace deren::engine::acceleration_structure {
         /// the container this class used to be careful about (`micromap_geometries`, a deque for exactly that
         /// reason) is gone with it.
         struct entry {
-            deren::promise::rhi::object_manager<deren::promise::rhi::acceleration_structure> structure = {};
+            deren::engine::pass::pass_chain storage_chain;
+            render_resource::instances::resource_snapshot storage_view;
+            render_resource::instances::borrowed<rhi::acceleration_structure> structure = {};
             bool refittable = false; // built with ALLOW_UPDATE, so record_update may refit it
         };
 
@@ -195,11 +202,12 @@ namespace deren::engine::acceleration_structure {
         /// THE CONTRACT FACE, NOT THE BACKEND CLASS (③-D/E step 1b): non-const, because creating and
         /// releasing the structures goes through the contract's factories.
         rhi::api_core* contract = nullptr;
-        std::vector<entry> entries = {};
+        std::shared_ptr<rhi::api_core> device_lease;
+        deren::utility::vessel::vector<entry> entries = {};
         build_stats stats = {};
 
     public:
-        explicit bottom_level_structures(rhi::api_core& face);
+        explicit bottom_level_structures(rhi::api_core& face, std::shared_ptr<rhi::api_core> lease = {});
         bottom_level_structures(bottom_level_structures const&) = delete;
         bottom_level_structures& operator=(bottom_level_structures const&) = delete;
         bottom_level_structures(bottom_level_structures&&) = delete;
@@ -219,7 +227,10 @@ namespace deren::engine::acceleration_structure {
          *       record_build(). A source with no triangles is skipped and returns the index it WOULD
          *       have had, so the caller's indices stay aligned with its own array.
          */
-        std::expected<uint32_t, std::string> add(geometry_source const& source, bool refittable = false);
+        std::expected<uint32_t, deren::utility::vessel::string> add(geometry_source const& source, bool refittable = false, std::span<std::shared_ptr<void const> const> dependencies = {});
+        [[nodiscard]] render_resource::instances::resource_snapshot resources(uint32_t index) const noexcept {
+            return index < entries.size() ? entries[index].storage_view : render_resource::instances::resource_snapshot{};
+        }
 
         /**
          * @ingroup engine_acceleration_structure
@@ -229,7 +240,7 @@ namespace deren::engine::acceleration_structure {
          * @note call once: a second call would rebuild into the same structures with no scratch space
          *       left (the buffer is sized by the first call's requirements)
          */
-        std::expected<void, std::string> record_build(deren::promise::rhi::command_buffer& commands);
+        std::expected<void, deren::utility::vessel::string> record_build(deren::promise::rhi::command_buffer& commands);
 
         /**
          * @ingroup engine_acceleration_structure
@@ -244,7 +255,7 @@ namespace deren::engine::acceleration_structure {
          * @note the caller must have made the writes visible to the acceleration structure build stage
          *       first (a command-level barrier), or the refit reads whatever was there before
          */
-        std::expected<void, std::string> record_update(deren::promise::rhi::command_buffer& commands, std::span<uint32_t const> indices);
+        std::expected<void, deren::utility::vessel::string> record_update(deren::promise::rhi::command_buffer& commands, std::span<uint32_t const> indices);
 
         /** @brief how many structures were added */
         [[nodiscard]] uint32_t size() const noexcept {
@@ -281,20 +292,24 @@ namespace deren::engine::acceleration_structure {
      */
     export class top_level_structure {
         struct slot {
+            deren::engine::pass::pass_chain storage_chain;
+            deren::engine::pass::resource_storage_pass* storage_provider = nullptr;
+            render_resource::instances::resource_snapshot storage_view;
             /// THE STRUCTURE ITSELF: the tier-1 object owns the instance records it reads (the caller writes
             /// them through `write_instances`), the storage, the scratch and the instance capacity - so this
             /// slot keeps ONE handle where it used to keep five objects and a size.
-            deren::promise::rhi::object_manager<deren::promise::rhi::acceleration_structure> structure = {};
+            render_resource::instances::borrowed<deren::promise::rhi::acceleration_structure> structure = {};
             /// THE INSTANCE TABLE THE SHADER READS (through `instanceCustomIndex`): this is the ENGINE's own
             /// data, not the driver's instance array, which is why it stays here - it is the per-instance
             /// record the hit shader resolves a hit back to a surface with.
-            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> records = {};
+            render_resource::instances::borrowed<deren::promise::rhi::buffer> records = {};
             /// what `add()` has collected for the frame being recorded, handed to the structure at
             /// `record_build` (the backend copies it into its own memory: the contract's record POD, the same
             /// shape a caller writes anywhere else).
-            std::vector<deren::promise::rhi::acceleration_structure_instance> pending = {};
+            deren::utility::vessel::vector<deren::promise::rhi::acceleration_structure_instance> pending = {};
             uint32_t capacity = 0; // instances the records buffer can hold
             uint32_t count = 0;    // instances added this frame
+            bool build_ready = false;
         };
 
         /// Deliberately NOT called `vk`: add() and record_build() bind a local `core& vk`, and that
@@ -305,8 +320,9 @@ namespace deren::engine::acceleration_structure {
         rhi::api_core* contract = nullptr;
         /// the device's instance limit, from `device_capabilities` (the check that used to need a properties
         /// query of this module's own)
+        std::shared_ptr<rhi::api_core> device_lease;
         std::uint64_t max_instances = 0;
-        std::vector<slot> slots = {};
+        deren::utility::vessel::vector<slot> slots = {};
         uint32_t current_slot = 0;
         build_stats stats = {};
 
@@ -316,12 +332,15 @@ namespace deren::engine::acceleration_structure {
          * @param face the contract face the structures are created and released through
          * @param frame_slot_count how many per-frame slots to allocate (the runtime's frame count)
          */
-        explicit top_level_structure(rhi::api_core& face, uint32_t frame_slot_count);
+        explicit top_level_structure(rhi::api_core& face, uint32_t frame_slot_count, std::shared_ptr<rhi::api_core> lease = {});
         top_level_structure(top_level_structure const&) = delete;
         top_level_structure& operator=(top_level_structure const&) = delete;
         top_level_structure(top_level_structure&&) = delete;
         top_level_structure& operator=(top_level_structure&&) = delete;
         ~top_level_structure();
+        [[nodiscard]] render_resource::instances::resource_snapshot resources(uint32_t slot) const noexcept {
+            return slot < slots.size() ? slots[slot].storage_view : render_resource::instances::resource_snapshot{};
+        }
 
         /**
          * @ingroup engine_acceleration_structure
@@ -331,7 +350,7 @@ namespace deren::engine::acceleration_structure {
          * @note the slot is free to write because the runtime waits for it before recording (see
          *       runtime::pace_and_acquire), the same reason every other per-slot buffer is.
          */
-        std::expected<void, std::string> begin(uint32_t frame_slot);
+        std::expected<void, deren::utility::vessel::string> begin(uint32_t frame_slot);
 
         /**
          * @ingroup engine_acceleration_structure
@@ -340,7 +359,7 @@ namespace deren::engine::acceleration_structure {
          *       taken from; a null handle there (a geometry that was skipped) skips the instance, so the
          *       caller's arrays stay aligned
          */
-        std::expected<void, std::string> add(bottom_level_structures const& levels, instance_source const& source);
+        std::expected<void, deren::utility::vessel::string> add(bottom_level_structures const& levels, instance_source const& source);
 
         /**
          * @ingroup engine_acceleration_structure
@@ -348,11 +367,11 @@ namespace deren::engine::acceleration_structure {
          * @param command_buffer a buffer being recorded outside a rendering instance
          * @return success, or an error message
          */
-        std::expected<void, std::string> record_build(deren::promise::rhi::command_buffer& commands);
+        std::expected<void, deren::utility::vessel::string> record_build(deren::promise::rhi::command_buffer& commands);
 
         /** @brief the structure the slot's frame must bind, or nullptr when the slot is empty */
         [[nodiscard]] deren::promise::rhi::acceleration_structure* structure(uint32_t frame_slot) const noexcept {
-            return frame_slot < this->slots.size() ? this->slots[frame_slot].structure.get() : nullptr;
+            return frame_slot < this->slots.size() && this->slots[frame_slot].build_ready ? this->slots[frame_slot].structure.get() : nullptr;
         }
 
         /**

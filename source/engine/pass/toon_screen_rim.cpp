@@ -17,6 +17,7 @@ module;
 #include <span>
 
 module deren.engine.pass.toon_screen_rim;
+import deren.utility.shared;
 
 import deren.promise.rhi;
 import deren.engine.render_resource;
@@ -80,10 +81,10 @@ namespace deren::engine::pass {
         }
         // ONE colour target and it is the HDR one, because this pass runs INSIDE the HDR chain (after the
         // lighting stage, before the resolve) - a rim written to the swapchain would be tonemapped twice.
-        std::array<rhi::image_format, 1> const formats = {rhi::image_format::r16g16b16a16_sfloat};
+        deren::utility::vessel::array<rhi::image_format, 1> const formats = {rhi::image_format::r16g16b16a16_sfloat};
         // ADDITIVE: the rim is a contribution to the frame, not a replacement for it. This is the opposite of
         // the character-forward stage's overwrite, and the two are deliberately different passes for it.
-        std::array<rhi::blend_mode, 1> const blends = {rhi::blend_mode::additive};
+        deren::utility::vessel::array<rhi::blend_mode, 1> const blends = {rhi::blend_mode::additive};
         auto built = pipelines::make_graphics_pipeline(*context.face,
                                                        std::span<rhi::image_format const>(formats),
                                                        rhi::image_format::unknown, // NO depth attachment: the depth is sampled, not tested
@@ -152,7 +153,7 @@ namespace deren::engine::pass {
         // LOAD, not clear: this instance ADDS to the frame the character-forward stage wrote. THE RENDERING SCOPE
         // RIDES THE CONTRACT NOW (abi 20): one colour attachment, LOAD + STORE (what the raw helper spelled), no
         // depth - the whole scope this pass opens.
-        std::array<rhi::color_attachment, 1> const colors = {
+        deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {
             rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::load, .store = rhi::store_op::store, .clear = {}},
         };
         rhi::rendering_info const rendering_info{

@@ -67,6 +67,7 @@
 #include <string>
 #include <string_view>
 
+import deren.utility.shared;
 import deren.promise.rhi;
 import deren.utility.dynamic_link;
 
@@ -214,7 +215,7 @@ namespace {
         [[nodiscard]] rhi::error copy_buffer(rhi::buffer&, rhi::buffer const&, std::uint64_t, std::uint64_t, std::uint64_t) override {
             return rhi::error::invalid_argument;
         }
-        [[nodiscard]] rhi::error clear_color_image(rhi::image const&, std::array<float, 4> const&, rhi::subresource_range const&) override {
+        [[nodiscard]] rhi::error clear_color_image(rhi::image const&, deren::utility::vessel::array<float, 4> const&, rhi::subresource_range const&) override {
             return rhi::error::invalid_argument;
         }
     };
@@ -340,7 +341,7 @@ namespace {
             // keys resources on CONTENT can only recognise identical content if it is handed the content
             // at creation (rhi.api_core.cppm's `buffer_desc` note), so this is the shape that keeps the
             // renderer's deduplication alive across the boundary.
-            std::array<std::byte, 64> initial_bytes{};
+            deren::utility::vessel::array<std::byte, 64> initial_bytes{};
             for (std::size_t index = 0; index < initial_bytes.size(); ++index) {
                 initial_bytes[index] = static_cast<std::byte>(index);
             }
@@ -470,7 +471,7 @@ namespace {
             image_desc.format = rhi::image_format::rgba8_unorm;
             image_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination);
             image_desc.debug_name = "spike image";
-            std::array<std::byte, 4u * 4u * 4u> texels{};
+            deren::utility::vessel::array<std::byte, 4u * 4u * 4u> texels{};
             for (std::size_t index = 0; index < texels.size(); ++index) {
                 texels[index] = static_cast<std::byte>(index & 0xFFu);
             }
@@ -671,7 +672,7 @@ namespace {
                     CHECK_MSG(continuation->begin_recording(continuation_begin) == rhi::error::ok,
                               "a render_pass_continue begin carries its inheritance through the tagged chain");
                     CHECK(continuation->end_recording() == rhi::error::ok);
-                    std::array<rhi::image_format, 1> const portable_formats{rhi::image_format::rgba8_unorm};
+                    deren::utility::vessel::array<rhi::image_format, 1> const portable_formats{rhi::image_format::rgba8_unorm};
                     rhi::command_buffer_inheritance_info portable_inheritance{
                         .color_format_count = 1u,
                         .color_formats = portable_formats.data(),
@@ -731,7 +732,7 @@ int main(int argc, char** argv) {
     // Q5 + Q6: an ABSOLUTE path through the platform's restricted search flags, on a library that
     // has to satisfy its own dependency closure (vulkan-1.dll, libc++.dll, USER32/GDI32, glfw's
     // system libraries) - the probe DLL had none of those.
-    auto loaded_result = deren::utility::dynamic_link::load(std::string{spike_dll_path});
+    auto loaded_result = deren::utility::dynamic_link::load(deren::utility::vessel::string{spike_dll_path});
     CHECK(loaded_result.has_value());
     if (!loaded_result.has_value()) {
         deren::vk_test::write_line("spike: load failed for {}: {}", spike_dll_path, loaded_result.error().message);

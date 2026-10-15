@@ -1,19 +1,21 @@
 // Plugin acquisition must initialize or refuse, rather than hand out an inactive overlay.
-#include "../backends/vulkan/graphical_user_interface/panel_adapter_storage.hpp"
 #include "vk_test.h"
 
 #include <algorithm>
 #include <array>
 #include <iterator>
+#include <list>
 #include <string>
 
+import deren.utility.shared;
 import deren.promise.gui;
 
 import deren.utility.dynamic_link;
 
+#include "../backends/vulkan/graphical_user_interface/panel_adapter_storage.hpp"
 #include "../promise/gui/gui_entry.hpp"
 
-static_assert(deren::gui::gui_abi_version == 2u, "GUI recording must use the RHI command buffer boundary");
+static_assert(deren::gui::gui_abi_version == 3u, "GUI ABI3 uses vessel-owned strings and containers");
 
 // Exercise the overlay's actual storage without needing a graphics device. Hosts
 // retain panel references, so deleting a different panel must preserve its address.
@@ -24,7 +26,7 @@ static void retained_panel_addresses_survive_middle_removal() {
     constexpr int count = 7;
     for (int removed : {2, 4}) {
         deren::vulkan::gui::detail::panel_adapter_storage<panel_identity> panels;
-        std::array<panel_identity const*, count> retained{};
+        deren::utility::vessel::array<panel_identity const*, count> retained{};
         for (int id = 0; id < count; ++id) {
             panels.emplace_back(id);
             retained[id] = &panels.back();

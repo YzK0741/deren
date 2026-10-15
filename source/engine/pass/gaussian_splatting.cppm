@@ -3,6 +3,7 @@ module;
 #include <memory>
 #include <string_view>
 export module deren.engine.pass.gaussian_splatting;
+export import deren.utility.shared;
 import deren.promise.rhi;
 import deren.engine.pass;
 import deren.engine.render_resource;
@@ -55,7 +56,7 @@ export namespace deren::engine::pass {
         deren::promise::rhi::object_manager<deren::promise::rhi::pipeline> pipeline;
         std::shared_ptr<gaussian_splatting::raster_frame const> frame;
         std::shared_ptr<gaussian_splatting::gpu_frame const> gpu_snapshot;
-        std::array<deren::promise::rhi::object_manager<deren::promise::rhi::pipeline>, 3> compute;
+        deren::utility::vessel::array<deren::promise::rhi::object_manager<deren::promise::rhi::pipeline>, 3> compute;
         gaussian_splatting::gpu_frame_timing timing;
         deren::promise::rhi::error record_error = deren::promise::rhi::error::ok;
     };

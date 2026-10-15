@@ -512,7 +512,7 @@ namespace {
             return rhi::error::ok;
         }
 
-        [[nodiscard]] rhi::error clear_color_image(rhi::image const& target, std::array<float, 4> const& color, rhi::subresource_range const& range) noexcept override {
+        [[nodiscard]] rhi::error clear_color_image(rhi::image const& target, deren::utility::vessel::array<float, 4> const& color, rhi::subresource_range const& range) noexcept override {
             this->last_cleared_image = &target;
             this->last_clear_color = color;
             this->last_clear_range = range;
@@ -575,7 +575,7 @@ namespace {
         };
         buffer_copy_call last_buffer_copy = {};
         rhi::image const* last_cleared_image = nullptr;
-        std::array<float, 4> last_clear_color = {};
+        deren::utility::vessel::array<float, 4> last_clear_color = {};
         rhi::subresource_range last_clear_range = {};
     };
 
@@ -620,7 +620,7 @@ namespace {
     // CPU recording resources for the portability path. No driver or graphics library is used.
     struct cpu_buffer final : rhi::buffer {
         std::uint64_t bytes = 0;
-        std::vector<std::byte> content;
+        deren::utility::vessel::vector<std::byte> content;
         explicit cpu_buffer(rhi::buffer_desc const& desc)
             : rhi::buffer("deren_buffer_cpu_probe")
             , bytes(desc.size) {
@@ -729,9 +729,11 @@ namespace {
             : rhi::descriptor_heap("deren_descriptor_heap_cpu_probe") {
         }
         std::uint32_t image_writes = 0, buffer_writes = 0;
-        std::vector<rhi::heap_buffer_write_info> written_buffers;
+        std::int32_t image_writes_until_failure = -1;
+        bool persistent_image_failure = false;
+        deren::utility::vessel::vector<rhi::heap_buffer_write_info> written_buffers;
         // Retain only image identity and offset; view pointers in the write descriptor are transient.
-        std::vector<std::pair<std::uint64_t, rhi::image const*>> written_images;
+        deren::utility::vessel::vector<std::pair<std::uint64_t, rhi::image const*>> written_images;
         bool ready() const noexcept override {
             return true;
         }
@@ -749,6 +751,13 @@ namespace {
         rhi::error write_image(rhi::heap_image_write_info const& info) noexcept override {
             if (info.resource == nullptr || info.view == nullptr || info.offset % 64 != 0)
                 return rhi::error::invalid_argument;
+            if (image_writes_until_failure == 0) {
+                if (!persistent_image_failure)
+                    image_writes_until_failure = -1;
+                return rhi::error::unsupported;
+            }
+            if (image_writes_until_failure > 0)
+                --image_writes_until_failure;
             ++image_writes;
             written_images.emplace_back(info.offset, info.resource);
             return rhi::error::ok;
@@ -1188,6 +1197,11 @@ namespace deren::vk_test {
     }
     void probe_resource_failure(deren::promise::rhi::api_core& core, std::int32_t successful_creations) {
         static_cast<impl&>(core).resource_creations_until_failure = successful_creations;
+    }
+    void probe_heap_image_failure(deren::promise::rhi::api_core& core, std::int32_t successful_writes, bool persistent) {
+        auto& heap = static_cast<impl&>(core).heap;
+        heap.image_writes_until_failure = successful_writes;
+        heap.persistent_image_failure = persistent;
     }
     void probe_present_completion(deren::promise::rhi::api_core& core, std::shared_future<deren::promise::rhi::error> completion) {
         static_cast<impl&>(core).async_present.completion = std::move(completion);

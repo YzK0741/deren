@@ -1,6 +1,7 @@
 module;
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -10,6 +11,7 @@ module;
 #include <utility>
 
 module deren.engine.acceleration_structure;
+import deren.utility.shared;
 
 import deren.utility;
 
@@ -65,8 +67,9 @@ namespace deren::engine::acceleration_structure {
 
     // ---- bottom level structure ---------------------------------------------------------------------------
 
-    bottom_level_structures::bottom_level_structures(rhi::api_core& face)
-        : contract(&face) {
+    bottom_level_structures::bottom_level_structures(rhi::api_core& face, std::shared_ptr<rhi::api_core> lease)
+        : contract(lease && lease.get() != &face ? nullptr : &face)
+        , device_lease(std::move(lease)) {
     }
 
     // The entries hold `object_manager<rhi::acceleration_structure>`, so the reference each structure carries is
@@ -74,9 +77,9 @@ namespace deren::engine::acceleration_structure {
     // destructor documents.
     bottom_level_structures::~bottom_level_structures() = default;
 
-    std::expected<uint32_t, std::string> bottom_level_structures::add(geometry_source const& source, bool const refittable) {
+    std::expected<uint32_t, deren::utility::vessel::string> bottom_level_structures::add(geometry_source const& source, bool const refittable, std::span<std::shared_ptr<void const> const> dependencies) {
         if (this->contract == nullptr) {
-            return std::unexpected(std::string("acceleration structure: this structure set has no contract face"));
+            return std::unexpected(deren::utility::vessel::string("acceleration structure: this structure set has no contract face"));
         }
         // THE MICROMAP RIDES THE DESCRIPTION NOW (plan S1's P4): the contract's geometry carries the object, and
         // nothing here refuses it any more - the BACKEND owns the 256-byte address alignment, the setup buffers
@@ -104,17 +107,30 @@ namespace deren::engine::acceleration_structure {
             .index_count = source.index_count,
             .opacity_micromap = source.opacity_micromap,
         };
-        item.structure = rhi::object_manager<rhi::acceleration_structure>{this->contract->create_acceleration_structure(
-            rhi::acceleration_structure_desc{
-                .type = rhi::acceleration_structure_type::bottom_level,
-                .flags = refittable ? rhi::to_bits(rhi::acceleration_structure_flag::allow_update) : rhi::no_acceleration_structure_flags,
-                .geometries = &geometry,
-                .geometry_count = 1u,
-            })};
-        if (!item.structure) {
-            return std::unexpected(std::string("acceleration structure: the backend could not create the bottom level structure "
-                                               "(see its own log line for why)"));
+        namespace managed = render_resource::instances;
+        managed::request request;
+        request.id = render_resource::resource_id::bottom_level_structure;
+        request.type = managed::kind::acceleration_structure;
+        request.life = managed::lifetime::scene;
+        request.structure.type = rhi::acceleration_structure_type::bottom_level;
+        request.structure.flags = refittable ? rhi::to_bits(rhi::acceleration_structure_flag::allow_update) : rhi::no_acceleration_structure_flags;
+        request.geometries.push_back(geometry);
+        request.dependencies.assign(dependencies.begin(), dependencies.end());
+        auto& provider = item.storage_chain.emplace<deren::engine::pass::resource_storage_pass>();
+        provider.configure(std::span{&request, 1});
+        rhi::acceleration_structure* structure = nullptr;
+        auto const admit = [&](managed::resource_snapshot const& snapshot) {
+            auto generation = snapshot.find(request.id);
+            structure = generation && generation->objects.size() == 1 ? generation->objects[0].structure.get() : nullptr;
+            return structure && structure->device_address() && structure->size_bytes() ? rhi::error::ok : rhi::error::unsupported;
+        };
+        auto root = device_lease ? device_lease : std::shared_ptr<rhi::api_core>{contract, [](rhi::api_core*) {}};
+        if (item.storage_chain.prepare_resources(root, {}, admit) != rhi::error::ok) {
+            return std::unexpected(deren::utility::vessel::string("acceleration structure: the backend could not create the bottom level structure "
+                                                                  "(see its own log line for why)"));
         }
+        item.storage_view = item.storage_chain.resources().snapshot();
+        item.structure = {structure};
 
         this->stats.geometry_count += 1u;
         this->stats.triangle_count += triangles;
@@ -123,7 +139,7 @@ namespace deren::engine::acceleration_structure {
         return static_cast<std::uint32_t>(this->entries.size() - 1u);
     }
 
-    std::expected<void, std::string> bottom_level_structures::record_build(rhi::command_buffer& commands) {
+    std::expected<void, deren::utility::vessel::string> bottom_level_structures::record_build(rhi::command_buffer& commands) {
         std::chrono::steady_clock::time_point const start = std::chrono::steady_clock::now();
         for (entry const& item : this->entries) {
             if (!item.structure) {
@@ -133,14 +149,14 @@ namespace deren::engine::acceleration_structure {
             // `vkCmdBuildAccelerationStructuresKHR`. That batching was a CPU-side win and its own note says so;
             // what it cost was the BACKEND owning the scratch, which is exactly the trade this interface makes.
             if (rhi::error const recorded = commands.build_acceleration_structure(*item.structure); recorded != rhi::error::ok) {
-                return std::unexpected(std::string("acceleration structure: recording a bottom level build failed with error ") + std::to_string(static_cast<std::uint32_t>(recorded)));
+                return std::unexpected(deren::utility::vessel::string("acceleration structure: recording a bottom level build failed with error ") + deren::utility::vessel::to_string(static_cast<std::uint32_t>(recorded)));
             }
         }
         this->stats.build_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         return {};
     }
 
-    std::expected<void, std::string> bottom_level_structures::record_update(rhi::command_buffer& commands, std::span<uint32_t const> const indices) {
+    std::expected<void, deren::utility::vessel::string> bottom_level_structures::record_update(rhi::command_buffer& commands, std::span<uint32_t const> const indices) {
         for (std::uint32_t const index : indices) {
             if (index >= this->entries.size()) {
                 continue;
@@ -151,7 +167,7 @@ namespace deren::engine::acceleration_structure {
                           // backend refuses it by name anyway - see `refit_acceleration_structure`)
             }
             if (rhi::error const recorded = commands.refit_acceleration_structure(*item.structure); recorded != rhi::error::ok) {
-                return std::unexpected(std::string("acceleration structure: recording a bottom level refit failed with error ") + std::to_string(static_cast<std::uint32_t>(recorded)));
+                return std::unexpected(deren::utility::vessel::string("acceleration structure: recording a bottom level refit failed with error ") + deren::utility::vessel::to_string(static_cast<std::uint32_t>(recorded)));
             }
         }
         return {};
@@ -162,27 +178,29 @@ namespace deren::engine::acceleration_structure {
     // Spelled exactly as the declaration in the module interface is: doxygen matches a definition against
     // its declaration by the written signature, and `std::uint32_t` here against `uint32_t` there made it
     // report "no matching class member found" for this one constructor (the only warning in the doc build).
-    top_level_structure::top_level_structure(rhi::api_core& face, uint32_t const frame_slot_count)
-        : contract(&face)
+    top_level_structure::top_level_structure(rhi::api_core& face, uint32_t const frame_slot_count, std::shared_ptr<rhi::api_core> lease)
+        : contract(lease && lease.get() != &face ? nullptr : &face)
+        , device_lease(std::move(lease))
         , max_instances(max_instances_of(face))
         , slots(frame_slot_count) {
     }
 
     top_level_structure::~top_level_structure() = default;
 
-    std::expected<void, std::string> top_level_structure::begin(std::uint32_t const frame_slot) {
+    std::expected<void, deren::utility::vessel::string> top_level_structure::begin(std::uint32_t const frame_slot) {
         if (frame_slot >= this->slots.size()) {
-            return std::unexpected(std::string("acceleration structures: frame slot out of range"));
+            return std::unexpected(deren::utility::vessel::string("acceleration structures: frame slot out of range"));
         }
         this->current_slot = frame_slot;
+        this->slots[frame_slot].build_ready = false;
         this->slots[frame_slot].count = 0;
         this->slots[frame_slot].pending.clear();
         return {};
     }
 
-    std::expected<void, std::string> top_level_structure::add(bottom_level_structures const& levels, instance_source const& source) {
+    std::expected<void, deren::utility::vessel::string> top_level_structure::add(bottom_level_structures const& levels, instance_source const& source) {
         if (this->contract == nullptr || this->current_slot >= this->slots.size()) {
-            return std::unexpected(std::string("acceleration structures: no frame slot is being built"));
+            return std::unexpected(deren::utility::vessel::string("acceleration structures: no frame slot is being built"));
         }
         rhi::acceleration_structure* const blas = levels.structure(source.blas_index);
         if (blas == nullptr) {
@@ -196,21 +214,47 @@ namespace deren::engine::acceleration_structure {
         if (target.count >= target.capacity) {
             std::uint32_t const wanted = std::max(target.capacity * 2u, 256u);
             if (this->max_instances != 0u && static_cast<std::uint64_t>(wanted) > this->max_instances) {
-                return std::unexpected(std::string("acceleration structures: the scene has more instances than the device allows in one top level structure"));
+                return std::unexpected(deren::utility::vessel::string("acceleration structures: the scene has more instances than the device allows in one top level structure"));
             }
-            target.records = rhi::object_manager<rhi::buffer>{this->contract->create_buffer(rhi::buffer_desc{
-                .size = static_cast<std::uint64_t>(wanted) * sizeof(instance_record),
-                .usage = rhi::buffer_usage::storage_coherent,
-                .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input)})};
-            if (!target.records || target.records->mapped().data() == nullptr) {
-                return std::unexpected(std::string("acceleration structures: the instance table could not be allocated"));
-            }
-            rhi::object_manager<rhi::acceleration_structure> next{this->contract->create_acceleration_structure(
-                rhi::acceleration_structure_desc{.type = rhi::acceleration_structure_type::top_level, .instance_capacity = wanted})};
-            if (!next) {
-                return std::unexpected(std::string("acceleration structures: the backend could not create the top level structure"));
-            }
-            target.structure = std::move(next); // the old object's reference is dropped HERE, inside the backend
+            namespace managed = render_resource::instances;
+            deren::utility::vessel::array<managed::request, 2> requests;
+            requests[0].id = render_resource::resource_id::top_level_structure;
+            requests[0].type = managed::kind::acceleration_structure;
+            requests[0].life = managed::lifetime::frame_slot;
+            requests[0].structure.type = rhi::acceleration_structure_type::top_level;
+            requests[0].structure.instance_capacity = wanted;
+            requests[1].id = render_resource::resource_id::rt_instance_table;
+            requests[1].type = managed::kind::buffer;
+            requests[1].life = managed::lifetime::frame_slot;
+            requests[1].buffer = {.size = static_cast<std::uint64_t>(wanted) * sizeof(instance_record),
+                                  .usage = rhi::buffer_usage::storage_coherent,
+                                  .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input)};
+            if (!target.storage_provider)
+                target.storage_provider = &target.storage_chain.emplace<deren::engine::pass::resource_storage_pass>();
+            target.storage_provider->configure(requests);
+            rhi::buffer* records = nullptr;
+            rhi::acceleration_structure* structure = nullptr;
+            auto const admit = [&](managed::resource_snapshot const& snapshot) {
+                auto record_generation = snapshot.find(requests[1].id);
+                auto structure_generation = snapshot.find(requests[0].id);
+                records = record_generation && record_generation->objects.size() == 1 ? record_generation->objects[0].buffer.get() : nullptr;
+                structure = structure_generation && structure_generation->objects.size() == 1 ? structure_generation->objects[0].structure.get() : nullptr;
+                if (!records || records->size() < requests[1].buffer.size || records->mapped().size() < requests[1].buffer.size ||
+                    !structure || !structure->device_address() || !structure->size_bytes())
+                    return rhi::error::unsupported;
+                auto const used = static_cast<std::size_t>(target.count) * sizeof(instance_record);
+                if (used && (!target.records || target.records->mapped().size() < used))
+                    return rhi::error::unsupported;
+                if (used && records != target.records.get())
+                    std::memcpy(records->mapped().data(), target.records->mapped().data(), used);
+                return rhi::error::ok;
+            };
+            auto root = device_lease ? device_lease : std::shared_ptr<rhi::api_core>{contract, [](rhi::api_core*) {}};
+            if (target.storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok)
+                return std::unexpected(deren::utility::vessel::string("acceleration structures: top level storage could not be prepared"));
+            target.storage_view = target.storage_chain.resources().snapshot();
+            target.records = {records};
+            target.structure = {structure};
             target.capacity = wanted;
             target.pending.reserve(wanted);
             this->stats.structure_bytes += target.structure->size_bytes();
@@ -235,21 +279,25 @@ namespace deren::engine::acceleration_structure {
         return {};
     }
 
-    std::expected<void, std::string> top_level_structure::record_build(rhi::command_buffer& commands) {
+    std::expected<void, deren::utility::vessel::string> top_level_structure::record_build(rhi::command_buffer& commands) {
         std::chrono::steady_clock::time_point const start = std::chrono::steady_clock::now();
+        if (this->current_slot >= this->slots.size())
+            return std::unexpected(deren::utility::vessel::string("acceleration structures: no frame slot is being built"));
         slot& target = this->slots[this->current_slot];
+        target.build_ready = false;
         if (target.count == 0u || !target.structure) {
             return {}; // an empty scene has an empty top level structure, and nothing to trace against
         }
         // THE RECORDS GO TO THE BACKEND FIRST, then the build records: `write_instances` is host work on the
         // backend's own memory, and the build reads it by address.
         if (rhi::error const written = target.structure->write_instances(target.pending); written != rhi::error::ok) {
-            return std::unexpected(std::string("acceleration structures: writing the instance records failed with error ") + std::to_string(static_cast<std::uint32_t>(written)));
+            return std::unexpected(deren::utility::vessel::string("acceleration structures: writing the instance records failed with error ") + deren::utility::vessel::to_string(static_cast<std::uint32_t>(written)));
         }
         if (rhi::error const built = commands.build_acceleration_structure(*target.structure); built != rhi::error::ok) {
-            return std::unexpected(std::string("acceleration structures: recording the top level build failed with error ") + std::to_string(static_cast<std::uint32_t>(built)));
+            return std::unexpected(deren::utility::vessel::string("acceleration structures: recording the top level build failed with error ") + deren::utility::vessel::to_string(static_cast<std::uint32_t>(built)));
         }
         this->stats.geometry_count = target.count;
+        target.build_ready = true;
         this->stats.build_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         return {};
     }

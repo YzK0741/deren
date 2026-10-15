@@ -22,13 +22,14 @@
 #include <span>
 #include <vector>
 
+import deren.utility.shared;
 import deren.engine.meshlet;
 
 namespace {
     /// an interleaved vertex array with a position first (the renderer's layout, without the other attributes)
     struct mesh_fixture {
-        std::vector<uint8_t> vertices;
-        std::vector<uint8_t> indices;
+        deren::utility::vessel::vector<uint8_t> vertices;
+        deren::utility::vessel::vector<uint8_t> indices;
         uint32_t vertex_stride = 0;
         uint32_t vertex_count = 0;
         uint32_t index_width = 4;
@@ -86,14 +87,14 @@ int32_t main() {
     // ---- 1. a window of exactly one meshlet, and one that needs three ----
     {
         mesh_fixture const exact = make_fixture(deren::engine::meshlet_max_triangles);
-        std::vector<deren::engine::meshlet> const one = deren::engine::build_meshlets(input_for(exact));
+        auto const one = deren::engine::build_meshlets(input_for(exact));
         CHECK_MSG(one.size() == 1u, "85 triangles fit one meshlet");
         CHECK(one[0].first_index == 0u);
         CHECK(one[0].index_count == deren::engine::meshlet_max_indices);
         CHECK(one[0].radius > 0.0f);
 
         mesh_fixture const three = make_fixture(deren::engine::meshlet_max_triangles * 2u + 5u);
-        std::vector<deren::engine::meshlet> const split = deren::engine::build_meshlets(input_for(three));
+        auto const split = deren::engine::build_meshlets(input_for(three));
         CHECK_MSG(split.size() == 3u, "175 triangles need three meshlets");
         CHECK(split[0].index_count == deren::engine::meshlet_max_indices);
         CHECK(split[1].index_count == deren::engine::meshlet_max_indices);
@@ -111,7 +112,7 @@ int32_t main() {
         CHECK_MSG(expected_first == three.vertex_count, "the meshlets cover every index of the window");
 
         // DETERMINISM: the same input twice, byte for byte
-        std::vector<deren::engine::meshlet> const again = deren::engine::build_meshlets(input_for(three));
+        auto const again = deren::engine::build_meshlets(input_for(three));
         CHECK(again.size() == split.size());
         CHECK(std::memcmp(again.data(), split.data(), split.size() * sizeof(deren::engine::meshlet)) == 0);
     }
@@ -121,7 +122,7 @@ int32_t main() {
         mesh_fixture const fixture = make_fixture(200u);
         for (uint32_t const width : {2u, 4u}) {
             mesh_fixture const typed = make_fixture(200u, width);
-            std::vector<deren::engine::meshlet> const meshlets = deren::engine::build_meshlets(input_for(typed));
+            auto const meshlets = deren::engine::build_meshlets(input_for(typed));
             CHECK(!meshlets.empty());
             uint32_t checked_vertices = 0;
             for (deren::engine::meshlet const& m : meshlets) {
@@ -157,7 +158,7 @@ int32_t main() {
     // ---- 3. base_vertex and first_index are carried through ----
     {
         mesh_fixture const fixture = make_fixture(4u);
-        std::vector<deren::engine::meshlet> const tail = deren::engine::build_meshlets(input_for(fixture, 3u, 6u, -7));
+        auto const tail = deren::engine::build_meshlets(input_for(fixture, 3u, 6u, -7));
         CHECK_MSG(tail.size() == 1u, "six indices are two triangles");
         CHECK(tail[0].first_index == 0u); // relative to the window, which is what the mesh stage adds to
         CHECK(tail[0].index_count == 6u);
@@ -191,7 +192,7 @@ int32_t main() {
         deren::engine::meshlet_build_input bad_index = input_for(fixture);
         uint32_t const bogus = fixture.vertex_count + 100u;
         std::memcpy(fixture.indices.data(), &bogus, sizeof(bogus)); // the span bad_index holds points at this vector
-        std::vector<deren::engine::meshlet> const fallback = deren::engine::build_meshlets(bad_index);
+        auto const fallback = deren::engine::build_meshlets(bad_index);
         CHECK_MSG(fallback.size() == 1u, "an out-of-range index does not drop the meshlet");
         CHECK(std::isfinite(fallback[0].radius));
     }
@@ -203,7 +204,7 @@ int32_t main() {
     // hung the GPU that way rather than drawing something wrong).
     {
         mesh_fixture const fixture = make_fixture(200u);
-        std::vector<deren::engine::meshlet> const meshlets = deren::engine::build_meshlets(input_for(fixture));
+        auto const meshlets = deren::engine::build_meshlets(input_for(fixture));
         CHECK(!meshlets.empty());
         for (deren::engine::meshlet const& m : meshlets) {
             CHECK_MSG(deren::engine::meshlet_record_sound(m, fixture.vertex_count), "the splitter's own records pass the upload's rule");
@@ -242,7 +243,7 @@ int32_t main() {
     // culls; both directions of that trade are why the axis is the normal AVERAGE and `cone_cos` the worst dot.
     {
         mesh_fixture const fixture = make_fixture(200u);
-        std::vector<deren::engine::meshlet> const meshlets = deren::engine::build_meshlets(input_for(fixture));
+        auto const meshlets = deren::engine::build_meshlets(input_for(fixture));
         CHECK(!meshlets.empty());
         uint32_t cone_checked = 0;
         for (deren::engine::meshlet const& m : meshlets) {

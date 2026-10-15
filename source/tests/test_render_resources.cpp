@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 
+import deren.utility.shared;
 import deren.engine.render_resource;
 import deren.engine.pass.upscale; // make_easu_constants: the ported FsrEasuCon, checked as arithmetic below
 
@@ -33,7 +34,7 @@ namespace {
     namespace up = deren::engine::pass;
 
     /// validate a declaration that holds exactly one binding, so a wrong one can be built in one line
-    std::expected<void, std::string> validate_one(rr::pass_binding const& binding) {
+    std::expected<void, deren::utility::vessel::string> validate_one(rr::pass_binding const& binding) {
         rr::pass_io const io = {
             .name = "probe",
             .bindings = std::span<rr::pass_binding const>(&binding, 1),
@@ -60,8 +61,11 @@ int32_t main() {
     // ---- the schema describes itself, completely ----
     auto const schema = rr::validate_schema();
     CHECK_MSG(schema.has_value(), schema.has_value() ? "" : schema.error().c_str());
-    CHECK(rr::resource_schema.size() == 39);
-    CHECK(static_cast<uint32_t>(rr::resource_id::count) == 40); // 39 families plus `none`
+    CHECK(rr::resource_schema.size() == 76);
+    CHECK(static_cast<uint32_t>(rr::resource_id::count) == 77); // 76 families plus `none`
+    CHECK(rr::find(rr::resource_id::material_table)->scope == rr::resource_scope::device_wide);
+    CHECK(rr::find(rr::resource_id::instance_table)->scope == rr::resource_scope::device_wide);
+    CHECK(rr::find(rr::resource_id::skin_matrices_previous)->scope == rr::resource_scope::per_frame_slot);
     CHECK(rr::find(rr::resource_id::none) == nullptr);
     CHECK(rr::find(rr::resource_id::head_ubo) != nullptr && rr::find(rr::resource_id::head_ubo)->scope == rr::resource_scope::per_frame_slot);
     CHECK(rr::find(rr::resource_id::furnace_cube) != nullptr);
@@ -72,14 +76,15 @@ int32_t main() {
     // declarations are written against, asserted where it lives rather than assumed by them
     CHECK(rr::find(rr::resource_id::bloom)->count == 4);
     {
-        std::array<rr::render_target, 1> const last_level = {rr::render_target{.resource = rr::resource_id::bloom, .element = 3, .kind = rr::target_kind::color}};
+        deren::utility::vessel::array<rr::render_target, 1> const last_level = {rr::render_target{.resource = rr::resource_id::bloom, .element = 3, .kind = rr::target_kind::color}};
         rr::pass_io const io = {.name = "bloom", .bindings = {}, .targets = last_level, .push = std::nullopt};
         CHECK(rr::validate(io).has_value()); // the deepest level a pass may render into
-        std::array<rr::render_target, 1> const past_the_end = {rr::render_target{.resource = rr::resource_id::bloom, .element = 4, .kind = rr::target_kind::color}};
+        deren::utility::vessel::array<rr::render_target, 1> const past_the_end = {rr::render_target{.resource = rr::resource_id::bloom, .element = 4, .kind = rr::target_kind::color}};
         rr::pass_io const bad = {.name = "bloom", .bindings = {}, .targets = past_the_end, .push = std::nullopt};
         CHECK(!rr::validate(bad).has_value()); // ... and the one past it, which names no image at all
     }
     CHECK(rr::find(rr::resource_id::top_level_structure)->kind == rr::resource_kind::accel_struct);
+    CHECK(rr::find(rr::resource_id::top_level_structure)->scope == rr::resource_scope::per_frame_slot);
     CHECK(rr::find(rr::resource_id::swapchain_image)->lifetime == rr::resource_lifetime::imported);
     // the two scopes this project has been bitten by, asserted where they live
     CHECK(rr::find(rr::resource_id::shadow_map)->scope == rr::resource_scope::per_frame_slot);
@@ -90,7 +95,7 @@ int32_t main() {
     // zero, while a `shared` binding only USES a resource the frame's heap provides and carries no such
     // requirement - which is the distinction the resolver and this declaration layer key on.
     {
-        std::array<rr::pass_binding, 2> const mixed = {
+        deren::utility::vessel::array<rr::pass_binding, 2> const mixed = {
             good_binding, // the pass's own binding 0
             // One of the SCENE's resources, reached through the frame's heap rather than owned - deliberately
             // numbered 4, which would be a contiguity error if it were an `own` binding
@@ -107,7 +112,7 @@ int32_t main() {
                                 .push = rr::push_block{.offset = 0, .size = 56, .stages = rr::stage_flag::compute}};
         CHECK(rr::validate(io).has_value());
         // ... and the SAME pair with the shared binding marked `own` is refused, because 0,4 is not contiguous
-        std::array<rr::pass_binding, 2> const not_contiguous = {good_binding, {.binding = 4, .owner = rr::binding_owner::own, .kind = rr::binding_kind::sampled_image, .resource = rr::resource_id::scene_textures, .access = rr::binding_access::read, .sampler = rr::sampler_hint::post}};
+        deren::utility::vessel::array<rr::pass_binding, 2> const not_contiguous = {good_binding, {.binding = 4, .owner = rr::binding_owner::own, .kind = rr::binding_kind::sampled_image, .resource = rr::resource_id::scene_textures, .access = rr::binding_access::read, .sampler = rr::sampler_hint::post}};
         rr::pass_io const gap = {.name = "shared-like", .bindings = not_contiguous, .targets = {}, .push = std::nullopt};
         CHECK(!rr::validate(gap).has_value());
     }
@@ -183,7 +188,7 @@ int32_t main() {
         CHECK(!validate_one(b).has_value());
     }
     {
-        std::array<rr::pass_binding, 2> const dup = {good_binding, good_binding};
+        deren::utility::vessel::array<rr::pass_binding, 2> const dup = {good_binding, good_binding};
         rr::pass_io const io = {.name = "probe", .bindings = dup, .push = std::nullopt};
         CHECK(!rr::validate(io).has_value()); // the same binding twice
     }
@@ -206,41 +211,41 @@ int32_t main() {
     rr::render_target const past_the_family = {.resource = rr::resource_id::hdr, .element = 4};
     rr::render_target const not_an_image = {.resource = rr::resource_id::light_ubo, .element = 0};
     {
-        std::array<rr::render_target, 1> const target = {hdr_target};
+        deren::utility::vessel::array<rr::render_target, 1> const target = {hdr_target};
         rr::pass_io const io = {.name = "taa", .bindings = {}, .targets = target, .push = std::nullopt};
         CHECK(rr::validate(io).has_value()); // the frame's HDR target, written by a fullscreen resolve
     }
     {
-        std::array<rr::render_target, 1> const target = {no_target};
+        deren::utility::vessel::array<rr::render_target, 1> const target = {no_target};
         rr::pass_io const io = {.name = "taa", .bindings = {}, .targets = target, .push = std::nullopt};
         CHECK(!rr::validate(io).has_value()); // an unset resource, exactly as for a binding
     }
     {
-        std::array<rr::render_target, 1> const target = {past_the_family};
+        deren::utility::vessel::array<rr::render_target, 1> const target = {past_the_family};
         rr::pass_io const io = {.name = "taa", .bindings = {}, .targets = target, .push = std::nullopt};
         CHECK(!rr::validate(io).has_value()); // element 4 of a per-swapchain-image family that holds one
     }
     {
-        std::array<rr::render_target, 1> const target = {not_an_image};
+        deren::utility::vessel::array<rr::render_target, 1> const target = {not_an_image};
         rr::pass_io const io = {.name = "taa", .bindings = {}, .targets = target, .push = std::nullopt};
         CHECK(!rr::validate(io).has_value()); // a buffer is not an image a pass can render into
     }
     {
-        std::array<rr::render_target, 2> const target = {hdr_target, hdr_target};
+        deren::utility::vessel::array<rr::render_target, 2> const target = {hdr_target, hdr_target};
         rr::pass_io const io = {.name = "taa", .bindings = {}, .targets = target, .push = std::nullopt};
         CHECK(!rr::validate(io).has_value()); // the same image twice
     }
     {
         // a DEPTH target: the scene pass declares one, and an instance has exactly one
         rr::render_target const depth_target = {.resource = rr::resource_id::gbuffer_depth, .element = 0, .kind = rr::target_kind::depth};
-        std::array<rr::render_target, 2> const one_depth = {hdr_target, depth_target};
+        deren::utility::vessel::array<rr::render_target, 2> const one_depth = {hdr_target, depth_target};
         rr::pass_io const io = {.name = "scene", .bindings = {}, .targets = one_depth, .push = std::nullopt};
         CHECK(rr::validate(io).has_value()); // one colour plus one depth is what a scene instance is
     }
     {
         rr::render_target const depth_a = {.resource = rr::resource_id::gbuffer_depth, .element = 0, .kind = rr::target_kind::depth};
         rr::render_target const depth_b = {.resource = rr::resource_id::shadow_map, .element = 0, .kind = rr::target_kind::depth};
-        std::array<rr::render_target, 2> const two_depths = {depth_a, depth_b};
+        deren::utility::vessel::array<rr::render_target, 2> const two_depths = {depth_a, depth_b};
         rr::pass_io const io = {.name = "scene", .bindings = {}, .targets = two_depths, .push = std::nullopt};
         CHECK(!rr::validate(io).has_value()); // two depth attachments cannot be recorded
     }
@@ -302,8 +307,8 @@ int32_t main() {
         // The two cases that stood here - a set declared as both its own and a shared one, and the same shared
         // set declared twice - went with the set vocabulary. Their surviving subject is covered: `binding_owner`
         // exemption from contiguity above, and duplicate binding numbers just below.
-        std::array<rr::pass_binding, 2> const twice = {rr::pass_binding{.binding = 2, .owner = rr::binding_owner::shared, .kind = rr::binding_kind::storage_buffer, .resource = rr::resource_id::cluster_counts, .access = rr::binding_access::write},
-                                                       rr::pass_binding{.binding = 2, .owner = rr::binding_owner::shared, .kind = rr::binding_kind::storage_buffer, .resource = rr::resource_id::cluster_indices, .access = rr::binding_access::write}};
+        deren::utility::vessel::array<rr::pass_binding, 2> const twice = {rr::pass_binding{.binding = 2, .owner = rr::binding_owner::shared, .kind = rr::binding_kind::storage_buffer, .resource = rr::resource_id::cluster_counts, .access = rr::binding_access::write},
+                                                                          rr::pass_binding{.binding = 2, .owner = rr::binding_owner::shared, .kind = rr::binding_kind::storage_buffer, .resource = rr::resource_id::cluster_indices, .access = rr::binding_access::write}};
         rr::pass_io const io = {.name = "scene", .bindings = twice, .targets = {}, .push = std::nullopt};
         CHECK(!rr::validate(io).has_value()); // two bindings may not share a number, whatever their owner
     }
@@ -313,11 +318,11 @@ int32_t main() {
     {
         // the barrier-image rule the validator enforces: they must be images the schema declares, and a pass
         // indexes them by POSITION, so the same one twice is a declaration that cannot be read
-        std::array<rr::barrier_image, 1> const barrier_not_an_image = {rr::barrier_image{.resource = rr::resource_id::camera_ubo, .element = 0}};
+        deren::utility::vessel::array<rr::barrier_image, 1> const barrier_not_an_image = {rr::barrier_image{.resource = rr::resource_id::camera_ubo, .element = 0}};
         rr::pass_io const io = {.name = "barrier-like", .bindings = {}, .targets = {}, .barrier_images = barrier_not_an_image, .push = std::nullopt};
         CHECK(!rr::validate(io).has_value());
-        std::array<rr::barrier_image, 2> const twice = {rr::barrier_image{.resource = rr::resource_id::ml_trace, .element = 0},
-                                                        rr::barrier_image{.resource = rr::resource_id::ml_trace, .element = 0}};
+        deren::utility::vessel::array<rr::barrier_image, 2> const twice = {rr::barrier_image{.resource = rr::resource_id::ml_trace, .element = 0},
+                                                                           rr::barrier_image{.resource = rr::resource_id::ml_trace, .element = 0}};
         rr::pass_io const dup = {.name = "barrier-like", .bindings = {}, .targets = {}, .barrier_images = twice, .push = std::nullopt};
         CHECK(!rr::validate(dup).has_value());
     }
@@ -368,15 +373,15 @@ int32_t main() {
     {
         // the barrier-BUFFER rule, the same three checks one resource class over: it must be a buffer the
         // schema declares, and a pass indexes these by position so the same one twice cannot be read
-        std::array<rr::barrier_buffer, 1> const not_a_buffer = {rr::barrier_buffer{.resource = rr::resource_id::ml_trace, .element = 0}};
+        deren::utility::vessel::array<rr::barrier_buffer, 1> const not_a_buffer = {rr::barrier_buffer{.resource = rr::resource_id::ml_trace, .element = 0}};
         rr::pass_io const io = {.name = "cluster", .bindings = {}, .targets = {}, .barrier_buffers = not_a_buffer, .push = std::nullopt};
         CHECK(!rr::validate(io).has_value());
-        std::array<rr::barrier_buffer, 2> const twice = {rr::barrier_buffer{.resource = rr::resource_id::cluster_counts, .element = 0},
-                                                         rr::barrier_buffer{.resource = rr::resource_id::cluster_counts, .element = 0}};
+        deren::utility::vessel::array<rr::barrier_buffer, 2> const twice = {rr::barrier_buffer{.resource = rr::resource_id::cluster_counts, .element = 0},
+                                                                            rr::barrier_buffer{.resource = rr::resource_id::cluster_counts, .element = 0}};
         rr::pass_io const dup = {.name = "cluster", .bindings = {}, .targets = {}, .barrier_buffers = twice, .push = std::nullopt};
         CHECK(!rr::validate(dup).has_value());
         // ... and an element the family does not hold is rejected too (the schema's count is the contract)
-        std::array<rr::barrier_buffer, 1> const out_of_range = {rr::barrier_buffer{.resource = rr::resource_id::cluster_counts, .element = 9}};
+        deren::utility::vessel::array<rr::barrier_buffer, 1> const out_of_range = {rr::barrier_buffer{.resource = rr::resource_id::cluster_counts, .element = 9}};
         rr::pass_io const bad_element = {.name = "cluster", .bindings = {}, .targets = {}, .barrier_buffers = out_of_range, .push = std::nullopt};
         CHECK(!rr::validate(bad_element).has_value());
     }
@@ -478,7 +483,7 @@ int32_t main() {
     // ---- the SIXTEENTH declaration: the shadow pass, one cascade at a time into a layer of the map array ----
     {
         auto const shadow = rr::validate(rr::shadow_io);
-        std::string const shadow_error = shadow.has_value() ? std::string{} : shadow.error(); // a temporary`s c_str() would dangle
+        auto const shadow_error = shadow.has_value() ? deren::utility::vessel::string{} : shadow.error(); // a temporary`s c_str() would dangle
         CHECK_MSG(shadow.has_value(), shadow_error.c_str());
         CHECK(rr::shadow_io.bindings.empty()); // the shared scene resources carry everything the depth-only draw reads
         // ONE TARGET ENTRY, N ELEMENTS - the RUN of cascade layers, and this is what replaced "one target by
@@ -506,23 +511,23 @@ int32_t main() {
         CHECK(rr::shadow_io.push->stages == (rr::stage_flag::vertex | rr::stage_flag::fragment));
 
         // THE RUN'S OWN CHECKS: a run that reaches past its family is a declaration error ...
-        std::array<rr::render_target, 1> const run_past_the_family = {rr::render_target{.resource = rr::resource_id::shadow_map, .element = 2, .kind = rr::target_kind::depth, .count = 4}};
+        deren::utility::vessel::array<rr::render_target, 1> const run_past_the_family = {rr::render_target{.resource = rr::resource_id::shadow_map, .element = 2, .kind = rr::target_kind::depth, .count = 4}};
         rr::pass_io const bad_run = {.name = "shadow", .bindings = {}, .targets = run_past_the_family, .push = std::nullopt};
         CHECK(!rr::validate(bad_run).has_value());
         // ... and so is claiming NO element, which would be a target that renders nothing ...
-        std::array<rr::render_target, 1> const empty_run = {rr::render_target{.resource = rr::resource_id::shadow_map, .element = 0, .kind = rr::target_kind::depth, .count = 0}};
+        deren::utility::vessel::array<rr::render_target, 1> const empty_run = {rr::render_target{.resource = rr::resource_id::shadow_map, .element = 0, .kind = rr::target_kind::depth, .count = 0}};
         rr::pass_io const no_run = {.name = "shadow", .bindings = {}, .targets = empty_run, .push = std::nullopt};
         CHECK(!rr::validate(no_run).has_value());
         // ... and two runs of ONE resource may not overlap, which is "rendering into one image twice" one layer
         // out. (Two depth runs would be refused by the one-depth rule first, so this case is a colour family's.)
-        std::array<rr::render_target, 2> const overlapping = {rr::render_target{.resource = rr::resource_id::bloom, .element = 0, .count = 3},
-                                                              rr::render_target{.resource = rr::resource_id::bloom, .element = 2, .count = 2}};
+        deren::utility::vessel::array<rr::render_target, 2> const overlapping = {rr::render_target{.resource = rr::resource_id::bloom, .element = 0, .count = 3},
+                                                                                 rr::render_target{.resource = rr::resource_id::bloom, .element = 2, .count = 2}};
         rr::pass_io const overlap = {.name = "post_hdr", .bindings = {}, .targets = overlapping, .push = std::nullopt};
         CHECK(!rr::validate(overlap).has_value());
         // ... while two runs that TOUCH but do not overlap are legal, which keeps the rule about the IMAGES a
         // declaration claims rather than about adjacency
-        std::array<rr::render_target, 2> const adjacent = {rr::render_target{.resource = rr::resource_id::bloom, .element = 0, .count = 2},
-                                                           rr::render_target{.resource = rr::resource_id::bloom, .element = 2, .count = 2}};
+        deren::utility::vessel::array<rr::render_target, 2> const adjacent = {rr::render_target{.resource = rr::resource_id::bloom, .element = 0, .count = 2},
+                                                                              rr::render_target{.resource = rr::resource_id::bloom, .element = 2, .count = 2}};
         rr::pass_io const touching = {.name = "post_hdr", .bindings = {}, .targets = adjacent, .push = std::nullopt};
         CHECK(rr::validate(touching).has_value());
     }
@@ -594,20 +599,20 @@ int32_t main() {
     //      files are parsed and compared here: the scalars a shader bakes (base, stride, counts), the NAME SET of
     //      the arrays (a rename on either side is a drift), and the value of every array.
     {
-        auto const read_lines = [](std::string const& path) {
-            std::vector<std::string> lines;
+        auto const read_lines = [](std::filesystem::path const& path) {
+            deren::utility::vessel::vector<deren::utility::vessel::string> lines;
             std::ifstream file(path);
-            CHECK_MSG(file.is_open(), path.c_str());
-            std::string line;
+            CHECK_MSG(file.is_open(), path.string().c_str());
+            deren::utility::vessel::string line;
             while (std::getline(file, line)) {
                 lines.push_back(line);
             }
             return lines;
         };
         /// `name = <base> + <N>u` or `name = <N>u` or `name = <N>` -> the value, resolving `base` from `known`
-        auto const value_of = [](std::string const& rhs, std::map<std::string, uint64_t> const& known) -> std::optional<uint64_t> {
+        auto const value_of = [](deren::utility::vessel::string const& rhs, deren::utility::vessel::map<deren::utility::vessel::string, uint64_t> const& known) -> std::optional<uint64_t> {
             std::size_t const plus = rhs.find(" + ");
-            if (plus == std::string::npos) {
+            if (plus == deren::utility::vessel::string::npos) {
                 return std::strtoull(rhs.c_str(), nullptr, 10);
             }
             auto const base = known.find(rhs.substr(0, plus));
@@ -623,31 +628,31 @@ int32_t main() {
         /// abort. This file died with 0xc0000409 exactly once - when a source file it parses had moved and the
         /// parse stopped matching - and a THROWN length was how. A malformed line must be a reported failure,
         /// not a crash.
-        auto const rhs_after_eq = [](std::string const& line, std::size_t const eq) -> std::optional<std::string> {
+        auto const rhs_after_eq = [](deren::utility::vessel::string const& line, std::size_t const eq) -> std::optional<deren::utility::vessel::string> {
             std::size_t const semi = line.find(';', eq);
-            if (eq == std::string::npos || semi == std::string::npos || semi <= eq + 2u) {
+            if (eq == deren::utility::vessel::string::npos || semi == deren::utility::vessel::string::npos || semi <= eq + 2u) {
                 return std::nullopt;
             }
             return line.substr(eq + 2u, semi - eq - 2u);
         };
 
-        std::map<std::string, uint64_t> shader_scalars;
-        std::map<std::string, uint64_t> shader_slots; // the `heap_slots_<name>` arrays
-        for (std::string const& line : read_lines(std::string(VR_TEST_SOURCE_DIR) + "/source/shaders/common/heap_slot_constants.slang")) {
+        deren::utility::vessel::map<deren::utility::vessel::string, uint64_t> shader_scalars;
+        deren::utility::vessel::map<deren::utility::vessel::string, uint64_t> shader_slots; // the `heap_slots_<name>` arrays
+        for (deren::utility::vessel::string const& line : read_lines(deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/shaders/common/heap_slot_constants.slang")) {
             if (line.rfind("static const uint ", 0) != 0) {
                 continue;
             }
             std::size_t const eq = line.find('=');
-            if (eq == std::string::npos) {
+            if (eq == deren::utility::vessel::string::npos) {
                 continue;
             }
             std::size_t const name_end = line.find(' ', 18);
-            std::optional<std::string> const rhs = rhs_after_eq(line, eq);
-            CHECK_MSG(name_end != std::string::npos && rhs.has_value(), line.c_str());
-            if (name_end == std::string::npos || !rhs.has_value()) {
+            std::optional<deren::utility::vessel::string> const rhs = rhs_after_eq(line, eq);
+            CHECK_MSG(name_end != deren::utility::vessel::string::npos && rhs.has_value(), line.c_str());
+            if (name_end == deren::utility::vessel::string::npos || !rhs.has_value()) {
                 continue;
             }
-            std::string const name = line.substr(18, name_end - 18);
+            deren::utility::vessel::string const name = line.substr(18, name_end - 18);
             std::optional<uint64_t> const value = value_of(*rhs, shader_scalars);
             CHECK_MSG(value.has_value(), name.c_str());
             if (!value.has_value()) {
@@ -660,16 +665,16 @@ int32_t main() {
             }
         }
 
-        std::map<std::string, uint64_t> host_scalars;
-        std::map<std::string, uint64_t> host_slots; // the members of core::heap_slots
-        std::size_t parsed_declarations = 0;        // the tooth on the braced-initializer skip (see below)
+        deren::utility::vessel::map<deren::utility::vessel::string, uint64_t> host_scalars;
+        deren::utility::vessel::map<deren::utility::vessel::string, uint64_t> host_slots; // the members of core::heap_slots
+        std::size_t parsed_declarations = 0;                                              // the tooth on the braced-initializer skip (see below)
         bool in_slots = false;
-        for (std::string const& line : read_lines(std::string(VR_TEST_SOURCE_DIR) + "/source/engine/render_layout/render_layout.cppm")) {
-            if (line.find("struct heap_slots {") != std::string::npos) {
+        for (deren::utility::vessel::string const& line : read_lines(deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/engine/render_layout/render_layout.cppm")) {
+            if (line.find("struct heap_slots {") != deren::utility::vessel::string::npos) {
                 in_slots = true;
                 continue;
             }
-            if (in_slots && line.find("};") != std::string::npos) {
+            if (in_slots && line.find("};") != deren::utility::vessel::string::npos) {
                 in_slots = false;
                 continue;
             }
@@ -677,23 +682,23 @@ int32_t main() {
             // with internal linkage, and namespace-scope `static constexpr` has exactly that linkage -
             // while the struct's members stay `static constexpr` (implicitly inline). Both spellings are
             // the grid's own declarations, so both are read.
-            if (line.find("static constexpr") == std::string::npos && line.find("inline constexpr") == std::string::npos) {
+            if (line.find("static constexpr") == deren::utility::vessel::string::npos && line.find("inline constexpr") == deren::utility::vessel::string::npos) {
                 continue;
             }
             std::size_t const eq = line.find('=');
-            if (eq == std::string::npos) {
+            if (eq == deren::utility::vessel::string::npos) {
                 continue;
             }
-            std::string lhs = line.substr(0, eq);
+            deren::utility::vessel::string lhs = line.substr(0, eq);
             while (!lhs.empty() && lhs.back() == ' ') {
                 lhs.pop_back();
             }
             std::size_t const name_begin = lhs.rfind(' ');
-            std::string const name = lhs.substr(name_begin == std::string::npos ? 0u : name_begin + 1u);
-            std::optional<std::string> const rhs = rhs_after_eq(line, eq);
+            deren::utility::vessel::string const name = lhs.substr(name_begin == deren::utility::vessel::string::npos ? 0u : name_begin + 1u);
+            std::optional<deren::utility::vessel::string> const rhs = rhs_after_eq(line, eq);
             // A BRACED INITIALIZER IS NOT A SCALAR, and since A1.0 this file carries more than the grid:
             // `deren.engine.render_layout` also declares the render chain's formats (`gbuffer_formats` is
-            // an `std::array`).
+            // an `deren::utility::vessel::array`).
             //
             // THE BOUNDARY OF THIS SKIP, stated so it cannot be widened by accident: it applies ONLY to an
             // AGGREGATE initializer (`= { ... }`), which neither comparison below can read. A SCALAR
@@ -706,9 +711,9 @@ int32_t main() {
             // comparing less. (The floor is deliberately below the grid's current size: it catches a
             // BRANCH that swallows the file, not a slot that legitimately moves out.)
             {
-                std::string const after_eq = line.substr(eq + 1u);
+                deren::utility::vessel::string const after_eq = line.substr(eq + 1u);
                 std::size_t const first = after_eq.find_first_not_of(' ');
-                if (first != std::string::npos && after_eq[first] == '{') {
+                if (first != deren::utility::vessel::string::npos && after_eq[first] == '{') {
                     continue;
                 }
             }
@@ -736,9 +741,9 @@ int32_t main() {
         // (core::shared_sampler_infos, written from core::create_samplers). So they are checked against the sampler
         // base rather than against a host constant - which is exactly the order contract both files state, and the
         // one thing a rename there could silently break.
-        std::array<std::string_view, 6> const sampler_slots = {"heap_sampler_texture", "heap_sampler_post", "heap_sampler_gbuffer", "heap_sampler_post_nearest", "heap_sampler_taa", "heap_sampler_shadow"};
+        deren::utility::vessel::array<std::string_view, 6> const sampler_slots = {"heap_sampler_texture", "heap_sampler_post", "heap_sampler_gbuffer", "heap_sampler_post_nearest", "heap_sampler_taa", "heap_sampler_shadow"};
         for (std::size_t i = 0; i < sampler_slots.size(); ++i) {
-            auto const found = shader_scalars.find(std::string(sampler_slots[i]));
+            auto const found = shader_scalars.find(deren::utility::vessel::string(sampler_slots[i]));
             auto const base = shader_scalars.find("heap_sampler_base");
             CHECK_MSG(found != shader_scalars.end(), sampler_slots[i].data());
             CHECK_MSG(base != shader_scalars.end(), "heap_sampler_base is not declared in source/shaders/common/heap_slot_constants.slang");
@@ -771,38 +776,38 @@ int32_t main() {
         // (core's constructor and runtime's), because a hand-kept list of "files where a heap write can
         // live" has to be updated by the same person who just moved the writes. A directory walk cannot
         // be forgotten, and it is STRICTER - it sees files the list never had.
-        std::string host_text;
+        deren::utility::vessel::string host_text;
         // THE RENDERER'S SOURCES LIVE IN TWO DIRECTORIES SINCE S5, and both are walked for the reason this
         // loop replaced the hand-kept file list in the first place: `source/backends/vulkan/` holds the backend and the
         // engine modules around it, and `source/engine/runtime/` at the repository root holds the runtime - which moved
         // out of `source/backends/vulkan/` in S1, while the copy left behind inside `source/engine/runtime/` was still the file
         // this walk found. S5 deleted that copy, so the walk must name the runtime's real home or the
         // needles below would be looked for in a directory that no longer holds them.
-        std::array<std::string, 2> const source_roots = {std::string(VR_TEST_SOURCE_DIR) + "/source/backends/vulkan",
-                                                         std::string(VR_TEST_SOURCE_DIR) + "/source/engine"};
-        for (std::string const& root : source_roots) {
+        deren::utility::vessel::array<deren::utility::vessel::string, 2> const source_roots = {deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/backends/vulkan",
+                                                                                               deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/engine"};
+        for (deren::utility::vessel::string const& root : source_roots) {
             for (auto const& entry : std::filesystem::recursive_directory_iterator(root)) {
                 if (!entry.is_regular_file()) {
                     continue;
                 }
-                std::string const extension = entry.path().extension().string();
+                auto const extension = entry.path().extension().string();
                 if (extension != ".cpp" && extension != ".cppm") {
                     continue;
                 }
-                for (std::string const& line : read_lines(entry.path().string())) {
+                for (deren::utility::vessel::string const& line : read_lines(entry.path().string())) {
                     host_text += line;
                     host_text += '\n';
                 }
             }
         }
-        std::array<std::string_view, 3> const written_by_arithmetic = {"bloom_l1", "bloom_l2", "bloom_l3"};
+        deren::utility::vessel::array<std::string_view, 3> const written_by_arithmetic = {"bloom_l1", "bloom_l2", "bloom_l3"};
         uint32_t covered = 0;
         for (auto const& [name, value] : shader_slots) {
             if (std::find(written_by_arithmetic.begin(), written_by_arithmetic.end(), name) != written_by_arithmetic.end()) {
                 continue;
             }
-            std::string const needle = "heap_slots::" + name;
-            CHECK_MSG(host_text.find(needle) != std::string::npos, needle.c_str());
+            deren::utility::vessel::string const needle = "heap_slots::" + name;
+            CHECK_MSG(host_text.find(needle) != deren::utility::vessel::string::npos, needle.c_str());
             ++covered;
         }
         CHECK(covered > 20u); // the floor again: a host file that failed to load would pass the loop above

@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.engine.shadow_fit
-// module version: 0.1.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Directional-shadow cascade fitting, as a pure CPU calculation: given the camera,
 // the scene extent and the casters' light-space bounds, produce the per-cascade
@@ -26,6 +26,7 @@ module;
 #include <vector>
 
 export module deren.engine.shadow_fit;
+export import deren.utility.shared;
 
 export import deren.vstd;
 export import deren.engine.primitive; // max_shadow_cascades (and the light_ubo shape this produces)
@@ -101,9 +102,9 @@ namespace deren::engine::shadow_fit {
      *       fit left there, and repeating the last matrix is the honest value for that case.
      */
     export struct fit_result {
-        std::array<glm::mat4, max_shadow_cascades> light_view_proj = {};
-        std::array<float, max_shadow_cascades> cascade_splits = {};
-        std::array<float, max_shadow_cascades> cascade_texel_world = {};
+        deren::utility::vessel::array<glm::mat4, max_shadow_cascades> light_view_proj = {};
+        deren::utility::vessel::array<float, max_shadow_cascades> cascade_splits = {};
+        deren::utility::vessel::array<float, max_shadow_cascades> cascade_texel_world = {};
         /// the normalized light direction the fit used; the caller stores it (its `w` lane also
         /// carries 1 / map_size for the shader)
         glm::vec3 light_dir = {};
@@ -125,7 +126,7 @@ namespace deren::engine::shadow_fit {
      *       - so one rotation serves every cascade, and with it one caster pass per frame instead of
      *       one per cascade
      */
-    export std::vector<std::pair<glm::vec3, glm::vec3>> fit_casters(std::span<std::pair<glm::vec3, glm::vec3> const> world_boxes, glm::vec3 light_dir, bool& unbounded);
+    export deren::utility::vessel::vector<std::pair<glm::vec3, glm::vec3>> fit_casters(std::span<std::pair<glm::vec3, glm::vec3> const> world_boxes, glm::vec3 light_dir, bool& unbounded);
 
     /**
      * @ingroup engine_shadow_fit

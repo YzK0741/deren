@@ -16,6 +16,7 @@ module;
 #include <vector>
 
 module deren.engine.ray_tracing;
+import deren.utility.shared;
 
 import deren.utility;
 
@@ -43,14 +44,33 @@ namespace deren::engine::ray_tracing {
         /// The pair every buffer this module builds a structure FROM carries: an address, and the
         /// acceleration-structure build-input capability (the renderer's own `build_input_usage`).
         constexpr rhi::buffer_flags build_input_flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input);
+        std::shared_ptr<pass::pass_chain> make_bake_storage(rhi::api_core& core, std::shared_ptr<rhi::api_core> const& lease, render_resource::resource_id id, uint64_t bytes) {
+            namespace managed = render_resource::instances;
+            auto chain = std::make_shared<pass::pass_chain>();
+            auto& provider = chain->emplace<pass::resource_storage_pass>();
+            managed::request request;
+            request.id = id;
+            request.type = managed::kind::buffer;
+            request.life = managed::lifetime::scene;
+            request.buffer = {.size = bytes, .usage = rhi::buffer_usage::storage_gpu_only, .flags = build_input_flags};
+            provider.configure(std::span{&request, 1});
+            auto root = lease ? lease : std::shared_ptr<rhi::api_core>{&core, [](rhi::api_core*) {}};
+            auto const admit = [&](managed::resource_snapshot const& snapshot) {
+                auto generation = snapshot.find(id);
+                auto* buffer = generation && generation->objects.size() == 1 ? generation->objects[0].buffer.get() : nullptr;
+                return buffer && buffer->size() >= bytes && buffer_address_of(core, *buffer) ? rhi::error::ok : rhi::error::unsupported;
+            };
+            return chain->prepare_resources(root, {}, admit) == rhi::error::ok ? chain : nullptr;
+        }
 
         // `addressable_flag` STOOD HERE for the micromap scratch and storage; the BACKEND allocates both now
         // (and it knows which flags they need), so this module declares only `build_input_flags` below - what a
         // CALLER's geometry buffer must carry.
     } // namespace
 
-    structure_set::structure_set(rhi::api_core& face) noexcept
-        : contract(&face) {
+    structure_set::structure_set(rhi::api_core& face, std::shared_ptr<rhi::api_core> lease) noexcept
+        : contract(lease && lease.get() != &face ? nullptr : &face)
+        , device_lease(std::move(lease)) {
     }
 
     bool structure_set::attempted() const noexcept {
@@ -58,7 +78,7 @@ namespace deren::engine::ray_tracing {
     }
 
     bool structure_set::ready() const noexcept {
-        return this->bottom.has_value() && this->top_level.has_value();
+        return this->build_ready && this->bottom.has_value() && this->top_level.has_value();
     }
 
     std::uint64_t structure_set::structure_size(uint32_t const frame_slot) const noexcept {
@@ -100,10 +120,13 @@ namespace deren::engine::ray_tracing {
         this->micromap_resources.clear();
     }
     structure_set::~structure_set() {
+        if (this->contract && (this->bottom || this->top_level))
+            this->contract->wait_idle();
         this->release_micromaps();
     }
 
     void structure_set::abandon() noexcept {
+        this->build_ready = false;
         this->bottom.reset();
         this->top_level.reset();
         // The expansion buffers and the caster map go with the structures they belong to: a stale mapping would
@@ -145,17 +168,17 @@ namespace deren::engine::ray_tracing {
     // alignment, the three setup buffers and their mappings, the size queries, the storage and the scratch.
     // The backend owns all of it, so a caller cannot get the alignment wrong and a second backend can lay the
     // whole thing out differently.
-    std::optional<structure_set::micromap_resource> make_micromap(rhi::api_core& vk, uint32_t const triangle_count) {
-        if (triangle_count == 0) {
+    std::optional<structure_set::micromap_resource> make_micromap(rhi::api_core& vk, std::shared_ptr<rhi::api_core> const& lease, uint32_t const triangle_count) {
+        if (triangle_count == 0 || triangle_count > UINT32_MAX / 4u) {
             return std::nullopt;
         }
         // The two attribute records, both 4-byte-per-triangle so the dataOffsets are aligned: 0x03 is the 4-state
         // "unknown" pair (see the spec's Ray Opacity Micromap table), one micro-triangle per triangle.
         constexpr uint32_t data_stride = 4u;
         constexpr uint8_t unknown_state = 0x03u;
-        std::vector<std::byte> const data(static_cast<std::size_t>(triangle_count) * data_stride, static_cast<std::byte>(unknown_state));
-        std::vector<deren::promise::rhi::micromap_triangle> const triangles = [triangle_count] {
-            std::vector<deren::promise::rhi::micromap_triangle> records(static_cast<std::size_t>(triangle_count));
+        deren::utility::vessel::vector<std::byte> data(static_cast<std::size_t>(triangle_count) * data_stride, static_cast<std::byte>(unknown_state));
+        deren::utility::vessel::vector<deren::promise::rhi::micromap_triangle> triangles = [triangle_count] {
+            deren::utility::vessel::vector<deren::promise::rhi::micromap_triangle> records(static_cast<std::size_t>(triangle_count));
             for (uint32_t i = 0; i < triangle_count; ++i) {
                 records[i] = deren::promise::rhi::micromap_triangle{
                     .data_offset = i * data_stride,
@@ -165,20 +188,31 @@ namespace deren::engine::ray_tracing {
             }
             return records;
         }();
-        std::vector<uint32_t> const indices(static_cast<std::size_t>(triangle_count), 0u); // identity is not needed: one micromap triangle each
+        deren::utility::vessel::vector<uint32_t> indices(static_cast<std::size_t>(triangle_count), 0u); // identity is not needed: one micromap triangle each
 
+        namespace managed = render_resource::instances;
+        auto upload = std::make_shared<managed::micromap_upload>();
+        upload->data = std::move(data);
+        upload->triangles = std::move(triangles);
+        upload->indices = std::move(indices);
+        managed::request request;
+        request.id = render_resource::resource_id::rt_opacity_micromap;
+        request.type = managed::kind::micromap;
+        request.life = managed::lifetime::scene;
+        request.micromap = {.triangle_count = triangle_count, .data_stride = data_stride, .format = rhi::micromap_format::four_state};
+        request.micromap_data = upload;
+        request.initialization_key = std::make_shared<int const>(0);
         structure_set::micromap_resource out;
-        out.handle = deren::promise::rhi::object_manager<deren::promise::rhi::micromap>{vk.create_micromap(deren::promise::rhi::micromap_desc{
-            .triangle_count = triangle_count,
-            .data = data,
-            .data_stride = data_stride,
-            .triangles = triangles,
-            .indices = indices,
-            .format = deren::promise::rhi::micromap_format::four_state,
-        })};
-        if (!out.handle) {
-            return std::nullopt; // the backend logged why (no VK_EXT_opacity_micromap, or an allocation failed)
-        }
+        out.resources = std::make_shared<pass::pass_chain>();
+        auto& provider = out.resources->emplace<pass::resource_storage_pass>();
+        provider.configure(std::span{&request, 1});
+        auto root = lease ? lease : std::shared_ptr<rhi::api_core>{&vk, [](rhi::api_core*) {}};
+        if (out.resources->prepare_resources(root, {}) != rhi::error::ok)
+            return std::nullopt;
+        auto generation = out.resources->resources().snapshot().find(request.id);
+        out.handle = {generation->objects[0].micromap.get()};
+        request.micromap_data.reset();
+        provider.configure(std::span{&request, 1});
         out.triangle_count = triangle_count;
         return out;
     }
@@ -230,6 +264,8 @@ namespace deren::engine::ray_tracing {
     }
 
     std::expected<void, failure> structure_set::build(rhi::command_buffer& commands, build_inputs const& inputs) {
+        if (!this->contract)
+            return std::unexpected(failure{.message = "Ray tracing device lease belongs to another core"});
         // BUILT ONCE, SUCCESS OR FAILURE: a device that refused the build is not asked again, and no log repeats.
         if (this->build_attempted) {
             return {};
@@ -239,10 +275,10 @@ namespace deren::engine::ray_tracing {
         rhi::api_core& vk = *this->contract;
         // Builds, barriers and bake callbacks share the caller-owned contract buffer.
         auto const start = std::chrono::steady_clock::now();
-        this->bottom.emplace(vk);
+        this->bottom.emplace(vk, this->device_lease);
         // The top level structure is per FRAME SLOT (see its class docs): with frames in flight one buffer would
         // be rewritten by the frame being recorded while the previous one still reads it.
-        this->top_level.emplace(vk, deren::promise::rhi::max_frames_in_flight);
+        this->top_level.emplace(vk, deren::promise::rhi::max_frames_in_flight, this->device_lease);
         auto& structures = *this->bottom;
 
         uint32_t skipped_no_address = 0;
@@ -252,6 +288,7 @@ namespace deren::engine::ray_tracing {
         uint32_t mask_baked = 0;
         uint32_t skipped_mask_buffers = 0;
         bool mask_bakes_recorded = false;
+        deren::utility::vessel::vector<pass::mask_bake_request> pending_mask_bakes;
         // ... and the same two counters for the skinned casters (see the SKINNED branch below).
         uint32_t skinned_baked = 0;
         uint32_t skipped_skin_buffers = 0;
@@ -261,9 +298,14 @@ namespace deren::engine::ray_tracing {
         uint32_t micromap_triangles = 0;
         uint32_t skipped_micromaps = 0;
         for (primitive const* caster : inputs.casters) {
+            deren::utility::vessel::vector<std::shared_ptr<void const>> dependencies;
             if (caster == nullptr) {
                 continue;
             }
+            if (auto lease = caster->vertex_buffer.lease())
+                dependencies.push_back(std::move(lease));
+            if (auto lease = caster->index_buffer.lease())
+                dependencies.push_back(std::move(lease));
             if (!caster->vertex_buffer || !caster->index_buffer) {
                 ++skipped_no_address;
                 continue;
@@ -323,7 +365,8 @@ namespace deren::engine::ray_tracing {
                 uint32_t const material_index = caster->push.material_index.value;
                 material_record const* const material = material_index < inputs.materials.size() ? &inputs.materials[material_index] : nullptr;
                 if (material != nullptr && (material->flags & 16u) != 0u) {
-                    if (auto resource = make_micromap(vk, caster->draw_index_count / 3u); resource.has_value()) {
+                    if (auto resource = make_micromap(vk, this->device_lease, caster->draw_index_count / 3u); resource.has_value()) {
+                        dependencies.push_back(resource->resources->resources().snapshot().find(render_resource::resource_id::rt_opacity_micromap));
                         micromap_triangles += resource->triangle_count;
                         micromap_index = static_cast<uint32_t>(this->micromap_resources.size());
                         this->micromap_resources.push_back(std::move(*resource));
@@ -346,27 +389,25 @@ namespace deren::engine::ray_tracing {
                     // the build reads it.
                     constexpr uint32_t mask_vertex_stride = 32u;
                     uint64_t const expanded_bytes = static_cast<uint64_t>(caster->draw_index_count) * mask_vertex_stride;
-                    rhi::object_manager<rhi::buffer> expanded{vk.create_buffer(
-                        rhi::buffer_desc{.size = expanded_bytes, .usage = rhi::buffer_usage::storage_gpu_only, .flags = build_input_flags})};
+                    auto expanded = make_bake_storage(vk, this->device_lease, render_resource::resource_id::rt_mask_vertices, expanded_bytes);
                     // The factory answering non-null IS the old "the allocator has a detail record" test:
                     // `create_buffer()` only returns an object after the allocation succeeded, and it is the
                     // contract's own way of saying the descriptor was honoured.
                     if (expanded) {
-                        mask_address = buffer_address_of(vk, *expanded);
+                        auto generation = expanded->resources().snapshot().find(render_resource::resource_id::rt_mask_vertices);
+                        mask_address = buffer_address_of(vk, *generation->objects[0].buffer);
+                        dependencies.push_back(generation);
                         mask_stride = mask_vertex_stride;
-                        inputs.hooks.record_mask_bake(inputs.hooks.owner,
-                                                      commands,
-                                                      pass::mask_bake_request{
-                                                          .source_vertices = source_vertex_address,
-                                                          .source_indices = source_index_address,
-                                                          .destination = mask_address,
-                                                          .source_stride = caster->vertex_stride,
-                                                          .destination_stride = mask_vertex_stride,
-                                                          .index_type = static_cast<uint32_t>(caster->index_type),
-                                                          .triangle_count = caster->draw_index_count / 3u,
-                                                          .material_index = material_index,
-                                                      });
-                        mask_bakes_recorded = true;
+                        pending_mask_bakes.push_back(pass::mask_bake_request{
+                            .source_vertices = source_vertex_address,
+                            .source_indices = source_index_address,
+                            .destination = mask_address,
+                            .source_stride = caster->vertex_stride,
+                            .destination_stride = mask_vertex_stride,
+                            .index_type = static_cast<uint32_t>(caster->index_type),
+                            .triangle_count = caster->draw_index_count / 3u,
+                            .material_index = material_index,
+                        });
                         ++mask_baked;
                         // The buffer outlives this loop: the build below reads it, and a hit's shading reads its
                         // vertices through the instance table for as long as the structures live.
@@ -395,10 +436,11 @@ namespace deren::engine::ray_tracing {
                 caster->push.skin_base != 0 && caster->vertex_count != 0 && caster->vertex_stride == skin_source_stride_expected) {
                 constexpr uint32_t skin_vertex_stride = 32u; // position, normal, uv - what hit shading reads
                 uint64_t const skinned_bytes = static_cast<uint64_t>(caster->vertex_count) * skin_vertex_stride;
-                rhi::object_manager<rhi::buffer> skinned_vertices{vk.create_buffer(
-                    rhi::buffer_desc{.size = skinned_bytes, .usage = rhi::buffer_usage::storage_gpu_only, .flags = build_input_flags})};
+                auto skinned_vertices = make_bake_storage(vk, this->device_lease, render_resource::resource_id::rt_skin_vertices, skinned_bytes);
                 if (skinned_vertices) {
-                    skin_address = buffer_address_of(vk, *skinned_vertices);
+                    auto generation = skinned_vertices->resources().snapshot().find(render_resource::resource_id::rt_skin_vertices);
+                    skin_address = buffer_address_of(vk, *generation->objects[0].buffer);
+                    dependencies.push_back(generation);
                     skin_stride = skin_vertex_stride;
                     skin_source_stride = caster->vertex_stride;
                     skin_vertex_count = caster->vertex_count;
@@ -421,7 +463,7 @@ namespace deren::engine::ray_tracing {
                                       micromap_index != caster_level::micromap_none ? &this->micromap_resources[micromap_index] : nullptr);
             // A skinned structure is built ALLOW_UPDATE so the per-frame refit is legal; everything else is built
             // once and never touched again.
-            auto const added = structures.add(source, skin_address != 0);
+            auto const added = structures.add(source, skin_address != 0, dependencies);
             if (!added) {
                 this->abandon();
                 return std::unexpected(failure{.message = added.error()});
@@ -443,6 +485,12 @@ namespace deren::engine::ray_tracing {
                                                         .micromap_index = micromap_index});
         }
 
+        // Record only after all destinations and BLAS objects are prepared. Abandoning a failed
+        // allocation must not leave commands pointing into freed, never-submitted bake storage.
+        for (auto const& bake : pending_mask_bakes)
+            inputs.hooks.record_mask_bake(inputs.hooks.owner, commands, bake);
+        mask_bakes_recorded = !pending_mask_bakes.empty();
+
         // The skinned casters' first skinning pass, recorded here because the BUILD below has to read skinned
         // vertices - and every frame after this one re-skins and REFITS in update(). The refit is not recorded
         // here: this is the frame the structures are created, and a refit against a structure that does not exist
@@ -453,7 +501,8 @@ namespace deren::engine::ray_tracing {
                     this->skin_levels.push_back(built.blas_index);
                 }
             }
-            static_cast<void>(inputs.hooks.record_skin(inputs.hooks.owner, commands, this->caster_list));
+            if (!inputs.hooks.record_skin(inputs.hooks.owner, commands, this->caster_list))
+                return std::unexpected(failure{.message = "Ray tracing: initial skin recording failed", .disable_skin_bake = true});
         }
 
         // Every bake wrote a buffer the build below reads: one barrier covers them all, because every dispatch is
@@ -476,7 +525,7 @@ namespace deren::engine::ray_tracing {
                                                               .to = deren::promise::rhi::buffer_use::acceleration_structure_read},
             };
             if (commands.barrier(bake_order) != deren::promise::rhi::error::ok) {
-                deren::utility::log("ray tracing: the mask bake's build-ordering barrier was refused");
+                return std::unexpected(failure{.message = "Ray tracing: bake build-ordering barrier was refused"});
             }
         }
 
@@ -494,13 +543,12 @@ namespace deren::engine::ray_tracing {
             // `vkCmdPipelineBarrier2` that stood here is gone (it was this module's last Vulkan call).
             // THE ORDER IS THE CALLER'S AND IT MATTERS: every micromap is built before the geometry that
             // consults it, which is the order below.
-            bool micromap_build_refused = false;
             for (micromap_resource const& resource : this->micromap_resources) {
                 if (!resource.handle) {
                     continue;
                 }
                 if (commands.build_micromap(*resource.handle) != deren::promise::rhi::error::ok) {
-                    micromap_build_refused = true;
+                    return std::unexpected(failure{.message = "Ray tracing: micromap build was refused"});
                 }
             }
             // THE SECOND HALF RIDES THE CONTRACT (the micromap roles are values the `buffer_use` enum carries):
@@ -517,10 +565,7 @@ namespace deren::engine::ray_tracing {
                                                               .to = deren::promise::rhi::buffer_use::micromap_read},
             };
             if (commands.barrier(micromaps_ready) != deren::promise::rhi::error::ok) {
-                deren::utility::log("ray tracing: the micromap build-ordering barrier was refused");
-            }
-            if (micromap_build_refused) {
-                deren::utility::log("ray tracing: a micromap build was refused - the casters that consult one fall back to opaque");
+                return std::unexpected(failure{.message = "Ray tracing: micromap build-ordering barrier was refused"});
             }
             deren::utility::log("ray-traced shadows: built {} opacity micromaps ({} triangles, subdivision level 0, 4-state, every micro-triangle UNKNOWN, {} casters skipped - so this step cannot change a pixel)",
                                 this->micromap_resources.size(),
@@ -528,11 +573,8 @@ namespace deren::engine::ray_tracing {
                                 skipped_micromaps);
         }
         if (auto const built = structures.record_build(commands); !built) {
-            // The two structures go, the COPIES stay: this is the same asymmetry the renderer had, and it is kept
-            // deliberately - a failed record of a build does not invalidate the buffers the map points at, and
-            // dropping them would be a second, unrelated change of behaviour.
-            this->bottom.reset();
-            this->top_level.reset();
+            // Earlier commands may already borrow structures. Keep all build resources until
+            // phase teardown drains submitted work; ready remains false so traversal is disabled.
             return std::unexpected(failure{.message = built.error()});
         }
 
@@ -561,6 +603,7 @@ namespace deren::engine::ray_tracing {
             // number of structures a frame's refit touches.
             deren::utility::log("ray-traced shadows: {} skinned casters re-skinned and REFITTED from their deformed vertices every frame ({} could not be - those keep their bind pose)", skinned_baked, skipped_skin_buffers);
         }
+        this->build_ready = true;
         return {};
     }
 
@@ -573,12 +616,18 @@ namespace deren::engine::ray_tracing {
         auto& levels = *this->bottom;
         auto& top = *this->top_level;
 
+        if (auto const begun = top.begin(frame_slot); !begun) {
+            return std::unexpected(failure{.message = begun.error()});
+        }
+
         // The skinned casters are deformed and their structures REFITTED here, before the instance list is walked
         // (the addresses do not change, so the order does not matter to correctness - but the refit has to be
         // recorded before this frame writes the scene block's binding 16, the ordering the mask bake's own-set
         // comment explains).
         if (inputs.skin_bake && !this->skin_levels.empty() && inputs.hooks.skin_ready != nullptr && inputs.hooks.skin_ready(inputs.hooks.owner)) {
-            if (inputs.hooks.record_skin(inputs.hooks.owner, commands, this->caster_list)) {
+            if (!inputs.hooks.record_skin(inputs.hooks.owner, commands, this->caster_list)) {
+                return std::unexpected(failure{.message = "Ray tracing: skin update recording failed", .disable_skin_bake = true});
+            } else {
                 if (auto const updated = levels.record_update(commands, this->skin_levels); !updated) {
                     // Once, and off: a failure here would otherwise log every frame, and a refit is not something
                     // to keep attempting against structures the device refused. The knob is the CALLER's, so the
@@ -588,9 +637,6 @@ namespace deren::engine::ray_tracing {
             }
         }
 
-        if (auto const begun = top.begin(frame_slot); !begun) {
-            return std::unexpected(failure{.message = begun.error()});
-        }
         // The instance list is the caster set the shadow pass draws, with the world matrix the raster passes use
         // for each caster - the same matrix shadow_geometry_signature() hashes, which is why an animated or moved
         // caster is reflected here for free.

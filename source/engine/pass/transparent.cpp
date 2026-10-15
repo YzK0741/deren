@@ -11,6 +11,7 @@ module;
 #include <span>
 
 module deren.engine.pass.transparent;
+import deren.utility.shared;
 
 import deren.promise.rhi; // the record series (abi 20): the barriers, the rendering scope, the secondary's lifecycle
 import deren.engine.render_resource;
@@ -60,7 +61,7 @@ namespace deren::engine::pass {
         // THE BATCH RIDES THE CONTRACT (abi 20): two images, the same two pairs and the same order the raw
         // barriers carried - `sampling_to_depth_attachment_transition` on the depth, then
         // `color_attachment_dependency` on the scene target, in ONE barrier call.
-        std::array<rhi::image_barrier, 2> const barriers = {
+        deren::utility::vessel::array<rhi::image_barrier, 2> const barriers = {
             rhi::image_barrier{.resource = io.targets[1].image_handle,
                                .from = rhi::image_use::shader_read,
                                .to = rhi::image_use::depth_attachment,
@@ -81,7 +82,7 @@ namespace deren::engine::pass {
         // (native colour formats, the depth format, the sample count and the view mask the raw
         // VkCommandBufferInheritanceRenderingInfo carried), and the BACKEND derives the descriptor-heap half
         // itself - chaining it here is not possible and not needed.
-        std::array<rhi::image_format, 1> const color_formats = {this->pass_frame.color_format};
+        deren::utility::vessel::array<rhi::image_format, 1> const color_formats = {this->pass_frame.color_format};
         rhi::command_buffer_inheritance_info const inheritance = {
             .color_format_count = static_cast<std::uint32_t>(color_formats.size()),
             .color_formats = color_formats.data(),
@@ -117,7 +118,7 @@ namespace deren::engine::pass {
         // opaque surface, and neither may be cleared.
         // THE SCOPE RIDES THE CONTRACT TOO (abi 20): one colour attachment and the depth, both LOAD + STORE, and
         // the raw call's flags word is the `secondary_contents` bit.
-        std::array<rhi::color_attachment, 1> const colors = {
+        deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {
             rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::load, .store = rhi::store_op::store, .clear = {}},
         };
         rhi::depth_attachment const depth = {.view = io.targets[1].view_handle,

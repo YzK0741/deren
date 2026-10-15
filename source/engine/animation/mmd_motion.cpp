@@ -23,6 +23,7 @@ module;
 #include <vector>
 
 module deren.engine.animation.mmd_motion;
+import deren.utility.shared;
 
 import deren.vstd;
 import deren.utility;
@@ -71,12 +72,12 @@ namespace deren::engine::animation {
         }
 
         /** VMD pads fixed-width name fields with NULs; the Shift-JIS bytes themselves are preserved. */
-        [[nodiscard]] std::string read_name(std::uint8_t const* p, std::size_t width) {
+        [[nodiscard]] deren::utility::vessel::string read_name(std::uint8_t const* p, std::size_t width) {
             std::size_t n = 0;
             while (n < width && p[n] != 0u) {
                 ++n;
             }
-            return std::string(reinterpret_cast<char const*>(p), n);
+            return deren::utility::vessel::string(reinterpret_cast<char const*>(p), n);
         }
 
         /** @brief one channel's control points, read at the offsets the format actually uses */
@@ -89,7 +90,7 @@ namespace deren::engine::animation {
 
         /** @brief index of the first key at or after @p frame, assuming @p frames is sorted ascending */
         template <class key>
-        [[nodiscard]] std::size_t upper_index(std::vector<key> const& keys, float frame) noexcept {
+        [[nodiscard]] std::size_t upper_index(deren::utility::vessel::vector<key> const& keys, float frame) noexcept {
             std::size_t hi = 1;
             while (hi < keys.size() && static_cast<float>(keys[hi].frame) < frame) {
                 ++hi;
@@ -163,7 +164,7 @@ namespace deren::engine::animation {
         return 0.0f;
     }
 
-    std::string escape_mmd_name(std::string_view raw) {
+    deren::utility::vessel::string escape_mmd_name(std::string_view raw) {
         static constexpr char digits[] = "0123456789abcdef";
         // A C hex escape swallows every hex digit that follows it, so "\x89E" is the single value
         // 0x89E rather than two bytes - which matters because a retarget table is generated from
@@ -174,7 +175,7 @@ namespace deren::engine::animation {
         auto const is_hex_digit = [](uint8_t const c) {
             return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
         };
-        std::string out;
+        deren::utility::vessel::string out;
         out.reserve(raw.size());
         for (std::size_t i = 0; i < raw.size(); ++i) {
             auto const byte = static_cast<uint8_t>(raw[i]);
@@ -193,7 +194,7 @@ namespace deren::engine::animation {
         return out;
     }
 
-    std::optional<mmd_motion> parse_mmd_motion(std::vector<std::uint8_t> const& bytes) {
+    std::optional<mmd_motion> parse_mmd_motion(std::span<std::uint8_t const> bytes) {
         std::uint8_t const* const d = bytes.data();
         std::size_t const size = bytes.size();
         if (size < vmd_header_bytes + vmd_model_name_bytes) {
@@ -216,10 +217,10 @@ namespace deren::engine::animation {
         if (bone_count > (size - o) / vmd_bone_record_bytes) {
             return std::nullopt;
         }
-        std::unordered_map<std::string, std::size_t> bone_track;
+        deren::utility::vessel::unordered_map<deren::utility::vessel::string, std::size_t> bone_track;
         for (std::uint32_t i = 0; i < bone_count; ++i) {
             std::uint8_t const* const rec = d + o;
-            std::string name = read_name(rec, vmd_name_bytes);
+            deren::utility::vessel::string name = read_name(rec, vmd_name_bytes);
             mmd_bone_key key;
             key.frame = read_u32(rec + 15);
             key.translation = glm::vec3(read_f32(rec + 19), read_f32(rec + 23), read_f32(rec + 27));
@@ -249,10 +250,10 @@ namespace deren::engine::animation {
         if (morph_count > (size - o) / vmd_morph_record_bytes) {
             return std::nullopt;
         }
-        std::unordered_map<std::string, std::size_t> morph_track;
+        deren::utility::vessel::unordered_map<deren::utility::vessel::string, std::size_t> morph_track;
         for (std::uint32_t i = 0; i < morph_count; ++i) {
             std::uint8_t const* const rec = d + o;
-            std::string name = read_name(rec, vmd_name_bytes);
+            deren::utility::vessel::string name = read_name(rec, vmd_name_bytes);
             mmd_morph_key key;
             key.frame = read_u32(rec + 15);
             key.weight = read_f32(rec + 19);
@@ -333,13 +334,13 @@ namespace deren::engine::animation {
         return motion;
     }
 
-    std::optional<mmd_motion> load_mmd_motion(std::string const& path) {
-        std::ifstream in(path, std::ios::binary);
+    std::optional<mmd_motion> load_mmd_motion(deren::utility::vessel::string const& path) {
+        std::ifstream in(path.c_str(), std::ios::binary);
         if (!in) {
             return std::nullopt;
         }
-        std::vector<std::uint8_t> const bytes((std::istreambuf_iterator<char>(in)),
-                                              std::istreambuf_iterator<char>());
+        deren::utility::vessel::vector<std::uint8_t> const bytes((std::istreambuf_iterator<char>(in)),
+                                                                 std::istreambuf_iterator<char>());
         if (bytes.empty()) {
             return std::nullopt;
         }
@@ -452,9 +453,9 @@ namespace deren::engine::animation {
 
     } // namespace
 
-    std::vector<mmd_bone_alias> const& mmd_bone_aliases() {
-        static std::vector<mmd_bone_alias> const table(std::begin(mmd_alias_table),
-                                                       std::end(mmd_alias_table));
+    deren::utility::vessel::vector<mmd_bone_alias> const& mmd_bone_aliases() {
+        static deren::utility::vessel::vector<mmd_bone_alias> const table(std::begin(mmd_alias_table),
+                                                                          std::end(mmd_alias_table));
         return table;
     }
 
@@ -463,8 +464,8 @@ namespace deren::engine::animation {
     }
 
     mmd_retarget build_mmd_retarget(mmd_motion const& motion,
-                                    std::vector<std::string> const& joint_names) {
-        std::unordered_map<std::string_view, std::size_t> joint_index;
+                                    deren::utility::vessel::vector<deren::utility::vessel::string> const& joint_names) {
+        deren::utility::vessel::unordered_map<std::string_view, std::size_t> joint_index;
         for (std::size_t i = 0; i < joint_names.size(); ++i) {
             joint_index.try_emplace(joint_names[i], i); // the first joint of a name wins
         }

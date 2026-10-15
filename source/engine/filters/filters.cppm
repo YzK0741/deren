@@ -1,4 +1,4 @@
-// module version: 0.3.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 
 /**
  * @file source/engine/filters/filters.cppm
@@ -46,6 +46,7 @@ module;
 #include <vector>
 
 export module deren.engine.filters;
+export import deren.utility.shared;
 // THIS FILE NO LONGER EXPORTS A BACKEND MODULE. It used to `export import deren.vulkan.core;`, which is
 // what made `deren.engine.filters` a re-porter of the whole concrete class (and why a consumer could
 // reach `core::MAX_FRAMES_IN_FLIGHT` through it transitively). The contract is imported PLAINLY below: the
@@ -134,7 +135,7 @@ export namespace deren::engine {
          * one. A `resource_id` that was never registered resolves to a null handle, which is what a pass's
          * "this owner has none" branch already handles.
          */
-        std::vector<std::pair<uint32_t, resource_handles>> registered;
+        deren::utility::vessel::vector<std::pair<uint32_t, resource_handles>> registered;
 
     public:
         /// an empty table: the runtime publishes what it has through `register_resource`

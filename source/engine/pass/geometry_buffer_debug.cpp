@@ -13,6 +13,7 @@ module;
 #include <string>
 
 module deren.engine.pass.geometry_buffer_debug;
+import deren.utility.shared;
 
 import deren.promise.rhi;
 import deren.engine.pipelines; // build_gbuffer_debug: the view pipeline, and that is all the pass takes from the builder
@@ -110,7 +111,7 @@ namespace deren::engine::pass {
         // THE FOUR IMAGES THIS PASS READS BECOME SAMPLES, in ONE dependency info and in the declaration's order -
         // the three stored targets, then the motion-vector target. A pipeline barrier may not be recorded inside a
         // rendering instance, which is why this is here and not after the scope below.
-        std::array<rhi::image_barrier, render_resource::gbuffer_debug_barriers.size()> barriers = {};
+        deren::utility::vessel::array<rhi::image_barrier, render_resource::gbuffer_debug_barriers.size()> barriers = {};
         for (std::size_t b = 0; b < barriers.size(); ++b) {
             // COLOR_ATTACHMENT -> SHADER_READ, the shipped `hdr_sampling_transition` pair: the backend derives
             // the masks and the layouts from it (abi 20).
@@ -127,7 +128,7 @@ namespace deren::engine::pass {
         // clearing are the frame's ordering rules about images the G-buffer pass wrote.
         // THE RENDERING SCOPE RIDES THE CONTRACT NOW (abi 20): one colour attachment, CLEAR + STORE (what the raw
         // helper spelled), zero clear colour, no depth - the whole scope this pass opens.
-        std::array<rhi::color_attachment, 1> const colors = {
+        deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {
             rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::clear, .store = rhi::store_op::store, .clear = {}},
         };
         rhi::rendering_info const rendering_info{

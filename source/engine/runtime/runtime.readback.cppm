@@ -31,13 +31,14 @@ module;
 #include <vector>
 
 module deren.engine.runtime:readback;
+import deren.utility.shared;
 
 import :declarations;
 
 import deren.promise.rhi;
 
 namespace deren::engine {
-    std::expected<runtime::frame_image, std::string> runtime::acquire_current_frame_image() {
+    std::expected<runtime::frame_image, deren::utility::vessel::string> runtime::acquire_current_frame_image() {
         // NO `screenshot_pending` CHECK HERE, AND THAT IS A MEASURED DECISION rather than an omission:
         // the one caller is `if (consume_screenshot_request()) { acquire_current_frame_image(); }`
         // (main.cpp), and consume_screenshot_request() CLEARS the flag while answering it - so a check
@@ -53,11 +54,11 @@ namespace deren::engine {
         deren::promise::rhi::image* const image = device.frame_image();
         deren::promise::rhi::buffer* const slot = device.frame_readback_buffer();
         if (image == nullptr || slot == nullptr) {
-            return std::unexpected(std::string("screenshot: the backend has no frame image or read-back slot"));
+            return std::unexpected(deren::utility::vessel::string("screenshot: the backend has no frame image or read-back slot"));
         }
         deren::promise::rhi::image_extent const extent = image->extent();
         if (extent.width == 0 || extent.height == 0) {
-            return std::unexpected(std::string("screenshot: the frame image has no extent"));
+            return std::unexpected(deren::utility::vessel::string("screenshot: the frame image has no extent"));
         }
         // The format the backend names for the frame image decides how the bytes are unpacked. A format
         // the contract cannot describe is the "unsupported swapchain format" error this path always had.
@@ -65,7 +66,7 @@ namespace deren::engine {
         bool const bgra = format == deren::promise::rhi::image_format::bgra8_srgb || format == deren::promise::rhi::image_format::bgra8_unorm;
         bool const rgba = format == deren::promise::rhi::image_format::rgba8_srgb || format == deren::promise::rhi::image_format::rgba8_unorm;
         if (!bgra && !rgba) {
-            return std::unexpected(std::string("screenshot: unsupported swapchain format (need 8-bit RGBA/BGRA)"));
+            return std::unexpected(deren::utility::vessel::string("screenshot: unsupported swapchain format (need 8-bit RGBA/BGRA)"));
         }
 
         // ONE WAIT IS ALL THAT IS LEFT. The copy was recorded INSIDE the submitted frame, so the bytes
@@ -77,19 +78,19 @@ namespace deren::engine {
             auto const bytes = this->gaussian_hdr_readback->mapped();
             std::uint64_t const required = static_cast<std::uint64_t>(this->gaussian_hdr_extent.width) * this->gaussian_hdr_extent.height * 8u;
             if (!required || bytes.size() < required)
-                return std::unexpected(std::string("Gaussian HDR capture: FAIL unavailable readback"));
+                return std::unexpected(deren::utility::vessel::string("Gaussian HDR capture: FAIL unavailable readback"));
             std::ofstream output(path, std::ios::binary);
-            std::array<std::uint32_t, 2> const dimensions = {this->gaussian_hdr_extent.width, this->gaussian_hdr_extent.height};
+            deren::utility::vessel::array<std::uint32_t, 2> const dimensions = {this->gaussian_hdr_extent.width, this->gaussian_hdr_extent.height};
             output.write(reinterpret_cast<char const*>(dimensions.data()), sizeof(dimensions));
             output.write(reinterpret_cast<char const*>(bytes.data()), static_cast<std::streamsize>(required));
             if (!output)
-                return std::unexpected(std::string("Gaussian HDR capture: FAIL file write"));
+                return std::unexpected(deren::utility::vessel::string("Gaussian HDR capture: FAIL file write"));
         }
 
         std::size_t const buffer_size = static_cast<std::size_t>(extent.width) * static_cast<std::size_t>(extent.height) * 4u;
         std::span<std::byte> const mapped = slot->mapped();
         if (mapped.empty() || mapped.size() < buffer_size) {
-            return std::unexpected(std::string("screenshot: read-back slot unavailable or too small"));
+            return std::unexpected(deren::utility::vessel::string("screenshot: read-back slot unavailable or too small"));
         }
 
         frame_image result = {};

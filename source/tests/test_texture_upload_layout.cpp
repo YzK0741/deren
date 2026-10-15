@@ -1,10 +1,12 @@
-#include "texture_regions_fixture.h"
 #include "texture_upload_layout.h"
 #include "vk_test.h"
 
 #include <array>
 #include <limits>
 #include <vector>
+
+import deren.utility.shared;
+#include "texture_regions_fixture.h"
 
 int main() {
     using deren::vulkan::detail::packed_image_size;
@@ -63,7 +65,7 @@ int main() {
     // Each mip fits in uint64, but adding the second mip would overflow it.
     CHECK(!packed_image_size(VK_FORMAT_R8_UNORM, UINT32_MAX, UINT32_MAX, 1, 2));
 
-    std::array<uint8_t, 96> payload{};
+    deren::utility::vessel::array<uint8_t, 96> payload{};
     auto const regions = deren::vulkan::host_copy_regions(payload.data(), {5, 7, 2, 3, VK_FORMAT_BC1_RGBA_UNORM_BLOCK});
     CHECK(regions.size() == 3);
     CHECK(regions[0].pHostPointer == payload.data());

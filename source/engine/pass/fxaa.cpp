@@ -14,6 +14,7 @@ module;
 #include <string>
 
 module deren.engine.pass.fxaa;
+import deren.utility.shared;
 
 // The record series (abi 20): the two barriers, the rendering scope, the cull mode and the draw now
 // go through the contract, so this file names no `vkCmd*` at all (plan §1 step 4, one pass per commit).
@@ -164,7 +165,7 @@ namespace deren::engine::pass {
         };
         // THE RENDERING SCOPE RIDES THE CONTRACT (abi 20): one colour attachment, CLEAR + STORE (what the
         // raw helper spelled), zero clear colour, no depth - the whole scope this pass opens.
-        std::array<rhi::color_attachment, 1> const colors = {
+        deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {
             rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::clear, .store = rhi::store_op::store, .clear = {}},
         };
         rhi::rendering_info const rendering_info{

@@ -13,6 +13,7 @@ module;
 #include <utility>
 
 module deren.engine.pass.mask_bake;
+import deren.utility.shared;
 
 import deren.engine.pipelines; // build_mask_bake: the compute pipeline this job owns
 import deren.utility;
@@ -31,9 +32,9 @@ namespace deren::engine::pass {
         return this->pass_pipeline.has_value();
     }
 
-    std::expected<void, std::string> mask_bake_job::create(pass_context const& context) {
+    std::expected<void, deren::utility::vessel::string> mask_bake_job::create(pass_context const& context) {
         if (context.face == nullptr) {
-            return std::unexpected(std::string("mask bake: no device"));
+            return std::unexpected(deren::utility::vessel::string("mask bake: no device"));
         }
         if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
@@ -41,7 +42,7 @@ namespace deren::engine::pass {
         this->built_against = context.face;
         std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<uint8_t const>{};
         if (spirv.empty()) {
-            return std::unexpected(std::string("mask bake: the owner has no ") + std::string(shader_name));
+            return std::unexpected(deren::utility::vessel::string("mask bake: the owner has no ") + deren::utility::vessel::string(shader_name));
         }
         // Everything the bake reads is a heap slot the shader names itself: the material table (the alpha
         // texture's index, the base colour factor's alpha, the cutoff) and the bindless texture array.

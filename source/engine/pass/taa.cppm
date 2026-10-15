@@ -1,4 +1,4 @@
-// module version: 0.3.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 
 /**
  * @file source/engine/pass/taa.cppm
@@ -38,6 +38,7 @@ module;
 #include <vector>
 
 export module deren.engine.pass.taa;
+export import deren.utility.shared;
 import deren.promise.rhi;
 
 import deren.engine.pass;
@@ -85,7 +86,7 @@ export namespace deren::engine::pass {
         [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
-        void describe_resources(render_resource::instances::resource_context const&, std::vector<render_resource::instances::request>&) const override;
+        void describe_resources(render_resource::instances::resource_context const&, deren::utility::vessel::vector<render_resource::instances::request>&) const override;
         void bind_resources(render_resource::instances::resource_snapshot const&) override;
         void on_swapchain_recreated(pass_host const& host) override;
         void record(resolved_io const& io) override;
@@ -128,7 +129,7 @@ export namespace deren::engine::pass {
         static constexpr std::string_view vertex_shader_name = "post.vert.spv"; // the synthetic fullscreen triangle
         static constexpr std::string_view fragment_shader_name = "taa.frag.spv";
 
-        static constexpr std::array<std::string_view, 1> pipeline_names = {"taa"};
+        static constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {"taa"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
         inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
@@ -146,7 +147,7 @@ export namespace deren::engine::pass {
         // called valid_history, not history_valid: the local named history_valid in taa.cpp would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).
         /// one flag per swapchain image: whether that image's history holds a resolved frame
-        std::vector<bool> valid_history = {};
+        deren::utility::vessel::vector<bool> valid_history = {};
         // called history_written, not wrote_history: the class declares wrote_history() and a member of
         // that name would duplicate it and hide the override.
         /// whether the last record wrote the history (see wrote_history)

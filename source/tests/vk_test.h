@@ -39,11 +39,21 @@ namespace deren::vk_test {
     }
 
     /// one formatted line on stdout; the format string is checked at compile time exactly as `std::format`'s is
+    struct file_output {
+        using difference_type = std::ptrdiff_t;
+        std::FILE* file;
+        file_output& operator*() noexcept { return *this; }
+        file_output& operator++() noexcept { return *this; }
+        file_output operator++(int) noexcept { return *this; }
+        file_output& operator=(char value) noexcept {
+            static_cast<void>(std::fputc(value, file));
+            return *this;
+        }
+    };
     template <typename... Args>
     inline void write_line(std::format_string<Args...> fmt, Args&&... args) {
-        std::string text = std::format(fmt, std::forward<Args>(args)...);
-        text.push_back('\n');
-        static_cast<void>(std::fwrite(text.data(), 1, text.size(), stdout));
+        std::format_to(file_output{stdout}, fmt, std::forward<Args>(args)...);
+        static_cast<void>(std::fputc('\n', stdout));
     }
 
     inline void report(char const* expression, char const* file, int32_t const line, char const* message) {

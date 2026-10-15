@@ -1,4 +1,4 @@
-// module version: 0.3.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 
 /**
  * @file source/engine/pass/chain.cppm
@@ -6,7 +6,7 @@
  * @defgroup engine_pass_chain Pass Chain
  *
  * WHY THIS EXISTS. The runner already had both halves of "run a group of passes" (`create_stage` and
- * `record_stage`), and the renderer still re-stated the LIST at every call site: one `std::array<frame_pass*, 1>`
+ * `record_stage`), and the renderer still re-stated the LIST at every call site: one `deren::utility::vessel::array<frame_pass*, 1>`
  * member per pass, one `stage{.name = ..., .passes = ..., .marks = false}` construction per call, and the order
  * written in the frame loop's statement sequence. A chain makes that a VALUE instead of a convention: the passes
  * are added once, in order, and the two calls take the chain.
@@ -42,6 +42,7 @@ module;
 #include <vector>
 
 export module deren.engine.pass.chain;
+export import deren.utility.shared;
 
 import deren.engine.pass;
 import deren.promise.rhi;
@@ -63,7 +64,7 @@ export namespace deren::engine::pass {
         /// the name the runner is handed for the whole chain (used by marks, which every chain here disables)
         std::string_view chain_name = {};
         /// the passes, in the order they were added; fixed once the frame starts, so nothing allocates per frame
-        std::vector<frame_pass*> passes = {};
+        deren::utility::vessel::vector<frame_pass*> passes = {};
         /**
          * THE PASSES THIS CHAIN OWNS - and it is the chain's, not the renderer's, on purpose.
          *
@@ -74,7 +75,7 @@ export namespace deren::engine::pass {
          * (the running order) the same thing as the lifetime order. `emplace` is how a renderer hands a pass
          * over; `add` still takes a pass it does NOT own, for a test or for a pass that lives elsewhere.
          */
-        std::vector<std::unique_ptr<frame_pass>> owned = {};
+        deren::utility::vessel::vector<std::unique_ptr<frame_pass>> owned = {};
         // called writes_marks, not marks: the constructor's marks parameter would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).
         /// whether the runner writes a mark pair around the chain (false for every chain in this renderer: the
@@ -92,11 +93,11 @@ export namespace deren::engine::pass {
         render_resource::instances::resource_registry& resources() noexcept {
             return managed_resources;
         }
-        deren::promise::rhi::error prepare_resources(std::shared_ptr<deren::promise::rhi::api_core> const& device, render_resource::instances::resource_context const& context) {
-            std::vector<render_resource::instances::request> requests;
+        deren::promise::rhi::error prepare_resources(std::shared_ptr<deren::promise::rhi::api_core> const& device, render_resource::instances::resource_context const& context, render_resource::instances::resource_registry::admission const& accept = {}) {
+            deren::utility::vessel::vector<render_resource::instances::request> requests;
             for (auto* pass : passes)
                 pass->describe_resources(context, requests);
-            auto const result = managed_resources.reconcile(device, context, requests);
+            auto const result = managed_resources.reconcile(device, context, requests, accept);
             if (result == deren::promise::rhi::error::ok) {
                 auto const snapshot = managed_resources.snapshot();
                 for (auto* pass : passes)

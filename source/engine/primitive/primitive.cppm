@@ -3,7 +3,7 @@
 //         GPU primitives that live in the scene-tree leaves, plus the GPU
 //         material / camera / light UBO records of the scene block; versioned in
 //         lock-step with deren.engine.runtime, see that module's banner)
-// module version: 0.8.1a  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // GPU scene contents (namespace deren::engine):
 //   - deren::engine::primitive (owns geometry buffers + material push constants,
@@ -34,8 +34,11 @@ module;
 
 #include <cstddef> // offsetof (layout guard below)
 #include <glm/glm.hpp>
+#include <memory>
+#include <utility>
 
 export module deren.engine.primitive;
+export import deren.utility.shared;
 import deren.promise.rhi; // the contract's buffer handle + object_manager: this module's geometry owners
 // The scene push block's size (a shared-module constant, like the formats and the bloom level count): this
 // module `static_assert`s its own material block against it and derives its exported push-block offsets from
@@ -46,6 +49,56 @@ export import deren.engine.render_environment;
 export import deren.engine.scene_tree; // the abstract leaf interface these implement
 export import deren.engine.meshlet;    // the meshlet split this primitive's geometry carries (docs/mesh_shaders.md step 3)
 namespace deren::engine {
+    /// A geometry view with an explicit lease. Legacy assignments adopt one RHI reference;
+    /// managed bindings retain the generation that owns the actual allocation and device.
+    export class geometry_buffer {
+        deren::promise::rhi::buffer* view = nullptr;
+        std::shared_ptr<void const> owner;
+
+    public:
+        geometry_buffer() = default;
+        geometry_buffer(geometry_buffer const&) = delete;
+        geometry_buffer& operator=(geometry_buffer const&) = delete;
+        geometry_buffer(geometry_buffer&& other) noexcept
+            : view(std::exchange(other.view, nullptr))
+            , owner(std::move(other.owner)) {
+        }
+        geometry_buffer& operator=(geometry_buffer&& other) noexcept {
+            if (this != &other) {
+                view = std::exchange(other.view, nullptr);
+                owner = std::move(other.owner);
+            }
+            return *this;
+        }
+        geometry_buffer& operator=(deren::promise::rhi::object_manager<deren::promise::rhi::buffer>&& value) {
+            auto held = std::make_shared<deren::promise::rhi::object_manager<deren::promise::rhi::buffer>>(std::move(value));
+            bind(held->get(), held);
+            return *this;
+        }
+        void bind(deren::promise::rhi::buffer* value, std::shared_ptr<void const> lease) {
+            view = lease ? value : nullptr;
+            owner = std::move(lease);
+        }
+        void reset() noexcept {
+            view = nullptr;
+            owner.reset();
+        }
+        deren::promise::rhi::buffer* get() const noexcept {
+            return view;
+        }
+        deren::promise::rhi::buffer* operator->() const noexcept {
+            return view;
+        }
+        deren::promise::rhi::buffer& operator*() const noexcept {
+            return *view;
+        }
+        explicit operator bool() const noexcept {
+            return view != nullptr;
+        }
+        std::shared_ptr<void const> lease() const noexcept {
+            return owner;
+        }
+    };
     /**
      * @ingroup engine_primitive
      * @brief camera UBO content, layout matches the CameraUBO block in source/shaders/shading.glsl (no model
@@ -281,11 +334,11 @@ namespace deren::engine {
      *       range - which is what makes the cascaded version an A/B rather than a rewrite.
      */
     export struct light_ubo {
-        std::array<glm::mat4, max_shadow_cascades> light_view_proj = {}; // world -> light clip, per cascade
-        glm::vec4 light_dir = {};                                        // xyz: normalized light direction (sun), w: 1 / shadow map size
-        glm::vec4 cascade_splits = {};                                   // view-space FAR distance of each cascade
-        glm::vec4 cascade_texel_world = {};                              // world size of one shadow-map texel, per cascade
-        float shadow_enabled = 0.0f;                                     // 1.0 samples the shadow map, 0.0 skips shadows
+        deren::utility::vessel::array<glm::mat4, max_shadow_cascades> light_view_proj = {}; // world -> light clip, per cascade
+        glm::vec4 light_dir = {};                                                           // xyz: normalized light direction (sun), w: 1 / shadow map size
+        glm::vec4 cascade_splits = {};                                                      // view-space FAR distance of each cascade
+        glm::vec4 cascade_texel_world = {};                                                 // world size of one shadow-map texel, per cascade
+        float shadow_enabled = 0.0f;                                                        // 1.0 samples the shadow map, 0.0 skips shadows
         // Selectable BRDF models (set via runtime::set_brdf_model / set_diffuse_model, gui
         // combos). Rides the std140 padding of this block - the shader reads them as floats:
         //   brdf_model:   0 = GGX + joint Smith (default), 1 = GGX + height-correlated Smith,
@@ -304,7 +357,7 @@ namespace deren::engine {
         float sun_intensity = 1.0f; // 1.0 normally; 0.0 in the furnace mode, which turns the sun off
         float furnace_level = 0.0f; // 0.0 normally; the constant environment level in the furnace mode
         glm::vec4 light_count = {}; // x = active punctual light count (shader: numeric float), y = exposure, z = toon shading steps (0 = PBR), w = toon band softness
-        std::array<point_light, max_punctual_lights> punctual_lights = {};
+        deren::utility::vessel::array<point_light, max_punctual_lights> punctual_lights = {};
         // Clustered light culling (M5), APPENDED after the light array so the array's offset (352)
         // stays what every shader and the earlier static_asserts already encode:
         //   cluster_grid  x = active tile columns, y = active tile rows, z = depth slices,
@@ -1349,7 +1402,7 @@ namespace deren::engine {
      * it at all, which is a different question: a map can exist while its `_Use` flag is off.
      */
     export struct toon_inputs {
-        std::array<texture_input, static_cast<std::size_t>(toon_slot::count)> slots = {};
+        deren::utility::vessel::array<texture_input, static_cast<std::size_t>(toon_slot::count)> slots = {};
         /**
          * THE MATERIAL'S OWN COLOURS (see `toon_colour_lane`), each one NEUTRAL BY DEFAULT.
          *
@@ -1411,123 +1464,123 @@ namespace deren::engine {
          * the stage reads is the callback's answer and never this default. This default is what a consumer
          * with no callback installed would read.
          */
-        std::array<glm::vec4, static_cast<std::size_t>(toon_colour_lane::count)> colours = {glm::vec4(1.0f),
-                                                                                            glm::vec4(1.0f),
-                                                                                            glm::vec4(1.0f),
-                                                                                            glm::vec4(1.0f, 1.0f, 1.0f, 0.0f),
-                                                                                            glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f),
-                                                                                            glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f),
-                                                                                            glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f),
-                                                                                            glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
-                                                                                            glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f),
-                                                                                            glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f),
-                                                                                            // ---- STEP 4'S SIX LANES (`toon_colour_lane::goo_base_colour` .. `goo_direct_occlusion`) ----
-                                                                                            //
-                                                                                            // THE FIRST TWO ARE THE REFERENCE'S OWN INTERFACE DEFAULTS RATHER THAN A
-                                                                                            // CONVENTION - `BaseColor` is `[1,1,1,1]` and `directOcclusionColor` is
-                                                                                            // `[0,0,0,1]` in `gooblender/nodes.json` - and the other four are the SAME
-                                                                                            // `-1000` SENTINEL (`goo_lane_absent` in the shader), and it is NOT `< 0`
-                                                                                            // BECAUSE TWO OF THE EIGHT ARE AUTHORED NEGATIVES - `CastShadow_center` is
-                                                                                            // `-0.1` on both body materials and `GlobalShadowBrightnessAdjustment` is
-                                                                                            // `-1.8` on the cloth - so a neutral inside the range would swallow them. The two
-                                                                                            // fresnel lanes' `.rgb` is white behind the sentinel - the group's own
-                                                                                            // `fresnel{Inside,Outside}Color` default - and their `.w` is the window
-                                                                                            // edge's default (`0.0` / `1.0`), resolved by the stage component by
-                                                                                            // component exactly as `goo_rim_scalars`' four are.
-                                                                                            glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
-                                                                                            glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
-                                                                                            glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
-                                                                                            glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
-                                                                                            glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
-                                                                                            glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
-                                                                                            // ---- STEP 5'S FOUR LANES (`toon_colour_lane::goo_specular_fgd` .. `goo_specular_color`) ----
-                                                                                            //
-                                                                                            // ALL FOUR ARE THE REFERENCE'S OWN `interface[]` DEFAULTS, which is
-                                                                                            // the same shape step 4's first two lanes use and for the same reason:
-                                                                                            // each one is a value the graph really uses (a strength of 1.0, a white
-                                                                                            // light, a white multiplier) rather than a sentinel standing in for a missing mechanism.
-                                                                                            // `.x` CARRIES THE SENTINEL AND `.yzw` THE FALLBACK, because the three
-                                                                                            // components of the one scalar lane must be able to say "this material's
-                                                                                            // container has no such socket" while the three colour lanes have no
-                                                                                            // in-range value that could mean it: `specularFGD Strength = 0.0` would
-                                                                                            // be a material with no IBL specular at all, and black is a light
-                                                                                            // colour the reference's own author never wrote. So -1 in `.x` is
-                                                                                            // the scalar's absence and the STAGE resolves it (exactly as
-                                                                                            // `goo_rim_scalars`' four components are resolved), while the two
-                                                                                            // colour lanes fall back on their own four components.
-                                                                                            glm::vec4(-1.0f, 1.0f, 1.0f, 1.0f),
-                                                                                            glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
-                                                                                            glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
-                                                                                            // ... AND `SpecularColor` IS WHITE FOR THE OUTLINE LANE'S REASON READ THE
-                                                                                            // OTHER WAY: it is a MULTIPLIER, so 1.0 is the no-op, and a lane left at
-                                                                                            // 0 would DELETE the direct specular of every material that states no
-                                                                                            // row. White is also the reference's own `interface[]` default for
-                                                                                            // the socket, so "not stated" and "stated as white" agree.
-                                                                                            glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
-                                                                                            // ---- STEP 7'S FOUR LANES (`toon_colour_lane::goo_face_scalars_a` .. `goo_face_front_r`) ----
-                                                                                            //
-                                                                                            // THE TWO SCALAR LANES ARE `-1000` SENTINELS AND THE TWO COLOUR LANES ARE
-                                                                                            // OPAQUE BLACK, each for its own lane's reason: the scalars' zero is a value the
-                                                                                            // graph really uses (`SmoothnessMax = 0` is "perfectly rough", and the two
-                                                                                            // brightnesses are multiplied into the pixel), while the two colours ARE the
-                                                                                            // reference's own `interface[]` defaults - white would be the strongest possible
-                                                                                            // statement about a nose shadow (`混合.017`'s A side) and about `Front transparent
-                                                                                            // red`'s tint. See `toon_colour_lane::goo_face_scalars_a` .. `goo_face_front_r`.
-                                                                                            glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
-                                                                                            glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
-                                                                                            glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
-                                                                                            glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
-                                                                                            // ---- STEP 8'S ONE LANE (`toon_colour_lane::goo_normal_strength`) ----
-                                                                                            //
-                                                                                            // A `-1000` SENTINEL RATHER THAN THE GROUP'S OWN `1.0`, because an absent row
-                                                                                            // has to leave the chain's previous normal in place instead of switching the
-                                                                                            // decode on for a material the port carried no measured value for - and not a
-                                                                                            // `0`, because `NormalStrength = 0` is a value the reference's own materials
-                                                                                            // state. See `toon_colour_lane::goo_normal_strength`.
-                                                                                            glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
-                                                                                            // ---- STEP 10'S ONE LANE (`toon_colour_lane::goo_aniso_gate`) ----
-                                                                                            //
-                                                                                            // `(0, 0, 0, 0)` IS THE REFERENCE'S OWN GROUP DEFAULT AND IS NOT A SENTINEL:
-                                                                                            // `Use anisotropy?`, `Anisotropic mask` and `Use Toonaniso?` are all `0.0` in
-                                                                                            // the dump, so a material that states no `_GooAnisoGate` row gets the arm the
-                                                                                            // graph gives a caller that states nothing. See
-                                                                                            // `toon_colour_lane::goo_aniso_gate`.
-                                                                                            glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
-                                                                                            // ---- STEP 12'S ONE LANE (`toon_colour_lane::goo_aniso_rough`) ----
-                                                                                            //
-                                                                                            // `(0, 0, 0, 0)` IS THE REFERENCE'S OWN `interface[]` DEFAULT,
-                                                                                            // exactly as lane 25's is, and NOT the `-1` / `-1000` sentinel shape:
-                                                                                            // `Aniso_SmoothnessMaxT = 0` is a value the graph really uses (it is
-                                                                                            // what a caller that states nothing gets, and `rT = 1` follows from it),
-                                                                                            // so there is no state it could stand in for. See
-                                                                                            // `toon_colour_lane::goo_aniso_rough`.
-                                                                                            glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
-                                                                                            // ---- STEP 13'S TWO LANES (`toon_colour_lane::goo_rs_scalars` / `goo_rs_tint`) ----
-                                                                                            //
-                                                                                            // `(0, 0, 0, 0)` IS THE POINT HERE, not a placeholder: `.x` of lane 27 is `Use RS_Eff?`, and a material
-                                                                                            // whose sidecar states no `_GooRSScalars` row must read `Use = 0` so the stage's gate leaves its colour
-                                                                                            // UNTOUCHED. The stage defaults to zero for exactly this reason - see the `float3 rs_final = lit;` /
-                                                                                            // `if (rs_use > 0.0f && ...)` pair in `source/shaders/toon/goo_toon.slang`, which performs NO floating-point
-                                                                                            // operation at all when `Use` is zero, so this value is what makes that identity BITWISE rather than
-                                                                                            // approximate.
-                                                                                            //
-                                                                                            // IT IS ONE OF THE `count` STATED ENTRIES RATHER THAN PART OF AN INITIALIZER TAIL, and
-                                                                                            // that is not tidiness either: what a value-initialised `std::array` tail holds depends on
-                                                                                            // GLM's `GLM_FORCE_CTOR_INIT`, so a table that stopped short of `count` would be leaving
-                                                                                            // the values of its last lanes to a build configuration. A stated zero cannot drift.
-                                                                                            glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
-                                                                                            // Lane 28's `.w` is the mask's `SmoothStep.max`, so zero here also has to mean "unstated" rather than a
-                                                                                            // literal `max = 0`: the stage reads `.w <= 0` as `1.0`, which is the divide-by-zero guard the port
-                                                                                            // needs precisely because this neutral is `(0,0,0,0)` (see `toon_colour_lane::goo_rs_tint`, spec U7).
-                                                                                            glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
-                                                                                            // ---- STEP 15'S ONE LANE (`toon_colour_lane::goo_rs_arm0`) ----
-                                                                                            //
-                                                                                            // `(0, 0, 0, 0)` IS THE REFERENCE'S OWN GROUP DEFAULT for the
-                                                                                            // `armA` sockets AND it is the arm's off switch: `.y` is `RS Strength`,
-                                                                                            // and `s023 = s036 * RS Strength` zeroes the whole arm when it is zero.
-                                                                                            // A material with no `_GooRSArm0` row therefore gets an `arm0` of zero
-                                                                                            // rather than a guess. See `toon_colour_lane::goo_rs_arm0`.
-                                                                                            glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)};
+        deren::utility::vessel::array<glm::vec4, static_cast<std::size_t>(toon_colour_lane::count)> colours = {glm::vec4(1.0f),
+                                                                                                               glm::vec4(1.0f),
+                                                                                                               glm::vec4(1.0f),
+                                                                                                               glm::vec4(1.0f, 1.0f, 1.0f, 0.0f),
+                                                                                                               glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f),
+                                                                                                               glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f),
+                                                                                                               glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f),
+                                                                                                               glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+                                                                                                               glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f),
+                                                                                                               glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f),
+                                                                                                               // ---- STEP 4'S SIX LANES (`toon_colour_lane::goo_base_colour` .. `goo_direct_occlusion`) ----
+                                                                                                               //
+                                                                                                               // THE FIRST TWO ARE THE REFERENCE'S OWN INTERFACE DEFAULTS RATHER THAN A
+                                                                                                               // CONVENTION - `BaseColor` is `[1,1,1,1]` and `directOcclusionColor` is
+                                                                                                               // `[0,0,0,1]` in `gooblender/nodes.json` - and the other four are the SAME
+                                                                                                               // `-1000` SENTINEL (`goo_lane_absent` in the shader), and it is NOT `< 0`
+                                                                                                               // BECAUSE TWO OF THE EIGHT ARE AUTHORED NEGATIVES - `CastShadow_center` is
+                                                                                                               // `-0.1` on both body materials and `GlobalShadowBrightnessAdjustment` is
+                                                                                                               // `-1.8` on the cloth - so a neutral inside the range would swallow them. The two
+                                                                                                               // fresnel lanes' `.rgb` is white behind the sentinel - the group's own
+                                                                                                               // `fresnel{Inside,Outside}Color` default - and their `.w` is the window
+                                                                                                               // edge's default (`0.0` / `1.0`), resolved by the stage component by
+                                                                                                               // component exactly as `goo_rim_scalars`' four are.
+                                                                                                               glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+                                                                                                               glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
+                                                                                                               glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
+                                                                                                               glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
+                                                                                                               glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
+                                                                                                               glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
+                                                                                                               // ---- STEP 5'S FOUR LANES (`toon_colour_lane::goo_specular_fgd` .. `goo_specular_color`) ----
+                                                                                                               //
+                                                                                                               // ALL FOUR ARE THE REFERENCE'S OWN `interface[]` DEFAULTS, which is
+                                                                                                               // the same shape step 4's first two lanes use and for the same reason:
+                                                                                                               // each one is a value the graph really uses (a strength of 1.0, a white
+                                                                                                               // light, a white multiplier) rather than a sentinel standing in for a missing mechanism.
+                                                                                                               // `.x` CARRIES THE SENTINEL AND `.yzw` THE FALLBACK, because the three
+                                                                                                               // components of the one scalar lane must be able to say "this material's
+                                                                                                               // container has no such socket" while the three colour lanes have no
+                                                                                                               // in-range value that could mean it: `specularFGD Strength = 0.0` would
+                                                                                                               // be a material with no IBL specular at all, and black is a light
+                                                                                                               // colour the reference's own author never wrote. So -1 in `.x` is
+                                                                                                               // the scalar's absence and the STAGE resolves it (exactly as
+                                                                                                               // `goo_rim_scalars`' four components are resolved), while the two
+                                                                                                               // colour lanes fall back on their own four components.
+                                                                                                               glm::vec4(-1.0f, 1.0f, 1.0f, 1.0f),
+                                                                                                               glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+                                                                                                               glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+                                                                                                               // ... AND `SpecularColor` IS WHITE FOR THE OUTLINE LANE'S REASON READ THE
+                                                                                                               // OTHER WAY: it is a MULTIPLIER, so 1.0 is the no-op, and a lane left at
+                                                                                                               // 0 would DELETE the direct specular of every material that states no
+                                                                                                               // row. White is also the reference's own `interface[]` default for
+                                                                                                               // the socket, so "not stated" and "stated as white" agree.
+                                                                                                               glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+                                                                                                               // ---- STEP 7'S FOUR LANES (`toon_colour_lane::goo_face_scalars_a` .. `goo_face_front_r`) ----
+                                                                                                               //
+                                                                                                               // THE TWO SCALAR LANES ARE `-1000` SENTINELS AND THE TWO COLOUR LANES ARE
+                                                                                                               // OPAQUE BLACK, each for its own lane's reason: the scalars' zero is a value the
+                                                                                                               // graph really uses (`SmoothnessMax = 0` is "perfectly rough", and the two
+                                                                                                               // brightnesses are multiplied into the pixel), while the two colours ARE the
+                                                                                                               // reference's own `interface[]` defaults - white would be the strongest possible
+                                                                                                               // statement about a nose shadow (`混合.017`'s A side) and about `Front transparent
+                                                                                                               // red`'s tint. See `toon_colour_lane::goo_face_scalars_a` .. `goo_face_front_r`.
+                                                                                                               glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
+                                                                                                               glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
+                                                                                                               glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
+                                                                                                               glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
+                                                                                                               // ---- STEP 8'S ONE LANE (`toon_colour_lane::goo_normal_strength`) ----
+                                                                                                               //
+                                                                                                               // A `-1000` SENTINEL RATHER THAN THE GROUP'S OWN `1.0`, because an absent row
+                                                                                                               // has to leave the chain's previous normal in place instead of switching the
+                                                                                                               // decode on for a material the port carried no measured value for - and not a
+                                                                                                               // `0`, because `NormalStrength = 0` is a value the reference's own materials
+                                                                                                               // state. See `toon_colour_lane::goo_normal_strength`.
+                                                                                                               glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
+                                                                                                               // ---- STEP 10'S ONE LANE (`toon_colour_lane::goo_aniso_gate`) ----
+                                                                                                               //
+                                                                                                               // `(0, 0, 0, 0)` IS THE REFERENCE'S OWN GROUP DEFAULT AND IS NOT A SENTINEL:
+                                                                                                               // `Use anisotropy?`, `Anisotropic mask` and `Use Toonaniso?` are all `0.0` in
+                                                                                                               // the dump, so a material that states no `_GooAnisoGate` row gets the arm the
+                                                                                                               // graph gives a caller that states nothing. See
+                                                                                                               // `toon_colour_lane::goo_aniso_gate`.
+                                                                                                               glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+                                                                                                               // ---- STEP 12'S ONE LANE (`toon_colour_lane::goo_aniso_rough`) ----
+                                                                                                               //
+                                                                                                               // `(0, 0, 0, 0)` IS THE REFERENCE'S OWN `interface[]` DEFAULT,
+                                                                                                               // exactly as lane 25's is, and NOT the `-1` / `-1000` sentinel shape:
+                                                                                                               // `Aniso_SmoothnessMaxT = 0` is a value the graph really uses (it is
+                                                                                                               // what a caller that states nothing gets, and `rT = 1` follows from it),
+                                                                                                               // so there is no state it could stand in for. See
+                                                                                                               // `toon_colour_lane::goo_aniso_rough`.
+                                                                                                               glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+                                                                                                               // ---- STEP 13'S TWO LANES (`toon_colour_lane::goo_rs_scalars` / `goo_rs_tint`) ----
+                                                                                                               //
+                                                                                                               // `(0, 0, 0, 0)` IS THE POINT HERE, not a placeholder: `.x` of lane 27 is `Use RS_Eff?`, and a material
+                                                                                                               // whose sidecar states no `_GooRSScalars` row must read `Use = 0` so the stage's gate leaves its colour
+                                                                                                               // UNTOUCHED. The stage defaults to zero for exactly this reason - see the `float3 rs_final = lit;` /
+                                                                                                               // `if (rs_use > 0.0f && ...)` pair in `source/shaders/toon/goo_toon.slang`, which performs NO floating-point
+                                                                                                               // operation at all when `Use` is zero, so this value is what makes that identity BITWISE rather than
+                                                                                                               // approximate.
+                                                                                                               //
+                                                                                                               // IT IS ONE OF THE `count` STATED ENTRIES RATHER THAN PART OF AN INITIALIZER TAIL, and
+                                                                                                               // that is not tidiness either: what a value-initialised `deren::utility::vessel::array` tail holds depends on
+                                                                                                               // GLM's `GLM_FORCE_CTOR_INIT`, so a table that stopped short of `count` would be leaving
+                                                                                                               // the values of its last lanes to a build configuration. A stated zero cannot drift.
+                                                                                                               glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+                                                                                                               // Lane 28's `.w` is the mask's `SmoothStep.max`, so zero here also has to mean "unstated" rather than a
+                                                                                                               // literal `max = 0`: the stage reads `.w <= 0` as `1.0`, which is the divide-by-zero guard the port
+                                                                                                               // needs precisely because this neutral is `(0,0,0,0)` (see `toon_colour_lane::goo_rs_tint`, spec U7).
+                                                                                                               glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+                                                                                                               // ---- STEP 15'S ONE LANE (`toon_colour_lane::goo_rs_arm0`) ----
+                                                                                                               //
+                                                                                                               // `(0, 0, 0, 0)` IS THE REFERENCE'S OWN GROUP DEFAULT for the
+                                                                                                               // `armA` sockets AND it is the arm's off switch: `.y` is `RS Strength`,
+                                                                                                               // and `s023 = s036 * RS Strength` zeroes the whole arm when it is zero.
+                                                                                                               // A material with no `_GooRSArm0` row therefore gets an `arm0` of zero
+                                                                                                               // rather than a guess. See `toon_colour_lane::goo_rs_arm0`.
+                                                                                                               glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)};
         /**
          * THE AUTHOR'S TRANSPARENT VARIANT (`_TRANSPARENT_ON`), which its sidecar selects with the PAIR
          * `_SrcBlend 5` / `_DstBlend 10` - Unity's `SrcAlpha` / `OneMinusSrcAlpha`.
@@ -1872,17 +1925,11 @@ namespace deren::engine {
     public:
         ~primitive() override = default;
 
-        // geometry: the contract's move-only owners, ONE reference each, dropped when this leaf is
-        // destroyed. The drop is `rhi::buffer::release()` - the contract deliberately does not call it
-        // "destroy", because a backend that shares a resource hands the same object to several callers and
-        // the object dies with its LAST reference (this backend's buffer registry reference-counts; it does
-        // not yet key buffers on content, so today this drop is the last one) - see the ownership note in
-        // source/promise/rhi/rhi.api_core.cppm. NOTHING IS CACHED BESIDE THEM: this used to keep a
-        // `buffer_detail const*` per buffer for the draws to read, and that pointer was an UNLOCKED
-        // BORROW into the allocator's map - the handle itself is what the
-        // draw now reaches the buffer through, so the borrow is gone rather than kept in parallel.
-        deren::promise::rhi::object_manager<deren::promise::rhi::buffer> vertex_buffer = {};
-        deren::promise::rhi::object_manager<deren::promise::rhi::buffer> index_buffer = {};
+        // Geometry views carry allocation leases. Production generations own buffers and device;
+        // legacy assignments own their transferred RHI reference. BLAS retains leases separately.
+        std::shared_ptr<void const> geometry_resources; // subchain drains after the views below release
+        geometry_buffer vertex_buffer;
+        geometry_buffer index_buffer;
         deren::promise::rhi::index_type index_type = deren::promise::rhi::index_type::uint32;
         // called draw_index_count, not index_count: push_geometry_lanes_impl, push_meshlet_lanes and
         // mesh_dispatch keep a parameter named index_count, which would hide the member of that name and
@@ -1903,7 +1950,7 @@ namespace deren::engine {
          * and the split is the part of that step worth having early - it is arithmetic whose bugs are invisible
          * on screen, so it is built and tested (source/tests/test_meshlet.cpp) before anything consumes it.
          */
-        std::vector<deren::engine::meshlet> meshlets = {};
+        deren::utility::vessel::vector<deren::engine::meshlet> meshlets = {};
         /// where this primitive's run of meshlets starts in the GPU TABLE (docs/mesh_shaders.md step 3): the value
         /// the geometry lanes carry, so a task stage can turn "my meshlet workgroup" into a record index
         uint32_t meshlet_base = 0;
@@ -2141,7 +2188,7 @@ namespace deren::engine {
         std::span<uint8_t const> index_data = {};
         deren::promise::rhi::index_type index_type = deren::promise::rhi::index_type::uint32;
         uint32_t index_count = 0; // whole merged index count (the chunk table covers a subset)
-        std::vector<static_draw_chunk> chunks = {};
+        deren::utility::vessel::vector<static_draw_chunk> chunks = {};
         glm::mat4 model_matrix = glm::mat4(1.0f);
     };
 
@@ -2178,7 +2225,7 @@ namespace deren::engine {
             material_id material_index = {};
             bool double_sided = false;
         };
-        std::vector<chunk_record> chunks = {};
+        deren::utility::vessel::vector<chunk_record> chunks = {};
 
         void draw(render_environment& env) const override;
         void destroy() noexcept override;

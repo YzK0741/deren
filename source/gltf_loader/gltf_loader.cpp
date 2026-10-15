@@ -19,6 +19,7 @@ module;
 #include <optional>
 
 module deren.gltf_loader;
+import deren.utility.shared;
 
 import deren.utility;
 
@@ -26,7 +27,7 @@ namespace {
     using fastgltf::Asset;
 
     struct parsed_data {
-        std::vector<uint8_t> data;
+        deren::utility::vessel::vector<uint8_t> data;
         deren::gltf::component_type component_type = deren::gltf::component_type::unknown;
         deren::gltf::element_type element_type = deren::gltf::element_type::unknown;
         uint64_t count = 0;
@@ -98,8 +99,8 @@ namespace {
     }
 
     template <typename T>
-    std::vector<uint8_t> copy_accessor(Asset const& asset, fastgltf::Accessor const& accessor) {
-        std::vector<uint8_t> data(accessor.count * sizeof(T));
+    deren::utility::vessel::vector<uint8_t> copy_accessor(Asset const& asset, fastgltf::Accessor const& accessor) {
+        deren::utility::vessel::vector<uint8_t> data(accessor.count * sizeof(T));
         fastgltf::copyFromAccessor<T>(asset, accessor, data.data());
         return data;
     }
@@ -289,7 +290,7 @@ namespace {
         // name: a consumer asking for the sidecar's ramp should be able to tell "this file has that image but it
         // did not decode" from "this file has no such image", and only the name makes that distinction
         // expressible. It is the join between the toon sidecar and this file - see texture_data::name.
-        out.name = std::string(image.name);
+        out.name = deren::utility::vessel::string(image.name);
         auto const bytes = get_source_bytes(asset, image.data);
         if (bytes.empty()) {
             return out;
@@ -314,8 +315,8 @@ namespace {
         return out;
     }
 
-    std::map<std::string, uint16_t> get_texture_indices(fastgltf::Material const& material) {
-        std::map<std::string, uint16_t> texture_indices;
+    deren::utility::vessel::map<deren::utility::vessel::string, uint16_t> get_texture_indices(fastgltf::Material const& material) {
+        deren::utility::vessel::map<deren::utility::vessel::string, uint16_t> texture_indices;
         if (material.pbrData.baseColorTexture) {
             texture_indices["albedo"] = static_cast<uint16_t>(material.pbrData.baseColorTexture->textureIndex);
         }
@@ -344,7 +345,7 @@ namespace {
     // runs, so the index IS the material's final index and this vector is addressed exactly like
     // `asset.materials` - in step by construction rather than by a search.
     struct material_extras {
-        std::vector<std::map<std::string, float>> floats = {};
+        deren::utility::vessel::vector<deren::utility::vessel::map<deren::utility::vessel::string, float>> floats = {};
     };
 
     void collect_material_extras(simdjson::dom::object* extras, std::size_t const object_index, fastgltf::Category const object_type, void* user_pointer) {
@@ -362,18 +363,18 @@ namespace {
         if (extras->at_key("efFloats").get_object().get(block) != simdjson::SUCCESS) {
             return;
         }
-        std::map<std::string, float>& out = collected.floats[object_index];
+        deren::utility::vessel::map<deren::utility::vessel::string, float>& out = collected.floats[object_index];
         // ONLY THE CLAIMED NAMES (see `deren::gltf::claimed_extras_floats`): an allow-list scan rather than a copy of
         // the block, so the number of values that enter the model is the number of values something reads.
         for (std::string_view const claimed : deren::gltf::claimed_extras_floats) {
             double value = 0.0;
             if (block.at_key(claimed).get_double().get(value) == simdjson::SUCCESS) {
-                out.emplace(std::string(claimed), static_cast<float>(value));
+                out.emplace(deren::utility::vessel::string(claimed), static_cast<float>(value));
             }
         }
     }
 
-    deren::gltf::material load_material(fastgltf::Material const& material, std::map<std::string, float> const* const extras_floats) {
+    deren::gltf::material load_material(fastgltf::Material const& material, deren::utility::vessel::map<deren::utility::vessel::string, float> const* const extras_floats) {
         deren::gltf::material result;
         result.factors.base_color_factor = glm::vec4(material.pbrData.baseColorFactor[0],
                                                      material.pbrData.baseColorFactor[1],
@@ -406,10 +407,10 @@ namespace {
     }
 
     deren::gltf::primitive load_primitive(fastgltf::Primitive const& primitive, Asset const& asset) {
-        std::map<std::string, deren::gltf::vertex_portion> vertex;
+        deren::utility::vessel::map<deren::utility::vessel::string, deren::gltf::vertex_portion> vertex;
         for (auto const& attribute : primitive.attributes) {
             auto data = get_data_from_accessor(asset, asset.accessors[attribute.accessorIndex]);
-            std::string const name(attribute.name);
+            deren::utility::vessel::string const name(attribute.name);
             vertex[name].component = data.component_type;
             vertex[name].data = std::move(data.data);
         }
@@ -418,7 +419,7 @@ namespace {
         // exactly like the base attributes (same vertex count per target). The glTF spec
         // requires morph-target deltas to be FLOAT; non-float attributes are dropped here so
         // consumers can read the data as float deltas without a per-portion component check.
-        std::vector<deren::gltf::morph_target> targets;
+        deren::utility::vessel::vector<deren::gltf::morph_target> targets;
         targets.reserve(primitive.targets.size());
         for (auto const& target_attributes : primitive.targets) {
             deren::gltf::morph_target target;
@@ -427,7 +428,7 @@ namespace {
                 if (data.component_type != deren::gltf::component_type::float_t) {
                     continue; // non-conforming morph delta: drop (consumers blend float deltas)
                 }
-                std::string const name(attribute.name);
+                deren::utility::vessel::string const name(attribute.name);
                 target.attributes[name].component = data.component_type;
                 target.attributes[name].data = std::move(data.data);
             }
@@ -488,7 +489,7 @@ namespace {
             }
             // glTF node.weights: per-node morph weights, overriding the mesh defaults when present
             if (!fnode.weights.empty()) {
-                std::vector<float> node_weights;
+                deren::utility::vessel::vector<float> node_weights;
                 node_weights.reserve(fnode.weights.size());
                 for (fastgltf::num const w : fnode.weights) {
                     node_weights.push_back(static_cast<float>(w));
@@ -552,11 +553,11 @@ namespace {
             std::size_t child_i = 0;         // next child of asset.nodes[node_index].children
             fastgltf::math::fmat4x4 world{}; // accumulated world of this node (for its children)
         };
-        std::vector<frame> stack;
+        deren::utility::vessel::vector<frame> stack;
         stack.reserve(64);
         // asset node index -> its pool index (first occurrence). Guards against revisiting a
         // node: a valid glTF tree never repeats a node; a cycle would otherwise loop forever.
-        std::unordered_map<std::size_t, std::size_t> node_pool_index;
+        deren::utility::vessel::unordered_map<std::size_t, std::size_t> node_pool_index;
 
         // expand one node: append it (as a pool root or as the parent's next child) and push its
         // frame. Returns the pool index the node occupies.
@@ -651,7 +652,7 @@ namespace {
     // Decode one accessor into a flat float array: Scalar elements -> 1 value each, Vec3 -> 3,
     // Vec4 -> 4 (any supported component type is converted to float). Returns empty for
     // element/component combinations that cannot hold animation values (Mat*, vec2, unknown).
-    std::vector<float> flatten_float_accessor(Asset const& asset, fastgltf::Accessor const& accessor) {
+    deren::utility::vessel::vector<float> flatten_float_accessor(Asset const& asset, fastgltf::Accessor const& accessor) {
         parsed_data const raw = get_data_from_accessor(asset, accessor);
         std::size_t components = 0;
         switch (accessor.type) {
@@ -670,7 +671,7 @@ namespace {
         if (raw.data.empty() || raw.component_type == deren::gltf::component_type::unknown) {
             return {};
         }
-        std::vector<float> out;
+        deren::utility::vessel::vector<float> out;
         out.reserve(raw.count * components);
         for (std::size_t i = 0; i < raw.count * components; ++i) {
             out.push_back(read_float_component(raw.data.data(), raw.component_type, i));
@@ -771,8 +772,8 @@ namespace {
 
     // ---- skins: decode inverse bind matrices (Mat4 float accessor, column-major) ----
 
-    std::vector<glm::mat4> read_mat4_accessor(Asset const& asset, fastgltf::Accessor const& accessor) {
-        std::vector<glm::mat4> out;
+    deren::utility::vessel::vector<glm::mat4> read_mat4_accessor(Asset const& asset, fastgltf::Accessor const& accessor) {
+        deren::utility::vessel::vector<glm::mat4> out;
         if (accessor.type != fastgltf::AccessorType::Mat4 || accessor.componentType != fastgltf::ComponentType::Float) {
             return out;
         }
@@ -872,8 +873,8 @@ namespace {
     };
 
     struct built_mesh {
-        std::vector<vertex> vertices;
-        std::vector<uint8_t> index_data;
+        deren::utility::vessel::vector<vertex> vertices;
+        deren::utility::vessel::vector<uint8_t> index_data;
         uint8_t index_width = 2; // bytes per index (2 or 4)
         uint32_t index_count = 0;
     };
@@ -881,7 +882,7 @@ namespace {
     built_mesh build_mesh(deren::gltf::primitive const& prim) {
         built_mesh result;
         auto const get_portion = [&prim](std::string_view const name) -> deren::gltf::vertex_portion const* {
-            auto const it = prim.vertex.find(std::string(name));
+            auto const it = prim.vertex.find(deren::utility::vessel::string(name));
             return it == prim.vertex.end() ? nullptr : &it->second;
         };
         auto const* position_portion = get_portion("POSITION");
@@ -910,8 +911,8 @@ namespace {
         //        maps to [-1, 1] instead of [0, 1] (glTF's signed normalized conversion) - the case
         //        a quantized NORMAL hits. Unnormalized integers are converted as-is, which is the
         //        honest reading of a file whose accessor says so.
-        auto const read_attribute = []<std::size_t N>(deren::gltf::vertex_portion const& portion, std::size_t const index, bool const signed_normalized) -> std::array<float, N> {
-            std::array<float, N> out = {};
+        auto const read_attribute = []<std::size_t N>(deren::gltf::vertex_portion const& portion, std::size_t const index, bool const signed_normalized) -> deren::utility::vessel::array<float, N> {
+            deren::utility::vessel::array<float, N> out = {};
             std::size_t const component_bytes = deren::gltf::get_component_size(portion.component);
             if (component_bytes == 0) {
                 return out; // unknown component type: nothing to read
@@ -999,8 +1000,8 @@ namespace {
             deren::utility::log("gltf: attribute count mismatch (POSITION has {} vertices, another attribute only {}) - rendering the shorter prefix", position_count, vertex_count);
         }
 
-        std::vector<glm::vec3> positions;
-        std::vector<glm::vec2> uvs;
+        deren::utility::vessel::vector<glm::vec3> positions;
+        deren::utility::vessel::vector<glm::vec2> uvs;
         positions.reserve(vertex_count);
         uvs.reserve(vertex_count);
         for (size_t i = 0; i < vertex_count; ++i) {
@@ -1008,12 +1009,12 @@ namespace {
             // may be normalized u8/u16 in the CORE spec - see read_attribute. N is the accessor's own
             // component count, so each call strides by exactly its own element size (asking for 3
             // components of a vec2 UV walks into the next vertex).
-            std::array<float, 3> const p = read_attribute.operator()<3>(*position_portion, i, true);
+            deren::utility::vessel::array<float, 3> const p = read_attribute.operator()<3>(*position_portion, i, true);
             positions.emplace_back(p[0], p[1], p[2]);
             if (uv_portion == nullptr) {
                 uvs.push_back(default_uv);
             } else {
-                std::array<float, 2> const uv = read_attribute.operator()<2>(*uv_portion, i, false);
+                deren::utility::vessel::array<float, 2> const uv = read_attribute.operator()<2>(*uv_portion, i, false);
                 uvs.emplace_back(uv[0], uv[1]);
             }
         }
@@ -1022,8 +1023,8 @@ namespace {
         // primitives may omit "indices" entirely (non-indexed triangle soup, e.g. the Fox
         // sample) — synthesize a sequential uint32 index buffer [0, vertex_count) so the rest
         // of the pipeline can stay indexed-only.
-        std::vector<uint8_t> synthesized_indices;
-        std::vector<uint8_t> widened_indices; // u8 -> u16 widening result (empty unless used)
+        deren::utility::vessel::vector<uint8_t> synthesized_indices;
+        deren::utility::vessel::vector<uint8_t> widened_indices; // u8 -> u16 widening result (empty unless used)
         uint8_t const index_width = [&] {
             if (prim.index.empty()) {
                 if (vertex_count > 0) {
@@ -1052,9 +1053,9 @@ namespace {
             }
             deren::utility::panic(std::source_location::current(), "unsupported index component type: {}", static_cast<int32_t>(prim.index_component_type));
         }();
-        std::vector<uint8_t> const& index_bytes = !widened_indices.empty()
-                                                      ? widened_indices
-                                                      : (prim.index.empty() ? synthesized_indices : prim.index);
+        deren::utility::vessel::vector<uint8_t> const& index_bytes = !widened_indices.empty()
+                                                                         ? widened_indices
+                                                                         : (prim.index.empty() ? synthesized_indices : prim.index);
         uint32_t const index_count = static_cast<uint32_t>(index_bytes.size() / index_width);
 
         // ---- Normals: use the authored NORMAL attribute when the primitive has one; otherwise
@@ -1064,13 +1065,13 @@ namespace {
         //      meshes like RecursiveSkeletons' boards (their visible faces got normals pointing
         //      away from the camera/light). Generating smooth per-vertex normals is what the
         //      glTF spec expects viewers to do when the attribute is missing.
-        std::vector<glm::vec3> normals;
+        deren::utility::vessel::vector<glm::vec3> normals;
         normals.resize(vertex_count);
         if (normal_portion != nullptr) {
             for (size_t i = 0; i < vertex_count; ++i) {
                 // signed_normalized: a quantized NORMAL is a signed normalized integer whose full
                 // range is [-1, 1] (remapping it as [0, 1] would point every normal into one octant)
-                std::array<float, 3> const n = read_attribute.operator()<3>(*normal_portion, i, true);
+                deren::utility::vessel::array<float, 3> const n = read_attribute.operator()<3>(*normal_portion, i, true);
                 normals[i] = glm::vec3(n[0], n[1], n[2]);
             }
         } else {
@@ -1173,9 +1174,9 @@ namespace {
     }
 
     // Convert stb-decoded texture data to RGBA (3 channels get alpha, 1 channel is gray-scaled)
-    std::vector<uint8_t> to_rgba(deren::gltf::texture_data const& texture) {
+    deren::utility::vessel::vector<uint8_t> to_rgba(deren::gltf::texture_data const& texture) {
         size_t const pixel_count = static_cast<size_t>(texture.width) * texture.height;
-        std::vector<uint8_t> rgba(pixel_count * 4, 255);
+        deren::utility::vessel::vector<uint8_t> rgba(pixel_count * 4, 255);
         switch (texture.component) {
         case 4:
             rgba = texture.data;
@@ -1204,8 +1205,8 @@ namespace {
     // 8-bit sRGB <-> linear conversion: color textures (slot 0) are averaged in linear space so
     // their mips keep correct brightness; the other (UNORM data) slots are averaged in byte space.
     float srgb_to_linear(uint8_t const c) {
-        static std::array<float, 256> const table = [] {
-            std::array<float, 256> t = {};
+        static deren::utility::vessel::array<float, 256> const table = [] {
+            deren::utility::vessel::array<float, 256> t = {};
             for (int32_t i = 0; i < 256; ++i) {
                 float const v = static_cast<float>(i) / 255.0f;
                 t[i] = v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f);
@@ -1216,8 +1217,8 @@ namespace {
     }
 
     uint8_t linear_to_srgb(float const v) {
-        static std::array<uint8_t, 4096> const table = [] {
-            std::array<uint8_t, 4096> t = {};
+        static deren::utility::vessel::array<uint8_t, 4096> const table = [] {
+            deren::utility::vessel::array<uint8_t, 4096> t = {};
             for (int32_t i = 0; i < 4096; ++i) {
                 float const v = static_cast<float>(i) / 4095.0f;
                 float const s = v <= 0.0031308f ? v * 12.92f : 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f;
@@ -1232,7 +1233,7 @@ namespace {
     // A full RGBA8 mip chain: mip0, mip1, ... laid out contiguously (mip-major). The level
     // count is floor(log2(min(width, height))) + 1.
     struct mip_chain {
-        std::vector<uint8_t> data = {};
+        deren::utility::vessel::vector<uint8_t> data = {};
         uint32_t mip_levels = 0;
     };
 
@@ -1242,8 +1243,8 @@ namespace {
         result.mip_levels = mip_count;
         result.data.reserve(static_cast<size_t>(width) * height * 4 * 4 / 3); // geometric series for power-of-two
 
-        std::vector<uint8_t> a(rgba.begin(), rgba.end());
-        std::vector<uint8_t> b;
+        deren::utility::vessel::vector<uint8_t> a(rgba.begin(), rgba.end());
+        deren::utility::vessel::vector<uint8_t> b;
         std::span<uint8_t const> cur = a;
         uint32_t w = width;
         uint32_t h = height;
@@ -1354,7 +1355,7 @@ namespace deren::gltf {
             if (i == start) {
                 continue;
             }
-            std::string token;
+            deren::utility::vessel::string token;
             token.reserve(i - start);
             for (std::size_t k = start; k < i; ++k) {
                 token.push_back(static_cast<char>(std::tolower(static_cast<uint8_t>(node_name[k]))));
@@ -1371,7 +1372,7 @@ namespace deren::gltf {
             return std::nullopt;
         }
         skin const& skin_object = scene.skins[skin_index];
-        std::vector<node> const& nodes = scene.scene[scene_index].nodes;
+        deren::utility::vessel::vector<node> const& nodes = scene.scene[scene_index].nodes;
         // `skin::joints` HOLDS ASSET NODE INDICES, not positions in the scene's pool, so each one is resolved
         // through `node::source_index` - the same indirection every other asset index in this loader uses. The
         // RETURNED value is the JOINT index, because that is what picks a matrix out of the per-frame skin
@@ -1397,12 +1398,12 @@ namespace deren::gltf {
         // against use `M_actor_zhuangfy_body_01` (mixed case), and the references' own classifiers lowercase
         // before matching. ASCII only, deliberately - the CJK patterns below are matched byte-wise, and a
         // Unicode case fold would need a table for no gain.
-        std::string lowered;
+        deren::utility::vessel::string lowered;
         lowered.reserve(name.size());
         for (char const c : name) {
             lowered.push_back(static_cast<char>(std::tolower(static_cast<uint8_t>(c))));
         }
-        auto const has = [&lowered](std::string_view const needle) { return lowered.find(needle) != std::string::npos; };
+        auto const has = [&lowered](std::string_view const needle) { return lowered.find(needle) != deren::utility::vessel::string::npos; };
         // ---- THE TWO OVERLAY MATERIALS ARE NOT TOON MATERIALS, AND THAT COMES BEFORE EVERY GROUP BELOW ----
         //
         // `M_eyeshadow_common_01` and `M_hairshadow_common_01` are the masks the game multiplies over an already
@@ -1506,7 +1507,7 @@ namespace deren::gltf {
         // THE SAME LOWERCASING `toon_family_of` DOES, and for the same reason: a glTF material name is authored
         // text (`M_eyeshadow_common_01` is lowercased here, `M_S_actor_zhuangfy_EyeShadow_01_lod0` would not be).
         // ASCII only, deliberately - see that function's note.
-        std::string lowered;
+        deren::utility::vessel::string lowered;
         lowered.reserve(name.size());
         for (char const c : name) {
             lowered.push_back(static_cast<char>(std::tolower(static_cast<uint8_t>(c))));
@@ -1515,10 +1516,10 @@ namespace deren::gltf {
         // the order is only a reading convenience rather than the priority rule `toon_family_of` needs. What the
         // order does NOT have to absorb is the near miss both share: `shadow` alone claims nothing, so a material
         // called `M_shadow_decal_01` stays an ordinary surface instead of silently becoming an overlay.
-        if (lowered.find("hairshadow") != std::string::npos) {
+        if (lowered.find("hairshadow") != deren::utility::vessel::string::npos) {
             return overlay_kind::hair_shadow;
         }
-        if (lowered.find("eyeshadow") != std::string::npos) {
+        if (lowered.find("eyeshadow") != deren::utility::vessel::string::npos) {
             return overlay_kind::eye_dark;
         }
         return overlay_kind::none;
@@ -1800,18 +1801,18 @@ namespace deren::gltf {
 
     // ---- resolved materials + renderer-ready drawable iteration (pure CPU) ----
 
-    std::vector<resolved_material> resolve_materials(deren::gltf::scenes const& scenes) {
-        constexpr std::array<std::string_view, 5> slot_names = {"albedo", "metallic_roughness", "normal", "occlusion", "emissive"};
+    deren::utility::vessel::vector<resolved_material> resolve_materials(deren::gltf::scenes const& scenes) {
+        constexpr deren::utility::vessel::array<std::string_view, 5> slot_names = {"albedo", "metallic_roughness", "normal", "occlusion", "emissive"};
 
         // decoded texture cache: one entry per glTF texture index; shared textures decode once,
         // and the shared_ptr owners keep every image_view's span alive for the caller
         struct decoded_texture {
-            std::shared_ptr<std::vector<uint8_t>> data = {};
+            std::shared_ptr<deren::utility::vessel::vector<uint8_t>> data = {};
             uint32_t width = 0;
             uint32_t height = 0;
             uint32_t mip_levels = 1;
         };
-        std::vector<std::optional<decoded_texture>> cache(scenes.textures.size());
+        deren::utility::vessel::vector<std::optional<decoded_texture>> cache(scenes.textures.size());
 
         auto const decode = [&scenes, &cache](uint16_t const texture_index, bool const srgb) -> decoded_texture {
             decoded_texture out = {};
@@ -1819,10 +1820,10 @@ namespace deren::gltf {
             if (!entry) {
                 entry = decoded_texture{};
                 deren::gltf::texture_data const& tex = scenes.textures[texture_index];
-                std::vector<uint8_t> const rgba = to_rgba(tex);
+                deren::utility::vessel::vector<uint8_t> const rgba = to_rgba(tex);
                 if (!rgba.empty() && tex.width > 0 && tex.height > 0) {
                     mip_chain mips = generate_mip_chain(rgba, tex.width, tex.height, srgb);
-                    entry->data = std::make_shared<std::vector<uint8_t>>(std::move(mips.data));
+                    entry->data = std::make_shared<deren::utility::vessel::vector<uint8_t>>(std::move(mips.data));
                     entry->width = tex.width;
                     entry->height = tex.height;
                     entry->mip_levels = mips.mip_levels;
@@ -1834,7 +1835,7 @@ namespace deren::gltf {
             return out;
         };
 
-        std::vector<resolved_material> result;
+        deren::utility::vessel::vector<resolved_material> result;
         result.reserve(scenes.materials.size());
         for (auto const& mat : scenes.materials) {
             resolved_material out = {};
@@ -1863,7 +1864,7 @@ namespace deren::gltf {
             // family cannot look up the entry describing THIS material. See resolved_material::name.
             out.name = mat.name;
             for (int32_t i = 0; i < 5; ++i) {
-                auto const it = mat.texture_indices.find(std::string(slot_names[i]));
+                auto const it = mat.texture_indices.find(deren::utility::vessel::string(slot_names[i]));
                 if (it == mat.texture_indices.end() || it->second >= scenes.textures.size()) {
                     continue;
                 }
@@ -1985,10 +1986,10 @@ namespace deren::gltf {
 
     std::future<std::expected<scenes, error_code>> load_model_async(std::string_view const file_name) {
         // copy the path: the view must stay valid while the async task runs
-        return std::async(std::launch::async, [path = std::string(file_name)] { return load_model(path); });
+        return std::async(std::launch::async, [path = deren::utility::vessel::string(file_name)] { return load_model(path); });
     }
 
-    std::future<std::vector<resolved_material>> resolve_materials_async(deren::gltf::scenes const& scenes) {
+    std::future<deren::utility::vessel::vector<resolved_material>> resolve_materials_async(deren::gltf::scenes const& scenes) {
         return std::async(std::launch::async, [&scenes] { return resolve_materials(scenes); });
     }
 
@@ -2015,14 +2016,14 @@ namespace deren::gltf {
 
         // read one key's block: 'offset' selects the value triplet (0 for linear, comps for the
         // middle value triplet of a cubic block) or a tangent (comps / 2 * comps of a cubic block)
-        auto const read_block = [&](std::size_t const key, std::size_t const offset, std::vector<float>& block) {
+        auto const read_block = [&](std::size_t const key, std::size_t const offset, deren::utility::vessel::vector<float>& block) {
             block.resize(comps);
             std::size_t const base = key * stored_per_key + offset;
             for (std::size_t c = 0; c < comps; ++c) {
                 block[c] = sampler.values[base + c];
             }
         };
-        auto const assign = [&](std::vector<float> const& block) {
+        auto const assign = [&](deren::utility::vessel::vector<float> const& block) {
             if (path == animation_path::rotation) {
                 out.quat = glm::quat(block[3], block[0], block[1], block[2]); // glm ctor order (w, x, y, z)
             } else if (path == animation_path::weights) {
@@ -2039,7 +2040,7 @@ namespace deren::gltf {
             ++key;
         }
         auto const hold_key = [&] {
-            std::vector<float> value;
+            deren::utility::vessel::vector<float> value;
             read_block(key, cubic ? comps : 0, value);
             assign(value);
         };
@@ -2057,22 +2058,22 @@ namespace deren::gltf {
         }
         float const u = (time - sampler.times[key]) / dt;
 
-        std::vector<float> a;
-        std::vector<float> b;
+        deren::utility::vessel::vector<float> a;
+        deren::utility::vessel::vector<float> b;
         read_block(key, cubic ? comps : 0, a);
         read_block(key + 1, cubic ? comps : 0, b);
 
         if (cubic) {
             // Hermite spline over the segment; tangents are scaled by the segment duration
-            std::vector<float> out_tangent;
-            std::vector<float> in_tangent;
+            deren::utility::vessel::vector<float> out_tangent;
+            deren::utility::vessel::vector<float> in_tangent;
             read_block(key, 2 * comps, out_tangent);
             read_block(key + 1, 0, in_tangent);
             float const h00 = 2.0f * u * u * u - 3.0f * u * u + 1.0f;
             float const h10 = u * u * u - 2.0f * u * u + u;
             float const h01 = -2.0f * u * u * u + 3.0f * u * u;
             float const h11 = u * u * u - u * u;
-            std::vector<float> value(comps);
+            deren::utility::vessel::vector<float> value(comps);
             for (std::size_t c = 0; c < comps; ++c) {
                 value[c] = h00 * a[c] + h10 * dt * out_tangent[c] + h01 * b[c] + h11 * dt * in_tangent[c];
             }
@@ -2096,7 +2097,7 @@ namespace deren::gltf {
             }
             out.quat = glm::normalize(glm::slerp(q0, q1, u));
         } else {
-            std::vector<float> value(comps);
+            deren::utility::vessel::vector<float> value(comps);
             for (std::size_t c = 0; c < comps; ++c) {
                 value[c] = a[c] + (b[c] - a[c]) * u;
             }
@@ -2202,7 +2203,7 @@ namespace deren::gltf {
             size_t total_nodes = 0;
             size_t mesh_nodes = 0;
             size_t max_depth = 0;
-            std::vector<std::string> tree_lines;
+            deren::utility::vessel::vector<deren::utility::vessel::string> tree_lines;
             for (scene_node_iterator it = scenes.nodes_begin(); it != deren::gltf::scenes::nodes_end(); ++it) {
                 ++total_nodes;
                 size_t const depth = it.get_depth();
@@ -2212,14 +2213,14 @@ namespace deren::gltf {
                     ++mesh_nodes;
                 }
                 std::string_view const name = it.get_name();
-                tree_lines.push_back(std::format("{}{}{}", std::string(depth * 2, ' '),
-                                                 name.empty() ? std::string("<unnamed>") : std::string(name),
-                                                 has_mesh ? " [mesh]" : ""));
+                tree_lines.push_back(deren::utility::vessel::format("{}{}{}", deren::utility::vessel::string(depth * 2, ' '),
+                                                                    name.empty() ? deren::utility::vessel::string("<unnamed>") : deren::utility::vessel::string(name),
+                                                                    has_mesh ? " [mesh]" : ""));
             }
             deren::utility::log("scene hierarchy: {} roots, {} nodes total ({} with meshes), max depth {}",
                                 !scenes.scene.empty() ? scenes.scene.front().root_indices.size() : 0,
                                 total_nodes, mesh_nodes, max_depth);
-            for (std::string const& line : tree_lines) {
+            for (deren::utility::vessel::string const& line : tree_lines) {
                 deren::utility::log("  {}", line);
             }
         }

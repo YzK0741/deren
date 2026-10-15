@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+import deren.utility.shared;
 import deren.engine.shadow_fit;
 
 namespace {
@@ -108,9 +109,9 @@ namespace {
     // are 100 units away, nowhere near the near cascade's slice).
     void test_each_cascade_contains_its_own_depth_slice() {
         deren::engine::shadow_fit::fit_params params = make_params(3, 1.5f);
-        std::vector<std::pair<glm::vec3, glm::vec3>> const casters = {box_at(glm::vec3(0.0f, 0.0f, -5.0f), 1.0f)};
+        deren::utility::vessel::vector<std::pair<glm::vec3, glm::vec3>> const casters = {box_at(glm::vec3(0.0f, 0.0f, -5.0f), 1.0f)};
         bool unbounded = false;
-        std::vector<std::pair<glm::vec3, glm::vec3>> const light_boxes = deren::engine::shadow_fit::fit_casters(casters, glm::vec3(params.light_dir), unbounded);
+        auto const light_boxes = deren::engine::shadow_fit::fit_casters(casters, glm::vec3(params.light_dir), unbounded);
         params.caster_boxes = light_boxes;
         CHECK(!unbounded);
 
@@ -119,7 +120,7 @@ namespace {
 
         // the camera frustum's corners: unproject the clip-space cube (z 0..1 is the RH_ZO depth range)
         glm::mat4 const inverse_view_proj = glm::inverse(params.proj * params.view);
-        std::vector<glm::vec3> frustum_corners;
+        deren::utility::vessel::vector<glm::vec3> frustum_corners;
         for (int32_t zi = 0; zi < 2; ++zi) {
             for (int32_t yi = 0; yi < 2; ++yi) {
                 for (int32_t xi = 0; xi < 2; ++xi) {
@@ -160,17 +161,17 @@ namespace {
     void test_distant_caster_does_not_coarsen_the_cascade() {
         deren::engine::shadow_fit::fit_params base = make_params(1, 1.5f);
         bool unbounded = false;
-        std::vector<std::pair<glm::vec3, glm::vec3>> const in_view = {box_at(glm::vec3(0.0f, 0.0f, -5.0f), 0.5f)};
+        deren::utility::vessel::vector<std::pair<glm::vec3, glm::vec3>> const in_view = {box_at(glm::vec3(0.0f, 0.0f, -5.0f), 0.5f)};
         // named locals, not an inline call: fit_casters returns by value, so binding the span to the
         // temporary would dangle by the time fit() reads it (and -Werror says so)
-        std::vector<std::pair<glm::vec3, glm::vec3>> const base_boxes = deren::engine::shadow_fit::fit_casters(in_view, glm::vec3(base.light_dir), unbounded);
+        auto const base_boxes = deren::engine::shadow_fit::fit_casters(in_view, glm::vec3(base.light_dir), unbounded);
         base.caster_boxes = base_boxes;
         deren::engine::shadow_fit::fit_result const tight = deren::engine::shadow_fit::fit(base);
 
         // same fit, plus a caster 1000 units away in x (its light-space xy is far outside the cone)
-        std::vector<std::pair<glm::vec3, glm::vec3>> const with_far = {in_view[0], box_at(glm::vec3(1000.0f, 0.0f, -5.0f), 5.0f)};
+        deren::utility::vessel::vector<std::pair<glm::vec3, glm::vec3>> const with_far = {in_view[0], box_at(glm::vec3(1000.0f, 0.0f, -5.0f), 5.0f)};
         deren::engine::shadow_fit::fit_params widened = make_params(1, 1.5f);
-        std::vector<std::pair<glm::vec3, glm::vec3>> const widened_boxes = deren::engine::shadow_fit::fit_casters(with_far, glm::vec3(widened.light_dir), unbounded);
+        auto const widened_boxes = deren::engine::shadow_fit::fit_casters(with_far, glm::vec3(widened.light_dir), unbounded);
         widened.caster_boxes = widened_boxes;
         deren::engine::shadow_fit::fit_result const same = deren::engine::shadow_fit::fit(widened);
 
@@ -192,9 +193,9 @@ namespace {
     // and the sun leaks through - the exact failure the fallback exists to prevent.
     void test_unbounded_caster_extends_only_the_depth_range() {
         deren::engine::shadow_fit::fit_params params = make_params(1, 5.0f);
-        std::vector<std::pair<glm::vec3, glm::vec3>> const in_view = {box_at(glm::vec3(0.0f, 0.0f, -5.0f), 0.2f)};
+        deren::utility::vessel::vector<std::pair<glm::vec3, glm::vec3>> const in_view = {box_at(glm::vec3(0.0f, 0.0f, -5.0f), 0.2f)};
         bool unbounded = false;
-        std::vector<std::pair<glm::vec3, glm::vec3>> const boxes = deren::engine::shadow_fit::fit_casters(in_view, glm::vec3(params.light_dir), unbounded);
+        auto const boxes = deren::engine::shadow_fit::fit_casters(in_view, glm::vec3(params.light_dir), unbounded);
         params.caster_boxes = boxes;
         deren::engine::shadow_fit::fit_result const with_bounds = deren::engine::shadow_fit::fit(params);
 
@@ -251,10 +252,10 @@ namespace {
     // fit_casters rotates world AABBs into light space; the result must be the light-space extent of
     // the same box, which for an axis-aligned box seen along an axis is just a permutation.
     void test_fit_casters_projects_into_light_space() {
-        std::vector<std::pair<glm::vec3, glm::vec3>> const world = {box_at(glm::vec3(2.0f, 0.0f, -3.0f), 1.0f)};
+        deren::utility::vessel::vector<std::pair<glm::vec3, glm::vec3>> const world = {box_at(glm::vec3(2.0f, 0.0f, -3.0f), 1.0f)};
         bool unbounded = true;
         // light straight down -z: light space keeps x/y and measures depth along -z
-        std::vector<std::pair<glm::vec3, glm::vec3>> const light = deren::engine::shadow_fit::fit_casters(world, glm::vec3(0.0f, 0.0f, -1.0f), unbounded);
+        auto const light = deren::engine::shadow_fit::fit_casters(world, glm::vec3(0.0f, 0.0f, -1.0f), unbounded);
         CHECK(!unbounded);
         CHECK(light.size() == 1);
         if (light.size() == 1) {

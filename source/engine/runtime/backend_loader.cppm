@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.engine.backend_loader
-// module version: 0.1.0a
+// module version: 1.0.0
 //
 // WHERE THE BACKEND IS LOADED, AND WHERE THE DEVICE ROOT IS ACQUIRED (batch ⑥, abi 19).
 //
@@ -73,6 +73,7 @@ module;
 #include <GLFW/glfw3native.h>
 
 export module deren.engine.backend_loader;
+export import deren.utility.shared;
 
 export import deren.promise.rhi; // create_info / api_core / error_info / abi_version
 
@@ -116,7 +117,7 @@ namespace {
     /// caller still sees an empty `shared_ptr` every time, so its own error path stays simple.
     [[nodiscard]] deren_make_api_core_fn backend_entry() {
         static deren_make_api_core_fn const resolved = []() -> deren_make_api_core_fn {
-            std::filesystem::path const dll = deren::utility::executable_directory() / std::string{backend_file_name};
+            std::filesystem::path const dll = deren::utility::executable_directory() / deren::utility::vessel::string{backend_file_name};
             auto loaded = deren::utility::dynamic_link::load(dll.string());
             if (!loaded.has_value()) {
                 report("the backend library could not be loaded", rhi::error::initialization_failed, loaded.error().code,

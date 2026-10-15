@@ -2,7 +2,7 @@
 // module: deren.engine.scene_tree  (peer of deren.engine.runtime - the scene tree the
 //         frame facade renders; versioned in lock-step with deren.engine.runtime,
 //         see that module's banner: they share the scene / draw interface)
-// module version: 0.2.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Scene storage + the abstract leaf interface the GPU primitives implement
 // (pure CPU - glm + vstd only):
@@ -26,6 +26,7 @@ module;
 #include <limits>
 
 export module deren.engine.scene_tree;
+export import deren.utility.shared;
 export import deren.vstd;
 
 /**
@@ -99,15 +100,15 @@ namespace deren::engine::scene_tree {
     export struct scene_node {
         // NOT `name`: find_node takes a parameter of that name, and a parameter would hide the
         // member - MSVC /W4 reports C4458, which /WX turns into an error (clang's -Wshadow is off).
-        std::string node_name = {};        // debugging / future animation lookup
-        glm::mat4 local = glm::mat4(1.0f); // local transform (T*R*S or full matrix)
+        deren::utility::vessel::string node_name = {}; // debugging / future animation lookup
+        glm::mat4 local = glm::mat4(1.0f);             // local transform (T*R*S or full matrix)
         // identity of the source node this runtime node was rebuilt from: import_scene records
         // the structural iterator's get_source_index() here (the glTF loader stores the asset
         // node index), so callers can map e.g. animation channel targets onto the live tree
         std::size_t source_index = no_source_index;
         // Zero is reserved for manually assembled scenes; each import has a distinct identity.
         uint64_t import_instance = 0;
-        std::vector<scene_node> children = {};
+        deren::utility::vessel::vector<scene_node> children = {};
         std::unique_ptr<primitive> primitive_leaf = {}; // null for transform-only nodes
 
         scene_node() = default;
@@ -168,8 +169,8 @@ namespace deren::engine::scene_tree {
     export struct scene {
         // NOT `name`: find_node takes a parameter of that name, and a parameter would hide the
         // member - MSVC /W4 reports C4458, which /WX turns into an error (clang's -Wshadow is off).
-        std::string scene_name = {};
-        std::vector<scene_node> roots = {};
+        deren::utility::vessel::string scene_name = {};
+        deren::utility::vessel::vector<scene_node> roots = {};
         uint64_t next_import_instance = 1;
 
         /**
@@ -271,8 +272,8 @@ namespace deren::engine::scene_tree {
     private:
         void descend(); // move to the next node in DFS pre-order, or set exhausted
 
-        std::vector<std::pair<scene_node*, std::size_t>> stack = {}; // {node, depth}; back() = current
-        bool exhausted = true;                                       // default = end(); begin() clears it
+        deren::utility::vessel::vector<std::pair<scene_node*, std::size_t>> stack = {}; // {node, depth}; back() = current
+        bool exhausted = true;                                                          // default = end(); begin() clears it
     };
 
     /** @brief begin()/end() of a scene's node tree (DFS pre-order, every root) */

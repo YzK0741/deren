@@ -1,4 +1,4 @@
-// module version: 0.1.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 
 /**
  * @file source/gltf_loader/toon_material_sidecar.cppm
@@ -54,6 +54,7 @@ module;
 #include <vector>
 
 export module deren.toon_material_sidecar;
+export import deren.utility.shared;
 
 import deren.vstd;
 
@@ -77,14 +78,14 @@ export namespace deren::toon {
      */
     struct material_sidecar {
         /// the material this entry describes, which is the name a glTF material must match by
-        std::string name = {};
+        deren::utility::vessel::string name = {};
         /// kind `slot`: slot name -> texture NAME (a bare asset name, not a path and not an index)
-        std::map<std::string, std::string, std::less<>> slots = {};
+        deren::utility::vessel::map<deren::utility::vessel::string, deren::utility::vessel::string, std::less<>> slots = {};
         /// kind `float`: name -> value. Booleans are floats in this file (`_Use*` is 0.0 or 1.0)
-        std::map<std::string, float, std::less<>> scalars = {};
+        deren::utility::vessel::map<deren::utility::vessel::string, float, std::less<>> scalars = {};
         /// kind `color` and anything else the pipeline writes: kept verbatim rather than dropped, so an
         /// unknown kind is visible to a consumer instead of silently missing
-        std::map<std::string, std::string, std::less<>> others = {};
+        deren::utility::vessel::map<deren::utility::vessel::string, deren::utility::vessel::string, std::less<>> others = {};
 
         /// @brief the texture name in @p slot_name, or an empty view when the material has no such slot
         /// @note the view points INTO this struct's storage: it stays valid as long as this material does
@@ -123,7 +124,7 @@ export namespace deren::toon {
 
     /// @brief a whole sidecar: one entry per material, in the file's order
     struct sidecar {
-        std::vector<material_sidecar> materials = {};
+        deren::utility::vessel::vector<material_sidecar> materials = {};
         /// @brief how many lines were skipped: blank ones, the header, and any line that did not have the four
         ///        columns. Counted rather than logged here, because this module reports and its caller decides
         std::size_t skipped_lines = 0;
@@ -159,13 +160,13 @@ export namespace deren::toon {
      *       cases below are reachable: a malformed COLUMN COUNT is a different thing from a missing file, and
      *       only one of them is an error.
      */
-    [[nodiscard]] std::expected<sidecar, std::string> parse_sidecar(std::string_view text);
+    [[nodiscard]] std::expected<sidecar, deren::utility::vessel::string> parse_sidecar(std::string_view text);
 
     /**
      * @brief read the sidecar beside @p model_path
      * @return the parsed sidecar; an EMPTY one when the file does not exist (see the header's second rule);
      *         or the reason a file that DOES exist could not be read or parsed
      */
-    [[nodiscard]] std::expected<sidecar, std::string> load_sidecar(std::filesystem::path const& model_path);
+    [[nodiscard]] std::expected<sidecar, deren::utility::vessel::string> load_sidecar(std::filesystem::path const& model_path);
 
 } // namespace deren::toon

@@ -15,6 +15,7 @@ module;
 #include <span>
 
 module deren.engine.pass.goo_rim;
+import deren.utility.shared;
 
 import deren.promise.rhi;
 import deren.engine.render_resource;
@@ -66,7 +67,7 @@ namespace deren::engine::pass {
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
             // NO FORMAT ARGUMENT IN THIS TRANSLATION UNIT, and that is a toolchain workaround rather than a style:
             // clang 22.1.8 crashes in `EmitBuiltinNewDeleteCall` while generating a function that returns a
-            // `std::string`-carrying value through a format-argument `deren::utility::log` here - the same bug
+            // `deren::utility::vessel::string`-carrying value through a format-argument `deren::utility::log` here - the same bug
             // `render_start_demo.cpp` records, met again while this pass was added. The message names both files
             // literally instead.
             deren::utility::log("goo rim disabled: the owner has no post.vert.spv or goo_rim.frag.spv");
@@ -74,11 +75,11 @@ namespace deren::engine::pass {
         }
         // ONE colour target and it is the HDR one, because this pass runs INSIDE the HDR chain (after the
         // character stage, before the resolve) - a rim written to the swapchain would be tonemapped twice.
-        std::array<rhi::image_format, 1> const formats = {rhi::image_format::r16g16b16a16_sfloat};
+        deren::utility::vessel::array<rhi::image_format, 1> const formats = {rhi::image_format::r16g16b16a16_sfloat};
         // ADDITIVE: the rim is `混合.019`'s ADD - a contribution to the frame, not a replacement for it. The
         // character stage's own pipeline is the opposite (blending OFF, it OVERWRITES), which is exactly why this
         // rim could not be a second draw in that pass.
-        std::array<rhi::blend_mode, 1> const blends = {rhi::blend_mode::additive};
+        deren::utility::vessel::array<rhi::blend_mode, 1> const blends = {rhi::blend_mode::additive};
         auto built = pipelines::make_graphics_pipeline(*context.face,
                                                        std::span<rhi::image_format const>(formats),
                                                        rhi::image_format::unknown, // NO depth attachment: the depth is sampled, not tested
@@ -137,7 +138,7 @@ namespace deren::engine::pass {
         // LOAD, not clear: this instance ADDS to the frame the character-forward stage wrote. THE RENDERING SCOPE
         // RIDES THE CONTRACT NOW (abi 20): one colour attachment, LOAD + STORE (what the raw helper spelled), no
         // depth - the whole scope this pass opens.
-        std::array<rhi::color_attachment, 1> const colors = {
+        deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {
             rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::load, .store = rhi::store_op::store, .clear = {}},
         };
         rhi::rendering_info const rendering_info{

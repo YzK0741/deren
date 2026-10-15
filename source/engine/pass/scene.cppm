@@ -43,6 +43,7 @@ module;
 #include <string_view>
 
 export module deren.engine.pass.scene;
+export import deren.utility.shared;
 
 import deren.promise.rhi; // the contract command buffer the frame's secondaries are
 import deren.engine.pass;
@@ -132,7 +133,7 @@ export namespace deren::engine::pass {
         /// NO pipeline names, and that is not an omission: a leaf names the pipeline it wants and the
         /// renderer's registry resolves it (see `scene_frame::make_environment`), so there is nothing for the
         /// runner to bind before this pass records - the pass binds per segment, through the draw path.
-        static constexpr std::array<std::string_view, 0> pipeline_names = {};
+        static constexpr deren::utility::vessel::array<std::string_view, 0> pipeline_names = {};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
         inline static constexpr deren::engine::pass::behaviour pass_behaviour = {

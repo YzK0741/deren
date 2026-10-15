@@ -25,6 +25,7 @@ module;
 #include <utility>
 
 module deren.toon_material_sidecar;
+import deren.utility.shared;
 
 import deren.vstd;
 
@@ -47,7 +48,7 @@ namespace deren::toon {
         //
         // IT IS A CONVENTION AND NOT A LAW, which is why `enabled_by_flag` exists: `_MatcapTex` is switched on
         // by `_UseMatcap`. This builds the conventional name and asks the same question the explicit form does.
-        std::string flag;
+        deren::utility::vessel::string flag;
         flag.reserve(enable_flag_prefix.size() + slot_name.size());
         flag.append(enable_flag_prefix);
         flag.append(slot_name.starts_with('_') ? slot_name.substr(1) : slot_name);
@@ -74,7 +75,7 @@ namespace deren::toon {
         // `operator+=` APPENDS TO THE FILENAME rather than replacing the extension, which is what makes
         // `x.glb` become `x.glb.toon.tsv` instead of `x.toon.tsv`.
         std::filesystem::path result = model_path;
-        result += std::string(sidecar_suffix);
+        result += deren::utility::vessel::string(sidecar_suffix);
         return result;
     }
 
@@ -82,7 +83,7 @@ namespace deren::toon {
 
         /// @brief split @p line on tabs into at most four fields
         /// @return how many fields the line had, so the caller can tell the header from a malformed row
-        std::size_t split_row(std::string_view const line, std::array<std::string_view, 4>& out) noexcept {
+        std::size_t split_row(std::string_view const line, deren::utility::vessel::array<std::string_view, 4>& out) noexcept {
             std::size_t count = 0;
             std::size_t start = 0;
             while (count < out.size()) {
@@ -118,7 +119,7 @@ namespace deren::toon {
 
     } // namespace
 
-    std::expected<sidecar, std::string> parse_sidecar(std::string_view const text) {
+    std::expected<sidecar, deren::utility::vessel::string> parse_sidecar(std::string_view const text) {
         sidecar result;
         std::string_view remaining = text;
         std::size_t line_number = 0;
@@ -134,10 +135,10 @@ namespace deren::toon {
                 ++result.skipped_lines;
                 continue;
             }
-            std::array<std::string_view, 4> fields = {};
+            deren::utility::vessel::array<std::string_view, 4> fields = {};
             std::size_t const count = split_row(line, fields);
             if (count != 4) {
-                return std::unexpected(std::format("line {}: expected four tab-separated columns, found {}: '{}'", line_number, count, line));
+                return std::unexpected(deren::utility::vessel::format("line {}: expected four tab-separated columns, found {}: '{}'", line_number, count, line));
             }
             if (fields[0] == "material") {
                 // THE HEADER, recognised by its first column rather than by being the first line: a file
@@ -164,30 +165,30 @@ namespace deren::toon {
             }
             if (material == nullptr) {
                 material_sidecar fresh;
-                fresh.name = std::string(fields[0]);
+                fresh.name = deren::utility::vessel::string(fields[0]);
                 result.materials.push_back(std::move(fresh));
                 material = &result.materials.back();
             }
-            std::string const key(fields[2]);
+            deren::utility::vessel::string const key(fields[2]);
             if (fields[1] == "slot") {
-                material->slots.insert_or_assign(key, std::string(fields[3]));
+                material->slots.insert_or_assign(key, deren::utility::vessel::string(fields[3]));
             } else if (fields[1] == "float") {
                 std::optional<float> const value = parse_number(fields[3]);
                 if (!value.has_value()) {
-                    return std::unexpected(std::format("line {}: '{}' is not a number (material '{}', field '{}')", line_number, fields[3], fields[0], fields[2]));
+                    return std::unexpected(deren::utility::vessel::format("line {}: '{}' is not a number (material '{}', field '{}')", line_number, fields[3], fields[0], fields[2]));
                 }
                 material->scalars.insert_or_assign(key, *value);
             } else {
                 // `color` and anything the pipeline adds later: KEPT VERBATIM rather than dropped, so an
                 // unknown kind reaches a consumer as data instead of as a silently missing field. Not an error,
                 // because the format is the pipeline's to extend and this reader's to carry.
-                material->others.insert_or_assign(key, std::string(fields[3]));
+                material->others.insert_or_assign(key, deren::utility::vessel::string(fields[3]));
             }
         }
         return result;
     }
 
-    std::expected<sidecar, std::string> load_sidecar(std::filesystem::path const& model_path) {
+    std::expected<sidecar, deren::utility::vessel::string> load_sidecar(std::filesystem::path const& model_path) {
         std::filesystem::path const path = sidecar_path_for(model_path);
         std::error_code code;
         bool const exists = std::filesystem::exists(path, code);
@@ -199,12 +200,12 @@ namespace deren::toon {
         }
         std::ifstream file(path, std::ios::binary);
         if (!file) {
-            return std::unexpected(std::format("toon sidecar '{}' exists but could not be opened", path.string()));
+            return std::unexpected(deren::utility::vessel::format("toon sidecar '{}' exists but could not be opened", path.string()));
         }
-        std::string const text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        deren::utility::vessel::string const text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
         auto parsed = parse_sidecar(text);
         if (!parsed.has_value()) {
-            return std::unexpected(std::format("toon sidecar '{}': {}", path.string(), parsed.error()));
+            return std::unexpected(deren::utility::vessel::format("toon sidecar '{}': {}", path.string(), parsed.error()));
         }
         return parsed;
     }

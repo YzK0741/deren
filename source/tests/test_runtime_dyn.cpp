@@ -42,6 +42,7 @@
 #include <string_view>
 #include <windows.h>
 
+import deren.utility.shared;
 import deren.promise.rhi;
 import deren.engine.runtime;
 import deren.engine.backend_loader; // load_api_core(): the acquisition lives outside the runtime
@@ -100,7 +101,7 @@ int main(int const argc, char** const argv) {
     // abi 21 is the recording face's owner half (`api_core::make_command_buffer`); this pin moves with the
     // contract's constant, and the two spellings must never drift (see test_dynamic_link.cpp's own note).
     deren::vk_test::write_line("runtime_dyn: this executable compiled abi {} (the entry takes it as its first argument)", rhi::abi_version);
-    CHECK(rhi::abi_version == 32u);
+    CHECK(rhi::abi_version == 33u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("runtime_dyn: device path skipped (pass --with-device to construct the runtime)");
@@ -163,7 +164,7 @@ int main(int const argc, char** const argv) {
             CHECK(commands->type == "deren_command_buffer_vulkan");
             CHECK(commands->begin_recording({}) == rhi::error::ok);
             foreign_image_view foreign_view;
-            std::array<rhi::color_attachment, 1> attachments{{{.view = &foreign_view}}};
+            deren::utility::vessel::array<rhi::color_attachment, 1> attachments{{{.view = &foreign_view}}};
             rhi::rendering_info rendering{};
             rendering.area.width = 4u;
             rendering.area.height = 4u;
@@ -224,13 +225,13 @@ int main(int const argc, char** const argv) {
             }
             {
                 rhi::texture_group_info info{};
-                std::array<rhi::object_manager<rhi::image>, 16> inputs{};
+                deren::utility::vessel::array<rhi::object_manager<rhi::image>, 16> inputs{};
                 for (std::size_t i = 0; i < inputs.size(); ++i) {
                     inputs[i] = rhi::object_manager<rhi::image>(face.create_image(parent_desc));
                     CHECK(inputs[i]);
                     info.textures[i] = inputs[i].get();
                 }
-                std::vector<rhi::texture_group_ref> groups;
+                deren::utility::vessel::vector<rhi::texture_group_ref> groups;
                 for (unsigned i = 0; i < 1024; ++i) {
                     groups.push_back(face.assign_texture_group(info, &group_error));
                     CHECK(groups.back() && group_error == rhi::error::ok);
@@ -307,7 +308,7 @@ int main(int const argc, char** const argv) {
         }
         // The allocation size may exceed the initialization span only when it is empty.
         // The backing array stays large enough to make the old over-read deterministic and safe here.
-        std::array<std::byte, 64> bytes{};
+        deren::utility::vessel::array<std::byte, 64> bytes{};
         std::fill(bytes.begin(), bytes.end(), std::byte{0x5A});
         auto const short_input = std::span<std::byte const>(bytes).first(16);
         for (auto const usage : {rhi::buffer_usage::storage_coherent, rhi::buffer_usage::vertex, rhi::buffer_usage::index}) {

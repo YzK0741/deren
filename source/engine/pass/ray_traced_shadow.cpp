@@ -21,6 +21,7 @@ module;
 #include <vector>
 
 module deren.engine.pass.ray_traced_shadow;
+import deren.utility.shared;
 
 import deren.promise.rhi; // the record series (abi 20): the two barriers, the push block's endpoint and the traceRays escape
 import deren.engine.render_resource;
@@ -38,7 +39,7 @@ namespace deren::engine::pass {
     }
 
     void rt_shadow_pass::describe_resources(render_resource::instances::resource_context const& context,
-                                            std::vector<render_resource::instances::request>& out) const {
+                                            deren::utility::vessel::vector<render_resource::instances::request>& out) const {
         for (auto const& value : output_targets_pass::descriptions(context))
             if (value.id == render_resource::resource_id::rt_shadow_visibility)
                 out.push_back(value);
@@ -121,7 +122,7 @@ namespace deren::engine::pass {
         }
         uint32_t const region_size = ((handle_size + base_alignment - 1u) / base_alignment) * base_alignment;
         uint32_t const group_count = built->group_count;
-        std::vector<uint8_t> handles(static_cast<size_t>(group_count) * handle_size);
+        deren::utility::vessel::vector<uint8_t> handles(static_cast<size_t>(group_count) * handle_size);
         // THE SBT QUERY, through the basis (abi 22): `out.size()` is the query's dataSize, and the pipeline is
         // the CONTRACT object the backend turns into its own native handle - so this file names neither.
         if (!pass::shader_group_handles(context.face, *this->pass_pipeline->contract, 0, group_count, std::span<std::uint8_t>(handles))) {
@@ -133,7 +134,7 @@ namespace deren::engine::pass {
         // address of its first record, the bytes it spans, and the stride between records. One region per group,
         // each starting on a base-aligned offset and holding exactly one record: the order is the builder's
         // (raygen, miss, hit), so `handles[group]` lands in region `group`.
-        std::vector<uint8_t> table(static_cast<size_t>(group_count) * region_size, 0);
+        deren::utility::vessel::vector<uint8_t> table(static_cast<size_t>(group_count) * region_size, 0);
         for (uint32_t group = 0; group < group_count; ++group) {
             std::memcpy(table.data() + static_cast<size_t>(group) * region_size, handles.data() + static_cast<size_t>(group) * handle_size, handle_size);
         }
@@ -188,7 +189,7 @@ namespace deren::engine::pass {
         // recipe's stage the writes go unsynchronised and the lighting stage samples an image the trace has not
         // finished writing (measured: half the model lost its sun, deterministically, while a constant write -
         // which no ordering can make wrong - came out right).
-        std::array<rhi::image_barrier, 1> const to_general = {
+        deren::utility::vessel::array<rhi::image_barrier, 1> const to_general = {
             rhi::image_barrier{.resource = visibility, .from = rhi::image_use::undefined, .to = rhi::image_use::shader_write, .range = {}},
         };
         if (io.list->barrier(rhi::barrier_group{.images = to_general, .stage = rhi::stage_hint::ray_tracing}) != rhi::error::ok) {
@@ -216,7 +217,7 @@ namespace deren::engine::pass {
         // ... and the hand-off to the lighting stage, with the SAME hint and for the SAME reason: the recipe
         // (shader_write, shader_read) is `general_to_sampling_transition`, and its SOURCE stage is the
         // ray-tracing one here (see the first barrier's note).
-        std::array<rhi::image_barrier, 1> const to_sampling = {
+        deren::utility::vessel::array<rhi::image_barrier, 1> const to_sampling = {
             rhi::image_barrier{.resource = visibility, .from = rhi::image_use::shader_write, .to = rhi::image_use::shader_read, .range = {}},
         };
         if (io.list->barrier(rhi::barrier_group{.images = to_sampling, .stage = rhi::stage_hint::ray_tracing}) != rhi::error::ok) {

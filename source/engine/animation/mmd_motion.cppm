@@ -27,6 +27,7 @@ module;
 #include <vector>
 
 export module deren.engine.animation.mmd_motion;
+export import deren.utility.shared;
 
 import deren.vstd;
 import deren.utility;
@@ -106,8 +107,8 @@ namespace deren::engine::animation {
 
     /** @brief every key of one bone, ordered by frame */
     export struct mmd_bone_track {
-        std::string name = {};
-        std::vector<mmd_bone_key> keys = {};
+        deren::utility::vessel::string name = {};
+        deren::utility::vessel::vector<mmd_bone_key> keys = {};
     };
 
     /** @brief one morph (blendshape) keyframe - morph channels carry no easing curve */
@@ -118,13 +119,13 @@ namespace deren::engine::animation {
 
     /** @brief every key of one morph, ordered by frame */
     export struct mmd_morph_track {
-        std::string name = {};
-        std::vector<mmd_morph_key> keys = {};
+        deren::utility::vessel::string name = {};
+        deren::utility::vessel::vector<mmd_morph_key> keys = {};
     };
 
     /** @brief one IK enable/disable event; @p enabled false leaves the chain on its FK keys */
     export struct mmd_ik_event {
-        std::string name = {};
+        deren::utility::vessel::string name = {};
         std::uint32_t frame = 0;
         bool enabled = false;
     };
@@ -143,11 +144,11 @@ namespace deren::engine::animation {
         /** @brief MMD's timeline rate: the 30 fps a VMD counts its frame numbers at */
         static constexpr float frames_per_second = 30.0f;
 
-        std::string model_name = {};              // the model name the motion was authored against
-        std::vector<mmd_bone_track> bones = {};   // in file order; keys sorted by frame
-        std::vector<mmd_morph_track> morphs = {}; // in file order; keys sorted by frame
-        std::vector<mmd_ik_event> ik = {};        // in file order
-        std::uint32_t last_frame = 0;             // highest frame any track reaches
+        deren::utility::vessel::string model_name = {};              // the model name the motion was authored against
+        deren::utility::vessel::vector<mmd_bone_track> bones = {};   // in file order; keys sorted by frame
+        deren::utility::vessel::vector<mmd_morph_track> morphs = {}; // in file order; keys sorted by frame
+        deren::utility::vessel::vector<mmd_ik_event> ik = {};        // in file order
+        std::uint32_t last_frame = 0;                                // highest frame any track reaches
 
         /** @brief bytes stepped over while locating the IK section (0 for a file that walks cleanly) */
         std::size_t ik_offset_gap = 0;
@@ -179,10 +180,10 @@ namespace deren::engine::animation {
      * @brief parse @p bytes as a VMD 0002 file
      * @return the motion, or nullopt when the file is truncated, malformed, or not version 0002
      */
-    export std::optional<mmd_motion> parse_mmd_motion(std::vector<std::uint8_t> const& bytes);
+    export std::optional<mmd_motion> parse_mmd_motion(std::span<std::uint8_t const> bytes);
 
     /** @brief read @p path and parse it (nullopt when the file cannot be read or parsed) */
-    export std::optional<mmd_motion> load_mmd_motion(std::string const& path);
+    export std::optional<mmd_motion> load_mmd_motion(deren::utility::vessel::string const& path);
 
     /**
      * @brief render a raw Shift-JIS name as ASCII, escaping every non-ASCII byte as @c \\xNN
@@ -193,7 +194,7 @@ namespace deren::engine::animation {
      * so such a pair is separated by an empty literal, and a quote is escaped rather than passed
      * through.
      */
-    export std::string escape_mmd_name(std::string_view raw);
+    export deren::utility::vessel::string escape_mmd_name(std::string_view raw);
 
     /**
      * @brief one MMD standard bone name paired with the joint name a skeleton should carry
@@ -208,7 +209,7 @@ namespace deren::engine::animation {
     };
 
     /** @brief the MMD standard humanoid subset this engine knows how to drive */
-    export std::vector<mmd_bone_alias> const& mmd_bone_aliases();
+    export deren::utility::vessel::vector<mmd_bone_alias> const& mmd_bone_aliases();
 
     /**
      * @ingroup engine_animation
@@ -219,9 +220,9 @@ namespace deren::engine::animation {
      */
     export struct mmd_retarget {
         /** per motion bone, the joint it drives, or -1 when the bone has no counterpart */
-        std::vector<std::int32_t> joint_of_bone = {};
+        deren::utility::vessel::vector<std::int32_t> joint_of_bone = {};
         /** the motion bones that resolved to nothing, for reporting coverage */
-        std::vector<std::size_t> unresolved_bones = {};
+        deren::utility::vessel::vector<std::size_t> unresolved_bones = {};
         std::size_t mapped = 0;
         std::size_t unmapped = 0;
 
@@ -238,7 +239,7 @@ namespace deren::engine::animation {
      * guessed at.
      */
     export mmd_retarget build_mmd_retarget(mmd_motion const& motion,
-                                           std::vector<std::string> const& joint_names);
+                                           deren::utility::vessel::vector<deren::utility::vessel::string> const& joint_names);
 
     /** @brief the two unit bone directions a two-bone chain settles into */
     export struct mmd_two_bone_solution {

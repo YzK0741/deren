@@ -1,6 +1,6 @@
 // ============================================================================
 // module: gltf_loader
-// module version: 0.3.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Pure-CPU glTF / GLB loader (vendored fastgltf + stb): drawable stream, retained
 // node tree, animations / skins / morph targets / cameras / punctual lights.
@@ -22,6 +22,7 @@ module;
 #include <string_view> // the name it looks up
 
 export module deren.gltf_loader;
+export import deren.utility.shared;
 export import deren.vstd;
 /**
  * @file gltf_loader.cppm
@@ -213,7 +214,7 @@ namespace deren::gltf {
      * @brief decoded image data of a texture
      */
     export struct texture_data {
-        std::vector<uint8_t> data;
+        deren::utility::vessel::vector<uint8_t> data;
         uint32_t width = 0;
         uint32_t height = 0;
         uint8_t component = 0; // aka. channels
@@ -228,7 +229,7 @@ namespace deren::gltf {
          * the two files. Empty for an unnamed image, which is what most glTF files have (the repository's own
          * DamagedHelmet sample names none of its five).
          */
-        std::string name = {};
+        deren::utility::vessel::string name = {};
     };
 
     /**
@@ -236,7 +237,7 @@ namespace deren::gltf {
      * @brief raw vertex data portion together with its component type
      */
     export struct vertex_portion {
-        std::vector<uint8_t> data;
+        deren::utility::vessel::vector<uint8_t> data;
         component_type component;
     };
 
@@ -264,7 +265,7 @@ namespace deren::gltf {
      */
     export struct material {
         material_factors factors = {};
-        std::map<std::string, uint16_t> texture_indices = {};
+        deren::utility::vessel::map<deren::utility::vessel::string, uint16_t> texture_indices = {};
         bool double_sided = false; // glTF doubleSided: back faces are rendered, normals flipped
         /**
          * THE glTF MATERIAL NAME, which the loader used to discard.
@@ -276,7 +277,7 @@ namespace deren::gltf {
          * belongs to. Empty for an unnamed material, which classifies as `toon_family::none` and keeps the
          * famiy-independent path every non-character model already had.
          */
-        std::string name = {};
+        deren::utility::vessel::string name = {};
         /**
          * THE `extras` SCALARS THIS PORT HAS CLAIMED, by the asset pipeline's own spelling (`_Specular`,
          * `_ParallaxScale`), and only those - see `claimed_extras_floats`.
@@ -298,7 +299,7 @@ namespace deren::gltf {
          * Empty for every material whose file has no `extras`, which is every non-character model: the loader
          * reads this block through fastgltf's extras callback and never invents a value for it.
          */
-        std::map<std::string, float> extras_floats = {};
+        deren::utility::vessel::map<deren::utility::vessel::string, float> extras_floats = {};
     };
 
     /**
@@ -325,7 +326,7 @@ namespace deren::gltf {
      *                         0.03 on the iris and 0.5 on the brow, and values 0.03/0.5/0.5 over the three
      *                         materials that state the row at all.
      */
-    export inline constexpr std::array<std::string_view, 2> claimed_extras_floats = {"_Specular", "_ParallaxScale"};
+    export inline constexpr deren::utility::vessel::array<std::string_view, 2> claimed_extras_floats = {"_Specular", "_ParallaxScale"};
 
     /**
      * @ingroup gltf_loader
@@ -334,7 +335,7 @@ namespace deren::gltf {
      *        position/normal). Same vertex count as the base attributes
      */
     export struct morph_target {
-        std::map<std::string, vertex_portion> attributes = {};
+        deren::utility::vessel::map<deren::utility::vessel::string, vertex_portion> attributes = {};
     };
 
     /**
@@ -344,9 +345,9 @@ namespace deren::gltf {
      *       a consumer blends base + sum(weight_i * delta_i) per vertex — see docs §10
      */
     export struct primitive {
-        std::map<std::string, vertex_portion> vertex;
-        std::vector<morph_target> targets = {};
-        std::vector<uint8_t> index;
+        deren::utility::vessel::map<deren::utility::vessel::string, vertex_portion> vertex;
+        deren::utility::vessel::vector<morph_target> targets = {};
+        deren::utility::vessel::vector<uint8_t> index;
         component_type index_component_type;
         // index into scenes::materials; std::numeric_limits<uint32_t>::max() when the primitive
         // has no material (render with default factors and no textures)
@@ -361,8 +362,8 @@ namespace deren::gltf {
      *       them; a "weights" animation channel drives them over time (see docs §10)
      */
     export struct mesh {
-        std::vector<primitive> primitives;
-        std::vector<float> weights = {};
+        deren::utility::vessel::vector<primitive> primitives;
+        deren::utility::vessel::vector<float> weights = {};
     };
 
     // ---- animation (glTF keyframe animation, exported decoded; playback is a consumer concern) ----
@@ -404,8 +405,8 @@ namespace deren::gltf {
      *        when present (so the loader stays robust against non-conforming files)
      */
     export struct animation_sampler {
-        std::vector<float> times = {};
-        std::vector<float> values = {};
+        deren::utility::vessel::vector<float> times = {};
+        deren::utility::vessel::vector<float> values = {};
         std::size_t per_key = 0; // values per keyframe (see above)
         animation_interpolation interpolation = animation_interpolation::linear;
     };
@@ -430,9 +431,9 @@ namespace deren::gltf {
      * @brief one glTF animation: channels over samplers, file-scoped (not tied to one scene)
      */
     export struct animation {
-        std::string name = {};
-        std::vector<animation_sampler> samplers = {};
-        std::vector<animation_channel> channels = {};
+        deren::utility::vessel::string name = {};
+        deren::utility::vessel::vector<animation_sampler> samplers = {};
+        deren::utility::vessel::vector<animation_channel> channels = {};
     };
 
     /**
@@ -449,9 +450,9 @@ namespace deren::gltf {
      *        non-skinned meshes), so a consumer only needs the per-frame joint matrices
      */
     export struct skin {
-        std::string name = {};
-        std::vector<std::size_t> joints = {};              // asset node indices, in joint order
-        std::vector<glm::mat4> inverse_bind_matrices = {}; // one per joint (identity when omitted)
+        deren::utility::vessel::string name = {};
+        deren::utility::vessel::vector<std::size_t> joints = {};              // asset node indices, in joint order
+        deren::utility::vessel::vector<glm::mat4> inverse_bind_matrices = {}; // one per joint (identity when omitted)
     };
 
     /**
@@ -471,7 +472,7 @@ namespace deren::gltf {
      *       (resolved through deren::gltf::node::source_index, like joints — cameras can be animated)
      */
     export struct camera {
-        std::string name = {};
+        deren::utility::vessel::string name = {};
         camera_type type = camera_type::perspective;
         // perspective
         float yfov = glm::radians(45.0f); // vertical field of view (radians)
@@ -506,7 +507,7 @@ namespace deren::gltf {
      *        are stored here
      */
     export struct light {
-        std::string name = {};
+        deren::utility::vessel::string name = {};
         light_type type = light_type::point;
         glm::vec3 color = glm::vec3(1.0f);
         float intensity = 1.0f;
@@ -527,7 +528,7 @@ namespace deren::gltf {
         bool valid = false;
         glm::vec3 vec3 = glm::vec3(0.0f);                   // translation / scale paths
         glm::quat quat = glm::quat(1.0f, 0.0f, 0.0f, 0.0f); // rotation path (normalized, w scalar)
-        std::vector<float> scalars = {};                    // weights path: one value per morph target
+        deren::utility::vessel::vector<float> scalars = {}; // weights path: one value per morph target
     };
 
     /**
@@ -563,7 +564,7 @@ namespace deren::gltf {
         glm::vec3 translation = glm::vec3(0.0f); // base pose, overridden per channel path
         glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
         glm::vec3 scale = glm::vec3(1.0f);
-        std::vector<float> weights = {}; // active morph weights (weights channel); empty = none
+        deren::utility::vessel::vector<float> weights = {}; // active morph weights (weights channel); empty = none
     };
 
     /**
@@ -600,12 +601,12 @@ namespace deren::gltf {
      *        never animatable)
      */
     export struct node {
-        std::string name = {};                       // glTF node name (empty when unnamed)
-        glm::mat4 local_transform = glm::mat4(1.0f); // transform relative to the parent node
-        std::vector<mesh> meshes = {};               // meshes attached at this node (may be empty)
+        deren::utility::vessel::string name = {};         // glTF node name (empty when unnamed)
+        glm::mat4 local_transform = glm::mat4(1.0f);      // transform relative to the parent node
+        deren::utility::vessel::vector<mesh> meshes = {}; // meshes attached at this node (may be empty)
         // indices into the owning scene.nodes (DFS pre-order): the direct children of this node
-        std::vector<std::size_t> children = {};       // empty for leaves / transform-only nodes
-        glm::mat4 transform_matrix = glm::mat4(1.0f); // world matrix (parent * local), kept for compatibility
+        deren::utility::vessel::vector<std::size_t> children = {}; // empty for leaves / transform-only nodes
+        glm::mat4 transform_matrix = glm::mat4(1.0f);              // world matrix (parent * local), kept for compatibility
         // animation substrate: asset node index + TRS base pose (see the @note above)
         std::size_t source_index = 0;                           // index in the glTF asset's node table
         glm::vec3 translation = glm::vec3(0.0f);                // TRS base pose; identity for matrix nodes
@@ -616,7 +617,7 @@ namespace deren::gltf {
         std::optional<std::size_t> skin_index = std::nullopt;
         // morph weights override for this node's mesh (glTF node.weights; overrides mesh.weights,
         // empty = fall back to the mesh defaults / animation)
-        std::optional<std::vector<float>> weights = std::nullopt;
+        std::optional<deren::utility::vessel::vector<float>> weights = std::nullopt;
         // cameras / lights attached to this node (glTF node.camera / KHR_lights_punctual):
         // indices into scenes::cameras / scenes::lights
         std::optional<std::size_t> camera_index = std::nullopt;
@@ -630,9 +631,9 @@ namespace deren::gltf {
      *       first); root_indices lists the indices of the scene's root nodes inside nodes
      */
     export struct scene {
-        std::string name;
-        std::vector<node> nodes;
-        std::vector<std::size_t> root_indices = {}; // indices into nodes: the scene roots
+        deren::utility::vessel::string name;
+        deren::utility::vessel::vector<node> nodes;
+        deren::utility::vessel::vector<std::size_t> root_indices = {}; // indices into nodes: the scene roots
     };
 
     export struct scenes; // forward declaration (defined below; scene_iterator only holds a pointer)
@@ -750,7 +751,7 @@ namespace deren::gltf {
         scenes const* iterating_scene = nullptr;
         std::size_t scene_i = 0;
         std::size_t root_i = 0; // next root of the current scene to visit (index into root_indices)
-        std::vector<frame> stack = {};
+        deren::utility::vessel::vector<frame> stack = {};
         bool exhausted = true; // default = end(); begin() clears it before advancing
     };
 
@@ -768,13 +769,13 @@ namespace deren::gltf {
      * @note nodes_begin()/nodes_end() yield the retained node tree (see deren::gltf::scene_node_iterator)
      */
     export struct scenes {
-        std::vector<texture_data> textures;
-        std::vector<material> materials;
-        std::vector<animation> animations = {};
-        std::vector<skin> skins = {};     // file-scoped skins (glTF skin objects in order)
-        std::vector<camera> cameras = {}; // file-scoped cameras (glTF camera objects in order)
-        std::vector<light> lights = {};   // file-scoped punctual lights (KHR_lights_punctual)
-        std::vector<scene> scene;
+        deren::utility::vessel::vector<texture_data> textures;
+        deren::utility::vessel::vector<material> materials;
+        deren::utility::vessel::vector<animation> animations = {};
+        deren::utility::vessel::vector<skin> skins = {};     // file-scoped skins (glTF skin objects in order)
+        deren::utility::vessel::vector<camera> cameras = {}; // file-scoped cameras (glTF camera objects in order)
+        deren::utility::vessel::vector<light> lights = {};   // file-scoped punctual lights (KHR_lights_punctual)
+        deren::utility::vessel::vector<scene> scene;
         // asset-level node lookup: glTF asset node table index (node::source_index) -> the
         // loader's node copy for it. A glTF asset node may be referenced from several scenes,
         // and the loader stores one copy per scene pool (identical metadata); the first copy
@@ -782,7 +783,7 @@ namespace deren::gltf {
         // the nodes that actually live in a runtime scene tree (animation base poses, skin /
         // morph sources) look nodes up HERE by the tree node's source_index instead of
         // iterating every scene pool.
-        std::unordered_map<std::size_t, node const*> node_by_source = {};
+        deren::utility::vessel::unordered_map<std::size_t, node const*> node_by_source = {};
 
         [[nodiscard]] scene_iterator begin() const;
         static scene_iterator end() noexcept;
@@ -870,7 +871,7 @@ namespace deren::gltf {
         uint32_t height = 0;
         uint32_t mip_levels = 1;
         bool valid = false;
-        std::shared_ptr<std::vector<uint8_t>> owner = {};
+        std::shared_ptr<deren::utility::vessel::vector<uint8_t>> owner = {};
     };
 
     /** @brief PBR factors of one resolved material (mirrors the runtime's material_factors) */
@@ -1074,7 +1075,7 @@ namespace deren::gltf {
      *        toon family its name classified into
      */
     export struct resolved_material {
-        std::array<image_view, 5> slots = {}; // albedo, metallic_roughness, normal, occlusion, emissive
+        deren::utility::vessel::array<image_view, 5> slots = {}; // albedo, metallic_roughness, normal, occlusion, emissive
         resolved_factors factors = {};
         bool double_sided = false; // glTF doubleSided: disable back-face culling + flip normals
         /**
@@ -1086,7 +1087,7 @@ namespace deren::gltf {
          * materials, or its face and its brow) would collapse onto one entry. Carrying the name here is the
          * same decision as carrying it on `deren::gltf::material`, one stage closer to the consumer.
          */
-        std::string name = {};
+        deren::utility::vessel::string name = {};
         /// the TOON FAMILY this material's name classified into (see toon_family_of), resolved ONCE here so
         /// no later stage re-derives it from a string
         uint32_t toon_family = 0;
@@ -1102,14 +1103,14 @@ namespace deren::gltf {
      *        texture slots, decoded to RGBA8 with full mip chains (CPU-side; shared glTF
      *        textures decode once). No Vulkan types involved.
      */
-    export std::vector<resolved_material> resolve_materials(deren::gltf::scenes const& scenes);
+    export deren::utility::vessel::vector<resolved_material> resolve_materials(deren::gltf::scenes const& scenes);
 
     /**
      * @ingroup gltf_loader
      * @brief async twin of resolve_materials(): runs the texture decode + mip generation on a
      *        std::async thread; @p scenes must stay alive until the future is consumed
      */
-    export std::future<std::vector<resolved_material>> resolve_materials_async(deren::gltf::scenes const& scenes);
+    export std::future<deren::utility::vessel::vector<resolved_material>> resolve_materials_async(deren::gltf::scenes const& scenes);
 
     /**
      * @ingroup gltf_loader
@@ -1162,8 +1163,8 @@ namespace deren::gltf {
         deren::gltf::scene_iterator inner;
         std::span<resolved_material const> materials = {};
         // scratch geometry of the current drawable (built lazily, valid until ++)
-        mutable std::vector<uint8_t> vertex_bytes = {};
-        mutable std::vector<uint8_t> index_bytes = {};
+        mutable deren::utility::vessel::vector<uint8_t> vertex_bytes = {};
+        mutable deren::utility::vessel::vector<uint8_t> index_bytes = {};
         mutable uint32_t vertex_stride = 0;
         mutable uint32_t vertex_count = 0;
         mutable uint8_t index_width = 2; // 2 or 4 bytes per index

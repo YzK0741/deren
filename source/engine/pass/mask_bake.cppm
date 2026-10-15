@@ -1,4 +1,4 @@
-// module version: 0.2.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 
 /**
  * @file source/engine/pass/mask_bake.cppm
@@ -31,6 +31,7 @@ module;
 #include <string_view>
 
 export module deren.engine.pass.mask_bake;
+export import deren.utility.shared;
 import deren.promise.rhi;
 
 import deren.engine.pass;
@@ -99,7 +100,7 @@ export namespace deren::engine::pass {
         mask_bake_job& operator=(mask_bake_job&&) = delete;
 
         /// @brief build the pipeline; an error message says what was missing
-        [[nodiscard]] std::expected<void, std::string> create(pass_context const& context);
+        [[nodiscard]] std::expected<void, deren::utility::vessel::string> create(pass_context const& context);
         /**
          * @brief dispatch ONE caster's bake
          * @param commands the frame's recording buffer, through the CONTRACT (abi 20/21): the pipeline BIND, the

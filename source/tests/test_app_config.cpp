@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 
+import deren.utility.shared;
 import deren.application_configuration;
 
 namespace {
@@ -270,7 +271,7 @@ namespace {
     // deliberately NOT folded into it: `round(+inf)` stays `+inf` and clamps to the top of the ladder like a
     // very large finite number would.
     void test_toon_shadow_softness_ladder_is_sanitized() {
-        auto const load_one = [](std::string const& body) {
+        auto const load_one = [](deren::utility::vessel::string const& body) {
             std::filesystem::path const path{"test_app_config_toon_shadow_softness.toml"};
             {
                 std::ofstream file(path, std::ios::binary | std::ios::trunc);
@@ -300,7 +301,7 @@ namespace {
     void test_area_light_derivation_matches_the_reference_package() {
         // The AUTHOR'S ORIGIN - where the manifest measures from, i.e. the ground under the character. At the
         // origin the manifest's numbers are the world numbers, which is why this case reads `scene_origin = 0`.
-        std::array<float, 3> const scene_origin = {0.0f, 0.0f, 0.0f};
+        deren::utility::vessel::array<float, 3> const scene_origin = {0.0f, 0.0f, 0.0f};
         deren::app_config::lighting_settings lighting = {};
         lighting.area_light_size = 30.0f;
         lighting.area_light_power = 4000.0f;
@@ -335,7 +336,7 @@ namespace {
         // shift. Anchoring on the bounding-box centre instead put the emitter at [-1.422, 15.546, 3.798] and
         // tilted the visible light by ~6 degrees of elevation and ~16 of azimuth; this case is what stops that
         // from coming back.
-        std::array<float, 3> const feet_origin = {0.0f, -2.198f, 0.0f};
+        deren::utility::vessel::array<float, 3> const feet_origin = {0.0f, -2.198f, 0.0f};
         deren::app_config::area_light_derived const at_feet = deren::app_config::derive_area_light(lighting, feet_origin);
         CHECK(at_feet.enabled);
         CHECK(at_feet.world_centre[0] > -3.01f && at_feet.world_centre[0] < -2.99f);
@@ -371,7 +372,7 @@ namespace {
 
         // ... and position/target really are RELATIVE to that origin: with the origin at [10, 0, -2] the same key
         // gives a world centre 10 m to the right, which is what lets the manifest's numbers be copied over.
-        std::array<float, 3> const moved_origin = {10.0f, 0.0f, -2.0f};
+        deren::utility::vessel::array<float, 3> const moved_origin = {10.0f, 0.0f, -2.0f};
         deren::app_config::lighting_settings relative = {};
         relative.area_light_size = 4.0f;
         relative.area_light_power = 100.0f;

@@ -17,6 +17,7 @@ module;
 #include <vector>
 
 module deren.engine.pass.scene;
+import deren.utility.shared;
 
 import deren.promise.rhi; // the record series (abi 20): the barriers, the rendering scope, the secondary's lifecycle
 import deren.engine.render_resource;
@@ -67,7 +68,7 @@ namespace deren::engine::pass {
         // the contract's own tagged structure, and the BACKEND derives the descriptor-heap half itself from the
         // heaps it has bound (so the heap info is deliberately NOT chained here - the chain takes one entry,
         // and a second truth is what it refuses).
-        std::array<rhi::image_format, max_render_targets> color_formats = {};
+        deren::utility::vessel::array<rhi::image_format, max_render_targets> color_formats = {};
         uint32_t color_count = 0;
         for (::deren::promise::rhi::image_format const format : this->pass_frame.color_formats) {
             if (color_count >= color_formats.size()) {
@@ -121,7 +122,7 @@ namespace deren::engine::pass {
         // THE SCOPE RIDES THE CONTRACT NOW (abi 20): the attachments are contract VIEWS, the load op and the
         // store op are the roles the raw helpers spelled (CLEAR + STORE for both kinds), and the flags word is
         // the one bit the raw call passed (`secondary_contents`).
-        std::array<rhi::color_attachment, max_render_targets> color_attachments = {};
+        deren::utility::vessel::array<rhi::color_attachment, max_render_targets> color_attachments = {};
         uint32_t color_count = 0;
         rhi::depth_attachment depth_attachment = {};
         bool has_depth = false;
@@ -187,9 +188,9 @@ namespace deren::engine::pass {
             // is not thread safe, and a worker never shares one). The tasks read shared state and write only
             // their own command buffer; the batch is waited on before the primary executes the segments IN
             // ORDER, so the recorded command stream is the sequential one.
-            std::vector<std::function<void()>> tasks;
+            deren::utility::vessel::vector<std::function<void()>> tasks;
             tasks.reserve(segment_count);
-            std::vector<std::atomic<bool>> segment_recorded(segment_count);
+            deren::utility::vessel::vector<std::atomic<bool>> segment_recorded(segment_count);
             for (std::size_t s = 0; s < segment_count; ++s) {
                 std::size_t const seg_first = leaf_count * s / segment_count;
                 std::size_t const seg_last = leaf_count * (s + 1) / segment_count;

@@ -65,7 +65,7 @@ namespace {
         if (!result.has_value()) {
             return;
         }
-        std::vector<deren::gltf::resolved_material> const materials = deren::gltf::resolve_materials(*result);
+        deren::utility::vessel::vector<deren::gltf::resolved_material> const materials = deren::gltf::resolve_materials(*result);
         deren::gltf::drawable_iterator it(*result, materials);
         CHECK(it != deren::gltf::drawable_iterator());
         if (!(it != deren::gltf::drawable_iterator())) {
@@ -155,7 +155,7 @@ namespace {
         CHECK(drawables == bounds.primitive_count);
 
         // renderer-ready materials resolve one per source material
-        std::vector<deren::gltf::resolved_material> const resolved = deren::gltf::resolve_materials(scenes);
+        deren::utility::vessel::vector<deren::gltf::resolved_material> const resolved = deren::gltf::resolve_materials(scenes);
         CHECK(resolved.size() == scenes.materials.size());
     }
 

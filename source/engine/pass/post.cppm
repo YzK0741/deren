@@ -44,6 +44,7 @@ module;
 #include <string_view>
 
 export module deren.engine.pass.post;
+export import deren.utility.shared;
 import deren.promise.rhi;
 
 import deren.engine.pass;
@@ -220,7 +221,7 @@ export namespace deren::engine::pass {
         /// ONE name: the behaviour says which pipeline the runner binds, and the host fills that slot with the
         /// variant the frame's TARGET needs (see composite_pipeline / hdr_pipeline) - two names here would make
         /// the runner bind both, and the second would win.
-        static constexpr std::array<std::string_view, 1> pipeline_names = {"post_composite"};
+        static constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {"post_composite"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
         inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
@@ -286,7 +287,7 @@ export namespace deren::engine::pass {
         /// composite's (`post_composite_pass::bloom_pipeline_name`) because the owner resolves it by asking ITS
         /// passes (`frame_pass::named_pipeline`) - and one shared object is the point: a copy per level would be
         /// five identical pipelines.
-        static constexpr std::array<std::string_view, 1> pipeline_names = {post_composite_pass::bloom_pipeline_name};
+        static constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {post_composite_pass::bloom_pipeline_name};
 
         // called bloom_level, not level: level() and the constructor's level parameter in post.cpp would
         // hide it, and MSVC /W4 reports C4458 (an error under /WX).

@@ -14,6 +14,7 @@ module;
 #include <vector>
 
 module deren.engine.pass.compute_skin;
+import deren.utility.shared;
 
 import deren.engine.pipelines; // build_compute_skin: the compute pipeline this job owns
 import deren.utility;
@@ -32,9 +33,9 @@ namespace deren::engine::pass {
         return this->pass_pipeline.has_value();
     }
 
-    std::expected<void, std::string> compute_skin_job::create(pass_context const& context) {
+    std::expected<void, deren::utility::vessel::string> compute_skin_job::create(pass_context const& context) {
         if (context.face == nullptr) {
-            return std::unexpected(std::string("compute skin: no device"));
+            return std::unexpected(deren::utility::vessel::string("compute skin: no device"));
         }
         if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
@@ -42,7 +43,7 @@ namespace deren::engine::pass {
         this->built_against = context.face;
         std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<uint8_t const>{};
         if (spirv.empty()) {
-            return std::unexpected(std::string("compute skin: the owner has no ") + std::string(shader_name));
+            return std::unexpected(deren::utility::vessel::string("compute skin: the owner has no ") + deren::utility::vessel::string(shader_name));
         }
         // The per-joint matrices the dispatch reads are a heap slot the shader names itself (see the header), so
         // nothing about the renderer's buffers is handed in and the pipeline is all this job builds.

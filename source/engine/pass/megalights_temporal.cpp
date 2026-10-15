@@ -17,6 +17,7 @@ module;
 #include <vector>
 
 module deren.engine.pass.megalights_temporal;
+import deren.utility.shared;
 
 import deren.promise.rhi; // the record series (abi 20): the barriers, the copy and the dispatch
 import deren.engine.render_resource;
@@ -34,7 +35,7 @@ namespace deren::engine::pass {
     }
 
     void megalights_temporal_pass::describe_resources(render_resource::instances::resource_context const& context,
-                                                      std::vector<render_resource::instances::request>& out) const {
+                                                      deren::utility::vessel::vector<render_resource::instances::request>& out) const {
         for (auto const& value : output_targets_pass::descriptions(context))
             if (value.id == render_resource::resource_id::ml_resolve || value.id == render_resource::resource_id::ml_history)
                 out.push_back(value);
@@ -152,7 +153,7 @@ namespace deren::engine::pass {
         // it after this pass) and the history only by the resolve, which is a copy's destination first.
         // THE PAIRS RIDE THE CONTRACT NOW (abi 20): the backend derives the masks and the layouts from the
         // roles, and the batch stays ONE call - `barrier_group` is what the raw `vkCmdPipelineBarrier2` was.
-        std::array<rhi::image_barrier, 2> barriers = {};
+        deren::utility::vessel::array<rhi::image_barrier, 2> barriers = {};
         uint32_t count = 0;
         barriers[count] = rhi::image_barrier{.resource = resolve_image,
                                              .from = rhi::image_use::undefined,
@@ -187,7 +188,7 @@ namespace deren::engine::pass {
         // A copy rather than a ping-pong, exactly like the GI resolve: the accumulation is what the lighting
         // stage samples, so the history has to be a second image and copying into it keeps every heap slot
         // in the frame stable.
-        std::array<rhi::image_barrier, 2> const copy_barriers = {
+        deren::utility::vessel::array<rhi::image_barrier, 2> const copy_barriers = {
             rhi::image_barrier{.resource = resolve_image,
                                .from = rhi::image_use::shader_write,
                                .to = rhi::image_use::transfer_source,
@@ -211,7 +212,7 @@ namespace deren::engine::pass {
 
         // Hand both on: the accumulation to the lighting stage that adds it (SHADER_READ, which its binding 17
         // declares) and the history copy to the next frame's resolve.
-        std::array<rhi::image_barrier, 2> const hand_back = {
+        deren::utility::vessel::array<rhi::image_barrier, 2> const hand_back = {
             rhi::image_barrier{.resource = resolve_image,
                                .from = rhi::image_use::transfer_source,
                                .to = rhi::image_use::shader_read,

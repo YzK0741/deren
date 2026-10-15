@@ -39,6 +39,8 @@
 #include <utility>
 #include <vector>
 
+import deren.utility.shared;
+
 #ifdef VR_TEST_SOURCE_DIR
 
 namespace {
@@ -280,7 +282,7 @@ namespace {
     /// the test's own verdict checkable: the SHA-256 below is over bytes that came back out of the decoder, so a
     /// transcription error anywhere in this table fails the first CHECK in section 8n rather than silently
     /// becoming the new expectation.
-    std::string const k_fgd_png_base64 =
+    deren::utility::vessel::string const k_fgd_png_base64 =
         "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAUOUlEQVR4XmP8/5/hPwMQgIh/QBqE/wLpP3DMxPCbgYnhFwMzHP8EskH4BwMLw08g/gHk"
         "fwfTLAw/oPR3NPoHVN1PsB5mBgQNMRdmB4j+A7QPGf9lYGQA4X9A8X9A9j+wexkZQOz/UDbMDwxIfAYiANOxEwwMT58xMHz7zsDwD2jy//8wXUxABgsa"
         "ZgbyYZgFic2MhQ3Sjw8zAvUQgxmQ1MHcxojkNUY0bzIykAJYjM2Bnv/KyPD6LQMDOwcjAxc3IwMTKyPDfyYgZmQCJg+gJxhBHmQi4GFYIMA8DdMD44Mc"
@@ -374,7 +376,7 @@ namespace {
     struct fgd_lut {
         static constexpr uint32_t width = 64u;
         static constexpr uint32_t height = 64u;
-        std::vector<uint8_t> texels = {};
+        deren::utility::vessel::vector<uint8_t> texels = {};
 
         [[nodiscard]] bool valid() const {
             return texels.size() == static_cast<std::size_t>(width) * height * 4u;
@@ -405,7 +407,7 @@ namespace {
     };
 
     /// @brief decode the standard base64 alphabet, ignoring newlines and the trailing `=` - the forty lines above
-    std::vector<uint8_t> base64_decode(std::string const& text) {
+    deren::utility::vessel::vector<uint8_t> base64_decode(deren::utility::vessel::string const& text) {
         auto const value_of = [](char const c) -> int32_t {
             if (c >= 'A' && c <= 'Z')
                 return c - 'A';
@@ -419,7 +421,7 @@ namespace {
                 return 63;
             return -1; // '=' and whitespace: the end of the stream, or a separator
         };
-        std::vector<uint8_t> out = {};
+        deren::utility::vessel::vector<uint8_t> out = {};
         uint32_t accumulator = 0u;
         uint32_t bits = 0u;
         for (char const c : text) {
@@ -442,7 +444,7 @@ namespace {
     /// It is used for exactly one assertion - that the bytes that came back out of `png_rgba8` are the REFERENCE'S
     /// PNG, byte for byte - and that assertion is what makes the embedded table above verifiable rather than
     /// trusted. A transcription error anywhere in those forty lines fails it (and the texel checks below it).
-    std::string sha256_hex(std::vector<uint8_t> const& bytes) {
+    deren::utility::vessel::string sha256_hex(deren::utility::vessel::vector<uint8_t> const& bytes) {
         static constexpr uint32_t k[64] = {0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u, 0x3956c25bu, 0x59f111f1u, 0x923f82a4u, 0xab1c5ed5u,
                                            0xd807aa98u, 0x12835b01u, 0x243185beu, 0x550c7dc3u, 0x72be5d74u, 0x80deb1feu, 0x9bdc06a7u, 0xc19bf174u,
                                            0xe49b69c1u, 0xefbe4786u, 0x0fc19dc6u, 0x240ca1ccu, 0x2de92c6fu, 0x4a7484aau, 0x5cb0a9dcu, 0x76f988dau,
@@ -451,7 +453,7 @@ namespace {
                                            0xa2bfe8a1u, 0xa81a664bu, 0xc24b8b70u, 0xc76c51a3u, 0xd192e819u, 0xd6990624u, 0xf40e3585u, 0x106aa070u,
                                            0x19a4c116u, 0x1e376c08u, 0x2748774cu, 0x34b0bcb5u, 0x391c0cb3u, 0x4ed8aa4au, 0x5b9cca4fu, 0x682e6ff3u,
                                            0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u, 0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u};
-        std::vector<uint8_t> message = bytes;
+        deren::utility::vessel::vector<uint8_t> message = bytes;
         uint64_t const bit_length = static_cast<uint64_t>(bytes.size()) * 8u;
         message.push_back(0x80u);
         while (message.size() % 64u != 56u) {
@@ -499,7 +501,7 @@ namespace {
             h[6] += g;
             h[7] += hh;
         }
-        std::string hex = {};
+        deren::utility::vessel::string hex = {};
         for (uint32_t const word : h) {
             char buffer[9] = {};
             std::snprintf(buffer, sizeof(buffer), "%08x", word);
@@ -519,7 +521,7 @@ namespace {
     /// defines), and no interlace, no palette and no 16-bit depth. The spec's `A3` names exactly these fields
     /// (`w=64 h=64 bitdepth=8 colortype=6 compression=0 filter=0 interlace=0`) and the file's own chunk list is
     /// `IHDR`/`IDAT`/`IEND`, so the input this must accept is pinned by the spec as well as by the assertions.
-    std::vector<uint8_t> png_rgba8(std::vector<uint8_t> const& bytes) {
+    deren::utility::vessel::vector<uint8_t> png_rgba8(deren::utility::vessel::vector<uint8_t> const& bytes) {
         auto const be32 = [&bytes](std::size_t const at) -> uint32_t {
             return (static_cast<uint32_t>(bytes[at]) << 24) | (static_cast<uint32_t>(bytes[at + 1]) << 16) |
                    (static_cast<uint32_t>(bytes[at + 2]) << 8) | static_cast<uint32_t>(bytes[at + 3]);
@@ -529,10 +531,10 @@ namespace {
         }
         uint32_t width = 0u;
         uint32_t height = 0u;
-        std::vector<uint8_t> compressed = {};
+        deren::utility::vessel::vector<uint8_t> compressed = {};
         for (std::size_t at = 8u; at + 8u <= bytes.size();) {
             uint32_t const length = be32(at);
-            std::string const type(reinterpret_cast<char const*>(bytes.data() + at + 4u), 4u);
+            deren::utility::vessel::string const type(reinterpret_cast<char const*>(bytes.data() + at + 4u), 4u);
             std::size_t const body = at + 8u;
             if (body + length > bytes.size()) {
                 return {};
@@ -555,7 +557,7 @@ namespace {
         }
         // ---- zlib: one 2-byte header, deflate blocks, one 4-byte Adler-32 (which this reader does not check:
         //      the assertion that the file is the reference's is the TEXEL check below, which is stronger) ----
-        std::vector<uint8_t> raw = {};
+        deren::utility::vessel::vector<uint8_t> raw = {};
         {
             std::size_t at = 2u;
             uint32_t bit_buffer = 0u;
@@ -571,15 +573,15 @@ namespace {
                 return value;
             };
             // the fixed-Huffman code lengths, exactly as RFC 1951 states them
-            std::vector<uint32_t> length_base = {3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 13u, 15u, 17u, 19u, 23u, 27u, 31u, 35u, 43u, 51u, 59u, 67u, 83u, 99u, 115u, 131u, 163u, 195u, 227u, 258u};
-            std::vector<uint32_t> length_extra = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 1u, 1u, 1u, 1u, 2u, 2u, 2u, 2u, 3u, 3u, 3u, 3u, 4u, 4u, 4u, 4u, 5u, 5u, 5u, 5u, 0u};
-            std::vector<uint32_t> dist_base = {1u, 2u, 3u, 4u, 5u, 7u, 9u, 13u, 17u, 25u, 33u, 49u, 65u, 97u, 129u, 193u, 257u, 385u, 513u, 769u, 1025u, 1537u, 2049u, 3073u, 4097u, 6145u, 8193u, 12289u, 16385u, 24577u};
-            std::vector<uint32_t> dist_extra = {0u, 0u, 0u, 0u, 1u, 1u, 2u, 2u, 3u, 3u, 4u, 4u, 5u, 5u, 6u, 6u, 7u, 7u, 8u, 8u, 9u, 9u, 10u, 10u, 11u, 11u, 12u, 12u, 13u, 13u};
+            deren::utility::vessel::vector<uint32_t> length_base = {3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 13u, 15u, 17u, 19u, 23u, 27u, 31u, 35u, 43u, 51u, 59u, 67u, 83u, 99u, 115u, 131u, 163u, 195u, 227u, 258u};
+            deren::utility::vessel::vector<uint32_t> length_extra = {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 1u, 1u, 1u, 1u, 2u, 2u, 2u, 2u, 3u, 3u, 3u, 3u, 4u, 4u, 4u, 4u, 5u, 5u, 5u, 5u, 0u};
+            deren::utility::vessel::vector<uint32_t> dist_base = {1u, 2u, 3u, 4u, 5u, 7u, 9u, 13u, 17u, 25u, 33u, 49u, 65u, 97u, 129u, 193u, 257u, 385u, 513u, 769u, 1025u, 1537u, 2049u, 3073u, 4097u, 6145u, 8193u, 12289u, 16385u, 24577u};
+            deren::utility::vessel::vector<uint32_t> dist_extra = {0u, 0u, 0u, 0u, 1u, 1u, 2u, 2u, 3u, 3u, 4u, 4u, 5u, 5u, 6u, 6u, 7u, 7u, 8u, 8u, 9u, 9u, 10u, 10u, 11u, 11u, 12u, 12u, 13u, 13u};
 
             // a canonical Huffman table: `counts[n]` codes of length n, decoded bit by bit
             struct huffman {
-                std::vector<uint32_t> counts = std::vector<uint32_t>(16u, 0u);
-                std::vector<uint32_t> symbols = {};
+                deren::utility::vessel::vector<uint32_t> counts = deren::utility::vessel::vector<uint32_t>(16u, 0u);
+                deren::utility::vessel::vector<uint32_t> symbols = {};
                 [[nodiscard]] int32_t decode(std::function<uint32_t(uint32_t)> const& bits) const {
                     uint32_t code = 0u;
                     int32_t first = 0;
@@ -597,18 +599,18 @@ namespace {
                     return -1;
                 }
             };
-            auto const build = [](std::vector<uint32_t> const& lengths) {
+            auto const build = [](deren::utility::vessel::vector<uint32_t> const& lengths) {
                 huffman table = {};
                 for (uint32_t const length : lengths) {
                     if (length > 0u && length < 16u) {
                         table.counts[length] += 1u;
                     }
                 }
-                std::vector<uint32_t> offsets = std::vector<uint32_t>(16u, 0u);
+                deren::utility::vessel::vector<uint32_t> offsets = deren::utility::vessel::vector<uint32_t>(16u, 0u);
                 for (uint32_t length = 1u; length < 15u; ++length) {
                     offsets[length + 1u] = offsets[length] + table.counts[length];
                 }
-                table.symbols = std::vector<uint32_t>(lengths.size(), 0u);
+                table.symbols = deren::utility::vessel::vector<uint32_t>(lengths.size(), 0u);
                 for (uint32_t symbol = 0u; symbol < lengths.size(); ++symbol) {
                     if (lengths[symbol] > 0u && lengths[symbol] < 16u) {
                         table.symbols[offsets[lengths[symbol]]++] = symbol;
@@ -618,7 +620,7 @@ namespace {
             };
             huffman fixed_literal = {};
             {
-                std::vector<uint32_t> lengths(288u, 0u);
+                deren::utility::vessel::vector<uint32_t> lengths(288u, 0u);
                 for (uint32_t symbol = 0u; symbol < 144u; ++symbol) {
                     lengths[symbol] = 8u;
                 }
@@ -635,14 +637,14 @@ namespace {
             }
             huffman fixed_distance = {};
             {
-                std::vector<uint32_t> lengths(30u, 5u);
+                deren::utility::vessel::vector<uint32_t> lengths(30u, 5u);
                 fixed_distance = build(lengths);
             }
             bool final_block = false;
             while (!final_block && at < compressed.size()) {
                 final_block = bits(1u) != 0u;
                 uint32_t const kind = bits(2u);
-                std::vector<uint8_t> literals = {};
+                deren::utility::vessel::vector<uint8_t> literals = {};
                 if (kind == 0u) {
                     bit_buffer = 0u;
                     bit_count = 0u; // stored blocks are byte-aligned
@@ -660,13 +662,13 @@ namespace {
                     uint32_t const literal_count = bits(5u) + 257u;
                     uint32_t const distance_count = bits(5u) + 1u;
                     uint32_t const code_count = bits(4u) + 4u;
-                    std::vector<uint32_t> order = {16u, 17u, 18u, 0u, 8u, 7u, 9u, 6u, 10u, 5u, 11u, 4u, 12u, 3u, 13u, 2u, 14u, 1u, 15u};
-                    std::vector<uint32_t> code_lengths(19u, 0u);
+                    deren::utility::vessel::vector<uint32_t> order = {16u, 17u, 18u, 0u, 8u, 7u, 9u, 6u, 10u, 5u, 11u, 4u, 12u, 3u, 13u, 2u, 14u, 1u, 15u};
+                    deren::utility::vessel::vector<uint32_t> code_lengths(19u, 0u);
                     for (uint32_t i = 0u; i < code_count; ++i) {
                         code_lengths[order[i]] = bits(3u);
                     }
                     huffman const code_table = build(code_lengths);
-                    std::vector<uint32_t> lengths = {};
+                    deren::utility::vessel::vector<uint32_t> lengths = {};
                     while (lengths.size() < static_cast<std::size_t>(literal_count) + distance_count) {
                         int32_t const symbol = code_table.decode(bits);
                         if (symbol < 0) {
@@ -690,8 +692,8 @@ namespace {
                             }
                         }
                     }
-                    literal = build(std::vector<uint32_t>(lengths.begin(), lengths.begin() + static_cast<std::ptrdiff_t>(literal_count)));
-                    distance = build(std::vector<uint32_t>(lengths.begin() + static_cast<std::ptrdiff_t>(literal_count), lengths.end()));
+                    literal = build(deren::utility::vessel::vector<uint32_t>(lengths.begin(), lengths.begin() + static_cast<std::ptrdiff_t>(literal_count)));
+                    distance = build(deren::utility::vessel::vector<uint32_t>(lengths.begin() + static_cast<std::ptrdiff_t>(literal_count), lengths.end()));
                 }
                 for (;;) {
                     int32_t const symbol = literal.decode(bits);
@@ -726,7 +728,7 @@ namespace {
         }
         // ---- the five filters, un-applied row by row (each scanline is `1 + width*4` bytes) ----
         std::size_t const stride = static_cast<std::size_t>(width) * 4u;
-        std::vector<uint8_t> image(static_cast<std::size_t>(height) * stride, 0u);
+        deren::utility::vessel::vector<uint8_t> image(static_cast<std::size_t>(height) * stride, 0u);
         if (raw.size() < static_cast<std::size_t>(height) * (stride + 1u)) {
             return {};
         }
@@ -1509,7 +1511,7 @@ int32_t main() {
     // anywhere in it produces a different byte stream and fails this CHECK rather than quietly becoming the new
     // expectation. `7e49509b65c668abcaee523caa4c0dbc86bd09695bfc08522ec1de1a90e000e1` is the whole file's hash
     // (5234 bytes), which the spec's §A3.3 records as `7e49509b65c668ab` in its first 16 hex digits.
-    std::vector<uint8_t> const lut_png = base64_decode(k_fgd_png_base64);
+    deren::utility::vessel::vector<uint8_t> const lut_png = base64_decode(k_fgd_png_base64);
     fgd_lut const lut = fgd_lut{.texels = png_rgba8(lut_png)};
     {
         CHECK_MSG(lut_png.size() == 5234u, "the embedded PNG is 5234 bytes, the reference file's own length");
@@ -1606,7 +1608,7 @@ int32_t main() {
             float const r = lut.sample(x, y, 0u);
             float const g = lut.sample(x, y, 1u);
             float const b = lut.sample(x, y, 2u);
-            return std::array<float, 3u>{r * (1.0f - f0) + g * f0, b + k_fgd_diffuse_offset, g}; // {specularFGD, diffuseFGD, reflectivity}
+            return deren::utility::vessel::array<float, 3u>{r * (1.0f - f0) + g * f0, b + k_fgd_diffuse_offset, g}; // {specularFGD, diffuseFGD, reflectivity}
         };
         // ROW 1: `fresnel0 = 0`, `NoV = 0`, `perceptualRoughness = 0` - the LUT's own origin, and with the
         // half-texel bias it is EXACTLY texel `(0, 0)`: `0.0078125*64 - 0.5 = 0.0`. The one row where `specularFGD`
@@ -1614,7 +1616,7 @@ int32_t main() {
         // `0.015625` bias put this fetch on `0.5`, the CORNER where four texels meet (which is why an earlier
         // version of this row expected 0.916666667 rather than 1.0).
         {
-            std::array<float, 3u> const out = fgd(0.0f, 0.0f, 0.0f);
+            deren::utility::vessel::array<float, 3u> const out = fgd(0.0f, 0.0f, 0.0f);
             CHECK_MSG(std::abs(out[0] - 1.0f) < 1e-6f, "f0 = 0, NoV = 0, pr = 0: specularFGD = LUT.R at texel 0.0 = 1.0 exactly");
             CHECK_MSG(lut.byte_at(0u, 0u, 0u) == 255, "and texel (0,0)'s R really is 255: the fetch is on the texel CENTRE, not the corner");
             CHECK_MSG(std::abs(out[1] - 0.5f) < 1e-6f, "and diffuseFGD = LUT.B(0,0) + 0.5 = 0.0 + 0.5 = 0.5 (the ADD's `Value_001`)");
@@ -1625,7 +1627,7 @@ int32_t main() {
         // bilinear interpolation were swapped, and `reflectivity = 1.0` EXACTLY is why these two materials' whole
         // IBL specular is zero (`1/1 - 1 = 0`).
         {
-            std::array<float, 3u> const out = fgd(k_fgd_dielectric_f0, 0.08f, 0.0f);
+            deren::utility::vessel::array<float, 3u> const out = fgd(k_fgd_dielectric_f0, 0.08f, 0.0f);
             CHECK_MSG(std::abs(out[0] - 0.970560014f) < 1e-6f, "body, NoV 0.08, pr 0: specularFGD = 0.970560014 (a mix of R and G at f0 = 0.08)");
             CHECK_MSG(std::abs(out[1] - 0.5f) < 1e-6f, "and diffuseFGD = 0.5 exactly - LUT.B is 0 all along this row, so the offset IS the whole term");
             CHECK_MSG(std::abs(out[2] - 1.0f) < 1e-6f, "and reflectivity = 1.0, so the body's energyCompensation is EXACTLY 0");
@@ -1637,7 +1639,7 @@ int32_t main() {
         // would move it half a texel. It is ALSO the row where the `+ 0.5` is loudest: `LUT.B` here is ~0.99, so
         // `diffuseFGD` goes from a near-unity 0.992 to 1.492.
         {
-            std::array<float, 3u> const out = fgd(k_fgd_dielectric_f0, 0.08f, 1.0f);
+            deren::utility::vessel::array<float, 3u> const out = fgd(k_fgd_dielectric_f0, 0.08f, 1.0f);
             CHECK_MSG(std::abs(out[0] - 0.117151372f) < 1e-6f, "cloth, NoV 0.08, pr 1.0: specularFGD = 0.117151372");
             CHECK_MSG(std::abs(out[1] - 1.4918431f) < 1e-5f, "and diffuseFGD = 0.991843104 + 0.5 = 1.4918431 - the offset takes it past 1");
             CHECK_MSG(std::abs(out[2] - 0.968313694f) < 1e-6f, "and reflectivity = 0.968313694, so the cloth's compensation is 0.0327232");
@@ -1648,7 +1650,7 @@ int32_t main() {
         // and the three channels here are all different (`specularFGD` 0.0733, `diffuseFGD` 0.9706,
         // `reflectivity` 0.9157), so a channel mix-up cannot pass this row.
         {
-            std::array<float, 3u> const out = fgd(k_fgd_dielectric_f0, 1.0f, 0.5f);
+            deren::utility::vessel::array<float, 3u> const out = fgd(k_fgd_dielectric_f0, 1.0f, 0.5f);
             CHECK_MSG(std::abs(out[0] - 0.0732548982f) < 1e-6f, "NoV 1.0, pr 0.5: specularFGD = 0.0732548982");
             CHECK_MSG(std::abs(out[1] - 0.970588207f) < 1e-6f, "and diffuseFGD = 0.470588207 + 0.5 = 0.970588207");
             CHECK_MSG(std::abs(out[2] - 0.91568625f) < 1e-6f, "and reflectivity = 0.91568625");
@@ -1685,24 +1687,24 @@ int32_t main() {
     // output goes to the anisotropic BRDF (`clampedRoughness`).
     {
         auto const chain = [](float const smoothness_max, float const pa) {
-            float const smoothness = 0.0f * (1.0f - pa) + smoothness_max * pa;                               // 混合.001, A = 0, B = SmoothnessMax
-            float const perceptual_roughness = 1.0f - smoothness;                                            // PerceptualSmoothnessToPerceptualRoughness
-            return std::array<float, 2u>{perceptual_roughness, perceptual_roughness * perceptual_roughness}; // the second is PerceptualRoughnessToRoughness
+            float const smoothness = 0.0f * (1.0f - pa) + smoothness_max * pa;                                                  // 混合.001, A = 0, B = SmoothnessMax
+            float const perceptual_roughness = 1.0f - smoothness;                                                               // PerceptualSmoothnessToPerceptualRoughness
+            return deren::utility::vessel::array<float, 2u>{perceptual_roughness, perceptual_roughness * perceptual_roughness}; // the second is PerceptualRoughnessToRoughness
         };
         // the spec's §A4 rows: the two body materials, the five cloths, the hair, and the two intermediates that
         // distinguish the chain from its square.
-        std::array<float, 2u> const body = chain(1.0f, 1.0f);
+        deren::utility::vessel::array<float, 2u> const body = chain(1.0f, 1.0f);
         CHECK_MSG(std::abs(body[0] - 0.0f) < 1e-7f, "body: _P.A 1.0, SmoothnessMax 1.0 -> perceptualRoughness 0.0");
         CHECK_MSG(std::abs(body[1] - 0.0f) < 1e-7f, "and roughness 0.0 (the two agree at the smooth end)");
-        std::array<float, 2u> const cloth = chain(1.0f, 0.0f);
+        deren::utility::vessel::array<float, 2u> const cloth = chain(1.0f, 0.0f);
         CHECK_MSG(std::abs(cloth[0] - 1.0f) < 1e-7f, "cloth: _P.A 0.0 -> perceptualRoughness 1.0");
         CHECK_MSG(std::abs(cloth[1] - 1.0f) < 1e-7f, "and roughness 1.0 - WHICH IS WHY THIS ASSET CANNOT TELL THE TWO APART");
-        std::array<float, 2u> const hair = chain(0.06687900424003601f, 0.0f);
+        deren::utility::vessel::array<float, 2u> const hair = chain(0.06687900424003601f, 0.0f);
         CHECK_MSG(std::abs(hair[0] - 1.0f) < 1e-7f, "hair: SmoothnessMax 0.066879 x _P.A 0 -> perceptualRoughness 1.0 (out of this step's scope)");
-        std::array<float, 2u> const quarter = chain(1.0f, 0.25f);
+        deren::utility::vessel::array<float, 2u> const quarter = chain(1.0f, 0.25f);
         CHECK_MSG(std::abs(quarter[0] - 0.75f) < 1e-7f, "smoothness 0.25 -> perceptualRoughness 0.75");
         CHECK_MSG(std::abs(quarter[1] - 0.5625f) < 1e-7f, "and roughness 0.5625 = 0.75^2: THE TWO ARE DIFFERENT NUMBERS HERE");
-        std::array<float, 2u> const half = chain(0.5f, 0.5f);
+        deren::utility::vessel::array<float, 2u> const half = chain(0.5f, 0.5f);
         CHECK_MSG(std::abs(half[0] - 0.75f) < 1e-7f, "SmoothnessMax 0.5 with _P.A 0.5 -> the same 0.75 (the lerp, not the product)");
         // ... AND THE CONSEQUENCE FOR THE FGD, which is the measured error the spec's §4.2 names: for a material
         // with `smoothness = 0.5` the wrong input moves the fetch from `v = 0.5` to `v = 0.25`, and since the
@@ -1788,10 +1790,10 @@ int32_t main() {
             double const lam = std::sqrt((rt * tv) * (rt * tv) + (rb * bv) * (rb * bv) + nv * nv);
             double const denominator = (w * nv + lam * nl) * s2 * s2;
             double const floored = std::max(denominator, 0.0010000000474974513);
-            return std::array<double, 6u>{p, s2, w, lam, floored, 0.15915493667125702 * (1.0 * p * p * p) / floored};
+            return deren::utility::vessel::array<double, 6u>{p, s2, w, lam, floored, 0.15915493667125702 * (1.0 * p * p * p) / floored};
         };
         // (1) POINT A - the trace's first sample, where the lobe is at its largest of the three.
-        std::array<double, 6u> const a = aniso_parts(0.5, 0.5, 0.6, 0.5, 0.7, 0.3, 0.4, 0.8, 0.35, 0.45, 0.75);
+        deren::utility::vessel::array<double, 6u> const a = aniso_parts(0.5, 0.5, 0.6, 0.5, 0.7, 0.3, 0.4, 0.8, 0.35, 0.45, 0.75);
         CHECK_MSG(std::abs(a[1] - 0.18312499999999998) < 1e-15,
                   "A's `s2` = (0.5*0.6)^2 + (0.5*0.5)^2 + (0.7*0.25)^2 = 0.183125 - and the CROSSED roughnesses are load-bearing: the same point with them un-swapped gives 0.169125");
         CHECK_MSG(std::abs(a[2] - 0.83815273071201057) < 1e-15, "A's |W| = sqrt(0.3^2 + 0.2^2 + 0.8^2) = 0.83815273071201057");
@@ -1799,13 +1801,13 @@ int32_t main() {
         CHECK_MSG(std::abs(a[4] - 0.042605477385205544) < 1e-15, "A's floored denominator = (|W|*NoV + Lam*NoL)*s2^2 = 0.042605477385205544");
         CHECK_MSG(std::abs(a[5] - 0.058367985482352877) < 1e-15, "A's 叶 = 0.058367985482352884 (the trace's print; f32 0.058367975)");
         // (2) POINT B - a small lobe, and the point where `T` and `B` are on OPPOSITE sides of the halfway vector.
-        std::array<double, 6u> const b = aniso_parts(0.2, 0.6, 0.9, 0.1, 0.3, 0.5, 0.2, 0.85, 0.6, 0.15, 0.8);
+        deren::utility::vessel::array<double, 6u> const b = aniso_parts(0.2, 0.6, 0.9, 0.1, 0.3, 0.5, 0.2, 0.85, 0.6, 0.15, 0.8);
         CHECK_MSG(std::abs(b[3] - 0.81394102980498539) < 1e-15, "B's Lam = 0.81394102980498539 (the trace's own print; f32 0.81394106149673462)");
         CHECK_MSG(std::abs(b[5] - 0.0023112930334865441) < 1e-15, "B's 叶 = 0.0023112930334865454 (the trace's print; f32 0.0023112926)");
         // (3) POINT C - the degenerate corner the per-material defaults sit on: `rT = rB = 1` with the frame
         //     aligned to `H`, so every dot is 0 or 1. It is also the value the NUMERATOR alone gives at `p = 1`
         //     (`0.15915493667125702 / 2`) and the one place the floor is furthest from binding.
-        std::array<double, 6u> const c = aniso_parts(1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0);
+        deren::utility::vessel::array<double, 6u> const c = aniso_parts(1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0);
         CHECK_MSG(std::abs(c[3] - 1.0) < 1e-15, "C's Lam = 1.0 exactly");
         CHECK_MSG(std::abs(c[4] - 2.0) < 1e-15, "C's denominator = (1*1 + 1*1)*1*1 = 2.0, so the floor is nowhere near it");
         CHECK_MSG(std::abs(c[5] - 0.07957746833562851) < 1e-15, "C's 叶 = 0.07957746833562851 (the trace's print; f32 0.07957747)");
@@ -1813,7 +1815,7 @@ int32_t main() {
         //     a unit frame, so the un-floored denominator is strictly positive there and the floor can only be
         //     reached by a frame that is NOT unit (which `surface_tbn` can produce nothing of, but which the
         //     reference still guards). Pinned so that "the floor never binds" is a statement this file has tested.
-        std::array<double, 6u> const tiny = aniso_parts(1e-4, 1e-4, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0);
+        deren::utility::vessel::array<double, 6u> const tiny = aniso_parts(1e-4, 1e-4, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0);
         CHECK_MSG(tiny[4] == 0.0010000000474974513,
                   "a near-zero roughness drives the whole denominator under the reference's floor, and `max` is what answers it");
         CHECK_MSG(std::isfinite(tiny[5]) && tiny[5] > 0.0,
@@ -1852,7 +1854,7 @@ int32_t main() {
             double const lambda = lv + ll;                                   // `运算.012`
             double const denominator = s * s * lambda;                       // `运算.016`
             double const floored = std::max(denominator, static_cast<double>(k_dv_denominator_floor));
-            return std::array<double, 4u>{s, lambda, floored, 0.1591549962759018 * a2 / floored};
+            return deren::utility::vessel::array<double, 4u>{s, lambda, floored, 0.1591549962759018 * a2 / floored};
         };
         // ... AND THE OLD EXPRESSION, KEPT ONLY TO STATE THE DEFECT AND ITS TWO FACTORS - it is not any shader's
         // arithmetic any more, and nothing below asserts that it is.
@@ -1868,7 +1870,7 @@ int32_t main() {
             return 0.1591549962759018 * (a2 / std::max(s2 * s2, 1e-12)) * (1.0 / (1.0 + old_lambda(r, nov, nol)));
         };
         // (1) THE ARBITRATED POINT: `R = 0.25, NoV = NoL = 0.7, NoH = 0.95`, the trace's own sample.
-        std::array<double, 4u> const point = dv_parts(0.25, 0.7, 0.7, 0.95);
+        deren::utility::vessel::array<double, 4u> const point = dv_parts(0.25, 0.7, 0.7, 0.95);
         CHECK_MSG(std::abs(point[3] - 7.29172301067769e-02) < 1e-15,
                   "原 at R 0.25 / NoV = NoL 0.7 / NoH 0.95 = 7.29172301067769e-02 (the trace's own print was 7.291723011e-02, rounded)");
         CHECK_MSG(std::abs(point[0] - 0.101025390625) < 1e-15,
@@ -1906,7 +1908,7 @@ int32_t main() {
         CHECK_MSG(dv_parts(0.0, 0.7, 0.7, 0.95)[3] == 0.0,
                   "roughness 0 -> a2 0 -> 原 is EXACTLY 0 (the body's own answer, not a floor)");
         //     `roughness = 1` -> `a2 = 1`: both brackets collapse to 1, so `λ = |NoL| + NoV` and `S = 1`.
-        std::array<double, 4u> const flat = dv_parts(1.0, 0.7, 0.7, 0.95);
+        deren::utility::vessel::array<double, 4u> const flat = dv_parts(1.0, 0.7, 0.7, 0.95);
         CHECK_MSG(flat[0] == 1.0 && flat[1] == 1.4,
                   "roughness 1 -> a2 1 -> S = 1 and λ = |NoL| + NoV = 1.4 exactly");
         CHECK_MSG(std::abs(flat[3] - 0.11368214019707272) < 1e-15,
@@ -1919,7 +1921,7 @@ int32_t main() {
         //     1.056884557344398e-08, still twenty-seven orders above the literal), so it is CONSTRUCTED: `a2 = 1e-8` with
         //     `NoV = NoL = 0` gives `λ = 0` EXACTLY, and the reference's MAXIMUM is what stands between that and a
         //     division by zero.
-        std::array<double, 4u> const zero_lambda = dv_parts(0.01, 0.0, 0.0, 0.5);
+        deren::utility::vessel::array<double, 4u> const zero_lambda = dv_parts(0.01, 0.0, 0.0, 0.5);
         CHECK_MSG(zero_lambda[1] == 0.0,
                   "a2 = 1e-8 with NoV = NoL = 0 gives λ = 0 exactly, so the un-floored denominator is 0");
         CHECK_MSG(zero_lambda[2] == static_cast<double>(k_dv_denominator_floor),
@@ -1929,7 +1931,7 @@ int32_t main() {
         //     ... AND A SECOND, NON-ZERO CASE UNDER THE FLOOR, so the pin is about the MAXIMUM and not about the
         //     special value 0: `NoV = NoL = 1e-32` leaves `λ = 1.0001e-36`, whose `S^2`-weighted value
         //     5.625562537503751e-37 is still below the literal.
-        std::array<double, 4u> const sub_floor = dv_parts(0.01, 1e-32, 1e-32, 0.5);
+        deren::utility::vessel::array<double, 4u> const sub_floor = dv_parts(0.01, 1e-32, 1e-32, 0.5);
         CHECK_MSG(std::abs(sub_floor[1] - 1.0001e-36) < 1e-42,
                   "λ = 1.0001e-36 at NoV = NoL = 1e-32: non-zero, so the floor is not merely a zero guard");
         CHECK_MSG(sub_floor[2] == static_cast<double>(k_dv_denominator_floor),
@@ -2230,19 +2232,19 @@ int32_t main() {
             float const y = (g * 2.0f) - 1.0f;
             float const d = std::min(std::max((x * x) + (y * y), 0.0f), 1.0f);
             float const z1 = std::max(std::sqrt(1.0f - d), k_goo_normal_z_floor);
-            return std::array<float, 3u>{x, y, z1};
+            return deren::utility::vessel::array<float, 3u>{x, y, z1};
         };
         // THE SHIPPED FORM, which is the engine's own two lines: `texnormal.xy *= strength` and
         // `texnormal.z = mix(1.0, z1, saturate(strength))`.
         auto const shipped = [&decode_xy](float const r, float const g, float const strength) {
-            std::array<float, 3u> const xy = decode_xy(r, g);
+            deren::utility::vessel::array<float, 3u> const xy = decode_xy(r, g);
             float const saturated = std::min(std::max(strength, 0.0f), 1.0f);
             return normalize3(vec3{strength * xy[0], strength * xy[1], 1.0f + (saturated * (xy[2] - 1.0f))});
         };
         // ... AND THE FORM THIS PORT SHIPPED BEFORE THE CORRECTION - the same expression WITHOUT the `saturate` - kept
         // so the discriminating case below can name both sides instead of asserting a number against nothing.
         auto const weight_candidate = [&decode_xy](float const r, float const g, float const strength) {
-            std::array<float, 3u> const xy = decode_xy(r, g);
+            deren::utility::vessel::array<float, 3u> const xy = decode_xy(r, g);
             return normalize3(vec3{strength * xy[0], strength * xy[1], 1.0f + (strength * (xy[2] - 1.0f))});
         };
 
@@ -2537,21 +2539,21 @@ int32_t main() {
     // rather than an unstyled one. The stride copies are pinned by `test_toon_material_sidecar` already.
     {
         auto const slurp = [](char const* const relative) {
-            std::ifstream file(std::string(VR_TEST_SOURCE_DIR) + "/" + relative);
+            std::ifstream file((deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/" + relative).c_str());
             CHECK_MSG(file.is_open(), relative);
-            return std::string{std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{}};
+            return deren::utility::vessel::string{std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{}};
         };
-        std::string const shader = slurp("source/shaders/toon/goo_toon.slang");
-        std::string const primitive = slurp("source/engine/primitive/primitive.cppm");
-        std::string const constructor = slurp("source/engine/runtime/runtime.constructor.cppm");
-        std::string const app = slurp("source/app/main.cpp");
-        std::string const config = slurp("source/application_configuration/application_configuration.cpp");
+        deren::utility::vessel::string const shader = slurp("source/shaders/toon/goo_toon.slang");
+        deren::utility::vessel::string const primitive = slurp("source/engine/primitive/primitive.cppm");
+        deren::utility::vessel::string const constructor = slurp("source/engine/runtime/runtime.constructor.cppm");
+        deren::utility::vessel::string const app = slurp("source/app/main.cpp");
+        deren::utility::vessel::string const config = slurp("source/application_configuration/application_configuration.cpp");
         // the files the two suppressions live in, and the two other readers of the colour table's stride
-        std::string const character_forward = slurp("source/shaders/toon/character_forward.slang");
-        std::string const outline = slurp("source/shaders/toon/outline.slang");
-        std::string const pbr = slurp("source/shaders/scene/pbr.slang");
-        std::string const rim_pass = slurp("source/engine/pass/toon_screen_rim.cpp");
-        std::string const demo = slurp("source/engine/render_start_demo/render_start_demo.cpp");
+        deren::utility::vessel::string const character_forward = slurp("source/shaders/toon/character_forward.slang");
+        deren::utility::vessel::string const outline = slurp("source/shaders/toon/outline.slang");
+        deren::utility::vessel::string const pbr = slurp("source/shaders/scene/pbr.slang");
+        deren::utility::vessel::string const rim_pass = slurp("source/engine/pass/toon_screen_rim.cpp");
+        deren::utility::vessel::string const demo = slurp("source/engine/render_start_demo/render_start_demo.cpp");
 
         // (a) THE SHADER'S OWN NUMBERS, so the C++ above cannot drift from them silently
         for (char const* const spelling : {"goo_iris_angle_center = 1.0",
@@ -2562,13 +2564,13 @@ int32_t main() {
                                            "goo_iris_forward_sign = -1.0",
                                            // the dead second layer is NOT implemented, and the shader says so
                                            "matcap_index != 0u"}) {
-            CHECK_MSG(shader.find(spelling) != std::string::npos, spelling);
+            CHECK_MSG(shader.find(spelling) != deren::utility::vessel::string::npos, spelling);
         }
         // (b) THE TEXTURE LANE, in all four places it has to exist
-        CHECK_MSG(primitive.find("goo_matcap05 = 9,") != std::string::npos, "the lane's enum entry");
-        CHECK_MSG(primitive.find("count = 16,") != std::string::npos, "the lane's enum count (step 7's three face masks moved it from 11; step 13's `_GooRSMask` moved it from 14; step 15's `_GooRSSheet` from 15)");
-        CHECK_MSG(app.find("{\"_GooMatcap05\", \"_UseGooMatcap05\"}") != std::string::npos, "the lane's sidecar slot + flag names");
-        CHECK_MSG(constructor.find("toon_slot::goo_matcap05)], rhi::image_format::rgba8_srgb") != std::string::npos, "the lane's upload format");
+        CHECK_MSG(primitive.find("goo_matcap05 = 9,") != deren::utility::vessel::string::npos, "the lane's enum entry");
+        CHECK_MSG(primitive.find("count = 16,") != deren::utility::vessel::string::npos, "the lane's enum count (step 7's three face masks moved it from 11; step 13's `_GooRSMask` moved it from 14; step 15's `_GooRSSheet` from 15)");
+        CHECK_MSG(app.find("{\"_GooMatcap05\", \"_UseGooMatcap05\"}") != deren::utility::vessel::string::npos, "the lane's sidecar slot + flag names");
+        CHECK_MSG(constructor.find("toon_slot::goo_matcap05)], rhi::image_format::rgba8_srgb") != deren::utility::vessel::string::npos, "the lane's upload format");
         // ... AND THAT IT IS ACTUALLY WRITTEN INTO THE RECORD'S SECOND BLOCK, which the format entry alone does
         // not imply and which the first version of this chain got wrong in a way no picture could show: that block
         // was initialised `(split_normal, 0, 0, 0u)`, so the sidecar resolved the image, the format was right, the
@@ -2576,7 +2578,7 @@ int32_t main() {
         // as one long spelling, so the check survives a reformat of that initialiser.
         {
             std::size_t occurrences = 0;
-            for (std::size_t at = constructor.find("toon_slot::goo_matcap05"); at != std::string::npos; at = constructor.find("toon_slot::goo_matcap05", at + 1u)) {
+            for (std::size_t at = constructor.find("toon_slot::goo_matcap05"); at != deren::utility::vessel::string::npos; at = constructor.find("toon_slot::goo_matcap05", at + 1u)) {
                 ++occurrences;
             }
             // two so far: the upload-format table AND the lane block the record is keyed and written from
@@ -2587,34 +2589,36 @@ int32_t main() {
         // (`toon_slot::count = 10`) and a bare check would pass whatever the colour table's count became.
         {
             std::size_t const enum_at = primitive.find("enum class toon_colour_lane");
-            CHECK_MSG(enum_at != std::string::npos, "the colour lane's enum is where this test looks for it");
-            std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
-            CHECK_MSG(colour_enum.find("goo_eye_brightness = 6,") != std::string::npos, "the colour lane's enum entry");
+            CHECK_MSG(enum_at != deren::utility::vessel::string::npos, "the colour lane's enum is where this test looks for it");
+            deren::utility::vessel::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
+            CHECK_MSG(colour_enum.find("goo_eye_brightness = 6,") != deren::utility::vessel::string::npos, "the colour lane's enum entry");
             // STEP 8 MOVED THIS FROM 24 TO 25 (the entry below is lane 24, `goo_normal_strength`).
             // ... AND STEP 12 MOVED IT FROM 26 TO 27 (the entry below is lane 26, `goo_aniso_rough`).
-            CHECK_MSG(colour_enum.find("count = 30,") != std::string::npos, "the colour lane's enum count (step 5's four, step 7's four, step 8's one, step 10's one, step 12's one, step 13's two and step 15's one)");
+            CHECK_MSG(colour_enum.find("count = 30,") != deren::utility::vessel::string::npos, "the colour lane's enum count (step 5's four, step 7's four, step 8's one, step 10's one, step 12's one, step 13's two and step 15's one)");
         }
-        CHECK_MSG(app.find("\"_GooEyeBrightness\",") != std::string::npos, "the colour lane's row name");
-        CHECK_MSG(app.find("glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f)") != std::string::npos, "the colour lane's neutral in the lookup");
-        CHECK_MSG(primitive.find("glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f)") != std::string::npos, "the colour lane's neutral in `toon_inputs`");
-        CHECK_MSG(constructor.find("toon_colour_lane::goo_eye_brightness)] =\n                    glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f);") != std::string::npos,
+        CHECK_MSG(app.find("\"_GooEyeBrightness\",") != deren::utility::vessel::string::npos, "the colour lane's row name");
+        CHECK_MSG(app.find("glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f)") != deren::utility::vessel::string::npos, "the colour lane's neutral in the lookup");
+        CHECK_MSG(primitive.find("glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f)") != deren::utility::vessel::string::npos, "the colour lane's neutral in `toon_inputs`");
+        CHECK_MSG(constructor.find("toon_colour_lane::goo_eye_brightness)] =\n                    glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f);") != deren::utility::vessel::string::npos,
                   "the colour lane's neutral in the GPU table's initialiser");
         // (c2) STEP 2'S TWO RIM LANES, the same four places each - plus their SHADER side, which is the half
         // that step's own criterion turned on: the rim stage has to name the lanes it reads, and it names them
         // by INDEX (`+ 7u` / `+ 8u` / `+ 9u`), so the constant that has to move with them is that stage's stride.
-        CHECK_MSG(primitive.find("goo_rim_colour = 7,") != std::string::npos, "the rim tint lane's enum entry");
-        CHECK_MSG(primitive.find("goo_rim_scalars = 8,") != std::string::npos, "the rim scalar lane's enum entry");
-        CHECK_MSG(app.find("\"_GooRimColour\",") != std::string::npos, "the rim tint lane's row name");
-        CHECK_MSG(app.find("\"_GooRimScalars\",") != std::string::npos, "the rim scalar lane's row name");
-        CHECK_MSG(app.find("glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f)") != std::string::npos,
+        CHECK_MSG(primitive.find("goo_rim_colour = 7,") != deren::utility::vessel::string::npos, "the rim tint lane's enum entry");
+        CHECK_MSG(primitive.find("goo_rim_scalars = 8,") != deren::utility::vessel::string::npos, "the rim scalar lane's enum entry");
+        CHECK_MSG(app.find("\"_GooRimColour\",") != deren::utility::vessel::string::npos, "the rim tint lane's row name");
+        CHECK_MSG(app.find("\"_GooRimScalars\",") != deren::utility::vessel::string::npos, "the rim scalar lane's row name");
+        CHECK_MSG(app.find("glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f)") != deren::utility::vessel::string::npos,
                   "both rim lanes' neutrals in the lookup (`main.cpp`)");
-        CHECK_MSG(primitive.find("glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),\n                                                                                            glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f)") != std::string::npos,
+        auto compact_primitive = primitive;
+        std::erase_if(compact_primitive, [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; });
+        CHECK_MSG(compact_primitive.find("glm::vec4(1.0f,1.0f,1.0f,1.0f),glm::vec4(-1.0f,-1.0f,-1.0f,-1.0f)") != deren::utility::vessel::string::npos,
                   "both rim lanes' neutrals in `toon_inputs`");
         // the GPU table's initialiser names the lanes rather than their positions - which is the shape step 1's
         // matcap bug forced onto that block (see the note in `runtime.constructor.cppm`)
-        CHECK_MSG(constructor.find("toon_colour_lane::goo_rim_colour)] =\n                    glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);") != std::string::npos,
+        CHECK_MSG(constructor.find("toon_colour_lane::goo_rim_colour)] =\n                    glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);") != deren::utility::vessel::string::npos,
                   "the rim tint lane's neutral in the GPU table's initialiser");
-        CHECK_MSG(constructor.find("toon_colour_lane::goo_rim_scalars)] =\n                    glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f);") != std::string::npos,
+        CHECK_MSG(constructor.find("toon_colour_lane::goo_rim_scalars)] =\n                    glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f);") != deren::utility::vessel::string::npos,
                   "the rim scalar lane's neutral in the GPU table's initialiser");
         // (c3) STEP 3'S WIDTH LANE, in every place it has to exist: the enum entry and count (above and here),
         // its sidecar row name, its neutral in the THREE tables a colour lane lives in - the app's lookup, the
@@ -2624,10 +2628,10 @@ int32_t main() {
         // `test_toon_material_sidecar` from the other side).
         {
             std::size_t const enum_at = primitive.find("enum class toon_colour_lane");
-            std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
-            CHECK_MSG(colour_enum.find("goo_rim_widths = 9,") != std::string::npos, "the width lane's enum entry");
+            deren::utility::vessel::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
+            CHECK_MSG(colour_enum.find("goo_rim_widths = 9,") != deren::utility::vessel::string::npos, "the width lane's enum entry");
         }
-        CHECK_MSG(app.find("\"_GooRimWidths\",") != std::string::npos, "the width lane's row name");
+        CHECK_MSG(app.find("\"_GooRimWidths\",") != deren::utility::vessel::string::npos, "the width lane's row name");
         // THE NEUTRAL IS FOUR SENTINELS, and it is spelled as a whole lane because that is what the three tables
         // hold: `(-1,-1,-1,-1)` means "the asset states no width" in both components the stage reads (each one
         // falls back to the `DepthRim` group's own `0.5`) and in the two reserved ones.
@@ -2636,11 +2640,11 @@ int32_t main() {
         // assignment rather than on the closing brace: step 5 appended four more lanes after this one, so the
         // `...1.0f)}};` spelling this test used to anchor on now belongs to the FGD LUT's own `SpecularColor`
         // neutral. Anchoring on the array's END was a check that a lane is LAST rather than that a lane EXISTS.
-        CHECK_MSG(app.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),\n") != std::string::npos,
+        CHECK_MSG(app.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),\n") != deren::utility::vessel::string::npos,
                   "the lookup's step-4 row still ends in the black occlusion lane, with step 5's four lanes after it");
-        CHECK_MSG(primitive.find("glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),") != std::string::npos,
+        CHECK_MSG(primitive.find("glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),") != deren::utility::vessel::string::npos,
                   "the width lane's neutral in `toon_inputs`");
-        CHECK_MSG(constructor.find("toon_colour_lane::goo_rim_widths)] =\n                    glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f);") != std::string::npos,
+        CHECK_MSG(constructor.find("toon_colour_lane::goo_rim_widths)] =\n                    glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f);") != deren::utility::vessel::string::npos,
                   "the width lane's neutral in the GPU table's initialiser");
         // (c4) STEP 4'S SEVEN LANES - six colour and one texture - in every place each of them has to exist.
         // THE SENTINEL IS THE PART THAT IS NOT MECHANICAL: the four sentineled lanes carry `-1000` and NOT `-1`,
@@ -2651,33 +2655,33 @@ int32_t main() {
         // substitute the group's default. The two comparisons pinned below are exactly that reading.
         {
             std::size_t const enum_at = primitive.find("enum class toon_colour_lane");
-            std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
+            deren::utility::vessel::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
             for (char const* const spelling : {"goo_base_colour = 10,", "goo_diffuse_a = 11,", "goo_diffuse_b = 12,",
                                                "goo_fresnel_inside = 13,", "goo_fresnel_outside = 14,", "goo_direct_occlusion = 15,"}) {
-                CHECK_MSG(colour_enum.find(spelling) != std::string::npos, spelling);
+                CHECK_MSG(colour_enum.find(spelling) != deren::utility::vessel::string::npos, spelling);
             }
-            CHECK_MSG(primitive.find("goo_base_ramp = 10,") != std::string::npos, "the ramp lane's enum entry");
-            CHECK_MSG(primitive.find("count = 16,") != std::string::npos, "the ramp lane moved the texture count to 11, step 7's three face masks moved it to 14, step 13's `_GooRSMask` to 15 and step 15's `_GooRSSheet` to 16");
+            CHECK_MSG(primitive.find("goo_base_ramp = 10,") != deren::utility::vessel::string::npos, "the ramp lane's enum entry");
+            CHECK_MSG(primitive.find("count = 16,") != deren::utility::vessel::string::npos, "the ramp lane moved the texture count to 11, step 7's three face masks moved it to 14, step 13's `_GooRSMask` to 15 and step 15's `_GooRSSheet` to 16");
             for (char const* const row : {"\"_GooBaseColour\",", "\"_GooDiffuseA\",", "\"_GooDiffuseB\",",
                                           "\"_GooFresnelInside\",", "\"_GooFresnelOutside\",", "\"_GooDirectOcclusion\","}) {
-                CHECK_MSG(app.find(row) != std::string::npos, row);
+                CHECK_MSG(app.find(row) != deren::utility::vessel::string::npos, row);
             }
             // the ramp lane: the sidecar slot + flag pair, the upload format, and the host-side selection
-            CHECK_MSG(app.find("{\"_GooBaseRamp\", \"_UseGooBaseRamp\"}") != std::string::npos, "the ramp lane's sidecar slot + flag names");
-            CHECK_MSG(constructor.find("toon_slot::goo_base_ramp)], rhi::image_format::rgba8_srgb") != std::string::npos,
+            CHECK_MSG(app.find("{\"_GooBaseRamp\", \"_UseGooBaseRamp\"}") != deren::utility::vessel::string::npos, "the ramp lane's sidecar slot + flag names");
+            CHECK_MSG(constructor.find("toon_slot::goo_base_ramp)], rhi::image_format::rgba8_srgb") != deren::utility::vessel::string::npos,
                       "the ramp lane's upload format (sRGB decodes the artist's RGB and leaves the alpha - the ramp's own step - linear, which is what Blender's sRGB image does)");
-            CHECK_MSG(app.find("toon_lanes2_at(heap_slots_toon_lanes") != std::string::npos || true, "the ramp lane lives in the second block (see the shader)");
+            CHECK_MSG(app.find("toon_lanes2_at(heap_slots_toon_lanes") != deren::utility::vessel::string::npos || true, "the ramp lane lives in the second block (see the shader)");
             for (char const* const image : {"TPLK_actor_common_cloth_03_RD", "T_actor_common_cloth_04_RD", "T_actor_common_body_01_RD"}) {
-                CHECK_MSG(app.find(image) != std::string::npos, image);
+                CHECK_MSG(app.find(image) != deren::utility::vessel::string::npos, image);
             }
             // AND THE SENTINEL, in all four places it has to agree with itself: the three tables and the shader
-            CHECK_MSG(app.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f)") != std::string::npos, "the sentinel in the lookup");
-            CHECK_MSG(primitive.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f)") != std::string::npos, "the sentinel in `toon_inputs`");
-            CHECK_MSG(constructor.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f);") != std::string::npos, "the sentinel in the GPU table's initialiser");
-            CHECK_MSG(character_forward.find("static const float goo_lane_absent = -1000.0;") != std::string::npos, "the shader's own constant");
-            CHECK_MSG(character_forward.find("goo_diffuse_a.z > goo_lane_absent_threshold") != std::string::npos, "`CastShadow_center` is tested against the sentinel and NOT against zero");
-            CHECK_MSG(character_forward.find("goo_diffuse_b.x > goo_lane_absent_threshold") != std::string::npos, "and so is `GlobalShadowBrightnessAdjustment`");
-            CHECK_MSG(character_forward.find("goo_diffuse_a.z >= 0.0") == std::string::npos, "the `< 0` reading of that socket is GONE, not merely commented");
+            CHECK_MSG(app.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f)") != deren::utility::vessel::string::npos, "the sentinel in the lookup");
+            CHECK_MSG(primitive.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f)") != deren::utility::vessel::string::npos, "the sentinel in `toon_inputs`");
+            CHECK_MSG(constructor.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f);") != deren::utility::vessel::string::npos, "the sentinel in the GPU table's initialiser");
+            CHECK_MSG(character_forward.find("static const float goo_lane_absent = -1000.0;") != deren::utility::vessel::string::npos, "the shader's own constant");
+            CHECK_MSG(character_forward.find("goo_diffuse_a.z > goo_lane_absent_threshold") != deren::utility::vessel::string::npos, "`CastShadow_center` is tested against the sentinel and NOT against zero");
+            CHECK_MSG(character_forward.find("goo_diffuse_b.x > goo_lane_absent_threshold") != deren::utility::vessel::string::npos, "and so is `GlobalShadowBrightnessAdjustment`");
+            CHECK_MSG(character_forward.find("goo_diffuse_a.z >= 0.0") == deren::utility::vessel::string::npos, "the `< 0` reading of that socket is GONE, not merely commented");
         }
         // (c5) STEP 5'S FOUR COLOUR LANES AND ITS GLOBAL FGD TEXTURE, in every place each of them has to exist -
         // and this step's list is LONGER than step 4's because one of its four data items is NOT a lane: the FGD LUT
@@ -2687,34 +2691,34 @@ int32_t main() {
         // data-block is `Non-Color`) and the SLOT (754, which is free only because `scene_head` takes 749 AND 750).
         {
             std::size_t const enum_at = primitive.find("enum class toon_colour_lane");
-            std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
+            deren::utility::vessel::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
             for (char const* const spelling : {"goo_specular_fgd = 16,", "goo_light_color = 17,", "goo_ambient_tint = 18,",
                                                "goo_specular_color = 19,", "goo_rs_scalars = 27,", "goo_rs_tint = 28,",
                                                "goo_rs_arm0 = 29,", "count = 30,"}) {
-                CHECK_MSG(colour_enum.find(spelling) != std::string::npos, spelling);
+                CHECK_MSG(colour_enum.find(spelling) != deren::utility::vessel::string::npos, spelling);
             }
             for (char const* const row : {"\"_GooSpecularFGD\",", "\"_GooLightColor\",", "\"_GooAmbientTint\",", "\"_GooSpecularColor\","}) {
-                CHECK_MSG(app.find(row) != std::string::npos, row);
+                CHECK_MSG(app.find(row) != deren::utility::vessel::string::npos, row);
             }
             // THE FOUR NEUTRALS IN THE THREE TABLES a colour lane lives in. THE CONTROL IS THE PART WORTH PINNING
             // and it is step 4's own root cause read the other way round: these four are `-1`/white and NOT `-1000`,
             // because none of their sockets is ever negative in the reference's asset - and the shader's test is
             // therefore the CHEAP `< 0` one, which is a different comparison from the four `-1000` lanes above.
-            CHECK_MSG(app.find("glm::vec4(-1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),") != std::string::npos,
+            CHECK_MSG(app.find("glm::vec4(-1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),") != deren::utility::vessel::string::npos,
                       "step 5's four neutrals are still the four that PRECEDE step 7's in the lookup's table");
-            CHECK_MSG(primitive.find("glm::vec4(-1.0f, 1.0f, 1.0f, 1.0f),") != std::string::npos, "the scalar lane's neutral in `toon_inputs`");
-            CHECK_MSG(constructor.find("toon_colour_lane::goo_specular_fgd)] =\n                    glm::vec4(-1.0f, 1.0f, 1.0f, 1.0f);") != std::string::npos,
+            CHECK_MSG(primitive.find("glm::vec4(-1.0f, 1.0f, 1.0f, 1.0f),") != deren::utility::vessel::string::npos, "the scalar lane's neutral in `toon_inputs`");
+            CHECK_MSG(constructor.find("toon_colour_lane::goo_specular_fgd)] =\n                    glm::vec4(-1.0f, 1.0f, 1.0f, 1.0f);") != deren::utility::vessel::string::npos,
                       "the scalar lane's neutral in the GPU table's initialiser, by NAME rather than by position");
             for (char const* const lane : {"goo_light_color", "goo_ambient_tint", "goo_specular_color"}) {
-                std::string const by_name = std::string("toon_colour_lane::") + lane + ")] =\n                    glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);";
-                CHECK_MSG(constructor.find(by_name) != std::string::npos, by_name.c_str());
+                deren::utility::vessel::string const by_name = deren::utility::vessel::string("toon_colour_lane::") + lane + ")] =\n                    glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);";
+                CHECK_MSG(constructor.find(by_name) != deren::utility::vessel::string::npos, by_name.c_str());
             }
             // THE SHADER SIDE: the lanes are read BY INDEX (`+ 16u` .. `+ 19u`) through the stage's own stride, and
             // the constant that has to move with them is `character_toon_colour_lanes` (25 since step 8, pinned by
             // `test_toon_material_sidecar` against the enum from the other side too).
-            CHECK_MSG(character_forward.find("character_toon_colour_lanes = 30u") != std::string::npos, "the surface stage's stride copy");
+            CHECK_MSG(character_forward.find("character_toon_colour_lanes = 30u") != deren::utility::vessel::string::npos, "the surface stage's stride copy");
             for (char const* const index : {"colour_base + 16u", "colour_base + 17u", "colour_base + 18u", "colour_base + 19u"}) {
-                CHECK_MSG(character_forward.find(index) != std::string::npos, index);
+                CHECK_MSG(character_forward.find(index) != deren::utility::vessel::string::npos, index);
             }
             // ... AND EVERY CONSTANT OF THE FGD GROUP THE SHADER SPELLS, so a re-tuning of one of them cannot pass:
             // the resolution, the `+ 0.5` offset, the dielectric F0, the NoV floor, the group's `1/(2pi)`, and the
@@ -2728,21 +2732,21 @@ int32_t main() {
                                                "static const float goo_fgd_ndotv_floor = 9.999999747378752e-05;",
                                                "static const float goo_dv_half_inverse_pi = 0.3183099925518036 * 0.5;",
                                                "static const float goo_specular_fgd_strength_default = 1.0;"}) {
-                CHECK_MSG(character_forward.find(spelling) != std::string::npos, spelling);
+                CHECK_MSG(character_forward.find(spelling) != deren::utility::vessel::string::npos, spelling);
             }
             // THE OFFSET IS `0.5` AND THE TERM USES IT - THE ASSERTION THIS FILE ONCE MADE INVERTED. The step
             // landed with `0.0` and this spot asserted that the spec's `+ 0.5` was ABSENT from the shader; the
             // parent withdrew that ruling (the node's flags say `+ 0.5`, and the "a finished FGD cannot exceed 1"
             // argument is a prior about the term rather than evidence about the graph), so the two checks below
             // now require the `+ 0.5` to be there - through the constant, and in the constant's own value.
-            CHECK_MSG(character_forward.find("goo_fgd_texel.b + goo_fgd_diffuse_offset") != std::string::npos, "diffuseFGD reads LUT.B through the named offset");
-            CHECK_MSG(character_forward.find("static const float goo_fgd_diffuse_offset = 0.5;") != std::string::npos, "and that offset IS the reference's `+ 0.5` (the spec's §0 item 2 / §9-U1 reading)");
-            CHECK_MSG(character_forward.find("goo_fgd_texel.b + 0.5") == std::string::npos, "the LITERAL is NOT inlined: the one named constant is the single place the experiment lives");
+            CHECK_MSG(character_forward.find("goo_fgd_texel.b + goo_fgd_diffuse_offset") != deren::utility::vessel::string::npos, "diffuseFGD reads LUT.B through the named offset");
+            CHECK_MSG(character_forward.find("static const float goo_fgd_diffuse_offset = 0.5;") != deren::utility::vessel::string::npos, "and that offset IS the reference's `+ 0.5` (the spec's §0 item 2 / §9-U1 reading)");
+            CHECK_MSG(character_forward.find("goo_fgd_texel.b + 0.5") == deren::utility::vessel::string::npos, "the LITERAL is NOT inlined: the one named constant is the single place the experiment lives");
             // ... AND THE HALF-TEXEL BIAS, which is the sibling socket reading of the same rule: `1/64 * 0.5` and
             // NOT `1/64 * 1.0`. Both scalars are pinned because both move every expectation in §8o/§8p.
-            CHECK_MSG(character_forward.find("const float goo_fgd_coord_bias = goo_fgd_inv_resolution * 0.5;") != std::string::npos,
+            CHECK_MSG(character_forward.find("const float goo_fgd_coord_bias = goo_fgd_inv_resolution * 0.5;") != deren::utility::vessel::string::npos,
                       "the coordLUT bias is the HALF texel `运算.001 = (1/64)*0.5 = 0.0078125`");
-            CHECK_MSG(character_forward.find("const float goo_fgd_coord_bias = goo_fgd_inv_resolution * 1.0;") == std::string::npos,
+            CHECK_MSG(character_forward.find("const float goo_fgd_coord_bias = goo_fgd_inv_resolution * 1.0;") == deren::utility::vessel::string::npos,
                       "and NOT the full texel `0.015625` an earlier version of this step read off the disabled socket");
             // ... AND THE THREE TERMS ARE THE REFERENCE'S EXPRESSIONS, spelled here so a later edit that "simplifies"
             // one of them fails: the FGD fetch, the energy compensation, the two IBL products, and the direct
@@ -2753,31 +2757,31 @@ int32_t main() {
                                                "goo_spec_ibl = goo_specular_fgd * goo_specular_fgd_strength * goo_energy_compensation;",
                                                "goo_diff_ibl = irradiance_sample(n) * goo_ambient_tint * goo_diffuse_fgd * goo_diffuse_colour;",
                                                "goo_ndotl_clamped * (goo_specular_chosen * goo_specular_color) * shadow_used * goo_light_color * direct_occlusion"}) {
-                CHECK_MSG(character_forward.find(spelling) != std::string::npos, spelling);
+                CHECK_MSG(character_forward.find(spelling) != deren::utility::vessel::string::npos, spelling);
             }
             // ---- THE FGD LUT'S OWN SYNC POINTS: TWO SLOT TABLES AND ONE UPLOADER ----
             //
             // `test_render_resources` already compares the two slot tables against EACH OTHER (it parses both files
             // and requires the names and numbers to match), so what is asserted here is the THIRD half that test
             // cannot see: that the host actually WRITES the slot, and that the write's format is `UNORM`.
-            CHECK_MSG(character_forward.find("heap_slots_goo_fgd_lut") != std::string::npos, "the shader names the FGD LUT's heap slot");
-            std::string const core = slurp("source/engine/render_layout/render_layout.cppm");
-            CHECK_MSG(core.find("goo_fgd_lut = heap_slot_base + 754u") != std::string::npos, "the host's own constant for it, at the slot the shader names");
-            CHECK_MSG(constructor.find("runtime::set_goo_fgd_lut(") != std::string::npos, "the uploader the host writes it with");
-            CHECK_MSG(constructor.find("fgd_desc.format = rhi::image_format::rgba8_unorm;") != std::string::npos,
+            CHECK_MSG(character_forward.find("heap_slots_goo_fgd_lut") != deren::utility::vessel::string::npos, "the shader names the FGD LUT's heap slot");
+            deren::utility::vessel::string const core = slurp("source/engine/render_layout/render_layout.cppm");
+            CHECK_MSG(core.find("goo_fgd_lut = heap_slot_base + 754u") != deren::utility::vessel::string::npos, "the host's own constant for it, at the slot the shader names");
+            CHECK_MSG(constructor.find("runtime::set_goo_fgd_lut(") != deren::utility::vessel::string::npos, "the uploader the host writes it with");
+            CHECK_MSG(constructor.find("fgd_desc.format = rhi::image_format::rgba8_unorm;") != deren::utility::vessel::string::npos,
                       "its format is UNORM and NOT sRGB: the reference's data-block is `Non-Color`, so an sRGB upload would decode all three FGD outputs once (abi 7: the named contract value maps 1:1 to VK_FORMAT_R8G8B8A8_UNORM in the backend)");
             // THE SLOT IS NAMED THROUGH THE SHARED MODULE NOW (S5): the runtime used to spell the backend's
             // alias (`core::heap_slots::goo_fgd_lut`), and it names `deren.engine.render_layout::heap_slots`
             // directly - the same constant, in the module BOTH halves compile (which is what the line above
             // pins). What this check is for is unchanged: the HOST WRITES the slot.
-            CHECK_MSG(constructor.find("write_heap_grid_image(this->vulkan_core, deren::engine::render_layout::heap_slots::goo_fgd_lut") != std::string::npos,
+            CHECK_MSG(constructor.find("write_heap_grid_image(this->vulkan_core, deren::engine::render_layout::heap_slots::goo_fgd_lut") != deren::utility::vessel::string::npos,
                       "and it reaches the slot");
-            CHECK_MSG(constructor.find("fgd_desc.mip_levels = 1;") != std::string::npos, "one mip, which is the reference's own `image_user` (no Mip input)");
+            CHECK_MSG(constructor.find("fgd_desc.mip_levels = 1;") != deren::utility::vessel::string::npos, "one mip, which is the reference's own `image_user` (no Mip input)");
             // ... AND THE APPLICATION SIDE: the path, the decoder, the format argument and the file's name
-            CHECK_MSG(app.find("#define STB_IMAGE_STATIC") != std::string::npos, "the app's own stb copy is file-local (`gltf_loader.cpp` defines the extern one)");
-            CHECK_MSG(app.find("\"PreIntegratedFGD_GGXDisneyDiffuse.png\"") != std::string::npos, "the reference's own file name");
-            CHECK_MSG(app.find("runtime.set_goo_fgd_lut(") != std::string::npos, "and the upload is called once at startup");
-            CHECK_MSG(app.find("deren-ab\", \"gooblender\", \"images\"") != std::string::npos || app.find("\"deren-ab\" / \"gooblender\" / \"images\"") != std::string::npos,
+            CHECK_MSG(app.find("#define STB_IMAGE_STATIC") != deren::utility::vessel::string::npos, "the app's own stb copy is file-local (`gltf_loader.cpp` defines the extern one)");
+            CHECK_MSG(app.find("\"PreIntegratedFGD_GGXDisneyDiffuse.png\"") != deren::utility::vessel::string::npos, "the reference's own file name");
+            CHECK_MSG(app.find("runtime.set_goo_fgd_lut(") != deren::utility::vessel::string::npos, "and the upload is called once at startup");
+            CHECK_MSG(app.find("deren-ab\", \"gooblender\", \"images\"") != deren::utility::vessel::string::npos || app.find("\"deren-ab\" / \"gooblender\" / \"images\"") != deren::utility::vessel::string::npos,
                       "from the reference's own directory under the build root");
 
             // ---- (c6) STEP 6'S ONE TERM, ITS ONE LANE COMPONENT, AND THE ONE FIXED NUMBER THAT IS **NOT** THERE ----
@@ -2794,45 +2798,45 @@ int32_t main() {
                                                "static const float goo_desaturation_luma_b = 0.07217500358819962;",
                                                "static const float goo_desaturation_default = 0.0;",
                                                "static const float goo_desaturation_neutral = 1.0;"}) {
-                CHECK_MSG(character_forward.find(constant) != std::string::npos, constant);
+                CHECK_MSG(character_forward.find(constant) != deren::utility::vessel::string::npos, constant);
             }
             // the lane's `.y` IS the consumer this step gives it: the read is spelled, and it falls back to the
             // REFERENCE'S GROUP DEFAULT rather than to a neutral.
-            CHECK_MSG(character_forward.find("goo_diffuse_b.y > goo_lane_absent_threshold ? goo_diffuse_b.y : goo_desaturation_default") != std::string::npos,
+            CHECK_MSG(character_forward.find("goo_diffuse_b.y > goo_lane_absent_threshold ? goo_diffuse_b.y : goo_desaturation_default") != deren::utility::vessel::string::npos,
                       "`_GooDiffuseB.y` (`Color desaturation in shaded areas attenuation`) is now READ - the consumer step 4's report said it did not have");
             // the two nodes' arithmetic, spelled: the luma dot, the lerp, and the saturate that stands for 钳制.004.
             for (char const* const spelling : {"dot(colour, float3(goo_desaturation_luma_r, goo_desaturation_luma_g, goo_desaturation_luma_b))",
                                                "return lerp(goo_desaturation_luma_colour(colour), colour, saturate(saturation));"}) {
-                CHECK_MSG(character_forward.find(spelling) != std::string::npos, spelling);
+                CHECK_MSG(character_forward.find(spelling) != deren::utility::vessel::string::npos, spelling);
             }
             // THE SCOPE BOUNDARY, and it is one line: the arm's gate is the SAME three families step 4 and step 5
             // use (the `#if defined(VR_GOO_TOON_CHAIN)` read of the lane, in the arm above), and the neutral a
             // non-member keeps is the IDENTITY - so HAIR, FACE, the eye and every `goo_toon = false` frame are
             // untouched by this stage.
-            CHECK_MSG(character_forward.find("float goo_desaturation = goo_desaturation_neutral;") != std::string::npos,
+            CHECK_MSG(character_forward.find("float goo_desaturation = goo_desaturation_neutral;") != deren::utility::vessel::string::npos,
                       "the arm's neutral is the identity, declared OUTSIDE the family gate");
-            CHECK_MSG(character_forward.find("float goo_desaturation = goo_desaturation_default;") == std::string::npos,
+            CHECK_MSG(character_forward.find("float goo_desaturation = goo_desaturation_default;") == deren::utility::vessel::string::npos,
                       "and it is NOT the group default (0.0), which would desaturate the hair and the face - the families this step was told to leave alone");
-            CHECK_MSG(character_forward.find("const float3 lit_final = goo_hsv_desaturate(lit, desaturation);") != std::string::npos,
+            CHECK_MSG(character_forward.find("const float3 lit_final = goo_hsv_desaturate(lit, desaturation);") != deren::utility::vessel::string::npos,
                       "the term is applied to the FINISHED PIXEL (`lit` = colour + emissive), which is where 色相/饱和度/明度 sits");
-            CHECK_MSG(character_forward.find("return float4(lit_final, out_alpha);") != std::string::npos,
+            CHECK_MSG(character_forward.find("return float4(lit_final, out_alpha);") != deren::utility::vessel::string::npos,
                       "and the pixel that is written is the desaturated one");
             // THE STAGE THAT WRITES THE PIXEL THE RIM IS ADDED TO does the same thing, and for the same reason.
-            std::string const goo_toon = slurp("source/shaders/toon/goo_toon.slang");
+            deren::utility::vessel::string const goo_toon = slurp("source/shaders/toon/goo_toon.slang");
             // STEP 13 MOVED THE TERM'S INPUT WITHOUT MOVING THE TERM: the desaturation still takes the FINISHED
             // PIXEL (the rim is ADDed to it one stage later, so the term belongs on it), but that pixel is now
             // `rs_final` - `colour + s.emissive` folded with `RS EFF` - rather than the bare sum this pin used to
             // spell. The intermediate was renamed `lit_base` for exactly this reason.
-            CHECK_MSG(goo_toon.find("const float3 lit_base = colour + s.emissive;") != std::string::npos &&
-                          goo_toon.find("const float3 lit_final = goo_hsv_desaturate(rs_final, desaturation);") != std::string::npos &&
-                          goo_toon.find("return float4(lit_final, out_alpha);") != std::string::npos,
+            CHECK_MSG(goo_toon.find("const float3 lit_base = colour + s.emissive;") != deren::utility::vessel::string::npos &&
+                          goo_toon.find("const float3 lit_final = goo_hsv_desaturate(rs_final, desaturation);") != deren::utility::vessel::string::npos &&
+                          goo_toon.find("return float4(lit_final, out_alpha);") != deren::utility::vessel::string::npos,
                       "toon/goo_toon.slang's pixel still desaturates the same way - through 色相/饱和度/明度 on the finished pixel, "
                       "which is now `rs_final` (step 13) rather than the bare `colour + s.emissive`");
-            CHECK_MSG(goo_toon.find("goo_hsv_desaturate(colour + s.emissive, desaturation);") == std::string::npos,
+            CHECK_MSG(goo_toon.find("goo_hsv_desaturate(colour + s.emissive, desaturation);") == deren::utility::vessel::string::npos,
                       "and the PRE-STEP-13 spelling is gone: a `goo_hsv_desaturate` fed the raw sum would drop the whole RS term while still compiling");
             // ... AND THE ONE CALLER THAT MUST NOT: the OUTLINE's own use of the group, whose discarded argument is
             // pinned so a later reader cannot mistake it for an oversight.
-            CHECK_MSG(outline.find("float desaturation_unused = 0.0;") != std::string::npos,
+            CHECK_MSG(outline.find("float desaturation_unused = 0.0;") != deren::utility::vessel::string::npos,
                       "the outline stage discards the out parameter rather than desaturating an outline COLOUR");
         }
 
@@ -2841,7 +2845,7 @@ int32_t main() {
         // in sections 8a-8m cannot drift from the arithmetic that runs, and the two `character_toon_colour_lanes`
         // reads in `toon/goo_toon.slang` (the iris' own two lanes) are checked where they still are.
         {
-            std::string const goo_rim = slurp("source/shaders/toon/goo_rim.slang");
+            deren::utility::vessel::string const goo_rim = slurp("source/shaders/toon/goo_rim.slang");
             for (char const* const spelling : {"goo_rim_dir_atten_default = 0.8999999761581421",
                                                "goo_rim_fresnel_pow_default = 2.0",
                                                "goo_rim_limitation_default = 0.0",
@@ -2884,30 +2888,30 @@ int32_t main() {
                                                "if (family != VR_FAMILY_BASE && family != VR_FAMILY_SKIN && family != VR_FAMILY_CLOTH && !hair) {",
                                                // the background rule: a cleared depth draws nothing
                                                "if (stored_depth >= 1.0) {"}) {
-                CHECK_MSG(goo_rim.find(spelling) != std::string::npos, spelling);
+                CHECK_MSG(goo_rim.find(spelling) != deren::utility::vessel::string::npos, spelling);
             }
             // ... AND THE LANES IT READS, by index, through ITS OWN copy of the stride
-            CHECK_MSG(goo_rim.find("goo_rim_colour_lanes = 30u") != std::string::npos, "the rim stage's own stride copy");
-            CHECK_MSG(goo_rim.find("goo_rim_colour_lanes) + 7u") != std::string::npos, "the rim stage reads lane 7 by that index");
-            CHECK_MSG(goo_rim.find("goo_rim_colour_lanes) + 8u") != std::string::npos, "the rim stage reads lane 8 by that index");
-            CHECK_MSG(goo_rim.find("goo_rim_colour_lanes) + 9u") != std::string::npos, "the rim stage reads lane 9 (the widths) by that index");
+            CHECK_MSG(goo_rim.find("goo_rim_colour_lanes = 30u") != deren::utility::vessel::string::npos, "the rim stage's own stride copy");
+            CHECK_MSG(goo_rim.find("goo_rim_colour_lanes) + 7u") != deren::utility::vessel::string::npos, "the rim stage reads lane 7 by that index");
+            CHECK_MSG(goo_rim.find("goo_rim_colour_lanes) + 8u") != deren::utility::vessel::string::npos, "the rim stage reads lane 8 by that index");
+            CHECK_MSG(goo_rim.find("goo_rim_colour_lanes) + 9u") != deren::utility::vessel::string::npos, "the rim stage reads lane 9 (the widths) by that index");
             // ... and it must NOT name a lane it does not own: the surface shader's rim term is GONE from it
-            CHECK_MSG(shader.find("goo_rim_for_surface") == std::string::npos, "the surface shader no longer computes the rim");
-            CHECK_MSG(shader.find("goo_depth_rim") == std::string::npos, "and no longer names the depth factor it cannot evaluate");
+            CHECK_MSG(shader.find("goo_rim_for_surface") == deren::utility::vessel::string::npos, "the surface shader no longer computes the rim");
+            CHECK_MSG(shader.find("goo_depth_rim") == deren::utility::vessel::string::npos, "and no longer names the depth factor it cannot evaluate");
         }
-        CHECK_MSG(shader.find("character_toon_colour_lanes) + 6u") != std::string::npos, "the surface shader still reads the iris lane 6 by that index");
+        CHECK_MSG(shader.find("character_toon_colour_lanes) + 6u") != deren::utility::vessel::string::npos, "the surface shader still reads the iris lane 6 by that index");
         // (c7) STEP 7'S THREE TEXTURE LANES, FOUR COLOUR LANES AND THE HEAD'S POSITION - every place each of them
         // has to be spelled, plus the ones where a STALE COPY is the failure this project keeps recording.
         {
             // ---- THE TEXTURE LANES: the enum, the count, the block count and the sidecar vocabulary ----
             for (char const* const spelling : {"goo_face_sdf = 11,", "goo_face_cm = 12,", "goo_face_csumt = 13,", "goo_rs_mask = 14,",
                                                "goo_rs_sheet = 15,", "count = 16,"}) {
-                CHECK_MSG(primitive.find(spelling) != std::string::npos, spelling);
+                CHECK_MSG(primitive.find(spelling) != deren::utility::vessel::string::npos, spelling);
             }
             for (char const* const pair : {"{\"_GooFaceSDF\", \"_UseGooFaceSDF\"}", "{\"_GooFaceCmM\", \"_UseGooFaceCmM\"}",
                                            "{\"_GooFaceCsutm\", \"_UseGooFaceCsutm\"}", "{\"_GooRSMask\", \"_UseGooRSMask\"}",
                                            "{\"_GooRSSheet\", \"_UseGooRSSheet\"}"}) {
-                CHECK_MSG(app.find(pair) != std::string::npos, pair);
+                CHECK_MSG(app.find(pair) != deren::utility::vessel::string::npos, pair);
             }
             // THE FORMATS ARE A STATEMENT ABOUT THE CHANNELS, not a default: all three are NUMBERS (a distance
             // field, a layer selector and a comparison against 0.5), so an sRGB upload would bend the quantities
@@ -2922,17 +2926,17 @@ int32_t main() {
                                              // hand the shader a texel 2.2 gamma off inside the product this arm
                                              // exists to make.
                                              "toon_slot::goo_rs_sheet)], rhi::image_format::rgba8_srgb"}) {
-                CHECK_MSG(constructor.find(format) != std::string::npos, format);
+                CHECK_MSG(constructor.find(format) != deren::utility::vessel::string::npos, format);
             }
             // ... AND THE THIRD BLOCK, which is what the three lanes cost: the host constant, the stage's copy of
             // it, and the fact that the third lane is IN that block rather than one past the end (`toon_lanes3_at`
             // reads it; the sidecar test pins all three accessors' literals).
-            CHECK_MSG(primitive.find("toon_lane_blocks = 3") != std::string::npos, "the host raised the block count for step 7's lanes");
-            CHECK_MSG(character_forward.find("character_toon_lane_blocks = 3u") != std::string::npos, "and the surface stage's copy moved with it");
-            CHECK_MSG(character_forward.find("toon_lanes3_at(heap_slots_toon_lanes, material_index)") != std::string::npos,
+            CHECK_MSG(primitive.find("toon_lane_blocks = 3") != deren::utility::vessel::string::npos, "the host raised the block count for step 7's lanes");
+            CHECK_MSG(character_forward.find("character_toon_lane_blocks = 3u") != deren::utility::vessel::string::npos, "and the surface stage's copy moved with it");
+            CHECK_MSG(character_forward.find("toon_lanes3_at(heap_slots_toon_lanes, material_index)") != deren::utility::vessel::string::npos,
                       "the face arm reads the third block through the accessor that names it");
-            CHECK_MSG(constructor.find("toon_lanes_extra3") != std::string::npos, "and the host WRITES it - a lane written nowhere reads DO NOT READ for every material");
-            CHECK_MSG(constructor.find("+ 2u] = toon_lanes_extra3;") != std::string::npos, "at block 2 of a 3-block stride");
+            CHECK_MSG(constructor.find("toon_lanes_extra3") != deren::utility::vessel::string::npos, "and the host WRITES it - a lane written nowhere reads DO NOT READ for every material");
+            CHECK_MSG(constructor.find("+ 2u] = toon_lanes_extra3;") != deren::utility::vessel::string::npos, "at block 2 of a 3-block stride");
             // ---- STEP 13'S TEXTURE LANE IS IN THAT SAME BLOCK, AND THIS IS THE PIN THAT WOULD HAVE CAUGHT IT ----
             //
             // MEASURED, NOT HYPOTHETICAL. `toon_slot::goo_rs_mask` was added to the enum, given a format row in
@@ -2947,38 +2951,38 @@ int32_t main() {
             // written as a WINDOW over the initialiser rather than as a search for one formatted line - the three
             // arguments are the fact, and the whitespace clang-format picks for them is not.
             std::size_t const rs_lanes_at = constructor.find("toon_lanes_extra3(");
-            CHECK_MSG(rs_lanes_at != std::string::npos, "the host packs the third texture block");
-            if (rs_lanes_at != std::string::npos) {
-                std::string const rs_lanes = constructor.substr(rs_lanes_at, constructor.find(");", rs_lanes_at) - rs_lanes_at);
-                CHECK_MSG(rs_lanes.find("toon_slot::goo_rs_mask") != std::string::npos,
+            CHECK_MSG(rs_lanes_at != deren::utility::vessel::string::npos, "the host packs the third texture block");
+            if (rs_lanes_at != deren::utility::vessel::string::npos) {
+                deren::utility::vessel::string const rs_lanes = constructor.substr(rs_lanes_at, constructor.find(");", rs_lanes_at) - rs_lanes_at);
+                CHECK_MSG(rs_lanes.find("toon_slot::goo_rs_mask") != deren::utility::vessel::string::npos,
                           "and step 13's slot 14 is one of its components");
                 // STEP 15'S SHEET IS SLOT 15, i.e. the SAME BLOCK'S `.w`, so it rides the same `toon_lanes_extra3`
                 // initialiser and the same "written nowhere reads DO NOT READ" failure applies to it verbatim -
                 // except that here `0` does not merely skip a mask, it would otherwise sample the WHITE fallback.
-                CHECK_MSG(rs_lanes.find("toon_slot::goo_rs_sheet") != std::string::npos,
+                CHECK_MSG(rs_lanes.find("toon_slot::goo_rs_sheet") != deren::utility::vessel::string::npos,
                           "and step 15's slot 15 is the fourth");
             }
             // ---- THE FOUR COLOUR LANES ----
             std::size_t const face_enum_at = primitive.find("enum class toon_colour_lane");
-            std::string const face_colour_enum = primitive.substr(face_enum_at, primitive.find("};", face_enum_at) - face_enum_at);
+            deren::utility::vessel::string const face_colour_enum = primitive.substr(face_enum_at, primitive.find("};", face_enum_at) - face_enum_at);
             for (char const* const spelling : {"goo_face_scalars_a = 20,", "goo_face_scalars_b = 21,", "goo_face_nose_shadow = 22,",
                                                "goo_face_front_r = 23,", "goo_normal_strength = 24,", "goo_aniso_gate = 25,",
                                                "goo_aniso_rough = 26,", "goo_rs_scalars = 27,", "goo_rs_tint = 28,",
                                                "goo_rs_arm0 = 29,", "count = 30,"}) {
-                CHECK_MSG(face_colour_enum.find(spelling) != std::string::npos, spelling);
+                CHECK_MSG(face_colour_enum.find(spelling) != deren::utility::vessel::string::npos, spelling);
             }
             for (char const* const row : {"\"_GooFaceScalarsA\",", "\"_GooFaceScalarsB\",", "\"_GooFaceNoseShadow\",", "\"_GooFaceFrontR\","}) {
-                CHECK_MSG(app.find(row) != std::string::npos, row);
+                CHECK_MSG(app.find(row) != deren::utility::vessel::string::npos, row);
             }
             // THE TWO SCALAR LANES ARE `-1000` SENTINELS AND THE TWO COLOURS ARE BLACK, and the CONTROL is the
             // part worth pinning: `SmoothnessMax = 0` is a MEANINGFUL value, so a `0` neutral would read "the
             // material states nothing" as "the material is perfectly rough"; and white is the strongest possible
             // statement about a nose shadow's A side.
-            CHECK_MSG(constructor.find("toon_colour_lane::goo_face_nose_shadow)] =\n                    glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);") != std::string::npos,
+            CHECK_MSG(constructor.find("toon_colour_lane::goo_face_nose_shadow)] =\n                    glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);") != deren::utility::vessel::string::npos,
                       "the nose shadow's neutral is BLACK in the GPU table");
-            CHECK_MSG(constructor.find("toon_colour_lane::goo_face_front_r)] =\n                    glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);") != std::string::npos,
+            CHECK_MSG(constructor.find("toon_colour_lane::goo_face_front_r)] =\n                    glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);") != deren::utility::vessel::string::npos,
                       "...and so is `Front R Color`'s");
-            CHECK_MSG(app.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),\n         glm::vec4(0.0f, 0.0f, 0.0f, 1.0f), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),\n") != std::string::npos,
+            CHECK_MSG(app.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),\n         glm::vec4(0.0f, 0.0f, 0.0f, 1.0f), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),\n") != deren::utility::vessel::string::npos,
                       "step 7's four neutrals are still in lane order after step 5's (step 8's single lane now follows them)");
             // (c8) STEP 8'S ONE COLOUR LANE, `_GooNormalStrength`, AND THE DECODE IT FEEDS. The lane half is the
             // mechanical half a compiler cannot check; the shader half is the half that decides whether the lane
@@ -2987,20 +2991,20 @@ int32_t main() {
             // leaves the frame exactly as it was (the failure mode the two previous steps both hit).
             {
                 std::size_t const enum_at = primitive.find("enum class toon_colour_lane");
-                std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
-                CHECK_MSG(colour_enum.find("goo_normal_strength = 24,") != std::string::npos, "the strength lane's enum entry");
-                CHECK_MSG(app.find("\"_GooNormalStrength\",") != std::string::npos, "the strength lane's row name");
+                deren::utility::vessel::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
+                CHECK_MSG(colour_enum.find("goo_normal_strength = 24,") != deren::utility::vessel::string::npos, "the strength lane's enum entry");
+                CHECK_MSG(app.find("\"_GooNormalStrength\",") != deren::utility::vessel::string::npos, "the strength lane's row name");
                 // THE ROW IS A `float`, so it lands in `material_sidecar::scalars` and the GENERIC lane path (which
                 // reads `others`) cannot reach it: the lane needs a branch of its own, like the two `extras` lanes.
-                CHECK_MSG(app.find("lane == deren::engine::toon_colour_lane::goo_normal_strength") != std::string::npos,
+                CHECK_MSG(app.find("lane == deren::engine::toon_colour_lane::goo_normal_strength") != deren::utility::vessel::string::npos,
                           "the app resolves the strength lane through its own branch");
-                CHECK_MSG(app.find("material->scalar(toon_colour_row[lane_index], strength.x)") != std::string::npos,
+                CHECK_MSG(app.find("material->scalar(toon_colour_row[lane_index], strength.x)") != deren::utility::vessel::string::npos,
                           "and reads it with `material_sidecar::scalar` rather than `others.find`");
-                CHECK_MSG(app.find("_GooNormalStrength = {:.10g} | lane 24") != std::string::npos,
+                CHECK_MSG(app.find("_GooNormalStrength = {:.10g} | lane 24") != deren::utility::vessel::string::npos,
                           "the startup log prints the value BY NAME, because the sidecar's own diagnostic walks SLOTS and counts scalars without naming them");
-                CHECK_MSG(constructor.find("toon_colour_lane::goo_normal_strength)] =\n                    glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f);") != std::string::npos,
+                CHECK_MSG(constructor.find("toon_colour_lane::goo_normal_strength)] =\n                    glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f);") != deren::utility::vessel::string::npos,
                           "the strength lane's neutral in the GPU table's initialiser");
-                CHECK_MSG(app.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),") != std::string::npos,
+                CHECK_MSG(app.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),") != deren::utility::vessel::string::npos,
                           "and the lookup's table still holds it - STEP 10 APPENDED its own lane AFTER this one, so this entry now carries a comma rather than closing the table");
                 // ... AND THE DECODE ITSELF: the constants, the three guards, the ENGINE'S strength expression and the
                 // frame. The expression is pinned to the digit because it is a transcription of the reference engine's
@@ -3016,26 +3020,26 @@ int32_t main() {
                                                    "const float z1 = max(sqrt(1.0 - d), goo_normal_z_floor);",
                                                    "const float3 n_ts = normalize(float3(strength * xy, lerp(1.0, z1, saturate(strength))));",
                                                    "decoded = normalize(mul(n_ts, float3x3(sdir, tdir, normal)));"}) {
-                    CHECK_MSG(character_forward.find(spelling) != std::string::npos, spelling);
+                    CHECK_MSG(character_forward.find(spelling) != deren::utility::vessel::string::npos, spelling);
                 }
                 // N4: THE LANE INDEX THE DECODE READS. The spellings above pin the FORM of the expression but not WHICH
                 // lane feeds it, and the CPU-side mirror cannot see the shader at all - so without this line a lane
                 // index is the one number in the block that a rebase could shift with every pin still green. The
                 // ordinal is transcribed because the shader cannot name `toon_colour_lane`.
-                CHECK_MSG(character_forward.find("character_toon_colour_lanes) + 24u).x;") != std::string::npos,
+                CHECK_MSG(character_forward.find("character_toon_colour_lanes) + 24u).x;") != deren::utility::vessel::string::npos,
                           "14-A4: the shading-normal stage reads lane 24 (`_GooNormalStrength`) by that index");
-                CHECK_MSG(character_forward.find("const float3 n_ts = normalize(float3(strength * xy, z1));") == std::string::npos,
+                CHECK_MSG(character_forward.find("const float3 n_ts = normalize(float3(strength * xy, z1));") == deren::utility::vessel::string::npos,
                           "the saturate-folded `normalize(strength*xy, z1)` form is NOT what the port ships - the engine's expression is kept whole");
-                CHECK_MSG(character_forward.find("1.0 + strength * (z1 - 1.0)") == std::string::npos,
+                CHECK_MSG(character_forward.find("1.0 + strength * (z1 - 1.0)") == deren::utility::vessel::string::npos,
                           "and the WEIGHT form this port shipped before the correction is gone from the shader");
-                CHECK_MSG(character_forward.find("goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal), v_is_front)") != std::string::npos,
+                CHECK_MSG(character_forward.find("goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal), v_is_front)") != deren::utility::vessel::string::npos,
                           "the surface stage's own `main` passes the decoded normal");
-                CHECK_MSG(shader.find("goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal), v_is_front)") != std::string::npos,
+                CHECK_MSG(shader.find("goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal), v_is_front)") != deren::utility::vessel::string::npos,
                           "and so does `goo_toon_frag_main`, which is the entry point the Goo frame actually runs");
                 // THE GUARD IS THE ANCHOR'S OWN MECHANISM: the two INCLUDE-ONLY readers must keep the argument they
                 // had, so they must not name the helper at all (they compile the `#else` branch of its body).
-                CHECK_MSG(outline.find("goo_toon_shading_normal") == std::string::npos, "the outline stage does not name the decoder");
-                CHECK_MSG(pbr.find("goo_toon_shading_normal") == std::string::npos, "and neither does the PBR stage");
+                CHECK_MSG(outline.find("goo_toon_shading_normal") == deren::utility::vessel::string::npos, "the outline stage does not name the decoder");
+                CHECK_MSG(pbr.find("goo_toon_shading_normal") == deren::utility::vessel::string::npos, "and neither does the PBR stage");
             }
             // (c9) STEP 10'S ONE COLOUR LANE, `_GooAnisoGate`, AND THE TWO SWITCHES IT FEEDS. This lane is the one
             // that turned a PIXEL-VISIBLE defect into a per-material answer: before it, `混合.016`'s factor and
@@ -3043,10 +3047,10 @@ int32_t main() {
             // material of this asset that states `Use anisotropy? = 1` - the exact inversion this step's E1 fixed.
             {
                 std::size_t const enum_at = primitive.find("enum class toon_colour_lane");
-                std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
-                CHECK_MSG(colour_enum.find("goo_aniso_gate = 25,") != std::string::npos, "the gate lane's enum entry, APPENDED at 25 so no earlier index moves");
-                CHECK_MSG(colour_enum.find("count = 30,") != std::string::npos, "and the enum's count with it (step 12 appended lane 26, step 13 appended 27/28 and step 15 appended 29 after this one)");
-                CHECK_MSG(app.find("\"_GooAnisoGate\",") != std::string::npos, "the gate lane's row name - CamelCase, as the sidecar spells it");
+                deren::utility::vessel::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
+                CHECK_MSG(colour_enum.find("goo_aniso_gate = 25,") != deren::utility::vessel::string::npos, "the gate lane's enum entry, APPENDED at 25 so no earlier index moves");
+                CHECK_MSG(colour_enum.find("count = 30,") != deren::utility::vessel::string::npos, "and the enum's count with it (step 12 appended lane 26, step 13 appended 27/28 and step 15 appended 29 after this one)");
+                CHECK_MSG(app.find("\"_GooAnisoGate\",") != deren::utility::vessel::string::npos, "the gate lane's row name - CamelCase, as the sidecar spells it");
                 // THE ROW IS A `color` ONE, WHICH IS THE DIFFERENCE FROM STEP 8's: it parses through the GENERIC
                 // `others` path, so the lane must NOT be given a branch of its own in `toon_colour` - and the way to
                 // assert "no branch" is to assert that the lane's enum spelling does not appear in `main.cpp` at all
@@ -3055,36 +3059,36 @@ int32_t main() {
                 // other way: `main.cpp` names a row only when the row's KIND is invisible in its own log (step 8's
                 // `float` lands in `scalars`, which the log counts and never names), while no `color` row of this
                 // sidecar has ever been printed. The lane's own diagnostic is the frame.
-                CHECK_MSG(app.find("deren::engine::toon_colour_lane::goo_aniso_gate") == std::string::npos,
+                CHECK_MSG(app.find("deren::engine::toon_colour_lane::goo_aniso_gate") == deren::utility::vessel::string::npos,
                           "the gate lane takes the generic `others` path, so `main.cpp` never names the enum outside the row table's ORDER comment");
                 // ... AND THE SHADER HALF, which is where the lane has to arrive: the read, the two components, and the
                 // ARM ORDER of the lerp (the defect this step's E1 fixed - the first argument is the ISOTROPIC
                 // product, the second the masked side, because `混合.016.A = 原 * F_Schlick`).
-                CHECK_MSG(character_forward.find("const float4 goo_aniso_gate = toon_colour_at(heap_slots_toon_colours, colour_base + 25u);") != std::string::npos,
+                CHECK_MSG(character_forward.find("const float4 goo_aniso_gate = toon_colour_at(heap_slots_toon_colours, colour_base + 25u);") != deren::utility::vessel::string::npos,
                           "the gate lane is read at `colour_base + 25u`");
-                CHECK_MSG(character_forward.find("const float goo_use_anisotropy = goo_aniso_gate.x;") != std::string::npos,
+                CHECK_MSG(character_forward.find("const float goo_use_anisotropy = goo_aniso_gate.x;") != deren::utility::vessel::string::npos,
                           "`.x` is `Use anisotropy?` - `混合.016`'s factor");
-                CHECK_MSG(character_forward.find("const float goo_anisotropic_mask = goo_aniso_gate.y;") != std::string::npos,
+                CHECK_MSG(character_forward.find("const float goo_anisotropic_mask = goo_aniso_gate.y;") != deren::utility::vessel::string::npos,
                           "`.y` is `Anisotropic mask` - `混合.017`'s second operand");
-                CHECK_MSG(character_forward.find("const float3 goo_specular_chosen = lerp(goo_dv_original * goo_schlick_f, goo_anisotropic_masked, goo_use_anisotropy);") != std::string::npos,
+                CHECK_MSG(character_forward.find("const float3 goo_specular_chosen = lerp(goo_dv_original * goo_schlick_f, goo_anisotropic_masked, goo_use_anisotropy);") != deren::utility::vessel::string::npos,
                           "and the lerp takes the reference's arm order: A = `原 * F`, B = the masked side, f = the flag");
-                CHECK_MSG(character_forward.find("lerp(goo_anisotropic_masked, goo_dv_original * goo_schlick_f, goo_use_anisotropy)") == std::string::npos,
+                CHECK_MSG(character_forward.find("lerp(goo_anisotropic_masked, goo_dv_original * goo_schlick_f, goo_use_anisotropy)") == deren::utility::vessel::string::npos,
                           "the INVERTED order the port carried through step 9 is gone");
                 // ... AND THE TWO CONSTANTS THAT ORDER REPLACED: they must not come back, because a second source for
                 // the same switch is exactly the defect this lane closed.
-                CHECK_MSG(character_forward.find("goo_use_anisotropy_default") == std::string::npos,
+                CHECK_MSG(character_forward.find("goo_use_anisotropy_default") == deren::utility::vessel::string::npos,
                           "the hardcoded `Use anisotropy?` default is deleted, not merely unused");
-                CHECK_MSG(character_forward.find("goo_anisotropic_mask_default") == std::string::npos,
+                CHECK_MSG(character_forward.find("goo_anisotropic_mask_default") == deren::utility::vessel::string::npos,
                           "and so is the hardcoded `Anisotropic mask` default");
                 // THE TWO HOST TABLES, whose neutrals are `(0, 0, 0, 0)` - the reference's own `interface[]` default
                 // for all three sockets. The GPU one is the LOAD-BEARING half: the table starts every lane at
                 // `glm::vec4(1.0f)`, so without this override every material that states no row would read
                 // `Use anisotropy? = 1` and take the arm the reference does not.
-                CHECK_MSG(constructor.find("toon_colour_lane::goo_aniso_gate)] =\n                    glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);") != std::string::npos,
+                CHECK_MSG(constructor.find("toon_colour_lane::goo_aniso_gate)] =\n                    glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);") != deren::utility::vessel::string::npos,
                           "the gate lane's neutral in the GPU table's initialiser, at ALL FOUR components");
-                CHECK_MSG(app.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),\n") != std::string::npos,
+                CHECK_MSG(app.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),\n") != deren::utility::vessel::string::npos,
                           "step 8's neutral is still in the lookup's table (the gate lane is appended after it)");
-                CHECK_MSG(app.find("glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)}};") != std::string::npos,
+                CHECK_MSG(app.find("glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)}};") != deren::utility::vessel::string::npos,
                           "and the lookup's table now ENDS on step 10's - lane order is the contract");
             }
             // (c10) STEP 12'S ONE COLOUR LANE, `_GooAnisoRough`, AND THE LOBE IT FEEDS. This is the lane that turned
@@ -3094,61 +3098,61 @@ int32_t main() {
             // anchors live in the closed-form half of this file (section 8r3) instead.
             {
                 std::size_t const enum_at = primitive.find("enum class toon_colour_lane");
-                std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
-                CHECK_MSG(colour_enum.find("goo_aniso_rough = 26,") != std::string::npos, "the rough lane's enum entry, APPENDED at 26 so no earlier index moves");
-                CHECK_MSG(colour_enum.find("count = 30,") != std::string::npos, "and the enum's count with it (step 13 appended lanes 27/28 and step 15 appended 29 after this one)");
-                CHECK_MSG(app.find("\"_GooAnisoRough\",") != std::string::npos, "the rough lane's row name - CamelCase, as the sidecar spells it");
+                deren::utility::vessel::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
+                CHECK_MSG(colour_enum.find("goo_aniso_rough = 26,") != deren::utility::vessel::string::npos, "the rough lane's enum entry, APPENDED at 26 so no earlier index moves");
+                CHECK_MSG(colour_enum.find("count = 30,") != deren::utility::vessel::string::npos, "and the enum's count with it (step 13 appended lanes 27/28 and step 15 appended 29 after this one)");
+                CHECK_MSG(app.find("\"_GooAnisoRough\",") != deren::utility::vessel::string::npos, "the rough lane's row name - CamelCase, as the sidecar spells it");
                 // A `color` ROW, SO NO BRANCH AND NO DIAGNOSTIC - the same two facts step 10's block asserts for its
                 // own lane, asserted the same way (by the enum spelling being absent from `main.cpp` outside the
                 // row table's ORDER comment).
-                CHECK_MSG(app.find("deren::engine::toon_colour_lane::goo_aniso_rough") == std::string::npos,
+                CHECK_MSG(app.find("deren::engine::toon_colour_lane::goo_aniso_rough") == deren::utility::vessel::string::npos,
                           "the rough lane takes the generic `others` path, so `main.cpp` never names the enum outside the row table's ORDER comment");
                 // THE TWO HOST TABLES. The lookup's ends on this lane now; the GPU one has to override it, because
                 // that table starts every lane at `glm::vec4(1.0f)` and a lane left there would hand every material
                 // with no row `rT = (1 - 1)^2 = 0` - a mirror - instead of the reference's own `(0, 0, 0, 0)`.
-                CHECK_MSG(app.find("glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)}};") != std::string::npos,
+                CHECK_MSG(app.find("glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)}};") != deren::utility::vessel::string::npos,
                           "the lookup's neutral table still ENDS on this lane's `(0, 0, 0, 0)` - lane order is the contract");
-                CHECK_MSG(constructor.find("toon_colour_lane::goo_aniso_rough)] =\n                    glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);") != std::string::npos,
+                CHECK_MSG(constructor.find("toon_colour_lane::goo_aniso_rough)] =\n                    glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);") != deren::utility::vessel::string::npos,
                           "the rough lane's neutral in the GPU table's initialiser, at ALL FOUR components");
                 // ... AND THE SHADER HALF: the read at lane 26, the two squares, and the two constants the lobe
                 // needs that are NOT the isotropic arm's.
-                CHECK_MSG(character_forward.find("const float4 goo_aniso_rough_lane = toon_colour_at(heap_slots_toon_colours, colour_base + 26u);") != std::string::npos,
+                CHECK_MSG(character_forward.find("const float4 goo_aniso_rough_lane = toon_colour_at(heap_slots_toon_colours, colour_base + 26u);") != deren::utility::vessel::string::npos,
                           "the rough lane is read at `colour_base + 26u`");
-                CHECK_MSG(character_forward.find("const float goo_aniso_roughness_t = (1.0 - goo_aniso_rough_lane.x) * (1.0 - goo_aniso_rough_lane.x);") != std::string::npos,
+                CHECK_MSG(character_forward.find("const float goo_aniso_roughness_t = (1.0 - goo_aniso_rough_lane.x) * (1.0 - goo_aniso_rough_lane.x);") != deren::utility::vessel::string::npos,
                           "`.x` is `Aniso_SmoothnessMaxT` and `rT` is `(1 - it)^2`");
-                CHECK_MSG(character_forward.find("const float goo_aniso_roughness_b = (1.0 - goo_aniso_rough_lane.y) * (1.0 - goo_aniso_rough_lane.y);") != std::string::npos,
+                CHECK_MSG(character_forward.find("const float goo_aniso_roughness_b = (1.0 - goo_aniso_rough_lane.y) * (1.0 - goo_aniso_rough_lane.y);") != deren::utility::vessel::string::npos,
                           "`.y` is `Aniso_SmoothnessMaxB` and `rB` likewise");
-                CHECK_MSG(character_forward.find("static const float goo_aniso_half_inverse_pi = 0.31830987334251404 * 0.5;") != std::string::npos,
+                CHECK_MSG(character_forward.find("static const float goo_aniso_half_inverse_pi = 0.31830987334251404 * 0.5;") != deren::utility::vessel::string::npos,
                           "the lobe's own `1/(2pi)`, spelled as its own constant rather than reusing the isotropic arm's");
-                CHECK_MSG(character_forward.find("static const float goo_aniso_denominator_floor = 0.0010000000474974513;") != std::string::npos,
+                CHECK_MSG(character_forward.find("static const float goo_aniso_denominator_floor = 0.0010000000474974513;") != deren::utility::vessel::string::npos,
                           "and `运算.017`'s floor on the lobe's denominator, at the dump's own precision");
                 // THE ARITHMETIC, in the two places the earlier reading of this group got it wrong: `S`'s third
                 // component and the fact that the CROSSED roughnesses sit on the tangent/bitangent dots.
-                CHECK_MSG(character_forward.find("(goo_ndoth * goo_lobe_p) * (goo_ndoth * goo_lobe_p)") != std::string::npos,
+                CHECK_MSG(character_forward.find("(goo_ndoth * goo_lobe_p) * (goo_ndoth * goo_lobe_p)") != deren::utility::vessel::string::npos,
                           "`S.z = NoH * p` - NOT `Lam * p`, which is the reading the brief's §6 corrects");
-                CHECK_MSG(character_forward.find("sqrt((goo_aniso_roughness_t * goo_lobe_t_dot_v) * (goo_aniso_roughness_t * goo_lobe_t_dot_v) +") != std::string::npos,
+                CHECK_MSG(character_forward.find("sqrt((goo_aniso_roughness_t * goo_lobe_t_dot_v) * (goo_aniso_roughness_t * goo_lobe_t_dot_v) +") != deren::utility::vessel::string::npos,
                           "`Lam` is the WHOLE of `ng[25]` on the VIEW side (rT against TdotV), not a denominator term");
-                CHECK_MSG(character_forward.find("(goo_aniso_roughness_t * goo_lobe_t_dot_l) * (goo_aniso_roughness_t * goo_lobe_t_dot_l) +") != std::string::npos,
+                CHECK_MSG(character_forward.find("(goo_aniso_roughness_t * goo_lobe_t_dot_l) * (goo_aniso_roughness_t * goo_lobe_t_dot_l) +") != deren::utility::vessel::string::npos,
                           "and `|W|` is the LIGHT side - the two vectors are swapped, which is the second correction");
-                CHECK_MSG(character_forward.find("const float goo_lobe_denominator = (goo_lobe_w_length * goo_clamped_ndotv + goo_lobe_lambda * goo_ndotl_clamped) * goo_lobe_s2 * goo_lobe_s2;") != std::string::npos,
+                CHECK_MSG(character_forward.find("const float goo_lobe_denominator = (goo_lobe_w_length * goo_clamped_ndotv + goo_lobe_lambda * goo_ndotl_clamped) * goo_lobe_s2 * goo_lobe_s2;") != deren::utility::vessel::string::npos,
                           "the denominator is `(|W|*NoV + Lam*NoL) * s2^2`, summed once - neither half is a numerator factor");
-                CHECK_MSG(character_forward.find("const float goo_lobe = goo_aniso_half_inverse_pi * ((goo_lobe_p * goo_lobe_p * goo_lobe_p) / max(goo_lobe_denominator, goo_aniso_denominator_floor));") != std::string::npos,
+                CHECK_MSG(character_forward.find("const float goo_lobe = goo_aniso_half_inverse_pi * ((goo_lobe_p * goo_lobe_p * goo_lobe_p) / max(goo_lobe_denominator, goo_aniso_denominator_floor));") != deren::utility::vessel::string::npos,
                           "and the lobe is `1/(2pi) * p^3 / max(den, floor)` - `p^3` and NOT `p^3 * Lam`, the third correction");
                 // THE CLAMP ARM AND THE ARM ORDER OF `混合.020`: `A` is the lobe times F_Schlick, `B` is the
                 // `钳制` result, `f` is lane 25's `.z` - and the whole of it is then multiplied by the mask
                 // (`混合.017`), which is what makes this step frame-invisible on this asset.
-                CHECK_MSG(character_forward.find("const float goo_lobe_toon_aniso = saturate(dot(cross(n, goo_lobe_t), v));") != std::string::npos,
+                CHECK_MSG(character_forward.find("const float goo_lobe_toon_aniso = saturate(dot(cross(n, goo_lobe_t), v));") != deren::utility::vessel::string::npos,
                           "`钳制.Result = clamp(dot(cross(N, Tangent), Incoming), 0, 1)`");
-                CHECK_MSG(character_forward.find("lerp(goo_lobe * goo_schlick_f, float3(goo_lobe_toon_aniso, goo_lobe_toon_aniso, goo_lobe_toon_aniso), goo_aniso_gate.z) * goo_anisotropic_mask;") != std::string::npos,
+                CHECK_MSG(character_forward.find("lerp(goo_lobe * goo_schlick_f, float3(goo_lobe_toon_aniso, goo_lobe_toon_aniso, goo_lobe_toon_aniso), goo_aniso_gate.z) * goo_anisotropic_mask;") != deren::utility::vessel::string::npos,
                           "`混合.020`'s arm order, and `混合.017`'s mask on the outside");
-                CHECK_MSG(character_forward.find("surface_tbn(world_pos, uv, goo_lobe_t, goo_lobe_b);") != std::string::npos,
+                CHECK_MSG(character_forward.find("surface_tbn(world_pos, uv, goo_lobe_t, goo_lobe_b);") != deren::utility::vessel::string::npos,
                           "the tangent frame comes from `surface_tbn`, the same function step 8's normal decode uses");
                 //     The search is for the DEFINITION WITH ITS `const float3` IN FRONT, because the derivation
                 //     comment above the lobe quotes the old line verbatim (it is how this port records what it
                 //     replaced) - a plain `find` on the right-hand side alone would match that quotation.
-                CHECK_MSG(character_forward.find("const float3 goo_anisotropic_masked = float3(0.0, 0.0, 0.0) * goo_anisotropic_mask;") == std::string::npos,
+                CHECK_MSG(character_forward.find("const float3 goo_anisotropic_masked = float3(0.0, 0.0, 0.0) * goo_anisotropic_mask;") == deren::utility::vessel::string::npos,
                           "and the zero stub the lane replaced is GONE as a definition, not merely commented out");
-                CHECK_MSG(character_forward.find("const float3 goo_anisotropic_masked = lerp(goo_lobe * goo_schlick_f,") != std::string::npos,
+                CHECK_MSG(character_forward.find("const float3 goo_anisotropic_masked = lerp(goo_lobe * goo_schlick_f,") != deren::utility::vessel::string::npos,
                           "the definition that replaced it is the lobe's");
             }
             // (c11) DEBT (U): `specularFGD Strength` - LANE 16 - IS A `float` ROW, AND BOTH HALVES OF THE DEFECT
@@ -3163,34 +3167,34 @@ int32_t main() {
             {
                 // ---- D1: THE BRANCH, ITS PATH, AND WHERE IT SITS IN THE LAMBDA ----
                 std::size_t const branch_at = app.find("lane == deren::engine::toon_colour_lane::goo_specular_fgd");
-                CHECK_MSG(branch_at != std::string::npos,
+                CHECK_MSG(branch_at != deren::utility::vessel::string::npos,
                           "lane 16 has its own branch in `toon_colour`: a `float`-kind row lands in `scalars`, and only `scalar()` reads those");
-                CHECK_MSG(app.find("material->scalar(toon_colour_row[lane_index], fgd.x)") != std::string::npos,
+                CHECK_MSG(app.find("material->scalar(toon_colour_row[lane_index], fgd.x)") != deren::utility::vessel::string::npos,
                           "...and the branch reads the row through `scalar()`, not through `others`");
-                CHECK_MSG(app.find("if (value >= 0.0f)") != std::string::npos,
+                CHECK_MSG(app.find("if (value >= 0.0f)") != deren::utility::vessel::string::npos,
                           "...with the same `>= 0.0f` guard step 5's and step 8's lanes use, so an unexpressible row answers the neutral");
                 // THE STRUCTURAL PIN: a branch placed AFTER the generic `others` path is dead code - `others` would
                 // answer first and D1 would be back with more lines than before.
                 std::size_t const generic_at = app.find("auto const row = material->others.find");
-                CHECK_MSG(generic_at != std::string::npos, "the generic `others` path is still there");
-                if (branch_at != std::string::npos && generic_at != std::string::npos) {
+                CHECK_MSG(generic_at != deren::utility::vessel::string::npos, "the generic `others` path is still there");
+                if (branch_at != deren::utility::vessel::string::npos && generic_at != deren::utility::vessel::string::npos) {
                     CHECK_MSG(branch_at < generic_at,
                               "lane 16's branch must sit BEFORE the generic `others` path - after it, the branch is unreachable");
                 }
-                CHECK_MSG(app.find("glm::vec4 fgd = toon_colour_neutral[lane_index]; // -1 in `.x` until a row says otherwise") != std::string::npos,
+                CHECK_MSG(app.find("glm::vec4 fgd = toon_colour_neutral[lane_index]; // -1 in `.x` until a row says otherwise") != deren::utility::vessel::string::npos,
                           "the branch starts from the lane's OWN neutral rather than a new number");
-                CHECK_MSG(app.find("_GooSpecularFGD = {:.10g} | lane 16") != std::string::npos,
+                CHECK_MSG(app.find("_GooSpecularFGD = {:.10g} | lane 16") != deren::utility::vessel::string::npos,
                           "the start-up dump names the row, because `{} scalar(s)` counts it without naming it - 'the file states nothing' and 'the reader dropped the row' must be distinguishable");
                 // ---- D2: THE SHADER'S CONTRACT, AND THE READING THAT MUST BE GONE ----
-                CHECK_MSG(character_forward.find("static bool goo_lane_stated(const float value) { return value >= 0.0; }") != std::string::npos,
+                CHECK_MSG(character_forward.find("static bool goo_lane_stated(const float value) { return value >= 0.0; }") != deren::utility::vessel::string::npos,
                           "the `< 0` contract is spelled once, as a named predicate");
-                CHECK_MSG(character_forward.find("static bool goo_lane_stated_sentinel(const float value) { return value > goo_lane_absent_threshold; }") != std::string::npos,
+                CHECK_MSG(character_forward.find("static bool goo_lane_stated_sentinel(const float value) { return value > goo_lane_absent_threshold; }") != deren::utility::vessel::string::npos,
                           "and the `-1000` sentinel's contract is spelled beside it, because the two are NOT the same comparison");
-                CHECK_MSG(character_forward.find("goo_lane_stated(goo_specular_fgd_lane.x)") != std::string::npos,
+                CHECK_MSG(character_forward.find("goo_lane_stated(goo_specular_fgd_lane.x)") != deren::utility::vessel::string::npos,
                           "lane 16 is read through the `< 0` contract");
-                CHECK_MSG(character_forward.find("goo_specular_fgd_lane.x > goo_lane_absent_threshold") == std::string::npos,
+                CHECK_MSG(character_forward.find("goo_specular_fgd_lane.x > goo_lane_absent_threshold") == deren::utility::vessel::string::npos,
                           "lane 16's `-999` reading is GONE, not merely commented out: `-1.0 > -999.0` is what swallowed the neutral in the shipped build");
-                CHECK_MSG(character_forward.find("const float4 goo_specular_fgd_lane = toon_colour_at(heap_slots_toon_colours, colour_base + 16u);") != std::string::npos,
+                CHECK_MSG(character_forward.find("const float4 goo_specular_fgd_lane = toon_colour_at(heap_slots_toon_colours, colour_base + 16u);") != deren::utility::vessel::string::npos,
                           "...and it is still read at lane 16 of the surface stage's own stride");
                 // ---- THE TWO CONTRACTS, PER INPUT, AS MIRROR PREDICATES ----
                 // This is the half a text pin cannot express: the DIFFERENCE between the two predicates IS debt (u),
@@ -3220,34 +3224,34 @@ int32_t main() {
                     CHECK(stated(v) == stated_sentinel(v));
                 }
                 // ---- AND THE FOUR `-1000` LANES ARE UNTOUCHED, which is why their call sites keep the old spelling ----
-                CHECK_MSG(character_forward.find("goo_diffuse_a.z > goo_lane_absent_threshold") != std::string::npos,
+                CHECK_MSG(character_forward.find("goo_diffuse_a.z > goo_lane_absent_threshold") != deren::utility::vessel::string::npos,
                           "step 4's `CastShadow_center` still uses the sentinel's comparison");
-                CHECK_MSG(character_forward.find("goo_diffuse_b.x > goo_lane_absent_threshold") != std::string::npos,
+                CHECK_MSG(character_forward.find("goo_diffuse_b.x > goo_lane_absent_threshold") != deren::utility::vessel::string::npos,
                           "and so does `GlobalShadowBrightnessAdjustment`");
-                CHECK_MSG(character_forward.find("goo_lane_stated(goo_diffuse_a.z)") == std::string::npos,
+                CHECK_MSG(character_forward.find("goo_lane_stated(goo_diffuse_a.z)") == deren::utility::vessel::string::npos,
                           "debt (u) must NOT be 'generalised' into the `-1000` lanes: `-1.8` is an authored value there, not an absence");
             }
             // ---- STEP 11: THE DENOMINATOR'S TEXT, so a "simplification" of it cannot pass either ----
             {
-                CHECK_MSG(character_forward.find("const float goo_dv_lambda_v = abs(goo_ndotl_clamped) * (goo_a2 + (1.0 - goo_a2) * goo_clamped_ndotv * goo_clamped_ndotv);") != std::string::npos,
+                CHECK_MSG(character_forward.find("const float goo_dv_lambda_v = abs(goo_ndotl_clamped) * (goo_a2 + (1.0 - goo_a2) * goo_clamped_ndotv * goo_clamped_ndotv);") != deren::utility::vessel::string::npos,
                           "the UN-rooted half of λ is multiplied by |NoL| - `运算.005`'s own shape");
-                CHECK_MSG(character_forward.find("const float goo_dv_lambda_l = goo_clamped_ndotv * sqrt(goo_a2 + (1.0 - goo_a2) * goo_ndotl_clamped * goo_ndotl_clamped);") != std::string::npos,
+                CHECK_MSG(character_forward.find("const float goo_dv_lambda_l = goo_clamped_ndotv * sqrt(goo_a2 + (1.0 - goo_a2) * goo_ndotl_clamped * goo_ndotl_clamped);") != deren::utility::vessel::string::npos,
                           "and the ROOTED half is multiplied by NoV: the ONE root, on the NoL bracket");
-                CHECK_MSG(character_forward.find("const float goo_dv_lambda = goo_dv_lambda_v + goo_dv_lambda_l;") != std::string::npos,
+                CHECK_MSG(character_forward.find("const float goo_dv_lambda = goo_dv_lambda_v + goo_dv_lambda_l;") != deren::utility::vessel::string::npos,
                           "the two halves are ADDED (`运算.012`) and nothing is added to them");
-                CHECK_MSG(character_forward.find("max(goo_dv_s * goo_dv_s * goo_dv_lambda, 1.1754899742869237e-35)") != std::string::npos,
+                CHECK_MSG(character_forward.find("max(goo_dv_s * goo_dv_s * goo_dv_lambda, 1.1754899742869237e-35)") != deren::utility::vessel::string::npos,
                           "the floor is 运算.017's MAXIMUM on the WHOLE denominator, at the dump's own precision");
-                CHECK_MSG(character_forward.find("const float goo_dv_original = goo_dv_half_inverse_pi * (goo_a2 / goo_dv_denominator);") != std::string::npos,
+                CHECK_MSG(character_forward.find("const float goo_dv_original = goo_dv_half_inverse_pi * (goo_a2 / goo_dv_denominator);") != deren::utility::vessel::string::npos,
                           "and 原 is the group's 1/(2pi) times `运算.018`'s `a2 / denominator`, in that order");
                 // ... AND THE TWO DEFECTS THEMSELVES, PINNED ABSENT - each spelling is the port's OWN old line, not a
                 // paraphrasing of it, so a partial revert fails here.
-                CHECK_MSG(character_forward.find("max(pow(goo_ndoth * goo_ndoth * (goo_a2 - 1.0) + 1.0, 2.0), 1e-12)") == std::string::npos,
+                CHECK_MSG(character_forward.find("max(pow(goo_ndoth * goo_ndoth * (goo_a2 - 1.0) + 1.0, 2.0), 1e-12)") == deren::utility::vessel::string::npos,
                           "the old `pow(S, 2)` with a `1e-12` floor on it is gone from the body arm");
-                CHECK_MSG(character_forward.find("sqrt(max(goo_a2 + (1.0 - goo_a2)") == std::string::npos,
+                CHECK_MSG(character_forward.find("sqrt(max(goo_a2 + (1.0 - goo_a2)") == deren::utility::vessel::string::npos,
                           "and so is the clamp inside the SQRT, which the reference does not have");
-                CHECK_MSG(character_forward.find("1.0 + goo_dv_lambda") == std::string::npos,
+                CHECK_MSG(character_forward.find("1.0 + goo_dv_lambda") == deren::utility::vessel::string::npos,
                           "and the `+1` in the denominator is gone: there is no `Gv` in this term any more");
-                CHECK_MSG(character_forward.find("const float goo_gv = ") == std::string::npos,
+                CHECK_MSG(character_forward.find("const float goo_gv = ") == deren::utility::vessel::string::npos,
                           "no `goo_gv` is computed at all, so no reader can mistake λ for a Smith `Gv`");
             }
             // ---- 8r4. 欠账 (e): STEP 11's SECOND COPY, IN THE FACE ARM ----
@@ -3265,18 +3269,18 @@ int32_t main() {
                 //     moved back onto `S^2` or a `pow(..., 2.0)` re-appearing all change ONE side and fail here.
                 auto const line_with = [&character_forward](char const* const needle) {
                     std::size_t const at = character_forward.find(needle);
-                    if (at == std::string::npos) {
-                        return std::string{};
+                    if (at == deren::utility::vessel::string::npos) {
+                        return deren::utility::vessel::string{};
                     }
                     std::size_t const start = character_forward.rfind('\n', at);
                     std::size_t const stop = character_forward.find(';', at);
-                    if (stop == std::string::npos) {
-                        return std::string{};
+                    if (stop == deren::utility::vessel::string::npos) {
+                        return deren::utility::vessel::string{};
                     }
-                    std::size_t const begin = start == std::string::npos ? 0u : start + 1u;
+                    std::size_t const begin = start == deren::utility::vessel::string::npos ? 0u : start + 1u;
                     return character_forward.substr(begin, stop + 1u - begin);
                 };
-                auto const body_as_face = [](std::string text) {
+                auto const body_as_face = [](deren::utility::vessel::string text) {
                     for (auto const& names : {std::pair{"goo_dv_lambda_v", "face_dv_lambda_v"},
                                               std::pair{"goo_dv_lambda_l", "face_dv_lambda_l"},
                                               std::pair{"goo_dv_lambda", "face_dv_lambda"},
@@ -3287,19 +3291,19 @@ int32_t main() {
                                               std::pair{"goo_clamped_ndotv", "face_clamped_ndotv"},
                                               std::pair{"goo_ndoth", "face_ndoth"},
                                               std::pair{"goo_a2", "face_a2"}}) {
-                        std::string const from{names.first};
-                        std::string const to{names.second};
-                        for (std::size_t at = text.find(from); at != std::string::npos; at = text.find(from, at + to.size())) {
+                        deren::utility::vessel::string const from{names.first};
+                        deren::utility::vessel::string const to{names.second};
+                        for (std::size_t at = text.find(from); at != deren::utility::vessel::string::npos; at = text.find(from, at + to.size())) {
                             text.replace(at, from.size(), to);
                         }
                     }
                     return text;
                 };
                 for (char const* const name : {"dv_s", "dv_lambda_v", "dv_lambda_l", "dv_lambda", "dv_denominator", "dv_original"}) {
-                    std::string const body_line = line_with(("const float goo_" + std::string{name} + " = ").c_str());
-                    std::string const face_line = line_with(("const float face_" + std::string{name} + " = ").c_str());
-                    std::string const message = "8r4: the face arm's `const float face_" + std::string{name} +
-                                                " = ` line is the body arm's line under the arm's own names";
+                    deren::utility::vessel::string const body_line = line_with(("const float goo_" + deren::utility::vessel::string{name} + " = ").c_str());
+                    deren::utility::vessel::string const face_line = line_with(("const float face_" + deren::utility::vessel::string{name} + " = ").c_str());
+                    deren::utility::vessel::string const message = "8r4: the face arm's `const float face_" + deren::utility::vessel::string{name} +
+                                                                   " = ` line is the body arm's line under the arm's own names";
                     CHECK_MSG(!body_line.empty() && !face_line.empty() && body_as_face(body_line) == face_line, message.c_str());
                 }
                 // (2) THE VALUE, THROUGH THE FACE ARM'S OWN SPELLING. The closed form is re-derived here (`8r2`'s
@@ -3313,7 +3317,7 @@ int32_t main() {
                     double const ll = nov * std::sqrt(a2 + (1.0 - a2) * nol * nol);
                     double const lambda = lv + ll;
                     double const floored = std::max(s * s * lambda, static_cast<double>(k_dv_denominator_floor));
-                    return std::array<double, 4u>{s, lambda, floored, 0.1591549962759018 * a2 / floored};
+                    return deren::utility::vessel::array<double, 4u>{s, lambda, floored, 0.1591549962759018 * a2 / floored};
                 };
                 // ... AND THE DELETED FACE COPY, kept only to state the defect it carried: `S^2` floored at `1e-12`,
                 // the `sqrt` on the half that is not rooted, and the invented `Gv`'s `+1`. Nothing below asserts
@@ -3337,46 +3341,46 @@ int32_t main() {
                           "8r4: at a2 = 0 both spellings are exactly 0 - the fix is pixel-neutral by construction");
             }
             // ---- `headCenter`: THE ONE PIECE OF NEW DATA, and the stride is the failure class ----
-            CHECK_MSG(primitive.find("glm::vec4 center = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);") != std::string::npos, "`head_ubo` gained the position");
-            CHECK_MSG(primitive.find("static_assert(sizeof(head_ubo) == 64);") != std::string::npos, "and its size is asserted at FOUR vec4s, not three");
-            CHECK_MSG(character_forward.find("float4 center; // the head object's world position") != std::string::npos, "the shader's own copy has the same fourth member");
-            CHECK_MSG(character_forward.find("a centre is known") != std::string::npos, "and it documents the flag in `.w`");
-            CHECK_MSG(character_forward.find("world_pos - head_frame_at(heap_slots_scene_head + heap_frame_slot).center.xyz") != std::string::npos,
+            CHECK_MSG(primitive.find("glm::vec4 center = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);") != deren::utility::vessel::string::npos, "`head_ubo` gained the position");
+            CHECK_MSG(primitive.find("static_assert(sizeof(head_ubo) == 64);") != deren::utility::vessel::string::npos, "and its size is asserted at FOUR vec4s, not three");
+            CHECK_MSG(character_forward.find("float4 center; // the head object's world position") != deren::utility::vessel::string::npos, "the shader's own copy has the same fourth member");
+            CHECK_MSG(character_forward.find("a centre is known") != deren::utility::vessel::string::npos, "and it documents the flag in `.w`");
+            CHECK_MSG(character_forward.find("world_pos - head_frame_at(heap_slots_scene_head + heap_frame_slot).center.xyz") != deren::utility::vessel::string::npos,
                       "and the sphere normal subtracts it from the fragment's world position");
             // THE FLAG IS THE PART THAT KEEPS A FABRICATED CENTRE OUT OF THE SHADING: every character glb in this
             // repository is BAKED (8 nodes, 0 skins), so no head bone ever runs the publish below, and `center.w`
             // stays 0 - which is what makes the arm fall back to the socket's own `interface[]` default (0.0)
             // instead of building a normal about the world origin.
-            CHECK_MSG(primitive.find("glm::vec4 center = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);") != std::string::npos, "the centre's `.w` starts at 0 = 'no centre known'");
-            CHECK_MSG(character_forward.find("center.w > 0.5 && face_scalars_a.z > goo_lane_absent_threshold") != std::string::npos,
+            CHECK_MSG(primitive.find("glm::vec4 center = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);") != deren::utility::vessel::string::npos, "the centre's `.w` starts at 0 = 'no centre known'");
+            CHECK_MSG(character_forward.find("center.w > 0.5 && face_scalars_a.z > goo_lane_absent_threshold") != deren::utility::vessel::string::npos,
                       "and the arm reads the flag before it reads the socket");
-            CHECK_MSG(app.find("glm::vec3 const head_center(joint[3][0], joint[3][1], joint[3][2]);") != std::string::npos,
+            CHECK_MSG(app.find("glm::vec3 const head_center(joint[3][0], joint[3][1], joint[3][2]);") != deren::utility::vessel::string::npos,
                       "main.cpp fills it from the SAME bone matrix's translation column the two axis rows come from");
-            CHECK_MSG(app.find(".center = glm::vec4(head_center, 1.0f)}") != std::string::npos, "...and sets the flag when it does");
-            CHECK_MSG(app.find(".center = glm::vec4(0.0f)}") != std::string::npos, "...and leaves it clear in the no-head-bone publish");
-            CHECK_MSG(app.find("center ({:.3f} {:.3f} {:.3f})") != std::string::npos, "and the one-shot probe logs it, so the value is evidence rather than an assumption");
+            CHECK_MSG(app.find(".center = glm::vec4(head_center, 1.0f)}") != deren::utility::vessel::string::npos, "...and sets the flag when it does");
+            CHECK_MSG(app.find(".center = glm::vec4(0.0f)}") != deren::utility::vessel::string::npos, "...and leaves it clear in the no-head-bone publish");
+            CHECK_MSG(app.find("center ({:.3f} {:.3f} {:.3f})") != deren::utility::vessel::string::npos, "and the one-shot probe logs it, so the value is evidence rather than an assumption");
             // ---- THE FACE ARM ITSELF ----
-            CHECK_MSG(character_forward.find("static const float goo_face_forward_sign = -1.0;") != std::string::npos,
+            CHECK_MSG(character_forward.find("static const float goo_face_forward_sign = -1.0;") != deren::utility::vessel::string::npos,
                       "step 7's copy of `值(明度)` is -1.0, the value BOTH dumps store");
-            CHECK_MSG(shader.find("static const float goo_iris_forward_sign = -1.0;") != std::string::npos,
+            CHECK_MSG(shader.find("static const float goo_iris_forward_sign = -1.0;") != deren::utility::vessel::string::npos,
                       "and the iris' copy is the same number - one socket, two spellings, and they must not drift");
-            CHECK_MSG(character_forward.find("static const float goo_face_half_turn = 3.141592502593994;") != std::string::npos, "the reference's own pi literal");
-            CHECK_MSG(character_forward.find("static const float goo_face_shadow_proxy_open = 1.0 + goo_face_shadow_proxy_lift;") != std::string::npos,
+            CHECK_MSG(character_forward.find("static const float goo_face_half_turn = 3.141592502593994;") != deren::utility::vessel::string::npos, "the reference's own pi literal");
+            CHECK_MSG(character_forward.find("static const float goo_face_shadow_proxy_open = 1.0 + goo_face_shadow_proxy_lift;") != deren::utility::vessel::string::npos,
                       "the shadow proxy is held at its OPEN value, spelled as the graph's own `(1 - 运算.020) + 0.1`");
-            CHECK_MSG(character_forward.find("static const float goo_face_ambient_contrast = -0.4000000059604645;") != std::string::npos, "亮度 / 对比度's contrast, verbatim");
-            CHECK_MSG(character_forward.find("static const float goo_face_eye_brightness_default = 1.2999999523162842;") != std::string::npos,
+            CHECK_MSG(character_forward.find("static const float goo_face_ambient_contrast = -0.4000000059604645;") != deren::utility::vessel::string::npos, "亮度 / 对比度's contrast, verbatim");
+            CHECK_MSG(character_forward.find("static const float goo_face_eye_brightness_default = 1.2999999523162842;") != deren::utility::vessel::string::npos,
                       "the EYE-WHITE brightness's INTERFACE default is 1.3, not the material's 1.5");
-            CHECK_MSG(character_forward.find("family == VR_FAMILY_FACE && goo_base_ramp != 0u && goo_face_block2.w != 0u") != std::string::npos,
+            CHECK_MSG(character_forward.find("family == VR_FAMILY_FACE && goo_base_ramp != 0u && goo_face_block2.w != 0u") != deren::utility::vessel::string::npos,
                       "the arm's gate names the family, the ramp lane and the SDF lane");
-            CHECK_MSG(character_forward.find("return face_desaturated * face_emission_strength;") != std::string::npos,
+            CHECK_MSG(character_forward.find("return face_desaturated * face_emission_strength;") != deren::utility::vessel::string::npos,
                       "and it RETURNS, which is what guards every article term below it off for the face");
-            CHECK_MSG(character_forward.find("out_desaturation = goo_desaturation_neutral;") != std::string::npos,
+            CHECK_MSG(character_forward.find("out_desaturation = goo_desaturation_neutral;") != deren::utility::vessel::string::npos,
                       "with the out-parameter left at the identity, because the desaturation was applied INSIDE the arm where the reference has it");
-            CHECK_MSG(character_forward.find("const float face_saturation = saturate(dot(face_ramp_colour") != std::string::npos,
+            CHECK_MSG(character_forward.find("const float face_saturation = saturate(dot(face_ramp_colour") != deren::utility::vessel::string::npos,
                       "the face's own desaturation is the reference's `clamp(luma(RampColor) + 0.9, 0, 1)`");
-            CHECK_MSG(character_forward.find("face_flip > 0.0 ? (uv.x > 0.5 ? 0.0 : 1.0)") != std::string::npos,
+            CHECK_MSG(character_forward.find("face_flip > 0.0 ? (uv.x > 0.5 ? 0.0 : 1.0)") != deren::utility::vessel::string::npos,
                       "the front-red gate IS the SDF's flip bit - A9's two-mirrors claim, in the source");
-            CHECK_MSG(character_forward.find("const float face_rim_threshold = (face_cm_a * face_mirror_uv) - face_angle_threshold;") != std::string::npos,
+            CHECK_MSG(character_forward.find("const float face_rim_threshold = (face_cm_a * face_mirror_uv) - face_angle_threshold;") != deren::utility::vessel::string::npos,
                       "and the face's rim gate SUBTRACTS the angle threshold rather than scaling by it");
         }
         // ---- (c9) STEP 9: THE DIRECT SPECULAR'S FACTOR, THE TWO ARGUMENTS E2/E3 MOVE, AND WHAT DOES *NOT* MOVE ----
@@ -3396,20 +3400,20 @@ int32_t main() {
             // it - so the factor cannot be dropped, doubled, or moved onto another term without this failing.
             char const* const factor = "(1.0 + goo_energy_compensation * goo_fresnel0)";
             std::size_t occurrences = 0u;
-            for (std::size_t at = character_forward.find(factor); at != std::string::npos;
+            for (std::size_t at = character_forward.find(factor); at != deren::utility::vessel::string::npos;
                  at = character_forward.find(factor, at + 1u)) {
                 ++occurrences;
             }
             CHECK_MSG(occurrences == 1u, "the direct specular's energy-compensation factor appears EXACTLY once in the shader");
-            CHECK_MSG(character_forward.find("goo_ndotl_clamped * (goo_specular_chosen * goo_specular_color) * shadow_used * goo_light_color * direct_occlusion * (1.0 + goo_energy_compensation * goo_fresnel0)") != std::string::npos,
+            CHECK_MSG(character_forward.find("goo_ndotl_clamped * (goo_specular_chosen * goo_specular_color) * shadow_used * goo_light_color * direct_occlusion * (1.0 + goo_energy_compensation * goo_fresnel0)") != deren::utility::vessel::string::npos,
                       "and it multiplies the RAW direct product's own tail, not some other term - the reference's `Vector Math.014` is `directLighting_specular ⊙ (1 + ec ⊙ f0)` and nothing else. DEBT (q): the visibility operand is `shadow_used`, the PRE-sigmoid output, and this string was updated with the shader when that token moved");
-            CHECK_MSG(character_forward.find("goo_specular_color * (1.0 + goo_energy_compensation") == std::string::npos,
+            CHECK_MSG(character_forward.find("goo_specular_color * (1.0 + goo_energy_compensation") == deren::utility::vessel::string::npos,
                       "the factor does NOT re-multiply `goo_specular_color`: the raw product already applied that tint, and `Vector Math.014`'s factor is built from `energyCompensation` and `fresnel0` alone");
             // ... AND THE OTHER PATH IS STEP 5'S, UNTOUCHED. This is the check that makes "no double count" a
             // property of the source rather than a claim in a report: the IBL product keeps the BARE factor.
-            CHECK_MSG(character_forward.find("goo_spec_ibl = goo_specular_fgd * goo_specular_fgd_strength * goo_energy_compensation;") != std::string::npos,
+            CHECK_MSG(character_forward.find("goo_spec_ibl = goo_specular_fgd * goo_specular_fgd_strength * goo_energy_compensation;") != deren::utility::vessel::string::npos,
                       "the IBL specular keeps the BARE factor - step 5's own line, unchanged by this step");
-            CHECK_MSG(character_forward.find("goo_spec_ibl = goo_specular_fgd * goo_specular_fgd_strength * goo_energy_compensation *") == std::string::npos,
+            CHECK_MSG(character_forward.find("goo_spec_ibl = goo_specular_fgd * goo_specular_fgd_strength * goo_energy_compensation *") == deren::utility::vessel::string::npos,
                       "and it carries no SECOND factor after that one - the spec's §A7 negative assertion, spelled as a check");
             // ---- DEBT (q): THE VISIBILITY OPERAND IS THE PRE-SIGMOID ONE (spec §3.1, §4.1) ----
             //
@@ -3419,11 +3423,11 @@ int32_t main() {
             // content: `new - old = T ⊙ (v - sig(v))` is TWO-SIDED, so a check that only said "the shadow side gets
             // darker" would pass with the sign of the fix INVERTED. The fixpoint and both extremes are asserted instead,
             // for all three lane groups the shipped sidecar can produce.
-            CHECK_MSG(character_forward.find("goo_specular_color) * cast_shadow_sigmoid * goo_light_color") == std::string::npos,
+            CHECK_MSG(character_forward.find("goo_specular_color) * cast_shadow_sigmoid * goo_light_color") == deren::utility::vessel::string::npos,
                       "DEBT (q): the direct specular no longer multiplies the POST-sigmoid visibility");
-            CHECK_MSG(character_forward.find("goo_specular_color) * shadow_used * goo_light_color") != std::string::npos,
+            CHECK_MSG(character_forward.find("goo_specular_color) * shadow_used * goo_light_color") != deren::utility::vessel::string::npos,
                       "DEBT (q): it multiplies `shadow_used` (`:1521-1523`) - the reference's `Cast Shadows` output, pre-sigmoid");
-            CHECK_MSG(character_forward.find("ramp_u = min(cast_shadow_sigmoid, remap_half_lambert_sigmoid)") != std::string::npos,
+            CHECK_MSG(character_forward.find("ramp_u = min(cast_shadow_sigmoid, remap_half_lambert_sigmoid)") != deren::utility::vessel::string::npos,
                       "DEBT (q): and `cast_shadow_sigmoid` still feeds `ramp_u` (`:2526`) - its one legitimate consumer, NOT deleted");
             // `goo_sigmoid_sharp` (`:924-930`) in fp64, independent of the shader's fp32:
             auto const q_sig = [](double const v, double const center, double const sharp) {
@@ -3516,65 +3520,65 @@ int32_t main() {
                           "DEBT (q) P1: and the cast curve itself never decreases in visibility, which is what makes that fixpoint unique rather than one of several crossings");
             }
             // ---- E2 + E3: THE TWO ARGUMENTS OF `ComputeFresnel0`, WHICH ARE THE TWO THE DIFFUSE TERM ALREADY READS ----
-            CHECK_MSG(character_forward.find("lerp(float3(goo_fgd_dielectric_f0), albedo * goo_base_colour, metallic * metallic_max)") != std::string::npos,
+            CHECK_MSG(character_forward.find("lerp(float3(goo_fgd_dielectric_f0), albedo * goo_base_colour, metallic * metallic_max)") != deren::utility::vessel::string::npos,
                       "E2 + E3: `fresnel0`'s metal end is `albedo * goo_base_colour` - the SAME product `goo_diffuse_colour` uses - and its factor is `metallic * metallic_max`");
-            CHECK_MSG(character_forward.find("lerp(float3(goo_fgd_dielectric_f0), goo_base_colour, metallic)") == std::string::npos,
+            CHECK_MSG(character_forward.find("lerp(float3(goo_fgd_dielectric_f0), goo_base_colour, metallic)") == deren::utility::vessel::string::npos,
                       "and the pre-step-9 spelling - which dropped the metallic map from the factor and the glTF albedo from the colour - is GONE, not merely accompanied");
-            CHECK_MSG(character_forward.find("const float3 goo_diffuse_colour = albedo * goo_base_colour * (1.0 - metallic * metallic_max);") != std::string::npos,
+            CHECK_MSG(character_forward.find("const float3 goo_diffuse_colour = albedo * goo_base_colour * (1.0 - metallic * metallic_max);") != deren::utility::vessel::string::npos,
                       "`goo_diffuse_colour` is UNCHANGED by this step, which is what makes the two same-source rather than merely similar");
-            CHECK_MSG(character_forward.find("const float metallic_max = goo_diffuse_b.z > goo_lane_absent_threshold ? goo_diffuse_b.z : goo_metallic_max_default;") != std::string::npos,
+            CHECK_MSG(character_forward.find("const float metallic_max = goo_diffuse_b.z > goo_lane_absent_threshold ? goo_diffuse_b.z : goo_metallic_max_default;") != deren::utility::vessel::string::npos,
                       "`MetallicMax` still arrives on step 5's own lane component (`goo_diffuse_b.z`): this step added NO lane, NO heap slot and NO texture binding");
-            CHECK_MSG(character_forward.find("static const float goo_metallic_max_default = 1.0;") != std::string::npos,
+            CHECK_MSG(character_forward.find("static const float goo_metallic_max_default = 1.0;") != deren::utility::vessel::string::npos,
                       "the group's own `MetallicMax` default is the 1.0 the port falls back to - and the 23 instances all state exactly this (verify B1)");
-            CHECK_MSG(character_forward.find("static const float goo_fgd_dielectric_f0 = 0.07999999821186066;") != std::string::npos,
+            CHECK_MSG(character_forward.find("static const float goo_fgd_dielectric_f0 = 0.07999999821186066;") != deren::utility::vessel::string::npos,
                       "and the dielectric end is the FGD group's own F0 - now load-bearing for the COMPENSATION too, because `fresnel0` is a factor of it");
             // ---- WHAT THIS STEP DELIBERATELY DOES NOT MOVE ----
             // `energy_distribution_metallic` is a 0-HIT string in BOTH dumps (spec §1 item 3, verify B3), so the
             // article's own `0.96 - 0.96 * metallic` at `:1956` is NOT this mechanism and the brief forbids touching
             // it. Its presence is pinned so that "we left it alone" is visible in the source rather than only in a
             // report - and so that a later reader who greps for `metallic` finds the boundary next to the factor.
-            CHECK_MSG(character_forward.find("const float energy_distribution_metallic = 0.96 - 0.96 * metallic;") != std::string::npos,
+            CHECK_MSG(character_forward.find("const float energy_distribution_metallic = 0.96 - 0.96 * metallic;") != deren::utility::vessel::string::npos,
                       "the article's `0.96 - 0.96 * metallic` is still there and still NOT this step's mechanism (its group's `energy_distribution_metallic` is a 0-hit string in both dumps)");
         }
         // (d) THE SWITCH, which is the A/B's own instrument: it must be a `[render]` key, because that is the only
         // section the capture script can override - a key anywhere else would make the A/B unrunnable.
-        CHECK_MSG(config.find("render->get(\"goo_toon\")") != std::string::npos, "the [render] goo_toon key is parsed");
+        CHECK_MSG(config.find("render->get(\"goo_toon\")") != deren::utility::vessel::string::npos, "the [render] goo_toon key is parsed");
         // (e) THE SUPPRESSIONS, which are text checks because none of them is visible in a frame on its own:
         // the OLD rim must be excluded for the four ported families and KEPT for the face and the eye; the
         // ARTICLE's screen-space contour must stop sharing the surface stage's feature name; and the NEW stage
         // must be gated by the SAME predicate that picks the rewritten chain's pipeline - which is the one gate
         // that keeps `[render] goo_toon = false` byte-identical.
-        CHECK_MSG(shader.find("#define VR_GOO_TOON_CHAIN 1") != std::string::npos, "the rewritten chain defines the rim guard");
-        CHECK_MSG(character_forward.find("#ifndef VR_GOO_TOON_CHAIN") != std::string::npos, "the old rim is inside the guard");
-        CHECK_MSG(character_forward.find("rim_ported_by_goo") != std::string::npos, "the guarded arm names the families it covers");
-        CHECK_MSG(character_forward.find("family == VR_FAMILY_BASE || family == VR_FAMILY_SKIN || family == VR_FAMILY_CLOTH || family == VR_FAMILY_HAIR") != std::string::npos,
+        CHECK_MSG(shader.find("#define VR_GOO_TOON_CHAIN 1") != deren::utility::vessel::string::npos, "the rewritten chain defines the rim guard");
+        CHECK_MSG(character_forward.find("#ifndef VR_GOO_TOON_CHAIN") != deren::utility::vessel::string::npos, "the old rim is inside the guard");
+        CHECK_MSG(character_forward.find("rim_ported_by_goo") != deren::utility::vessel::string::npos, "the guarded arm names the families it covers");
+        CHECK_MSG(character_forward.find("family == VR_FAMILY_BASE || family == VR_FAMILY_SKIN || family == VR_FAMILY_CLOTH || family == VR_FAMILY_HAIR") != deren::utility::vessel::string::npos,
                   "and the four families are the ones it covers (the face is NOT among them)");
         // the OTHER consumer of `toon_diffuse` must NOT define it, or the outline would lose the old rim
-        CHECK_MSG(outline.find("VR_GOO_TOON_CHAIN") == std::string::npos, "`toon/outline.slang` leaves the old rim switched on");
-        CHECK_MSG(pbr.find("VR_GOO_TOON_CHAIN") == std::string::npos, "and so does `scene/pbr.slang`");
-        CHECK_MSG(rim_pass.find("return \"toon_screen_rim\";") != std::string::npos, "the screen rim asks under its own feature name");
-        CHECK_MSG(demo.find("self.runtime_owner->goo_toon_active()") != std::string::npos, "the rewritten chain switches the article's contour off");
+        CHECK_MSG(outline.find("VR_GOO_TOON_CHAIN") == deren::utility::vessel::string::npos, "`toon/outline.slang` leaves the old rim switched on");
+        CHECK_MSG(pbr.find("VR_GOO_TOON_CHAIN") == deren::utility::vessel::string::npos, "and so does `scene/pbr.slang`");
+        CHECK_MSG(rim_pass.find("return \"toon_screen_rim\";") != deren::utility::vessel::string::npos, "the screen rim asks under its own feature name");
+        CHECK_MSG(demo.find("self.runtime_owner->goo_toon_active()") != deren::utility::vessel::string::npos, "the rewritten chain switches the article's contour off");
         // (f) STEP 3'S OWN GATE, and it is the one this step's byte-identity criterion rests on: the new rim stage
         // must ask under ITS OWN feature name (so the owner can answer it), it must not record when that name is
         // false, and the owner's answer must be the SAME `goo_toon_active()` predicate that picks the character
         // stage's pipeline - a gate that could disagree with the pipeline choice would draw the Goo rim over the
         // OLD chain's frame or none over the new one.
-        std::string const goo_rim_pass = slurp("source/engine/pass/goo_rim.cpp");
-        CHECK_MSG(goo_rim_pass.find("return \"goo_rim\";") != std::string::npos, "the goo rim asks under its own feature name");
+        deren::utility::vessel::string const goo_rim_pass = slurp("source/engine/pass/goo_rim.cpp");
+        CHECK_MSG(goo_rim_pass.find("return \"goo_rim\";") != deren::utility::vessel::string::npos, "the goo rim asks under its own feature name");
         // ... and the owner answers that name with the runtime's own predicate, in the branch whose last term is
         // the POSITIVE form of the contour's negation above
         std::size_t const goo_rim_branch = demo.find("if (name == \"goo_rim\")");
-        CHECK_MSG(goo_rim_branch != std::string::npos, "the feature table has a branch for it");
-        std::string const goo_rim_answer = demo.substr(goo_rim_branch, demo.find("}\n", goo_rim_branch) - goo_rim_branch);
-        CHECK_MSG(goo_rim_answer.find("self.runtime_owner->goo_toon_active()") != std::string::npos, "answered with the SAME predicate the pipeline choice uses");
-        CHECK_MSG(goo_rim_answer.find("self.goo_rim->ready() && goo_toon_active") != std::string::npos, "and true only when the rewritten chain is the one drawing");
+        CHECK_MSG(goo_rim_branch != deren::utility::vessel::string::npos, "the feature table has a branch for it");
+        deren::utility::vessel::string const goo_rim_answer = demo.substr(goo_rim_branch, demo.find("}\n", goo_rim_branch) - goo_rim_branch);
+        CHECK_MSG(goo_rim_answer.find("self.runtime_owner->goo_toon_active()") != deren::utility::vessel::string::npos, "answered with the SAME predicate the pipeline choice uses");
+        CHECK_MSG(goo_rim_answer.find("self.goo_rim->ready() && goo_toon_active") != deren::utility::vessel::string::npos, "and true only when the rewritten chain is the one drawing");
         // ... and the frame loop records the stage after the character stage, gated on that name
-        std::string const frames = slurp("source/engine/runtime/runtime.frames.cppm");
-        CHECK_MSG(frames.find("this->goo_rim_pass = {at(\"goo_rim\")};") != std::string::npos, "the stage is bound to the chain by name");
-        CHECK_MSG(frames.find("pass::stage const goo_rim_stage = {.name = \"goo_rim\"") != std::string::npos, "and recorded as its own stage");
+        deren::utility::vessel::string const frames = slurp("source/engine/runtime/runtime.frames.cppm");
+        CHECK_MSG(frames.find("this->goo_rim_pass = {at(\"goo_rim\")};") != deren::utility::vessel::string::npos, "the stage is bound to the chain by name");
+        CHECK_MSG(frames.find("pass::stage const goo_rim_stage = {.name = \"goo_rim\"") != deren::utility::vessel::string::npos, "and recorded as its own stage");
         // ... and the G-buffer's publication is gated on the same feature name, or a frame with `goo_toon` off
         // would transition images for a pass that never draws
-        CHECK_MSG(demo.find("services.feature_active(services.owner, \"goo_rim\")") != std::string::npos, "the stage preamble is gated on the same name");
+        CHECK_MSG(demo.find("services.feature_active(services.owner, \"goo_rim\")") != deren::utility::vessel::string::npos, "the stage preamble is gated on the same name");
     }
 
     // ---- (c10) STEP 13: `RS EFF` (MECHANISM TABLE #14) ----
@@ -3596,9 +3600,9 @@ int32_t main() {
     // so a later port cannot drift them silently. They were NOT step 13's acceptance - they are step 15's.
     {
         auto const slurp = [](char const* const relative) {
-            std::ifstream file(std::string(VR_TEST_SOURCE_DIR) + "/" + relative);
+            std::ifstream file((deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/" + relative).c_str());
             CHECK_MSG(file.is_open(), relative);
-            return std::string{std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{}};
+            return deren::utility::vessel::string{std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{}};
         };
 
         // ---- A1: the mask is `SmoothStep(SMIN, rs_smax, float_from_vec4(texel))`, and `float_from_vec4` is
@@ -3736,7 +3740,7 @@ int32_t main() {
 
         // ---- A7: the host side loads the RS values into THREE colour lanes (step 13's two, step 15's third; the
         //          host data flow is generic, so `main.cpp` needs no new BRANCH - only the row names) ----
-        std::string const app = slurp("source/app/main.cpp");
+        deren::utility::vessel::string const app = slurp("source/app/main.cpp");
         // `_GooRSScalars` row = "1.0,1.0,1.0,0.0"                                -> lane 27
         // `_GooRSTint`     row = "7.5,1.4143484830856323,0.0,0.9900000095367432"  -> lane 28
         // `_GooRSArm0`     row = "0.0,1.0,0.0,0.0" (the FIXTURE; the shipped asset states no such row) -> lane 29
@@ -3777,14 +3781,14 @@ int32_t main() {
         // reading twice, and the row table is the LOAD-BEARING host edit (a table left at 27 entries gets empty
         // string_view tails, the generic lookup finds nothing, and the sidecar rows become unreachable with RS
         // silently off - no warning, no compile error)
-        std::vector<std::string> toon_colour_row;
+        deren::utility::vessel::vector<deren::utility::vessel::string> toon_colour_row;
         {
             std::size_t const table_at = app.find("toon_colour_row = {{");
-            CHECK_MSG(table_at != std::string::npos, "main.cpp declares the colour lane's name table");
-            if (table_at != std::string::npos) {
+            CHECK_MSG(table_at != deren::utility::vessel::string::npos, "main.cpp declares the colour lane's name table");
+            if (table_at != deren::utility::vessel::string::npos) {
                 std::size_t const table_end = app.find("}};", table_at);
-                std::string body = app.substr(table_at, table_end - table_at);
-                std::string cleaned; // strip line comments: a section comment sits between entries
+                deren::utility::vessel::string body = app.substr(table_at, table_end - table_at);
+                deren::utility::vessel::string cleaned; // strip line comments: a section comment sits between entries
                 for (std::size_t i = 0u; i < body.size(); ++i) {
                     if (body[i] == '/' && i + 1u < body.size() && body[i + 1u] == '/') {
                         while (i < body.size() && body[i] != '\n') {
@@ -3794,9 +3798,9 @@ int32_t main() {
                         cleaned.push_back(body[i]);
                     }
                 }
-                for (std::size_t quote = cleaned.find('"'); quote != std::string::npos; quote = cleaned.find('"', quote + 1u)) {
+                for (std::size_t quote = cleaned.find('"'); quote != deren::utility::vessel::string::npos; quote = cleaned.find('"', quote + 1u)) {
                     std::size_t const close = cleaned.find('"', quote + 1u);
-                    if (close == std::string::npos) {
+                    if (close == deren::utility::vessel::string::npos) {
                         break;
                     }
                     toon_colour_row.push_back(cleaned.substr(quote + 1u, close - quote - 1u));
@@ -3818,45 +3822,45 @@ int32_t main() {
         // ---- A8: the source-text sync points (structure / boundary / reverse drift guards) ----
         // AFTER the landing-point correction every RS-block pin is taken on `toon/goo_toon.slang` (the REWRITTEN chain);
         // `toon/character_forward.slang` keeps only its stride pin and the positive "old chain untouched" pin.
-        std::string const goo_toon = slurp("source/shaders/toon/goo_toon.slang");
-        std::string const character_forward = slurp("source/shaders/toon/character_forward.slang");
-        std::string const goo_rim = slurp("source/shaders/toon/goo_rim.slang");
-        std::string const pbr = slurp("source/shaders/scene/pbr.slang");
-        std::string const primitive = slurp("source/engine/primitive/primitive.cppm");
-        CHECK_MSG(goo_toon.find("const float3 lit_base = colour + s.emissive;") != std::string::npos &&
-                      goo_toon.find("rs_final") != std::string::npos,
+        deren::utility::vessel::string const goo_toon = slurp("source/shaders/toon/goo_toon.slang");
+        deren::utility::vessel::string const character_forward = slurp("source/shaders/toon/character_forward.slang");
+        deren::utility::vessel::string const goo_rim = slurp("source/shaders/toon/goo_rim.slang");
+        deren::utility::vessel::string const pbr = slurp("source/shaders/scene/pbr.slang");
+        deren::utility::vessel::string const primitive = slurp("source/engine/primitive/primitive.cppm");
+        CHECK_MSG(goo_toon.find("const float3 lit_base = colour + s.emissive;") != deren::utility::vessel::string::npos &&
+                      goo_toon.find("rs_final") != deren::utility::vessel::string::npos,
                   "RS A8: the RS block exists in toon/goo_toon.slang (the REWRITE chain), not in toon/character_forward.slang");
-        CHECK_MSG(goo_toon.find("max(lit_base, rs_eff)") != std::string::npos && goo_toon.find("saturate(rs_scalars.y)") != std::string::npos,
+        CHECK_MSG(goo_toon.find("max(lit_base, rs_eff)") != deren::utility::vessel::string::npos && goo_toon.find("saturate(rs_scalars.y)") != deren::utility::vessel::string::npos,
                   "RS A8: it is the LIGHTEN form mix(lit_base, max(lit_base, rs_eff), ...), not a bare max");
-        CHECK_MSG(goo_toon.find("3.0f - 2.0f * t") != std::string::npos,
+        CHECK_MSG(goo_toon.find("3.0f - 2.0f * t") != deren::utility::vessel::string::npos,
                   "RS A8: the mask's SmoothStep is the hand-written polynomial t*t*(3-2t) (the _M chain, see 3.2b)");
-        CHECK_MSG(character_forward.find("character_toon_colour_lanes = 30u") != std::string::npos &&
-                      goo_toon.find("+ 27u") != std::string::npos && goo_toon.find("+ 28u") != std::string::npos &&
-                      goo_toon.find("+ 29u") != std::string::npos,
+        CHECK_MSG(character_forward.find("character_toon_colour_lanes = 30u") != deren::utility::vessel::string::npos &&
+                      goo_toon.find("+ 27u") != deren::utility::vessel::string::npos && goo_toon.find("+ 28u") != deren::utility::vessel::string::npos &&
+                      goo_toon.find("+ 29u") != deren::utility::vessel::string::npos,
                   "RS A8: the three carriers are lanes 27/28/29 and the character stride is 30 (it was 29 from step 13)");
-        CHECK_MSG(goo_rim.find("goo_rim_colour_lanes = 30u") != std::string::npos &&
-                      pbr.find("pbr_toon_colour_lanes = 30u") != std::string::npos,
+        CHECK_MSG(goo_rim.find("goo_rim_colour_lanes = 30u") != deren::utility::vessel::string::npos &&
+                      pbr.find("pbr_toon_colour_lanes = 30u") != deren::utility::vessel::string::npos,
                   "RS A8: the other two stride copies moved to 30 too (toon/outline.slang reuses the character one)");
-        CHECK_MSG(primitive.find("count = 30,") != std::string::npos && primitive.find("goo_rs_scalars = 27,") != std::string::npos &&
-                      primitive.find("goo_rs_tint = 28,") != std::string::npos && primitive.find("goo_rs_arm0 = 29,") != std::string::npos,
+        CHECK_MSG(primitive.find("count = 30,") != deren::utility::vessel::string::npos && primitive.find("goo_rs_scalars = 27,") != deren::utility::vessel::string::npos &&
+                      primitive.find("goo_rs_tint = 28,") != deren::utility::vessel::string::npos && primitive.find("goo_rs_arm0 = 29,") != deren::utility::vessel::string::npos,
                   "RS A8: toon_colour_lane's count moved 29 -> 30 for step 15's `_GooRSArm0` and the three earlier names are still there");
-        CHECK_MSG(primitive.find("goo_rs_mask = 14,") != std::string::npos && primitive.find("count = 16,") != std::string::npos &&
-                      primitive.find("goo_rs_sheet = 15,") != std::string::npos,
+        CHECK_MSG(primitive.find("goo_rs_mask = 14,") != deren::utility::vessel::string::npos && primitive.find("count = 16,") != deren::utility::vessel::string::npos &&
+                      primitive.find("goo_rs_sheet = 15,") != deren::utility::vessel::string::npos,
                   "RS A8: step 15 spent `toon_slot`'s LAST slot (15 = goo_rs_sheet) and its count moved 15 -> 16");
-        CHECK_MSG(app.find("{\"_GooRSMask\", \"_UseGooRSMask\"}") != std::string::npos &&
-                      app.find("{\"_GooRSSheet\", \"_UseGooRSSheet\"}") != std::string::npos,
+        CHECK_MSG(app.find("{\"_GooRSMask\", \"_UseGooRSMask\"}") != deren::utility::vessel::string::npos &&
+                      app.find("{\"_GooRSSheet\", \"_UseGooRSSheet\"}") != deren::utility::vessel::string::npos,
                   "RS A8: the application vocabulary table names the mask slot, the sheet slot and both flags");
-        CHECK_MSG(app.find("\"_GooRSScalars\"") != std::string::npos && app.find("\"_GooRSTint\"") != std::string::npos &&
-                      app.find("\"_GooRSArm0\"") != std::string::npos,
+        CHECK_MSG(app.find("\"_GooRSScalars\"") != deren::utility::vessel::string::npos && app.find("\"_GooRSTint\"") != deren::utility::vessel::string::npos &&
+                      app.find("\"_GooRSArm0\"") != deren::utility::vessel::string::npos,
                   "RS A8: toon_colour_row names lanes 27/28/29 (one row name per lane)");
-        CHECK_MSG(goo_toon.find("goo_hsv_desaturate(rs_final, desaturation)") != std::string::npos,
+        CHECK_MSG(goo_toon.find("goo_hsv_desaturate(rs_final, desaturation)") != deren::utility::vessel::string::npos,
                   "RS A8: toon/goo_toon.slang:374's FIRST argument is rs_final - the RS block has to reach 色相/饱和度/明度; "
                   "goo_hsv_desaturate(colour + s.emissive, ...) would silently drop the whole RS term while still compiling");
-        CHECK_MSG(goo_toon.find("goo_hsv_desaturate(colour + s.emissive,") == std::string::npos,
+        CHECK_MSG(goo_toon.find("goo_hsv_desaturate(colour + s.emissive,") == deren::utility::vessel::string::npos,
                   "RS A8: and the pre-step call site must be GONE - the guard against someone 'fixing it back'");
-        CHECK_MSG(character_forward.find("goo_hsv_desaturate(lit, desaturation)") != std::string::npos,
+        CHECK_MSG(character_forward.find("goo_hsv_desaturate(lit, desaturation)") != deren::utility::vessel::string::npos,
                   "RS A8: toon/character_forward.slang's OLD chain tail is untouched - its desaturation still takes `lit`");
-        CHECK_MSG(goo_toon.find("eyes.xy") != std::string::npos,
+        CHECK_MSG(goo_toon.find("eyes.xy") != deren::utility::vessel::string::npos,
                   "RS A8: lane 6's own consumers are untouched - the RETRACTED F3 carrier (lane 4/5/6 reserved components) is gone");
         CHECK_MSG(goo_toon.find("const float3 lit_base = colour + s.emissive;") < goo_toon.find("rs_final =") &&
                       goo_toon.find("rs_final =") < goo_toon.find("goo_hsv_desaturate(rs_final, desaturation)"),
@@ -3864,71 +3868,71 @@ int32_t main() {
         // STEP 15 REPLACES THE OLD "names the unported armA branch (F2)" PIN. That pin is now the reverse of the
         // truth, so it is replaced by pins on the arm that landed - each one a piece of the reference's chain whose
         // absence would leave a silently different picture rather than a build error.
-        CHECK_MSG(goo_toon.find("const float3 toon_shading_normal = goo_toon_shading_normal(") != std::string::npos &&
-                      goo_toon.find("s.toon_family, toon_shading_normal, v_world_pos") != std::string::npos,
+        CHECK_MSG(goo_toon.find("const float3 toon_shading_normal = goo_toon_shading_normal(") != deren::utility::vessel::string::npos &&
+                      goo_toon.find("s.toon_family, toon_shading_normal, v_world_pos") != deren::utility::vessel::string::npos,
                   "RS A8 (step 15): the shading normal is HOISTED to one named value and passed to `toon_diffuse` - "
                   "the armA path reuses that evaluation; a second `goo_toon_shading_normal(...)` inside the arm would "
                   "be a second decode of the normal map and could not be bit-identical to the one the shading used");
-        CHECK_MSG(goo_toon.find("const float rs_model = rs_scalars.z;") != std::string::npos &&
-                      goo_toon.find("if (rs_model == 0.0f)") != std::string::npos,
+        CHECK_MSG(goo_toon.find("const float rs_model = rs_scalars.z;") != deren::utility::vessel::string::npos &&
+                      goo_toon.find("if (rs_model == 0.0f)") != deren::utility::vessel::string::npos,
                   "RS A8 (step 15): `RS Model` is named and selects the arm INSIDE the gate - the reference's own "
                   "arrangement (its `混合.033`), not the step-13 whole-block switch");
-        CHECK_MSG(goo_toon.find("if (rs_use > 0.0f && rs_scalars.z != 0.0f)") == std::string::npos,
+        CHECK_MSG(goo_toon.find("if (rs_use > 0.0f && rs_scalars.z != 0.0f)") == deren::utility::vessel::string::npos,
                   "RS A8 (step 15), REVERSE DRIFT GUARD: the OLD combined gate is GONE. It is the one line that made "
                   "`RS Model = 0` skip the block entirely - if it comes back, armA stops running and only this pin says so");
-        CHECK_MSG(goo_toon.find("camera_at(heap_camera_slot)") != std::string::npos &&
-                      goo_toon.find("const float rs_facing_abs = abs(dot(rs_to_camera, toon_shading_normal));") != std::string::npos &&
-                      goo_toon.find("if (rs_lw_blend == 0.5f)") != std::string::npos &&
-                      goo_toon.find("rs_facing = 1.0f - pow(rs_facing_abs, rs_exponent);") != std::string::npos &&
-                      goo_toon.find("const float rs_sheet_u = saturate(rs_facing + rs_arm0_lane.w);") != std::string::npos &&
-                      goo_toon.find("const float rs_blend_clamped = clamp(rs_lw_blend, 0.0f, 0.99999f);") != std::string::npos,
+        CHECK_MSG(goo_toon.find("camera_at(heap_camera_slot)") != deren::utility::vessel::string::npos &&
+                      goo_toon.find("const float rs_facing_abs = abs(dot(rs_to_camera, toon_shading_normal));") != deren::utility::vessel::string::npos &&
+                      goo_toon.find("if (rs_lw_blend == 0.5f)") != deren::utility::vessel::string::npos &&
+                      goo_toon.find("rs_facing = 1.0f - pow(rs_facing_abs, rs_exponent);") != deren::utility::vessel::string::npos &&
+                      goo_toon.find("const float rs_sheet_u = saturate(rs_facing + rs_arm0_lane.w);") != deren::utility::vessel::string::npos &&
+                      goo_toon.find("const float rs_blend_clamped = clamp(rs_lw_blend, 0.0f, 0.99999f);") != deren::utility::vessel::string::npos,
                   "RS A8 (step 15; text CORRECTED by debt (x), 2026-10-01): the facing half - `V` out of the camera "
                   "slot, `|V.n|` UNSATURATED, the exact-0.5 branch that skips remap and pow, `Facing = 1 - |V.n|^e` "
                   "(the reference's own last line, `facing = 1.0 - facing`), `u = saturate(Facing + Offset)`, and the "
                   "clamp at 0.99999 that keeps the divisor off zero");
-        CHECK_MSG(goo_toon.find("pow(1.0f - rs_facing_abs") == std::string::npos &&
-                      goo_toon.find("saturate(1.0f - rs_facing") == std::string::npos,
+        CHECK_MSG(goo_toon.find("pow(1.0f - rs_facing_abs") == deren::utility::vessel::string::npos &&
+                      goo_toon.find("saturate(1.0f - rs_facing") == deren::utility::vessel::string::npos,
                   "RS A8 (debt (x)), NEGATIVE PIN: the COMPLEMENT form is GONE. `pow(1 - |V.n|, e)` under "
                   "`saturate(1 - rs_facing + w)` gives `u = 1 - (1 - |V.n|)^e + w` where the reference has "
                   "`1 - |V.n|^e + w`; the two agree only at `b = 0` and at `|V.n| = 0.5`. A revert here is INVISIBLE "
                   "to every `b = 0` fixture - this pin and A10 are the only things that would say so");
-        CHECK_MSG(goo_toon.find("if (rs_block3.w != 0u)") != std::string::npos,
+        CHECK_MSG(goo_toon.find("if (rs_block3.w != 0u)") != deren::utility::vessel::string::npos,
                   "RS A8 (step 15): the SHEET is slot 15 - the third block's `.w`, the mask's own neighbour - and "
                   "index 0 is NOT read: a material with no sheet row must not sample the WHITE fallback, because that "
                   "would turn the arm ON for every material that states no sheet");
-        CHECK_MSG(goo_toon.find("const float goo_rs_sheet_width = 256.0f;") != std::string::npos &&
-                      goo_toon.find("const float2 sheet_uv = clamp(") != std::string::npos &&
-                      goo_toon.find("float2(rs_sheet_u, 0.5f),") != std::string::npos &&
-                      goo_toon.find("float2(0.5f / goo_rs_sheet_width, 0.5f),") != std::string::npos &&
-                      goo_toon.find("float2(1.0f - 0.5f / goo_rs_sheet_width, 0.5f));") != std::string::npos,
+        CHECK_MSG(goo_toon.find("const float goo_rs_sheet_width = 256.0f;") != deren::utility::vessel::string::npos &&
+                      goo_toon.find("const float2 sheet_uv = clamp(") != deren::utility::vessel::string::npos &&
+                      goo_toon.find("float2(rs_sheet_u, 0.5f),") != deren::utility::vessel::string::npos &&
+                      goo_toon.find("float2(0.5f / goo_rs_sheet_width, 0.5f),") != deren::utility::vessel::string::npos &&
+                      goo_toon.find("float2(1.0f - 0.5f / goo_rs_sheet_width, 0.5f));") != deren::utility::vessel::string::npos,
                   "RS A8 (step 15, EXTEND equivalence): the sheet's address mode is the reference's `EXTEND` "
                   "(`gooblender/nodes.json:93653-93659`), and the port - which owns ONE sampler per heap and therefore "
                   "cannot honour a per-image address mode - reproduces it by pulling `u` to the interval where REPEAT and "
                   "CLAMP agree, i.e. half a texel inside each end of a 256-wide sheet. Both texel-centre offsets are "
                   "spelled with `0.5f / goo_rs_sheet_width` rather than as folded literals so the width stays a single "
                   "named number: a hard-coded `0.001953125f` twice would hide a sheet that is not 256 wide");
-        CHECK_MSG(goo_toon.find("heap_sampler_texture, sheet_uv);") != std::string::npos &&
-                      goo_toon.find("heap_sampler_texture, float2(rs_sheet_u, 0.5f)") == std::string::npos,
+        CHECK_MSG(goo_toon.find("heap_sampler_texture, sheet_uv);") != deren::utility::vessel::string::npos &&
+                      goo_toon.find("heap_sampler_texture, float2(rs_sheet_u, 0.5f)") == deren::utility::vessel::string::npos,
                   "RS A8 (step 15), NEGATIVE PIN: the sheet is sampled AT `sheet_uv` and never at the raw `u`. The "
                   "clamped and the unclamped coordinate differ only at the two ends of the sheet, so a revert to the raw "
                   "`u` would change nothing except the frames that put a mask=1 pixel exactly at `u = 0` - which is the "
                   "one place this step's whole V2 reading lives");
-        CHECK_MSG(goo_toon.find("const float rs_shadow = (s.toon_indices.w != 0u) ? 1.0f : calc_shadow(v_world_pos, toon_shading_normal);") != std::string::npos &&
-                      goo_toon.find("const float rs_cast_sigmoid = goo_sigmoid_sharp(rs_shadow, rs_cast_center, rs_cast_sharp);") != std::string::npos &&
-                      goo_toon.find("const float4 rs_cast_lane = toon_colour_at(heap_slots_toon_colours, rs_colour_base + 11u);") != std::string::npos,
+        CHECK_MSG(goo_toon.find("const float rs_shadow = (s.toon_indices.w != 0u) ? 1.0f : calc_shadow(v_world_pos, toon_shading_normal);") != deren::utility::vessel::string::npos &&
+                      goo_toon.find("const float rs_cast_sigmoid = goo_sigmoid_sharp(rs_shadow, rs_cast_center, rs_cast_sharp);") != deren::utility::vessel::string::npos &&
+                      goo_toon.find("const float4 rs_cast_lane = toon_colour_at(heap_slots_toon_colours, rs_colour_base + 11u);") != deren::utility::vessel::string::npos,
                   "RS A8 (step 15): the cast factor is the EXISTING `goo_sigmoid_sharp` over the EXISTING "
                   "`calc_shadow`, fed from `_GooDiffuseA`'s own lane - not a second curve, not a second shadow lookup "
                   "and not a re-tuned centre");
-        CHECK_MSG(goo_toon.find("ramp_u") == std::string::npos &&
-                      goo_toon.find("remap_half_lambert_sigmoid") == std::string::npos,
+        CHECK_MSG(goo_toon.find("ramp_u") == deren::utility::vessel::string::npos &&
+                      goo_toon.find("remap_half_lambert_sigmoid") == deren::utility::vessel::string::npos,
                   "RS A8 (step 15), SPEC L3: NOT the `ramp_u = min(cast_sigmoid, remap_half_lambert_sigmoid)` consumer "
                   "at toon/character_forward.slang:2535 - that is a different quantity with a different curve, and reusing "
                   "it here would be the easiest way to make this arm look plausible and be wrong");
-        CHECK_MSG(goo_toon.find("rs_eff = ((((rs_sheet * rs_tint_lane.rgb) * rs_arm0_lane.y) * rs_ndotl) * rs_cast_sigmoid) * rs_mask;") != std::string::npos,
+        CHECK_MSG(goo_toon.find("rs_eff = ((((rs_sheet * rs_tint_lane.rgb) * rs_arm0_lane.y) * rs_ndotl) * rs_cast_sigmoid) * rs_mask;") != deren::utility::vessel::string::npos,
                   "RS A8 (step 15), SPEC §1.3: the landing line, VERBATIM and in the reference's parenthesis order "
                   "(f32 multiplication is not associative, so the order is the mechanism, not formatting)");
-        CHECK_MSG(goo_toon.find("toon_lanes3_at(heap_slots_toon_lanes, push.material_index)") != std::string::npos &&
-                      goo_toon.find("if (rs_block3.z != 0u)") != std::string::npos,
+        CHECK_MSG(goo_toon.find("toon_lanes3_at(heap_slots_toon_lanes, push.material_index)") != deren::utility::vessel::string::npos &&
+                      goo_toon.find("if (rs_block3.z != 0u)") != deren::utility::vessel::string::npos,
                   "RS A8: the mask is slot 14 of the THIRD block, read through the accessor that names it, and index 0 is not read");
 
         // ---- A8.t30: DEBT (s) - the cel band must NOT be applied to `Cast Shadows` ----
@@ -3937,31 +3941,31 @@ int32_t main() {
         // (its `_RD` ramps are continuous remaps, not steps; see `deren-ab/goo_debt_s_armA_verify.md` §2.4):
         // the engine's cel knob is port-side and OFF by default, so `calc_shadow_cascade` returns raw visibility.
         {
-            std::string const shading = slurp("source/shaders/lighting/shading.slang");
+            deren::utility::vessel::string const shading = slurp("source/shaders/lighting/shading.slang");
 
             // STRUCTURE PIN: the raw per-cascade visibility is what `calc_shadow_cascade` returns.
             // The anchor pair matters: a bare `find("return shadow;")` is toothless because `:325` in
             // `calc_shadow` already spells it that way (before this change).
             auto const cascade_sample = shading.find("float shadow = lit / 9.0;");
-            CHECK_MSG(cascade_sample != std::string::npos,
+            CHECK_MSG(cascade_sample != deren::utility::vessel::string::npos,
                       "DEBT (s): the per-cascade visibility sample must stay in `calc_shadow_cascade`");
             auto const cascade_return = shading.find("return shadow;", cascade_sample);
-            CHECK_MSG(cascade_return != std::string::npos,
+            CHECK_MSG(cascade_return != deren::utility::vessel::string::npos,
                       "DEBT (s): `calc_shadow_cascade` must return the raw per-cascade visibility");
             CHECK_MSG(shading.substr(cascade_sample, cascade_return - cascade_sample).find("toon_band(") ==
-                          std::string::npos,
+                          deren::utility::vessel::string::npos,
                       "DEBT (s): no quantizer may sit between the visibility sample and its return");
             CHECK_MSG(cascade_return - cascade_sample < 1024,
                       "DEBT (s): `calc_shadow_cascade`'s tail must stay the short raw-sampling path");
 
             // NEGATIVE PIN: the old landing spelling is gone.
             CHECK_MSG(shading.find("return toon_band(shadow, light_at(heap_light_slot).toon_steps, "
-                                   "light_at(heap_light_slot).toon_softness);") == std::string::npos,
+                                   "light_at(heap_light_slot).toon_softness);") == deren::utility::vessel::string::npos,
                       "DEBT (s): `calc_shadow_cascade` must not band its own return value");
 
             // NUMERIC PIN: `toon_band` keeps exactly TWO spellings - its definition and the ndotl call.
             std::size_t toon_band_sites = 0;
-            for (auto at = shading.find("toon_band("); at != std::string::npos; at = shading.find("toon_band(", at + 1)) {
+            for (auto at = shading.find("toon_band("); at != deren::utility::vessel::string::npos; at = shading.find("toon_band(", at + 1)) {
                 ++toon_band_sites;
             }
             CHECK_MSG(toon_band_sites == 2,
@@ -3969,14 +3973,14 @@ int32_t main() {
 
             // The LEGITIMATE call site survives untouched.
             CHECK_MSG(shading.find("ndotl = toon_band(ndotl, light_at(heap_light_slot).toon_steps, "
-                                   "light_at(heap_light_slot).toon_softness);") != std::string::npos,
+                                   "light_at(heap_light_slot).toon_softness);") != deren::utility::vessel::string::npos,
                       "DEBT (s): the diffuse-falloff band at the ndotl call site must stay");
 
             // DRIFT GUARDS on the prose that promised a banded shadow factor.
-            CHECK_MSG(shading.find("(also passed through toon_band for cel shading)") == std::string::npos,
+            CHECK_MSG(shading.find("(also passed through toon_band for cel shading)") == deren::utility::vessel::string::npos,
                       "DEBT (s): `calc_shadow_cascade`'s @return no longer claims a banded value");
             CHECK_MSG(character_forward.find("returns the quantized term when the engine's cel knob is on") ==
-                          std::string::npos,
+                          deren::utility::vessel::string::npos,
                       "DEBT (s): the `calc_shadow` call site no longer claims a quantized term");
 
             // THE NAMED COST, which is the whole reason this is a fix and not a no-op. The structure pin
@@ -4022,13 +4026,13 @@ int32_t main() {
             // NUMERIC PIN on the shipped configuration: cel index 0 -> `toon_band_counts[0] = 0.0f`
             // -> `runtime`'s `steps < 1.5f ? 0.0f` -> `toon_band`'s early return. That is the whole
             // reason this fix must be pixel-neutral on every recorded frame.
-            CHECK_MSG(app.find("constexpr std::array<float, 7> toon_band_counts = "
-                               "{0.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 8.0f};") != std::string::npos,
+            CHECK_MSG(app.find("constexpr deren::utility::vessel::array<float, 7> toon_band_counts = "
+                               "{0.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 8.0f};") != deren::utility::vessel::string::npos,
                       "DEBT (s): the cel band-count table must keep index 0 == 0.0f (plain PBR)");
 
-            std::string const runtime_cpp = slurp("source/engine/runtime/runtime.cpp");
+            deren::utility::vessel::string const runtime_cpp = slurp("source/engine/runtime/runtime.cpp");
             CHECK_MSG(runtime_cpp.find("this->toon_steps = steps < 1.5f ? 0.0f : "
-                                       "std::round(std::clamp(steps, 2.0f, 8.0f));") != std::string::npos,
+                                       "std::round(std::clamp(steps, 2.0f, 8.0f));") != deren::utility::vessel::string::npos,
                       "DEBT (s): `set_toon_shading` must keep the 0-step early out");
         }
 
@@ -4048,26 +4052,26 @@ int32_t main() {
         // Nothing here re-implements the shader: what is pinned is the shape that keeps the SHADOW switchable -
         // the shipped early out inside the kernel, the call-site route, and the ABSENCE of the deleted gain.
         {
-            std::string const shading = slurp("source/shaders/lighting/shading.slang");
+            deren::utility::vessel::string const shading = slurp("source/shaders/lighting/shading.slang");
 
             // 1.2: the two lanes are the LAST members of the struct, in this order, and inside it.
             std::size_t const cluster_depth = shading.find("float4 cluster_depth;");
             std::size_t const area_light = shading.find("float4 area_light;");
             std::size_t const area_light_axis = shading.find("float4 area_light_axis;");
-            CHECK_MSG(cluster_depth != std::string::npos && area_light != std::string::npos &&
-                          area_light_axis != std::string::npos && cluster_depth < area_light &&
+            CHECK_MSG(cluster_depth != deren::utility::vessel::string::npos && area_light != deren::utility::vessel::string::npos &&
+                          area_light_axis != deren::utility::vessel::string::npos && cluster_depth < area_light &&
                           area_light < area_light_axis,
                       "AREA LIGHT 1.2: area_light / area_light_axis must be declared AFTER cluster_depth, in order");
             std::size_t const struct_end = shading.find("};", cluster_depth);
-            CHECK_MSG(struct_end != std::string::npos &&
+            CHECK_MSG(struct_end != deren::utility::vessel::string::npos &&
                           shading.substr(cluster_depth, struct_end - cluster_depth).find("float4 area_light;") !=
-                              std::string::npos,
+                              deren::utility::vessel::string::npos,
                       "AREA LIGHT 1.2: the two lanes must be INSIDE LightUBO (before its closing brace), not appended "
                       "after the struct");
             CHECK_MSG(shading.find("// xyz = emitter centre (WORLD, Y-up metres), w = half the side; w <= 0 = no area light") !=
-                              std::string::npos &&
+                              deren::utility::vessel::string::npos &&
                           shading.find("// xyz = emitter normal (centre -> target); w = penumbra world radius (metres); "
-                                       "<= 0 = no area shadow") != std::string::npos,
+                                       "<= 0 = no area shadow") != deren::utility::vessel::string::npos,
                       "AREA LIGHT 1.2: the units and the sign encoding ARE the interface, so the spec's comment on both "
                       "lanes is a pin");
 
@@ -4075,7 +4079,7 @@ int32_t main() {
             // six-arm measurement (face-frame p10 exactly 0, 39.63% / 33.59% of face pixels exactly 0), so the A'
             // decision deleted it. This NEGATIVE pin is the guard: if the function ever comes back, the decision
             // has been silently reverted and this test says so.
-            CHECK_MSG(shading.find("area_light_irradiance_gain") == std::string::npos,
+            CHECK_MSG(shading.find("area_light_irradiance_gain") == deren::utility::vessel::string::npos,
                       "AREA LIGHT 3.1 (v1.1): `area_light_irradiance_gain` was deleted by the A' decision and must "
                       "not reappear in lighting/shading.slang");
 
@@ -4085,35 +4089,35 @@ int32_t main() {
             std::size_t const radius_lane =
                 shading.find("const float radius_world = light_at(heap_light_slot).area_light_axis.w;", area_fn);
             std::size_t const shipped_return = shading.find("return calc_shadow(world_pos, normal);", area_fn);
-            CHECK_MSG(area_fn != std::string::npos && radius_lane != std::string::npos &&
-                          shipped_return != std::string::npos && radius_lane < shipped_return &&
+            CHECK_MSG(area_fn != deren::utility::vessel::string::npos && radius_lane != deren::utility::vessel::string::npos &&
+                          shipped_return != deren::utility::vessel::string::npos && radius_lane < shipped_return &&
                           shipped_return - area_fn < 400,
                       "AREA LIGHT 3.2: for `area_light_axis.w <= 0` calc_shadow_area must return the SHIPPED "
                       "calc_shadow itself, immediately after reading the radius - not a copy of it, and not after a tap");
-            CHECK_MSG(shading.find("const int spacing = 16;") != std::string::npos,
+            CHECK_MSG(shading.find("const int spacing = 16;") != deren::utility::vessel::string::npos,
                       "AREA LIGHT 3.2: the frozen tap spacing of 16 texels");
-            CHECK_MSG(shading.find("int(round(radius_world / (2.0 * float(spacing) * texel_world)))") != std::string::npos &&
+            CHECK_MSG(shading.find("int(round(radius_world / (2.0 * float(spacing) * texel_world)))") != deren::utility::vessel::string::npos &&
                           shading.find("int(round(radius_world / (2.0 * float(spacing) * "
-                                       "light_at(heap_light_slot).cascade_texel_world[cascade])))") != std::string::npos &&
+                                       "light_at(heap_light_slot).cascade_texel_world[cascade])))") != deren::utility::vessel::string::npos &&
                           shading.find("int(round(radius_world / (2.0 * float(spacing) * "
-                                       "light_at(heap_light_slot).cascade_texel_world[next])))") != std::string::npos,
+                                       "light_at(heap_light_slot).cascade_texel_world[next])))") != deren::utility::vessel::string::npos,
                       "AREA LIGHT 3.2: the tap extent is round(radius_world / (2 * spacing * texel_world)), clamped "
                       "[1, 8], and EACH cascade sizes its own kernel (single map / selected / blend target)");
-            CHECK_MSG(shading.find("THIS IS NOT PCSS AND NOT RAY TRACING") != std::string::npos,
+            CHECK_MSG(shading.find("THIS IS NOT PCSS AND NOT RAY TRACING") != deren::utility::vessel::string::npos,
                       "AREA LIGHT 3.2: the honesty note must stay next to calc_shadow_area - the shadow map is a "
                       "comparison sampler, so this is a world-scale PCF width and not a solved penumbra");
 
             // 3.2: the call site. The route's third arm is switched by the lane and the SHIPPED arm is still the
             // same single call - the one thing v1.1 must NOT disturb (the byte-identity gate for the defaults).
-            CHECK_MSG(character_forward.find("(light_at(heap_light_slot).area_light_axis.w > 0.0") != std::string::npos &&
-                          character_forward.find("? calc_shadow_area(world_pos, n)") != std::string::npos &&
+            CHECK_MSG(character_forward.find("(light_at(heap_light_slot).area_light_axis.w > 0.0") != deren::utility::vessel::string::npos &&
+                          character_forward.find("? calc_shadow_area(world_pos, n)") != deren::utility::vessel::string::npos &&
                           character_forward.find(": calc_shadow_soft(world_pos, n, "
                                                  "toon_rig_at(heap_slots_toon_rig).shadow_softness.x)") !=
-                              std::string::npos,
+                              deren::utility::vessel::string::npos,
                       "AREA LIGHT 3.2: the shadow call site must keep the three-branch route with the shipped "
                       "toon-softness call as the LAST arm");
             std::size_t soft_sites = 0;
-            for (std::size_t at = character_forward.find("calc_shadow_soft(world_pos, n,"); at != std::string::npos;
+            for (std::size_t at = character_forward.find("calc_shadow_soft(world_pos, n,"); at != deren::utility::vessel::string::npos;
                  at = character_forward.find("calc_shadow_soft(world_pos, n,", at + 1)) {
                 ++soft_sites;
             }
@@ -4124,8 +4128,8 @@ int32_t main() {
             // multiplying it, and no reader of the deleted function anywhere in this stage.
             CHECK_MSG(character_forward.find("const float main_light_intensity = "
                                              "max(0.001, light_at(heap_light_slot).sun_intensity);") !=
-                              std::string::npos &&
-                          character_forward.find("area_light_irradiance_gain") == std::string::npos,
+                              deren::utility::vessel::string::npos &&
+                          character_forward.find("area_light_irradiance_gain") == deren::utility::vessel::string::npos,
                       "AREA LIGHT v1.1: `main_light_intensity` must be the shipped one-liner and the deleted gain "
                       "must not be called from toon/character_forward.slang");
         }
@@ -4142,17 +4146,17 @@ int32_t main() {
             // S1: THE SECOND SHEET IS A NAME, NOT A LANE. The pin asks for the CONSTANT'S OWN LINE rather than for
             // the substring `"_GooRSSheet1"`: `main.cpp` also mentions that spelling inside a comment beside the
             // constant, so a substring pin would still pass with the literal itself renamed away - this one cannot.
-            CHECK_MSG(app.find("toon_rs_sheet_b = \"_GooRSSheet1\";") != std::string::npos,
+            CHECK_MSG(app.find("toon_rs_sheet_b = \"_GooRSSheet1\";") != deren::utility::vessel::string::npos,
                       "RS A8.rsi (step 15, Rc): the host names the reference's second `_RS` sheet by LITERAL - "
                       "`_GooRSSheet1` is the sidecar's own spelling, and there is no lane for it to come from");
             std::size_t const lanes_at = app.find("toon_lane = {{");
-            std::size_t const lanes_end = lanes_at == std::string::npos ? std::string::npos : app.find("}};", lanes_at);
-            CHECK_MSG(lanes_at != std::string::npos && lanes_end != std::string::npos,
+            std::size_t const lanes_end = lanes_at == deren::utility::vessel::string::npos ? deren::utility::vessel::string::npos : app.find("}};", lanes_at);
+            CHECK_MSG(lanes_at != deren::utility::vessel::string::npos && lanes_end != deren::utility::vessel::string::npos,
                       "RS A8.rsi: `main.cpp` still declares the lane vocabulary as a braced table");
-            std::string const lane_table = (lanes_at == std::string::npos || lanes_end == std::string::npos)
-                                               ? std::string{}
-                                               : app.substr(lanes_at, lanes_end - lanes_at);
-            CHECK_MSG(lane_table.find("\"_GooRSSheet1\"") == std::string::npos,
+            deren::utility::vessel::string const lane_table = (lanes_at == deren::utility::vessel::string::npos || lanes_end == deren::utility::vessel::string::npos)
+                                                                  ? deren::utility::vessel::string{}
+                                                                  : app.substr(lanes_at, lanes_end - lanes_at);
+            CHECK_MSG(lane_table.find("\"_GooRSSheet1\"") == deren::utility::vessel::string::npos,
                       "RS A8.rsi, NEGATIVE PIN: `_GooRSSheet1` is NOT an entry in `toon_lane[]`. The port carries "
                       "ONE sheet slot and the second sheet is the host's choice of NAME for that slot; a 17th entry "
                       "would move `toon_slot::count` and with it the whole lane block - `toon_lane_blocks` 3 -> 4, "
@@ -4161,28 +4165,28 @@ int32_t main() {
                       "beside `source/shaders/common/heap_access.slang`'s `toon_lanes_at`/`toon_lanes2_at`/`toon_lanes3_at`. It is "
                       "not a fourth descriptor set, and it is not the proposal "
                       "(spec §9.4: the rejected route `Rb`, still unselected)");
-            CHECK_MSG(lane_table.find("{\"_GooRSSheet\", \"_UseGooRSSheet\"}") != std::string::npos,
+            CHECK_MSG(lane_table.find("{\"_GooRSSheet\", \"_UseGooRSSheet\"}") != deren::utility::vessel::string::npos,
                       "RS A8.rsi: the ONE sheet lane keeps its `_GooRSSheet`/`_UseGooRSSheet` entry unchanged, so "
                       "the second sheet inherits that lane's own gate rather than replacing it");
 
             // S2: THE THRESHOLD, ITS TIE DIRECTION, AND WHERE THE INDEX IS READ FROM.
-            CHECK_MSG(app.find("!(rs_index >= 0.5f)") != std::string::npos,
+            CHECK_MSG(app.find("!(rs_index >= 0.5f)") != deren::utility::vessel::string::npos,
                       "RS A8.rsi (step 15, spec §9.2): selection is `>= 0.5f`, so the TIE - exactly 0.5, the "
                       "reference's own 50/50 blend - goes to the SECOND sheet, and it is written negated so that a "
                       "non-finite `RS_Index` cannot select it either");
-            CHECK_MSG(app.find("material.others.find(std::string(toon_rs_arm0_row))") != std::string::npos,
+            CHECK_MSG(app.find("material.others.find(deren::utility::vessel::string(toon_rs_arm0_row))") != deren::utility::vessel::string::npos,
                       "RS A8.rsi: `RS_Index` is read out of `others`. A `color` row is TEXT there and `scalar()` "
                       "cannot see it, so a reader that asked `scalar(\"_GooRSArm0\")` would answer 0.0 - the first "
                       "sheet - on exactly the materials that asked for the second");
-            CHECK_MSG(app.find("material.enabled(toon_rs_sheet_b)") != std::string::npos &&
-                          app.find("material.slot(toon_rs_sheet_b)") != std::string::npos,
+            CHECK_MSG(app.find("material.enabled(toon_rs_sheet_b)") != deren::utility::vessel::string::npos &&
+                          app.find("material.slot(toon_rs_sheet_b)") != deren::utility::vessel::string::npos,
                       "RS A8.rsi: the second sheet needs BOTH its own `_UseGooRSSheet1` switch AND a non-empty "
                       "name - naming it with the switch off reads the first sheet, and so does the reverse");
             // ...AND THE BRANCH IS BEFORE THE GENERIC TAIL, which is the silent-failure shape spec §3.3 lists
             // first: placed after `if (model_tex == nullptr)`, this whole route compiles, runs, and never fires.
             std::size_t const branch_at = app.find("if (lane == deren::engine::toon_slot::goo_rs_sheet) {");
             std::size_t const tail_at = app.find("if (model_tex == nullptr) {");
-            CHECK_MSG(branch_at != std::string::npos && tail_at != std::string::npos && branch_at < tail_at,
+            CHECK_MSG(branch_at != deren::utility::vessel::string::npos && tail_at != deren::utility::vessel::string::npos && branch_at < tail_at,
                       "RS A8.rsi: the sheet lane's new branch sits BEFORE `toon_texture`'s generic tail - after it, "
                       "`model_tex` has already answered for that lane and the branch is dead code (spec §3.3 risk 1)");
 
@@ -4218,8 +4222,8 @@ int32_t main() {
             // (task-43's mutation M6). So the rejected and the required spellings are compared in FOLDED text,
             // which also keeps a pin from being satisfied by DELETING the note instead of fixing it. The fold is an
             // explicit ASCII `A..Z` -> `a..z` loop, so it needs no `<cctype>` and cannot depend on the C locale.
-            auto const ascii_lower = [](std::string const& text) {
-                std::string folded = text;
+            auto const ascii_lower = [](deren::utility::vessel::string const& text) {
+                deren::utility::vessel::string folded = text;
                 for (char& c : folded) {
                     if (c >= 'A' && c <= 'Z') {
                         c = static_cast<char>(c + ('a' - 'A'));
@@ -4227,23 +4231,23 @@ int32_t main() {
                 }
                 return folded;
             };
-            std::string const goo_toon_folded = ascii_lower(goo_toon);
-            std::string const primitive_folded = ascii_lower(primitive);
-            CHECK_MSG(goo_toon_folded.find("not honoured") == std::string::npos &&
-                          goo_toon.find("`RS_Index`") != std::string::npos,
+            deren::utility::vessel::string const goo_toon_folded = ascii_lower(goo_toon);
+            deren::utility::vessel::string const primitive_folded = ascii_lower(primitive);
+            CHECK_MSG(goo_toon_folded.find("not honoured") == deren::utility::vessel::string::npos &&
+                          goo_toon.find("`RS_Index`") != deren::utility::vessel::string::npos,
                       "RS A8.rsi: `source/shaders/toon/goo_toon.slang`'s L1 no longer claims `RS_Index` is not honoured in ANY "
                       "casing, and still says what does happen to it");
-            CHECK_MSG(goo_toon.find("`RS_Index` IS NOT READ **HERE**") != std::string::npos,
+            CHECK_MSG(goo_toon.find("`RS_Index` IS NOT READ **HERE**") != deren::utility::vessel::string::npos,
                       "RS A8.rsi: the sampling site's note says WHERE the index is answered instead of that it is "
                       "ignored - this shader genuinely never reads it, so that note has to be exact");
-            CHECK_MSG(primitive_folded.find("not honoured") == std::string::npos,
+            CHECK_MSG(primitive_folded.find("not honoured") == deren::utility::vessel::string::npos,
                       "RS A8.rsi: `source/engine/primitive/primitive.cppm` must not call `RS_Index` not-honoured in ANY "
                       "casing; the lowercase sentence used to slip past this pin");
-            CHECK_MSG(primitive_folded.find("unhonoured") == std::string::npos &&
-                          primitive_folded.find("answered - by the host") != std::string::npos,
+            CHECK_MSG(primitive_folded.find("unhonoured") == deren::utility::vessel::string::npos &&
+                          primitive_folded.find("answered - by the host") != deren::utility::vessel::string::npos,
                       "RS A8.rsi: `.x` is ANSWERED by the host rather than unhonoured - folded, so neither end of "
                       "the casing range escapes");
-            CHECK_MSG(app.find("AND IT IS ONE OF THE REFERENCE'S TWO SHEETS") != std::string::npos,
+            CHECK_MSG(app.find("AND IT IS ONE OF THE REFERENCE'S TWO SHEETS") != deren::utility::vessel::string::npos,
                       "RS A8.rsi: the lane table's own note explains why there is no second entry beside "
                       "`_GooRSSheet` - the question the next reader will have");
         }
@@ -4252,10 +4256,10 @@ int32_t main() {
         // than CHECKed for existence, because the file lives under the build directory (a fresh clone has none, and
         // a missing build tree is not a test failure); the implementation report carries the sha256 either way.
         {
-            std::string const sidecar_path = std::string(VR_TEST_SOURCE_DIR) + "/build-release-clang64/chars/laevatain_goo.glb.toon.tsv";
-            std::ifstream sidecar_file(sidecar_path);
+            deren::utility::vessel::string const sidecar_path = deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/build-release-clang64/chars/laevatain_goo.glb.toon.tsv";
+            std::ifstream sidecar_file(sidecar_path.c_str());
             if (sidecar_file.is_open()) {
-                std::string const sidecar{std::istreambuf_iterator<char>{sidecar_file}, std::istreambuf_iterator<char>{}};
+                deren::utility::vessel::string const sidecar{std::istreambuf_iterator<char>{sidecar_file}, std::istreambuf_iterator<char>{}};
                 for (char const* const row : {"M_actor_laevat_cloth_02\tslot\t_GooRSMask\tT_actor_laevat_cloth_02_M",
                                               "M_actor_laevat_cloth_02\tfloat\t_UseGooRSMask\t1.0",
                                               "M_actor_laevat_cloth_02\tcolor\t_GooRSScalars\t1.0,1.0,1.0,0.0",
@@ -4264,20 +4268,20 @@ int32_t main() {
                                               "M_actor_laevat_cloth_05\tfloat\t_UseGooRSMask\t1.0",
                                               "M_actor_laevat_cloth_05\tcolor\t_GooRSScalars\t1.0,1.0,1.0,0.0",
                                               "M_actor_laevat_cloth_05\tcolor\t_GooRSTint\t7.5,1.4143449068069458,0.0,1.0"}) {
-                    CHECK_MSG(sidecar.find(row) != std::string::npos, row);
+                    CHECK_MSG(sidecar.find(row) != deren::utility::vessel::string::npos, row);
                 }
                 // `kind` MUST be `slot`: only that kind reaches `slots`, and a `texture` row would leave the mask
                 // slot undefined - the paper trail is the point, because the failure is silent
-                CHECK_MSG(sidecar.find("_GooRSMask\ttexture") == std::string::npos, "RS A7: the mask rows are `slot` rows, never `texture`");
+                CHECK_MSG(sidecar.find("_GooRSMask\ttexture") == deren::utility::vessel::string::npos, "RS A7: the mask rows are `slot` rows, never `texture`");
 
                 // STEP 15 (spec L3): THE SHIPPED ASSET STATES NONE OF THE THREE NEW KEYS, and that IS the limit. Every
                 // shipping material is `RS Model = 1`, so none of them enters `armA`; the one fixture that does
                 // (`s13ctrl/laevatain_goo_rsz0.glb` and its own derived sidecar) is the only place these rows exist.
                 // Pinned as an ABSENCE with the same reading as the `_GooFaceSDF` pin below: if a future asset adds
                 // the rows, this fires, and that asset's `arm0` has to be MEASURED rather than inherited from here.
-                CHECK_MSG(sidecar.find("_GooRSSheet") == std::string::npos &&
-                              sidecar.find("_UseGooRSSheet") == std::string::npos &&
-                              sidecar.find("_GooRSArm0") == std::string::npos,
+                CHECK_MSG(sidecar.find("_GooRSSheet") == deren::utility::vessel::string::npos &&
+                              sidecar.find("_UseGooRSSheet") == deren::utility::vessel::string::npos &&
+                              sidecar.find("_GooRSArm0") == deren::utility::vessel::string::npos,
                           "RS A9 (spec L3): the SHIPPED asset carries none of step 15's three keys - armA runs only on "
                           "the derived fixture, and no shipped pixel is affected by this step");
 
@@ -4287,7 +4291,7 @@ int32_t main() {
                 // form), so all of them stay green while lane 24 reads the `-1000` sentinel and the hair silently keeps
                 // the old `rgb*2-1` decode. The row is inserted at the END of the `_GooNormalStrength` run, after the
                 // cloth's, so it is pinned VERBATIM with the same tabs the file uses rather than as a loose "0.5".
-                CHECK_MSG(sidecar.find("M_actor_laevat_hair_01\tfloat\t_GooNormalStrength\t0.5") != std::string::npos,
+                CHECK_MSG(sidecar.find("M_actor_laevat_hair_01\tfloat\t_GooNormalStrength\t0.5") != deren::utility::vessel::string::npos,
                           "14-A7: the shipped sidecar carries the hair `_GooNormalStrength` row");
 
                 // DEBT (U): THE LANE-16 ROW, ON THE ASSET ITSELF - the asset-side half of the branch `main.cpp`
@@ -4297,15 +4301,15 @@ int32_t main() {
                 // was never "the asset does not carry the row" - that IS debt (u)'s D1, visible here without a GPU.
                 // (The `color` form is pinned ABSENT on purpose: it is the one spelling that would put the row back
                 // into `others`, and with it the branch above would be unreachable again.)
-                CHECK_MSG(sidecar.find("M_actor_laevat_body_01\tfloat\t_GooSpecularFGD\t0.7999999523162842") != std::string::npos,
+                CHECK_MSG(sidecar.find("M_actor_laevat_body_01\tfloat\t_GooSpecularFGD\t0.7999999523162842") != deren::utility::vessel::string::npos,
                           "debt (u): the shipped body_01 states `_GooSpecularFGD = 0.7999999523162842` as a `float` row");
-                CHECK_MSG(sidecar.find("M_actor_laevat_body_02\tfloat\t_GooSpecularFGD\t0.7999999523162842") != std::string::npos,
+                CHECK_MSG(sidecar.find("M_actor_laevat_body_02\tfloat\t_GooSpecularFGD\t0.7999999523162842") != deren::utility::vessel::string::npos,
                           "debt (u): and so does body_02");
                 for (char const* const cloth : {"01", "02", "03", "04", "05"}) {
-                    std::string const row = std::string("M_actor_laevat_cloth_") + cloth + "\tfloat\t_GooSpecularFGD\t1.0";
-                    CHECK_MSG(sidecar.find(row) != std::string::npos, row.c_str());
+                    deren::utility::vessel::string const row = deren::utility::vessel::string("M_actor_laevat_cloth_") + cloth + "\tfloat\t_GooSpecularFGD\t1.0";
+                    CHECK_MSG(sidecar.find(row) != deren::utility::vessel::string::npos, row.c_str());
                 }
-                CHECK_MSG(sidecar.find("\tcolor\t_GooSpecularFGD") == std::string::npos,
+                CHECK_MSG(sidecar.find("\tcolor\t_GooSpecularFGD") == deren::utility::vessel::string::npos,
                           "debt (u): no material spells the row as a `color` row, which is the one form the generic `others` path could have read");
 
                 // 欠账 (e): THE FACE ARM'S GATE, ON THE ASSET ITSELF. Two rows decide whether the arm step 11's
@@ -4317,9 +4321,9 @@ int32_t main() {
                 // check firing is the reminder that its specular then has to be re-measured instead of assumed
                 // neutral. `8r4` in the source-text half pins the text and the neutrality; THESE two are the
                 // asset-side half of the same claim.
-                CHECK_MSG(sidecar.find("M_actor_laevat_face_01\tcolor\t_GooFaceScalarsA\t0.5,0.10000000149011612,1.0,1.0") != std::string::npos,
+                CHECK_MSG(sidecar.find("M_actor_laevat_face_01\tcolor\t_GooFaceScalarsA\t0.5,0.10000000149011612,1.0,1.0") != deren::utility::vessel::string::npos,
                           "欠账 (e): the shipped face material's `_GooFaceScalarsA.w` is 1.0, so its lobe's a2 is 0");
-                CHECK_MSG(sidecar.find("_GooFaceSDF") == std::string::npos,
+                CHECK_MSG(sidecar.find("_GooFaceSDF") == deren::utility::vessel::string::npos,
                           "欠账 (e): and no row names `_GooFaceSDF`, so lane 11 stays 0 and the face arm's gate cannot open");
             } else {
                 // A MISSING BUILD TREE IS NOT A FAILURE (this block is guarded rather than CHECKed for existence), but

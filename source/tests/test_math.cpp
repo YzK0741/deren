@@ -16,7 +16,7 @@ namespace {
     }
 
     void test_environment_cubemap_shape() {
-        std::vector<float> const env = deren::engine::generate_environment_cubemap(16);
+        deren::utility::vessel::vector<float> const env = deren::engine::generate_environment_cubemap(16);
         CHECK(env.size() == cubemap_float_count(16));
         bool any_positive = false;
         bool all_finite = true;
@@ -29,8 +29,8 @@ namespace {
     }
 
     void test_irradiance_map_shape() {
-        std::vector<float> const env = deren::engine::generate_environment_cubemap(8);
-        std::vector<float> const irr = deren::engine::generate_irradiance_map(env, 8, 4);
+        deren::utility::vessel::vector<float> const env = deren::engine::generate_environment_cubemap(8);
+        deren::utility::vessel::vector<float> const irr = deren::engine::generate_irradiance_map(env, 8, 4);
         CHECK(irr.size() == cubemap_float_count(4));
     }
 
@@ -53,8 +53,8 @@ namespace {
     // Sources B and C are single bright stripes - at the image's centre column and at its seam column - and
     // must light exactly one face each (+Z and -Z respectively), which is what makes the horizontal origin
     // and the wrap unambiguous.
-    std::vector<float> make_equirect_ramp(int32_t const width, int32_t const height) {
-        std::vector<float> pixels(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4);
+    deren::utility::vessel::vector<float> make_equirect_ramp(int32_t const width, int32_t const height) {
+        deren::utility::vessel::vector<float> pixels(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4);
         for (int32_t y = 0; y < height; ++y) {
             for (int32_t x = 0; x < width; ++x) {
                 std::size_t const at = (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x)) * 4;
@@ -67,8 +67,8 @@ namespace {
         return pixels;
     }
 
-    std::vector<float> make_equirect_stripe(int32_t const width, int32_t const height, float const u_centre, float const half_width) {
-        std::vector<float> pixels(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4, 0.0f);
+    deren::utility::vessel::vector<float> make_equirect_stripe(int32_t const width, int32_t const height, float const u_centre, float const half_width) {
+        deren::utility::vessel::vector<float> pixels(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4, 0.0f);
         for (int32_t y = 0; y < height; ++y) {
             for (int32_t x = 0; x < width; ++x) {
                 float const u = (static_cast<float>(x) + 0.5f) / static_cast<float>(width);
@@ -92,7 +92,7 @@ namespace {
         double max_r;
     };
 
-    face_ramp_stats face_stats(std::vector<float> const& cube, int32_t const size, int32_t const face) {
+    face_ramp_stats face_stats(deren::utility::vessel::vector<float> const& cube, int32_t const size, int32_t const face) {
         face_ramp_stats stats{0.0, 0.0, 1.0, 0.0};
         int32_t const count = size * size;
         for (int32_t i = 0; i < count; ++i) {
@@ -111,8 +111,8 @@ namespace {
         constexpr int32_t source_width = 128;
         constexpr int32_t source_height = 64;
         constexpr int32_t size = 16;
-        std::vector<float> const ramp = make_equirect_ramp(source_width, source_height);
-        std::vector<float> const cube = deren::engine::generate_environment_cubemap_from_equirect(ramp, source_width, source_height, size);
+        deren::utility::vessel::vector<float> const ramp = make_equirect_ramp(source_width, source_height);
+        deren::utility::vessel::vector<float> const cube = deren::engine::generate_environment_cubemap_from_equirect(ramp, source_width, source_height, size);
         CHECK(cube.size() == cubemap_float_count(size));
 
         for (std::size_t i = 0; i + 3 < cube.size(); i += 4) {
@@ -148,7 +148,7 @@ namespace {
         // sees every u value somewhere and cannot tell the stripes apart. The stripes are several columns
         // wide - a sub-texel stripe is cut in half by the bilinear sample and reads as ~0.5, which is
         // indistinguishable from "no stripe here".
-        auto const stripe_lights_only = [&](std::vector<float> const& stripe_cube, int32_t const expected) {
+        auto const stripe_lights_only = [&](deren::utility::vessel::vector<float> const& stripe_cube, int32_t const expected) {
             for (int32_t const face : {0, 1, 4, 5}) {
                 face_ramp_stats const stats = face_stats(stripe_cube, size, face);
                 if (face == expected) {
@@ -164,7 +164,7 @@ namespace {
         // The intensity is a plain multiplier on every texel (the reference's world_strength). The ALPHA
         // channel is the exception: it is filled with 1 by both runs, so it is compared for equality rather
         // than for the ratio - a scaled alpha would be a wasted channel and a silent precision loss.
-        std::vector<float> const doubled = deren::engine::generate_environment_cubemap_from_equirect(ramp, source_width, source_height, size, 4.0f);
+        deren::utility::vessel::vector<float> const doubled = deren::engine::generate_environment_cubemap_from_equirect(ramp, source_width, source_height, size, 4.0f);
         CHECK(doubled.size() == cube.size());
         for (std::size_t i = 0; i < cube.size(); i += 4) {
             for (std::size_t channel = 0; channel < 3; ++channel) {
@@ -175,14 +175,14 @@ namespace {
 
         // A degenerate source is a zero buffer of the right shape, never a read out of bounds: the caller
         // panics long before this, and this is the belt to that pair of braces.
-        std::vector<float> const degenerate = deren::engine::generate_environment_cubemap_from_equirect({}, 0, 0, 4);
+        deren::utility::vessel::vector<float> const degenerate = deren::engine::generate_environment_cubemap_from_equirect({}, 0, 0, 4);
         CHECK(degenerate.size() == cubemap_float_count(4));
         CHECK(std::all_of(degenerate.begin(), degenerate.end(), [](float const value) { return value == 0.0f; }));
     }
 
     void test_brdf_lut_shape() {
         // RG32F: scale + bias per texel
-        std::vector<float> const lut = deren::engine::generate_brdf_lut(16);
+        deren::utility::vessel::vector<float> const lut = deren::engine::generate_brdf_lut(16);
         CHECK(lut.size() == static_cast<std::size_t>(16) * 16 * 2);
     }
 
@@ -196,8 +196,8 @@ namespace {
     void test_prefiltered_environment_is_smooth() {
         constexpr int32_t env_size = 256;
         constexpr int32_t mip_count = 5;
-        std::vector<float> const env = deren::engine::generate_environment_cubemap(env_size);
-        std::vector<float> const prefiltered = deren::engine::prefilter_environment(env, env_size, mip_count);
+        deren::utility::vessel::vector<float> const env = deren::engine::generate_environment_cubemap(env_size);
+        deren::utility::vessel::vector<float> const prefiltered = deren::engine::prefilter_environment(env, env_size, mip_count);
         std::size_t cursor = 0;
         for (int32_t mip = 0; mip < mip_count; ++mip) {
             int32_t const size = std::max(1, env_size >> mip);

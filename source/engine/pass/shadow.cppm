@@ -1,4 +1,4 @@
-// module version: 0.3.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 
 /**
  * @file source/engine/pass/shadow.cppm
@@ -37,6 +37,7 @@ module;
 #include <vector>
 
 export module deren.engine.pass.shadow;
+export import deren.utility.shared;
 import deren.promise.rhi;
 
 import deren.engine.pass;
@@ -104,7 +105,7 @@ export namespace deren::engine::pass {
         [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void describe_resources(render_resource::instances::resource_context const& context,
-                                std::vector<render_resource::instances::request>& requests) const override;
+                                deren::utility::vessel::vector<render_resource::instances::request>& requests) const override;
         void bind_resources(render_resource::instances::resource_snapshot const& snapshot) override {
             resource_view = snapshot;
         }
@@ -142,7 +143,7 @@ export namespace deren::engine::pass {
         static constexpr float create_bias_slope = 1.5f;
         static constexpr float create_bias_clamp = 0.0f;
 
-        static constexpr std::array<std::string_view, 1> pipeline_names = {"shadow"};
+        static constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {"shadow"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
         inline static constexpr deren::engine::pass::behaviour pass_behaviour = {

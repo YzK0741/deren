@@ -16,6 +16,7 @@ module;
 // sweep names the remaining files that still need one, and why).
 
 module deren.engine.pass.character_forward;
+import deren.utility.shared;
 
 import deren.promise.rhi; // the record series (abi 20): the barriers and the rendering scope
 import deren.engine.render_resource;
@@ -76,7 +77,7 @@ namespace deren::engine::pass {
         // colour's last store has to be published before this instance LOADs the same image, because
         // dynamic rendering inserts no dependency between two instances.
         // THE BATCH RIDES THE CONTRACT (abi 20): the same two pairs, in the same order, in ONE barrier call.
-        std::array<rhi::image_barrier, 2> const barriers = {
+        deren::utility::vessel::array<rhi::image_barrier, 2> const barriers = {
             rhi::image_barrier{.resource = io.targets[1].image_handle,
                                .from = rhi::image_use::shader_read,
                                .to = rhi::image_use::depth_attachment,
@@ -94,7 +95,7 @@ namespace deren::engine::pass {
         // THE SCOPE RIDES THE CONTRACT TOO (abi 20): one colour attachment and the depth, both LOAD + STORE, and
         // no `secondary_contents` bit - this pass records straight into the primary, which is the whole point of
         // its own note (see the file's header).
-        std::array<rhi::color_attachment, 1> const colors = {
+        deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {
             rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::load, .store = rhi::store_op::store, .clear = {}},
         };
         rhi::depth_attachment const depth = {.view = io.targets[1].view_handle,

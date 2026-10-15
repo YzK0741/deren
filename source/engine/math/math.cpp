@@ -3,6 +3,7 @@ module;
 #include <glm/glm.hpp>
 
 module deren.engine.math;
+import deren.utility.shared;
 
 namespace deren::engine {
     namespace {
@@ -32,7 +33,7 @@ namespace deren::engine {
         // function must produce exactly the same colors for reflections to match the sky - which is
         // why the sun direction is a PARAMETER here rather than a constant: `sky.glsl` takes the
         // same one from the light UBO, and two constants that must match eventually stop matching.
-        glm::vec3 environment_color(glm::vec3 const& dir, std::array<float, 3> const& sun_direction) {
+        glm::vec3 environment_color(glm::vec3 const& dir, deren::utility::vessel::array<float, 3> const& sun_direction) {
             float const t = std::clamp(dir.y * 0.5f + 0.5f, 0.0f, 1.0f); // 0 nadir, 1 zenith
             auto const smooth = [](float const e0, float const e1, float const x) {
                 float const u = std::clamp((x - e0) / (e1 - e0), 0.0f, 1.0f);
@@ -166,8 +167,8 @@ namespace deren::engine {
         }
     } // namespace
 
-    std::vector<float> generate_environment_cubemap(int32_t const size, std::array<float, 3> const sun_direction) {
-        std::vector<float> data(static_cast<size_t>(6) * size * size * 4);
+    deren::utility::vessel::vector<float> generate_environment_cubemap(int32_t const size, deren::utility::vessel::array<float, 3> const sun_direction) {
+        deren::utility::vessel::vector<float> data(static_cast<size_t>(6) * size * size * 4);
         for (int32_t face = 0; face < 6; ++face) {
             for (int32_t y = 0; y < size; ++y) {
                 for (int32_t x = 0; x < size; ++x) {
@@ -185,14 +186,14 @@ namespace deren::engine {
         return data;
     }
 
-    std::vector<float> generate_environment_cubemap_from_equirect(std::span<float const> const equirect, int32_t const width, int32_t const height, int32_t const size, float const intensity) {
+    deren::utility::vessel::vector<float> generate_environment_cubemap_from_equirect(std::span<float const> const equirect, int32_t const width, int32_t const height, int32_t const size, float const intensity) {
         // The source is required, and a degenerate one would otherwise be read out of bounds: the one
         // caller panics before getting here, so this is the belt to that pair of braces rather than a
         // silent fallback to a sky nobody asked for.
         if (width <= 0 || height <= 0 || equirect.size() < static_cast<size_t>(width) * static_cast<size_t>(height) * 4 || size <= 0) {
-            return std::vector<float>(static_cast<size_t>(std::max(size, 0)) * std::max(size, 0) * 6 * 4, 0.0f);
+            return deren::utility::vessel::vector<float>(static_cast<size_t>(std::max(size, 0)) * std::max(size, 0) * 6 * 4, 0.0f);
         }
-        std::vector<float> data(static_cast<size_t>(6) * size * size * 4);
+        deren::utility::vessel::vector<float> data(static_cast<size_t>(6) * size * size * 4);
         for (int32_t face = 0; face < 6; ++face) {
             for (int32_t y = 0; y < size; ++y) {
                 for (int32_t x = 0; x < size; ++x) {
@@ -224,15 +225,15 @@ namespace deren::engine {
     // One box-filtered source mip chain: level k is 2^k times smaller than the environment. The
     // prefilter reads a level per sample instead of always reading level 0, which is what keeps
     // the coarse levels smooth (see prefilter_environment).
-    std::vector<std::vector<float>> build_environment_pyramid(std::span<float const> const env, int32_t const env_size, int32_t const levels) {
-        std::vector<std::vector<float>> pyramid;
+    deren::utility::vessel::vector<deren::utility::vessel::vector<float>> build_environment_pyramid(std::span<float const> const env, int32_t const env_size, int32_t const levels) {
+        deren::utility::vessel::vector<deren::utility::vessel::vector<float>> pyramid;
         pyramid.reserve(static_cast<std::size_t>(levels));
         pyramid.emplace_back(env.begin(), env.end());
         for (int32_t level = 1; level < levels; ++level) {
             int32_t const source_size = std::max(1, env_size >> (level - 1));
             int32_t const target_size = std::max(1, env_size >> level);
-            std::vector<float> const& source = pyramid.back();
-            std::vector<float> target(static_cast<std::size_t>(6) * target_size * target_size * 4, 0.0f);
+            deren::utility::vessel::vector<float> const& source = pyramid.back();
+            deren::utility::vessel::vector<float> target(static_cast<std::size_t>(6) * target_size * target_size * 4, 0.0f);
             for (int32_t face = 0; face < 6; ++face) {
                 for (int32_t y = 0; y < target_size; ++y) {
                     for (int32_t x = 0; x < target_size; ++x) {
@@ -284,7 +285,7 @@ namespace deren::engine {
     }
 
     // Trilinear fetch across the pyramid: one bilinear fetch per level, blended by the fraction.
-    glm::vec3 sample_environment_trilinear(std::vector<std::vector<float>> const& pyramid, int32_t const env_size, glm::vec3 const& dir, float const lod) {
+    glm::vec3 sample_environment_trilinear(deren::utility::vessel::vector<deren::utility::vessel::vector<float>> const& pyramid, int32_t const env_size, glm::vec3 const& dir, float const lod) {
         float const clamped = std::clamp(lod, 0.0f, static_cast<float>(pyramid.size() - 1));
         int32_t const low = static_cast<int32_t>(clamped);
         int32_t const high = std::min(low + 1, static_cast<int32_t>(pyramid.size()) - 1);
@@ -294,7 +295,7 @@ namespace deren::engine {
         return glm::mix(a, b, blend);
     }
 
-    std::vector<float> prefilter_environment(std::span<float const> const env, int32_t const env_size, int32_t const mip_count) {
+    deren::utility::vessel::vector<float> prefilter_environment(std::span<float const> const env, int32_t const env_size, int32_t const mip_count) {
         // Why the samples read a source mip instead of level 0: this environment carries a hard
         // sun disc, and a narrow GGX lobe either lands on it or misses it. With 64 taps of level 0
         // a coarse level ended up with isolated texels several times brighter than the rest of the
@@ -307,9 +308,9 @@ namespace deren::engine {
         // variance, not energy. It is also FASTER than the 64-tap-of-level-0 version (535 ms
         // against 964 ms for 256^2 x 5 levels here): level 0 needs no samples at all, its texels
         // ARE the mirror reflection, and the coarse levels take half the taps of the level before.
-        std::vector<std::vector<float>> const pyramid = build_environment_pyramid(env, env_size, mip_count);
+        deren::utility::vessel::vector<deren::utility::vessel::vector<float>> const pyramid = build_environment_pyramid(env, env_size, mip_count);
         float const texel_solid_angle = 4.0f * k_pi / (6.0f * static_cast<float>(env_size) * static_cast<float>(env_size));
-        std::vector<float> result;
+        deren::utility::vessel::vector<float> result;
         for (int32_t mip = 0; mip < mip_count; ++mip) {
             int32_t const mip_size = std::max(1, env_size >> mip);
             float const roughness = static_cast<float>(mip) / static_cast<float>(mip_count - 1);
@@ -318,7 +319,7 @@ namespace deren::engine {
             // replaces, because the source mips do the averaging and level 0 does no work at all.
             uint32_t const sample_count = mip == 0 ? 1u : std::max(32u, 128u >> (mip - 1));
             float const alpha = roughness * roughness;
-            std::vector<float> mip_data(static_cast<size_t>(6) * mip_size * mip_size * 4, 0.0f);
+            deren::utility::vessel::vector<float> mip_data(static_cast<size_t>(6) * mip_size * mip_size * 4, 0.0f);
             for (int32_t face = 0; face < 6; ++face) {
                 for (int32_t y = 0; y < mip_size; ++y) {
                     for (int32_t x = 0; x < mip_size; ++x) {
@@ -367,8 +368,8 @@ namespace deren::engine {
         return result;
     }
 
-    std::vector<float> generate_irradiance_map(std::span<float const> const env, int32_t const env_size, int32_t const irr_size) {
-        std::vector<float> result(static_cast<size_t>(6) * irr_size * irr_size * 4, 0.0f);
+    deren::utility::vessel::vector<float> generate_irradiance_map(std::span<float const> const env, int32_t const env_size, int32_t const irr_size) {
+        deren::utility::vessel::vector<float> result(static_cast<size_t>(6) * irr_size * irr_size * 4, 0.0f);
         // Loop-invariant constant: deliberately at function scope (not inside the loops)
         constexpr uint32_t sample_count = 512; // NOLINT (some toolchains flag the constant when scoped to the inner loop)
         // AREA-AVERAGED TAPS, the cure `prefilter_environment` already applies to the specular chain and
@@ -383,7 +384,7 @@ namespace deren::engine {
         // pyramid level whose texel footprint matches the solid angle it stands for (Karis, the same rule
         // the specular prefilter uses): a VARIANCE fix, not an energy one - the level means and the thigh's
         // mean luma stay where they were.
-        std::vector<std::vector<float>> const pyramid = build_environment_pyramid(env, env_size, environment_pyramid_levels(env_size));
+        deren::utility::vessel::vector<deren::utility::vessel::vector<float>> const pyramid = build_environment_pyramid(env, env_size, environment_pyramid_levels(env_size));
         float const texel_solid_angle = 4.0f * k_pi / (6.0f * static_cast<float>(env_size) * static_cast<float>(env_size));
         for (int32_t face = 0; face < 6; ++face) {
             for (int32_t y = 0; y < irr_size; ++y) {
@@ -423,8 +424,8 @@ namespace deren::engine {
         return result;
     }
 
-    std::vector<float> generate_brdf_lut(int32_t const size) {
-        std::vector<float> result(static_cast<size_t>(size) * size * 2);
+    deren::utility::vessel::vector<float> generate_brdf_lut(int32_t const size) {
+        deren::utility::vessel::vector<float> result(static_cast<size_t>(size) * size * 2);
         for (int32_t y = 0; y < size; ++y) {
             for (int32_t x = 0; x < size; ++x) {
                 float const ndotv = (static_cast<float>(x) + 0.5f) / static_cast<float>(size);
@@ -440,8 +441,8 @@ namespace deren::engine {
         return result;
     }
 
-    std::vector<uint8_t> to_half_rgba(std::span<float const> const data) {
-        std::vector<uint8_t> out(data.size() * 2);
+    deren::utility::vessel::vector<uint8_t> to_half_rgba(std::span<float const> const data) {
+        deren::utility::vessel::vector<uint8_t> out(data.size() * 2);
         for (size_t i = 0; i < data.size(); ++i) {
             uint16_t const h = float_to_half(data[i]);
             out[i * 2 + 0] = static_cast<uint8_t>(h & 0xFFu);
@@ -450,8 +451,8 @@ namespace deren::engine {
         return out;
     }
 
-    std::vector<uint8_t> to_half_rg(std::span<float const> const data) {
-        std::vector<uint8_t> out(data.size() * 2);
+    deren::utility::vessel::vector<uint8_t> to_half_rg(std::span<float const> const data) {
+        deren::utility::vessel::vector<uint8_t> out(data.size() * 2);
         for (size_t i = 0; i < data.size(); ++i) {
             uint16_t const h = float_to_half(data[i]);
             out[i * 2 + 0] = static_cast<uint8_t>(h & 0xFFu);
@@ -463,27 +464,27 @@ namespace deren::engine {
     // ---- async wrappers (see math.cppm): delegate to the synchronous functions on a
     //      std::async thread; the caller consumes the future when the result is needed ----
 
-    std::future<std::vector<float>> generate_environment_cubemap_async(int32_t const size, std::array<float, 3> const sun_direction) {
+    std::future<deren::utility::vessel::vector<float>> generate_environment_cubemap_async(int32_t const size, deren::utility::vessel::array<float, 3> const sun_direction) {
         // The direction is captured BY VALUE: the caller's vector may be gone by the time the async thread runs.
         return std::async(std::launch::async, [size, sun_direction] { return generate_environment_cubemap(size, sun_direction); });
     }
 
-    std::future<std::vector<float>> generate_environment_cubemap_from_equirect_async(std::vector<float> equirect, int32_t const width, int32_t const height, int32_t const size, float const intensity) {
+    std::future<deren::utility::vessel::vector<float>> generate_environment_cubemap_from_equirect_async(deren::utility::vessel::vector<float> equirect, int32_t const width, int32_t const height, int32_t const size, float const intensity) {
         // The pixels are MOVED in, not viewed: see the declaration's own note.
         return std::async(std::launch::async, [equirect = std::move(equirect), width, height, size, intensity] {
             return generate_environment_cubemap_from_equirect(equirect, width, height, size, intensity);
         });
     }
 
-    std::future<std::vector<float>> prefilter_environment_async(std::span<float const> const env, int32_t const env_size, int32_t const mip_count) {
+    std::future<deren::utility::vessel::vector<float>> prefilter_environment_async(std::span<float const> const env, int32_t const env_size, int32_t const mip_count) {
         return std::async(std::launch::async, [env, env_size, mip_count] { return prefilter_environment(env, env_size, mip_count); });
     }
 
-    std::future<std::vector<float>> generate_irradiance_map_async(std::span<float const> const env, int32_t const env_size, int32_t const irr_size) {
+    std::future<deren::utility::vessel::vector<float>> generate_irradiance_map_async(std::span<float const> const env, int32_t const env_size, int32_t const irr_size) {
         return std::async(std::launch::async, [env, env_size, irr_size] { return generate_irradiance_map(env, env_size, irr_size); });
     }
 
-    std::future<std::vector<float>> generate_brdf_lut_async(int32_t const size) {
+    std::future<deren::utility::vessel::vector<float>> generate_brdf_lut_async(int32_t const size) {
         return std::async(std::launch::async, [size] { return generate_brdf_lut(size); });
     }
 } // namespace deren::engine

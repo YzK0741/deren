@@ -18,6 +18,7 @@
 #include <vector>
 #include <vulkan/vulkan.h>
 
+import deren.utility.shared;
 import deren.promise.rhi;
 import deren.engine.pass;
 import deren.engine.pass.chain;
@@ -32,12 +33,12 @@ namespace {
     /// The own binding every fake pass carries: one sampled image of its OWN at binding 0. What a pass reaches
     /// through the frame's heap is not a declaration the fake host has to spell out - the framework has no set to
     /// resolve it into (every stage reads the descriptor heap).
-    std::array<rr::pass_binding, 1> const fake_own_bindings = {{{.binding = 0,
-                                                                 .owner = rr::binding_owner::own,
-                                                                 .kind = rr::binding_kind::sampled_image,
-                                                                 .resource = rr::resource_id::ml_trace,
-                                                                 .access = rr::binding_access::read,
-                                                                 .sampler = rr::sampler_hint::gbuffer}}};
+    deren::utility::vessel::array<rr::pass_binding, 1> const fake_own_bindings = {{{.binding = 0,
+                                                                                    .owner = rr::binding_owner::own,
+                                                                                    .kind = rr::binding_kind::sampled_image,
+                                                                                    .resource = rr::resource_id::ml_trace,
+                                                                                    .access = rr::binding_access::read,
+                                                                                    .sampler = rr::sampler_hint::gbuffer}}};
 
     /// the declaration every fake pass carries, renamed to the pass it belongs to
     rr::pass_io named_io(std::string_view const name, std::span<rr::render_target const> const targets = {}) {
@@ -61,7 +62,7 @@ namespace {
         std::uint32_t secondary_executions = 0;
         deren::promise::rhi::error rendering_result = deren::promise::rhi::error::ok;
         deren::promise::rhi::rect rendering_area = {};
-        std::vector<deren::promise::rhi::color_attachment> rendering_colors;
+        deren::utility::vessel::vector<deren::promise::rhi::color_attachment> rendering_colors;
         deren::promise::rhi::depth_attachment rendering_depth = {};
         bool rendering_has_depth = false;
         bool rendering_secondary_contents = true;
@@ -198,7 +199,7 @@ namespace {
             return deren::promise::rhi::error::ok;
         }
 
-        [[nodiscard]] deren::promise::rhi::error clear_color_image(deren::promise::rhi::image const&, std::array<float, 4> const&, deren::promise::rhi::subresource_range const&) override {
+        [[nodiscard]] deren::promise::rhi::error clear_color_image(deren::promise::rhi::image const&, deren::utility::vessel::array<float, 4> const&, deren::promise::rhi::subresource_range const&) override {
             return deren::promise::rhi::error::ok;
         }
     };
@@ -219,22 +220,22 @@ namespace {
     auto* const fake_shadow_sampler = &shadow_sampler_object;
     static_assert(std::is_same_v<decltype(rr::shared::sampler_set{}.of(rr::sampler_hint::shadow)),
                                  deren::promise::rhi::sampler*>);
-    std::array<deren::promise::rhi::pipeline*, 4> const fake_pipelines = {
+    deren::utility::vessel::array<deren::promise::rhi::pipeline*, 4> const fake_pipelines = {
         reinterpret_cast<deren::promise::rhi::pipeline*>(0x1), reinterpret_cast<deren::promise::rhi::pipeline*>(0x2), reinterpret_cast<deren::promise::rhi::pipeline*>(0x3), reinterpret_cast<deren::promise::rhi::pipeline*>(0x4)};
     /// the push block the fake host composes: raw bytes, as a real host does (the framework has no pass's type)
-    std::array<std::byte, 4> const fake_push = {std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
+    deren::utility::vessel::array<std::byte, 4> const fake_push = {std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
     /// the per-image view lists the fake host resolves (one entry per swapchain image of its fake frame): what a
     /// pass that owns a per-image descriptor family is handed, so the test can assert the runner passes them on
-    std::array<deren::promise::rhi::image_view*, 3> const fake_per_image = {
+    deren::utility::vessel::array<deren::promise::rhi::image_view*, 3> const fake_per_image = {
         reinterpret_cast<deren::promise::rhi::image_view*>(0xA0), reinterpret_cast<deren::promise::rhi::image_view*>(0xA1), reinterpret_cast<deren::promise::rhi::image_view*>(0xA2)};
 
     /// the host's own state: the log every callback writes, plus what the fake host answers
     struct host_state {
-        std::vector<std::string> log;
+        deren::utility::vessel::vector<deren::utility::vessel::string> log;
         vp::frame_identity frame = {.image_index = 3, .slot = 1, .image_count = 3, .extent = {640, 480}};
-        std::vector<std::string_view> active_features = {"gi"};
+        deren::utility::vessel::vector<std::string_view> active_features = {"gi"};
         std::string_view failing_pass = {}; // resolve returns false for this pass's name
-        std::array<vp::resolved_binding, 9> own = {};
+        deren::utility::vessel::array<vp::resolved_binding, 9> own = {};
         /// what a pass was handed at create time, recorded so the create interface can be asserted
         /// (THE DEVICE IS GONE FROM THE CONTEXT, abi 21: the builders are contract factories that take the face)
         deren::promise::rhi::sampler* created_with_sampler = nullptr;
@@ -257,7 +258,7 @@ namespace {
     /// the resolver a real runtime would write: the extent rule is applied HERE, from the declaration
     bool host_resolve(void* ctx, vp::frame_pass const& pass, vp::resolved_io& out) {
         auto& state = *static_cast<host_state*>(ctx);
-        state.log.emplace_back(std::string("resolve:") + std::string(pass.io().name));
+        state.log.emplace_back(deren::utility::vessel::string("resolve:") + deren::utility::vessel::string(pass.io().name));
         if (pass.io().name == state.failing_pass) {
             return false;
         }
@@ -288,16 +289,16 @@ namespace {
 
     void host_apply_behaviour(void* ctx, vp::frame_pass const& pass, vp::resolved_io const&) {
         auto& state = *static_cast<host_state*>(ctx);
-        state.log.emplace_back(std::string("behaviour:") + std::string(pass.io().name) +
+        state.log.emplace_back(deren::utility::vessel::string("behaviour:") + deren::utility::vessel::string(pass.io().name) +
                                (pass.behaviour().resync_viewport ? ":resync" : ":plain"));
     }
 
     void host_mark_begin(void* ctx, std::string_view const name) {
-        static_cast<host_state*>(ctx)->log.emplace_back(std::string("mark_begin:") + std::string(name));
+        static_cast<host_state*>(ctx)->log.emplace_back(deren::utility::vessel::string("mark_begin:") + deren::utility::vessel::string(name));
     }
 
     void host_mark_end(void* ctx, std::string_view const name) {
-        static_cast<host_state*>(ctx)->log.emplace_back(std::string("mark_end:") + std::string(name));
+        static_cast<host_state*>(ctx)->log.emplace_back(deren::utility::vessel::string("mark_end:") + deren::utility::vessel::string(name));
     }
 
     vp::pass_host make_host(host_state& state) {
@@ -316,7 +317,7 @@ namespace {
     /// fill it - this fake one below needs no device, no runtime and no frame, which is exactly what the test
     /// asserts a pass may rely on
     std::span<uint8_t const> fake_shader(void* /*owner*/, std::string_view const name) {
-        static std::array<uint8_t, 3> const bytes = {0x03, 0x02, 0x23};
+        static deren::utility::vessel::array<uint8_t, 3> const bytes = {0x03, 0x02, 0x23};
         return name == "fake.comp.spv" ? std::span<uint8_t const>(bytes) : std::span<uint8_t const>{};
     }
 
@@ -333,18 +334,18 @@ namespace {
     }
 
     /// position of an entry in the log, or a large number when it is absent (so ordering asserts read clearly)
-    std::size_t at(std::vector<std::string> const& log, std::string_view const entry) {
+    std::size_t at(deren::utility::vessel::vector<deren::utility::vessel::string> const& log, std::string_view const entry) {
         auto const it = std::find(log.begin(), log.end(), entry);
         return it == log.end() ? std::size_t{9999} : static_cast<std::size_t>(it - log.begin());
     }
 
-    bool has(std::vector<std::string> const& log, std::string_view const entry) {
+    bool has(deren::utility::vessel::vector<deren::utility::vessel::string> const& log, std::string_view const entry) {
         return at(log, entry) != 9999;
     }
 
     /// a declaration the schema must refuse: a binding whose resource was never set
     rr::pass_io const& bad_io() {
-        static constexpr std::array<rr::pass_binding, 1> bindings = {{
+        static constexpr deren::utility::vessel::array<rr::pass_binding, 1> bindings = {{
             {.binding = 0, .owner = rr::binding_owner::own, .kind = rr::binding_kind::sampled_image, .resource = rr::resource_id::none, .sampler = rr::sampler_hint::post},
         }};
         static constexpr rr::pass_io io = {.name = "bad", .bindings = bindings, .push = std::nullopt};
@@ -377,16 +378,16 @@ namespace {
         }
         bool is_ready = true;
         void create(vp::pass_context const& context) override {
-            state_ptr->log.emplace_back(std::string("create:") + std::string(io_decl.name));
+            state_ptr->log.emplace_back(deren::utility::vessel::string("create:") + deren::utility::vessel::string(io_decl.name));
             // WHAT THE CONTEXT CARRIES NOW (abi 21): the contract face and the two session-stable formats - and
             // no device at all, because every pipeline builder takes the face alone.
             state_ptr->created_with_sampler = context.samplers.of(rr::sampler_hint::shadow);
         }
         void on_swapchain_recreated(vp::pass_host const&) override {
-            state_ptr->log.emplace_back(std::string("recreate:") + std::string(io_decl.name));
+            state_ptr->log.emplace_back(deren::utility::vessel::string("recreate:") + deren::utility::vessel::string(io_decl.name));
         }
         void record(vp::resolved_io const& io) override {
-            state_ptr->log.emplace_back(std::string("record:") + std::string(io_decl.name));
+            state_ptr->log.emplace_back(deren::utility::vessel::string("record:") + deren::utility::vessel::string(io_decl.name));
             last_cmd = io.cmd;
             last_pipelines = io.pipelines.size();
             last_push_size = io.push.size();
@@ -425,12 +426,12 @@ namespace {
     };
 
     // the names are `deren.engine.runtime`'s own pipeline keys, which is what makes this cost nothing new
-    constexpr std::array<std::string_view, 1> compute_pipeline_names = {"megalights_trace"};
-    constexpr std::array<std::string_view, 2> fullscreen_pipeline_names = {"post_composite", "fxaa"};
+    constexpr deren::utility::vessel::array<std::string_view, 1> compute_pipeline_names = {"megalights_trace"};
+    constexpr deren::utility::vessel::array<std::string_view, 2> fullscreen_pipeline_names = {"post_composite", "fxaa"};
     /// the fullscreen fake pass also declares one render TARGET: an attachment is a use that cannot be a
     /// descriptor, so it is declared in its own list (see vulkan.render_resource::render_target)
     constexpr rr::render_target fullscreen_target = {.resource = rr::resource_id::hdr, .element = 0};
-    constexpr std::array<rr::render_target, 1> fullscreen_targets = {fullscreen_target};
+    constexpr deren::utility::vessel::array<rr::render_target, 1> fullscreen_targets = {fullscreen_target};
     constexpr vp::behaviour compute_behaviour = {.kind = vp::behaviour_kind::compute, .group_size_x = 4, .group_size_y = 4, .group_size_z = 4, .extent = vp::extent_rule::resource, .pipelines = compute_pipeline_names};
     constexpr vp::behaviour fullscreen_behaviour = {.kind = vp::behaviour_kind::fullscreen, .extent = vp::extent_rule::half, .pipelines = fullscreen_pipeline_names, .resync_viewport = true};
     /// a behaviour whose extent rule names a RESOURCE **and one element of it**: the framework carries the pair,
@@ -452,7 +453,32 @@ void check_managed_resource_api() {
     }
 }
 
+template <typename Binding>
+void check_structure_publication() {
+    namespace vp = deren::engine::pass;
+    namespace rr = deren::engine::render_resource;
+    if constexpr (requires(Binding binding) { binding.structure_handle; }) {
+        vp::resource_table table;
+        auto* structure = reinterpret_cast<deren::promise::rhi::acceleration_structure*>(0x4400);
+        Binding binding;
+        binding.structure_handle = structure;
+        table.publish(rr::resource_id::top_level_structure, 0, 1, binding);
+        vp::frame_identity frame{.image_index = 0, .slot = 1};
+        auto const slot = vp::instance_for(rr::find(rr::resource_id::top_level_structure)->scope, frame);
+        Binding resolved = table.find(rr::resource_id::top_level_structure, 0, slot);
+        CHECK(resolved.structure_handle == structure);
+        Binding missing = table.find(rr::resource_id::top_level_structure, 0, 0);
+        CHECK(missing.structure_handle == nullptr);
+        table.publish(rr::resource_id::top_level_structure, 0, 1, {});
+        Binding cleared = table.find(rr::resource_id::top_level_structure, 0, 1);
+        CHECK(cleared.structure_handle == nullptr);
+    } else {
+        CHECK_MSG(false, "The frame resource table must publish typed AS handles");
+    }
+}
+
 int32_t main() {
+    check_structure_publication<deren::engine::pass::resolved_binding>();
     check_managed_resource_api<deren::engine::pass::pass_chain>();
     using namespace deren::engine::pass;
 
@@ -464,7 +490,7 @@ int32_t main() {
         scene_frame const empty_frame{.extent = {.width = 128u, .height = 64u}};
         scene.set_frame(empty_frame); // No leaves, secondary buffers, or draw environment are needed for a clear.
         contract_command_buffer commands;
-        std::array<resolved_binding, 6> targets = {};
+        deren::utility::vessel::array<resolved_binding, 6> targets = {};
         for (std::size_t i = 0; i < targets.size(); ++i) {
             targets[i].view_handle = reinterpret_cast<rhi::image_view*>(std::uintptr_t{0x1000} + i * 16u);
         }
@@ -509,7 +535,7 @@ int32_t main() {
 
     // ---- build: every declaration is validated first, and a bad one refuses the whole stage ----
     {
-        std::array<frame_pass*, 2> passes = {&probe, &tail};
+        deren::utility::vessel::array<frame_pass*, 2> passes = {&probe, &tail};
         stage const st = {.name = "scene", .passes = passes};
         state.log.clear();
         run_report const report = create_stage(st, make_context());
@@ -518,7 +544,7 @@ int32_t main() {
         CHECK(at(state.log, "create:probe") < at(state.log, "create:tail")); // declaration order, not container order
     }
     {
-        std::array<frame_pass*, 2> passes = {&probe, &bad};
+        deren::utility::vessel::array<frame_pass*, 2> passes = {&probe, &bad};
         stage const st = {.name = "scene", .passes = passes};
         state.log.clear();
         run_report const report = create_stage(st, make_context());
@@ -527,7 +553,7 @@ int32_t main() {
         CHECK(!has(state.log, "create:bad"));
     }
     {
-        std::array<frame_pass*, 3> passes = {&probe, nullptr, &tail};
+        deren::utility::vessel::array<frame_pass*, 3> passes = {&probe, nullptr, &tail};
         stage const st = {.name = "scene", .passes = passes};
         state.log.clear();
         CHECK(create_stage(st, make_context()).created == 2); // a null slot is skipped, not counted
@@ -535,7 +561,7 @@ int32_t main() {
 
     // ---- record: the order of resolve, behaviour and record, and the stage's mark around all of it ----
     {
-        std::array<frame_pass*, 2> passes = {&probe, &tail};
+        deren::utility::vessel::array<frame_pass*, 2> passes = {&probe, &tail};
         stage const st = {.name = "scene", .passes = passes};
         state.log.clear();
         run_report const report = record_stage(st, host);
@@ -554,7 +580,7 @@ int32_t main() {
 
     // ---- what a pass is GIVEN, which is the reason it needs no device state of its own ----
     {
-        std::array<frame_pass*, 2> passes = {&probe, &tail};
+        deren::utility::vessel::array<frame_pass*, 2> passes = {&probe, &tail};
         stage const st = {.name = "scene", .passes = passes};
         state.log.clear();
         run_report const given = record_stage(st, host);
@@ -588,7 +614,7 @@ int32_t main() {
     //      to a size: the framework carries a declaration, it does not interpret one ----
     {
         fake_pass level{named_io("bloom_level"), level_behaviour, "gi", state};
-        std::array<frame_pass*, 1> passes = {&level};
+        deren::utility::vessel::array<frame_pass*, 1> passes = {&level};
         stage const st = {.name = "post", .passes = passes};
         state.log.clear();
         run_report const report = record_stage(st, host);
@@ -625,7 +651,7 @@ int32_t main() {
     // ---- what a pass is given at CREATE time: the contract face, the five samplers, and two lookups - and nothing
     //      allocates or runs a frame ----
     {
-        std::array<frame_pass*, 1> passes = {&probe};
+        deren::utility::vessel::array<frame_pass*, 1> passes = {&probe};
         stage const st = {.name = "scene", .passes = passes};
         state.log.clear();
         state.created_with_sampler = nullptr;
@@ -636,7 +662,7 @@ int32_t main() {
 
     // ---- an inactive feature is skipped WITHOUT being resolved: what makes an off feature byte-exact ----
     {
-        std::array<frame_pass*, 2> passes = {&probe, &gated};
+        deren::utility::vessel::array<frame_pass*, 2> passes = {&probe, &gated};
         stage const st = {.name = "scene", .passes = passes};
         state.log.clear();
         run_report const report = record_stage(st, host);
@@ -648,7 +674,7 @@ int32_t main() {
 
     // ---- a frame that cannot resolve a pass skips it, and does not apply its behaviour either ----
     {
-        std::array<frame_pass*, 2> passes = {&probe, &tail};
+        deren::utility::vessel::array<frame_pass*, 2> passes = {&probe, &tail};
         stage const st = {.name = "scene", .passes = passes};
         state.log.clear();
         state.failing_pass = "tail";
@@ -662,7 +688,7 @@ int32_t main() {
 
     // ---- a stage that nests inside another's instance can decline its own mark pair ----
     {
-        std::array<frame_pass*, 1> passes = {&probe};
+        deren::utility::vessel::array<frame_pass*, 1> passes = {&probe};
         stage const st = {.name = "nested", .passes = passes, .marks = false};
         state.log.clear();
         run_report const report = record_stage(st, host);
@@ -673,7 +699,7 @@ int32_t main() {
 
     // ---- a rebuilt swapchain tells EVERY pass: the hazard the manual reset list keeps missing ----
     {
-        std::array<frame_pass*, 3> passes = {&probe, &tail, &gated};
+        deren::utility::vessel::array<frame_pass*, 3> passes = {&probe, &tail, &gated};
         stage const st = {.name = "scene", .passes = passes};
         state.log.clear();
         run_report const report = recreate_stage(st, host);
@@ -896,6 +922,21 @@ int32_t main() {
         };
         declared_pass pass;
         vp::resolved_io io = {};
+        deren::utility::vessel::array<rr::pass_binding, 1> const as_binding = {{{.binding = 0,
+                                                                                 .owner = rr::binding_owner::own,
+                                                                                 .kind = rr::binding_kind::acceleration_structure,
+                                                                                 .resource = rr::resource_id::top_level_structure,
+                                                                                 .access = rr::binding_access::read}}};
+        rr::pass_io const as_declaration{.name = "as_consumer", .bindings = as_binding};
+        declared_pass as_pass;
+        as_pass.declaration = &as_declaration;
+        auto* structure = reinterpret_cast<deren::promise::rhi::acceleration_structure*>(0x4400);
+        CHECK(!as_pass.resolve(context, io));
+        owner.table.publish(rr::resource_id::top_level_structure, 0, 1, {.structure_handle = structure});
+        CHECK(!as_pass.resolve(context, io)); // Another frame slot must not satisfy this frame's dependency.
+        owner.table.publish(rr::resource_id::top_level_structure, 0, frame.slot, {.structure_handle = structure});
+        CHECK(as_pass.resolve(context, io) && io.own.size() == 1 && io.own[0].structure_handle == structure);
+        owner.table.clear();
         // the framework's DEFAULT readiness answer: this pass overrides `ready()` nowhere, because it builds nothing
         // the run has to wait for - a pass with nothing of its own has nothing to be unready ABOUT (see
         // frame_pass::ready)
@@ -932,8 +973,8 @@ int32_t main() {
 
         // ... and published AS A FAMILY, the same declaration also hands the pass every image's view - the run
         // `views_of` returns, in the owner's own storage, which is what a per-image descriptor family writes from
-        std::array<deren::promise::rhi::image_view*, 2> const family_views = {reinterpret_cast<deren::promise::rhi::image_view*>(0xF0), reinterpret_cast<deren::promise::rhi::image_view*>(0xF1)};
-        std::array<deren::promise::rhi::image*, 2> const family_images = {reinterpret_cast<deren::promise::rhi::image*>(0xE0), reinterpret_cast<deren::promise::rhi::image*>(0xE1)};
+        deren::utility::vessel::array<deren::promise::rhi::image_view*, 2> const family_views = {reinterpret_cast<deren::promise::rhi::image_view*>(0xF0), reinterpret_cast<deren::promise::rhi::image_view*>(0xF1)};
+        deren::utility::vessel::array<deren::promise::rhi::image*, 2> const family_images = {reinterpret_cast<deren::promise::rhi::image*>(0xE0), reinterpret_cast<deren::promise::rhi::image*>(0xE1)};
         owner.table.clear();
         for (rr::resource_id const id : {rr::resource_id::scene_color, rr::resource_id::taa_history, rr::resource_id::velocity, rr::resource_id::gbuffer_depth}) {
             owner.table.publish_family(id, 0, family_images, family_views);
@@ -972,7 +1013,7 @@ int32_t main() {
 
         // THE PIPELINES the behaviour names: resolved by name through the owner, and a name the owner cannot
         // answer means the frame cannot bind what the pass declared - so the pass does not run
-        constexpr std::array<std::string_view, 1> pipeline_names = {"taa"};
+        constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {"taa"};
         pass.how.extent = vp::extent_rule::full;
         pass.how.pipelines = pipeline_names;
         CHECK(pass.resolve(context, io));
@@ -1012,7 +1053,7 @@ int32_t main() {
         // ELEMENT - the shadow map's cascades are the case (`render_target::count`), and what makes it a
         // declaration fact rather than a resolver's is that the FRAME CAPS THE RUN: the family has the elements the
         // owner published (the layers the cascade knob asked for), and the pass renders what it is handed.
-        std::array<rr::render_target, 1> const run_decl = {rr::render_target{.resource = rr::resource_id::shadow_map, .element = 0, .kind = rr::target_kind::depth, .count = 4}};
+        deren::utility::vessel::array<rr::render_target, 1> const run_decl = {rr::render_target{.resource = rr::resource_id::shadow_map, .element = 0, .kind = rr::target_kind::depth, .count = 4}};
         rr::pass_io const run_io = {.name = "shadow", .bindings = {}, .targets = run_decl, .push = std::nullopt};
         declared_pass run_pass;
         run_pass.declaration = &run_io;

@@ -29,20 +29,22 @@
 #include <string>
 #include <vector>
 
+import deren.utility.shared;
+
 namespace {
     /// the lines of a file, or an empty vector when it cannot be read (the CHECKs below report that)
-    std::vector<std::string> read_lines(std::string const& path) {
-        std::vector<std::string> lines;
+    deren::utility::vessel::vector<deren::utility::vessel::string> read_lines(std::filesystem::path const& path) {
+        deren::utility::vessel::vector<deren::utility::vessel::string> lines;
         std::ifstream file(path);
-        CHECK_MSG(file.is_open(), path.c_str());
-        std::string line;
+        CHECK_MSG(file.is_open(), path.string().c_str());
+        deren::utility::vessel::string line;
         while (std::getline(file, line)) {
             lines.push_back(line);
         }
         return lines;
     }
 
-    std::string trim(std::string text) {
+    deren::utility::vessel::string trim(deren::utility::vessel::string text) {
         auto const not_space = [](uint8_t const c) { return c != ' ' && c != '\t' && c != '\r' && c != '\n'; };
         text.erase(text.begin(), std::find_if(text.begin(), text.end(), not_space));
         text.erase(std::find_if(text.rbegin(), text.rend(), not_space).base(), text.end());
@@ -52,13 +54,13 @@ namespace {
     /// Is @p text one of the `<source>:<entry>:<stage>:<output>` entries? Four non-empty fields, a .slang
     /// source and a .spv output - the SHAPE is the contract, so a line that merely mentions a shader (a
     /// comment, a log message) cannot pass for an entry.
-    bool is_entry(std::string const& text, std::string* const output = nullptr) {
-        std::vector<std::string> fields;
+    bool is_entry(deren::utility::vessel::string const& text, deren::utility::vessel::string* const output = nullptr) {
+        deren::utility::vessel::vector<deren::utility::vessel::string> fields;
         std::size_t start = 0;
         while (true) {
             std::size_t const colon = text.find(':', start);
-            fields.push_back(text.substr(start, colon == std::string::npos ? std::string::npos : colon - start));
-            if (colon == std::string::npos) {
+            fields.push_back(text.substr(start, colon == deren::utility::vessel::string::npos ? deren::utility::vessel::string::npos : colon - start));
+            if (colon == deren::utility::vessel::string::npos) {
                 break;
             }
             start = colon + 1;
@@ -79,9 +81,9 @@ namespace {
     }
 
     /// The whole of a file, or an empty string when it cannot be read (the CHECKs report that elsewhere).
-    std::string read_text(std::string const& path) {
-        std::string text;
-        for (std::string const& line : read_lines(path)) {
+    deren::utility::vessel::string read_text(std::filesystem::path const& path) {
+        deren::utility::vessel::string text;
+        for (deren::utility::vessel::string const& line : read_lines(path)) {
             text += line;
             text += '\n';
         }
@@ -90,9 +92,9 @@ namespace {
 
     /// Every entry in @p path that is a quoted PowerShell list element or a bare list line, i.e. both scripts'
     /// spellings, with the trailing comma/quote stripped.
-    std::set<std::string> entries_in_script(std::string const& path) {
-        std::set<std::string> entries;
-        for (std::string line : read_lines(path)) {
+    deren::utility::vessel::set<deren::utility::vessel::string> entries_in_script(std::filesystem::path const& path) {
+        deren::utility::vessel::set<deren::utility::vessel::string> entries;
+        for (deren::utility::vessel::string line : read_lines(path)) {
             line = trim(line);
             if (line.empty() || line[0] == '#') {
                 continue;
@@ -116,13 +118,13 @@ namespace {
 
     /// The entries of CMakeLists.txt's `set(VR_SLANG_SOURCES ...)` block: the block's own lines, from the
     /// `set(` to the closing `)`.
-    std::set<std::string> cmake_entries(std::string const& path) {
-        std::set<std::string> entries;
+    deren::utility::vessel::set<deren::utility::vessel::string> cmake_entries(std::filesystem::path const& path) {
+        deren::utility::vessel::set<deren::utility::vessel::string> entries;
         bool inside = false;
-        for (std::string line : read_lines(path)) {
-            std::string const text = trim(line);
+        for (deren::utility::vessel::string line : read_lines(path)) {
+            deren::utility::vessel::string const text = trim(line);
             if (!inside) {
-                if (text.find("set(VR_SLANG_SOURCES") != std::string::npos) {
+                if (text.find("set(VR_SLANG_SOURCES") != deren::utility::vessel::string::npos) {
                     inside = true;
                 }
                 continue;
@@ -139,17 +141,17 @@ namespace {
 
     /// The .spv names the runtime's app-side loader asks for, as `std::string_view`-style literals in
     /// chores.cpp (`load_shader(shaders_dir, "x.spv", ...)`, `register_shader("x.spv", ...)`).
-    std::set<std::string> loaded_spv_names(std::string const& path) {
-        std::set<std::string> names;
-        for (std::string const& line : read_lines(path)) {
+    deren::utility::vessel::set<deren::utility::vessel::string> loaded_spv_names(std::filesystem::path const& path) {
+        deren::utility::vessel::set<deren::utility::vessel::string> names;
+        for (deren::utility::vessel::string const& line : read_lines(path)) {
             for (std::string_view const marker : {".spv\"", ".spv\","}) {
                 std::size_t at = line.find(marker);
-                while (at != std::string::npos) {
+                while (at != deren::utility::vessel::string::npos) {
                     // walk back to the opening quote of the literal
                     std::size_t const open = line.rfind('"', at);
-                    if (open != std::string::npos) {
-                        std::string const name = line.substr(open + 1u, at + 4u - open - 1u);
-                        if (name.size() > 4u && name.find(".spv") != std::string::npos) {
+                    if (open != deren::utility::vessel::string::npos) {
+                        deren::utility::vessel::string const name = line.substr(open + 1u, at + 4u - open - 1u);
+                        if (name.size() > 4u && name.find(".spv") != deren::utility::vessel::string::npos) {
                             names.insert(name);
                         }
                     }
@@ -162,26 +164,26 @@ namespace {
 } // namespace
 
 int32_t main() {
-    std::string const root = std::string(VR_TEST_SOURCE_DIR);
+    deren::utility::vessel::string const root = deren::utility::vessel::string(VR_TEST_SOURCE_DIR);
 
-    std::set<std::string> const cmake = cmake_entries(root + "/CMakeLists.txt");
-    std::set<std::string> const ps1 = entries_in_script(root + "/source/shaders/compile_shaders.ps1");
-    std::set<std::string> const sh = entries_in_script(root + "/source/shaders/compile_shaders.sh");
+    deren::utility::vessel::set<deren::utility::vessel::string> const cmake = cmake_entries(root + "/CMakeLists.txt");
+    deren::utility::vessel::set<deren::utility::vessel::string> const ps1 = entries_in_script(root + "/source/shaders/compile_shaders.ps1");
+    deren::utility::vessel::set<deren::utility::vessel::string> const sh = entries_in_script(root + "/source/shaders/compile_shaders.sh");
 
     // ---- 1. The canonical list is non-empty and every source file it names exists ----
     CHECK_MSG(!cmake.empty(), "VR_SLANG_SOURCES parsed out of CMakeLists.txt");
-    for (std::string const& entry : cmake) {
-        std::string const source = entry.substr(0, entry.find(':'));
+    for (deren::utility::vessel::string const& entry : cmake) {
+        deren::utility::vessel::string const source = entry.substr(0, entry.find(':'));
         CHECK_MSG(std::filesystem::exists(root + "/source/shaders/" + source), entry.c_str());
     }
 
     // ---- 2. The two scripts compile EXACTLY the canonical list (this is the drift that was found) ----
-    auto const report_difference = [](char const* who, std::set<std::string> const& expected, std::set<std::string> const& actual) {
-        for (std::string const& entry : expected) {
-            CHECK_MSG(actual.contains(entry), (std::string(who) + " is missing " + entry).c_str());
+    auto const report_difference = [](char const* who, deren::utility::vessel::set<deren::utility::vessel::string> const& expected, deren::utility::vessel::set<deren::utility::vessel::string> const& actual) {
+        for (deren::utility::vessel::string const& entry : expected) {
+            CHECK_MSG(actual.contains(entry), (deren::utility::vessel::string(who) + " is missing " + entry).c_str());
         }
-        for (std::string const& entry : actual) {
-            CHECK_MSG(expected.contains(entry), (std::string(who) + " has an entry the build does not: " + entry).c_str());
+        for (deren::utility::vessel::string const& entry : actual) {
+            CHECK_MSG(expected.contains(entry), (deren::utility::vessel::string(who) + " has an entry the build does not: " + entry).c_str());
         }
     };
     report_difference("compile_shaders.ps1", cmake, ps1);
@@ -191,16 +193,16 @@ int32_t main() {
     // A mesh stage is a different stage type, so its output name is NEW: deleting one of these is how the
     // mesh path would stop being built without anything failing. Both directions are checked - the names
     // this renderer's mesh passes load, and any `mesh_main` a .slang file grows in the future.
-    std::set<std::string> outputs;
-    for (std::string const& entry : cmake) {
-        std::string output;
+    deren::utility::vessel::set<deren::utility::vessel::string> outputs;
+    for (deren::utility::vessel::string const& entry : cmake) {
+        deren::utility::vessel::string output;
         CHECK(is_entry(entry, &output));
         outputs.insert(output);
-        if (entry.find(":mesh_main:mesh:") != std::string::npos) {
-            CHECK_MSG(entry.find(".mesh.spv") != std::string::npos, entry.c_str());
+        if (entry.find(":mesh_main:mesh:") != deren::utility::vessel::string::npos) {
+            CHECK_MSG(entry.find(".mesh.spv") != deren::utility::vessel::string::npos, entry.c_str());
         }
     }
-    for (std::string const& required : {"shadow.mesh.spv", "pbr.mesh.spv", "heap_probe.mesh.spv"}) {
+    for (deren::utility::vessel::string const& required : {"shadow.mesh.spv", "pbr.mesh.spv", "heap_probe.mesh.spv"}) {
         CHECK_MSG(outputs.contains(required), required.c_str());
     }
     for (auto const& file : std::filesystem::recursive_directory_iterator(root + "/source/shaders")) {
@@ -208,16 +210,16 @@ int32_t main() {
             continue;
         }
         bool declares_mesh_entry = false;
-        for (std::string const& line : read_lines(file.path().string())) {
-            if (line.find("void mesh_main(") != std::string::npos) {
+        for (deren::utility::vessel::string const& line : read_lines(file.path().string())) {
+            if (line.find("void mesh_main(") != deren::utility::vessel::string::npos) {
                 declares_mesh_entry = true;
             }
         }
         if (!declares_mesh_entry) {
             continue;
         }
-        std::string const source = file.path().lexically_relative(std::filesystem::path(root + "/source/shaders")).generic_string();
-        std::size_t const entries_for_source = static_cast<std::size_t>(std::count_if(cmake.begin(), cmake.end(), [&source](std::string const& entry) {
+        deren::utility::vessel::string const source(file.path().lexically_relative(std::filesystem::path(root + "/source/shaders")).generic_string());
+        std::size_t const entries_for_source = static_cast<std::size_t>(std::count_if(cmake.begin(), cmake.end(), [&source](deren::utility::vessel::string const& entry) {
             return entry.rfind(source + ":mesh_main:mesh:", 0) == 0;
         }));
         CHECK_MSG(entries_for_source == 1u, ("declares mesh_main with no (or a duplicated) VR_SLANG_SOURCES entry: " + source).c_str());
@@ -227,7 +229,7 @@ int32_t main() {
     // The names chores.cpp hands to load_shader/register_shader are the ones the runtime answers, so one that
     // no rule produces is a shader that is silently empty at startup - which is what a renamed output looks
     // like from the app's side.
-    for (std::string const& name : loaded_spv_names(root + "/source/app/chores.cpp")) {
+    for (deren::utility::vessel::string const& name : loaded_spv_names(root + "/source/app/chores.cpp")) {
         CHECK_MSG(outputs.contains(name), ("chores.cpp loads a .spv no VR_SLANG_SOURCES entry produces: " + name).c_str());
     }
 
@@ -239,47 +241,47 @@ int32_t main() {
     // so the set of includes found in source/shaders/ must be a SUBSET of it (a leaf's own include graph is what the
     // build cannot see).
     {
-        std::set<std::string> listed;
+        deren::utility::vessel::set<deren::utility::vessel::string> listed;
         // The CMake variable's spelling, as a named marker rather than a hand-counted offset: the first version of
         // this skipped 18 characters of a 19-character marker, so every name in the set carried a leading '/' and
         // the check reported all eight includes as missing. A test whose own parser is off by one is a test that
         // says "the build is wrong" about the build being right.
         constexpr std::string_view include_marker = "VR_SHADER_SRC_DIR}/";
-        for (std::string const& line : read_lines(root + "/CMakeLists.txt")) {
+        for (deren::utility::vessel::string const& line : read_lines(root + "/CMakeLists.txt")) {
             std::size_t const marker = line.find(include_marker);
-            if (marker == std::string::npos) {
+            if (marker == deren::utility::vessel::string::npos) {
                 continue;
             }
-            std::string const name = line.substr(marker + include_marker.size());
+            deren::utility::vessel::string const name = line.substr(marker + include_marker.size());
             std::size_t const end = name.find('"');
-            if (end != std::string::npos) {
+            if (end != deren::utility::vessel::string::npos) {
                 listed.insert(name.substr(0, end));
             }
         }
         CHECK_MSG(listed.contains("common/heap_access.slang"), "VR_SHADER_INCLUDES lists common/heap_access.slang");
-        std::set<std::string> found;
+        deren::utility::vessel::set<deren::utility::vessel::string> found;
         for (auto const& file : std::filesystem::recursive_directory_iterator(root + "/source/shaders")) {
             if (!file.is_regular_file()) {
                 continue;
             }
-            std::string const extension = file.path().extension().string();
+            auto const extension = file.path().extension().string();
             if (extension != ".slang" && extension != ".glsl") {
                 continue;
             }
-            for (std::string const& line : read_lines(file.path().string())) {
+            for (deren::utility::vessel::string const& line : read_lines(file.path().string())) {
                 std::size_t const include = line.find("#include \"");
-                if (include == std::string::npos) {
+                if (include == deren::utility::vessel::string::npos) {
                     continue;
                 }
-                std::string const name = line.substr(include + 10u);
+                deren::utility::vessel::string const name = line.substr(include + 10u);
                 std::size_t const end = name.find('"');
-                if (end != std::string::npos) {
+                if (end != deren::utility::vessel::string::npos) {
                     found.insert(name.substr(0, end));
                 }
             }
         }
         CHECK_MSG(!found.empty(), "source/shaders/ declares #includes to check");
-        for (std::string const& include : found) {
+        for (deren::utility::vessel::string const& include : found) {
             // ... and the include exists, which a rename would otherwise leave as a compile error in the build
             // and (worse) as a silently skipped file in this test's own scan
             CHECK_MSG(std::filesystem::exists(root + "/source/shaders/" + include), include.c_str());
@@ -298,39 +300,39 @@ int32_t main() {
     // compares. The rule is derived rather than tabulated - a pass source names the .spv it loads, the canonical list
     // names the .slang that produces it, and that source is the one that must declare the lanes.
     {
-        std::vector<std::pair<std::string, std::string>> source_of; // .spv -> .slang
-        for (std::string const& entry : cmake) {
+        deren::utility::vessel::vector<std::pair<deren::utility::vessel::string, deren::utility::vessel::string>> source_of; // .spv -> .slang
+        for (deren::utility::vessel::string const& entry : cmake) {
             std::size_t const first = entry.find(':');
             std::size_t const last = entry.rfind(':');
-            if (first == std::string::npos || last == std::string::npos || first == last) {
+            if (first == deren::utility::vessel::string::npos || last == deren::utility::vessel::string::npos || first == last) {
                 continue;
             }
             source_of.emplace_back(entry.substr(last + 1u), entry.substr(0u, first));
         }
         CHECK_MSG(!source_of.empty(), "the canonical list gives a .slang source for every .spv");
 
-        std::set<std::string> lane_sources;
+        deren::utility::vessel::set<deren::utility::vessel::string> lane_sources;
         for (auto const& file : std::filesystem::directory_iterator(root + "/source/engine/pass")) {
             if (!file.is_regular_file() || file.path().extension() != ".cpp") {
                 continue;
             }
-            std::string const pass_text = read_text(file.path().string());
-            if (pass_text.find("push_block(") == std::string::npos) {
+            deren::utility::vessel::string const pass_text = read_text(file.path().string());
+            if (pass_text.find("push_block(") == deren::utility::vessel::string::npos) {
                 continue; // a pass that pushes nothing has no lanes to declare
             }
-            for (std::string const& output : loaded_spv_names(file.path().string())) {
+            for (deren::utility::vessel::string const& output : loaded_spv_names(file.path().string())) {
                 for (auto const& [name, source] : source_of) {
                     if (name != output) {
                         continue;
                     }
-                    std::string const source_path = root + "/source/shaders/" + source;
-                    std::string const source_text = read_text(source_path);
-                    if (source_text.find("[[vk::push_constant]]") == std::string::npos) {
+                    deren::utility::vessel::string const source_path = root + "/source/shaders/" + source;
+                    deren::utility::vessel::string const source_text = read_text(source_path);
+                    if (source_text.find("[[vk::push_constant]]") == deren::utility::vessel::string::npos) {
                         continue; // a stage of the pass that declares no block at all
                     }
                     lane_sources.insert(source);
-                    for (std::string const& lane : {"frame_slot", "image_index"}) {
-                        CHECK_MSG(source_text.find(lane) != std::string::npos,
+                    for (deren::utility::vessel::string const& lane : {"frame_slot", "image_index"}) {
+                        CHECK_MSG(source_text.find(lane) != deren::utility::vessel::string::npos,
                                   (source + " is pushed by a pass that appends index lanes but does not declare " + lane)
                                       .c_str());
                     }
@@ -350,34 +352,34 @@ int32_t main() {
         if (!file.is_regular_file()) {
             continue;
         }
-        std::string const extension = file.path().extension().string();
+        auto const extension = file.path().extension().string();
         CHECK_MSG(extension != ".vert" && extension != ".frag" && extension != ".comp" && extension != ".mesh" && extension != ".glsl",
                   ("a GLSL source is in the runtime shader directory: " + file.path().filename().string()).c_str());
     }
 
-    for (std::string const& path : {root + "/CMakeLists.txt", root + "/source/shaders/compile_shaders.ps1", root + "/source/shaders/compile_shaders.sh"}) {
-        for (std::string const& raw : read_lines(path)) {
-            std::string const line = trim(raw);
+    for (deren::utility::vessel::string const& path : {root + "/CMakeLists.txt", root + "/source/shaders/compile_shaders.ps1", root + "/source/shaders/compile_shaders.sh"}) {
+        for (deren::utility::vessel::string const& raw : read_lines(path)) {
+            deren::utility::vessel::string const line = trim(raw);
             if (!line.empty() && line.front() != '#') {
-                CHECK_MSG(line.find("-allow-glsl") == std::string::npos, ("shader compilation still enables GLSL compatibility: " + path).c_str());
+                CHECK_MSG(line.find("-allow-glsl") == deren::utility::vessel::string::npos, ("shader compilation still enables GLSL compatibility: " + path).c_str());
             }
         }
     }
 
     // The forward path must not feed undefined control lanes into shared lighting.
-    std::string forward;
-    for (auto const& line : read_lines(std::string(VR_TEST_SOURCE_DIR) + "/source/shaders/scene/pbr.slang"))
+    deren::utility::vessel::string forward;
+    for (auto const& line : read_lines(deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/shaders/scene/pbr.slang"))
         forward += line + "\n";
-    CHECK(forward.find("si.shadow_override = -1.0;") != std::string::npos);
-    CHECK(forward.find("si.punctual_replaced = 0.0;") != std::string::npos);
+    CHECK(forward.find("si.shadow_override = -1.0;") != deren::utility::vessel::string::npos);
+    CHECK(forward.find("si.punctual_replaced = 0.0;") != deren::utility::vessel::string::npos);
     // The shared light-count lane is a float on the host and in the compute prefix. Reading its
     // bits as uint turns 32 lights into 0x42000000 and makes the traversal visit inactive slots.
-    auto const shading = read_text(std::string(VR_TEST_SOURCE_DIR) + "/source/shaders/lighting/shading.slang");
-    CHECK(shading.find("float light_count;") != std::string::npos);
+    auto const shading = read_text(deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/shaders/lighting/shading.slang");
+    CHECK(shading.find("float light_count;") != deren::utility::vessel::string::npos);
     // The host/shader validity lane must gate the history texture fetch, not only its image layout.
     auto const temporal = read_text(root + "/source/shaders/lighting/megalights_temporal.slang");
-    CHECK(temporal.find("pc.extents.w > 0.5") != std::string::npos);
+    CHECK(temporal.find("pc.extents.w > 0.5") != deren::utility::vessel::string::npos);
     auto const temporal_host = read_text(root + "/source/engine/pass/megalights_temporal.cpp");
-    CHECK(temporal_host.find("this->pass_frame.history_valid ? 1.0f : 0.0f") != std::string::npos);
+    CHECK(temporal_host.find("this->pass_frame.history_valid ? 1.0f : 0.0f") != deren::utility::vessel::string::npos);
     return deren::vk_test::finish("test_shader_sources");
 }

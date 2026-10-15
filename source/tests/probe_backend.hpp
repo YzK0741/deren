@@ -40,5 +40,6 @@ namespace deren::vk_test {
     [[nodiscard]] deren::promise::rhi::image const* probe_heap_image(deren::promise::rhi::api_core& core, std::uint64_t offset);
     void probe_buffer_allocation_fill(deren::promise::rhi::api_core& core, std::uint8_t value);
     void probe_resource_failure(deren::promise::rhi::api_core& core, std::int32_t successful_creations);
+    void probe_heap_image_failure(deren::promise::rhi::api_core& core, std::int32_t successful_writes, bool persistent = false);
     void probe_present_completion(deren::promise::rhi::api_core& core, std::shared_future<deren::promise::rhi::error> completion);
 } // namespace deren::vk_test

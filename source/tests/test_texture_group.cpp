@@ -9,6 +9,7 @@
 #include <string_view>
 #include <vector>
 #include <vulkan/vulkan.h>
+import deren.utility.shared;
 import deren.promise.rhi;
 import deren.engine.backend_loader;
 namespace rhi = deren::promise::rhi;
@@ -68,7 +69,7 @@ void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, bool us
     CHECK(input.good());
     if (!input.good())
         return;
-    std::vector<std::byte> code(static_cast<std::size_t>(input.tellg()));
+    deren::utility::vessel::vector<std::byte> code(static_cast<std::size_t>(input.tellg()));
     input.seekg(0);
     input.read(reinterpret_cast<char*>(code.data()), static_cast<std::streamsize>(code.size()));
     rhi::pipeline_desc desc{};
@@ -180,10 +181,10 @@ void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, bool us
     CHECK(new_group); // new records/descriptors must not overwrite the delayed groups
     gate.release();
     CHECK(lifetime_a.expired() && lifetime_b.expired());
-    std::array<std::uint32_t, 15> actual{};
+    deren::utility::vessel::array<std::uint32_t, 15> actual{};
     std::memcpy(actual.data(), output->mapped().data(), 60);
-    std::array<std::uint32_t, 15> const expected{0x8001, 0xff, 0xff0000, 0x8001, 0xff00, 0xff00,
-                                                 0, 0, 0, 0, 0, 0, 0x8001, 0xff, 0xff0000};
+    deren::utility::vessel::array<std::uint32_t, 15> const expected{0x8001, 0xff, 0xff0000, 0x8001, 0xff00, 0xff00,
+                                                                    0, 0, 0, 0, 0, 0, 0x8001, 0xff, 0xff0000};
     CHECK(actual == expected);
     if (actual != expected)
         for (std::size_t i = 0; i < actual.size(); ++i)

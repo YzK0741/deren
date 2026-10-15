@@ -15,6 +15,7 @@ module;
 #include <string>
 
 module deren.engine.pass.deferred;
+import deren.utility.shared;
 
 import deren.promise.rhi;
 import deren.engine.pipelines; // build_deferred: the pipeline this pass owns
@@ -82,7 +83,7 @@ namespace deren::engine::pass {
         }
         // The blend state is the stage's own: the attachment is LOADed and the lighting ADDS to the emissive the
         // G-buffer pass wrote.
-        std::array<rhi::blend_mode, 1> const blend = {rhi::blend_mode::additive};
+        deren::utility::vessel::array<rhi::blend_mode, 1> const blend = {rhi::blend_mode::additive};
         auto built = pipelines::build_deferred(*context.face,
                                                std::span<rhi::blend_mode const>(blend), vertex_spirv, fragment_spirv);
         if (!built) {
@@ -149,7 +150,7 @@ namespace deren::engine::pass {
         // renderer - the frame's ordering rule about images the G-buffer pass wrote (see deferred_frame's note).
         // THE RENDERING SCOPE RIDES THE CONTRACT NOW (abi 20): one colour attachment, LOAD + STORE (what the raw
         // helper spelled), no depth - the whole scope this pass opens.
-        std::array<rhi::color_attachment, 1> const colors = {
+        deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {
             rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::load, .store = rhi::store_op::store, .clear = {}},
         };
         rhi::rendering_info const rendering_info{

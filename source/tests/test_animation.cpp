@@ -20,6 +20,7 @@
 #include <unordered_map>
 #include <vector>
 
+import deren.utility.shared;
 import deren.engine.animation;
 import deren.engine.animation.mmd_motion;
 import deren.engine.scene_tree;
@@ -38,51 +39,51 @@ namespace {
         }
     };
     struct test_attribute {
-        std::vector<std::uint8_t> data;
+        deren::utility::vessel::vector<std::uint8_t> data;
     };
     struct test_target {
-        std::unordered_map<std::string, test_attribute> attributes;
+        deren::utility::vessel::unordered_map<deren::utility::vessel::string, test_attribute> attributes;
     };
     struct test_prim {
-        std::unordered_map<std::string, test_attribute> vertex;
-        std::vector<test_target> targets;
+        deren::utility::vessel::unordered_map<deren::utility::vessel::string, test_attribute> vertex;
+        deren::utility::vessel::vector<test_target> targets;
     };
     struct test_mesh {
-        std::vector<test_prim> primitives;
-        std::vector<float> weights;
+        deren::utility::vessel::vector<test_prim> primitives;
+        deren::utility::vessel::vector<float> weights;
     };
     struct test_node {
         glm::vec3 translation{0.0f};
         glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
         glm::vec3 scale{1.0f};
         std::optional<std::size_t> skin_index;
-        std::vector<test_mesh> meshes;
-        std::optional<std::vector<float>> weights;
+        deren::utility::vessel::vector<test_mesh> meshes;
+        std::optional<deren::utility::vessel::vector<float>> weights;
     };
     struct test_sampler {
-        std::vector<float> times, values;
+        deren::utility::vessel::vector<float> times, values;
         std::size_t per_key;
         deren::engine::animation::interpolation interpolation;
     };
     struct test_clip {
-        std::string name;
-        std::vector<test_sampler> samplers;
-        std::vector<channel> channels;
+        deren::utility::vessel::string name;
+        deren::utility::vessel::vector<test_sampler> samplers;
+        deren::utility::vessel::vector<channel> channels;
     };
     struct test_skin {
-        std::string name;
-        std::vector<std::size_t> joints;
-        std::vector<glm::mat4> inverse_bind_matrices;
+        deren::utility::vessel::string name;
+        deren::utility::vessel::vector<std::size_t> joints;
+        deren::utility::vessel::vector<glm::mat4> inverse_bind_matrices;
     };
     struct test_source {
-        std::vector<test_clip> animations;
-        std::vector<test_skin> skins;
-        std::unordered_map<std::size_t, test_node const*> node_by_source;
+        deren::utility::vessel::vector<test_clip> animations;
+        deren::utility::vessel::vector<test_skin> skins;
+        deren::utility::vessel::unordered_map<std::size_t, test_node const*> node_by_source;
     };
     struct controller_host {
         deren::engine::scene_tree::scene tree;
-        std::array<std::array<float, 64>, 2> scratch{};
-        std::vector<glm::mat4> matrices;
+        deren::utility::vessel::array<deren::utility::vessel::array<float, 64>, 2> scratch{};
+        deren::utility::vessel::vector<glm::mat4> matrices;
         std::size_t slot = 0;
         backend callbacks() {
             return {.scene = &tree,
@@ -337,8 +338,8 @@ namespace {
     // point) and the 9-byte property-keyframe header that precedes the IK state list.
 
     /** @brief a minimal well-formed VMD 0002 motion, built byte by byte */
-    [[nodiscard]] std::vector<std::uint8_t> build_vmd() {
-        std::vector<std::uint8_t> d;
+    [[nodiscard]] deren::utility::vessel::vector<std::uint8_t> build_vmd() {
+        deren::utility::vessel::vector<std::uint8_t> d;
         auto push = [&d](std::size_t const count, std::uint8_t const value) {
             for (std::size_t i = 0; i < count; ++i) {
                 d.push_back(value);
@@ -366,7 +367,7 @@ namespace {
         // MMD's default linear curve on all four channels, at the offsets the format uses; the
         // physics flags are decoys that a uniform-stride reader would mistake for Z and R.
         auto interp_block = [&](std::uint8_t const physics_lo, std::uint8_t const physics_hi) {
-            std::vector<std::uint8_t> block(64, 0);
+            deren::utility::vessel::vector<std::uint8_t> block(64, 0);
             block[0] = 20;
             block[4] = 20;
             block[8] = 107;
@@ -506,23 +507,23 @@ namespace {
     }
 
     void test_mmd_motion_rejects_bad_input() {
-        std::vector<std::uint8_t> const valid = build_vmd();
-        CHECK(!parse_mmd_motion(std::vector<std::uint8_t>{}).has_value());
+        deren::utility::vessel::vector<std::uint8_t> const valid = build_vmd();
+        CHECK(!parse_mmd_motion(deren::utility::vessel::vector<std::uint8_t>{}).has_value());
 
-        std::vector<std::uint8_t> wrong_signature = valid;
+        deren::utility::vessel::vector<std::uint8_t> wrong_signature = valid;
         wrong_signature[0] = 'X';
         CHECK(!parse_mmd_motion(wrong_signature).has_value());
 
         // Every prefix must either be rejected or parse cleanly; a prefix that is accepted with
         // bytes left over would mean the section walk had silently gone wrong.
         for (std::size_t cut = 0; cut < valid.size(); cut += 7) {
-            std::vector<std::uint8_t> const truncated(valid.begin(), valid.begin() + static_cast<std::ptrdiff_t>(cut));
+            deren::utility::vessel::vector<std::uint8_t> const truncated(valid.begin(), valid.begin() + static_cast<std::ptrdiff_t>(cut));
             std::optional<mmd_motion> const r = parse_mmd_motion(truncated);
             CHECK(!r.has_value() || r->unparsed_bytes == 0);
         }
 
         // trailing bytes are reported rather than ignored, so a malformed file cannot look clean
-        std::vector<std::uint8_t> padded = valid;
+        deren::utility::vessel::vector<std::uint8_t> padded = valid;
         padded.push_back(0);
         padded.push_back(0);
         padded.push_back(0);
@@ -542,7 +543,7 @@ namespace {
         if (_dupenv_s(&value, &value_size, "VR_MMD_MOTION") != 0) {
             value = nullptr;
         }
-        std::string const value_text = value == nullptr ? std::string{} : std::string(value);
+        deren::utility::vessel::string const value_text = value == nullptr ? deren::utility::vessel::string{} : deren::utility::vessel::string(value);
         std::free(value);
         char const* const path = value_text.empty() ? nullptr : value_text.c_str();
 #else
@@ -576,7 +577,7 @@ namespace {
         // Every alias entry must match a bone in the real motion. This is the check that catches a
         // mistyped byte in the alias table: the synthetic test only compares the table with a file
         // built from the same table, so it would agree with itself.
-        std::vector<std::string> aliased;
+        deren::utility::vessel::vector<deren::utility::vessel::string> aliased;
         aliased.reserve(mmd_bone_aliases().size());
         for (mmd_bone_alias const& alias : mmd_bone_aliases()) {
             aliased.emplace_back(alias.joint_name);
@@ -591,8 +592,8 @@ namespace {
         // 右足ＩＫ in Shift-JIS. The byte right after the first escape is 'E', itself a literal hex
         // digit, so without a separator the two merge into the single escape 0x89E - which is
         // exactly what a retarget table generated from this output would then contain.
-        std::string const raw("\x89\x45\x91\xab\x82\x68\x82\x6a", 8);
-        std::string const escaped = escape_mmd_name(raw);
+        deren::utility::vessel::string const raw("\x89\x45\x91\xab\x82\x68\x82\x6a", 8);
+        auto const escaped = escape_mmd_name(raw);
         CHECK(escaped == "\\x89\"\"E\\x91\\xab\\x82h\\x82j");
 
         // The invariant behind that one case: no escape may be followed by a literal hex digit.
@@ -608,8 +609,8 @@ namespace {
     }
 
     /** @brief a VMD holding one keyframe per given bone name and nothing else */
-    [[nodiscard]] std::vector<std::uint8_t> build_vmd_named(std::vector<std::string> const& names) {
-        std::vector<std::uint8_t> d;
+    [[nodiscard]] deren::utility::vessel::vector<std::uint8_t> build_vmd_named(deren::utility::vessel::vector<deren::utility::vessel::string> const& names) {
+        deren::utility::vessel::vector<std::uint8_t> d;
         auto text = [&d](std::string_view const s, std::size_t const width) {
             for (char const c : s) {
                 d.push_back(static_cast<std::uint8_t>(c));
@@ -659,10 +660,10 @@ namespace {
 
     void test_mmd_retarget_resolves_by_alias() {
         // センター, 頭, 首 - the third one deliberately has no joint to land on
-        std::vector<std::uint8_t> const bytes = build_vmd_named({
-            std::string("\x83\x5a\x83\x93\x83\x5e\x81\x5b", 8), // センター
-            std::string("\x93\xaa", 2),                         // 頭
-            std::string("\x8e\xf1", 2),                         // 首
+        deren::utility::vessel::vector<std::uint8_t> const bytes = build_vmd_named({
+            deren::utility::vessel::string("\x83\x5a\x83\x93\x83\x5e\x81\x5b", 8), // センター
+            deren::utility::vessel::string("\x93\xaa", 2),                         // 頭
+            deren::utility::vessel::string("\x8e\xf1", 2),                         // 首
         });
         std::optional<mmd_motion> const motion = parse_mmd_motion(bytes);
         CHECK(motion.has_value());
@@ -670,7 +671,7 @@ namespace {
             return;
         }
         // order matters: the joint index is the position in this list, not the alias table's
-        std::vector<std::string> const joints = {"head", "center"};
+        deren::utility::vessel::vector<deren::utility::vessel::string> const joints = {"head", "center"};
         mmd_retarget const retarget = build_mmd_retarget(*motion, joints);
 
         CHECK(retarget.joint_of_bone.size() == 3);
@@ -691,8 +692,8 @@ namespace {
     }
     void test_mmd_bake_feeds_the_controller() {
         // センター twice: frame 0 at x=0 and frame 30 at x=1, so the bake has a span to sample
-        std::string const centre("\x83\x5a\x83\x93\x83\x5e\x81\x5b", 8);
-        std::vector<std::uint8_t> const bytes = build_vmd_named({centre, centre});
+        deren::utility::vessel::string const centre("\x83\x5a\x83\x93\x83\x5e\x81\x5b", 8);
+        deren::utility::vessel::vector<std::uint8_t> const bytes = build_vmd_named({centre, centre});
         std::optional<mmd_motion> const motion = parse_mmd_motion(bytes);
         CHECK(motion.has_value());
         if (!motion.has_value()) {

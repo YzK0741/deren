@@ -10,6 +10,7 @@ module;
 #include <vector>
 
 module deren.engine.shadow_fit;
+import deren.utility.shared;
 
 import deren.utility;
 
@@ -22,10 +23,10 @@ namespace deren::engine::shadow_fit {
         }
     } // namespace
 
-    std::vector<std::pair<glm::vec3, glm::vec3>> fit_casters(std::span<std::pair<glm::vec3, glm::vec3> const> const world_boxes, glm::vec3 const light_dir, bool& unbounded) {
+    deren::utility::vessel::vector<std::pair<glm::vec3, glm::vec3>> fit_casters(std::span<std::pair<glm::vec3, glm::vec3> const> const world_boxes, glm::vec3 const light_dir, bool& unbounded) {
         unbounded = false;
         glm::mat4 const rotation = light_rotation_of(glm::normalize(light_dir));
-        std::vector<std::pair<glm::vec3, glm::vec3>> boxes;
+        deren::utility::vessel::vector<std::pair<glm::vec3, glm::vec3>> boxes;
         boxes.reserve(world_boxes.size());
         for (auto const& [world_min, world_max] : world_boxes) {
             glm::vec3 caster_min(std::numeric_limits<float>::max());
@@ -115,12 +116,12 @@ namespace deren::engine::shadow_fit {
             fit_proj[3][2] = -(cascade_far * cascade_near) / (cascade_far - cascade_near);
             glm::mat4 const inverse_view_proj = glm::inverse(fit_proj * params.view);
             glm::mat4 const inverse_fit_proj = glm::inverse(fit_proj);
-            std::array<glm::vec3, 8> view_corners{};
+            deren::utility::vessel::array<glm::vec3, 8> view_corners{};
             glm::vec3 center_view(0.0f);
 
             // the sub-frustum's corners, each extended up-light by the caster reach: a caster that far
             // up-sun can still throw its shadow into this cascade
-            std::array<glm::vec3, 16> points = {};
+            deren::utility::vessel::array<glm::vec3, 16> points = {};
             std::size_t count = 0;
             for (int32_t zi = 0; zi < 2; ++zi) {
                 for (int32_t yi = 0; yi < 2; ++yi) {

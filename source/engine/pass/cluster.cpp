@@ -18,6 +18,7 @@ module;
 #include <vector>
 
 module deren.engine.pass.cluster;
+import deren.utility.shared;
 
 import deren.promise.rhi;      // the record series (abi 20): the dispatch and the two buffer barriers
 import deren.engine.pipelines; // build_cluster: the compute pipeline this pass owns
@@ -98,7 +99,7 @@ namespace deren::engine::pass {
     }
 
     void cluster_pass::describe_resources(render_resource::instances::resource_context const&,
-                                          std::vector<render_resource::instances::request>& requests) const {
+                                          deren::utility::vessel::vector<render_resource::instances::request>& requests) const {
         namespace managed = render_resource::instances;
         managed::request counts;
         counts.id = render_resource::resource_id::cluster_counts;
@@ -167,7 +168,7 @@ namespace deren::engine::pass {
         // own ordering rather than something the host has to remember on the pass's behalf.
         // THE ROLES RIDE THE CONTRACT NOW (abi 20): (shader_write, shader_read) is the pair the raw masks spelled
         // (COMPUTE_SHADER/SHADER_WRITE -> the shader stages/SHADER_READ), and the batch is the one call.
-        std::array<rhi::buffer_barrier, 2> const barriers = {
+        deren::utility::vessel::array<rhi::buffer_barrier, 2> const barriers = {
             rhi::buffer_barrier{.resource = counts, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::shader_read, .offset = 0, .size = 0},
             rhi::buffer_barrier{.resource = indices, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::shader_read, .offset = 0, .size = 0},
         };

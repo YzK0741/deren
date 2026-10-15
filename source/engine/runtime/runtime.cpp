@@ -2,7 +2,8 @@ module;
 
 #include <GLFW/glfw3.h>
 #include <algorithm> // std::min in the resource publication
-#include <bit>       // std::bit_cast for the caster world-matrix hash
+#include <array>
+#include <bit> // std::bit_cast for the caster world-matrix hash
 #include <chrono>
 #include <cstdlib>
 #include <cstring> // std::memcpy, for composing a pass's push block
@@ -21,6 +22,7 @@ module;
 // already has (the trap the plugin's own file records).
 
 module deren.engine.runtime;
+import deren.utility.shared;
 
 import deren.promise.gui;
 
@@ -28,18 +30,13 @@ import deren.engine.profiling;
 import deren.engine.pipelines;
 import deren.engine.render_resource;
 import deren.engine.render_resource.shared;
+import deren.engine.pass.buffer_storage;
 
 import deren.utility;
 import deren.engine.frame_constants; // one frame's shared constants (see update_frame_constants)
 import deren.engine.pipelines;       // make_graphics_pipeline: the contract factory the named pipelines build through
 import deren.engine.meshlet;         // the meshlet split (docs/mesh_shaders.md step 3): pure CPU, built at upload
 import deren.engine.gui_loader;      // load_gui: resolves deren_gui_<api>.dll by name (plan X2)
-
-// Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
-// init_pmr() returns the same process-wide singleton no matter which TU calls it first, so
-// main.cpp's keep-alive and this one coexist safely. The reference itself is never read; it
-// only forces the (dynamic) initialization before any pmr container in this TU is constructed.
-[[maybe_unused]] static auto& pmr = deren::utility::init_pmr(); // NOLINT(keep-alive)
 
 namespace deren::engine {
     // ---- runtime_detail::graphics_queue_family_of: ONE QUESTION TO THE BACKEND -------------------------
@@ -117,7 +114,7 @@ namespace deren::engine {
             return; // no frame is in flight: there is no recording buffer to open an instance on
         }
         if (this->gbuffer_pass_active()) {
-            std::array<rhi::color_attachment, deren::engine::gbuffer_pass_attachment_count> gbuffer_attachments = {};
+            deren::utility::vessel::array<rhi::color_attachment, deren::engine::gbuffer_pass_attachment_count> gbuffer_attachments = {};
             // THE G-BUFFER CLUSTER IS THE ENGINE'S OWN (③-D/E A1.4): every view below is the CONTRACT
             // view, and the depth is the engine's `depth`-ROLE image.
             for (uint32_t target = 0; target < deren::engine::render_layout::gbuffer_target_count; ++target) {
@@ -172,7 +169,7 @@ namespace deren::engine {
         rhi::image_view* const hdr_view = image_index < rhi::max_swapchain_images && static_cast<bool>(this->hdr_image_views[image_index])
                                               ? this->hdr_image_views[image_index].get()
                                               : nullptr;
-        std::array<rhi::color_attachment, 1> const colors = {
+        deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {
             rhi::color_attachment{.view = hdr_view,
                                   .load = rhi::load_op::clear, // make_color_attachment_info's loadOp
                                   .store = rhi::store_op::store,
@@ -462,7 +459,7 @@ namespace deren::engine {
         // no stage (get_stage_info answers not_ready for it), hence the - 1.
         uint32_t const intervals = std::min(stages - 1, static_cast<uint32_t>(gpu_timing_labels.size()));
         std::uint32_t measured = 0;
-        std::array<double, gpu_mark_count - 1u> sample{};
+        deren::utility::vessel::array<double, gpu_mark_count - 1u> sample{};
         for (uint32_t interval = 0; interval < intervals; ++interval) {
             std::uint64_t duration_ns = 0;
             if (profiler.get_stage_info(interval, nullptr, &duration_ns) != rhi::error::ok) {
@@ -499,27 +496,27 @@ namespace deren::engine {
         // window complete: report the means (the label keeps reading the running mean, so this only
         // snapshots and resets) and start over
         double total = 0.0;
-        std::string report = std::format("gpu pass timings (avg of {} frames):", GPU_TIMING_WINDOW);
+        deren::utility::vessel::string report = deren::utility::vessel::format("gpu pass timings (avg of {} frames):", GPU_TIMING_WINDOW);
         // The OVERLAY line is built here as well, and deliberately not every frame: every value is a
         // fixed-width field, because a label whose text width changes re-wraps against the panel edge
         // and the whole overlay appears to twitch (the numbers of a live running mean change in width
         // frame by frame: 0.25 -> 10.25). Fixed fields + a report that changes once per window make
         // the panel layout stable between updates.
-        std::string label = std::format("gpu ({}f):", GPU_TIMING_WINDOW);
+        deren::utility::vessel::string label = deren::utility::vessel::format("gpu ({}f):", GPU_TIMING_WINDOW);
         for (uint32_t interval = 0; interval < intervals; ++interval) {
             double const mean = this->gpu_timing_sum[interval] / static_cast<double>(GPU_TIMING_WINDOW);
-            report += std::format(" {} {:.2f} ms |", gpu_timing_labels[interval].name, mean);
-            label += std::format("{} {:>5.2f}", gpu_timing_labels[interval].new_line ? "\n     " : " |", mean);
+            report += deren::utility::vessel::format(" {} {:.2f} ms |", gpu_timing_labels[interval].name, mean);
+            label += deren::utility::vessel::format("{} {:>5.2f}", gpu_timing_labels[interval].new_line ? "\n     " : " |", mean);
             total += mean; // GPU intervals have no sub-phases: every mark interval counts once
             this->gpu_timing_sum[interval] = 0.0;
         }
         this->gpu_timing_window_frames = 0;
-        report += std::format(" total {:.2f} ms", total);
-        this->gpu_timing_report_label = label + std::format("\n     total {:>5.2f} ms", total);
+        report += deren::utility::vessel::format(" total {:.2f} ms", total);
+        this->gpu_timing_report_label = label + deren::utility::vessel::format("\n     total {:>5.2f} ms", total);
         deren::utility::log("{}", report);
     }
 
-    std::string runtime::gpu_timing_summary() const {
+    deren::utility::vessel::string runtime::gpu_timing_summary() const {
         if (!this->gpu_timings_enabled) {
             return "gpu timings: off";
         }
@@ -575,9 +572,9 @@ namespace deren::engine {
         return *this->debug_overlay;
     }
 
-    std::expected<void, std::string> runtime::make_pipeline(std::string_view pipeline_name, std::span<uint8_t const> fragment_shader_code,
-                                                            std::span<uint8_t const> const mesh_vertex_shader_code, std::span<uint8_t const> const meshlet_shader_code) {
-        using fail = std::unexpected<std::string>;
+    std::expected<void, deren::utility::vessel::string> runtime::make_pipeline(std::string_view pipeline_name, std::span<uint8_t const> fragment_shader_code,
+                                                                               std::span<uint8_t const> const mesh_vertex_shader_code, std::span<uint8_t const> const meshlet_shader_code) {
+        using fail = std::unexpected<deren::utility::vessel::string>;
         // ---- THE VERTEX FORM IS GONE (docs/mesh_shaders.md step 4): a named geometry pipeline is built from a MESH
         // stage, so the mesh module is REQUIRED and its absence or refusal is an error - there is no vertex pipeline
         // left to be a complete answer. The meshlet form is optional and preferred when it exists.
@@ -587,11 +584,11 @@ namespace deren::engine {
             // (recording worker) must never observe a half-inserted map / name table
             std::unique_lock const lock(this->access_mutex);
             if (this->mesh_pipelines.contains(pipeline_name)) {
-                return fail(std::string("pipeline '") + std::string(pipeline_name) + "' already exists");
+                return fail(deren::utility::vessel::string("pipeline '") + deren::utility::vessel::string(pipeline_name) + "' already exists");
             }
         }
         if (!want_mesh) {
-            return fail(std::string("pipeline '") + std::string(pipeline_name) + "' has no mesh stage to build from, and its vertex form is gone (docs/mesh_shaders.md step 4)");
+            return fail(deren::utility::vessel::string("pipeline '") + deren::utility::vessel::string(pipeline_name) + "' has no mesh stage to build from, and its vertex form is gone (docs/mesh_shaders.md step 4)");
         }
         // GPU pipeline creation is expensive and touches no shared registry state: build it
         // OUTSIDE the lock so a reader is never blocked by shader compilation.
@@ -601,13 +598,13 @@ namespace deren::engine {
         // exactly what a caller that is not the runtime (a pass, whose create step has a device and its own
         // layout) cannot do. The four facts are read here instead, and they are the ones that entry point used,
         // so this is a re-expression: same layout, same formats, same single-sampled pipeline.
-        std::array<rhi::image_format, 1> const color_formats = {this->swap_chain_image_format};
+        deren::utility::vessel::array<rhi::image_format, 1> const color_formats = {this->swap_chain_image_format};
         // ... AND THE BLEND STATE, which the old entry point got from the convenience overload: the FORWARD
         // pipelines' convention is src-alpha blending (alpha is coverage, and an opaque draw's alpha of one
         // reduces the blend math to the source colour), while the span-based form's default is "overwrite".
         // Omitting it is not a no-op - the gate caught it as a changed scenario, and this is why the conversion
         // is a re-expression rather than a rewrite.
-        std::array<rhi::blend_mode, 1> const blend_attachments = {rhi::blend_mode::alpha};
+        deren::utility::vessel::array<rhi::blend_mode, 1> const blend_attachments = {rhi::blend_mode::alpha};
         // ---- THE MESH FORM, which IS the pipeline now (docs/mesh_shaders.md step 4): built before the registry
         //      insert, cached with the same two viewport values its draws need (begin_pipeline re-emits them and
         //      update_pass_geometry resyncs every registered pipeline once per frame), and a failure is the CALLER's
@@ -634,7 +631,7 @@ namespace deren::engine {
                 mesh_result = std::move(*built);
             } else {
                 // NO FALLBACK LEFT (docs/mesh_shaders.md step 4): the caller sees this as the pipeline's failure
-                return fail("pipeline '" + std::string(pipeline_name) + "': the mesh stage was refused (" + std::string(built.error()) + ")");
+                return fail("pipeline '" + deren::utility::vessel::string(pipeline_name) + "': the mesh stage was refused (" + deren::utility::vessel::string(built.error()) + ")");
             }
         }
         std::optional<pipelines::pipeline_handle> meshlet_result = std::nullopt;
@@ -683,14 +680,14 @@ namespace deren::engine {
         return {};
     }
 
-    std::expected<pipelines::pipeline_handle, std::string> runtime::build_toon_family_pipeline(
+    std::expected<pipelines::pipeline_handle, deren::utility::vessel::string> runtime::build_toon_family_pipeline(
         std::span<uint8_t const> const first_stage_code, std::span<uint8_t const> const fragment_code,
         rhi::blend_mode const mode, rhi::depth_compare const compare, char const* const what) {
         // ONE HDR colour target, the depth ROLE (the backend picks the device's format), the depth TEST
         // with the WRITE left as per-draw dynamic state, single-sampled, and the caller's blend mode and
         // compare operator - the recipes the three former core members carried, now at one call.
-        std::array<rhi::image_format, 1> const formats = {rhi::image_format::r16g16b16a16_sfloat};
-        std::array<rhi::blend_mode, 1> const blends = {mode};
+        deren::utility::vessel::array<rhi::image_format, 1> const formats = {rhi::image_format::r16g16b16a16_sfloat};
+        deren::utility::vessel::array<rhi::blend_mode, 1> const blends = {mode};
         auto built = pipelines::make_graphics_pipeline(this->rhi_face(),
                                                        std::span<rhi::image_format const>(formats),
                                                        rhi::image_format::depth,
@@ -714,13 +711,13 @@ namespace deren::engine {
         return built;
     }
 
-    std::expected<void, std::string> runtime::make_character_forward_pipeline(std::string_view const pipeline_name,
-                                                                              std::span<uint8_t const> const fragment_shader_code,
-                                                                              std::span<uint8_t const> const mesh_vertex_shader_code,
-                                                                              std::span<uint8_t const> const meshlet_shader_code) {
-        using fail = std::unexpected<std::string>;
+    std::expected<void, deren::utility::vessel::string> runtime::make_character_forward_pipeline(std::string_view const pipeline_name,
+                                                                                                 std::span<uint8_t const> const fragment_shader_code,
+                                                                                                 std::span<uint8_t const> const mesh_vertex_shader_code,
+                                                                                                 std::span<uint8_t const> const meshlet_shader_code) {
+        using fail = std::unexpected<deren::utility::vessel::string>;
         if (fragment_shader_code.empty()) {
-            return fail(std::string("character-forward pipeline '") + std::string(pipeline_name) + "': no fragment stage was given");
+            return fail(deren::utility::vessel::string("character-forward pipeline '") + deren::utility::vessel::string(pipeline_name) + "': no fragment stage was given");
         }
         // The mesh stage is REQUIRED, exactly as it is for every other geometry pipeline (docs/mesh_shaders.md
         // step 4): the vertex path is gone, so a name without a mesh module has no complete answer.
@@ -728,11 +725,11 @@ namespace deren::engine {
         {
             std::unique_lock const lock(this->access_mutex);
             if (this->mesh_pipelines.contains(pipeline_name) || this->meshlet_pipelines.contains(pipeline_name)) {
-                return fail(std::string("pipeline '") + std::string(pipeline_name) + "' already exists");
+                return fail(deren::utility::vessel::string("pipeline '") + deren::utility::vessel::string(pipeline_name) + "' already exists");
             }
         }
         if (!want_mesh) {
-            return fail(std::string("character-forward pipeline '") + std::string(pipeline_name) + "' has no mesh stage to build from, and its vertex form is gone (docs/mesh_shaders.md step 4)");
+            return fail(deren::utility::vessel::string("character-forward pipeline '") + deren::utility::vessel::string(pipeline_name) + "' has no mesh stage to build from, and its vertex form is gone (docs/mesh_shaders.md step 4)");
         }
         // GPU pipeline creation outside the lock, for the reason make_pipeline gives: a recording worker must
         // never be blocked by shader compilation.
@@ -742,7 +739,7 @@ namespace deren::engine {
                                                           rhi::blend_mode::alpha, rhi::depth_compare::equal,
                                                           "character-forward pipeline");
             if (!built) {
-                return fail("character-forward pipeline '" + std::string(pipeline_name) + "': the mesh stage was refused (" + std::string(built.error()) + ")");
+                return fail("character-forward pipeline '" + deren::utility::vessel::string(pipeline_name) + "': the mesh stage was refused (" + deren::utility::vessel::string(built.error()) + ")");
             }
             mesh_result = std::move(*built);
         }
@@ -775,13 +772,13 @@ namespace deren::engine {
         return {};
     }
 
-    std::expected<void, std::string> runtime::make_overlay_pipeline(std::string_view const pipeline_name,
-                                                                    std::span<uint8_t const> const fragment_shader_code,
-                                                                    std::span<uint8_t const> const mesh_vertex_shader_code,
-                                                                    std::span<uint8_t const> const meshlet_shader_code) {
-        using fail = std::unexpected<std::string>;
+    std::expected<void, deren::utility::vessel::string> runtime::make_overlay_pipeline(std::string_view const pipeline_name,
+                                                                                       std::span<uint8_t const> const fragment_shader_code,
+                                                                                       std::span<uint8_t const> const mesh_vertex_shader_code,
+                                                                                       std::span<uint8_t const> const meshlet_shader_code) {
+        using fail = std::unexpected<deren::utility::vessel::string>;
         if (fragment_shader_code.empty()) {
-            return fail(std::string("overlay pipeline '") + std::string(pipeline_name) + "': no fragment stage was given");
+            return fail(deren::utility::vessel::string("overlay pipeline '") + deren::utility::vessel::string(pipeline_name) + "': no fragment stage was given");
         }
         // The mesh stage is REQUIRED, exactly as it is for the toon and forward families (docs/mesh_shaders.md
         // step 4): the vertex geometry path is gone, so a name without a mesh module has no complete answer.
@@ -789,11 +786,11 @@ namespace deren::engine {
         {
             std::unique_lock const lock(this->access_mutex);
             if (this->mesh_pipelines.contains(pipeline_name) || this->meshlet_pipelines.contains(pipeline_name)) {
-                return fail(std::string("pipeline '") + std::string(pipeline_name) + "' already exists");
+                return fail(deren::utility::vessel::string("pipeline '") + deren::utility::vessel::string(pipeline_name) + "' already exists");
             }
         }
         if (!want_mesh) {
-            return fail(std::string("overlay pipeline '") + std::string(pipeline_name) + "' has no mesh stage to build from, and its vertex form is gone (docs/mesh_shaders.md step 4)");
+            return fail(deren::utility::vessel::string("overlay pipeline '") + deren::utility::vessel::string(pipeline_name) + "' has no mesh stage to build from, and its vertex form is gone (docs/mesh_shaders.md step 4)");
         }
         // GPU pipeline creation outside the lock, for the reason make_pipeline gives: a recording worker must
         // never be blocked by shader compilation.
@@ -803,7 +800,7 @@ namespace deren::engine {
                                                           rhi::blend_mode::multiply, rhi::depth_compare::less_or_equal,
                                                           "overlay pipeline");
             if (!built) {
-                return fail("overlay pipeline '" + std::string(pipeline_name) + "': the mesh stage was refused (" + std::string(built.error()) + ")");
+                return fail("overlay pipeline '" + deren::utility::vessel::string(pipeline_name) + "': the mesh stage was refused (" + deren::utility::vessel::string(built.error()) + ")");
             }
             mesh_result = std::move(*built);
         }
@@ -837,13 +834,13 @@ namespace deren::engine {
         return {};
     }
 
-    std::expected<void, std::string> runtime::make_outline_pipeline(std::string_view const pipeline_name,
-                                                                    std::span<uint8_t const> const fragment_shader_code,
-                                                                    std::span<uint8_t const> const mesh_vertex_shader_code,
-                                                                    std::span<uint8_t const> const meshlet_shader_code) {
-        using fail = std::unexpected<std::string>;
+    std::expected<void, deren::utility::vessel::string> runtime::make_outline_pipeline(std::string_view const pipeline_name,
+                                                                                       std::span<uint8_t const> const fragment_shader_code,
+                                                                                       std::span<uint8_t const> const mesh_vertex_shader_code,
+                                                                                       std::span<uint8_t const> const meshlet_shader_code) {
+        using fail = std::unexpected<deren::utility::vessel::string>;
         if (fragment_shader_code.empty()) {
-            return fail(std::string("outline pipeline '") + std::string(pipeline_name) + "': no fragment stage was given");
+            return fail(deren::utility::vessel::string("outline pipeline '") + deren::utility::vessel::string(pipeline_name) + "': no fragment stage was given");
         }
         // The mesh stage is REQUIRED, exactly as it is for the toon, forward and overlay families
         // (docs/mesh_shaders.md step 4): the vertex geometry path is gone, so a name without a mesh module has no
@@ -854,11 +851,11 @@ namespace deren::engine {
         {
             std::unique_lock const lock(this->access_mutex);
             if (this->mesh_pipelines.contains(pipeline_name) || this->meshlet_pipelines.contains(pipeline_name)) {
-                return fail(std::string("pipeline '") + std::string(pipeline_name) + "' already exists");
+                return fail(deren::utility::vessel::string("pipeline '") + deren::utility::vessel::string(pipeline_name) + "' already exists");
             }
         }
         if (!want_mesh) {
-            return fail(std::string("outline pipeline '") + std::string(pipeline_name) + "' has no mesh stage to build from, and its vertex form is gone (docs/mesh_shaders.md step 4)");
+            return fail(deren::utility::vessel::string("outline pipeline '") + deren::utility::vessel::string(pipeline_name) + "' has no mesh stage to build from, and its vertex form is gone (docs/mesh_shaders.md step 4)");
         }
         // GPU pipeline creation outside the lock, for the reason make_pipeline gives: a recording worker must
         // never be blocked by shader compilation.
@@ -868,7 +865,7 @@ namespace deren::engine {
                                                           rhi::blend_mode::opaque, rhi::depth_compare::less_or_equal,
                                                           "outline pipeline");
             if (!built) {
-                return fail("outline pipeline '" + std::string(pipeline_name) + "': the mesh stage was refused (" + std::string(built.error()) + ")");
+                return fail("outline pipeline '" + deren::utility::vessel::string(pipeline_name) + "': the mesh stage was refused (" + deren::utility::vessel::string(built.error()) + ")");
             }
             mesh_result = std::move(*built);
         }
@@ -1003,7 +1000,7 @@ namespace deren::engine {
         return this->frame_wiring.feature_active(this->frame_wiring.owner, this->make_feature_facts(), name);
     }
 
-    void runtime::warn_missing_feature(std::string_view const key, std::string const& message) {
+    void runtime::warn_missing_feature(std::string_view const key, deren::utility::vessel::string const& message) {
         // Only meaningful once the startup is complete: the app applies the config to the runtime
         // BEFORE the pipelines exist (main sets the toggles, chores then creates the pipelines), so
         // warning there would claim "TAA has no effect" one line above "TAA pipeline
@@ -1015,7 +1012,7 @@ namespace deren::engine {
         // At most once per feature per session: main() mirrors the overlay's state into the runtime
         // every frame, so an unconditional log here would print once per FRAME - which is how a
         // diagnostics feature turns into log spam.
-        for (std::string const& seen : this->warned_features) {
+        for (deren::utility::vessel::string const& seen : this->warned_features) {
             if (seen == key) {
                 return;
             }
@@ -1074,7 +1071,7 @@ namespace deren::engine {
         }
     }
 
-    std::string runtime::cpu_timing_summary() const {
+    deren::utility::vessel::string runtime::cpu_timing_summary() const {
         return this->cpu_timings.summary();
     }
 
@@ -1431,7 +1428,7 @@ namespace deren::engine {
         bool push_with_lanes(rhi::api_core& face, uint32_t const frame_slot, uint32_t const image_index, rhi::command_buffer& command_buffer,
                              std::span<std::byte const> const bytes, uint32_t const extra_lane, std::size_t const lanes) {
             constexpr std::size_t window = 256; // maxPushDataSize on this device (see heap_limits)
-            std::array<std::byte, window> staging = {};
+            deren::utility::vessel::array<std::byte, window> staging = {};
             std::size_t const lane_bytes = lanes * sizeof(uint32_t);
             if (bytes.size() + lane_bytes > staging.size()) {
                 deren::utility::log("heap push: a block of {} B plus {} index lanes does not fit the push-data window", bytes.size(), lanes);
@@ -1439,7 +1436,7 @@ namespace deren::engine {
             }
             if (!bytes.empty())
                 std::memcpy(staging.data(), bytes.data(), bytes.size());
-            std::array<uint32_t, 3> const indices = {frame_slot, image_index, extra_lane};
+            deren::utility::vessel::array<uint32_t, 3> const indices = {frame_slot, image_index, extra_lane};
             std::memcpy(staging.data() + bytes.size(), indices.data(), lane_bytes);
             return contract_push_heap_data(face, command_buffer, 0u, std::span<std::byte const>(staging.data(), bytes.size() + lane_bytes));
         }
@@ -1851,16 +1848,16 @@ namespace deren::engine {
         size_t total_nodes = 0;
         size_t leaf_count = 0;
         size_t max_depth = 0;
-        std::vector<std::string> lines;
+        deren::utility::vessel::vector<deren::utility::vessel::string> lines;
         auto const walk = [&](auto&& self, scene_tree::scene_node const& node, size_t const depth) -> void {
             ++total_nodes;
             max_depth = std::max(max_depth, depth);
             if (node.primitive_leaf != nullptr) {
                 ++leaf_count;
             }
-            std::string marker = node.primitive_leaf != nullptr ? " [primitive]" : "";
-            lines.push_back(std::format("{}{}{}", std::string(depth * 2, ' '),
-                                        node.node_name.empty() ? std::string("<unnamed>") : node.node_name, marker));
+            deren::utility::vessel::string marker = node.primitive_leaf != nullptr ? " [primitive]" : "";
+            lines.push_back(deren::utility::vessel::format("{}{}{}", deren::utility::vessel::string(depth * 2, ' '),
+                                                           node.node_name.empty() ? deren::utility::vessel::string("<unnamed>") : node.node_name, marker));
             for (scene_tree::scene_node const& child : node.children) {
                 self(self, child, depth + 1);
             }
@@ -1869,7 +1866,7 @@ namespace deren::engine {
             walk(walk, root, 0);
         }
         deren::utility::log("runtime scene tree: {} roots, {} nodes ({} leaf primitives), max depth {}", this->get_scene().roots.size(), total_nodes, leaf_count, max_depth);
-        for (std::string const& line : lines) {
+        for (deren::utility::vessel::string const& line : lines) {
             deren::utility::log("  {}", line);
         }
     }
@@ -1914,21 +1911,45 @@ namespace deren::engine {
         // which is also what lets the backend's content-keyed registry see them at creation.
         rhi::buffer_flags const geometry_flags = rhi::to_bits(rhi::buffer_flag::device_address) |
                                                  (runtime_detail::ray_query_available_of(this->rhi_face()) ? rhi::to_bits(rhi::buffer_flag::acceleration_structure_input) : rhi::no_buffer_flags);
-        create_buffer(this->vulkan_core,
-                      rhi::buffer_usage::vertex,
-                      geometry_flags,
-                      std::as_bytes(info.vertex_data),
-                      "vertex buffer",
-                      result->vertex_buffer,
-                      nullptr);
-        create_buffer(this->vulkan_core,
-                      rhi::buffer_usage::index,
-                      geometry_flags,
-                      std::as_bytes(info.index_data),
-                      "index buffer",
-                      result->index_buffer,
-                      nullptr);
-
+        namespace managed = render_resource::instances;
+        auto geometry = std::make_shared<pass::pass_chain>();
+        auto& provider = geometry->emplace<pass::resource_storage_pass>();
+        deren::utility::vessel::array<managed::request, 2> requests;
+        deren::utility::vessel::array<std::span<std::byte const>, 2> const bytes{std::as_bytes(info.vertex_data), std::as_bytes(info.index_data)};
+        for (size_t i = 0; i < requests.size(); ++i) {
+            if (bytes[i].empty())
+                return nullptr;
+            auto upload = std::make_shared<deren::utility::vessel::vector<std::byte> const>(bytes[i].begin(), bytes[i].end());
+            auto& request = requests[i];
+            request.id = i == 0 ? render_resource::resource_id::scene_geometry_vertices : render_resource::resource_id::scene_geometry_indices;
+            request.type = managed::kind::buffer;
+            request.life = managed::lifetime::scene;
+            request.buffer = {.size = bytes[i].size(), .usage = i == 0 ? rhi::buffer_usage::vertex : rhi::buffer_usage::index, .flags = geometry_flags};
+            request.initial_data = std::shared_ptr<std::byte const>{upload, upload->data()};
+            request.initial_data_size = bytes[i].size();
+            request.initialization_key = std::make_shared<int const>(0);
+        }
+        provider.configure(requests);
+        auto const admit = [&](managed::resource_snapshot const& snapshot) {
+            for (auto const& request : requests) {
+                auto generation = snapshot.find(request.id);
+                auto* buffer = generation && generation->objects.size() == 1 ? generation->objects[0].buffer.get() : nullptr;
+                if (!buffer || buffer->size() < request.buffer.size)
+                    return rhi::error::unsupported;
+            }
+            return rhi::error::ok;
+        };
+        if (geometry->prepare_resources(this->core_owner, {}, admit) != rhi::error::ok)
+            return nullptr;
+        auto snapshot = geometry->resources().snapshot();
+        auto vertices = snapshot.find(requests[0].id);
+        auto indices = snapshot.find(requests[1].id);
+        result->vertex_buffer.bind(vertices->objects[0].buffer.get(), vertices);
+        result->index_buffer.bind(indices->objects[0].buffer.get(), indices);
+        result->geometry_resources = geometry;
+        for (auto& request : requests)
+            request.initial_data.reset();
+        provider.configure(requests);
         result->index_type = info.index_type;
         result->draw_index_count = info.index_count;
         result->vertex_count = info.vertex_count;
@@ -2049,7 +2070,7 @@ namespace deren::engine {
         // attach the primitive as a new root leaf of the scene tree; the node's name records the
         // pipeline it draws with (the record path groups leaves by node name / pipeline)
         scene_tree::scene_node& leaf = this->get_scene().add_root();
-        leaf.node_name = std::string(pipeline_name);
+        leaf.node_name = deren::utility::vessel::string(pipeline_name);
         leaf.local = info.model_matrix;  // world = identity * local (root)
         leaf.attach(std::move(created)); // a deren::engine::primitive is a scene_tree::primitive
         this->bvh_dirty = true;          // new leaf -> culling BVH must be rebuilt
@@ -2111,7 +2132,7 @@ namespace deren::engine {
         return created;
     }
 
-    std::vector<primitive const*> runtime::get_primitives(std::string_view const pipeline_name) const noexcept {
+    deren::utility::vessel::vector<primitive const*> runtime::get_primitives(std::string_view const pipeline_name) const noexcept {
         // match by the pipeline a leaf effectively draws with: an explicit pipeline_name, or the
         // runtime default for default-semantics leaves (empty pipeline_name). Snapshot the
         // default under a shared lock (it can change via set_default_pipeline on another thread).
@@ -2123,7 +2144,7 @@ namespace deren::engine {
         auto const effective = [default_name](primitive const& m) -> std::string_view {
             return m.pipeline_name.empty() ? default_name : m.pipeline_name;
         };
-        std::vector<primitive const*> result;
+        deren::utility::vessel::vector<primitive const*> result;
         for (scene_tree::scene_node const& root : this->get_scene().roots) {
             // collect every leaf whose primitive draws with the requested pipeline (leaves name
             // their pipeline, or fall back to the runtime default; the tree just organizes them)
@@ -2137,7 +2158,7 @@ namespace deren::engine {
         return result;
     }
 
-    void runtime::collect_leaf_primitives(scene_tree::scene_node const& node, std::pmr::vector<primitive const*>& out) {
+    void runtime::collect_leaf_primitives(scene_tree::scene_node const& node, deren::utility::vessel::vector<primitive const*>& out) {
         scene_tree::visit_primitives(node, glm::mat4(1.0f), [&out](scene_tree::scene_node const& n, glm::mat4 const&) {
             out.push_back(static_cast<primitive const*>(n.primitive_leaf.get()));
         });

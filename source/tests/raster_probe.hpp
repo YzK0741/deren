@@ -10,7 +10,7 @@ namespace raster_test {
         int& releases;
         std::uint64_t capacity;
         bool host_enabled = false;
-        std::vector<std::byte> storage;
+        deren::utility::vessel::vector<std::byte> storage;
         raster_probe_buffer(unsigned i, int& r, std::uint64_t size)
             : buffer("gaussian_raster_probe_buffer")
             , index(i)
@@ -55,17 +55,18 @@ namespace raster_test {
         bool pipeline_fail = false;
         int pipeline_releases = 0;
         unsigned pipeline_calls = 0;
-        std::vector<rhi::image_format> colors;
-        std::vector<rhi::blend_mode> blends;
+        deren::utility::vessel::vector<rhi::image_format> colors;
+        deren::utility::vessel::vector<rhi::blend_mode> blends;
         rhi::shader_stage first_stage = rhi::shader_stage::compute;
         rhi::image_format depth_format = rhi::image_format::unknown;
         bool depth_test = false;
 
         unsigned fail_at = 0, calls = 0, undersized_at = 0;
         int releases = 0;
+        int idle_calls = 0;
         raster_probe_address address;
-        std::vector<rhi::buffer_desc> descriptors;
-        std::vector<std::vector<std::byte>> bytes;
+        deren::utility::vessel::vector<rhi::buffer_desc> descriptors;
+        deren::utility::vessel::vector<deren::utility::vessel::vector<std::byte>> bytes;
         raster_probe_core()
             : api_core("gaussian_raster_probe_core") {
         }
@@ -83,7 +84,13 @@ namespace raster_test {
             copy.initial_bytes = {};
             descriptors.push_back(copy);
             bytes.emplace_back(desc.initial_bytes.begin(), desc.initial_bytes.end());
-            return new raster_probe_buffer(calls, releases, calls == undersized_at ? desc.size - 1 : desc.size);
+            auto* result = new raster_probe_buffer(calls, releases, calls == undersized_at ? desc.size - 1 : desc.size);
+            result->host_enabled = desc.usage == rhi::buffer_usage::storage_coherent;
+            if (result->host_enabled) {
+                result->storage.resize(static_cast<std::size_t>(desc.size));
+                std::copy(desc.initial_bytes.begin(), desc.initial_bytes.end(), result->storage.begin());
+            }
+            return result;
         }
         rhi::swapchain* create_swapchain(rhi::swapchain_desc const&) override {
             return nullptr;
@@ -131,7 +138,7 @@ namespace raster_test {
             return rhi::error::unsupported;
         }
         void wait_idle() override {
-            CHECK(false);
+            ++idle_calls;
         }
         rhi::frame_walker* walk_frames() noexcept override {
             return nullptr;
@@ -170,7 +177,7 @@ namespace raster_test {
         bool fail_bind = false, fail_begin = false, depth_write = true;
         rhi::cull_mode cull = rhi::cull_mode::back;
         rhi::load_op color_load = rhi::load_op::clear, depth_load = rhi::load_op::clear;
-        std::vector<std::pair<rhi::image_use, rhi::image_use>> transitions;
+        deren::utility::vessel::vector<std::pair<rhi::image_use, rhi::image_use>> transitions;
         raster_probe_commands()
             : command_buffer("raster_probe_commands") {
         }
@@ -333,7 +340,7 @@ namespace raster_test {
             (void)destination_offset;
             return rhi::error::ok;
         }
-        rhi::error clear_color_image(image const& target, std::array<float, 4> const& color, subresource_range const& range) override {
+        rhi::error clear_color_image(image const& target, deren::utility::vessel::array<float, 4> const& color, subresource_range const& range) override {
             (void)target;
 
             (void)color;

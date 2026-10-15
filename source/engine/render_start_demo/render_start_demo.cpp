@@ -32,6 +32,8 @@ namespace deren::engine {
         // constraint - the passes that read the G-buffer asked the owner for the G-buffer set's layout while they
         // were being created. That is gone with the layouts: a pass builds only its own pipeline now.
         this->chain.emplace<pass::scene_constants_pass>();
+        this->chain.emplace<pass::scene_deformation_pass>();
+        this->chain.emplace<pass::scene_tables_pass>();
         this->chain.emplace<pass::output_targets_pass>();
         this->chain.emplace<pass::gbuffer_debug_pass>();
         this->chain.emplace<pass::shadow_pass>();

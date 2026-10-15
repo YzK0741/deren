@@ -1,4 +1,4 @@
-// module version: 0.15.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 
 /**
  * @file source/engine/pass/pass.cppm
@@ -41,6 +41,7 @@ module;
 #include <vector>
 
 export module deren.engine.pass;
+export import deren.utility.shared;
 
 import deren.promise.rhi;
 
@@ -168,6 +169,7 @@ export namespace deren::engine::pass {
         deren::promise::rhi::image* image_handle = nullptr;
         deren::promise::rhi::image_view* view_handle = nullptr;
         deren::promise::rhi::buffer* buffer_handle = nullptr;
+        deren::promise::rhi::acceleration_structure* structure_handle = nullptr;
     };
 
     /**
@@ -219,7 +221,7 @@ export namespace deren::engine::pass {
         /// record series deliberately does not carry (the heap face's push_data already takes the list).
         deren::promise::rhi::command_buffer* list = nullptr;
         /// the storage `own` views
-        std::array<resolved_binding, max_own_bindings> own_storage = {};
+        deren::utility::vessel::array<resolved_binding, max_own_bindings> own_storage = {};
         /// the pass's own binding number -> the handles that binding's resource is (exactly one is set)
         std::span<resolved_binding const> own = {};
         /**
@@ -232,7 +234,7 @@ export namespace deren::engine::pass {
          * reaches into the core for this (`vulkan_core.gi_images[i]` and friends); a pass
          * cannot - the failure mode this guards against is reaching an image that belongs to another generation.
          */
-        std::array<std::span<deren::promise::rhi::image_view* const>, max_own_bindings> own_per_image = {};
+        deren::utility::vessel::array<std::span<deren::promise::rhi::image_view* const>, max_own_bindings> own_per_image = {};
         /**
          * @brief HOW A PASS SENDS ITS PUSH BLOCK NOW THAT NO PIPELINE HAS A LAYOUT
          *
@@ -276,7 +278,7 @@ export namespace deren::engine::pass {
          * INSTANCES - each with its own attachment - opens one instance per slot, which is what the shadow pass
          * does; a pass with one target per instance reads `targets[0]`.
          */
-        std::array<resolved_binding, max_render_targets> target_storage = {};
+        deren::utility::vessel::array<resolved_binding, max_render_targets> target_storage = {};
         std::span<resolved_binding const> targets = {};
         /**
          * The images this pass declared as BARRIER IMAGES (`pass_io::barrier_images`), in the declaration's
@@ -288,7 +290,7 @@ export namespace deren::engine::pass {
          * pass only needs their IMAGES. A pass that wants one of these as a descriptor says so with a `shared`
          * binding; a pass that only needs to transition it declares it here.
          */
-        std::array<resolved_binding, max_barrier_images> barrier_storage = {};
+        deren::utility::vessel::array<resolved_binding, max_barrier_images> barrier_storage = {};
         std::span<resolved_binding const> barrier_images = {};
         /**
          * The BUFFERS this pass declared as BARRIER BUFFERS (`pass_io::barrier_buffers`), in the declaration's
@@ -301,10 +303,10 @@ export namespace deren::engine::pass {
          * entry carries the BUFFER (the `view` and `image` lanes stay null: a barrier takes a buffer, and this
          * resource has no view).
          */
-        std::array<resolved_binding, max_barrier_buffers> barrier_buffer_storage = {};
+        deren::utility::vessel::array<resolved_binding, max_barrier_buffers> barrier_buffer_storage = {};
         std::span<resolved_binding const> barrier_buffers = {};
         /// the storage `pipelines` views
-        std::array<deren::promise::rhi::pipeline*, max_pass_pipelines> pipeline_storage = {};
+        deren::utility::vessel::array<deren::promise::rhi::pipeline*, max_pass_pipelines> pipeline_storage = {};
         /**
          * THE PIPELINES THE PASS RECORDS WITH, in the order `behaviour::pipelines` names them - one entry per
          * name, or one entry for the pass's OWN pipeline when it resolves that instead. THE CONTRACT'S SPELLING
@@ -325,7 +327,7 @@ export namespace deren::engine::pass {
          * global light direction - are the renderer's, not the pass's; what the pass owns is the block's
          * SHAPE and the fields it changes per dispatch (a chain's mode lane).
          */
-        std::array<std::byte, max_push_bytes> push_storage = {};
+        deren::utility::vessel::array<std::byte, max_push_bytes> push_storage = {};
         std::span<std::byte const> push = {};
         /**
          * THIS FRAME's shared constants: the camera, the fitted scene bounds and the sun, as the frame loop
@@ -713,7 +715,7 @@ export namespace deren::engine::pass {
         frame_pass(frame_pass const&) = delete;
         frame_pass& operator=(frame_pass const&) = delete;
         virtual ~frame_pass() = default;
-        virtual void describe_resources(render_resource::instances::resource_context const&, std::vector<render_resource::instances::request>&) const {
+        virtual void describe_resources(render_resource::instances::resource_context const&, deren::utility::vessel::vector<render_resource::instances::request>&) const {
         }
         virtual void bind_resources(render_resource::instances::resource_snapshot const&) {
         }
@@ -1191,8 +1193,8 @@ export namespace deren::engine::pass {
         /// the honest one, and its order is the publishing order rather than a hash (this renderer's
         /// verification rests on byte-identical captures, and an iteration order that is an accident is exactly
         /// what the stage runner refuses to depend on).
-        std::vector<entry> entries = {};
-        std::vector<family_entry> families = {};
+        deren::utility::vessel::vector<entry> entries = {};
+        deren::utility::vessel::vector<family_entry> families = {};
     };
 
     // =============================================================================================
@@ -1306,7 +1308,7 @@ export namespace deren::engine::pass {
                 return false; // not a resource the schema knows, or not the contiguous own bindings the validator requires
             }
             resolved_binding const handles = context.resources->find(binding.resource, binding.element, instance_for(info->scope, context.frame));
-            if (handles.view_handle == nullptr && handles.buffer_handle == nullptr && handles.image_handle == nullptr) {
+            if (handles.view_handle == nullptr && handles.buffer_handle == nullptr && handles.image_handle == nullptr && handles.structure_handle == nullptr) {
                 return false; // this frame does not have it: do not record the pass at all
             }
             out.own_storage[binding.binding] = handles;

@@ -15,6 +15,7 @@ module;
 #include <vector>
 
 module deren.engine.pass.shadow;
+import deren.utility.shared;
 
 import deren.promise.rhi;
 import deren.engine.pipelines; // build_shadow: the depth-only pipeline this pass owns
@@ -107,7 +108,7 @@ namespace deren::engine::pass {
     }
 
     void shadow_pass::describe_resources(render_resource::instances::resource_context const& context,
-                                         std::vector<render_resource::instances::request>& requests) const {
+                                         deren::utility::vessel::vector<render_resource::instances::request>& requests) const {
         namespace managed = render_resource::instances;
         managed::request value;
         value.id = render_resource::resource_id::shadow_map;
@@ -181,9 +182,9 @@ namespace deren::engine::pass {
         // rule the main pass's workers follow). Only the CONTENT moves off the primary thread: the barriers, the
         // instances and the executions below stay here, in the layer order the attachments require, so a parallel
         // frame's recorded commands are identical to a sequential one's.
-        std::vector<std::function<void()>> tasks;
+        deren::utility::vessel::vector<std::function<void()>> tasks;
         tasks.reserve(layers);
-        std::vector<bool> recorded(layers, false);
+        deren::utility::vessel::vector<bool> recorded(layers, false);
         for (uint32_t cascade = 0; cascade < layers; ++cascade) {
             tasks.emplace_back([this, cascade, pipeline, mesh_stage, meshlets, &recorded] {
                 // THE CASCADE'S SECONDARY IS A CONTRACT HANDLE NOW (abi 20), BORROWED from the frame: the

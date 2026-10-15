@@ -24,6 +24,7 @@ module;
 #include <vector> // the destination of a host image copy, when that read-back path is taken
 
 module deren.engine.runtime:probes;
+import deren.utility.shared;
 
 import :declarations;
 import deren.engine.profiling;
@@ -33,12 +34,6 @@ import deren.engine.render_resource.shared;
 
 import deren.utility;
 import deren.engine.frame_constants; // one frame's shared constants (see update_frame_constants)
-
-// Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
-// init_pmr() returns the same process-wide singleton no matter which TU calls it first, so
-// main.cpp's keep-alive and this one coexist safely. The reference itself is never read; it
-// only forces the (dynamic) initialization before any pmr container in this TU is constructed.
-[[maybe_unused]] static auto& pmr = deren::utility::init_pmr(); // NOLINT(keep-alive)
 
 namespace deren::engine {
     std::shared_ptr<rhi::command_buffer> runtime::make_probe_commands(std::string_view const what) {
@@ -138,7 +133,7 @@ namespace deren::engine {
         // The parameters, THROUGH PUSH DATA: there is no pipeline layout to push constants to, which is the flag's
         // requirement and the reason this function exists - and the push is the ability's verb now, not the raw
         // entry point's.
-        std::array<uint32_t, 4> const push = {
+        deren::utility::vessel::array<uint32_t, 4> const push = {
             static_cast<uint32_t>(answer_address & 0xFFFFFFFFu),
             static_cast<uint32_t>(answer_address >> 32u),
             texture_slot,
@@ -263,7 +258,7 @@ namespace deren::engine {
             deren::utility::log("descriptor heap: the heap-native graphics probe's target transition was refused");
             return;
         }
-        std::array<rhi::color_attachment, 1> const colors = {rhi::color_attachment{.view = target_view.get(), .load = rhi::load_op::clear, .store = rhi::store_op::store, .clear = {0.0f, 0.0f, 0.0f, 1.0f}}};
+        deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {rhi::color_attachment{.view = target_view.get(), .load = rhi::load_op::clear, .store = rhi::store_op::store, .clear = {0.0f, 0.0f, 0.0f, 1.0f}}};
         rhi::rendering_info const rendering = {
             .struct_size = sizeof(rhi::rendering_info),
             .area = rhi::rect{.offset_x = 0, .offset_y = 0, .width = pipelines::heap_probe_extent, .height = pipelines::heap_probe_extent},
@@ -287,7 +282,7 @@ namespace deren::engine {
         // The slot, THROUGH PUSH DATA: the pipeline has no layout (the flag requires that), so this is the only
         // way a parameter reaches the fragment stage - and running the probe with a wrong value here is the
         // negative proof (see the caller).
-        std::array<uint32_t, 4> const push = {material_slot, 0u, 0u, 0u};
+        deren::utility::vessel::array<uint32_t, 4> const push = {material_slot, 0u, 0u, 0u};
         rhi::heap_push_info const push_info{.commands = commands.get(), .offset = 0u, .data = std::as_bytes(std::span(push))};
         if (heap->push_data(push_info) != rhi::error::ok || commands->bind_pipeline(*built->contract) != rhi::error::ok) {
             deren::utility::log("descriptor heap: the heap-native graphics probe's push or pipeline bind was refused");
@@ -343,7 +338,7 @@ namespace deren::engine {
                                 static_cast<std::uint32_t>(content.error()));
             return;
         }
-        std::vector<std::byte> const& host_pixels = content->bytes;
+        std::span<std::byte const> const host_pixels = content->bytes;
         if (host_pixels.size() < 4u) {
             deren::utility::log("descriptor heap: the heap-native {} probe's read-back came back short ({} bytes)", mesh_shader ? "MESH" : "GRAPHICS",
                                 host_pixels.size());

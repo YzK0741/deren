@@ -11,6 +11,7 @@ module;
 #include <span>
 
 module deren.engine.primitive;
+import deren.utility.shared;
 
 import deren.utility; // DIAGNOSTIC only (see normal_draw_primitive::draw): this app is a GUI-subsystem binary, so
                       // stdout/stderr go nowhere and every traceable line has to come through deren::utility::log.
@@ -85,9 +86,9 @@ namespace deren::engine {
         bool const cullable = env.meshlets && env.meshlet_culled && env.meshlet_view_proj != nullptr && env.meshlet_culled_write != nullptr &&
                               geometry.meshlet_count != 0u && (this->push.flags & 1u) == 0u && this->push.skin_base == 0u && this->push.morph_targets == 0u;
         uint32_t survivors = not_culled;
-        std::vector<deren::engine::meshlet> kept;
+        deren::utility::vessel::vector<deren::engine::meshlet> kept;
         if (cullable) {
-            std::array<float, 16> view_proj = {};
+            deren::utility::vessel::array<float, 16> view_proj = {};
             if (env.meshlet_view_proj(env.push_owner, view_proj.data())) {
                 // the matrix arrives as 16 floats (the camera UBO's `proj * view`), copied rather than constructed
                 // through glm's type_ptr helpers: same layout, no extra include, and no doubt about transpose
@@ -170,7 +171,7 @@ namespace deren::engine {
         // first version copied at the SCENE's offset for both and put the shadow pass's lanes 4 bytes late, which
         // read as a window belonging to no draw: the shadow map came out empty and the frame lost every shadow.)
         std::size_t const lanes_at = mesh_geometry_lanes_offset - env.mesh_geometry_push_offset;
-        std::array<std::byte, payload_size> payload = {};
+        deren::utility::vessel::array<std::byte, payload_size> payload = {};
         std::memcpy(payload.data() + lanes_at, &lanes, sizeof(lanes));
         std::size_t const bytes = static_cast<std::size_t>(mesh_stage_block_size) - env.mesh_geometry_push_offset;
         [[maybe_unused]] bool const pushed = env.push_at(env.push_owner, *env.command_buffer, env.mesh_geometry_push_offset, std::span<std::byte const>(payload.data(), bytes));
@@ -247,13 +248,11 @@ namespace deren::engine {
     }
 
     void normal_draw_primitive::destroy() noexcept {
-        // geometry is owned by the two contract handles: reset() drops THIS leaf's reference (the GPU
-        // memory dies with the last one - release is not destruction, see rhi::buffer::release()), and
-        // there is no cached accessor to drop beside them any more. The old code nulled two
-        // `buffer_detail const*` fields by hand, which existed only because those were borrows into the
-        // allocator's map rather than part of the handle.
+        // Drop this leaf's views, then drain its managed subchain. BLAS dependency leases may
+        // keep the actual immutable geometry allocation alive until the structures release.
         this->vertex_buffer.reset();
         this->index_buffer.reset();
+        this->geometry_resources.reset();
         this->draw_index_count = 0;
         this->vertex_count = 0;
     }

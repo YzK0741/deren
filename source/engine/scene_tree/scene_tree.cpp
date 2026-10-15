@@ -4,6 +4,7 @@ module;
 #include <glm/gtc/matrix_transform.hpp>
 
 module deren.engine.scene_tree;
+import deren.utility.shared;
 
 namespace deren::engine::scene_tree {
     void update_world(scene_node& node, glm::mat4 const& parent_world) {
@@ -89,7 +90,7 @@ namespace deren::engine::scene_tree {
         if (name.empty()) {
             return nullptr; // empty names are the unnamed default; never match
         }
-        std::vector<scene_node*> stack;
+        deren::utility::vessel::vector<scene_node*> stack;
         stack.push_back(this);
         while (!stack.empty()) {
             scene_node* const current = stack.back();
@@ -109,7 +110,7 @@ namespace deren::engine::scene_tree {
         if (name.empty()) {
             return nullptr;
         }
-        std::vector<scene_node const*> stack;
+        deren::utility::vessel::vector<scene_node const*> stack;
         stack.push_back(this);
         while (!stack.empty()) {
             scene_node const* const current = stack.back();

@@ -13,6 +13,7 @@ module;
 #include <vector>
 
 module deren.engine.pass.taa;
+import deren.utility.shared;
 
 import deren.promise.rhi;
 import deren.engine.render_resource;
@@ -65,7 +66,7 @@ namespace deren::engine::pass {
     }
 
     void taa_pass::describe_resources(render_resource::instances::resource_context const& context,
-                                      std::vector<render_resource::instances::request>& out) const {
+                                      deren::utility::vessel::vector<render_resource::instances::request>& out) const {
         for (auto const& value : output_targets_pass::descriptions(context))
             if (value.id == render_resource::resource_id::taa_history)
                 out.push_back(value);
@@ -143,7 +144,7 @@ namespace deren::engine::pass {
         // use for this image) the history become inputs, and the HDR target - still untouched this frame -
         // becomes the resolve's attachment. The history is left in SHADER_READ_ONLY by the previous frame's
         // copy and is only ever read as a texture, so it needs no barrier once it is valid.
-        std::array<rhi::image_barrier, 2> barriers = {};
+        deren::utility::vessel::array<rhi::image_barrier, 2> barriers = {};
         barriers[0] = rhi::image_barrier{.resource = io.own[0].image_handle,
                                          .from = rhi::image_use::color_attachment,
                                          .to = rhi::image_use::shader_read,
@@ -191,7 +192,7 @@ namespace deren::engine::pass {
         // knowledge - and the state the viewport fields do not cover.
         // THE RENDERING SCOPE RIDES THE CONTRACT NOW (abi 20): one colour attachment, CLEAR + STORE (what
         // `make_color_attachment_info` spelled), zero clear colour, no depth and no secondary contents.
-        std::array<rhi::color_attachment, 1> const colors = {
+        deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {
             rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::clear, .store = rhi::store_op::store, .clear = {}},
         };
         rhi::rendering_info const rendering_info{
@@ -230,7 +231,7 @@ namespace deren::engine::pass {
         // the history has to be a separate image, and copying into it keeps every heap slot in the frame
         // stable (no per-frame descriptor rewrites). The barriers move the HDR target out to TRANSFER_SRC and back - the
         // post chain still finds it in GENERAL, exactly where it expects it.
-        std::array<rhi::image_barrier, 2> const copy_barriers = {
+        deren::utility::vessel::array<rhi::image_barrier, 2> const copy_barriers = {
             rhi::image_barrier{.resource = io.targets[0].image_handle,
                                .from = rhi::image_use::color_attachment,
                                .to = rhi::image_use::transfer_source,
@@ -254,7 +255,7 @@ namespace deren::engine::pass {
 
         // hand both images on: the HDR target back to the post chain, the history copy to the next frame's
         // resolve (which will find it in TRANSFER_DST and transition it from there)
-        std::array<rhi::image_barrier, 2> const hand_back = {
+        deren::utility::vessel::array<rhi::image_barrier, 2> const hand_back = {
             rhi::image_barrier{.resource = io.targets[0].image_handle,
                                .from = rhi::image_use::transfer_source,
                                .to = rhi::image_use::color_attachment,

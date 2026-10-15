@@ -28,6 +28,7 @@ module;
 #include <vector>
 
 export module deren.engine.meshlet;
+export import deren.utility.shared;
 
 export import deren.vstd;
 
@@ -164,8 +165,8 @@ namespace deren::engine {
      *       triangles inside one meshlet keep the window's order. A consumer that draws them all therefore emits
      *       exactly the input triangles, in an order whose only change is that meshlets are whole runs.
      */
-    export std::vector<meshlet> build_meshlets(meshlet_build_input const& input) {
-        std::vector<meshlet> meshlets;
+    export deren::utility::vessel::vector<meshlet> build_meshlets(meshlet_build_input const& input) {
+        deren::utility::vessel::vector<meshlet> meshlets;
         uint32_t const triangles = input.index_count / 3u;
         if (triangles == 0u || input.vertex_count == 0u || input.index_width < 2u || input.vertex_stride < 3u * sizeof(float) ||
             input.vertex_data.size() < static_cast<std::size_t>(input.vertex_count) * input.vertex_stride) {

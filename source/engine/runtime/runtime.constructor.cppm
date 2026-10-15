@@ -13,8 +13,7 @@
 // file-local helpers across two anonymous namespaces is legal but it IS duplication: the follow-up is to
 // publish the heap three from deren.vulkan.core:descriptor_heap, where heap plumbing belongs.
 //
-// Imports are NOT transitive: this partition imports what the moved code calls, and repeats the pmr
-// keep-alive that must run before any pmr container in this TU.
+// Imports are NOT transitive: this partition imports what the moved code calls, and uses the shared vessel allocation service.
 // ============================================================================
 module;
 
@@ -35,23 +34,19 @@ module;
 #include <thread>      // std::this_thread::yield in the frame limiter
 
 module deren.engine.runtime:constructor;
+import deren.utility.shared;
 
 import :declarations;
 import deren.engine.profiling;
 import deren.engine.pipelines;
 import deren.engine.render_resource;
 import deren.engine.render_resource.shared;
+import deren.engine.pass.buffer_storage;
 
 import deren.utility;
 import deren.engine.frame_constants; // one frame's shared constants (see update_frame_constants)
 import deren.engine.meshlet;         // the meshlet table's record layout and capacity (docs/mesh_shaders.md step 3)
 import deren.promise.rhi;            // the RHI creation contract: the type the new constructor below takes
-
-// Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
-// init_pmr() returns the same process-wide singleton no matter which TU calls it first, so
-// main.cpp's keep-alive and this one coexist safely. The reference itself is never read; it
-// only forces the (dynamic) initialization before any pmr container in this TU is constructed.
-[[maybe_unused]] static auto& pmr = deren::utility::init_pmr(); // NOLINT(keep-alive)
 
 namespace {
     deren::engine::runtime* runtime_from_window(GLFWwindow* window) {
@@ -416,8 +411,11 @@ namespace deren::engine {
         // out - are built by init_recording_resources(): they depend on nothing else in this
         // constructor but the two capacities, and nothing else here reads them.
         this->init_recording_resources();
+        // Scene tables must exist before default material/neutral toon values and animation setup write them.
+        if (this->prepare_managed_resources(true) != rhi::error::ok)
+            deren::utility::panic("managed scene setup resources could not be prepared");
 
-        // Shared scene resources: camera UBO buffers, white fallback texture, texture sampler
+        // Shared legacy scene resources: white fallback texture and scene tables/deformation buffers
         this->init_scene_resources();
         // The six samplers the declaration layer hands out by hint (③-D/E item C): created here, before any
         // pass resolves a binding, because `shared_samplers()` is what a declaration asks for a sampler with.
@@ -436,7 +434,8 @@ namespace deren::engine {
         // two lists cannot drift (which they already had).
         this->reset_image_generation_state();
         // (The furnace cube is a new image too - its level is part of the generation reset above.)
-        // NOTE: shadow, cluster and constant resources are created lazily by
+        // Camera buffers are also prepared here for setup-time heap publication.
+        // NOTE: shadow, cluster and light/head constants are created lazily by
         // prepare_managed_resources() at the start of pace_and_acquire(). The shadow map is a layered 2D array
         // whose layer count is [render] shadow_cascades, and the app config that carries it is applied
         // after this constructor returns - creating them here would freeze the count at its default.
@@ -533,41 +532,90 @@ namespace deren::engine {
                             culled);
     }
 
+    std::pair<std::shared_ptr<rhi::image>, std::shared_ptr<rhi::image_view>> runtime::create_shared_image(render_resource::resource_id id, rhi::image_desc desc) {
+        namespace managed = render_resource::instances;
+        auto chain = std::make_shared<pass::pass_chain>();
+        auto& provider = chain->emplace<pass::resource_storage_pass>();
+        managed::request request;
+        request.id = id;
+        request.life = managed::lifetime::scene;
+        request.layer_views = false;
+        if (!desc.initial_bytes.empty()) {
+            auto upload = std::make_shared<deren::utility::vessel::vector<std::byte> const>(desc.initial_bytes.begin(), desc.initial_bytes.end());
+            request.initial_data = std::shared_ptr<std::byte const>{upload, upload->data()};
+            request.initial_data_size = upload->size();
+            request.initialization_key = std::make_shared<int const>(0);
+        }
+        desc.initial_bytes = {};
+        request.image = desc;
+        provider.configure(std::span{&request, 1});
+        if (chain->prepare_resources(core_owner, {}) != rhi::error::ok)
+            return {};
+        auto generation = chain->resources().snapshot().find(id);
+        auto* image = generation->objects[0].image.get();
+        auto* view = generation->objects[0].array_view.get();
+        request.initial_data.reset();
+        request.image.debug_name = nullptr;
+        provider.configure(std::span{&request, 1});
+        return {std::shared_ptr<rhi::image>{chain, image}, std::shared_ptr<rhi::image_view>{chain, view}};
+    }
+
+    std::shared_ptr<rhi::sampler> runtime::create_shared_sampler(render_resource::resource_id id, rhi::sampler_desc const& desc) {
+        namespace managed = render_resource::instances;
+        auto chain = std::make_shared<pass::pass_chain>();
+        auto& provider = chain->emplace<pass::resource_storage_pass>();
+        managed::request request;
+        request.id = id;
+        request.type = managed::kind::sampler;
+        request.life = managed::lifetime::device;
+        request.sampler = desc;
+        provider.configure(std::span{&request, 1});
+        if (chain->prepare_resources(core_owner, {}) != rhi::error::ok)
+            return {};
+        auto generation = chain->resources().snapshot().find(id);
+        return std::shared_ptr<rhi::sampler>{chain, generation->objects[0].sampler.get()};
+    }
+
+    std::shared_ptr<rhi::buffer> runtime::create_shared_upload(std::span<std::byte const> bytes, rhi::buffer_flags flags) {
+        if (bytes.empty())
+            return {};
+        namespace managed = render_resource::instances;
+        auto chain = std::make_shared<pass::pass_chain>();
+        auto& provider = chain->emplace<pass::resource_storage_pass>();
+        auto upload = std::make_shared<deren::utility::vessel::vector<std::byte> const>(bytes.begin(), bytes.end());
+        managed::request request;
+        request.id = render_resource::resource_id::pass_upload_buffer;
+        request.type = managed::kind::buffer;
+        request.life = managed::lifetime::device;
+        request.buffer = {.size = bytes.size(), .usage = rhi::buffer_usage::storage_coherent, .flags = flags};
+        request.initial_data = std::shared_ptr<std::byte const>{upload, upload->data()};
+        request.initial_data_size = upload->size();
+        request.initialization_key = std::make_shared<int const>(0);
+        provider.configure(std::span{&request, 1});
+        if (chain->prepare_resources(core_owner, {}) != rhi::error::ok)
+            return {};
+        auto generation = chain->resources().snapshot().find(request.id);
+        request.initial_data.reset();
+        provider.configure(std::span{&request, 1});
+        return std::shared_ptr<rhi::buffer>{chain, generation->objects[0].buffer.get()};
+    }
+
     void runtime::init_scene_resources() {
-        // Camera UBO: one buffer per frame slot, mapped for direct writes; all models reference
-        // these buffers through the shared scene block, so one memcpy per frame replaces the old
-        // per-primitive per-frame UBO updates
-        //
-        // THE BUFFER IS USABLE AS A STORAGE BUFFER TOO, because the heap descriptor written for it is a
-        // rhi::descriptor_type::storage_buffer (see write_heap_scene_buffer's note below): a descriptor's type has
-        // to be backed by the matching USAGE bit on the buffer, and the validation layer says so out loud -
-        // "vkWriteResourceDescriptorsEXT(): ... has no buffer(s) associated that are valid" - while the render
-        // itself still produced the right picture, which is exactly the kind of finding this project treats as
-        // a failure. UNIFORM_BUFFER stays set: the buffer's allocation policy (host-visible, coherent) is what
-        // the buffer_type names, and both bits are legal together.
-        camera_ubo initial = {};
-        create_buffers(this->vulkan_core,
-                       this->camera_buffers,
-                       rhi::buffer_usage::uniform_coherent,
-                       rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage), // heap-bound: see the scene-set block
-                       std::as_bytes(std::span(&initial, 1)),
-                       "camera ubo buffer",
-                       &this->camera_mapped);
+        // Camera constants are prepared by the passchain alongside constructor output targets.
+        // Their buffers retain uniform-coherent allocation and storage/device-address usage for the heap.
 
         // 1x1 white fallback texture, always the first entry of the scene texture array; missing
         // material textures point at it
-        constexpr std::array<uint8_t, 4> white_pixels = {255, 255, 255, 255};
+        constexpr deren::utility::vessel::array<uint8_t, 4> white_pixels = {255, 255, 255, 255};
         rhi::image_desc white_desc{};
         white_desc.extent = rhi::image_extent{.width = 1u, .height = 1u, .depth = 1u};
         white_desc.format = rhi::image_format::rgba8_unorm;
         white_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
         white_desc.initial_bytes = std::as_bytes(std::span(white_pixels));
         white_desc.debug_name = "white fallback texture";
-        this->owned_textures.push_back(rhi::object_manager<rhi::image>{this->rhi_face().create_image(white_desc)});
-        rhi::image_view_desc white_view_range{};
-        white_view_range.layer_count = 0; // all remaining layers
-        white_view_range.mip_count = 0;   // all remaining mips
-        this->owned_texture_views.push_back(rhi::object_manager<rhi::image_view>{this->owned_textures.back()->make_view(white_view_range)});
+        auto white = this->create_shared_image(render_resource::resource_id::white_texture, white_desc);
+        this->owned_textures.push_back(std::move(white.first));
+        this->owned_texture_views.push_back(std::move(white.second));
         if (!static_cast<bool>(this->owned_textures.back()) || !static_cast<bool>(this->owned_texture_views.back())) {
             deren::utility::panic("failed to create the white fallback texture");
         }
@@ -609,16 +657,8 @@ namespace deren::engine {
 
         // GPU material table: fixed capacity, host-visible (direct mapping); records are appended
         // at registration and read-only for the GPU (set 0 binding 5)
-        std::vector<uint8_t> const zeroed_materials(static_cast<size_t>(deren::engine::material_capacity) * sizeof(material_record), 0);
-        create_buffer(this->vulkan_core,
-                      rhi::buffer_usage::storage_coherent,
-                      // it goes on the descriptor heap, and a heap descriptor for a buffer is an
-                      // ADDRESS RANGE - so this buffer needs a device address
-                      rhi::to_bits(rhi::buffer_flag::device_address),
-                      std::as_bytes(std::span(zeroed_materials)),
-                      "material table buffer",
-                      this->material_buffer,
-                      &this->material_mapped);
+
+        // Allocation and zero initialization are provided by scene_tables_pass.
 
         // ---- THE MATERIAL TABLE'S HEAP DESCRIPTOR, written ONCE here ----
         //
@@ -652,7 +692,7 @@ namespace deren::engine {
         // A BUFFER OF FLOATS, so the fill below writes 1.0f as a FLOAT - not 0xFF, which is one in a UNORM texture
         // and 0.0 in this. That distinction is the whole reason a colour lane could not reuse the texture lanes.
         {
-            std::vector<glm::vec4> neutral_colours(static_cast<size_t>(deren::engine::material_capacity) * static_cast<size_t>(deren::engine::toon_colour_lane::count), glm::vec4(1.0f));
+            deren::utility::vessel::vector<glm::vec4> neutral_colours(static_cast<size_t>(deren::engine::material_capacity) * static_cast<size_t>(deren::engine::toon_colour_lane::count), glm::vec4(1.0f));
             // ... EXCEPT THE OUTLINE LANE'S WIDTH, WHICH IS 0.0 AND NOT 1.0 (`toon_inputs::colours` states the
             // whole argument): three of that lane's four floats are the `_OutlineTintColor` tint, whose neutral is
             // white, and the fourth is `_OutlineWidth`, whose neutral is ZERO - a width of 1.0 would draw a hull
@@ -825,13 +865,7 @@ namespace deren::engine {
                 neutral_colours[material * static_cast<size_t>(deren::engine::toon_colour_lane::count) + static_cast<size_t>(deren::engine::toon_colour_lane::goo_rs_arm0)] =
                     glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
             }
-            create_buffer(this->vulkan_core,
-                          rhi::buffer_usage::storage_coherent,
-                          rhi::to_bits(rhi::buffer_flag::device_address),
-                          std::as_bytes(std::span(neutral_colours)),
-                          "toon colour table buffer",
-                          this->toon_colour_buffer,
-                          &this->toon_colour_mapped);
+            std::memcpy(this->toon_colour_mapped, neutral_colours.data(), std::as_bytes(std::span(neutral_colours)).size());
             if (contract_heap_ready(this->rhi_face())) {
                 std::uintptr_t const address = this->buffer_address(*this->toon_colour_buffer);
                 bool const written = this->write_heap_buffer(*this->toon_colour_buffer,
@@ -862,14 +896,8 @@ namespace deren::engine {
         //
         //      WRITTEN ONCE, here, like the material table beside it: the values are fixed at import and never
         //      rewritten, which is why it is one descriptor and not a per-frame pair.
-        std::vector<uint8_t> const zeroed_toon_lanes(static_cast<size_t>(deren::engine::material_capacity) * deren::engine::toon_lane_blocks * sizeof(glm::uvec4), 0);
-        create_buffer(this->vulkan_core,
-                      rhi::buffer_usage::storage_coherent,
-                      rhi::to_bits(rhi::buffer_flag::device_address),
-                      std::as_bytes(std::span(zeroed_toon_lanes)),
-                      "toon lane table buffer",
-                      this->toon_lane_buffer,
-                      &this->toon_lane_mapped);
+
+        // Allocation and zero initialization are provided by scene_tables_pass.
         if (contract_heap_ready(this->rhi_face())) {
             std::uintptr_t const address = this->buffer_address(*this->toon_lane_buffer);
             bool const written = this->write_heap_buffer(*this->toon_lane_buffer,
@@ -888,14 +916,8 @@ namespace deren::engine {
         //      deren::engine::render_layout::heap_slots::toon_rig). The application fills it from its config through
         //      `runtime::set_toon_rig`, and the zeros it is created with are replaced before the first frame.
         {
-            std::vector<uint8_t> const zeroed_toon_rig(sizeof(deren::engine::toon_rig), 0);
-            create_buffer(this->vulkan_core,
-                          rhi::buffer_usage::storage_coherent,
-                          rhi::to_bits(rhi::buffer_flag::device_address),
-                          std::as_bytes(std::span(zeroed_toon_rig)),
-                          "toon light rig buffer",
-                          this->toon_rig_buffer,
-                          &this->toon_rig_mapped);
+
+            // Allocation and zero initialization are provided by scene_tables_pass.
             if (contract_heap_ready(this->rhi_face())) {
                 std::uintptr_t const address = this->buffer_address(*this->toon_rig_buffer);
                 bool const written = this->write_heap_buffer(*this->toon_rig_buffer,
@@ -917,14 +939,8 @@ namespace deren::engine {
         //      with the material table's shape and for its reasons: fixed capacity, host-visible (direct mapping),
         //      and a device address because a heap descriptor for a buffer IS an address range.
         {
-            std::vector<uint8_t> const zeroed_meshlets(static_cast<size_t>(deren::engine::meshlet_capacity) * sizeof(deren::engine::meshlet), 0);
-            create_buffer(this->vulkan_core,
-                          rhi::buffer_usage::storage_coherent,
-                          rhi::to_bits(rhi::buffer_flag::device_address),
-                          std::as_bytes(std::span(zeroed_meshlets)),
-                          "meshlet table buffer",
-                          this->meshlet_buffer,
-                          &this->meshlet_mapped);
+
+            // Allocation and zero initialization are provided by scene_tables_pass.
             if (contract_heap_ready(this->rhi_face())) {
                 std::uintptr_t const address = this->buffer_address(*this->meshlet_buffer);
                 bool const written = this->write_heap_buffer(*this->meshlet_buffer,
@@ -952,15 +968,8 @@ namespace deren::engine {
         //      the layout has to be nameable by both halves - the backend static_asserts its own structure
         //      against it.
         {
-            constexpr std::size_t commands_per_frame = runtime::mesh_command_capacity;
-            std::vector<uint8_t> const zeroed_commands(static_cast<size_t>(this->frame_ring().slot_count()) * commands_per_frame * rhi::mesh_task_command_size, 0);
-            create_buffer(this->vulkan_core,
-                          rhi::buffer_usage::storage_coherent,
-                          rhi::to_bits(rhi::buffer_flag::indirect),
-                          std::as_bytes(std::span(zeroed_commands)),
-                          "mesh indirect command table",
-                          this->mesh_indirect_buffer,
-                          &this->mesh_indirect_mapped);
+
+            // Allocation and zero initialization are provided by scene_tables_pass.
             // THE NATIVE TABLE IS GONE: the dispatch takes the CONTRACT handle this class already owns
             // (`mesh_indirect_buffer`), so nothing here derives a `VkBuffer` for it any more - the derivation
             // was the reason a null handle could silently send every dispatch down the DIRECT path.
@@ -970,14 +979,8 @@ namespace deren::engine {
         //      uints per frame in flight, on the heap because a mesh stage has no other way to reach memory, and
         //      host-visible because the host reads it back once, at shutdown. Zeroed here; the entries only add.
         {
-            std::vector<uint8_t> const zeroed_stats(static_cast<size_t>(this->frame_ring().slot_count()) * 8u * sizeof(uint32_t), 0);
-            create_buffer(this->vulkan_core,
-                          rhi::buffer_usage::storage_coherent,
-                          rhi::to_bits(rhi::buffer_flag::device_address),
-                          std::as_bytes(std::span(zeroed_stats)),
-                          "mesh culling counter buffer",
-                          this->meshlet_stats_buffer,
-                          &this->meshlet_stats_mapped);
+
+            // Allocation and zero initialization are provided by scene_tables_pass.
             if (contract_heap_ready(this->rhi_face())) {
                 bool const written = this->write_heap_buffer(*this->meshlet_stats_buffer,
                                                              deren::engine::render_layout::heap_slots::meshlet_stats,
@@ -994,14 +997,8 @@ namespace deren::engine {
         //      records and the heap-bound because the mesh entry reads it. Per frame rather than one slot, unlike the
         //      table it shadows: this one is rewritten from the camera every frame.
         {
-            std::vector<uint8_t> const zeroed_culled(static_cast<size_t>(this->frame_ring().slot_count()) * deren::engine::meshlet_capacity * sizeof(deren::engine::meshlet), 0);
-            create_buffer(this->vulkan_core,
-                          rhi::buffer_usage::storage_coherent,
-                          rhi::to_bits(rhi::buffer_flag::device_address),
-                          std::as_bytes(std::span(zeroed_culled)),
-                          "culled meshlet table buffer",
-                          this->meshlet_culled_buffer,
-                          &this->meshlet_culled_mapped);
+
+            // Allocation and zero initialization are provided by scene_tables_pass.
             if (contract_heap_ready(this->rhi_face())) {
                 bool const written = this->write_heap_buffer(*this->meshlet_culled_buffer,
                                                              deren::engine::render_layout::heap_slots::meshlet_culled,
@@ -1015,75 +1012,14 @@ namespace deren::engine {
 
         // Per-instance transform buffer (set 0 binding 6): one mat4 per instance, host-visible;
         // filled by set_instanced_draw() for instanced stress draws (see pbr.vert)
-        std::vector<uint8_t> const zeroed_instances(static_cast<size_t>(deren::engine::instance_capacity) * sizeof(glm::mat4), 0);
-        create_buffer(this->vulkan_core,
-                      rhi::buffer_usage::storage_coherent,
-                      rhi::to_bits(rhi::buffer_flag::device_address), // the heap writes this one's address
-                      std::as_bytes(std::span(zeroed_instances)),
-                      "instance transform buffer",
-                      this->instance_buffer,
-                      &this->instance_mapped);
 
-        // Per-motion-slot previous world matrices (set 0 binding 13): ONE buffer per frame slot, like
-        // the skin and morph buffers below, so a frame in flight never shares the buffer the next
-        // frame rewrites. Zero-filled: a leaf's first frame reports "no motion", which is right -
-        // nothing was there to move from. motion_previous is the CPU-side copy of what is currently
-        // in it, advanced by advance_motion_transforms().
-        std::vector<uint8_t> const zeroed_motion(static_cast<size_t>(deren::engine::scene_motion_capacity) * sizeof(glm::mat4), 0);
-        create_buffers(this->vulkan_core,
-                       this->motion_buffers,
-                       rhi::buffer_usage::storage_coherent,
-                       // THE HEAP'S REQUIREMENT: a descriptor written as a device ADDRESS range
-                       // needs the buffer to be addressable (VUID-VkBufferDeviceAddressInfo-
-                       // buffer-02601 says so, and validation did, the moment this write went in).
-                       rhi::to_bits(rhi::buffer_flag::device_address),
-                       std::as_bytes(std::span(zeroed_motion)),
-                       "motion transform buffer",
-                       &this->motion_mapped);
+        // Allocation and zero initialization are provided by scene_tables_pass.
+
+        // The chain prepares deformation storage before setup writes. Keep chronological CPU history here.
         this->motion_previous.assign(deren::engine::scene_motion_capacity, glm::mat4(1.0f));
-
-        // Per-joint skin matrices (set 0 binding 9): one buffer PER FRAME SLOT (scene_skin_capacity
-        // mat4s each, host-visible) so an in-flight frame never shares the buffer the next frame
-        // rewrites. Zero-filled initially (the identity block is written by the setup upload).
-        std::vector<uint8_t> const zeroed_skins(static_cast<size_t>(deren::engine::scene_skin_capacity) * sizeof(glm::mat4), 0);
-        create_buffers(this->vulkan_core,
-                       this->skin_buffers,
-                       rhi::buffer_usage::storage_coherent,
-                       rhi::to_bits(rhi::buffer_flag::device_address), // the heap writes this one's address
-                       std::as_bytes(std::span(zeroed_skins)),
-                       "skin matrix buffer",
-                       &this->skin_mapped);
-        this->skin_current.resize(this->skin_mapped.size());
-
-        // The SAME joint blocks as of ONE FRAME AGO (heap: skin_matrices_previous), one buffer per frame
-        // slot: a DEFORMING vertex's motion vector is the difference between the two frames' skinning, so
-        // these are as load-bearing as the current ones, and a frame in flight must not share the buffer the
-        // next frame rewrites. Zero-filled on the GPU like its sibling. CPU history stores only the
-        // uploaded extent, publishes identity for a first-frame upload, and thereafter follows the
-        // preceding rendered slot's CPU source. No upload means no history-buffer write.
-        std::vector<uint8_t> const zeroed_previous_skins(static_cast<size_t>(deren::engine::scene_skin_capacity) * sizeof(glm::mat4), 0);
-        create_buffers(this->vulkan_core,
-                       this->skin_buffers_previous,
-                       rhi::buffer_usage::storage_coherent,
-                       rhi::to_bits(rhi::buffer_flag::device_address), // the heap writes this one's address
-                       std::as_bytes(std::span(zeroed_previous_skins)),
-                       "previous skin matrix buffer",
-                       &this->skin_previous_mapped);
+        this->skin_current.resize(this->frame_ring().slot_count());
         this->skin_previous.clear();
         this->skin_history_started = false;
-
-        // Morph data (set 0 binding 10): one buffer PER FRAME SLOT (scene_morph_capacity floats
-        // each, host-visible); the caller bakes per-primitive morph blocks (deltas + weights)
-        // into every slot's buffer at setup, then rewrites only the active slot's weights per frame.
-        // Zero-filled from one shared host vector (each create_buffer copies its own GPU buffer).
-        std::vector<uint8_t> const zeroed_morphs(static_cast<size_t>(deren::engine::scene_morph_capacity) * sizeof(float), 0);
-        create_buffers(this->vulkan_core,
-                       this->morph_buffers,
-                       rhi::buffer_usage::storage_coherent,
-                       rhi::to_bits(rhi::buffer_flag::device_address), // the heap writes this one's address
-                       std::as_bytes(std::span(zeroed_morphs)),
-                       "morph data buffer",
-                       &this->morph_mapped);
 
         // Reserve table index 0 as the DEFAULT material (white textures + identity factors):
         // registrations that overflow the table degrade to it (see register_material). Done
@@ -1118,15 +1054,11 @@ namespace deren::engine {
         // is filled from these six, and source/shaders/heap_slots.glsl names the heap grid's sampler slots in the
         // order `shared_sampler_infos` writes them. `test_render_resources` holds that order against the
         // shader's names; the two sets are separate objects but the same six descriptions.
-        auto const make = [this](rhi::sampler_desc const& desc) {
-            return rhi::object_manager<rhi::sampler>{this->rhi_face().create_sampler(desc)};
-        };
-
         // The bindless texture array: REPEAT, all its mip levels (12 is the capacity's own limit).
         rhi::sampler_desc texture_desc = {};
         texture_desc.address_mode = rhi::sampler_address_mode::repeat;
         texture_desc.max_lod = 12.0f;
-        this->texture_sampler = make(texture_desc);
+        this->texture_sampler = create_shared_sampler(render_resource::resource_id::texture_sampler, texture_desc);
 
         // The G-buffer's stored surface: NEAREST, clamp. An interpolated normal or a filterable material id
         // is a different surface, not a smoother one.
@@ -1135,23 +1067,23 @@ namespace deren::engine {
         gbuffer_desc.max_lod = 0.0f;
         gbuffer_desc.mag_filter = rhi::sampler_filter::nearest;
         gbuffer_desc.min_filter = rhi::sampler_filter::nearest;
-        this->gbuffer_sampler = make(gbuffer_desc);
+        this->gbuffer_sampler = create_shared_sampler(render_resource::resource_id::gbuffer_sampler, gbuffer_desc);
 
         // The TAA resolve upsamples the scene colour but must NOT average neighbouring history texels:
         // linear magnification, nearest minification.
         rhi::sampler_desc taa_desc = gbuffer_desc;
         taa_desc.mag_filter = rhi::sampler_filter::linear;
-        this->taa_sampler = make(taa_desc);
+        this->taa_sampler = create_shared_sampler(render_resource::resource_id::taa_sampler, taa_desc);
 
         // The post chain and the FXAA filter: LINEAR, clamp, one mip.
         rhi::sampler_desc post_desc = {};
         post_desc.address_mode = rhi::sampler_address_mode::clamp_to_edge;
         post_desc.max_lod = 1.0f;
-        this->post_sampler = make(post_desc);
+        this->post_sampler = create_shared_sampler(render_resource::resource_id::post_sampler, post_desc);
 
         // The composite's GI upsample taps depth and normals AT CENTRES: an averaged depth invents a surface
         // between two samples, which is exactly what an edge-aware test must not see.
-        this->post_nearest_sampler = make(gbuffer_desc);
+        this->post_nearest_sampler = create_shared_sampler(render_resource::resource_id::post_nearest_sampler, gbuffer_desc);
 
         // The cascaded shadow map: a depth comparison with LINEAR filtering, which is the hardware PCF the
         // shader's `sampler2DShadow` tap expects (compareOp matches pbr.frag's "not deeper than stored depth").
@@ -1161,7 +1093,7 @@ namespace deren::engine {
         shadow_desc.mipmap_mode = rhi::sampler_mipmap_mode::nearest;
         shadow_desc.compare_enable = true;
         shadow_desc.compare_op = rhi::sampler_compare_op::less_or_equal;
-        this->shadow_sampler = make(shadow_desc);
+        this->shadow_sampler = create_shared_sampler(render_resource::resource_id::shadow_sampler, shadow_desc);
     }
 
     void runtime::init_recording_resources() {
@@ -1192,20 +1124,20 @@ namespace deren::engine {
         for (int32_t slot = 0; slot < static_cast<int32_t>(this->frame_ring().slot_count()); ++slot) {
             // one entry: the alpha-blended pass's secondary (see secondary_pass). The shadow cascades
             // and the main-pass segments own their buffers elsewhere, because they record concurrently.
-            std::array<std::shared_ptr<rhi::command_buffer>, static_cast<std::size_t>(secondary_pass::count)> pair = {
+            deren::utility::vessel::array<std::shared_ptr<rhi::command_buffer>, static_cast<std::size_t>(secondary_pass::count)> pair = {
                 face.make_command_buffer({.kind = rhi::command_buffer_kind::secondary}), // transparent
             };
             this->secondary_command_buffers.push_back(std::move(pair));
 
             // Shadow cascades record on the task pool, so each cascade gets its OWN buffer - and its
             // own pool with it (M9).
-            std::vector<std::shared_ptr<rhi::command_buffer>> cascade_recording;
+            deren::utility::vessel::vector<std::shared_ptr<rhi::command_buffer>> cascade_recording;
             cascade_recording.reserve(deren::engine::max_shadow_cascades);
             for (uint32_t cascade = 0; cascade < deren::engine::max_shadow_cascades; ++cascade) {
                 cascade_recording.push_back(face.make_command_buffer({.kind = rhi::command_buffer_kind::secondary}));
             }
             this->shadow_recording.push_back(std::move(cascade_recording));
-            std::vector<std::shared_ptr<rhi::command_buffer>> segments;
+            deren::utility::vessel::vector<std::shared_ptr<rhi::command_buffer>> segments;
             segments.reserve(record_workers);
             for (uint32_t s = 0; s < record_workers; ++s) {
                 segments.push_back(face.make_command_buffer({.kind = rhi::command_buffer_kind::secondary})); // one per worker
@@ -1281,18 +1213,11 @@ namespace deren::engine {
         furnace_desc.format = deren::engine::render_layout::hdr_format;
         furnace_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination) | rhi::to_bits(rhi::image_flag::cube_compatible);
         furnace_desc.debug_name = "furnace environment cube";
-        this->furnace_cube_image = rhi::object_manager<rhi::image>{this->rhi_face().create_image(furnace_desc)};
-        if (!static_cast<bool>(this->furnace_cube_image)) {
+        auto furnace = create_shared_image(render_resource::resource_id::furnace_cube, furnace_desc);
+        this->furnace_cube_image = std::move(furnace.first);
+        this->furnace_cube_view = std::move(furnace.second);
+        if (!this->furnace_cube_image || !this->furnace_cube_view)
             deren::utility::panic("failed to create the furnace environment cube");
-        }
-        rhi::image_view_desc furnace_range{};
-        furnace_range.mip_count = 0;   // all remaining mips (one)
-        furnace_range.layer_count = 0; // all remaining layers - the SIX faces a CUBE view needs
-        furnace_range.role = rhi::view_role::sampled;
-        this->furnace_cube_view = rhi::object_manager<rhi::image_view>{this->furnace_cube_image->make_view(furnace_range)};
-        if (!static_cast<bool>(this->furnace_cube_view)) {
-            deren::utility::panic("failed to create the furnace environment cube view");
-        }
     }
 
     rhi::error runtime::prepare_managed_resources(bool output_only) {
@@ -1316,12 +1241,35 @@ namespace deren::engine {
         bool const missing_shadow = !primary.find(resource_id::shadow_map);
         bool const missing_light = !primary.find(resource_id::light_ubo);
         bool const missing_head = !primary.find(resource_id::head_ubo);
+        bool const missing_camera = !primary.find(resource_id::camera_ubo);
         bool const missing_counts = !primary.find(resource_id::cluster_counts);
         bool const missing_indices = !primary.find(resource_id::cluster_indices);
         if (missing_counts != missing_indices)
             return rhi::error::invalid_argument;
         auto& fallback = this->shared_resource_fallback;
         fallback.clear();
+        deren::utility::vessel::array<bool, pass::scene_tables_pass::resource_count> missing_tables;
+        for (size_t i = 0; i < missing_tables.size(); ++i)
+            missing_tables[i] = !primary.find(pass::scene_tables_pass::ids[i]);
+        if (std::any_of(missing_tables.begin(), missing_tables.end(), [](bool missing) { return missing; })) {
+            if (this->fallback_tables_provider == nullptr)
+                this->fallback_tables_provider = &fallback.emplace<pass::scene_tables_pass>();
+            else
+                fallback.add(*this->fallback_tables_provider);
+            this->fallback_tables_provider->select_resources(missing_tables);
+        } else if (this->fallback_tables_provider != nullptr)
+            this->fallback_tables_provider->bind_resources({});
+        deren::utility::vessel::array<bool, 4> missing_deformation;
+        for (size_t i = 0; i < missing_deformation.size(); ++i)
+            missing_deformation[i] = !primary.find(pass::scene_deformation_pass::ids[i]);
+        if (std::any_of(missing_deformation.begin(), missing_deformation.end(), [](bool missing) { return missing; })) {
+            if (this->fallback_deformation_provider == nullptr)
+                this->fallback_deformation_provider = &fallback.emplace<pass::scene_deformation_pass>();
+            else
+                fallback.add(*this->fallback_deformation_provider);
+            this->fallback_deformation_provider->select_resources(missing_deformation);
+        } else if (this->fallback_deformation_provider != nullptr)
+            this->fallback_deformation_provider->bind_resources({});
         if (!output_only) {
             if (missing_shadow) {
                 if (this->fallback_shadow_provider == nullptr)
@@ -1337,16 +1285,17 @@ namespace deren::engine {
                     fallback.add(*this->fallback_cluster_provider);
             } else if (this->fallback_cluster_provider != nullptr)
                 this->fallback_cluster_provider->bind_resources({});
-            if (missing_light || missing_head) {
-                if (this->fallback_constants_provider == nullptr)
-                    this->fallback_constants_provider = &fallback.emplace<pass::scene_constants_pass>();
-                else
-                    fallback.add(*this->fallback_constants_provider);
-                this->fallback_constants_provider->select_resources(missing_light, missing_head);
-            } else if (this->fallback_constants_provider != nullptr)
-                this->fallback_constants_provider->bind_resources({});
         }
-        std::array<bool, pass::output_targets_pass::resource_count> missing_output;
+        // Camera is also needed by setup-time scene heap publication; the other constants stay lazy.
+        if (missing_camera || (!output_only && (missing_light || missing_head))) {
+            if (this->fallback_constants_provider == nullptr)
+                this->fallback_constants_provider = &fallback.emplace<pass::scene_constants_pass>();
+            else
+                fallback.add(*this->fallback_constants_provider);
+            this->fallback_constants_provider->select_resources(!output_only && missing_light, !output_only && missing_head, missing_camera);
+        } else if (this->fallback_constants_provider != nullptr)
+            this->fallback_constants_provider->bind_resources({});
+        deren::utility::vessel::array<bool, pass::output_targets_pass::resource_count> missing_output;
         for (size_t i = 0; i < missing_output.size(); ++i)
             missing_output[i] = !primary.find(pass::output_targets_pass::ids[i]);
         if (std::any_of(missing_output.begin(), missing_output.end(), [](bool missing) { return missing; })) {
@@ -1365,6 +1314,8 @@ namespace deren::engine {
         auto const cluster_view = missing_counts ? fallback_view : primary;
         auto const light_view = missing_light ? fallback_view : primary;
         auto const head_view = missing_head ? fallback_view : primary;
+        auto const camera_view = missing_camera ? fallback_view : primary;
+        auto const camera = camera_view.find(resource_id::camera_ubo);
         auto const light = light_view.find(resource_id::light_ubo);
         auto const head = head_view.find(resource_id::head_ubo);
         auto const shadow = shadow_view.find(resource_id::shadow_map);
@@ -1390,6 +1341,37 @@ namespace deren::engine {
                    (value->description.buffer.flags & rhi::to_bits(rhi::buffer_flag::device_address)) != 0 &&
                    std::all_of(value->objects.begin(), value->objects.end(), [bytes](auto const& object) { return object.buffer->mapped().size() >= bytes; });
         };
+        if (!valid_constant(camera, sizeof(camera_ubo)))
+            return rhi::error::invalid_argument;
+        deren::utility::vessel::array<managed::resource_snapshot, pass::scene_tables_pass::resource_count> table_views;
+        deren::utility::vessel::array<std::shared_ptr<managed::generation const>, pass::scene_tables_pass::resource_count> tables;
+        auto const required_tables = pass::scene_tables_pass::descriptions(context);
+        bool tables_changed = false;
+        for (size_t i = 0; i < tables.size(); ++i) {
+            auto const& expected = required_tables[i];
+            table_views[i] = missing_tables[i] ? fallback_view : primary;
+            auto const value = table_views[i].find(expected.id);
+            auto const& desc = value->description;
+            if (desc.type != managed::kind::buffer || desc.scope != expected.scope || desc.life != expected.life ||
+                value->objects.size() != 1 || desc.buffer.size < expected.buffer.size || desc.buffer.usage != expected.buffer.usage ||
+                (desc.buffer.flags & expected.buffer.flags) != expected.buffer.flags || !desc.zero_on_create || desc.zero_on_frame ||
+                value->objects[0].buffer->mapped().size() < expected.buffer.size)
+                return rhi::error::invalid_argument;
+            tables[i] = value;
+            tables_changed |= this->scene_table_resource_views[i].find(expected.id) != value;
+        }
+        deren::utility::vessel::array<managed::resource_snapshot, 4> deformation_views;
+        deren::utility::vessel::array<std::shared_ptr<managed::generation const>, 4> deformations;
+        deren::utility::vessel::array<bool, 4> deformation_changed;
+        for (size_t i = 0; i < deformations.size(); ++i) {
+            auto const id = pass::scene_deformation_pass::ids[i];
+            deformation_views[i] = missing_deformation[i] ? fallback_view : primary;
+            deformations[i] = deformation_views[i].find(id);
+            if (!valid_buffer(deformations[i], pass::scene_deformation_pass::sizes[i]) || deformations[i]->description.zero_on_frame ||
+                deformations[i]->description.life != managed::lifetime::frame_slot)
+                return rhi::error::invalid_argument;
+            deformation_changed[i] = this->deformation_resource_views[i].find(id) != deformations[i];
+        }
         if (!output_only && (!valid_constant(light, sizeof(light_ubo)) || !valid_constant(head, sizeof(head_ubo)) ||
                              !valid_buffer(counts, count_bytes) || !counts->description.zero_on_frame ||
                              !valid_buffer(indices, count_bytes * deren::engine::cluster_light_capacity) ||
@@ -1398,8 +1380,8 @@ namespace deren::engine {
                              shadow->description.image.extent.height != context.shadow_map_size ||
                              shadow->description.image.array_layers < context.shadow_layers))
             return rhi::error::invalid_argument;
-        std::array<managed::resource_snapshot, pass::output_targets_pass::resource_count> output_views;
-        std::array<std::shared_ptr<managed::generation const>, pass::output_targets_pass::resource_count> outputs;
+        deren::utility::vessel::array<managed::resource_snapshot, pass::output_targets_pass::resource_count> output_views;
+        deren::utility::vessel::array<std::shared_ptr<managed::generation const>, pass::output_targets_pass::resource_count> outputs;
         auto const required_outputs = pass::output_targets_pass::descriptions(context);
         bool outputs_changed = false;
         for (size_t i = 0; i < outputs.size(); ++i) {
@@ -1422,10 +1404,67 @@ namespace deren::engine {
                                                       this->cluster_resource_view.find(resource_id::cluster_indices) != indices);
         bool const light_changed = !output_only && this->light_resource_view.find(resource_id::light_ubo) != light;
         bool const head_changed = !output_only && this->head_resource_view.find(resource_id::head_ubo) != head;
+        bool const camera_changed = this->camera_resource_view.find(resource_id::camera_ubo) != camera;
         if ((shadow_changed && !this->shadow_images.empty()) || (cluster_changed && !this->cluster_count_buffers.empty()) ||
             (light_changed && !this->light_buffers.empty()) || (head_changed && !this->head_buffers.empty()) ||
+            (camera_changed && !this->camera_buffers.empty()) || (tables_changed && static_cast<bool>(this->material_buffer)) ||
+            (std::any_of(deformation_changed.begin(), deformation_changed.end(), [](bool changed) { return changed; }) && !this->motion_buffers.empty()) ||
             (outputs_changed && static_cast<bool>(this->hdr_images[0]))) {
             this->rhi_face().wait_idle();
+        }
+        if (tables_changed) {
+            deren::utility::vessel::array<decltype(&this->material_buffer), 9> const handles{&this->material_buffer, &this->instance_buffer, &this->toon_colour_buffer, &this->toon_lane_buffer, &this->toon_rig_buffer,
+                                                                                             &this->meshlet_buffer, &this->mesh_indirect_buffer, &this->meshlet_stats_buffer, &this->meshlet_culled_buffer};
+            deren::utility::vessel::array<decltype(&this->material_mapped), 9> const mappings{&this->material_mapped, &this->instance_mapped, &this->toon_colour_mapped, &this->toon_lane_mapped, &this->toon_rig_mapped,
+                                                                                              &this->meshlet_mapped, &this->mesh_indirect_mapped, &this->meshlet_stats_mapped, &this->meshlet_culled_mapped};
+            for (size_t i = 0; i < tables.size(); ++i) {
+                if (this->scene_table_resource_views[i].find(required_tables[i].id) == tables[i])
+                    continue;
+                auto const target = tables[i]->objects[0].buffer->mapped();
+                if (*handles[i]) {
+                    auto const source = handles[i]->get()->mapped();
+                    std::memcpy(target.data(), source.data(), std::min(source.size(), target.size()));
+                }
+                *handles[i] = {tables[i]->objects[0].buffer.get()};
+                *mappings[i] = target.data();
+            }
+            this->publish_scene_table_bindings();
+        }
+        auto const adopt_deformation = [&](size_t family, auto& buffers, auto& mapped) {
+            if (!deformation_changed[family])
+                return;
+            auto const& generation = deformations[family];
+            // Preserve setup deltas, partial uploads and history. Old snapshots stay alive through this copy.
+            for (size_t slot = 0; slot < std::min(buffers.size(), generation->objects.size()); ++slot) {
+                auto const source = buffers[slot].get()->mapped();
+                auto const target = generation->objects[slot].buffer->mapped();
+                std::memcpy(target.data(), source.data(), std::min(source.size(), target.size()));
+            }
+            buffers.clear();
+            mapped.clear();
+            for (auto const& object : generation->objects) {
+                buffers.push_back({object.buffer.get()});
+                mapped.push_back(object.buffer->mapped().data());
+            }
+        };
+        adopt_deformation(0, this->motion_buffers, this->motion_mapped);
+        adopt_deformation(1, this->skin_buffers, this->skin_mapped);
+        adopt_deformation(2, this->skin_buffers_previous, this->skin_previous_mapped);
+        adopt_deformation(3, this->morph_buffers, this->morph_mapped);
+        if (std::any_of(deformation_changed.begin(), deformation_changed.end(), [](bool changed) { return changed; }))
+            this->publish_deformation_bindings();
+        if (camera_changed) {
+            auto& owner = missing_camera ? fallback : *this->frame_chain;
+            camera_ubo initial{};
+            for (uint32_t slot = 0; slot < context.frame_slots; ++slot) {
+                auto const copied = owner.write_frame_buffer(slot, resource_id::camera_ubo, std::as_bytes(std::span(&initial, 1)));
+                if (copied != rhi::error::ok)
+                    return copied;
+            }
+            this->camera_buffers.clear();
+            for (auto const& object : camera->objects)
+                this->camera_buffers.push_back({object.buffer.get()});
+            this->publish_camera_bindings();
         }
         if (light_changed) {
             auto& owner = missing_light ? fallback : *this->frame_chain;
@@ -1458,7 +1497,7 @@ namespace deren::engine {
             for (auto const& object : shadow->objects) {
                 this->shadow_images.push_back({object.image.get()});
                 this->shadow_array_views.push_back({object.array_view.get()});
-                std::vector<managed::borrowed<rhi::image_view>> layers;
+                deren::utility::vessel::vector<managed::borrowed<rhi::image_view>> layers;
                 for (auto const& layer : object.layers)
                     layers.push_back({layer.get()});
                 this->shadow_layer_views.push_back(std::move(layers));
@@ -1521,6 +1560,9 @@ namespace deren::engine {
             this->reset_image_generation_state();
         }
         this->output_resource_views = output_views;
+        this->camera_resource_view = camera_view;
+        this->deformation_resource_views = deformation_views;
+        this->scene_table_resource_views = table_views;
         if (!output_only) {
             this->light_resource_view = light_view;
             this->head_resource_view = head_view;
@@ -1569,7 +1611,7 @@ namespace deren::engine {
          * failure rather than a quiet fall back to a descriptor set.
          */
         template <typename Buffer>
-        void write_heap_scene_buffer(rhi::api_core& vk, std::vector<Buffer> const& buffers, uint32_t const slot_base, std::uint64_t const size, rhi::descriptor_type const type) {
+        void write_heap_scene_buffer(rhi::api_core& vk, deren::utility::vessel::vector<Buffer> const& buffers, uint32_t const slot_base, std::uint64_t const size, rhi::descriptor_type const type) {
             if (!contract_heap_ready(vk)) {
                 return;
             }
@@ -1589,6 +1631,31 @@ namespace deren::engine {
             deren::utility::log("descriptor heap: {} per-frame descriptor(s) written for grid slots {}..{}", written, slot_base, slot_base + (buffers.empty() ? 0u : static_cast<uint32_t>(buffers.size()) - 1u));
         }
     } // namespace
+
+    void runtime::publish_camera_bindings() {
+        write_heap_scene_buffer(this->vulkan_core, this->camera_buffers, deren::engine::render_layout::heap_slots::scene_camera,
+                                sizeof(camera_ubo), rhi::descriptor_type::storage_buffer);
+    }
+
+    void runtime::publish_deformation_bindings() {
+        write_heap_scene_buffer(this->vulkan_core, this->motion_buffers, deren::engine::render_layout::heap_slots::previous_transforms, pass::scene_deformation_pass::sizes[0], rhi::descriptor_type::storage_buffer);
+        write_heap_scene_buffer(this->vulkan_core, this->skin_buffers, deren::engine::render_layout::heap_slots::skin_matrices, pass::scene_deformation_pass::sizes[1], rhi::descriptor_type::storage_buffer);
+        write_heap_scene_buffer(this->vulkan_core, this->skin_buffers_previous, deren::engine::render_layout::heap_slots::skin_matrices_previous, pass::scene_deformation_pass::sizes[2], rhi::descriptor_type::storage_buffer);
+        write_heap_scene_buffer(this->vulkan_core, this->morph_buffers, deren::engine::render_layout::heap_slots::morph_data, pass::scene_deformation_pass::sizes[3], rhi::descriptor_type::storage_buffer);
+    }
+
+    void runtime::publish_scene_table_bindings() {
+        deren::utility::vessel::array<decltype(this->material_buffer), 9> const handles{this->material_buffer, this->instance_buffer, this->toon_colour_buffer, this->toon_lane_buffer, this->toon_rig_buffer,
+                                                                                        this->meshlet_buffer, this->mesh_indirect_buffer, this->meshlet_stats_buffer, this->meshlet_culled_buffer};
+        auto const required = pass::scene_tables_pass::descriptions(render_resource::instances::resource_context{.frame_slots = this->frame_ring().slot_count()});
+        if (!contract_heap_ready(this->rhi_face()))
+            return;
+        for (size_t i = 0; i < handles.size(); ++i) {
+            auto const slot = pass::scene_tables_pass::heap_slots[i];
+            if (slot != 0 && !this->write_heap_buffer(*handles[i], slot, required[i].buffer.size, rhi::descriptor_type::storage_buffer))
+                deren::utility::log("descriptor heap: managed scene table publication failed for slot {}", slot);
+        }
+    }
 
     void runtime::publish_cluster_bindings() {
         write_heap_scene_buffer(this->vulkan_core, this->cluster_count_buffers, deren::engine::render_layout::heap_slots::cluster_counts, static_cast<std::uint64_t>(deren::engine::max_cluster_count) * sizeof(uint32_t), rhi::descriptor_type::storage_buffer);
@@ -1688,74 +1755,70 @@ namespace deren::engine {
     }
 
     void runtime::set_ibl(ibl_input const& info) {
-        if (info.env_size == 0) {
+        if (!info.env_size || !info.env_mip_count || !info.irr_size || !info.lut_size)
             return;
-        }
-        // THE UPLOAD LAMBDA goes through the contract's image face now (abi 7): the named formats and
-        // the cube_compatible flag carry what image_create_info + image_type carried, and the bytes
-        // stay part of the descriptor (the dedup only sees content handed to creation).
-        auto const upload = [this](std::span<uint8_t const> const data, uint32_t const width, uint32_t const height, uint32_t const mip_levels, rhi::image_format const format, bool const cube, char const* const what) -> rhi::object_manager<rhi::image> {
+        deren::utility::vessel::vector<std::shared_ptr<rhi::image>> images;
+        deren::utility::vessel::vector<std::shared_ptr<rhi::image_view>> views;
+        auto const upload = [&](render_resource::resource_id id, std::span<uint8_t const> data, uint32_t size, uint32_t mips, rhi::image_format format, bool cube) {
             rhi::image_desc desc{};
-            desc.extent = rhi::image_extent{.width = width, .height = height, .depth = 1u};
-            desc.mip_levels = mip_levels;
+            desc.extent = {size, size, 1};
+            desc.mip_levels = mips;
             desc.array_layers = cube ? 6u : 1u;
             desc.format = format;
             desc.flags = rhi::to_bits(rhi::image_flag::sampled) | (cube ? rhi::to_bits(rhi::image_flag::cube_compatible) : rhi::no_image_flags);
-            desc.initial_bytes = std::as_bytes(std::span(data));
-            desc.debug_name = what;
-            rhi::object_manager<rhi::image> image{this->rhi_face().create_image(desc)};
-            if (!static_cast<bool>(image)) {
-                deren::utility::panic(what);
+            desc.initial_bytes = std::as_bytes(data);
+            auto created = create_shared_image(id, desc);
+            if (!created.first || !created.second)
+                return false;
+            images.push_back(std::move(created.first));
+            views.push_back(std::move(created.second));
+            return true;
+        };
+        using render_resource::resource_id;
+        if (!upload(resource_id::ibl_env, info.prefiltered_env, info.env_size, info.env_mip_count, rhi::image_format::r16g16b16a16_sfloat, true) ||
+            !upload(resource_id::ibl_irradiance, info.irradiance, info.irr_size, 1, rhi::image_format::r16g16b16a16_sfloat, true) ||
+            !upload(resource_id::brdf_lut, info.brdf_lut, info.lut_size, 1, rhi::image_format::r16g16_sfloat, false)) {
+            deren::utility::log("IBL resources could not be prepared; keeping the previous environment");
+            return;
+        }
+        rhi::sampler_desc desc{};
+        desc.address_mode = rhi::sampler_address_mode::clamp_to_edge;
+        desc.max_lod = static_cast<float>(info.env_mip_count - 1);
+        auto sampler = create_shared_sampler(resource_id::environment_sampler, desc);
+        if (!sampler)
+            return;
+        this->rhi_face().wait_idle();
+        deren::utility::vessel::array<uint32_t, 3> const slots{deren::engine::render_layout::heap_slots::env_cube,
+                                                               deren::engine::render_layout::heap_slots::irradiance_cube, deren::engine::render_layout::heap_slots::brdf_lut};
+        auto const write = [&](size_t index, rhi::image const& image) {
+            return contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(slots[index]), image,
+                                             rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image);
+        };
+        size_t written = 0;
+        for (; written < slots.size(); ++written)
+            if (!write(written, *images[written]))
+                break;
+        if (written != slots.size()) {
+            bool restored = this->ibl_images.size() == slots.size();
+            for (size_t i = 0; i < written; ++i) {
+                if (this->ibl_images.size() <= i || !this->ibl_images[i] || !write(i, *this->ibl_images[i]))
+                    restored = false;
             }
-            return image;
-        };
-        // a whole-image view through the contract, and the raw `VkImage` the heap's create-info
-        // descriptor still needs (transitional, until the heap write itself moves behind the contract)
-        auto const whole_view = [](rhi::image& image) -> rhi::object_manager<rhi::image_view> {
-            rhi::image_view_desc range{};
-            range.layer_count = 0;
-            range.mip_count = 0;
-            return rhi::object_manager<rhi::image_view>{image.make_view(range)};
-        };
-
-        // prefiltered environment cubemap (mip chain)
-        rhi::object_manager<rhi::image> env_image = upload(info.prefiltered_env, info.env_size, info.env_size, info.env_mip_count, rhi::image_format::r16g16b16a16_sfloat, true, "environment cubemap image");
-        this->ibl_images.push_back(std::move(env_image));
-        this->ibl_views.push_back(whole_view(*this->ibl_images.back()));
-        // ... and the heap's copy of it, at its own grid slot (see docs/descriptor_heap_migration.md): written
-        // HERE because this is the site that knows the format and the view type, which is what a heap image
-        // descriptor is made of. An image whose BINDING is later repointed (the furnace mode) needs a rewrite
-        // beside that change - the heap does not follow a view.
-        if (!contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(deren::engine::render_layout::heap_slots::env_cube), *this->ibl_images.back(), rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image)) {
-            deren::utility::log("descriptor heap: the environment cube did not reach grid slot {}", deren::engine::render_layout::heap_slots::env_cube);
+            if (written && !restored)
+                for (auto const& image : images)
+                    this->failed_shared_publication.push_back(image);
+            this->shared_heap_ready = this->shared_heap_ready && restored;
+            deren::utility::log("IBL descriptor publication failed; previous bindings restored: {}", restored);
+            return;
         }
-
-        // irradiance cubemap
-        rhi::object_manager<rhi::image> irr_image = upload(info.irradiance, info.irr_size, info.irr_size, 1u, rhi::image_format::r16g16b16a16_sfloat, true, "irradiance cubemap image");
-        this->ibl_images.push_back(std::move(irr_image));
-        this->ibl_views.push_back(whole_view(*this->ibl_images.back()));
-        if (!contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(deren::engine::render_layout::heap_slots::irradiance_cube), *this->ibl_images.back(), rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image)) {
-            deren::utility::log("descriptor heap: the irradiance cube did not reach grid slot {}", deren::engine::render_layout::heap_slots::irradiance_cube);
-        }
-
-        // BRDF integration LUT
-        rhi::object_manager<rhi::image> lut_image = upload(info.brdf_lut, info.lut_size, info.lut_size, 1u, rhi::image_format::r16g16_sfloat, false, "BRDF LUT image");
-        this->ibl_images.push_back(std::move(lut_image));
-        this->ibl_views.push_back(whole_view(*this->ibl_images.back()));
-        if (!contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(deren::engine::render_layout::heap_slots::brdf_lut), *this->ibl_images.back(), rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image)) {
-            deren::utility::log("descriptor heap: the BRDF LUT did not reach grid slot {}", deren::engine::render_layout::heap_slots::brdf_lut);
-        }
-
-        rhi::sampler_desc env_sampler_desc{};
-        env_sampler_desc.address_mode = rhi::sampler_address_mode::clamp_to_edge;
-        env_sampler_desc.max_lod = static_cast<float>(info.env_mip_count - 1);
-        this->env_sampler = rhi::object_manager<rhi::sampler>{this->rhi_face().create_sampler(env_sampler_desc)};
+        // Commit only after all heap writes succeed; old owners remain alive during rollback.
+        this->ibl_views = std::move(views);
+        this->ibl_images = std::move(images);
+        this->env_sampler = std::move(sampler);
+        this->failed_shared_publication.clear();
+        this->shared_heap_ready = true;
         this->ibl_ready = true;
-        // The three images above are already on the heap, written where their images are (see the
-        // write_heap_grid_image calls): a heap image descriptor is a CREATE INFO, so there is no separate
-        // "point the binding at it" step and nothing to rewrite here.
     }
-
     // THE ARTICLE'S POST LUT (`ZmdLutPost.shader`'s `_LutTex`), uploaded exactly as the BRDF LUT above is - the same
     // `create_image(data, ...)` -> `make_image_view` -> `write_heap_grid_image` triple, because a baked cube and a
     // generated one differ only in who filled the bytes.
@@ -1772,20 +1835,16 @@ namespace deren::engine {
         lut_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
         lut_desc.initial_bytes = std::as_bytes(std::span(pixels));
         lut_desc.debug_name = "post LUT image";
-        this->post_lut_image = rhi::object_manager<rhi::image>{this->rhi_face().create_image(lut_desc)};
-        if (!static_cast<bool>(this->post_lut_image)) {
-            deren::utility::panic("failed to create the post LUT image");
+        auto created = create_shared_image(render_resource::resource_id::post_lut, lut_desc);
+        if (!created.first || !created.second)
+            return;
+        this->rhi_face().wait_idle();
+        if (!write_heap_grid_image(this->vulkan_core, deren::engine::render_layout::heap_slots::post_lut, created.first.get())) {
+            deren::utility::log("descriptor heap: post_lut publication refused; keeping the previous LUT");
+            return;
         }
-        rhi::image_view_desc lut_range{};
-        lut_range.layer_count = 0;
-        lut_range.mip_count = 0;
-        this->post_lut_view = rhi::object_manager<rhi::image_view>{this->post_lut_image->make_view(lut_range)};
-        if (!static_cast<bool>(this->post_lut_view)) {
-            deren::utility::panic("failed to create the post LUT view");
-        }
-        if (!write_heap_grid_image(this->vulkan_core, deren::engine::render_layout::heap_slots::post_lut, this->post_lut_image.get())) {
-            deren::utility::log("descriptor heap: the post LUT did not reach grid slot {}", deren::engine::render_layout::heap_slots::post_lut);
-        }
+        this->post_lut_image = std::move(created.first);
+        this->post_lut_view = std::move(created.second);
         deren::utility::log("post LUT uploaded: {}x{}, {} bytes -> grid slot {}", width, height, pixels.size_bytes(), deren::engine::render_layout::heap_slots::post_lut);
     }
 
@@ -1822,20 +1881,16 @@ namespace deren::engine {
         fgd_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
         fgd_desc.initial_bytes = std::as_bytes(std::span(pixels));
         fgd_desc.debug_name = "goo FGD LUT image";
-        this->goo_fgd_image = rhi::object_manager<rhi::image>{this->rhi_face().create_image(fgd_desc)};
-        if (!static_cast<bool>(this->goo_fgd_image)) {
-            deren::utility::panic("failed to create the goo FGD LUT image");
+        auto created = create_shared_image(render_resource::resource_id::goo_fgd_lut, fgd_desc);
+        if (!created.first || !created.second)
+            return;
+        this->rhi_face().wait_idle();
+        if (!write_heap_grid_image(this->vulkan_core, deren::engine::render_layout::heap_slots::goo_fgd_lut, created.first.get())) {
+            deren::utility::log("descriptor heap: goo_fgd publication refused; keeping the previous LUT");
+            return;
         }
-        rhi::image_view_desc fgd_range{};
-        fgd_range.layer_count = 0;
-        fgd_range.mip_count = 0;
-        this->goo_fgd_view = rhi::object_manager<rhi::image_view>{this->goo_fgd_image->make_view(fgd_range)};
-        if (!static_cast<bool>(this->goo_fgd_view)) {
-            deren::utility::panic("failed to create the goo FGD LUT view");
-        }
-        if (!write_heap_grid_image(this->vulkan_core, deren::engine::render_layout::heap_slots::goo_fgd_lut, this->goo_fgd_image.get())) {
-            deren::utility::log("descriptor heap: the goo FGD LUT did not reach grid slot {}", deren::engine::render_layout::heap_slots::goo_fgd_lut);
-        }
+        this->goo_fgd_image = std::move(created.first);
+        this->goo_fgd_view = std::move(created.second);
         deren::utility::log("goo FGD LUT uploaded: {}x{}, {} bytes, R8G8B8A8_UNORM -> grid slot {}", width, height, pixels.size_bytes(), deren::engine::render_layout::heap_slots::goo_fgd_lut);
     }
 
@@ -1846,7 +1901,7 @@ namespace deren::engine {
         //         glTF image, so a raw data pointer is NOT a stable identity; the digest lookup
         //         below is what actually dedups); missing slots point at the white fallback
         //         (element 0).
-        std::array<std::pair<texture_input const*, rhi::image_format>, 5 + static_cast<std::size_t>(toon_slot::count)> const slots = {
+        deren::utility::vessel::array<std::pair<texture_input const*, rhi::image_format>, 5 + static_cast<std::size_t>(toon_slot::count)> const slots = {
             std::pair{&info.albedo, rhi::image_format::rgba8_srgb},
             std::pair{&info.metallic_roughness, rhi::image_format::rgba8_unorm},
             std::pair{&info.normal, rhi::image_format::rgba8_unorm},
@@ -1940,7 +1995,7 @@ namespace deren::engine {
             std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_rs_sheet)], rhi::image_format::rgba8_srgb},
         };
 
-        std::array<uint32_t, 5 + static_cast<std::size_t>(toon_slot::count)> texture_indices = {};
+        deren::utility::vessel::array<uint32_t, 5 + static_cast<std::size_t>(toon_slot::count)> texture_indices = {};
         uint32_t heap_texture_descriptors = 0; // how many went into the descriptor heap (see the log below)
         for (std::size_t i = 0; i < slots.size(); ++i) {
             texture_input const& tex = *slots[i].first;
@@ -1955,7 +2010,7 @@ namespace deren::engine {
             // once and share the array element. The image itself is also vma-deduped below.
             deren::utility::xxh3_digest const digest = deren::utility::xxh3_128bits(std::span<uint8_t const>(tex.data.data(), tex.data.size_bytes()));
             // key on the digest data_block itself (not a raw byte array): data_block carries the
-            // equality/ordering the std::map key needs
+            // equality/ordering the deren::utility::vessel::map key needs
             auto const key = std::tuple<deren::utility::xxh3_digest, rhi::image_format, std::uint32_t, std::uint32_t, std::uint32_t>{
                 digest, slots[i].second, tex.width, tex.height, tex.mip_levels};
             auto const cached = this->texture_slot_cache.find(key);
@@ -1985,11 +2040,12 @@ namespace deren::engine {
             image_info.flags = rhi::to_bits(rhi::image_flag::sampled);
             image_info.initial_bytes = std::as_bytes(tex.data);
             image_info.debug_name = "material texture";
-            this->owned_textures.push_back(rhi::object_manager<rhi::image>{this->rhi_face().create_image(image_info)});
+            auto created = create_shared_image(render_resource::resource_id::scene_textures, image_info);
+            this->owned_textures.push_back(std::move(created.first));
+            this->owned_texture_views.push_back(std::move(created.second));
             rhi::image_view_desc tex_range{};
             tex_range.layer_count = 0;
             tex_range.mip_count = 0;
-            this->owned_texture_views.push_back(rhi::object_manager<rhi::image_view>{this->owned_textures.back()->make_view(tex_range)});
             if (!static_cast<bool>(this->owned_textures.back()) || !static_cast<bool>(this->owned_texture_views.back())) {
                 deren::utility::panic("failed to create material texture");
             }

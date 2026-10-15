@@ -13,6 +13,8 @@
 
 // Only driver entry points are doubled. The generated header contains the actual
 // production bodies, not a model of how their pNext chains ought to work.
+import deren.utility.shared;
+
 namespace deren::utility {
     template <class... Args>
     void error(Args&&...) {
@@ -27,7 +29,7 @@ namespace deren::utility {
 
 namespace {
     struct driver_fixture {
-        std::vector<char const*> extensions;
+        deren::utility::vessel::vector<char const*> extensions;
         bool micromap = true;
         bool untyped = true;
         bool dynamic_rendering = true;
@@ -37,8 +39,8 @@ namespace {
         bool unified_layouts = true;
         bool host_copy = true;
     };
-    std::array<driver_fixture, 2> fixtures;
-    std::vector<VkStructureType> queried_features, queried_properties;
+    deren::utility::vessel::array<driver_fixture, 2> fixtures;
+    deren::utility::vessel::vector<VkStructureType> queried_features, queried_properties;
 
     driver_fixture& fixture(VkPhysicalDevice device) {
         auto const id = reinterpret_cast<uintptr_t>(device);
@@ -47,7 +49,7 @@ namespace {
     VkPhysicalDevice device(uintptr_t id) {
         return reinterpret_cast<VkPhysicalDevice>(id);
     }
-    std::vector<char const*> full_extensions() {
+    deren::utility::vessel::vector<char const*> full_extensions() {
         return {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME,
                 VK_KHR_MAINTENANCE_5_EXTENSION_NAME, VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME,
                 VK_EXT_MESH_SHADER_EXTENSION_NAME, VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME,

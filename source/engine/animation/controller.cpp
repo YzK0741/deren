@@ -5,6 +5,7 @@ module;
 #include <glm/gtc/quaternion.hpp>
 
 module deren.engine.animation;
+import deren.utility.shared;
 
 import deren.vstd;
 import deren.utility;
@@ -254,7 +255,7 @@ namespace deren::engine::animation {
     // sample one loader source into its runtime nodes + the active slot's morph weights;
     // returns whether any node local moved (morph-only writes are not "changed": they do not
     // invalidate the culling BVH)
-    bool controller::sample_source(std::size_t const source, std::vector<node_target> const& targets) {
+    bool controller::sample_source(std::size_t const source, deren::utility::vessel::vector<node_target> const& targets) {
         auto const base_it = this->base_poses.find(source);
         node_pose const base = base_it == this->base_poses.end() ? node_pose{} : base_it->second;
         node_pose const pose = sample_node(*this->active, source, base, this->time);
@@ -337,7 +338,7 @@ namespace deren::engine::animation {
                 // before spawning, workers only ever set it, and run_tasks is synchronous, so it
                 // is only read back after every task finished
                 this->sampling_changed.store(false);
-                std::vector<std::function<void()>>& tasks = this->sampling_tasks;
+                deren::utility::vessel::vector<std::function<void()>>& tasks = this->sampling_tasks;
                 tasks.clear();
                 tasks.reserve(workers);
                 for (uint32_t w = 0; w < workers; ++w) {
@@ -400,7 +401,7 @@ namespace deren::engine::animation {
                 auto const it = this->skin_world_index.find(source);
                 return it == this->skin_world_index.end() ? glm::mat4(1.0f) : this->skin_world_cache[it->second];
             };
-            std::vector<glm::mat4>& matrices = this->skin_matrices_scratch;
+            deren::utility::vessel::vector<glm::mat4>& matrices = this->skin_matrices_scratch;
             matrices.clear();
             matrices.reserve(4 + (this->skin_rigs.size() * 8));
             matrices.insert(matrices.end(), {glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f)});

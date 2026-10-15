@@ -1,4 +1,4 @@
-// module version: 0.2.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 
 /**
  * @file source/engine/pass/megalights_temporal.cppm
@@ -30,6 +30,7 @@ module;
 #include <vector>
 
 export module deren.engine.pass.megalights_temporal;
+export import deren.utility.shared;
 import deren.promise.rhi;
 
 import deren.engine.pass;
@@ -74,7 +75,7 @@ export namespace deren::engine::pass {
         [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
-        void describe_resources(render_resource::instances::resource_context const&, std::vector<render_resource::instances::request>&) const override;
+        void describe_resources(render_resource::instances::resource_context const&, deren::utility::vessel::vector<render_resource::instances::request>&) const override;
         void bind_resources(render_resource::instances::resource_snapshot const&) override;
         void on_swapchain_recreated(pass_host const& host) override;
         void record(resolved_io const& io) override;
@@ -125,7 +126,7 @@ export namespace deren::engine::pass {
         static constexpr uint32_t barrier_history = 1;
         static_assert(barrier_history + 1 + 2 == render_resource::megalights_temporal_barriers.size(),
                       "the resolve's barrier slots must match the declaration it indexes");
-        static constexpr std::array<std::string_view, 1> pipeline_names = {"megalights_temporal"};
+        static constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {"megalights_temporal"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
         inline static constexpr deren::engine::pass::behaviour pass_behaviour = {

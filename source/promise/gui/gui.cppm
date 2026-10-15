@@ -9,12 +9,13 @@ module;
 struct GLFWwindow;
 
 export module deren.promise.gui;
+export import deren.utility.shared;
 export import deren.promise.rhi;
 
 export namespace deren::gui {
     /// The boundary's own version: an INCOMPATIBLE change to the interface or to `create_info` moves it, and
     /// the entry refuses a caller that hands over another number (the backend's abi handshake, one level up).
-    inline constexpr std::uint32_t gui_abi_version = 2u;
+    inline constexpr std::uint32_t gui_abi_version = 3u;
 
     /// WHICH GRAPHICS API THE HOST IS ASKING THIS GUI DLL TO SERVE. It is the host's hint AND the plugin's
     /// check: `deren_gui_vulkan.dll` serves `vulkan` and refuses anything else by name.
@@ -67,19 +68,19 @@ export namespace deren::gui {
     struct panel {
         virtual ~panel() = default;
 
-        virtual widget& add_label(std::string text) = 0;
-        virtual widget& add_label(std::function<std::string()> text) = 0;
-        virtual widget& add_checkbox(std::string label, bool* value, std::function<void(bool)> on_change = {}) = 0;
-        virtual widget& add_slider(std::string label, float* value, float min, float max, std::function<void(float)> on_change = {}) = 0;
+        virtual widget& add_label(deren::utility::vessel::string text) = 0;
+        virtual widget& add_label(std::function<deren::utility::vessel::string()> text) = 0;
+        virtual widget& add_checkbox(deren::utility::vessel::string label, bool* value, std::function<void(bool)> on_change = {}) = 0;
+        virtual widget& add_slider(deren::utility::vessel::string label, float* value, float min, float max, std::function<void(float)> on_change = {}) = 0;
         /// a three-component drag control bound to three consecutive floats (a glm::vec3's x member)
-        virtual widget& add_vec3(std::string label, float* value, float speed = 0.05f, std::function<void()> on_change = {}) = 0;
-        virtual widget& add_combo(std::string label, std::vector<std::string> items, std::int32_t* current_item, std::function<void(std::int32_t)> on_change = {}) = 0;
+        virtual widget& add_vec3(deren::utility::vessel::string label, float* value, float speed = 0.05f, std::function<void()> on_change = {}) = 0;
+        virtual widget& add_combo(deren::utility::vessel::string label, deren::utility::vessel::vector<deren::utility::vessel::string> items, std::int32_t* current_item, std::function<void(std::int32_t)> on_change = {}) = 0;
 
         virtual void clear() = 0;
         [[nodiscard]] virtual bool empty() const noexcept = 0;
         [[nodiscard]] virtual std::size_t size() const noexcept = 0;
 
-        [[nodiscard]] virtual std::string const& title() const noexcept = 0;
+        [[nodiscard]] virtual deren::utility::vessel::string const& title() const noexcept = 0;
         virtual void set_open(bool open) noexcept = 0;
         [[nodiscard]] virtual bool open() const noexcept = 0;
         virtual void set_default_size(float width, float height) noexcept = 0;
@@ -101,7 +102,7 @@ export namespace deren::gui {
         /// true while the overlay owns the mouse (the runtime suppresses camera orbit/zoom with it)
         [[nodiscard]] virtual bool wants_mouse() const noexcept = 0;
 
-        virtual panel& add_panel(std::string title) = 0;
+        virtual panel& add_panel(deren::utility::vessel::string title) = 0;
         virtual void remove_panel(panel const& target) = 0;
         virtual void set_panel_visible(panel const& target, bool visible) = 0;
         [[nodiscard]] virtual std::size_t panel_count() const noexcept = 0;

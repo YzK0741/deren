@@ -1,4 +1,4 @@
-// module version: 0.1.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 
 /**
  * @file source/engine/profiling/profiling.cppm
@@ -23,6 +23,7 @@ module;
 #include <string_view>
 
 export module deren.engine.profiling;
+export import deren.utility.shared;
 
 import deren.utility; // the completed window is logged once per fold
 
@@ -48,7 +49,7 @@ namespace deren::engine::profiling {
     };
 
     /// phase names in cpu_phase order; the trailing '*' marks a sub-phase (see cpu_phase)
-    export constexpr std::array<std::string_view, static_cast<std::size_t>(cpu_phase::count)> cpu_phase_names = {
+    export constexpr deren::utility::vessel::array<std::string_view, static_cast<std::size_t>(cpu_phase::count)> cpu_phase_names = {
         "pace", "begin", "scene", "cluster*", "shadow*", "post", "submit", "submit-queue*", "present*"};
 
     /**
@@ -102,13 +103,13 @@ namespace deren::engine::profiling {
             if (++this->window_frames < window_length) {
                 return;
             }
-            std::string report = std::format("cpu frame phases (avg of {} frames):", window_length);
-            std::string label = std::format("cpu ({}f):", window_length);
+            deren::utility::vessel::string report = deren::utility::vessel::format("cpu frame phases (avg of {} frames):", window_length);
+            deren::utility::vessel::string label = deren::utility::vessel::format("cpu ({}f):", window_length);
             double total = 0.0;
             for (std::size_t i = 0; i < this->sum.size(); ++i) {
                 double const mean = this->sum[i] / static_cast<double>(window_length);
-                report += std::format(" {} {:.2f} ms |", cpu_phase_names[i], mean);
-                label += std::format("{} {:>5.2f}", i == 0 ? "" : " |", mean);
+                report += deren::utility::vessel::format(" {} {:.2f} ms |", cpu_phase_names[i], mean);
+                label += deren::utility::vessel::format("{} {:>5.2f}", i == 0 ? "" : " |", mean);
                 // Sub-phases (names ending in '*') are measured INSIDE scene: adding them to the total
                 // again would count that time twice.
                 if (cpu_phase_names[i].back() != '*') {
@@ -117,12 +118,12 @@ namespace deren::engine::profiling {
                 this->sum[i] = 0.0;
             }
             this->window_frames = 0;
-            report += std::format(" total {:.2f} ms", total);
-            this->report_label = label + std::format("\n     total {:>5.2f} ms", total);
+            report += deren::utility::vessel::format(" total {:.2f} ms", total);
+            this->report_label = label + deren::utility::vessel::format("\n     total {:>5.2f} ms", total);
             deren::utility::log("{}", report);
         }
 
-        [[nodiscard]] std::string summary() const {
+        [[nodiscard]] deren::utility::vessel::string summary() const {
             if (!this->enabled) {
                 return "cpu timings: off ([render] gpu_timings = false)";
             }
@@ -132,8 +133,8 @@ namespace deren::engine::profiling {
             return this->report_label;
         }
 
-        [[nodiscard]] std::array<double, static_cast<std::size_t>(cpu_phase::count)> means() const noexcept {
-            std::array<double, static_cast<std::size_t>(cpu_phase::count)> result = {};
+        [[nodiscard]] deren::utility::vessel::array<double, static_cast<std::size_t>(cpu_phase::count)> means() const noexcept {
+            deren::utility::vessel::array<double, static_cast<std::size_t>(cpu_phase::count)> result = {};
             for (std::size_t i = 0; i < result.size(); ++i) {
                 result[i] = this->sum[i] / static_cast<double>(this->window_frames == 0 ? window_length : this->window_frames);
             }
@@ -142,10 +143,10 @@ namespace deren::engine::profiling {
 
     private:
         bool enabled = true;
-        std::array<double, static_cast<std::size_t>(cpu_phase::count)> frame = {}; // the frame being measured
-        std::array<double, static_cast<std::size_t>(cpu_phase::count)> sum = {};   // the window being accumulated
+        deren::utility::vessel::array<double, static_cast<std::size_t>(cpu_phase::count)> frame = {}; // the frame being measured
+        deren::utility::vessel::array<double, static_cast<std::size_t>(cpu_phase::count)> sum = {};   // the window being accumulated
         uint32_t window_frames = 0;
-        std::string report_label = {};
+        deren::utility::vessel::string report_label = {};
     };
 
     /**

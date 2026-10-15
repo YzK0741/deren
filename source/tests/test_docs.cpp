@@ -46,6 +46,8 @@
 #include <string>
 #include <vector>
 
+import deren.utility.shared;
+
 namespace {
     /// `docs/*.md` that is deliberately NOT in Doxyfile's INPUT, with the reason it is not. Empty on
     /// purpose: every document on disk is in the manual today, and adding a name here is the explicit
@@ -54,9 +56,9 @@ namespace {
         char const* name;
         char const* reason;
     };
-    // `std::array<..., 0>`, not `exception_entry[]`: the list is empty BY DESIGN above, and a zero-length array is
+    // `deren::utility::vessel::array<..., 0>`, not `exception_entry[]`: the list is empty BY DESIGN above, and a zero-length array is
     // an MSVC error (C2466 + C2131) where clang accepts it as an extension. The range-for below reads it unchanged.
-    constexpr std::array<exception_entry, 0> not_in_manual = {};
+    constexpr deren::utility::vessel::array<exception_entry, 0> not_in_manual = {};
 
     /// `heap_slots_<name>` spellings the documents use that are NOT slot names, with the reason.
     struct identifier_exception {
@@ -67,18 +69,18 @@ namespace {
         {"heap_slots_bloom_lN", "a placeholder for the four bloom levels in a table, not a declaration"},
     };
 
-    std::string read_text(std::string const& path) {
+    deren::utility::vessel::string read_text(std::filesystem::path const& path) {
         std::ifstream file(path, std::ios::binary);
-        CHECK_MSG(file.is_open(), path.c_str());
-        std::ostringstream buffer;
+        CHECK_MSG(file.is_open(), path.string().c_str());
+        deren::utility::vessel::ostringstream buffer;
         buffer << file.rdbuf();
         return buffer.str();
     }
 
-    std::vector<std::string> read_lines(std::string const& path) {
-        std::vector<std::string> lines;
-        std::istringstream stream(read_text(path));
-        std::string line;
+    deren::utility::vessel::vector<deren::utility::vessel::string> read_lines(std::filesystem::path const& path) {
+        deren::utility::vessel::vector<deren::utility::vessel::string> lines;
+        deren::utility::vessel::istringstream stream(read_text(path));
+        deren::utility::vessel::string line;
         while (std::getline(stream, line)) {
             if (!line.empty() && line.back() == '\r') {
                 line.pop_back();
@@ -88,7 +90,7 @@ namespace {
         return lines;
     }
 
-    std::string trim(std::string text) {
+    deren::utility::vessel::string trim(deren::utility::vessel::string text) {
         auto const not_space = [](uint8_t const c) { return c != ' ' && c != '\t' && c != '\r' && c != '\n'; };
         text.erase(text.begin(), std::find_if(text.begin(), text.end(), not_space));
         text.erase(std::find_if(text.rbegin(), text.rend(), not_space).base(), text.end());
@@ -97,8 +99,8 @@ namespace {
 
     /// THE ANCHOR A MARKDOWN HEADING GETS: lowercase, everything that is not a letter, a digit, a space
     /// or a hyphen dropped, spaces turned into hyphens. "## 8. Animations" answers `#8-animations`.
-    std::string heading_anchor(std::string heading) {
-        std::string anchor;
+    deren::utility::vessel::string heading_anchor(deren::utility::vessel::string heading) {
+        deren::utility::vessel::string anchor;
         for (char const c : trim(std::move(heading))) {
             auto const byte = static_cast<uint8_t>(c);
             if (byte >= 'A' && byte <= 'Z') {
@@ -116,11 +118,11 @@ namespace {
     /// rather than as the lowercase convention, so that a document's METAVARIABLE (`heap_slots_bloom_lN`,
     /// where the capital N stands for a level) is read whole and can be named in the exception list
     /// exactly as the document spells it.
-    std::set<std::string> slots_named_in(std::string const& text) {
-        std::set<std::string> names;
+    deren::utility::vessel::set<deren::utility::vessel::string> slots_named_in(deren::utility::vessel::string const& text) {
+        deren::utility::vessel::set<deren::utility::vessel::string> names;
         std::size_t at = text.find("heap_slots_");
-        while (at != std::string::npos) {
-            std::size_t end = at + std::string("heap_slots_").size();
+        while (at != deren::utility::vessel::string::npos) {
+            std::size_t end = at + deren::utility::vessel::string("heap_slots_").size();
             while (end < text.size()) {
                 char const c = text[end];
                 if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
@@ -136,34 +138,34 @@ namespace {
     }
 
     /// the lines of Doxyfile's INPUT value, continuations joined: every token it lists
-    std::vector<std::string> doxygen_input_tokens(std::string const& doxyfile_text) {
-        std::vector<std::string> tokens;
-        std::istringstream stream(doxyfile_text);
-        std::string line;
+    deren::utility::vessel::vector<deren::utility::vessel::string> doxygen_input_tokens(deren::utility::vessel::string const& doxyfile_text) {
+        deren::utility::vessel::vector<deren::utility::vessel::string> tokens;
+        deren::utility::vessel::istringstream stream(doxyfile_text);
+        deren::utility::vessel::string line;
         bool in_input = false;
         while (std::getline(stream, line)) {
             if (!line.empty() && line.back() == '\r') {
                 line.pop_back();
             }
             if (!in_input) {
-                std::string const trimmed = trim(line);
+                deren::utility::vessel::string const trimmed = trim(line);
                 std::size_t const equals = trimmed.find('=');
-                if (equals == std::string::npos || trim(trimmed.substr(0, equals)) != "INPUT") {
+                if (equals == deren::utility::vessel::string::npos || trim(trimmed.substr(0, equals)) != "INPUT") {
                     continue; // not the INPUT tag (INPUT_ENCODING and friends are different tags)
                 }
                 in_input = true;
                 line = trimmed.substr(equals + 1u);
             }
             bool continues = false;
-            std::string const trimmed = trim(line);
+            deren::utility::vessel::string const trimmed = trim(line);
             if (!trimmed.empty() && trimmed.back() == '\\') {
                 continues = true;
                 line = trimmed.substr(0, trimmed.size() - 1u);
             } else if (!trimmed.empty()) {
                 line = trimmed;
             }
-            std::istringstream values(line);
-            std::string token;
+            deren::utility::vessel::istringstream values(line);
+            deren::utility::vessel::string token;
             while (values >> token) {
                 tokens.push_back(token);
             }
@@ -175,17 +177,17 @@ namespace {
     }
 
     /// the `test_*` targets CMakeLists' VR_TEST_TARGETS declares
-    std::set<std::string> vr_test_targets(std::string const& cmake_text) {
-        std::set<std::string> targets;
-        std::istringstream stream(cmake_text);
-        std::string line;
+    deren::utility::vessel::set<deren::utility::vessel::string> vr_test_targets(deren::utility::vessel::string const& cmake_text) {
+        deren::utility::vessel::set<deren::utility::vessel::string> targets;
+        deren::utility::vessel::istringstream stream(cmake_text);
+        deren::utility::vessel::string line;
         while (std::getline(stream, line)) {
             std::size_t const at = line.find("VR_TEST_TARGETS");
-            if (at == std::string::npos || line.find("set(", at == 0 ? 0u : at - 4u) == std::string::npos) {
+            if (at == deren::utility::vessel::string::npos || line.find("set(", at == 0 ? 0u : at - 4u) == deren::utility::vessel::string::npos) {
                 continue;
             }
             std::size_t token = line.find("test_", at);
-            while (token != std::string::npos) {
+            while (token != deren::utility::vessel::string::npos) {
                 std::size_t end = token;
                 while (end < line.size()) {
                     char const c = line[end];
@@ -209,12 +211,12 @@ namespace {
     /// taking the first is the fix for a measured own-goal: the workflow's FIRST `--target` is the clang-format
     /// job's (`cmake --build build --target clang-format-check`), whose value is on its own line and ends the
     /// block - so a first-only parser read an empty list and reported every target as missing.
-    std::set<std::string> ci_built_targets(std::string const& workflow_text) {
-        std::set<std::string> targets;
-        std::vector<std::string> const lines = [&workflow_text] {
-            std::vector<std::string> out;
-            std::istringstream stream(workflow_text);
-            std::string line;
+    deren::utility::vessel::set<deren::utility::vessel::string> ci_built_targets(deren::utility::vessel::string const& workflow_text) {
+        deren::utility::vessel::set<deren::utility::vessel::string> targets;
+        deren::utility::vessel::vector<deren::utility::vessel::string> const lines = [&workflow_text] {
+            deren::utility::vessel::vector<deren::utility::vessel::string> out;
+            deren::utility::vessel::istringstream stream(workflow_text);
+            deren::utility::vessel::string line;
             while (std::getline(stream, line)) {
                 if (!line.empty() && line.back() == '\r') {
                     line.pop_back();
@@ -223,9 +225,9 @@ namespace {
             }
             return out;
         }();
-        auto collect = [&targets](std::string const& text) {
+        auto collect = [&targets](deren::utility::vessel::string const& text) {
             std::size_t token = text.find("test_");
-            while (token != std::string::npos) {
+            while (token != deren::utility::vessel::string::npos) {
                 std::size_t end = token;
                 while (end < text.size()) {
                     char const c = text[end];
@@ -241,15 +243,15 @@ namespace {
         };
         for (std::size_t i = 0; i < lines.size(); ++i) {
             std::size_t const marker = lines[i].find("--target");
-            if (marker == std::string::npos) {
+            if (marker == deren::utility::vessel::string::npos) {
                 continue;
             }
-            collect(lines[i].substr(marker + std::string("--target").size())); // a value on the same line
+            collect(lines[i].substr(marker + deren::utility::vessel::string("--target").size())); // a value on the same line
             // ... and the value continues on the following lines until the YAML block ends: a blank line, a
             // comment, or a line that is a `key:` at any indent (the next step of the job)
             for (std::size_t j = i + 1u; j < lines.size(); ++j) {
-                std::string const trimmed = trim(lines[j]);
-                if (trimmed.empty() || trimmed[0] == '#' || trimmed.find(':') != std::string::npos) {
+                deren::utility::vessel::string const trimmed = trim(lines[j]);
+                if (trimmed.empty() || trimmed[0] == '#' || trimmed.find(':') != deren::utility::vessel::string::npos) {
                     break;
                 }
                 collect(trimmed);
@@ -258,7 +260,7 @@ namespace {
         return targets;
     }
 
-    bool is_exception(std::string const& name) {
+    bool is_exception(deren::utility::vessel::string const& name) {
         for (exception_entry const& entry : not_in_manual) {
             if (name == entry.name) {
                 return true;
@@ -267,7 +269,7 @@ namespace {
         return false;
     }
 
-    bool is_not_a_slot(std::string const& name) {
+    bool is_not_a_slot(deren::utility::vessel::string const& name) {
         for (identifier_exception const& entry : not_a_slot) {
             if (name == entry.name) {
                 return true;
@@ -282,41 +284,41 @@ int32_t main() {
     std::filesystem::path const docs = root / "docs";
 
     // ---- 1. every document is in the manual, and everything in the manual exists ----
-    std::vector<std::string> const inputs = doxygen_input_tokens(read_text((root / "Doxyfile").string()));
-    std::set<std::string> input_docs;
-    for (std::string const& token : inputs) {
-        std::string const prefix = "./docs/";
+    deren::utility::vessel::vector<deren::utility::vessel::string> const inputs = doxygen_input_tokens(read_text((root / "Doxyfile").string()));
+    deren::utility::vessel::set<deren::utility::vessel::string> input_docs;
+    for (deren::utility::vessel::string const& token : inputs) {
+        deren::utility::vessel::string const prefix = "./docs/";
         if (token.rfind(prefix, 0) == 0 && token.ends_with(".md")) {
             input_docs.insert(token.substr(prefix.size()));
         }
     }
     CHECK_MSG(!input_docs.empty(), "Doxyfile's INPUT lists at least one ./docs/*.md");
-    std::vector<std::string> on_disk;
+    deren::utility::vessel::vector<deren::utility::vessel::string> on_disk;
     for (auto const& file : std::filesystem::directory_iterator(docs)) {
         if (file.is_regular_file() && file.path().extension() == ".md") {
-            on_disk.push_back(file.path().filename().string());
+            on_disk.emplace_back(file.path().filename().string());
         }
     }
     CHECK_MSG(!on_disk.empty(), "docs/ holds markdown documents");
-    for (std::string const& name : on_disk) {
+    for (deren::utility::vessel::string const& name : on_disk) {
         if (is_exception(name)) {
             continue;
         }
         CHECK_MSG(input_docs.contains(name), ("a document is not in Doxyfile's INPUT, so it is not in the manual (add it, or add it to this test's exception list with a reason): docs/" + name).c_str());
     }
-    for (std::string const& name : input_docs) {
+    for (deren::utility::vessel::string const& name : input_docs) {
         CHECK_MSG(std::filesystem::exists(docs / name), ("Doxyfile's INPUT names a document that does not exist: docs/" + name).c_str());
     }
 
     // ---- 2..5 are per document ----
     std::size_t checked_anchors = 0;
-    for (std::string const& name : input_docs) {
+    for (deren::utility::vessel::string const& name : input_docs) {
         std::filesystem::path const path = docs / name;
         if (!std::filesystem::exists(path)) {
             continue; // reported above
         }
-        std::string const text = read_text(path.string());
-        std::string const label = "docs/" + name;
+        deren::utility::vessel::string const text = read_text(path.string());
+        deren::utility::vessel::string const label = "docs/" + name;
 
         // 2. ASCII: the manual's LaTeX feeds these files to pdflatex, which the project's own rule says
         //    must never see a non-ASCII byte (docs/shaders.md). Report WHERE, so the fix is one edit.
@@ -329,7 +331,7 @@ int32_t main() {
                 }
                 auto const byte = static_cast<uint8_t>(text[i]);
                 if (byte >= 0x80u) {
-                    std::string const where = label + ":" + std::to_string(line) + " has a non-ASCII byte (the LaTeX manual runs these documents through pdflatex)";
+                    deren::utility::vessel::string const where = label + ":" + deren::utility::vessel::to_string(line) + " has a non-ASCII byte (the LaTeX manual runs these documents through pdflatex)";
                     CHECK_MSG(false, where.c_str());
                     break;
                 }
@@ -339,42 +341,42 @@ int32_t main() {
 
         // 3. anchors resolve inside the document, headings and doxygen sections both answering
         {
-            std::set<std::string> anchors;
-            for (std::string const& line : read_lines(path.string())) {
-                std::string const trimmed = trim(line);
+            deren::utility::vessel::set<deren::utility::vessel::string> anchors;
+            for (deren::utility::vessel::string const& line : read_lines(path.string())) {
+                deren::utility::vessel::string const trimmed = trim(line);
                 if (!trimmed.empty() && trimmed[0] == '#') {
                     std::size_t hashes = 0;
                     while (hashes < trimmed.size() && trimmed[hashes] == '#') {
                         ++hashes;
                     }
                     if (hashes <= 6u) {
-                        std::string title = trim(trimmed.substr(hashes));
+                        deren::utility::vessel::string title = trim(trimmed.substr(hashes));
                         while (!title.empty() && title.back() == '#') {
                             title.pop_back();
                         }
                         anchors.insert(heading_anchor(title));
                     }
                 }
-                for (std::string const marker : {"@section ", "@subsection "}) {
+                for (deren::utility::vessel::string const marker : {"@section ", "@subsection "}) {
                     std::size_t const at = trimmed.find(marker);
-                    if (at == std::string::npos || at != 0u) {
+                    if (at == deren::utility::vessel::string::npos || at != 0u) {
                         continue;
                     }
-                    std::istringstream value(trimmed.substr(std::string(marker).size()));
-                    std::string name_token;
+                    deren::utility::vessel::istringstream value(trimmed.substr(deren::utility::vessel::string(marker).size()));
+                    deren::utility::vessel::string name_token;
                     value >> name_token;
                     anchors.insert(name_token);
                 }
             }
             std::size_t at = text.find("](#");
-            while (at != std::string::npos) {
+            while (at != deren::utility::vessel::string::npos) {
                 std::size_t const end = text.find(')', at);
-                if (end == std::string::npos) {
+                if (end == deren::utility::vessel::string::npos) {
                     break;
                 }
                 // `](#anchor)`: the three bytes before the anchor are ']', '(' and '#', and the stored
                 // anchors carry no '#'
-                std::string const anchor = text.substr(at + 3u, end - at - 3u);
+                deren::utility::vessel::string const anchor = text.substr(at + 3u, end - at - 3u);
                 ++checked_anchors;
                 CHECK_MSG(anchors.contains(anchor), ("a markdown anchor does not resolve to a heading in the same document: " + label + " -> " + anchor).c_str());
                 at = text.find("](#", end);
@@ -386,18 +388,18 @@ int32_t main() {
             std::size_t fences = 0;
             std::size_t code = 0;
             std::size_t endcode = 0;
-            for (std::string const& line : read_lines(path.string())) {
-                std::string const trimmed = trim(line);
+            for (deren::utility::vessel::string const& line : read_lines(path.string())) {
+                deren::utility::vessel::string const trimmed = trim(line);
                 if (trimmed.rfind("```", 0) == 0) {
                     ++fences;
                 }
                 std::size_t at = trimmed.find("@code");
-                while (at != std::string::npos) {
+                while (at != deren::utility::vessel::string::npos) {
                     ++code;
                     at = trimmed.find("@code", at + 5u);
                 }
                 at = trimmed.find("@endcode");
-                while (at != std::string::npos) {
+                while (at != deren::utility::vessel::string::npos) {
                     ++endcode;
                     at = trimmed.find("@endcode", at + 8u);
                 }
@@ -409,10 +411,10 @@ int32_t main() {
         // 5. the slot names the documents quote exist: the host grid and the shaders' constants are the
         //    two files that declare them (test_render_resources owns the comparison between those two)
         {
-            std::string const grid = read_text((root / "source" / "engine" / "render_layout" / "render_layout.cppm").string()) +
-                                     read_text((root / "source" / "shaders" / "common/heap_slot_constants.slang").string());
-            std::set<std::string> const declared = slots_named_in(grid);
-            for (std::string const& slot : slots_named_in(text)) {
+            deren::utility::vessel::string const grid = read_text((root / "source" / "engine" / "render_layout" / "render_layout.cppm").string()) +
+                                                        read_text((root / "source" / "shaders" / "common/heap_slot_constants.slang").string());
+            deren::utility::vessel::set<deren::utility::vessel::string> const declared = slots_named_in(grid);
+            for (deren::utility::vessel::string const& slot : slots_named_in(text)) {
                 if (is_not_a_slot(slot)) {
                     continue;
                 }
@@ -424,14 +426,14 @@ int32_t main() {
 
     // ---- 6. the CI workflow builds every target CMake registers (and nothing CMake does not) ----
     {
-        std::set<std::string> const registered = vr_test_targets(read_text((root / "CMakeLists.txt").string()));
-        std::set<std::string> const built = ci_built_targets(read_text((root / ".github" / "workflows" / "ci.yml").string()));
+        deren::utility::vessel::set<deren::utility::vessel::string> const registered = vr_test_targets(read_text((root / "CMakeLists.txt").string()));
+        deren::utility::vessel::set<deren::utility::vessel::string> const built = ci_built_targets(read_text((root / ".github" / "workflows" / "ci.yml").string()));
         CHECK_MSG(registered.size() >= 10u, "VR_TEST_TARGETS parses as the full list of targets");
         CHECK_MSG(!built.empty(), "the CI workflow's --target list parses");
-        for (std::string const& target : registered) {
+        for (deren::utility::vessel::string const& target : registered) {
             CHECK_MSG(built.contains(target), ("a test target CMake registers is not built by the CI workflow, so ctest there reports it as Not Run: " + target).c_str());
         }
-        for (std::string const& target : built) {
+        for (deren::utility::vessel::string const& target : built) {
             CHECK_MSG(registered.contains(target), ("the CI workflow builds a test target CMake does not register: " + target).c_str());
         }
     }

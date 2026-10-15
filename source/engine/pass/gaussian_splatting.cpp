@@ -4,10 +4,11 @@ module;
 #include <cstdint>
 #include <span>
 module deren.engine.pass.gaussian_splatting;
+import deren.utility.shared;
 namespace deren::engine::pass {
     namespace rhi = deren::promise::rhi;
     namespace {
-        std::array<std::string_view, 1> const pipeline_names = {"gaussian"};
+        deren::utility::vessel::array<std::string_view, 1> const pipeline_names = {"gaussian"};
         deren::engine::pass::behaviour const raster_behaviour{.kind = behaviour_kind::instanced, .pipelines = pipeline_names};
         render_resource::pass_io const raster_io{.name = "gaussian", .targets = render_resource::transparent_targets, .push = std::nullopt};
     } // namespace
@@ -30,8 +31,8 @@ namespace deren::engine::pass {
         if (vertex.empty() || fragment.empty() || vertex.size() % 4 != 0 || fragment.size() % 4 != 0) {
             return;
         }
-        std::array<rhi::image_format, 1> const colors = {color_format};
-        std::array<rhi::blend_mode, 1> const blend = {rhi::blend_mode::alpha};
+        deren::utility::vessel::array<rhi::image_format, 1> const colors = {color_format};
+        deren::utility::vessel::array<rhi::blend_mode, 1> const blend = {rhi::blend_mode::alpha};
         rhi::pipeline_desc desc;
         desc.color_formats = colors;
         desc.depth_format = context.depth_format;
@@ -45,7 +46,7 @@ namespace deren::engine::pass {
         desc.debug_name = "gaussian raster";
         pipeline = rhi::object_manager<rhi::pipeline>{context.face->create_pipeline(desc)};
         if (rhi::query_extension<rhi::gpu_sorting>(*context.face)) {
-            std::array<std::string_view, 3> const names = {"gaussian_reset.comp.spv", "gaussian_prepare.comp.spv", "gaussian_finalize.comp.spv"};
+            deren::utility::vessel::array<std::string_view, 3> const names = {"gaussian_reset.comp.spv", "gaussian_prepare.comp.spv", "gaussian_finalize.comp.spv"};
             for (std::size_t i = 0; i < names.size(); ++i) {
                 auto const code = context.shader(context.owner, names[i]);
                 if (code.empty() || code.size() % 4u != 0u) {
@@ -111,7 +112,7 @@ namespace deren::engine::pass {
             record_error = rhi::error::unsupported;
             return;
         }
-        std::array<rhi::image_barrier, 2> const barriers = {
+        deren::utility::vessel::array<rhi::image_barrier, 2> const barriers = {
             rhi::image_barrier{.resource = io.targets[1].image_handle, .from = rhi::image_use::shader_read, .to = rhi::image_use::depth_attachment},
             rhi::image_barrier{.resource = io.targets[0].image_handle, .from = rhi::image_use::color_attachment, .to = rhi::image_use::color_attachment},
         };
@@ -120,7 +121,7 @@ namespace deren::engine::pass {
             return;
         }
         rhi::image_barrier const restore{.resource = io.targets[1].image_handle, .from = rhi::image_use::depth_attachment, .to = rhi::image_use::shader_read};
-        std::array<rhi::color_attachment, 1> const colors = {rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::load, .store = rhi::store_op::store}};
+        deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::load, .store = rhi::store_op::store}};
         rhi::rendering_info scope;
         scope.area = {.width = io.extent.width, .height = io.extent.height};
         scope.colors = colors;

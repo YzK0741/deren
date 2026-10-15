@@ -30,6 +30,7 @@ module;
 #include <string>
 
 export module deren.engine.pass.deferred;
+export import deren.utility.shared;
 import deren.promise.rhi;
 
 import deren.engine.pass;
@@ -136,7 +137,7 @@ export namespace deren::engine::pass {
         static constexpr std::string_view vertex_shader_name = "post.vert.spv"; // the synthetic fullscreen triangle
         static constexpr std::string_view fragment_shader_name = "deferred.frag.spv";
 
-        static constexpr std::array<std::string_view, 1> pipeline_names = {"deferred"};
+        static constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {"deferred"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
         inline static constexpr deren::engine::pass::behaviour pass_behaviour = {

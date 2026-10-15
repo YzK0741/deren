@@ -1,4 +1,4 @@
-// module version: 0.2.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 
 /**
  * @file source/engine/pass/compute_skin.cppm
@@ -31,6 +31,7 @@ module;
 #include <vector>
 
 export module deren.engine.pass.compute_skin;
+export import deren.utility.shared;
 import deren.promise.rhi;
 
 import deren.engine.pass;
@@ -88,7 +89,7 @@ export namespace deren::engine::pass {
          * @brief build the pipeline
          * @param context the same create-time context a pass gets
          */
-        [[nodiscard]] std::expected<void, std::string> create(pass_context const& context);
+        [[nodiscard]] std::expected<void, deren::utility::vessel::string> create(pass_context const& context);
         /**
          * @brief record one dispatch per request, then the build-ordering barrier; whether anything was recorded
          * @param commands the frame's recording buffer, through the CONTRACT (abi 20/21): the pipeline BIND, the

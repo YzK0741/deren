@@ -22,6 +22,7 @@ module;
 #include <string_view>
 
 export module deren.engine.gui_loader;
+export import deren.utility.shared;
 
 export import deren.promise.gui;
 
@@ -47,7 +48,7 @@ namespace deren::engine {
             deren::utility::error("gui_loader: the caller asked for no graphics API (gui::api_type::none) - there is no plugin to load");
             return {};
         }
-        std::filesystem::path const name = std::string{deren::gui::gui_dll_prefix} + std::string{deren::gui::api_suffix(info.api)} + ".dll";
+        std::filesystem::path const name = deren::utility::vessel::string{deren::gui::gui_dll_prefix} + deren::utility::vessel::string{deren::gui::api_suffix(info.api)} + ".dll";
         std::filesystem::path const dll = deren::utility::executable_directory() / name;
         auto loaded = deren::utility::dynamic_link::load(dll.string());
         if (!loaded.has_value()) {

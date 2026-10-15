@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.engine.animation
-// module version: 0.2.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Keyframe playback / skinning / morph targets, format-neutral and runtime-agnostic:
 // driven through an injected `backend` surface and structural `source` concepts -
@@ -16,6 +16,7 @@ module;
 #include <glm/gtc/quaternion.hpp>
 
 export module deren.engine.animation;
+export import deren.utility.shared;
 
 import deren.vstd;
 import deren.utility;
@@ -81,8 +82,8 @@ namespace deren::engine::animation {
 
     /** @brief one decoded animation sampler: keyframe times + flat output values */
     export struct sampler {
-        std::vector<float> times = {};
-        std::vector<float> values = {};
+        deren::utility::vessel::vector<float> times = {};
+        deren::utility::vessel::vector<float> values = {};
         std::size_t per_key = 0; // values per keyframe (3/4/4/weights; 0 = unknown)
         interpolation interp = interpolation::linear;
     };
@@ -96,16 +97,16 @@ namespace deren::engine::animation {
 
     /** @brief one playable clip: channels over samplers (mirrors a glTF animation object) */
     export struct clip {
-        std::string name = {};
-        std::vector<sampler> samplers = {};
-        std::vector<channel> channels = {};
+        deren::utility::vessel::string name = {};
+        deren::utility::vessel::vector<sampler> samplers = {};
+        deren::utility::vessel::vector<channel> channels = {};
     };
 
     /** @brief a skin: the joints driving a skinned mesh + their inverse bind matrices */
     export struct skin {
-        std::string name = {};
-        std::vector<std::size_t> joints = {};     // source indices, in joint order
-        std::vector<glm::mat4> inverse_bind = {}; // one per joint (identity when omitted)
+        deren::utility::vessel::string name = {};
+        deren::utility::vessel::vector<std::size_t> joints = {};     // source indices, in joint order
+        deren::utility::vessel::vector<glm::mat4> inverse_bind = {}; // one per joint (identity when omitted)
     };
 
     /** @brief one node's animated state: TRS base pose overridden by every channel of the
@@ -116,7 +117,7 @@ namespace deren::engine::animation {
         glm::vec3 translation = glm::vec3(0.0f); // base pose, overridden per channel path
         glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
         glm::vec3 scale = glm::vec3(1.0f);
-        std::vector<float> weights = {}; // active morph weights (weights channel); empty = none
+        deren::utility::vessel::vector<float> weights = {}; // active morph weights (weights channel); empty = none
     };
 
     /**
@@ -127,7 +128,7 @@ namespace deren::engine::animation {
         bool valid = false;
         glm::vec3 vec3 = glm::vec3(0.0f);                   // translation / scale paths
         glm::quat quat = glm::quat(1.0f, 0.0f, 0.0f, 0.0f); // rotation path (normalized)
-        std::vector<float> scalars = {};                    // weights path: one value per target
+        deren::utility::vessel::vector<float> scalars = {}; // weights path: one value per target
     };
 
     /** @brief evaluate the channel's sampler at @p t seconds (glTF keyframe sampling rules) */
@@ -386,8 +387,8 @@ namespace deren::engine::animation {
                 converted.samplers.reserve(candidate.samplers.size());
                 for (auto const& loader_sampler : candidate.samplers) {
                     sampler s = {};
-                    s.times = loader_sampler.times;
-                    s.values = loader_sampler.values;
+                    s.times.assign(loader_sampler.times.begin(), loader_sampler.times.end());
+                    s.values.assign(loader_sampler.values.begin(), loader_sampler.values.end());
                     s.per_key = loader_sampler.per_key;
                     s.interp = static_cast<interpolation>(loader_sampler.interpolation);
                     converted.samplers.push_back(std::move(s));
@@ -447,7 +448,7 @@ namespace deren::engine::animation {
                     auto const& loader_skin = scenes.skins[skin_id];
                     // EVERY source node referencing this skin that is present in the tree - not the first
                     // one: see skin_rig::mesh_sources.
-                    std::vector<std::size_t> mesh_sources = {};
+                    deren::utility::vessel::vector<std::size_t> mesh_sources = {};
                     for (auto const& [source, loader_node] : scenes.node_by_source) {
                         if (loader_node->skin_index && *loader_node->skin_index == skin_id && this->source_nodes.contains(source)) {
                             mesh_sources.push_back(source);
@@ -485,8 +486,8 @@ namespace deren::engine::animation {
                             assign_block(assign_block, *entry.node);
                             skin s = {};
                             s.name = loader_skin.name;
-                            s.joints = loader_skin.joints;
-                            s.inverse_bind = loader_skin.inverse_bind_matrices;
+                            s.joints.assign(loader_skin.joints.begin(), loader_skin.joints.end());
+                            s.inverse_bind.assign(loader_skin.inverse_bind_matrices.begin(), loader_skin.inverse_bind_matrices.end());
                             this->skin_rigs.push_back(skin_rig{std::move(s), {source}, block_base, entry.node});
                             this->skin_mesh_world_cache.emplace(entry.node, glm::mat4(1.0f));
                         }
@@ -516,12 +517,12 @@ namespace deren::engine::animation {
                 }
                 if (!skin_rigs.empty()) {
                     deren::utility::log("skinning: {} skin rig(s) active ({} joint matrix block(s) + identity block)", this->skin_rigs.size(), next_block - 4);
-                    this->skin_debug_name = std::string(display_name(this->skin_rigs.front().s.name));
+                    this->skin_debug_name = deren::utility::vessel::string(display_name(this->skin_rigs.front().s.name));
                 }
             }
             // identity block for unskinned draws: upload once into EVERY slot's skin buffer
             {
-                constexpr std::array<glm::mat4, 4> identity_block = {glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f)};
+                constexpr deren::utility::vessel::array<glm::mat4, 4> identity_block = {glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f)};
                 for (uint32_t slot = 0; slot < deren::promise::rhi::max_frames_in_flight; ++slot) {
                     this->host.set_skin_matrices_slot(identity_block, slot);
                 }
@@ -534,14 +535,14 @@ namespace deren::engine::animation {
                 // morph deltas (glTF loader drops non-float target attributes), so the data can
                 // be read directly as glm::vec3 without a component-type check.
                 auto const read_delta_vec3 = [](auto const& attrs, std::string_view const name, std::size_t const i) -> glm::vec3 {
-                    auto const it = attrs.find(std::string(name));
+                    auto const it = attrs.find(typename std::remove_cvref_t<decltype(attrs)>::key_type(name));
                     if (it == attrs.end()) {
                         return glm::vec3(0.0f); // missing delta -> no displacement
                     }
                     return reinterpret_cast<glm::vec3 const*>(it->second.data.data())[i];
                 };
                 // collect leaves per effective source (a "/prim" extra leaf inherits its parent's source)
-                std::unordered_map<std::size_t, std::vector<deren::engine::primitive*>> source_leaves;
+                deren::utility::vessel::unordered_map<std::size_t, deren::utility::vessel::vector<deren::engine::primitive*>> source_leaves;
                 auto const collect_leaves = [this, &source_leaves](auto&& self, deren::engine::scene_tree::scene_node& node, std::size_t const parent_source) -> void {
                     bool const is_extra = node.source_index == deren::engine::scene_tree::no_source_index;
                     std::size_t const source = is_extra ? parent_source : node.source_index;
@@ -565,18 +566,18 @@ namespace deren::engine::animation {
                     // flatten every mesh's primitives of this node (same order the tree leaves
                     // were imported in) into one list so leaves[i] pairs with prim i
                     using prim_t = std::remove_reference_t<decltype(loader_node.meshes.front().primitives.front())>;
-                    std::vector<prim_t const*> loader_prims;
+                    deren::utility::vessel::vector<prim_t const*> loader_prims;
                     for (auto const& mesh : loader_node.meshes) {
                         for (auto const& prim : mesh.primitives) {
                             loader_prims.push_back(&prim);
                         }
                     }
                     // default weights: node.weights override, else the mesh defaults, else zeros
-                    std::vector<float> default_weights;
+                    deren::utility::vessel::vector<float> default_weights;
                     if (loader_node.weights) {
-                        default_weights = *loader_node.weights;
+                        default_weights.assign(loader_node.weights->begin(), loader_node.weights->end());
                     } else if (!loader_node.meshes.empty()) {
-                        default_weights = loader_node.meshes[0].weights;
+                        default_weights.assign(loader_node.meshes[0].weights.begin(), loader_node.meshes[0].weights.end());
                     }
                     for (std::size_t i = 0; i < leaves.size() && i < loader_prims.size(); ++i) {
                         auto const& loader_prim = *loader_prims[i];
@@ -614,7 +615,7 @@ namespace deren::engine::animation {
                         std::size_t const offset_floats = static_cast<std::size_t>(verts) + 1u;
                         // pass 1: the per-vertex offsets, which also gives the entry count the capacity
                         // check needs - a single pass could only find that out after writing
-                        std::vector<std::uint32_t> sparse_offsets(offset_floats, 0u);
+                        deren::utility::vessel::vector<std::uint32_t> sparse_offsets(offset_floats, 0u);
                         std::uint32_t entries = 0;
                         for (uint32_t v = 0; v < verts; ++v) {
                             sparse_offsets[v] = entries;
@@ -633,7 +634,7 @@ namespace deren::engine::animation {
                             break;
                         }
                         float* dst = morph_scratch_mem + total_floats;
-                        std::vector<float> rig_defaults;
+                        deren::utility::vessel::vector<float> rig_defaults;
                         rig_defaults.reserve(target_count);
                         for (uint32_t t = 0; t < target_count; ++t) {
                             float const w = t < default_weights.size() ? default_weights[t] : 0.0f;
@@ -787,7 +788,7 @@ namespace deren::engine::animation {
         struct skin_rig {
             skin s = {}; // value-copied joints + inverse bind matrices
             // One runtime mesh instance and its own joint block; readers group these by skin.
-            std::vector<std::size_t> mesh_sources = {};
+            deren::utility::vessel::vector<std::size_t> mesh_sources = {};
             uint32_t block_base = 0; // block start in the skin buffer (after identity)
             deren::engine::scene_tree::scene_node* mesh_node = nullptr;
         };
@@ -799,8 +800,8 @@ namespace deren::engine::animation {
             std::size_t source = 0;  // owning loader node (weights channel target)
             // baked rest weights (target_count floats): written when no clip animates this
             // source's weights, so a previous clip's weights cannot linger after a clip switch
-            std::vector<float> default_weights = {};
-            std::vector<float> last_weights = {}; // previous published frame, independent of buffer slot
+            deren::utility::vessel::vector<float> default_weights = {};
+            deren::utility::vessel::vector<float> last_weights = {}; // previous published frame, independent of buffer slot
         };
 
         backend host; // injected host surface (scene + callbacks); scene == nullptr when unbound
@@ -811,15 +812,15 @@ namespace deren::engine::animation {
         bool parallel_sampling = false;
         // source keys in stable order for parallel sampling (the source set is fixed after
         // init(); sample_keys mirrors source_nodes's keys so update() can slice them)
-        std::vector<std::size_t> sample_keys = {};
+        deren::utility::vessel::vector<std::size_t> sample_keys = {};
         // value-copied playable clips (channel-bearing, in source order). Filled once in
         // init() and never mutated afterwards, so active may point into it safely.
         // playable_clips, not playable: init()'s range-for loops bind `clip const&
         // playable`, which would hide a member of that name (MSVC /W4 C4458, an error
         // under /WX).
-        std::vector<clip> playable_clips = {};
-        std::unordered_map<std::size_t, std::vector<node_target>> source_nodes = {};
-        std::unordered_map<std::size_t, node_pose> base_poses = {};
+        deren::utility::vessel::vector<clip> playable_clips = {};
+        deren::utility::vessel::unordered_map<std::size_t, deren::utility::vessel::vector<node_target>> source_nodes = {};
+        deren::utility::vessel::unordered_map<std::size_t, node_pose> base_poses = {};
         clip const* active = nullptr; // == &playable_clips[current_index] when has_active()
         std::size_t current_index = 0;
         float time = 0.0f;
@@ -832,28 +833,28 @@ namespace deren::engine::animation {
         bool playing_flag = true;
         std::size_t debug_source = std::numeric_limits<std::size_t>::max();
         glm::vec3 debug_translation{};
-        std::string debug_node_name = {};
-        std::vector<skin_rig> skin_rigs = {};
-        std::vector<std::size_t> skin_readers = {}; // original asset skin index -> first mesh rig, or no_source_index
-        std::vector<morph_rig> morph_rigs = {};
+        deren::utility::vessel::string debug_node_name = {};
+        deren::utility::vessel::vector<skin_rig> skin_rigs = {};
+        deren::utility::vessel::vector<std::size_t> skin_readers = {}; // original asset skin index -> first mesh rig, or no_source_index
+        deren::utility::vessel::vector<morph_rig> morph_rigs = {};
         // ---- per-frame scratch, reused across update() calls to keep the hot path
         //      allocation-free; only touched on the caller's frame thread ----
-        std::atomic<bool> sampling_changed = false;             // any sampling slice moved a node
-        std::vector<std::function<void()>> sampling_tasks = {}; // parallel sampling fan-out
+        std::atomic<bool> sampling_changed = false;                                // any sampling slice moved a node
+        deren::utility::vessel::vector<std::function<void()>> sampling_tasks = {}; // parallel sampling fan-out
         // skin world collection: dense slot map (source -> cache index, fixed after init) plus
         // a reused per-frame world cache, so update() never allocates a per-frame map
-        std::unordered_map<std::size_t, uint32_t> skin_world_index = {};
-        std::vector<glm::mat4> skin_world_cache = {};
-        std::unordered_map<deren::engine::scene_tree::scene_node*, glm::mat4> skin_mesh_world_cache = {};
-        std::vector<glm::mat4> skin_matrices_scratch = {}; // per-frame skin upload buffer
+        deren::utility::vessel::unordered_map<std::size_t, uint32_t> skin_world_index = {};
+        deren::utility::vessel::vector<glm::mat4> skin_world_cache = {};
+        deren::utility::vessel::unordered_map<deren::engine::scene_tree::scene_node*, glm::mat4> skin_mesh_world_cache = {};
+        deren::utility::vessel::vector<glm::mat4> skin_matrices_scratch = {}; // per-frame skin upload buffer
         bool skin_debug_valid = false;
         glm::vec3 skin_debug_translation{};
-        std::string skin_debug_name = {};
+        deren::utility::vessel::string skin_debug_name = {};
         // asset node indices whose world matrix update() must collect each frame: every rig's
         // mesh node plus every joint it references. Fixed after init(); the per-frame DFS only
         // tests each visited node against this set (O(1) contains) instead of scanning every
         // rig x joint pair per node.
-        std::unordered_set<std::size_t> skin_sources = {};
+        deren::utility::vessel::unordered_set<std::size_t> skin_sources = {};
 
         // the node reported per second: prefer a translation channel target, fall back to the
         // first channel target present in the tree
@@ -865,6 +866,6 @@ namespace deren::engine::animation {
         // "changed": they do not invalidate the culling BVH). A member function so the
         // sampling fan-out tasks only capture `this` (+ their source range): the task list is
         // self-contained and can be handed to the host's run_tasks for pool execution.
-        bool sample_source(std::size_t source, std::vector<node_target> const& targets);
+        bool sample_source(std::size_t source, deren::utility::vessel::vector<node_target> const& targets);
     };
 } // namespace deren::engine::animation

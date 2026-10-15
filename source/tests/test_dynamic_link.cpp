@@ -223,7 +223,7 @@ namespace {
         [[nodiscard]] rhi::error copy_buffer(rhi::buffer&, rhi::buffer const&, std::uint64_t, std::uint64_t, std::uint64_t) override {
             return rhi::error::invalid_argument;
         }
-        [[nodiscard]] rhi::error clear_color_image(rhi::image const&, std::array<float, 4> const&, rhi::subresource_range const&) override {
+        [[nodiscard]] rhi::error clear_color_image(rhi::image const&, deren::utility::vessel::array<float, 4> const&, rhi::subresource_range const&) override {
             return rhi::error::invalid_argument;
         }
     };
@@ -317,7 +317,7 @@ namespace {
         // interface, which is what the number exists for. The PODs of the same batch (the compute pipeline
         // spelling, the barrier stage hint, the global memory barrier) are `struct_size`-guarded appends and
         // do not move it.
-        CHECK(rhi::abi_version == 32u);
+        CHECK(rhi::abi_version == 33u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
@@ -675,7 +675,7 @@ namespace {
 
     void test_a_missing_file_is_a_returned_error(fs::path const& directory) {
         auto const missing =
-            deren::utility::dynamic_link::load((directory / std::string{missing_file_name}).string());
+            deren::utility::dynamic_link::load((directory / deren::utility::vessel::string{missing_file_name}).string());
         CHECK(!missing.has_value());
         if (missing.has_value()) {
             return;
@@ -688,7 +688,7 @@ namespace {
     }
 
     void test_the_platform_suffix_is_completed(fs::path const& directory) {
-        fs::path const complete = directory / std::string{probe_file_name};
+        fs::path const complete = directory / deren::utility::vessel::string{probe_file_name};
         fs::path const without_suffix = complete.parent_path() / complete.stem();
         auto const loaded = deren::utility::dynamic_link::load(without_suffix.string());
         CHECK(loaded.has_value());
@@ -699,7 +699,7 @@ namespace {
 
     void test_loading_the_probe_dll_and_using_its_symbols(fs::path const& directory) {
         // 字符串视图里的 NUL 不能让系统悄悄只加载前半段路径。
-        std::string nul_path = (directory / std::string{probe_file_name}).string();
+        deren::utility::vessel::string nul_path((directory / deren::utility::vessel::string{probe_file_name}).string());
         nul_path.push_back('\0');
         nul_path += "ignored.dll";
         auto const embedded_nul = deren::utility::dynamic_link::load(nul_path);
@@ -707,10 +707,10 @@ namespace {
         auto const empty = deren::utility::dynamic_link::load("");
         CHECK(!empty.has_value());
         if (!empty.has_value()) {
-            CHECK(empty.error().message.find("empty") != std::string::npos);
+            CHECK(empty.error().message.find("empty") != deren::utility::vessel::string::npos);
         }
 
-        auto loaded = deren::utility::dynamic_link::load((directory / std::string{probe_file_name}).string());
+        auto loaded = deren::utility::dynamic_link::load((directory / deren::utility::vessel::string{probe_file_name}).string());
         CHECK(loaded.has_value());
         if (!loaded.has_value()) {
             return;
@@ -750,8 +750,8 @@ namespace {
         // (classic search order) and it doubles as the unload proof - on Windows a loaded image
         // holds its file, so the file only becomes deletable after the destructor called
         // FreeLibrary.
-        fs::path const copy = fs::current_path() / std::string{unload_probe_file_name};
-        fs::copy_file(directory / std::string{probe_file_name}, copy, fs::copy_options::overwrite_existing);
+        fs::path const copy = fs::current_path() / deren::utility::vessel::string{unload_probe_file_name};
+        fs::copy_file(directory / deren::utility::vessel::string{probe_file_name}, copy, fs::copy_options::overwrite_existing);
         {
             auto const loaded = deren::utility::dynamic_link::load(copy.filename().string());
             CHECK(loaded.has_value());
@@ -777,8 +777,8 @@ namespace {
         // MEASURED on the real backend - unloading it after a context had been built and torn down
         // never returned - so "the product never unloads" has to be expressible, and this is what
         // proves the expression works rather than assuming it.
-        fs::path const copy = fs::current_path() / std::string{detach_probe_file_name};
-        fs::copy_file(directory / std::string{probe_file_name}, copy, fs::copy_options::overwrite_existing);
+        fs::path const copy = fs::current_path() / deren::utility::vessel::string{detach_probe_file_name};
+        fs::copy_file(directory / deren::utility::vessel::string{probe_file_name}, copy, fs::copy_options::overwrite_existing);
         {
             auto loaded = deren::utility::dynamic_link::load(copy.filename().string());
             CHECK(loaded.has_value());

@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.engine.ray_tracing
-// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 2.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // THE STRUCTURE PHASE: the acceleration structures every traced effect casts rays against, the map that says
 // which caster each one was built from, and the COPIES the hit-shading path reads that geometry through (the
@@ -27,14 +27,20 @@ module;
 #include <chrono>
 #include <cstdint>
 #include <expected>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
 #include <vector>
 
 export module deren.engine.ray_tracing;
+export import deren.utility.shared;
 
 import deren.promise.rhi; // the contract's buffer handle + object_manager: the copies this phase owns
+import deren.engine.pass.chain;
+import deren.engine.pass.buffer_storage;
+import deren.engine.render_resource;
+import deren.engine.render_resource.instances;
 import deren.engine.acceleration_structure;
 import deren.engine.pass.compute_skin; // the skinning job's request, which this module composes
 import deren.engine.pass.mask_bake;    // ... and the MASK bake's
@@ -145,7 +151,7 @@ export namespace deren::engine::ray_tracing {
 
     /// @brief WHY the phase gave up: the renderer logs it and decides what the message means for its own knobs
     struct failure {
-        std::string message = {};
+        deren::utility::vessel::string message = {};
         /// true when the caller should stop asking for the per-frame refit: a device that refused an update is
         /// not something to keep attempting against structures it will keep refusing
         bool disable_skin_bake = false;
@@ -164,7 +170,7 @@ export namespace deren::engine::ray_tracing {
      */
     class structure_set {
     public:
-        explicit structure_set(rhi::api_core& face) noexcept;
+        explicit structure_set(rhi::api_core& face, std::shared_ptr<rhi::api_core> lease = {}) noexcept;
         structure_set(structure_set const&) = delete;
         structure_set& operator=(structure_set const&) = delete;
 
@@ -243,26 +249,32 @@ export namespace deren::engine::ray_tracing {
 
         /// The injected backend-independent device root.
         rhi::api_core* contract = nullptr;
+        std::shared_ptr<rhi::api_core> device_lease;
         std::optional<acceleration_structure::bottom_level_structures> bottom = {};
         /// named `top_level` rather than `top`: `build` keeps a local `auto& top`, and a member of that name
         /// would be hidden by it - MSVC /W4 reports C4458, which /WX makes an error
         std::optional<acceleration_structure::top_level_structure> top_level = {};
         /// named `caster_list` rather than `casters`: the accessor above is `casters()`, and dropping the
         /// underscore would declare the same name twice
-        std::vector<caster_level> caster_list = {};
+        deren::utility::vessel::vector<caster_level> caster_list = {};
         /// the MASK expansions and the skinned vertex buffers: owned here for as long as the structures are, so
         /// the addresses inside `caster_list` stay valid. Contract owners now, so the GPU memory dies with
         /// this object's last reference rather than through the allocator's map.
-        std::vector<deren::promise::rhi::object_manager<deren::promise::rhi::buffer>> mask_buffers = {};
-        std::vector<deren::promise::rhi::object_manager<deren::promise::rhi::buffer>> skin_buffers = {};
+        deren::utility::vessel::vector<std::shared_ptr<pass::pass_chain>> mask_buffers = {};
+        deren::utility::vessel::vector<std::shared_ptr<pass::pass_chain>> skin_buffers = {};
         /// the bottom levels a per-frame refit touches, by index
-        std::vector<uint32_t> skin_levels = {};
+        deren::utility::vessel::vector<uint32_t> skin_levels = {};
         /// named `build_attempted` rather than `attempted`: the query below is `attempted()`, and dropping
         /// the underscore would declare the same name twice
         bool build_attempted = false;
+        bool build_ready = false;
         bool top_logged = false;
 
     public:
+        [[nodiscard]] render_resource::instances::resource_snapshot bake_resources(bool skin, uint32_t index) const {
+            auto const& buffers = skin ? skin_buffers : mask_buffers;
+            return index < buffers.size() ? buffers[index]->resources().snapshot() : render_resource::instances::resource_snapshot{};
+        }
         /**
          * @ingroup engine_ray_tracing
          * @brief ONE built opacity micromap and every buffer that describes it
@@ -274,14 +286,14 @@ export namespace deren::engine::ray_tracing {
          *       packed opacity states (`data`), the per-triangle descriptor array (`triangles`), the build's
          *       scratch and the per-triangle index the GEOMETRY reads to find its micromap triangle (`indices` -
          *       the attachment's input, filled here so the two halves of the mechanism are created together).
-         *       Each one is a move-only contract owner, which is what keeps the addresses below valid for as
-         *       long as this struct lives.
+         *       A managed scene subchain owns each contract object; BLAS retains its generation lease.
          */
         struct micromap_resource {
             /// THE TIER-1 OBJECT (plan S1's P4): it owns the storage, the scratch, the alignment and the
             /// setup buffers the build reads, so this struct keeps ONE handle where it kept seven members and
             /// four addresses - which is what the migration bought.
-            deren::promise::rhi::object_manager<deren::promise::rhi::micromap> handle = {};
+            std::shared_ptr<pass::pass_chain> resources;
+            render_resource::instances::borrowed<deren::promise::rhi::micromap> handle = {};
             uint32_t triangle_count = 0; ///< for the report line (the attachment no longer repeats the usage)
         };
         /// @brief the micromaps this set owns, one per alphaMode MASK caster (see build())
@@ -292,7 +304,7 @@ export namespace deren::engine::ray_tracing {
     private:
         /// named `micromap_resources` rather than `micromaps`: the accessor above is `micromaps()`, and
         /// dropping the underscore would declare the same name twice
-        std::vector<micromap_resource> micromap_resources = {};
+        deren::utility::vessel::vector<micromap_resource> micromap_resources = {};
     };
 
 } // namespace deren::engine::ray_tracing
