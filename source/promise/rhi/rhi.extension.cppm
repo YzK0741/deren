@@ -28,7 +28,7 @@
 //      Adding a sixth ability therefore cannot disturb the vtable of the other
 //      five, and `query_extension()` stays a one-line lookup in the backend.
 //   3. These interfaces carry only the common immutable identity (ABI12), no owning state, no non-inline definition, no
-//      `std::string`, no exception across the boundary (§4.2). The engine and the
+//      `deren::utility::vessel::string`, no exception across the boundary (§4.2). The engine and the
 //      backend each compile this partition; neither exports a module symbol for it.
 //
 // 能力入口只有 query_extension；这些虚接口沿用同工具链的 C++ ABI。
@@ -44,6 +44,7 @@ module;
 #include <string_view>
 
 export module deren.promise.rhi:extension;
+export import deren.utility.shared;
 
 import :contract;
 
@@ -153,7 +154,7 @@ export namespace deren::promise::rhi {
     /// `all_abilities()` is the set as a bitmask; this is the enumeration the consistency gates and
     /// the tests iterate (`abilities()` set => `query_extension()` non-null, and the reverse), so the
     /// list is spelled in ONE place instead of per caller.
-    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> std::array<extension_kind, 9> {
+    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> deren::utility::vessel::array<extension_kind, 9> {
         return {
             extension_kind::device_address,
             extension_kind::descriptor_heap,
@@ -461,7 +462,7 @@ export namespace deren::promise::rhi {
         std::uint32_t view_flags = 0;
         std::uint32_t view_type = 0;
         std::uint32_t format = 0;
-        std::array<std::uint32_t, 4> components = {};
+        deren::utility::vessel::array<std::uint32_t, 4> components = {};
         std::uint32_t aspect_mask = 0;
         std::uint32_t base_mip = 0;
         std::uint32_t mip_count = 1;

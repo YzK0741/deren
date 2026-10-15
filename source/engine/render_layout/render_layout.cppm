@@ -20,6 +20,7 @@ module;
 /// source/tests/test_render_resources.cpp holds the two sides equal by parsing BOTH files; that test's path
 /// moved here with the grid.
 export module deren.engine.render_layout;
+export import deren.utility.shared;
 
 import deren.promise.rhi;
 
@@ -57,7 +58,7 @@ export namespace deren::engine::render_layout {
      *       without per-sample shading, which is the trade that makes TAA the anti-aliasing
      *       (the anti-aliasing story is TAA/FXAA on the lit image instead).
      */
-    inline constexpr std::array<deren::promise::rhi::image_format, gbuffer_target_count> gbuffer_formats = {
+    inline constexpr deren::utility::vessel::array<deren::promise::rhi::image_format, gbuffer_target_count> gbuffer_formats = {
         deren::promise::rhi::image_format::rgba8_unorm,
         deren::promise::rhi::image_format::r16g16b16a16_sfloat,
         deren::promise::rhi::image_format::rgba8_unorm,

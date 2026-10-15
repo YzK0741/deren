@@ -2,9 +2,12 @@
 
 Passes can describe dynamic image and buffer requirements. The passchain collects all descriptions,
 merges compatible producers, creates complete resource generations, and distributes a shared snapshot.
-Production migrations now cover raster shadow images, clustered-light count/index buffers and light/head
+Production migrations now cover raster shadow images, clustered-light count/index buffers and camera/light/head
 constant buffers, G-buffer attachments, HDR/scene-input, TAA history, LDR, Bloom, MegaLights and RT visibility images;
 existing GPU bindings and barriers remain explicit.
+
+Shared motion-transform, skin/previous-skin and morph buffers are also managed by
+`scene_deformation_pass`; their setup and history contents survive provider replacement.
 
 ## Ownership and lifetime
 
@@ -74,7 +77,7 @@ usage, valid sizes and device addresses before changing the bridge. Partial or i
 fail before acquiring a frame. Cluster barriers reference the distributed generation for that slot.
 
 Hosts without migrated producers use a resource-only compatibility chain that declares just the missing
-shadow, cluster and/or light/head resources. The application chain remains independently collected and initialized.
+shadow, cluster and/or camera/light/head resources. The application chain remains independently collected and initialized.
 Successful submissions retain both application and compatibility snapshots. Chain handover selects the
 producers anew; cached compatibility pass objects are owned by the runtime's compatibility chain.
 
@@ -85,10 +88,10 @@ Neither fix changes the host UBO layout or the RHI ABI.
 
 ## Scene constant migration
 
-`scene_constants_pass` describes the light block (8608 bytes) and head block (64 bytes), each with
+`scene_constants_pass` describes the camera block (272 bytes), light block (8608 bytes) and head block (64 bytes), each with
 frame-slot scope and lifetime. They use coherent uniform memory with storage and device-address flags;
-the existing shader layouts and heap slots remain unchanged. Both initialize once and never request
-`zero_on_frame`. Fresh light blocks receive `light_ubo{}`; fresh head blocks receive `head_ubo{}`,
+the existing shader layouts and heap slots remain unchanged. They initialize once and never request
+`zero_on_frame`. Fresh camera blocks receive `camera_ubo{}`; fresh light blocks receive `light_ubo{}`; fresh head blocks receive `head_ubo{}`,
 including its nonzero default axes. Reused generations retain their contents.
 
 CPU parameter calculation stays in runtime. After a successful slot wait, runtime calls
@@ -97,7 +100,12 @@ The registry checks resource identity, frame scope, slot bounds, byte capacity a
 The caller supplies GPU completion; the upload method does not wait. Initial priming of new generations
 occurs before their first use, or after the existing idle wait during replacement.
 
-The application and compatibility chain can supply light/head independently. Admission validates all
+Camera is prepared with constructor output targets so setup-time heap publication has a usable buffer;
+light/head, shadow and cluster resources remain lazy. Runtime holds borrowed camera buffers and a
+generation snapshot. Camera projection, TAA jitter and previous-image matrices retain their existing
+calculations; only ownership and the checked upload path change.
+
+The application and compatibility chain can supply camera/light/head independently. Admission validates all
 selected descriptions before changing borrowed handles or heap bindings and rejects per-frame clearing
 for these constants. Replacing providers preserves submitted snapshots until their slot completes.
 Arbitrary-time setters modify CPU state only; they cannot overwrite a constant block read by the GPU.
@@ -176,12 +184,137 @@ Frames that skip MegaLights (including G-buffer debug and unlit frames), failed 
 submission invalidate the current image. A presentation failure after successful submission does not
 discard the GPU work. See the [temporal correctness review](reviews/2026-10-14-megalights-history-fix.md).
 
-## Remaining migrations
+## Shared deformation storage
 
-Other pass allocations, acceleration structures, imported presentation images, sampler ownership,
-automatic descriptor publication, and automatic barriers retain their existing paths. This stage establishes
-ownership and completion retention; it does not turn the lifetime label into a render graph or remove waits.
-See [the pass resource inventory](render_resource_inventory.md) for the remaining access channels.
+`scene_deformation_pass` describes motion transforms, current and previous skin matrices, and morph
+data as four coherent storage buffers with device addresses. All use frame-slot scope/lifetime and
+zero-on-create; none uses zero-on-frame. `skin_matrices_previous` is an appended engine resource id,
+preserving all earlier ids and RHI ABI32. The frame resource table now also publishes that buffer.
+
+Constructor preparation provides the buffers before animation setup or instanced motion writes.
+The runtime borrows buffers/mappings and retains each family's owning snapshot. Application and
+compatibility chains can independently provide missing families. Admission checks capacity, mapping,
+scope, lifetime and reset policy before acquisition or changing borrowed handles/heap bindings.
+
+On replacement, the existing idle wait precedes a per-slot copy from the old mapped buffer into the
+new generation; old snapshots remain alive throughout the copy. This preserves setup morph deltas,
+partial skin uploads, instanced motion transforms and previous-skin bytes. CPU chronological history
+is preserved separately. No full-buffer copy or reset occurs on normal reuse; a morph replacement
+does copy up to 48 MiB per slot. Raw morph scratch is borrowed for immediate writes and must be
+obtained again after reconciliation; the animation controller already obtains it per operation.
+
+Existing setter/recording writes and their completed-slot/setup timing remain unchanged. This stage
+changes allocation ownership and publication, not the deformation algorithm or its GPU barriers.
+The animated debug capture separately exposed and fixed an existing HDR attachment ordering error;
+see [deformation migration evidence](reviews/2026-10-14-deformation-resources.md).
+
+## Shared scene tables
+
+`scene_tables_pass` declares nine global buffers: materials, instance transforms, toon colour/lanes/rig,
+meshlets, mesh indirect commands, statistics and culled meshlets. Material/instance schema scope now
+matches the actual global binding. Seven ids are appended without renumbering prior ids or changing ABI32.
+The last three buffers retain internal frame regions and their original offsets; indirect commands
+retain indirect usage and are not placed on the descriptor heap.
+
+Constructor collection precedes default-material/toon initialization. Runtime borrows handles/mappings;
+admission checks each whole allocation's capacity, scope, lifetime, coherent mapping, flags and reset
+policy before adoption. Neutral toon values and material0 registration stay in the original setup code.
+Replacement drains GPU work then preserves full mapped contents, including imported tables and cumulative
+statistics. Normal frames perform no table reset/copy. All nine allocations are published at instance0
+in the frame resource table; submitted snapshots retain retired objects.
+
+See [scene-table evidence](reviews/2026-10-14-scene-tables.md).
+
+## Gaussian GPU frame storage
+
+Each completed Gaussian GPU frame slot owns a resource-only subchain describing ten dynamic buffers:
+instances, ranges, keys, values, references, sort scratch, status, indirect draw, parameters and projection
+cache. All are device-wide allocations within that slot's subchain, grouped under frame_slot lifetime.
+The parent Gaussian pass receives the retained frame snapshot; ordinary reuse does not reconcile.
+
+Registry admission runs before candidate publication and pass binding, including cached-generation
+reconciliation. Gaussian checks actual capacities/budget, addresses and coherent mappings there;
+rejection preserves active resources. Production supplies an owning device lease from first creation.
+Legacy reference-only reuse cannot acquire an owning lease later; create a fresh frame for that transition.
+The subchain drains before sorter, asset and device leases are released.
+
+See [Gaussian GPU storage evidence](reviews/2026-10-14-gaussian-managed-gpu.md).
+
+CPU raster slots use the same resource-only subchain for their two coherent instance/reference buffers.
+CPU results are staged before resource admission and publication; rejected growth preserves the old frame.
+Two retained CPU reference/owner workspaces alternate after warmup, preserving capacity reuse. Runtime
+supplies its owning device root from initial creation; the legacy lease contract matches GPU frames.
+See [CPU upload evidence](reviews/2026-10-14-gaussian-managed-cpu.md).
+
+## Initial buffer contents
+
+A buffer request may carry owned immutable initial_data bytes and an independent initialization_key.
+The registry exposes those bytes only during synchronous creation, clears the byte owner from generation
+metadata, and retains the key/count for compatibility. After successful upload the producer can release
+its byte owner while continuing to describe the initialized resource. Same-key reuse needs no source;
+recreation without a source returns not_ready. New content uses a new key. Initial contents cannot be
+combined with zero-on-create/frame reset policies.
+
+Static Gaussian geometry and SH buffers use scene-lifetime resource subchains with the existing staging
+upload intent. Shared packed data aliases are released after upload; production transfers packed vectors
+without an additional copy and supplies the owning device root through runtime create_gaussian_asset.
+The legacy const-reference convenience overload temporarily copies its validated packed input.
+See [static asset evidence](reviews/2026-10-14-gaussian-managed-assets.md).
+
+## TLAS and instance tables
+
+Completed TLAS slots declare a top-level AS and coherent hit-shading instance table in a resource-only
+subchain. Growth validates and copies the current record prefix before committing the pair, preserving
+the old frame on failure. Normal reuse skips reconciliation. Production forwards core_owner; retained
+snapshots hold devices, and slot chains drain before releasing allocations. The typed registry AS path
+accepts top-level descriptions and bottom-level descriptions with an owned geometry vector.
+See [TLAS evidence](reviews/2026-10-14-tlas-resources.md).
+
+TLAS publication uses the current frame slot and a typed AS handle. Allocation persists across empty
+or failed frames, but traversal readiness is cleared before recording and enabled only by a successful
+nonempty build. Early skin/refit failures leave no stale ready handle.
+See [readiness/publication audit](reviews/2026-10-14-tlas-audit.md).
+
+Nonempty BLAS entries have scene-lifetime subchains and borrowed handles. Geometry vectors are retained
+in declarations; only synchronous creation sees their temporary RHI pointer. Optional shared dependency
+leases stay alive until after the AS releases. Entry movement and ordinary refit add no idle wait;
+final destruction drains each entry. Mask/skin output generation leases are connected to BLAS
+dependencies. See [BLAS evidence](reviews/2026-10-14-blas-resources.md).
+
+Mask/skin bake outputs use scene-lifetime GPU-only buffer subchains. Resource preparation completes
+before mask recording starts; partial skin/AS recording failures retain resources and keep traversal
+disabled. Initial skin failure also updates runtime's bake flag.
+See [bake output evidence](reviews/2026-10-14-bake-resources.md).
+
+Opacity micromaps use typed scene subchains and are retained by BLAS generation dependencies.
+Their requests own immutable upload vectors only through synchronous creation, retaining a separate
+content key afterward. Raw RHI spans are never stored; recreation without its upload source refuses.
+See [micromap evidence](reviews/2026-10-14-micromap-resources.md).
+
+Production scene geometry uploads also declare vertex/index buffer pairs through scene subchains.
+Primitive views carry generation leases, and BLAS retains both source-buffer leases. Legacy geometry
+assignments transfer an owned RHI reference into a shared holder; their external device obligation remains.
+See [geometry upload evidence](reviews/2026-10-14-geometry-resources.md).
+
+## Shared images, samplers and ownership coverage
+
+Shared texture/IBL/furnace/LUT images and seven samplers use typed resource-only subchains. Runtime
+holds shared_ptr aliases to their objects; those aliases own the subchains and their device roots.
+Image upload sources use the immutable initial-data/key protocol and are released after creation.
+Only whole views are requested for shared sampled images. Shader binding table uploads also use
+managed coherent/addressable buffers through the pass upload hook.
+
+IBL stages a complete replacement, waits for prior readers, publishes all heap slots and only then
+replaces owners. Write refusal rolls back the completed slots; failed rollback retains candidates and
+blocks acquisition until successful replacement. Display/FGD LUTs publish before replacing owners.
+Setters must be called at frame boundaries, without concurrent CPU recording.
+
+Production pass and shared-resource ownership migration is complete. Presentation images stay
+backend-owned borrows, diagnostic/probe allocations are explicitly separate, and legacy custom imports
+retain their external device/scene obligations. Heap publication, address access and manual barriers
+remain their existing access channels; lifetime labels do not constitute an automatic render graph.
+See [final evidence/audit](reviews/2026-10-14-shared-assets.md) and
+[the pass resource inventory](render_resource_inventory.md).
 
 ## Validation
 
@@ -200,3 +333,6 @@ Output-image migration evidence is recorded in `docs/reviews/2026-10-13-output-r
 TAA/LDR/Bloom migration evidence is recorded in `docs/reviews/2026-10-13-post-resources.md`.
 
 MegaLights/RT image migration evidence is recorded in `docs/reviews/2026-10-13-ray-resources.md`.
+
+Camera and shared deformation evidence is recorded in `docs/reviews/2026-10-14-camera-resources.md`
+and `docs/reviews/2026-10-14-deformation-resources.md`.

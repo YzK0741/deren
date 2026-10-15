@@ -22,7 +22,7 @@
 // WHAT MAY APPEAR IN IT, and what may not (§4.2's rule for everything that crosses): PODs, spans and
 // opaque handles. In particular:
 //
-//   - the title is `char const*` (UTF-8, NUL-terminated) and NOT `std::string`: a `std::string` here
+//   - the title is `char const*` (UTF-8, NUL-terminated) and NOT `deren::utility::vessel::string`: a `deren::utility::vessel::string` here
 //     would make "same standard library, same allocator" a premise of the boundary, and the backend
 //     copies the text into the window system's own storage at construction anyway. It is BORROWED
 //     ONLY UNTIL THE CALL RETURNS - a caller passing a temporary's `.c_str()` is the bug this note
@@ -48,6 +48,7 @@ module;
 #include <cstdint>
 
 export module deren.promise.rhi:core_desc;
+export import deren.utility.shared;
 
 export namespace deren::promise::rhi {
 

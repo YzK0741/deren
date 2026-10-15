@@ -291,7 +291,8 @@ export namespace deren::promise::rhi {
     /// 29 -> 30: object stores a concrete implementation name instead of an interface enum.
     /// 30 -> 31: immutable texture groups and command-buffer group loading.
     // ABI 32 adds ordinary indirect drawing to the recording interface.
-    inline constexpr std::uint32_t abi_version = 32u;
+    // ABI33: owned readback storage uses vessel allocator across the DLL boundary.
+    inline constexpr std::uint32_t abi_version = 33u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

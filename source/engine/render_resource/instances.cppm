@@ -1,12 +1,15 @@
 module;
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <map>
 #include <memory>
 #include <span>
 #include <vector>
 export module deren.engine.render_resource.instances;
+export import deren.utility.shared;
 import deren.promise.rhi;
 import deren.engine.render_resource;
 
@@ -19,7 +22,15 @@ export namespace deren::engine::render_resource::instances {
                           frame_scratch,
                           history };
     enum class kind { image,
-                      buffer };
+                      buffer,
+                      acceleration_structure,
+                      micromap,
+                      sampler };
+    struct micromap_upload {
+        deren::utility::vessel::vector<std::byte> data;
+        deren::utility::vessel::vector<rhi::micromap_triangle> triangles;
+        deren::utility::vessel::vector<uint32_t> indices;
+    };
     struct resource_context {
         uint32_t frame_slots = rhi::max_frames_in_flight;
         uint32_t output_images = 1;
@@ -34,7 +45,19 @@ export namespace deren::engine::render_resource::instances {
         resource_scope scope = resource_scope::device_wide;
         kind type = kind::image;
         rhi::image_desc image{};
+        bool layer_views = true;
+        rhi::sampler_desc sampler{};
         rhi::buffer_desc buffer{};
+        rhi::acceleration_structure_desc structure{};
+        rhi::micromap_desc micromap{};
+        std::shared_ptr<micromap_upload const> micromap_data;
+        deren::utility::vessel::vector<rhi::acceleration_structure_geometry> geometries;
+        deren::utility::vessel::vector<std::shared_ptr<void const>> dependencies;
+        // Owned immutable bytes are borrowed only during synchronous creation. A small, unique
+        // content key stays in generations after the upload bytes have been released by the producer.
+        std::shared_ptr<std::byte const> initial_data;
+        size_t initial_data_size = 0;
+        std::shared_ptr<void const> initialization_key;
         bool zero_on_create = false; // mapped buffer only; initialize each new generation once
         bool zero_on_frame = false;  // mapped frame-slot buffer only; history is preserved
     };
@@ -42,6 +65,9 @@ export namespace deren::engine::render_resource::instances {
     struct borrowed {
         T* value = nullptr;
         T* get() const noexcept {
+            return value;
+        }
+        T* operator->() const noexcept {
             return value;
         }
         T& operator*() const noexcept {
@@ -54,18 +80,21 @@ export namespace deren::engine::render_resource::instances {
     struct resource_instance {
         rhi::object_manager<rhi::image> image;
         rhi::object_manager<rhi::buffer> buffer;
+        rhi::object_manager<rhi::acceleration_structure> structure;
+        rhi::object_manager<rhi::micromap> micromap;
+        rhi::object_manager<rhi::sampler> sampler;
         rhi::object_manager<rhi::image_view> array_view;
-        std::vector<rhi::object_manager<rhi::image_view>> layers;
+        deren::utility::vessel::vector<rhi::object_manager<rhi::image_view>> layers;
     };
     struct generation {
         std::shared_ptr<rhi::api_core> device; // destroyed after all owned objects
         uint64_t version = 0;
         request description{};
-        std::vector<resource_instance> objects;
+        deren::utility::vessel::vector<resource_instance> objects;
     };
     struct resource_set {
-        std::map<resource_id, std::shared_ptr<generation const>> entries;
-        std::map<lifetime, std::vector<resource_id>> groups;
+        deren::utility::vessel::map<resource_id, std::shared_ptr<generation const>> entries;
+        deren::utility::vessel::map<lifetime, deren::utility::vessel::vector<resource_id>> groups;
     };
     class resource_snapshot {
         std::shared_ptr<resource_set const> state;
@@ -107,10 +136,13 @@ export namespace deren::engine::render_resource::instances {
         resource_snapshot snapshot() const {
             return resource_snapshot{active};
         }
-        rhi::error reconcile(std::shared_ptr<rhi::api_core> const& device, resource_context const& context, std::span<request const> requests) {
+        // Admission inspects a complete, unused candidate before it becomes visible to passes.
+        // Rejection preserves the active generations, including the cached-reuse case.
+        using admission = std::function<rhi::error(resource_snapshot const&)>;
+        rhi::error reconcile(std::shared_ptr<rhi::api_core> const& device, resource_context const& context, std::span<request const> requests, admission const& accept = {}) {
             if (!device || context.frame_slots == 0 || context.output_images == 0)
                 return rhi::error::invalid_argument;
-            std::map<resource_id, request> desired;
+            deren::utility::vessel::map<resource_id, request> desired;
             for (auto const& value : requests) {
                 if (value.id == resource_id::none || value.id >= resource_id::count)
                     return rhi::error::invalid_argument;
@@ -124,6 +156,11 @@ export namespace deren::engine::render_resource::instances {
                         return rhi::error::invalid_argument;
                     i->second.image.array_layers = std::max(i->second.image.array_layers, value.image.array_layers);
                     i->second.buffer.size = std::max(i->second.buffer.size, value.buffer.size);
+                    i->second.structure.instance_capacity = std::max(i->second.structure.instance_capacity, value.structure.instance_capacity);
+                    if (!i->second.initial_data)
+                        i->second.initial_data = value.initial_data;
+                    if (!i->second.micromap_data)
+                        i->second.micromap_data = value.micromap_data;
                 }
             }
             for (auto const& value : requests)
@@ -136,19 +173,27 @@ export namespace deren::engine::render_resource::instances {
                 auto previous = snapshot().find(id);
                 if (previous && previous->device == device && previous->objects.size() == count &&
                     compatible(previous->description, value) &&
-                    (value.type == kind::image ? previous->description.image.array_layers >= value.image.array_layers : previous->description.buffer.size >= value.buffer.size)) {
+                    (value.type == kind::image ? previous->description.image.array_layers >= value.image.array_layers : value.type == kind::buffer ? previous->description.buffer.size >= value.buffer.size
+                                                                                                                                                   : previous->description.structure.instance_capacity >= value.structure.instance_capacity)) {
                     next->entries.emplace(id, previous);
                 } else {
                     auto created = std::make_shared<generation>();
                     created->device = device;
                     created->version = next_version++;
                     created->description = value;
+                    created->description.initial_data.reset();
+                    created->description.micromap_data.reset();
                     created->description.image.debug_name = nullptr;
                     created->objects.reserve(count);
                     for (uint32_t index = 0; index < count; ++index) {
                         resource_instance object;
                         if (value.type == kind::image) {
-                            object.image = rhi::object_manager<rhi::image>{device->create_image(value.image)};
+                            if (value.initialization_key && !value.initial_data)
+                                return rhi::error::not_ready;
+                            auto desc = value.image;
+                            if (value.initial_data)
+                                desc.initial_bytes = {value.initial_data.get(), value.initial_data_size};
+                            object.image = rhi::object_manager<rhi::image>{device->create_image(desc)};
                             if (!object.image)
                                 return rhi::error::initialization_failed;
                             rhi::image_view_desc array{};
@@ -157,8 +202,8 @@ export namespace deren::engine::render_resource::instances {
                             object.array_view = rhi::object_manager<rhi::image_view>{object.image->make_view(array)};
                             if (!object.array_view)
                                 return rhi::error::initialization_failed;
-                            object.layers.reserve(value.image.array_layers);
-                            for (uint32_t layer = 0; layer < value.image.array_layers; ++layer) {
+                            object.layers.reserve(value.layer_views ? value.image.array_layers : 0);
+                            for (uint32_t layer = 0; value.layer_views && layer < value.image.array_layers; ++layer) {
                                 rhi::image_view_desc desc{};
                                 desc.base_layer = layer;
                                 desc.layer_count = 1;
@@ -166,8 +211,36 @@ export namespace deren::engine::render_resource::instances {
                                 if (!object.layers.back())
                                     return rhi::error::initialization_failed;
                             }
+                        } else if (value.type == kind::sampler) {
+                            object.sampler = rhi::object_manager<rhi::sampler>{device->create_sampler(value.sampler)};
+                            if (!object.sampler)
+                                return rhi::error::initialization_failed;
+                        } else if (value.type == kind::micromap) {
+                            if (!value.micromap_data)
+                                return rhi::error::not_ready;
+                            auto desc = value.micromap;
+                            desc.data = value.micromap_data->data;
+                            desc.triangles = value.micromap_data->triangles;
+                            desc.indices = value.micromap_data->indices;
+                            object.micromap = rhi::object_manager<rhi::micromap>{device->create_micromap(desc)};
+                            if (!object.micromap)
+                                return rhi::error::initialization_failed;
+                        } else if (value.type == kind::acceleration_structure) {
+                            auto desc = value.structure;
+                            desc.geometries = value.geometries.empty() ? nullptr : value.geometries.data();
+                            desc.geometry_count = static_cast<uint32_t>(value.geometries.size());
+                            object.structure = rhi::object_manager<rhi::acceleration_structure>{device->create_acceleration_structure(desc)};
+                            if (!object.structure)
+                                return rhi::error::initialization_failed;
                         } else {
-                            object.buffer = rhi::object_manager<rhi::buffer>{device->create_buffer(value.buffer)};
+                            // A released upload can describe an existing generation, but cannot recreate
+                            // initialized storage on another device without its source being supplied again.
+                            if (value.initialization_key && !value.initial_data)
+                                return rhi::error::not_ready;
+                            auto desc = value.buffer;
+                            if (value.initial_data)
+                                desc.initial_bytes = {value.initial_data.get(), value.initial_data_size};
+                            object.buffer = rhi::object_manager<rhi::buffer>{device->create_buffer(desc)};
                             if (!object.buffer)
                                 return rhi::error::initialization_failed;
                             if ((value.zero_on_frame || value.zero_on_create) && object.buffer->mapped().size() < value.buffer.size)
@@ -182,6 +255,11 @@ export namespace deren::engine::render_resource::instances {
                     next->entries.emplace(id, std::move(created));
                 }
                 next->groups[value.life].push_back(id);
+            }
+            if (accept) {
+                auto const result = accept(resource_snapshot{next});
+                if (result != rhi::error::ok)
+                    return result;
             }
             if (active && device_owner == device && active->entries == next->entries && frame_slots == context.frame_slots)
                 return rhi::error::ok;
@@ -231,6 +309,16 @@ export namespace deren::engine::render_resource::instances {
     private:
         uint32_t frame_slots = rhi::max_frames_in_flight;
         static bool valid(request const& value) {
+            if (value.micromap_data && value.type != kind::micromap)
+                return false;
+            if (value.initialization_key) {
+                if ((value.type != kind::micromap && ((value.type != kind::buffer && value.type != kind::image) || !value.initial_data_size ||
+                                                      (value.type == kind::buffer && value.initial_data_size > value.buffer.size))) ||
+                    value.zero_on_create || value.zero_on_frame)
+                    return false;
+            } else if (value.initial_data || value.initial_data_size) {
+                return false;
+            }
             if (value.zero_on_create && value.type != kind::buffer)
                 return false;
             switch (value.life) {
@@ -256,16 +344,61 @@ export namespace deren::engine::render_resource::instances {
                        value.image.initial_bytes.empty();
             if (value.type == kind::buffer)
                 return value.buffer.struct_size == sizeof(rhi::buffer_desc) && value.buffer.size && value.buffer.initial_bytes.empty();
+            if (value.type == kind::sampler)
+                return value.sampler.struct_size == sizeof(rhi::sampler_desc) && std::isfinite(value.sampler.max_lod) && value.sampler.max_lod >= 0;
+            if (value.type == kind::micromap) {
+                auto const& desc = value.micromap;
+                if (!value.initialization_key || value.initial_data || value.initial_data_size ||
+                    desc.struct_size != sizeof(rhi::micromap_desc) || !desc.triangle_count || !desc.data_stride ||
+                    !desc.data.empty() || !desc.triangles.empty() || !desc.indices.empty() ||
+                    (desc.format != rhi::micromap_format::four_state && desc.format != rhi::micromap_format::two_state))
+                    return false;
+                auto const& data = value.micromap_data;
+                return !data || (data->data.size() == uint64_t(desc.triangle_count) * desc.data_stride &&
+                                 data->triangles.size() == desc.triangle_count && data->indices.size() == desc.triangle_count);
+            }
+            if (value.type == kind::acceleration_structure) {
+                if (value.structure.struct_size != sizeof(rhi::acceleration_structure_desc) ||
+                    value.structure.geometries || value.structure.geometry_count)
+                    return false;
+                if (value.structure.type == rhi::acceleration_structure_type::top_level)
+                    return value.structure.instance_capacity && value.geometries.empty();
+                return value.structure.type == rhi::acceleration_structure_type::bottom_level &&
+                       !value.structure.instance_capacity && !value.geometries.empty() && value.geometries.size() <= UINT32_MAX;
+            }
             return false;
         }
         static bool compatible(request const& a, request const& b) {
+            if (a.dependencies != b.dependencies)
+                return false;
+            if (a.initialization_key != b.initialization_key || a.initial_data_size != b.initial_data_size)
+                return false;
             if (a.type != b.type || a.life != b.life || a.scope != b.scope || a.zero_on_frame != b.zero_on_frame || a.zero_on_create != b.zero_on_create)
                 return false;
             if (a.type == kind::buffer)
                 return a.buffer.usage == b.buffer.usage && a.buffer.flags == b.buffer.flags;
+            if (a.type == kind::sampler)
+                return a.sampler.address_mode == b.sampler.address_mode && a.sampler.max_lod == b.sampler.max_lod &&
+                       a.sampler.mag_filter == b.sampler.mag_filter && a.sampler.min_filter == b.sampler.min_filter &&
+                       a.sampler.mipmap_mode == b.sampler.mipmap_mode && a.sampler.compare_enable == b.sampler.compare_enable && a.sampler.compare_op == b.sampler.compare_op;
+            if (a.type == kind::micromap)
+                return a.micromap.triangle_count == b.micromap.triangle_count && a.micromap.data_stride == b.micromap.data_stride &&
+                       a.micromap.format == b.micromap.format;
+            if (a.type == kind::acceleration_structure) {
+                if (a.structure.type != b.structure.type || a.structure.flags != b.structure.flags || a.geometries.size() != b.geometries.size())
+                    return false;
+                for (size_t i = 0; i < a.geometries.size(); ++i) {
+                    auto const& x = a.geometries[i];
+                    auto const& y = b.geometries[i];
+                    if (x.vertex_address != y.vertex_address || x.vertex_stride != y.vertex_stride || x.vertex_count != y.vertex_count ||
+                        x.index_address != y.index_address || x.index_format != y.index_format || x.index_count != y.index_count || x.opacity_micromap != y.opacity_micromap)
+                        return false;
+                }
+                return true;
+            }
             return a.image.extent.width == b.image.extent.width && a.image.extent.height == b.image.extent.height &&
                    a.image.extent.depth == b.image.extent.depth && a.image.mip_levels == b.image.mip_levels &&
-                   a.image.format == b.image.format && a.image.flags == b.image.flags;
+                   a.image.format == b.image.format && a.image.flags == b.image.flags && a.layer_views == b.layer_views;
         }
     };
 } // namespace deren::engine::render_resource::instances

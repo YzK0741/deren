@@ -1,4 +1,4 @@
-// module version: 0.13.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 
 /**
  * @file source/engine/render_resource/render_resource.cppm
@@ -57,6 +57,7 @@ module;
 #include <string_view>
 
 export module deren.engine.render_resource;
+export import deren.utility.shared;
 
 export namespace deren::engine::render_resource {
 
@@ -121,6 +122,43 @@ export namespace deren::engine::render_resource {
         bloom_level1,
         bloom_level2,
         bloom_level3,
+        skin_matrices_previous, // appended; existing resource identities remain unchanged
+        toon_colour_table,
+        toon_lane_table,
+        toon_rig_table,
+        meshlet_table,
+        mesh_indirect_commands,
+        meshlet_statistics,
+        meshlet_culled_table,
+        gaussian_instances,
+        gaussian_ranges,
+        gaussian_keys,
+        gaussian_values,
+        gaussian_references,
+        gaussian_sort_scratch,
+        gaussian_status,
+        gaussian_draw,
+        gaussian_parameters,
+        gaussian_projected,
+        gaussian_geometry,
+        gaussian_sh,
+        rt_instance_table,
+        bottom_level_structure,
+        rt_mask_vertices,
+        rt_skin_vertices,
+        rt_opacity_micromap,
+        scene_geometry_vertices,
+        scene_geometry_indices,
+        texture_sampler,
+        gbuffer_sampler,
+        taa_sampler,
+        post_sampler,
+        post_nearest_sampler,
+        shadow_sampler,
+        environment_sampler,
+        post_lut,
+        goo_fgd_lut,
+        pass_upload_buffer,
         /// the number of enumerators, so the schema's completeness can be checked by ITERATING rather than
         /// against a hand-kept list: `validate_schema()` requires exactly one entry per id in [1, count)
         count,
@@ -133,6 +171,8 @@ export namespace deren::engine::render_resource {
         image_cube,
         buffer,
         accel_struct,
+        micromap,
+        sampler,
     };
 
     /**
@@ -188,10 +228,10 @@ export namespace deren::engine::render_resource {
      * `core.cpp` would be a second copy of a fact - the thing this file's header warns about.
      * @ingroup engine_render_resource
      */
-    inline constexpr std::array<resource_info, static_cast<size_t>(resource_id::count) - 1> resource_schema = {{
+    inline constexpr deren::utility::vessel::array<resource_info, static_cast<size_t>(resource_id::count) - 1> resource_schema = {{
         {.id = resource_id::swapchain_image, .name = "swapchain_image", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::imported},
         {.id = resource_id::hdr, .name = "hdr", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
-        // FOUR LEVELS, not one: `core::bloom_images` is `std::array<std::vector<VkImage>, bloom_level_count>`
+        // FOUR LEVELS, not one: `core::bloom_images` is `deren::utility::vessel::array<deren::utility::vessel::vector<VkImage>, bloom_level_count>`
         // with `bloom_level_count == 4`, and the post chain's passes each own ONE of them. The count was 1 (the
         // default) until the bloom chain was extracted, which made `element = level` illegal for every pass but
         // the first - and the validator's `element >= info->count` check is what says so, so this field IS the
@@ -224,10 +264,11 @@ export namespace deren::engine::render_resource {
         {.id = resource_id::bloom_level1, .name = "bloom_level1", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::bloom_level2, .name = "bloom_level2", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::bloom_level3, .name = "bloom_level3", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
-        {.id = resource_id::material_table, .name = "material_table", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::persistent},
-        {.id = resource_id::instance_table, .name = "instance_table", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::material_table, .name = "material_table", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::instance_table, .name = "instance_table", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
         {.id = resource_id::motion_vectors, .name = "motion_vectors", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::persistent},
         {.id = resource_id::skin_matrices, .name = "skin_matrices", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::skin_matrices_previous, .name = "skin_matrices_previous", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::persistent},
         {.id = resource_id::morph_targets, .name = "morph_targets", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::persistent},
         {.id = resource_id::cluster_counts, .name = "cluster_counts", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::cluster_indices, .name = "cluster_indices", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
@@ -237,7 +278,43 @@ export namespace deren::engine::render_resource {
         {.id = resource_id::ibl_env, .name = "ibl_env", .kind = resource_kind::image_cube, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
         {.id = resource_id::ibl_irradiance, .name = "ibl_irradiance", .kind = resource_kind::image_cube, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
         {.id = resource_id::brdf_lut, .name = "brdf_lut", .kind = resource_kind::image2d, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
-        {.id = resource_id::top_level_structure, .name = "top_level_structure", .kind = resource_kind::accel_struct, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::top_level_structure, .name = "top_level_structure", .kind = resource_kind::accel_struct, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::toon_colour_table, .name = "toon_colour_table", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::toon_lane_table, .name = "toon_lane_table", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::toon_rig_table, .name = "toon_rig_table", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::meshlet_table, .name = "meshlet_table", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::mesh_indirect_commands, .name = "mesh_indirect_commands", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::meshlet_statistics, .name = "meshlet_statistics", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::meshlet_culled_table, .name = "meshlet_culled_table", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::gaussian_instances, .name = "gaussian_instances", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::gaussian_ranges, .name = "gaussian_ranges", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::gaussian_keys, .name = "gaussian_keys", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::gaussian_values, .name = "gaussian_values", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::gaussian_references, .name = "gaussian_references", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::gaussian_sort_scratch, .name = "gaussian_sort_scratch", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::gaussian_status, .name = "gaussian_status", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::gaussian_draw, .name = "gaussian_draw", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::gaussian_parameters, .name = "gaussian_parameters", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::gaussian_projected, .name = "gaussian_projected", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::gaussian_geometry, .name = "gaussian_geometry", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::gaussian_sh, .name = "gaussian_sh", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::rt_instance_table, .name = "rt_instance_table", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::bottom_level_structure, .name = "bottom_level_structure", .kind = resource_kind::accel_struct, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::rt_mask_vertices, .name = "rt_mask_vertices", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::rt_skin_vertices, .name = "rt_skin_vertices", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::rt_opacity_micromap, .name = "rt_opacity_micromap", .kind = resource_kind::micromap, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::scene_geometry_vertices, .name = "scene_geometry_vertices", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::scene_geometry_indices, .name = "scene_geometry_indices", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::texture_sampler, .name = "texture_sampler", .kind = resource_kind::sampler, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::gbuffer_sampler, .name = "gbuffer_sampler", .kind = resource_kind::sampler, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::taa_sampler, .name = "taa_sampler", .kind = resource_kind::sampler, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::post_sampler, .name = "post_sampler", .kind = resource_kind::sampler, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::post_nearest_sampler, .name = "post_nearest_sampler", .kind = resource_kind::sampler, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::shadow_sampler, .name = "shadow_sampler", .kind = resource_kind::sampler, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::environment_sampler, .name = "environment_sampler", .kind = resource_kind::sampler, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::post_lut, .name = "post_lut", .kind = resource_kind::image2d, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::goo_fgd_lut, .name = "goo_fgd_lut", .kind = resource_kind::image2d, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::pass_upload_buffer, .name = "pass_upload_buffer", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
     }};
 
     /// @brief the schema entry for @p id, or nullptr when nothing declares it
@@ -358,6 +435,10 @@ export namespace deren::engine::render_resource {
             return "buffer";
         case resource_kind::accel_struct:
             return "accel_struct";
+        case resource_kind::micromap:
+            return "micromap";
+        case resource_kind::sampler:
+            return "sampler";
         }
         return "?";
     }
@@ -548,7 +629,7 @@ export namespace deren::engine::render_resource {
     }
 
     /** @brief the schema's own invariants: no empty name, no empty family, and ONE entry per declared id */
-    [[nodiscard]] inline std::expected<void, std::string> validate_schema() {
+    [[nodiscard]] inline std::expected<void, deren::utility::vessel::string> validate_schema() {
         for (resource_info const& info : resource_schema) {
             if (info.id == resource_id::none) {
                 return std::unexpected("a schema entry has no id");
@@ -560,10 +641,10 @@ export namespace deren::engine::render_resource {
                 return std::unexpected("a schema entry has no name");
             }
             if (info.count == 0) {
-                return std::unexpected(std::string(info.name) + " declares zero images");
+                return std::unexpected(deren::utility::vessel::string(info.name) + " declares zero images");
             }
             if (info.lifetime == resource_lifetime::imported && info.scope != resource_scope::per_swapchain_image) {
-                return std::unexpected(std::string(info.name) + " is imported but not per-swapchain-image");
+                return std::unexpected(deren::utility::vessel::string(info.name) + " is imported but not per-swapchain-image");
             }
         }
         // Completeness: every enumerator the renderer can name has exactly one entry. A forgotten entry is
@@ -576,7 +657,7 @@ export namespace deren::engine::render_resource {
                 }
             }
             if (seen != 1) {
-                return std::unexpected("the schema has " + std::to_string(seen) + " entries for resource id " + std::to_string(raw));
+                return std::unexpected("the schema has " + deren::utility::vessel::to_string(seen) + " entries for resource id " + deren::utility::vessel::to_string(raw));
             }
         }
         return {};
@@ -599,34 +680,34 @@ export namespace deren::engine::render_resource {
      * overlap.
      * @ingroup engine_render_resource
      */
-    [[nodiscard]] inline std::expected<void, std::string> validate(pass_io const& io) {
+    [[nodiscard]] inline std::expected<void, deren::utility::vessel::string> validate(pass_io const& io) {
         if (io.name.empty()) {
             return std::unexpected("a pass declaration has no name");
         }
-        std::string const who{io.name};
+        deren::utility::vessel::string const who{io.name};
         std::size_t own_count = 0;
         std::size_t depth_targets = 0;
         for (render_target const& t : io.targets) {
-            std::string const where = who + ": target " + std::to_string(t.element);
+            deren::utility::vessel::string const where = who + ": target " + deren::utility::vessel::to_string(t.element);
             resource_info const* const info = find(t.resource);
             if (info == nullptr) {
                 return std::unexpected(where + " names a resource the schema does not declare");
             }
             if (info->kind != resource_kind::image2d && info->kind != resource_kind::image3d && info->kind != resource_kind::image_cube) {
-                return std::unexpected(where + " names " + std::string(info->name) + ", which is not an image a pass can render into");
+                return std::unexpected(where + " names " + deren::utility::vessel::string(info->name) + ", which is not an image a pass can render into");
             }
             if (t.element >= info->count) {
-                return std::unexpected(where + " names element " + std::to_string(t.element) + " of " + std::string(info->name) + ", which holds " +
-                                       std::to_string(info->count));
+                return std::unexpected(where + " names element " + deren::utility::vessel::to_string(t.element) + " of " + deren::utility::vessel::string(info->name) + ", which holds " +
+                                       deren::utility::vessel::to_string(info->count));
             }
             if (t.count == 0u) {
-                return std::unexpected(where + " claims no element of " + std::string(info->name) + ", so it renders nothing");
+                return std::unexpected(where + " claims no element of " + deren::utility::vessel::string(info->name) + ", so it renders nothing");
             }
             if (static_cast<uint32_t>(t.element) + t.count > info->count) {
                 // A RUN that reaches past the family: `count` is a claim about the SCHEMA, and the frame can only
                 // ever answer with a SHORTER run (see render_target::count).
-                return std::unexpected(where + " claims elements " + std::to_string(t.element) + ".." + std::to_string(static_cast<uint32_t>(t.element) + t.count - 1u) + " of " +
-                                       std::string(info->name) + ", which holds " + std::to_string(info->count));
+                return std::unexpected(where + " claims elements " + deren::utility::vessel::to_string(t.element) + ".." + deren::utility::vessel::to_string(static_cast<uint32_t>(t.element) + t.count - 1u) + " of " +
+                                       deren::utility::vessel::string(info->name) + ", which holds " + deren::utility::vessel::to_string(info->count));
             }
             if (t.kind == target_kind::depth && ++depth_targets > 1u) {
                 // a rendering instance has exactly one depth attachment, so a second one cannot be recorded - and a
@@ -637,24 +718,24 @@ export namespace deren::engine::render_resource {
                 // Two entries whose element RUNS INTERSECT would have the pass render into one image twice - the
                 // same defect the exact-match check below reports, one resource class over.
                 if (&other != &t && other.resource == t.resource && t.element < static_cast<uint32_t>(other.element) + other.count && other.element < static_cast<uint32_t>(t.element) + t.count) {
-                    return std::unexpected(where + " overlaps the entries " + std::to_string(other.element) + ".." + std::to_string(static_cast<uint32_t>(other.element) + other.count - 1u) + " of the same resource");
+                    return std::unexpected(where + " overlaps the entries " + deren::utility::vessel::to_string(other.element) + ".." + deren::utility::vessel::to_string(static_cast<uint32_t>(other.element) + other.count - 1u) + " of the same resource");
                 }
             }
         }
         // THE BARRIER IMAGES, checked like a target: an image the pass will move between layouts has to exist
         // in the schema and has to BE an image (a transition names no descriptor, but it does name a resource).
         for (barrier_image const& t : io.barrier_images) {
-            std::string const where = who + ": barrier image " + std::to_string(t.element);
+            deren::utility::vessel::string const where = who + ": barrier image " + deren::utility::vessel::to_string(t.element);
             resource_info const* const info = find(t.resource);
             if (info == nullptr) {
                 return std::unexpected(where + " names a resource the schema does not declare");
             }
             if (info->kind != resource_kind::image2d && info->kind != resource_kind::image3d && info->kind != resource_kind::image_cube) {
-                return std::unexpected(where + " names " + std::string(info->name) + ", which is not an image");
+                return std::unexpected(where + " names " + deren::utility::vessel::string(info->name) + ", which is not an image");
             }
             if (t.element >= info->count) {
-                return std::unexpected(where + " names element " + std::to_string(t.element) + " of " + std::string(info->name) + ", which holds " +
-                                       std::to_string(info->count));
+                return std::unexpected(where + " names element " + deren::utility::vessel::to_string(t.element) + " of " + deren::utility::vessel::string(info->name) + ", which holds " +
+                                       deren::utility::vessel::to_string(info->count));
             }
             for (barrier_image const& other : io.barrier_images) {
                 if (&other != &t && other.resource == t.resource && other.element == t.element) {
@@ -665,17 +746,17 @@ export namespace deren::engine::render_resource {
         // ... and THE BARRIER BUFFERS, the same three checks one resource class over: it has to exist in the
         // schema, it has to BE a buffer, and a pass indexes these by position so a duplicate is a defect.
         for (barrier_buffer const& t : io.barrier_buffers) {
-            std::string const where = who + ": barrier buffer " + std::to_string(t.element);
+            deren::utility::vessel::string const where = who + ": barrier buffer " + deren::utility::vessel::to_string(t.element);
             resource_info const* const info = find(t.resource);
             if (info == nullptr) {
                 return std::unexpected(where + " names a resource the schema does not declare");
             }
             if (info->kind != resource_kind::buffer) {
-                return std::unexpected(where + " names " + std::string(info->name) + ", which is not a buffer");
+                return std::unexpected(where + " names " + deren::utility::vessel::string(info->name) + ", which is not a buffer");
             }
             if (t.element >= info->count) {
-                return std::unexpected(where + " names element " + std::to_string(t.element) + " of " + std::string(info->name) + ", which holds " +
-                                       std::to_string(info->count));
+                return std::unexpected(where + " names element " + deren::utility::vessel::to_string(t.element) + " of " + deren::utility::vessel::string(info->name) + ", which holds " +
+                                       deren::utility::vessel::to_string(info->count));
             }
             for (barrier_buffer const& other : io.barrier_buffers) {
                 if (&other != &t && other.resource == t.resource && other.element == t.element) {
@@ -684,21 +765,21 @@ export namespace deren::engine::render_resource {
             }
         }
         for (pass_binding const& b : io.bindings) {
-            std::string const where = who + ": binding " + std::to_string(b.binding);
+            deren::utility::vessel::string const where = who + ": binding " + deren::utility::vessel::to_string(b.binding);
             resource_info const* const info = find(b.resource);
             if (info == nullptr) {
                 return std::unexpected(where + " names a resource the schema does not declare");
             }
             if (!compatible(b.kind, info->kind)) {
-                return std::unexpected(where + " is declared " + std::string(name_of(b.kind)) + " but " + std::string(info->name) + " is " +
-                                       std::string(name_of(info->kind)));
+                return std::unexpected(where + " is declared " + deren::utility::vessel::string(name_of(b.kind)) + " but " + deren::utility::vessel::string(info->name) + " is " +
+                                       deren::utility::vessel::string(name_of(info->kind)));
             }
             if (!compatible(b.kind, b.access)) {
-                return std::unexpected(where + " is a " + std::string(name_of(b.kind)) + " used for " + std::string(name_of(b.access)));
+                return std::unexpected(where + " is a " + deren::utility::vessel::string(name_of(b.kind)) + " used for " + deren::utility::vessel::string(name_of(b.access)));
             }
             if (b.element >= info->count) {
-                return std::unexpected(where + " names element " + std::to_string(b.element) + " of " + std::string(info->name) +
-                                       ", which holds " + std::to_string(info->count));
+                return std::unexpected(where + " names element " + deren::utility::vessel::to_string(b.element) + " of " + deren::utility::vessel::string(info->name) +
+                                       ", which holds " + deren::utility::vessel::to_string(info->count));
             }
             if (b.descriptor_count == 0) {
                 return std::unexpected(where + " declares no descriptors");
@@ -714,7 +795,7 @@ export namespace deren::engine::render_resource {
             if (b.owner == binding_owner::own) {
                 if (b.binding != own_count) {
                     return std::unexpected(who + ": the pass's own bindings are not numbered contiguously from zero (expected " +
-                                           std::to_string(own_count) + ", found " + std::to_string(b.binding) + ")");
+                                           deren::utility::vessel::to_string(own_count) + ", found " + deren::utility::vessel::to_string(b.binding) + ")");
                 }
                 ++own_count;
             }
@@ -746,7 +827,7 @@ export namespace deren::engine::render_resource {
      * declaration exists to make impossible, now in the other direction (the field is easy to forget when every
      * other declaration so far was a compute pass).
      */
-    inline constexpr std::array<pass_binding, 4> taa_bindings = {{
+    inline constexpr deren::utility::vessel::array<pass_binding, 4> taa_bindings = {{
         {.binding = 0, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::scene_color, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
         {.binding = 1, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::taa_history, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
         {.binding = 2, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::velocity, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
@@ -755,7 +836,7 @@ export namespace deren::engine::render_resource {
 
     /// @brief the resolve RENDERS INTO the frame's HDR target, which is why it needs a target and not a binding
     inline constexpr render_target taa_target = {.resource = resource_id::hdr, .element = 0};
-    inline constexpr std::array<render_target, 1> taa_targets = {taa_target};
+    inline constexpr deren::utility::vessel::array<render_target, 1> taa_targets = {taa_target};
 
     /// @brief the temporal resolve's declaration
     /// @ingroup engine_render_resource
@@ -793,7 +874,7 @@ export namespace deren::engine::render_resource {
      * which image that is. It also means the scene pass and the TAA resolve agree by construction about which
      * image the scene writes and the resolve reads.
      */
-    inline constexpr std::array<render_target, 6> scene_targets = {{
+    inline constexpr deren::utility::vessel::array<render_target, 6> scene_targets = {{
         {.resource = resource_id::gbuffer_targets, .element = 0},
         {.resource = resource_id::gbuffer_targets, .element = 1},
         {.resource = resource_id::gbuffer_targets, .element = 2},
@@ -830,7 +911,7 @@ export namespace deren::engine::render_resource {
      * It reaches the same shared resources the scene pass does - a blended surface reads the same materials, the
      * same camera and the same shadow map - so it declares no binding of its own either.
      */
-    inline constexpr std::array<render_target, 2> transparent_targets = {{
+    inline constexpr deren::utility::vessel::array<render_target, 2> transparent_targets = {{
         {.resource = resource_id::scene_color, .element = 0},
         {.resource = resource_id::gbuffer_depth, .element = 0, .kind = target_kind::depth},
     }};
@@ -861,7 +942,7 @@ export namespace deren::engine::render_resource {
      * It declares no binding of its own: it reads the same materials, camera and light the scene pass does,
      * and all of those reach its shaders through the frame's heap.
      */
-    inline constexpr std::array<render_target, 2> character_forward_targets = {{
+    inline constexpr deren::utility::vessel::array<render_target, 2> character_forward_targets = {{
         {.resource = resource_id::scene_color, .element = 0},
         {.resource = resource_id::gbuffer_depth, .element = 0, .kind = target_kind::depth},
     }};
@@ -894,7 +975,7 @@ export namespace deren::engine::render_resource {
      * block is 48 bytes: the two projection terms from the frame, the rim's width/gain/strength and its colour
      * from the pass, and the framework appends the two heap lanes on top.
      */
-    inline constexpr std::array<render_target, 1> toon_screen_rim_targets = {{
+    inline constexpr deren::utility::vessel::array<render_target, 1> toon_screen_rim_targets = {{
         {.resource = resource_id::scene_color, .element = 0},
     }};
 
@@ -924,7 +1005,7 @@ export namespace deren::engine::render_resource {
      * either the reference's own constant (in the shader) or the material's (a colour lane the shader reads through
      * the G-buffer's material id). The framework appends the two heap lanes on top, so the shader's block is 80.
      */
-    inline constexpr std::array<render_target, 1> goo_rim_targets = {{
+    inline constexpr deren::utility::vessel::array<render_target, 1> goo_rim_targets = {{
         {.resource = resource_id::scene_color, .element = 0},
     }};
 
@@ -952,7 +1033,7 @@ export namespace deren::engine::render_resource {
      * the writer can place the transitions (UNDEFINED -> GENERAL to write it as a storage image, GENERAL ->
      * SHADER_READ to hand it to the lighting stage that adds it, both recorded by this pass).
      */
-    inline constexpr std::array<barrier_image, 1> megalights_trace_barriers = {{
+    inline constexpr deren::utility::vessel::array<barrier_image, 1> megalights_trace_barriers = {{
         {.resource = resource_id::ml_trace, .element = 0},
     }};
 
@@ -989,7 +1070,7 @@ export namespace deren::engine::render_resource {
      *   3: `gbuffer_depth` the G-buffer's depth (what the history is rejected against)
      *   4: `ml_resolve` the accumulation this dispatch WRITES (a storage image)
      */
-    inline constexpr std::array<pass_binding, 5> megalights_temporal_bindings = {{
+    inline constexpr deren::utility::vessel::array<pass_binding, 5> megalights_temporal_bindings = {{
         {.binding = 0, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::ml_trace, .access = binding_access::read, .sampler = sampler_hint::gbuffer},
         {.binding = 1, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::ml_history, .access = binding_access::read, .sampler = sampler_hint::gbuffer},
         {.binding = 2, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::velocity, .access = binding_access::read, .sampler = sampler_hint::gbuffer},
@@ -1001,7 +1082,7 @@ export namespace deren::engine::render_resource {
     ///
     /// Its five OWN bindings include the two G-buffer targets it reads, so those are its transitions too: the
     /// pass is the first sampler of this image's depth and velocity this frame (see the stage's prepare).
-    inline constexpr std::array<barrier_image, 4> megalights_temporal_barriers = {{
+    inline constexpr deren::utility::vessel::array<barrier_image, 4> megalights_temporal_barriers = {{
         {.resource = resource_id::ml_resolve, .element = 0},
         {.resource = resource_id::ml_history, .element = 0},
         {.resource = resource_id::gbuffer_depth, .element = 0},
@@ -1032,7 +1113,7 @@ export namespace deren::engine::render_resource {
      * image the pass writes (UNDEFINED -> GENERAL) and the lighting stage samples (GENERAL -> SHADER_READ), both
      * transitions recorded by the pass itself.
      */
-    inline constexpr std::array<barrier_image, 1> rt_shadow_barriers = {{
+    inline constexpr deren::utility::vessel::array<barrier_image, 1> rt_shadow_barriers = {{
         {.resource = resource_id::rt_shadow_visibility, .element = 0},
     }};
 
@@ -1065,7 +1146,7 @@ export namespace deren::engine::render_resource {
      *
      * Both are per FRAME SLOT (the slot's count and index arrays), which the host resolves from the frame.
      */
-    inline constexpr std::array<barrier_buffer, 2> cluster_barriers = {{
+    inline constexpr deren::utility::vessel::array<barrier_buffer, 2> cluster_barriers = {{
         {.resource = resource_id::cluster_counts, .element = 0},
         {.resource = resource_id::cluster_indices, .element = 0},
     }};
@@ -1091,7 +1172,7 @@ export namespace deren::engine::render_resource {
     };
 
     /// @brief the resource the deferred lighting stage RENDERS INTO, by declaration
-    inline constexpr std::array<render_target, 1> deferred_targets = {{
+    inline constexpr deren::utility::vessel::array<render_target, 1> deferred_targets = {{
         {.resource = resource_id::scene_color, .element = 0, .kind = target_kind::color},
     }};
 
@@ -1156,15 +1237,15 @@ export namespace deren::engine::render_resource {
      */
     /// the levels' named target and source lists: a `pass_io` holds SPANS, so every list it names has to outlive
     /// it (a brace-initialized array inside the initializer would be a temporary the span dangles on)
-    inline constexpr std::array<render_target, 1> post_bloom_0_target = {{render_target{.resource = resource_id::bloom, .element = 0, .kind = target_kind::color}}};
-    inline constexpr std::array<render_target, 1> post_bloom_1_target = {{render_target{.resource = resource_id::bloom, .element = 1, .kind = target_kind::color}}};
-    inline constexpr std::array<render_target, 1> post_bloom_2_target = {{render_target{.resource = resource_id::bloom, .element = 2, .kind = target_kind::color}}};
-    inline constexpr std::array<render_target, 1> post_bloom_3_target = {{render_target{.resource = resource_id::bloom, .element = 3, .kind = target_kind::color}}};
-    inline constexpr std::array<barrier_image, 1> post_bloom_1_source = {{barrier_image{.resource = resource_id::bloom, .element = 0}}};
-    inline constexpr std::array<barrier_image, 1> post_bloom_2_source = {{barrier_image{.resource = resource_id::bloom, .element = 1}}};
-    inline constexpr std::array<barrier_image, 1> post_bloom_3_source = {{barrier_image{.resource = resource_id::bloom, .element = 2}}};
+    inline constexpr deren::utility::vessel::array<render_target, 1> post_bloom_0_target = {{render_target{.resource = resource_id::bloom, .element = 0, .kind = target_kind::color}}};
+    inline constexpr deren::utility::vessel::array<render_target, 1> post_bloom_1_target = {{render_target{.resource = resource_id::bloom, .element = 1, .kind = target_kind::color}}};
+    inline constexpr deren::utility::vessel::array<render_target, 1> post_bloom_2_target = {{render_target{.resource = resource_id::bloom, .element = 2, .kind = target_kind::color}}};
+    inline constexpr deren::utility::vessel::array<render_target, 1> post_bloom_3_target = {{render_target{.resource = resource_id::bloom, .element = 3, .kind = target_kind::color}}};
+    inline constexpr deren::utility::vessel::array<barrier_image, 1> post_bloom_1_source = {{barrier_image{.resource = resource_id::bloom, .element = 0}}};
+    inline constexpr deren::utility::vessel::array<barrier_image, 1> post_bloom_2_source = {{barrier_image{.resource = resource_id::bloom, .element = 1}}};
+    inline constexpr deren::utility::vessel::array<barrier_image, 1> post_bloom_3_source = {{barrier_image{.resource = resource_id::bloom, .element = 2}}};
 
-    inline constexpr std::array<pass_io, 4> post_bloom_io = {{
+    inline constexpr deren::utility::vessel::array<pass_io, 4> post_bloom_io = {{
         {.name = "post_bloom_0",
          .bindings = {},
          .targets = post_bloom_0_target,
@@ -1192,7 +1273,7 @@ export namespace deren::engine::render_resource {
     }};
 
     /// @brief what the composite RENDERS INTO by declaration: the swapchain (the FXAA-off case; see its comment)
-    inline constexpr std::array<render_target, 1> post_composite_targets = {{render_target{.resource = resource_id::swapchain_image, .element = 0, .kind = target_kind::color}}};
+    inline constexpr deren::utility::vessel::array<render_target, 1> post_composite_targets = {{render_target{.resource = resource_id::swapchain_image, .element = 0, .kind = target_kind::color}}};
 
     /**
      * @brief the composite's declaration: HDR plus the weighted bloom levels, tonemapped to the display
@@ -1218,10 +1299,10 @@ export namespace deren::engine::render_resource {
     };
 
     /// @brief what the FXAA pass RENDERS INTO by declaration: the swapchain, which it is the last writer of
-    inline constexpr std::array<render_target, 1> fxaa_targets = {{render_target{.resource = resource_id::swapchain_image, .element = 0, .kind = target_kind::color}}};
+    inline constexpr deren::utility::vessel::array<render_target, 1> fxaa_targets = {{render_target{.resource = resource_id::swapchain_image, .element = 0, .kind = target_kind::color}}};
 
     /// @brief the image the FXAA pass reads and therefore has to move to a sampled layout: the composite's LDR output
-    inline constexpr std::array<barrier_image, 1> fxaa_barriers = {{barrier_image{.resource = resource_id::ldr, .element = 0}}};
+    inline constexpr deren::utility::vessel::array<barrier_image, 1> fxaa_barriers = {{barrier_image{.resource = resource_id::ldr, .element = 0}}};
 
     /**
      * @brief the FXAA pass's declaration: the gamma-encoded LDR image -> the anti-aliased swapchain
@@ -1257,11 +1338,11 @@ export namespace deren::engine::render_resource {
 
     /// @brief what the UPSCALE pass RENDERS INTO by declaration: the swapchain, i.e. the OUTPUT image whose
     ///        extent is the one thing this pass asks for that is not the frame's
-    inline constexpr std::array<render_target, 1> upscale_targets = {{render_target{.resource = resource_id::swapchain_image, .element = 0, .kind = target_kind::color}}};
+    inline constexpr deren::utility::vessel::array<render_target, 1> upscale_targets = {{render_target{.resource = resource_id::swapchain_image, .element = 0, .kind = target_kind::color}}};
 
     /// @brief the image the upscale pass reads and therefore has to move to a sampled layout: the composite's LDR
     ///        output - the same image FXAA reads, which is why the two passes are mutually exclusive
-    inline constexpr std::array<barrier_image, 1> upscale_barriers = {{barrier_image{.resource = resource_id::ldr, .element = 0}}};
+    inline constexpr deren::utility::vessel::array<barrier_image, 1> upscale_barriers = {{barrier_image{.resource = resource_id::ldr, .element = 0}}};
 
     /**
      * @brief the UPSCALE pass's declaration: the display-referred LDR image -> the presented swapchain, by a
@@ -1302,13 +1383,13 @@ export namespace deren::engine::render_resource {
 
     /// @brief what the debug view RENDERS INTO: the HDR target, which is the image it actually writes - so unlike
     ///        the deferred stage's and the composite's, this declaration carries no deviation
-    inline constexpr std::array<render_target, 1> gbuffer_debug_targets = {{render_target{.resource = resource_id::hdr, .element = 0, .kind = target_kind::color}}};
+    inline constexpr deren::utility::vessel::array<render_target, 1> gbuffer_debug_targets = {{render_target{.resource = resource_id::hdr, .element = 0, .kind = target_kind::color}}};
 
     /// @brief the four images it moves to a sampled layout: the three stored surface targets and the motion vectors
-    inline constexpr std::array<barrier_image, 4> gbuffer_debug_barriers = {{barrier_image{.resource = resource_id::gbuffer_targets, .element = 0},
-                                                                             barrier_image{.resource = resource_id::gbuffer_targets, .element = 1},
-                                                                             barrier_image{.resource = resource_id::gbuffer_targets, .element = 2},
-                                                                             barrier_image{.resource = resource_id::velocity, .element = 0}}};
+    inline constexpr deren::utility::vessel::array<barrier_image, 4> gbuffer_debug_barriers = {{barrier_image{.resource = resource_id::gbuffer_targets, .element = 0},
+                                                                                                barrier_image{.resource = resource_id::gbuffer_targets, .element = 1},
+                                                                                                barrier_image{.resource = resource_id::gbuffer_targets, .element = 2},
+                                                                                                barrier_image{.resource = resource_id::velocity, .element = 0}}};
 
     /**
      * @brief the G-buffer debug view's declaration: the stored surface, one channel at a time, into the HDR target
@@ -1342,7 +1423,7 @@ export namespace deren::engine::render_resource {
     /// cascade, which is exactly a run of elements. The count is the schema's own four (the family's count), and
     /// the FRAME caps it: `create_shadow_resources` allocates the layers the cascade knob asks for, and only
     /// those layers are published - so a one-cascade frame resolves one target and a three-cascade frame three.
-    inline constexpr std::array<render_target, 1> shadow_targets = {{render_target{.resource = resource_id::shadow_map, .element = 0, .kind = target_kind::depth, .count = 4}}};
+    inline constexpr deren::utility::vessel::array<render_target, 1> shadow_targets = {{render_target{.resource = resource_id::shadow_map, .element = 0, .kind = target_kind::depth, .count = 4}}};
     /**
      * @brief the shadow pass's declaration: the scene's depth from the light, one cascade at a time
      *

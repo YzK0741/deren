@@ -29,7 +29,7 @@
 //   - `abilities()` is the tier-2 bit set (source/promise/rhi/rhi.extension.cppm) and
 //     `query_extension()` is the only way to reach an ability, so adding one does
 //     not grow this vtable;
-//   - parameters are PODs, `std::span`, or opaque handles. No `std::string`, no
+//   - parameters are PODs, `std::span`, or opaque handles. No `deren::utility::vessel::string`, no
 //     container, no exception, no `dynamic_cast` (`-fno-rtti`);
 //   - the portable code touches nothing else, and this interface must never absorb
 //     engine concepts: no scene, no pass, no camera, no toon (§4.1 item 2).
@@ -52,9 +52,10 @@ module;
 #include <optional>
 #include <span>        // std::span: buffer::mapped() hands the caller the bytes of a host-visible buffer
 #include <string_view> // std::string_view: gpu_profiler's stage names ride the boundary as views
-#include <vector>      // std::vector: the CONTENT `image::get_content()` returns
+#include <vector>      // deren::utility::vessel::vector: the CONTENT `image::get_content()` returns
 
 export module deren.promise.rhi:api_core;
+export import deren.utility.shared;
 
 import :extension;
 
@@ -246,10 +247,10 @@ export namespace deren::promise::rhi {
     /// A backend that cannot answer exactly that must answer an ERROR instead of a partial buffer - the
     /// caller's unpacking loop trusts this and nothing else.
     struct image_content {
-        image_extent extent = {};          ///< the texels `bytes` covers
-        std::uint32_t bytes_per_pixel = 0; ///< `bytes_per_pixel(image_format)`, repeated here so the caller does
-                                           ///< not have to look up the image's format to stride the rows
-        std::vector<std::byte> bytes = {}; ///< the content, row-major and tightly packed
+        image_extent extent = {};                             ///< the texels `bytes` covers
+        std::uint32_t bytes_per_pixel = 0;                    ///< `bytes_per_pixel(image_format)`, repeated here so the caller does
+                                                              ///< not have to look up the image's format to stride the rows
+        deren::utility::vessel::vector<std::byte> bytes = {}; ///< the content, row-major and tightly packed
     };
 
     // ================================================================================================
@@ -1545,7 +1546,7 @@ export namespace deren::promise::rhi {
 
     struct texture_group_info {
         std::uint32_t struct_size = sizeof(texture_group_info);
-        std::array<std::optional<image*>, texture_group_capacity> textures{};
+        deren::utility::vessel::array<std::optional<image*>, texture_group_capacity> textures{};
     };
 
     /// Immutable sampled 2D slots. The device and backend must outlive all references.
@@ -1743,7 +1744,7 @@ export namespace deren::promise::rhi {
         // copy + clear
         [[nodiscard]] virtual error copy_image(image_copy const& copy) = 0;
         [[nodiscard]] virtual error copy_buffer(buffer& destination, buffer const& source, std::uint64_t size, std::uint64_t source_offset, std::uint64_t destination_offset) = 0;
-        [[nodiscard]] virtual error clear_color_image(image const& target, std::array<float, 4> const& color, subresource_range const& range) = 0;
+        [[nodiscard]] virtual error clear_color_image(image const& target, deren::utility::vessel::array<float, 4> const& color, subresource_range const& range) = 0;
 
         /// ABI 31. Success retains the group for recorded work; nullptr clears it.
         [[nodiscard]] virtual error load_texture_group(texture_group_ref const& /*group*/) {

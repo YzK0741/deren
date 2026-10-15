@@ -1,11 +1,12 @@
 # Current pass resource inventory
 
-Source-backed inventory, 2026-10-12; ownership update, 2026-10-13. This describes production frame passes and their related compute
+Source-backed inventory, 2026-10-12; ownership update, 2026-10-14. This describes production frame passes and their related compute
 jobs, not a proposed resource system. Debug validation probes and offline asset/IBL preparation are
 outside the pass table. Conditional resources are needed only when the corresponding feature runs.
 
-Raster shadow images, their view bundles, clustered-light count/index buffers, light/head constant buffers, G-buffer attachments, HDR and
-physical scene-input, TAA history, LDR, Bloom, MegaLights and RT visibility images now belong to
+Raster shadow images, their view bundles, clustered-light count/index buffers, camera/light/head constant buffers, G-buffer attachments, HDR and
+physical scene-input, TAA history, LDR, Bloom, MegaLights and RT visibility images, plus shared
+motion-transform, skin/previous-skin, morph and nine shared scene-table buffers now belong to
 the passchain resource registry. The
 runtime borrows their handles and maintains the existing heap publication and hand-back barriers;
 other allocations in the table retain the original ownership. See [passchain-managed resources](managed_resources.md).
@@ -85,12 +86,19 @@ resource-use model as producer/transfer tasks, although they are not rows in the
 
 The current declaration schema is a useful foundation, not a complete actual GPU use graph:
 
-1. It labels `material_table` and `instance_table` per frame slot, while runtime owns single buffers
-   and shaders use fixed heap slots. Conversely, schema TLAS is device-wide while the current heap
-   and traversal paths bind it per slot. Audit these differences before deriving lifetime from scope.
+1. Material/instance scope now matches their single global buffers. Mesh indirect/statistics/culled
+   tables are global allocations with internal frame regions; allocation scope does not erase that
+   region index. TLAS schema and typed AS publication now select the frame slot; empty/failed builds
+   retain allocation while withholding a ready traversal handle.
 2. Scene passes intentionally have no own descriptor binding list; shared heap inputs are still
-   reached by shader code. Gaussian address buffers, toon/head/rig tables, pushed source selection,
-   indirect args and AS-preparation jobs are not all fully represented by the generic resource ids.
+   reached by shader code. Toon tables and mesh indirect/culling storage now have ids. Ten Gaussian GPU-frame
+   address buffers and two CPU raster upload buffers are declared in per-slot resource subchains; geometry/SH
+   assets have scene-lifetime subchains. Mask/skin output buffers now have scene subchains and retained
+   BLAS dependency leases. Micromaps have typed scene subchains and BLAS leases. Production geometry
+   uploads have scene subchains; BLAS retains vertex/index leases. Legacy imports retain their external
+   device/CPU-scene obligations. Shared texture/IBL/furnace/LUT images, samplers and pass/SBT uploads
+   now have managed subchains as well. Pushed source selection
+   and AS-preparation jobs still need complete representation.
 3. Sampled and storage descriptors can name the same image; descriptor identity is not allocation
    identity. Likewise, an address is not an owning reference, and an attachment write is not a
    shader storage write.
@@ -101,6 +109,16 @@ The current declaration schema is a useful foundation, not a complete actual GPU
 A future manager must record the actual resource object, subresource/range, index domain, access,
 producer/consumer stage, resource generation and completion-dependent retention. Bindings and device
 addresses are publication methods for that resource, not independent lifetime owners.
+
+## Production ownership audit
+
+The production pass/shared-resource migration is complete; see
+[final audit and validation](reviews/2026-10-14-shared-assets.md). Remaining direct allocation calls
+serve diagnostic probes or HDR capture readback; old generic buffer helpers have no production callers.
+Presentation images remain borrowed from backend frame ownership, with explicitly owned views.
+Backend AS/micromap storage/scratch and descriptor-heap services stay inside their RHI owners. Legacy
+custom/static imports still require their documented device and CPU scene lifetimes. The use-graph gaps
+above describe future access/ordering work, not outstanding production allocation migration.
 
 ## Source anchors
 
