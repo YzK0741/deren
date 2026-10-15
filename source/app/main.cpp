@@ -19,6 +19,7 @@
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
+import deren.utility.shared;
 import deren.vstd;
 import deren.application_configuration;
 import deren.chores; // demo bootstrap helpers (shader loading / dir locating / pipelines)
@@ -26,7 +27,7 @@ import deren.gltf_loader;
 import deren.gaussian_loader;                  // ... and a Gaussian splat cloud, when the model path names a .ply
 import deren.engine.gaussian_splatting.raster; // the cloud's immutable GPU asset (make_raster_asset) and the snapshot the runtime prepares
 import deren.toon_material_sidecar;            // the .toon.tsv a character model carries: its toon maps, and the _Use flags
-import deren.utility;                          // re-exports deren.utility:frame_clock / frame_stats / bvh / better_pmr / thread_pool / data_block
+import deren.utility;                          // re-exports deren.utility:frame_clock / frame_stats / bvh / vessel / thread_pool / data_block
 import deren.engine.animation;
 import deren.engine.animation.mmd_motion; // VMD (MMD motion) parsing, retargeting and clip baking      // animation::controller: glTF playback / skinning / morphs on the runtime tree
 import deren.engine.math;
@@ -36,12 +37,6 @@ import deren.promise.rhi;
 import deren.engine.runtime;
 import deren.engine.backend_loader;    // load_api_core(): the app owns the acquisition (batch ⑥)
 import deren.engine.render_start_demo; // the example's pass wiring: this app's chain, from outside the renderer
-
-// Route std::pmr allocations through mimalloc (deren.utility:better_pmr) before main(): this
-// file-scope reference's dynamic initialization runs at startup, so every source/engine/runtime/scene
-// object built below already allocates its std::pmr vectors from mimalloc. Idempotent —
-// other TUs (source/engine/runtime/runtime.cpp) keep their own copy of the same singleton.
-[[maybe_unused]] static auto& pmr = deren::utility::init_pmr(); // NOLINT(keep-alive)
 
 namespace {
 
@@ -75,7 +70,7 @@ namespace {
         if (material == nullptr) {
             return std::nullopt;
         }
-        auto const found = material->extras_floats.find(std::string(row));
+        auto const found = material->extras_floats.find(deren::utility::vessel::string(row));
         if (found == material->extras_floats.end()) {
             return std::nullopt; // this asset states no such row: the caller's next source answers
         }
@@ -146,10 +141,10 @@ namespace {
     // Both are stripped from argv before app_config sees them, so the positional model /
     // grid-side slots keep their meaning.
     struct capture_options {
-        bool windowed = false;                                     // explicit window-system regression captures
-        int32_t frames = 0;                                        // 0 = normal interactive run
-        std::optional<std::array<float, 3>> camera = std::nullopt; // yaw(deg), pitch(deg), distance
-        std::optional<glm::vec3> target = std::nullopt;            // orbit target override (optional)
+        bool windowed = false;                                                        // explicit window-system regression captures
+        int32_t frames = 0;                                                           // 0 = normal interactive run
+        std::optional<deren::utility::vessel::array<float, 3>> camera = std::nullopt; // yaw(deg), pitch(deg), distance
+        std::optional<glm::vec3> target = std::nullopt;                               // orbit target override (optional)
         // Degrees of YAW added per presented frame (`--capture-sweep`). 0 - the default - is a fixed
         // camera, which is what every other capture in this repository is.
         //
@@ -181,7 +176,7 @@ namespace {
         if (text.empty()) {
             return std::nullopt;
         }
-        std::string const copy(text); // strtof needs a null-terminated buffer
+        deren::utility::vessel::string const copy(text); // strtof needs a null-terminated buffer
         char* end = nullptr;
         float const value = std::strtof(copy.c_str(), &end);
         if (end == copy.c_str() || *end != '\0') {
@@ -190,7 +185,7 @@ namespace {
         return value;
     }
 
-    capture_options parse_capture_options(int32_t const argc, char** argv, std::vector<char*>& filtered) {
+    capture_options parse_capture_options(int32_t const argc, char** argv, deren::utility::vessel::vector<char*>& filtered) {
         capture_options options = {};
         filtered.push_back(argv[0]);
         // "--flag value" or "--flag=value"; returns the value and advances i past it
@@ -225,7 +220,7 @@ namespace {
             }
             if (std::optional<std::string_view> const value = take_value(i, arg, "--capture-camera")) {
                 // yaw,pitch,distance[,target.x,target.y,target.z] - comma-separated numbers
-                std::array<float, 6> parsed = {};
+                deren::utility::vessel::array<float, 6> parsed = {};
                 std::size_t cursor = 0;
                 std::size_t count = 0;
                 bool valid = true;
@@ -244,7 +239,7 @@ namespace {
                     cursor = comma + 1;
                 }
                 if (valid && (count == 3 || count == 6)) {
-                    options.camera = std::array<float, 3>{parsed[0], parsed[1], parsed[2]};
+                    options.camera = deren::utility::vessel::array<float, 3>{parsed[0], parsed[1], parsed[2]};
                     if (count == 6) {
                         options.target = glm::vec3(parsed[3], parsed[4], parsed[5]);
                     }
@@ -375,7 +370,7 @@ namespace {
         // `inf` WOULD select the second - neither is reachable from the reference data, whose two dumps carry only
         // `0.0` and `1.0` (§1.3), so both are pinned here rather than measured away.
         float rs_index = 0.0f;
-        if (auto const row = material.others.find(std::string(toon_rs_arm0_row)); row != material.others.end()) {
+        if (auto const row = material.others.find(deren::utility::vessel::string(toon_rs_arm0_row)); row != material.others.end()) {
             std::string_view const row_text = row->second;
             std::string_view const first_component = row_text.substr(0, row_text.find(','));
             float value = 0.0f;
@@ -409,6 +404,7 @@ namespace {
 // `int`, NOT `int32_t`: the C++ standard requires main's own signature to use the keyword, and this is the one
 // place in the tree where that is a LANGUAGE rule rather than a choice about the project's arithmetic types.
 int main(int argc, char** argv) {
+    static_cast<void>(deren::utility::diagnostics::install_crash_handler());
     // --version: print the version (single source: project(VERSION) in CMakeLists.txt, injected
     // as DEREN_VERSION_*) and exit before any config / Vulkan init.
     for (int32_t i = 1; i < argc; ++i) {
@@ -423,12 +419,12 @@ int main(int argc, char** argv) {
     // argv[2] = grid side (numeric)), then locate the source/shaders/ dir and pick the model file.
     // Panics on any missing configured/located resource. The dev-tool capture flags are removed
     // from argv first (see parse_capture_options) so they cannot land in the positional slots.
-    std::vector<char*> filtered_argv;
+    deren::utility::vessel::vector<char*> filtered_argv;
     capture_options const capture = parse_capture_options(argc, argv, filtered_argv);
     deren::chores::startup_config const config = deren::chores::analyse_config(static_cast<int32_t>(filtered_argv.size()), filtered_argv.data());
     deren::app_config::app_settings const& settings = config.settings;
     std::filesystem::path const& shaders_dir = config.shaders_dir;
-    std::string const& model_path = config.model_path;
+    deren::utility::vessel::string const& model_path = config.model_path;
 
     // startup banner: version (single source: project(VERSION) in CMakeLists.txt)
     deren::utility::log("deren {}.{}.{}", DEREN_VERSION_MAJOR, DEREN_VERSION_MINOR, DEREN_VERSION_PATCH);
@@ -454,7 +450,7 @@ int main(int argc, char** argv) {
     //
     // The pixels are MOVED into the async task that bakes the cubemap, so no buffer here has to outlive the
     // statement that loaded it. An empty path means the analytic sky, untouched.
-    std::vector<float> environment_pixels = {};
+    deren::utility::vessel::vector<float> environment_pixels = {};
     int32_t environment_width = 0;
     int32_t environment_height = 0;
     if (!settings.lighting.environment_hdr.empty()) {
@@ -536,7 +532,7 @@ int main(int argc, char** argv) {
     deren::promise::rhi::create_info core_options = {};
     core_options.window_width = settings.render.window_width;
     core_options.window_height = settings.render.window_height;
-    // the title is a BORROWED `char const*` (a std::string cannot cross the boundary): it has to outlive the
+    // the title is a BORROWED `char const*` (a deren::utility::vessel::string cannot cross the boundary): it has to outlive the
     // core's construction. `settings` is a reference to `config.settings`, which lives to the end of main, so
     // this `.c_str()` is valid for the whole run - and it must never be a TEMPORARY's `.c_str()`, whose text
     // would be gone by the time the core reads it.
@@ -646,7 +642,7 @@ int main(int argc, char** argv) {
     if (!scenes) {
         deren::utility::panic(std::source_location::current(), "failed to load model '{}': error code {}", model_path, static_cast<int32_t>(scenes.error()));
     }
-    std::vector<float> const env = env_future.get();
+    deren::utility::vessel::vector<float> const env = env_future.get();
     auto const startup_done = std::chrono::steady_clock::now();
     deren::utility::log("model loaded + environment cubemap (startup window incl. runtime init): {:.1f} ms", std::chrono::duration<double, std::milli>(startup_done - startup_start).count());
 
@@ -664,7 +660,7 @@ int main(int argc, char** argv) {
                                   model_path, static_cast<int32_t>(cloud.error().code), cloud.error().byte_offset);
         }
         deren::utility::log("gaussian: read {} splats; uploading the static tables", cloud->particles.size());
-        auto asset = deren::engine::gaussian_splatting::make_raster_asset(runtime.rhi_face(), std::move(*cloud), {});
+        auto asset = runtime.create_gaussian_asset(std::move(*cloud));
         if (!asset) {
             deren::utility::panic(std::source_location::current(), "failed to upload the gaussian splat cloud '{}': error code {}",
                                   model_path, static_cast<int32_t>(asset.error().code));
@@ -738,11 +734,11 @@ int main(int argc, char** argv) {
     //     `area_light.enabled == false` (the default: `area_light_size = 0`) means every field is zero, and
     //     the loop then multiplies the sun by 1.0 and writes a zero light_ubo pair - byte for byte the frame
     //     that existed before these keys did.
-    //     The `std::array` is not decoration: `application_configuration` deliberately does not depend on glm
+    //     The `deren::utility::vessel::array` is not decoration: `application_configuration` deliberately does not depend on glm
     //     (the derivation is unit-tested there), so this is the one place the scene's origin crosses over.
     float const scene_floor_y = bounds.min.y - scene_center.y - scene_radius;
     deren::app_config::area_light_derived const area_light =
-        deren::app_config::derive_area_light(settings.lighting, std::array<float, 3>{0.0f, scene_floor_y, 0.0f});
+        deren::app_config::derive_area_light(settings.lighting, deren::utility::vessel::array<float, 3>{0.0f, scene_floor_y, 0.0f});
     // `world_centre - scene_origin`, i.e. the emitter's direction FROM the author's origin, normalised by the
     // derivation: this is the sun's direction while the emitter TAKES OVER the main light, and it is why
     // `[lighting] sun_direction` is not the last word on where the light comes from then.
@@ -802,7 +798,7 @@ int main(int argc, char** argv) {
         std::string_view slot;
         std::string_view flag;
     };
-    static constexpr std::array<toon_lane_names, static_cast<std::size_t>(deren::engine::toon_slot::count)> toon_lane = {{
+    static constexpr deren::utility::vessel::array<toon_lane_names, static_cast<std::size_t>(deren::engine::toon_slot::count)> toon_lane = {{
         {"_DiffRampMap", "_UseDiffRampMap"},
         {"_ShadowLutTex", "_UseShadowLutTex"},
         {"_SpecRampMap", "_UseSpecRampMap"},
@@ -880,7 +876,7 @@ int main(int argc, char** argv) {
     // THE MATERIAL COLOUR VOCABULARY, one `color` row name per `deren::engine::toon_colour_lane`, in lane order - the
     // same arrangement the texture table above uses and for the same reason: the asset pipeline's spelling belongs
     // where the sidecar is read, and the ORDER is the contract with the shader's lane indices.
-    static constexpr std::array<std::string_view, static_cast<std::size_t>(deren::engine::toon_colour_lane::count)> toon_colour_row = {{
+    static constexpr deren::utility::vessel::array<std::string_view, static_cast<std::size_t>(deren::engine::toon_colour_lane::count)> toon_colour_row = {{
         "_SDFRimColor",
         "_EyeHighLightColor",
         "_EyeScatteringColor",
@@ -1072,13 +1068,13 @@ int main(int argc, char** argv) {
     }};
     // The declared flag for a toon lane; the `_Use<Slot>` convention for every OTHER slot, which the diagnostic
     // needs because it walks the whole file (`_BaseMap`, `_BumpMap`, the outline and SDF masks and the rest).
-    auto const toon_flag_for = [](std::string_view const slot_name) -> std::string {
+    auto const toon_flag_for = [](std::string_view const slot_name) -> deren::utility::vessel::string {
         for (toon_lane_names const& lane : toon_lane) {
             if (lane.slot == slot_name) {
-                return std::string(lane.flag);
+                return deren::utility::vessel::string(lane.flag);
             }
         }
-        std::string flag{deren::toon::enable_flag_prefix};
+        deren::utility::vessel::string flag{deren::toon::enable_flag_prefix};
         flag.append(slot_name.starts_with('_') ? slot_name.substr(1) : slot_name);
         return flag;
     };
@@ -1133,7 +1129,7 @@ int main(int argc, char** argv) {
                 }
                 for (auto const& [slot_name, texture_name] : material.slots) {
                     std::optional<uint16_t> const index = scenes->texture_index_by_name(texture_name);
-                    deren::utility::log("      {} = '{}' -> {} | {}", slot_name, texture_name, index.has_value() ? std::format("texture #{}", *index) : std::string("ABSENT from this model"), material.enabled_by_flag(toon_flag_for(slot_name)) ? "ON" : "off");
+                    deren::utility::log("      {} = '{}' -> {} | {}", slot_name, texture_name, index.has_value() ? deren::utility::vessel::format("texture #{}", *index) : deren::utility::vessel::string("ABSENT from this model"), material.enabled_by_flag(toon_flag_for(slot_name)) ? "ON" : "off");
                 }
             }
         }
@@ -1152,16 +1148,16 @@ int main(int argc, char** argv) {
     auto lut_future = deren::engine::generate_brdf_lut_async(lut_size);
     auto resolve_future = deren::gltf::resolve_materials_async(*scenes);
 
-    std::vector<float> const prefiltered = prefilter_future.get();
-    std::vector<float> const irradiance = irradiance_future.get();
-    std::vector<float> const brdf_lut = lut_future.get();
-    std::vector<deren::gltf::resolved_material> const materials = resolve_future.get();
+    deren::utility::vessel::vector<float> const prefiltered = prefilter_future.get();
+    deren::utility::vessel::vector<float> const irradiance = irradiance_future.get();
+    deren::utility::vessel::vector<float> const brdf_lut = lut_future.get();
+    deren::utility::vessel::vector<deren::gltf::resolved_material> const materials = resolve_future.get();
     auto const stage2_done = std::chrono::steady_clock::now();
     deren::utility::log("  IBL (prefilter/irradiance/BRDF LUT) + material resolve, parallel wall: {:.1f} ms", std::chrono::duration<double, std::milli>(stage2_done - stage2_start).count());
 
-    std::vector<uint8_t> const env_bytes = deren::engine::to_half_rgba(prefiltered);
-    std::vector<uint8_t> const irr_bytes = deren::engine::to_half_rgba(irradiance);
-    std::vector<uint8_t> const lut_bytes = deren::engine::to_half_rg(brdf_lut);
+    deren::utility::vessel::vector<uint8_t> const env_bytes = deren::engine::to_half_rgba(prefiltered);
+    deren::utility::vessel::vector<uint8_t> const irr_bytes = deren::engine::to_half_rgba(irradiance);
+    deren::utility::vessel::vector<uint8_t> const lut_bytes = deren::engine::to_half_rg(brdf_lut);
 
     // 10. Upload the scene-wide IBL once: shared by every primitive (bindings 2-4 of the scene block)
     runtime.set_ibl(deren::engine::ibl_input{.prefiltered_env = env_bytes, .irradiance = irr_bytes, .brdf_lut = lut_bytes, .env_size = static_cast<uint32_t>(env_size), .env_mip_count = static_cast<uint32_t>(env_mip_count), .irr_size = static_cast<uint32_t>(irr_size), .lut_size = static_cast<uint32_t>(lut_size)});
@@ -1190,7 +1186,7 @@ int main(int argc, char** argv) {
         auto const srgb_encode = [](float const linear) {
             return linear <= 0.0031308f ? linear * 12.92f : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
         };
-        std::vector<uint8_t> post_lut(static_cast<std::size_t>(post_lut_width) * post_lut_height * 4u, 255u);
+        deren::utility::vessel::vector<uint8_t> post_lut(static_cast<std::size_t>(post_lut_width) * post_lut_height * 4u, 255u);
         for (uint32_t row = 0; row < post_lut_height; ++row) {
             for (uint32_t column = 0; column < post_lut_width; ++column) {
                 float const address[3] = {
@@ -1244,7 +1240,7 @@ int main(int argc, char** argv) {
     // names, rather than a crash in a system whose other 40 features are fine. The three terms only exist inside
     // the `goo_arm` branch, so `goo_toon = false` is unaffected either way.
     {
-        std::vector<uint8_t> fgd_file = {};
+        deren::utility::vessel::vector<uint8_t> fgd_file = {};
         // `deren::utility::executable_directory()` AND NOT `current_path()`, which is the fix for a measured failure
         // rather than a preference: a capture runs with its working directory set to the harness's `-WorkDir`
         // (see `source/scripts/windows/capture.ps1`'s launch), so `current_path()` resolved to
@@ -1367,23 +1363,23 @@ int main(int argc, char** argv) {
         /// input the lookup returns is a SPAN INTO IT and `register_material` reads it during the import. ONE
         /// buffer serves BOTH ramp lanes: the diffuse ramp and the specular ramp are the same neutral step, and
         /// what tells them apart is which family numbers the shader moves it with
-        std::vector<uint8_t> baked_unit_ramp = {};
+        deren::utility::vessel::vector<uint8_t> baked_unit_ramp = {};
         uint32_t baked_ramp_width = 0;
         uint32_t baked_ramp_height = 0;
         /// the DIFFUSE ramp lane's neutral content (see the baker below) - a different SHAPE from the unit step
         /// above, because the two lanes read their ramp differently: one as a threshold, this one as a colour
         /// mapping plus a lightness
-        std::vector<uint8_t> baked_neutral_ramp = {};
+        deren::utility::vessel::vector<uint8_t> baked_neutral_ramp = {};
         uint32_t baked_neutral_ramp_width = 0;
         uint32_t baked_neutral_ramp_height = 0;
         /// the SHADOW LUT cube (see the baker below) - a different shape from the ramp and so a different
         /// buffer, kept alive for the same reason: the lookup hands out a SPAN INTO IT
-        std::vector<uint8_t> baked_shadow_lut = {};
+        deren::utility::vessel::vector<uint8_t> baked_shadow_lut = {};
         uint32_t baked_lut_width = 0;
         uint32_t baked_lut_height = 0;
         /// the MATCAP ball (see the baker below) - a third shape again, and a black one, because this stage had
         /// no matcap term to reproduce
-        std::vector<uint8_t> baked_matcap = {};
+        deren::utility::vessel::vector<uint8_t> baked_matcap = {};
         uint32_t baked_matcap_size = 0;
         /// the METALLIC/GLOSS lane has NO neutral here on purpose - see the note where its baker used to be.
         /// A material with no such map is shaded by its family's own `roughness` / `reflectivity`.
@@ -1434,7 +1430,7 @@ int main(int argc, char** argv) {
             float const t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
             return t * t * (3.0f - 2.0f * t);
         };
-        std::vector<uint8_t> pixels(static_cast<std::size_t>(baked_ramp_width) * baked_ramp_height * 4u, 255u);
+        deren::utility::vessel::vector<uint8_t> pixels(static_cast<std::size_t>(baked_ramp_width) * baked_ramp_height * 4u, 255u);
         for (uint32_t v = 0; v < baked_ramp_height; ++v) {
             for (uint32_t u = 0; u < baked_ramp_width; ++u) {
                 float const x = static_cast<float>(u) / static_cast<float>(baked_ramp_width - 1u);
@@ -1480,7 +1476,7 @@ int main(int argc, char** argv) {
         };
         // WHITE RGB, filled in here and never overwritten: the lane is uploaded as sRGB, so 255 is the encoded
         // form of the linear 1.0 the shading stage needs back - a colour mapping that changes nothing.
-        std::vector<uint8_t> pixels(static_cast<std::size_t>(baked_neutral_ramp_width) * baked_neutral_ramp_height * 4u, 255u);
+        deren::utility::vessel::vector<uint8_t> pixels(static_cast<std::size_t>(baked_neutral_ramp_width) * baked_neutral_ramp_height * 4u, 255u);
         for (uint32_t v = 0; v < baked_neutral_ramp_height; ++v) {
             for (uint32_t u = 0; u < baked_neutral_ramp_width; ++u) {
                 float const x = static_cast<float>(u) / static_cast<float>(baked_neutral_ramp_width - 1u);
@@ -1520,7 +1516,7 @@ int main(int argc, char** argv) {
     constexpr uint32_t baked_lut_width = baked_lut_tiles * baked_lut_tiles;
     constexpr uint32_t baked_lut_height = baked_lut_tiles;
     auto const bake_shadow_lut = []() {
-        std::vector<uint8_t> pixels(static_cast<std::size_t>(baked_lut_width) * baked_lut_height * 4u, 255u);
+        deren::utility::vessel::vector<uint8_t> pixels(static_cast<std::size_t>(baked_lut_width) * baked_lut_height * 4u, 255u);
         for (uint32_t row = 0; row < baked_lut_height; ++row) {
             for (uint32_t column = 0; column < baked_lut_width; ++column) {
                 // The identity cube at this texel's coordinate: the X channel from which tile it is in, the Y
@@ -1565,7 +1561,7 @@ int main(int argc, char** argv) {
         // A matcap is an sRGB reference image (the reference's `EfClothSampleMatcap` says so explicitly), so the
         // lane's upload format applies here as it does to the ramps: zero is zero in both encodings, which is the
         // one value where the encode step cannot disagree with itself.
-        return std::vector<uint8_t>(static_cast<std::size_t>(baked_matcap_size) * baked_matcap_size * 4u, 0u);
+        return deren::utility::vessel::vector<uint8_t>(static_cast<std::size_t>(baked_matcap_size) * baked_matcap_size * 4u, 0u);
     };
 
     // ---- THE METALLIC/GLOSS NEUTRAL IS GONE, AND ITS ABSENCE IS THE CONTRACT ----
@@ -1862,7 +1858,7 @@ int main(int argc, char** argv) {
     // tint, so there is no no-op number - `0` is a legitimate authored "no parallax", and any other in-range value
     // would be a depth the port invented. The stage tests `>= 0.0` and falls back to its own
     // `character_eye_parallax_depth` constant (see `toon_colour_lane::parallax_scale`).
-    static constexpr std::array<glm::vec4, static_cast<std::size_t>(deren::engine::toon_colour_lane::count)> toon_colour_neutral = {
+    static constexpr deren::utility::vessel::array<glm::vec4, static_cast<std::size_t>(deren::engine::toon_colour_lane::count)> toon_colour_neutral = {
         {glm::vec4(1.0f), glm::vec4(1.0f), glm::vec4(1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 0.0f), glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f), glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f),
          // STEP 4'S SIX. THE FOUR SENTINELED LANES START AT `-1000.0f` AND NOT AT `-1.0f`, and the reason is
          // the whole point of a sentinel: two of their eight per-material numbers are AUTHORED NEGATIVES -
@@ -2048,7 +2044,7 @@ int main(int argc, char** argv) {
         // default is white, and white is what "the game states no tint" has to look like for a multiply.
         if (lane == deren::engine::toon_colour_lane::outline_edge) {
             glm::vec4 outline = toon_colour_neutral[lane_index]; // white tint, width 0 until a row says otherwise
-            if (auto const tint = material->others.find(std::string(toon_colour_row[lane_index])); tint != material->others.end()) {
+            if (auto const tint = material->others.find(deren::utility::vessel::string(toon_colour_row[lane_index])); tint != material->others.end()) {
                 std::string_view rest = tint->second;
                 for (int32_t component = 0; component < 4 && !rest.empty(); ++component) {
                     std::size_t const comma = rest.find(',');
@@ -2065,7 +2061,7 @@ int main(int argc, char** argv) {
             outline.w = material->scalar("_OutlineWidth", 0.0f);
             return outline;
         }
-        auto const row = material->others.find(std::string(toon_colour_row[lane_index]));
+        auto const row = material->others.find(deren::utility::vessel::string(toon_colour_row[lane_index]));
         if (row == material->others.end()) {
             return toon_colour_neutral[lane_index];
         }
@@ -2225,7 +2221,7 @@ int main(int argc, char** argv) {
         }
         deren::gltf::scene_bounds const background_bounds = deren::gltf::log_scene_diagnostics(*background_scenes);
         auto background_resolve = deren::gltf::resolve_materials_async(*background_scenes);
-        std::vector<deren::gltf::resolved_material> const background_materials = background_resolve.get();
+        deren::utility::vessel::vector<deren::gltf::resolved_material> const background_materials = background_resolve.get();
         // THE OFFSET IS DERIVED FROM THE SUBJECT, NOT CONFIGURED: the background's own y = 0 is its author's
         // GROUND plane and the subject's lowest point after ITS centering shift is `bounds.min.y +
         // scene_import_shift.y`, so shifting the background by the subject's shift plus that minimum puts the
@@ -2269,7 +2265,7 @@ int main(int argc, char** argv) {
     //      clustered path's whole point is a light count the brute-force loop could not afford, and
     //      the overlay's four slots cannot show that - this is what makes the difference measurable
     //      (and what the [render] clustered_lights A/B is compared against).
-    std::vector<deren::engine::punctual_light> demo_lights;
+    deren::utility::vessel::vector<deren::engine::punctual_light> demo_lights;
     if (settings.lighting.demo_lights > 0) {
         int32_t const total = std::min(settings.lighting.demo_lights, static_cast<int32_t>(deren::app_config::max_demo_lights));
         demo_lights.reserve(static_cast<std::size_t>(total));
@@ -2319,7 +2315,7 @@ int main(int argc, char** argv) {
     // node index (deren::gltf::node::source_index): animations are file-scoped, the pool index is a
     // different numbering.
     {
-        std::string mmd_motion_path;
+        deren::utility::vessel::string mmd_motion_path;
         for (int32_t i = 1; i + 1 < argc; ++i) {
             if (std::string_view(argv[i]) == "--mmd-motion") {
                 mmd_motion_path = argv[i + 1];
@@ -2334,8 +2330,8 @@ int main(int argc, char** argv) {
             // Names come from the asset-level lookup (asset node index -> the loader's node copy),
             // walked over the skin's joints: skin::joints and animation_channel::target_node are
             // BOTH asset node indices, so pairing the two here keeps target_node exact.
-            std::vector<std::string> joint_names;
-            std::vector<std::size_t> joint_sources;
+            deren::utility::vessel::vector<deren::utility::vessel::string> joint_names;
+            deren::utility::vessel::vector<std::size_t> joint_sources;
             for (deren::gltf::skin const& skin : scenes->skins) {
                 for (std::size_t const joint_source : skin.joints) {
                     auto const found = scenes->node_by_source.find(joint_source);
@@ -2450,7 +2446,7 @@ int main(int argc, char** argv) {
         deren::gltf::camera const* camera = nullptr;
         std::size_t source = 0; // owning loader node (asset node index)
     };
-    std::vector<authored_camera> authored_cameras;
+    deren::utility::vessel::vector<authored_camera> authored_cameras;
     for (deren::gltf::camera const& cam : scenes->cameras) {
         // find a node referencing this camera that is present in the imported tree (the loader's
         // asset-level node table + the controller's tree membership test)
@@ -2617,10 +2613,10 @@ int main(int argc, char** argv) {
     if (imported_truncated > 0) {
         deren::utility::log("KHR_lights_punctual: {} additional light(s) dropped (GPU punctual-light cap = {})", imported_truncated, deren::engine::max_punctual_lights);
     }
-    std::vector<std::string> gui_camera_names; // selector items: authored names (orbit added inside)
+    deren::utility::vessel::vector<deren::utility::vessel::string> gui_camera_names; // selector items: authored names (orbit added inside)
     gui_camera_names.reserve(authored_cameras.size());
     for (authored_camera const& ac : authored_cameras) {
-        gui_camera_names.push_back(ac.camera->name.empty() ? "<unnamed>" : std::string(ac.camera->name));
+        gui_camera_names.push_back(ac.camera->name.empty() ? "<unnamed>" : deren::utility::vessel::string(ac.camera->name));
     }
     deren::chores::setup_gui(runtime, use_gui, settings, gui, animation, gui_camera_names, seed_orbit_from_camera);
 
@@ -2860,7 +2856,7 @@ int main(int argc, char** argv) {
         start_demo.set_ssao(gui.ssao_enabled, gui.ssao_radius, gui.ssao_intensity, static_cast<uint32_t>(std::max(gui.ssao_samples, 0.0f) + 0.5f));
         // cel shading: the combo picks a discrete band count (index 0 = off); every entry is a
         // visibly different look, unlike a continuous strength that had dead zones between bands
-        constexpr std::array<float, 7> toon_band_counts = {0.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 8.0f};
+        constexpr deren::utility::vessel::array<float, 7> toon_band_counts = {0.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 8.0f};
         auto const toon_index = static_cast<std::size_t>(std::clamp(gui.toon_bands_index, 0, static_cast<int32_t>(toon_band_counts.size()) - 1));
         runtime.set_toon_shading(toon_band_counts[toon_index], gui.toon_softness);
         // The area light's radiance MULTIPLIES the sun, but ONLY while the emitter contributes energy
@@ -2911,7 +2907,7 @@ int main(int argc, char** argv) {
                         directory.clear();
                     }
                 }
-                std::filesystem::path const path = directory / std::format("screenshot_{:%Y%m%d_%H%M%S}.png", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
+                std::filesystem::path const path = directory / deren::utility::vessel::format("screenshot_{:%Y%m%d_%H%M%S}.png", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
                 auto const written = deren::utility::write_png(path, image->width, image->height, image->rgba);
                 if (written) {
                     deren::utility::log("screenshot saved: {} ({}x{})", path.string(), image->width, image->height);

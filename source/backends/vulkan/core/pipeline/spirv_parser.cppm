@@ -7,6 +7,7 @@ module;
 #include <vulkan/vulkan_core.h>
 
 export module deren.vulkan.core.pipeline:spirv_parser;
+export import deren.utility.shared;
 
 export import deren.vstd;
 import deren.utility;
@@ -33,9 +34,9 @@ namespace deren::vulkan::pipeline {
      * @brief full information of a single descriptor set layout
      */
     export struct descriptor_set_layout_data {
-        uint32_t set_number;                                // descriptor set index
-        VkDescriptorSetLayoutCreateInfo create_info;        // info for creating the VkDescriptorSetLayout
-        std::vector<VkDescriptorSetLayoutBinding> bindings; // concrete binding info
+        uint32_t set_number;                                                   // descriptor set index
+        VkDescriptorSetLayoutCreateInfo create_info;                           // info for creating the VkDescriptorSetLayout
+        deren::utility::vessel::vector<VkDescriptorSetLayoutBinding> bindings; // concrete binding info
     };
 
     /**
@@ -46,8 +47,8 @@ namespace deren::vulkan::pipeline {
         uint32_t location;
         uint32_t component; // component index, default 0
         VkFormat format;
-        std::string name; // variable name, for debugging and error messages
-        bool is_builtin;  // whether this is a builtin
+        deren::utility::vessel::string name; // variable name, for debugging and error messages
+        bool is_builtin;                     // whether this is a builtin
     };
 
     /**
@@ -56,8 +57,8 @@ namespace deren::vulkan::pipeline {
      */
     export struct shader_stage_interface {
         VkShaderStageFlagBits stage;
-        std::vector<interface_variable_info> inputs;
-        std::vector<interface_variable_info> outputs;
+        deren::utility::vessel::vector<interface_variable_info> inputs;
+        deren::utility::vessel::vector<interface_variable_info> outputs;
     };
 
     /**
@@ -82,7 +83,7 @@ namespace deren::vulkan::pipeline {
      * @param shader_stage the shader stage to parse
      * @return vector of descriptor set layout data on success, error message on failure
      */
-    export std::expected<std::vector<descriptor_set_layout_data>, std::string_view>
+    export std::expected<deren::utility::vessel::vector<descriptor_set_layout_data>, std::string_view>
     parse_descriptor_set_layouts(
         std::span<uint8_t const> spirv_code,
         VkShaderStageFlagBits shader_stage);
@@ -95,7 +96,7 @@ namespace deren::vulkan::pipeline {
         uint32_t offset;
         uint32_t size;
         VkShaderStageFlags stage_flags;
-        std::string name;
+        deren::utility::vessel::string name;
     };
 
     // Stores the shader's whole Push Constant layout
@@ -104,7 +105,7 @@ namespace deren::vulkan::pipeline {
      * @brief push constant layout of the whole shader
      */
     export struct push_constant_layout {
-        std::vector<push_constant_info> constants;
+        deren::utility::vessel::vector<push_constant_info> constants;
         uint32_t total_size; // total size of the whole Push Constant block
     };
 
@@ -129,7 +130,7 @@ namespace {
         return info;
     }
 
-    void sort_interface_variables(std::vector<deren::vulkan::pipeline::interface_variable_info>& vars) {
+    void sort_interface_variables(deren::utility::vessel::vector<deren::vulkan::pipeline::interface_variable_info>& vars) {
         std::ranges::sort(vars,
                           [](deren::vulkan::pipeline::interface_variable_info const& a, deren::vulkan::pipeline::interface_variable_info const& b) {
                               if (a.location != b.location) {
@@ -338,7 +339,7 @@ deren::vulkan::pipeline::parse_shader_stage_interface(
     uint32_t input_count = 0;
     result = spvReflectEnumerateInputVariables(&module, &input_count, nullptr);
     if (result == SPV_REFLECT_RESULT_SUCCESS && input_count > 0) {
-        std::vector<SpvReflectInterfaceVariable*> input_vars(input_count);
+        deren::utility::vessel::vector<SpvReflectInterfaceVariable*> input_vars(input_count);
         result = spvReflectEnumerateInputVariables(&module, &input_count, input_vars.data());
         if (result == SPV_REFLECT_RESULT_SUCCESS) {
             out_interface.inputs.reserve(input_count);
@@ -352,7 +353,7 @@ deren::vulkan::pipeline::parse_shader_stage_interface(
     uint32_t output_count = 0;
     result = spvReflectEnumerateOutputVariables(&module, &output_count, nullptr);
     if (result == SPV_REFLECT_RESULT_SUCCESS && output_count > 0) {
-        std::vector<SpvReflectInterfaceVariable*> output_vars(output_count);
+        deren::utility::vessel::vector<SpvReflectInterfaceVariable*> output_vars(output_count);
         result = spvReflectEnumerateOutputVariables(&module, &output_count, output_vars.data());
         if (result == SPV_REFLECT_RESULT_SUCCESS) {
             out_interface.outputs.reserve(output_count);
@@ -375,8 +376,8 @@ bool deren::vulkan::pipeline::validate_interface_match(
     shader_stage_interface const& producer,
     shader_stage_interface const& consumer) {
     // Get the non-builtin outputs and inputs
-    std::vector<interface_variable_info const*> producer_outputs;
-    std::vector<interface_variable_info const*> consumer_inputs;
+    deren::utility::vessel::vector<interface_variable_info const*> producer_outputs;
+    deren::utility::vessel::vector<interface_variable_info const*> consumer_inputs;
 
     for (auto const& out : producer.outputs) {
         if (!out.is_builtin) {
@@ -417,14 +418,14 @@ bool deren::vulkan::pipeline::validate_interface_match(
     return true;
 }
 
-std::expected<std::vector<deren::vulkan::pipeline::descriptor_set_layout_data>, std::string_view>
+std::expected<deren::utility::vessel::vector<deren::vulkan::pipeline::descriptor_set_layout_data>, std::string_view>
 deren::vulkan::pipeline::parse_descriptor_set_layouts(
     std::span<uint8_t const> const spirv_code,
     VkShaderStageFlagBits const shader_stage) {
 
     using fail = std::unexpected<std::string_view>;
 
-    std::vector<descriptor_set_layout_data> set_layouts;
+    deren::utility::vessel::vector<descriptor_set_layout_data> set_layouts;
 
     // 1. Create and load the shader module
     SpvReflectShaderModule module = {};
@@ -445,7 +446,7 @@ deren::vulkan::pipeline::parse_descriptor_set_layouts(
     }
 
     // 3. Get pointers to all descriptor sets
-    std::vector<SpvReflectDescriptorSet*> sets(set_count);
+    deren::utility::vessel::vector<SpvReflectDescriptorSet*> sets(set_count);
     result = spvReflectEnumerateDescriptorSets(&module, &set_count, sets.data());
     if (result != SPV_REFLECT_RESULT_SUCCESS) {
         spvReflectDestroyShaderModule(&module);
@@ -513,7 +514,7 @@ std::expected<deren::vulkan::pipeline::push_constant_layout, std::string_view> d
         return {}; // no Push Constants is a valid state
     }
 
-    std::vector<SpvReflectBlockVariable*> pc_blocks(pc_count);
+    deren::utility::vessel::vector<SpvReflectBlockVariable*> pc_blocks(pc_count);
     result = spvReflectEnumeratePushConstantBlocks(&module, &pc_count, pc_blocks.data());
     if (result != SPV_REFLECT_RESULT_SUCCESS) {
         spvReflectDestroyShaderModule(&module);

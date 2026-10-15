@@ -12,6 +12,7 @@ module;
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.init_utils;
+import deren.utility.shared;
 
 import deren.utility;
 import deren.vulkan.core;
@@ -43,8 +44,8 @@ namespace deren::vulkan::init_utils {
                              std::span<std::byte const> const initial,
                              buffer_type const type,
                              std::string_view const what,
-                             std::vector<vk_buffer>& buffers,
-                             std::vector<void*>* const mapped,
+                             deren::utility::vessel::vector<vk_buffer>& buffers,
+                             deren::utility::vessel::vector<void*>* const mapped,
                              VkBufferUsageFlags const extra_usage) {
         buffers.reserve(buffers.size() + slots);
         if (mapped != nullptr) {

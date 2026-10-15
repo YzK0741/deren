@@ -5,15 +5,16 @@ module;
 #include <vulkan/vulkan.h>
 
 // LOAD-BEARING, and it is the same trap chores.cpp documents at length: with -fno-exceptions and the vendored
-// std module, a TU that instantiates std::vector sees TWO 'operator new(size_t, align_val_t)' declarations -
+// std module, a TU that instantiates deren::utility::vessel::vector sees TWO 'operator new(size_t, align_val_t)' declarations -
 // module std's and the textual libc++ copy baked into utility:data_block.pcm - and resolves neither, which is
-// "call to operator new is ambiguous" at allocate.h. This file instantiates plenty of std::vector (the device
+// "call to operator new is ambiguous" at allocate.h. This file instantiates plenty of deren::utility::vessel::vector (the device
 // extension-name list, the descriptor pool sizes), and it began seeing both the moment deren.vulkan.core gained an
 // import edge it did not have before: descriptor_heap, whose own module carries a textual Vulkan header in its
 // global module fragment. Textually including glm here makes clang MERGE the two copies, exactly as it does for
 // chores.cpp and source/engine/animation/controller.cpp. Do not remove this include to "clean up".
 #include <glm/glm.hpp>
 module deren.vulkan.core;
+import deren.utility.shared;
 import deren.vulkan.core.pipeline;
 import :init_utils;
 import deren.vulkan.constant_init;
@@ -70,7 +71,7 @@ namespace deren::vulkan {
             return result; // a single mark has no interval to report
         }
 
-        std::array<uint64_t, gpu_timing_mark_capacity> ticks = {};
+        deren::utility::vessel::array<uint64_t, gpu_timing_mark_capacity> ticks = {};
         VkResult const status = vkGetQueryPoolResults(this->logical_device,
                                                       this->timestamp_query_pool,
                                                       slot * gpu_timing_mark_capacity,
@@ -583,14 +584,14 @@ namespace deren::vulkan {
         // pass ADDS the emissive term into (lighting-independent, and it needs the emissive texture and
         // the UVs the G-buffer does not store - see core::gbuffer_pass_attachment_count). The first
         // four are overwritten, the scene color accumulates, so the blend states differ per attachment.
-        std::array<VkFormat, gbuffer_pass_attachment_count> const formats = {
+        deren::utility::vessel::array<VkFormat, gbuffer_pass_attachment_count> const formats = {
             gbuffer_formats[0],
             gbuffer_formats[1],
             gbuffer_formats[2],
             gbuffer_velocity_format,
             hdr_format,
         };
-        std::array<VkPipelineColorBlendAttachmentState, gbuffer_pass_attachment_count> const blends = {
+        deren::utility::vessel::array<VkPipelineColorBlendAttachmentState, gbuffer_pass_attachment_count> const blends = {
             make_color_blend_attachment_opaque(),
             make_color_blend_attachment_opaque(),
             make_color_blend_attachment_opaque(),
@@ -636,7 +637,7 @@ namespace deren::vulkan {
         VkShaderStageFlagBits const first_stage) const {
         // ONE colour target, and it is the HDR one: this pass runs inside the HDR chain (after the lighting
         // stage, before the resolve), so the tonemap stays the post chain's - see the declaration's note.
-        std::array<VkFormat, 1> const formats = {hdr_format};
+        deren::utility::vessel::array<VkFormat, 1> const formats = {hdr_format};
         // STANDARD ALPHA BLENDING, AND FOR AN OPAQUE MATERIAL IT IS BIT-IDENTICAL TO THE OVERWRITE THIS
         // REPLACES: `src * srcAlpha + dst * (1 - srcAlpha)` at `srcAlpha == 1` is `src`, and the character stage
         // writes an alpha of exactly 1 for every material that is not the article's transparent variant (see
@@ -648,7 +649,7 @@ namespace deren::vulkan {
         // read-modify-written by this pass instead of overwritten. Nothing consumes it - `post.slang` returns
         // `float4(color, 1.0)` and samples `.rgb` - and the A/B that proves the rest of the character is
         // unaffected (0 px) is in `remaining_port_spec.md`'s "其余部位按参考对齐（续）" item 10.
-        std::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment()};
+        deren::utility::vessel::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment()};
         auto result = deren::vulkan::make_pipeline(
             this->logical_device,
             std::span<VkFormat const>(formats),
@@ -687,10 +688,10 @@ namespace deren::vulkan {
         // ONE colour target, and it is the HDR one - the same target the character-forward stage just wrote, so
         // that the multiply lands on the TOON result rather than on a resolved copy of it. The grade and the
         // tonemap stay the post chain's, exactly as they are for the toon stage itself.
-        std::array<VkFormat, 1> const formats = {hdr_format};
+        deren::utility::vessel::array<VkFormat, 1> const formats = {hdr_format};
         // THE MULTIPLY (see make_color_blend_attachment_multiply): this is the state that makes the article's
         // two `Trick` shaders overlays rather than surfaces, and the reason the port needs no blend extension.
-        std::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_multiply()};
+        deren::utility::vessel::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_multiply()};
         auto result = deren::vulkan::make_pipeline(
             this->logical_device,
             std::span<VkFormat const>(formats),
@@ -733,11 +734,11 @@ namespace deren::vulkan {
         // ONE colour target, and it is the HDR one - the same target the character-forward stage has just
         // written, so the hull lands in the TOON result rather than on a resolved copy of it. The grade and the
         // tonemap stay the post chain's, exactly as they are for the toon stage and for the overlay group.
-        std::array<VkFormat, 1> const formats = {hdr_format};
+        deren::utility::vessel::array<VkFormat, 1> const formats = {hdr_format};
         // OVERWRITE, NOT MULTIPLY: the article's outline is an OPAQUE surface - `MyZmdOutlineShader`'s SubShader
         // states no `Blend` at all and its fragment returns alpha 1 - so this is the state the TOON stage uses
         // (`make_color_blend_attachment_opaque`), not the overlay group's multiply.
-        std::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_opaque()};
+        deren::utility::vessel::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_opaque()};
         auto result = deren::vulkan::make_pipeline(
             this->logical_device,
             std::span<VkFormat const>(formats),

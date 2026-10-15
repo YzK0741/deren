@@ -2,7 +2,7 @@ module; // the macro-using Vulkan header must not be imported into a module purv
 
 #include <vulkan/vulkan.h>
 // LOAD-BEARING, for the reason chores.cpp documents at length: with -fno-exceptions and the vendored std
-// module, a TU that instantiates std::vector sees TWO 'operator new(size_t, align_val_t)' declarations - module
+// module, a TU that instantiates deren::utility::vessel::vector sees TWO 'operator new(size_t, align_val_t)' declarations - module
 // std's and the textual libc++ copy baked into utility:data_block.pcm - and resolves neither. This file
 // allocates (the zero-filled heap contents, and deren::utility::log's formatting), and it died with an access
 // violation inside the FIRST allocation it made until this include was added, with no log line, no validation
@@ -48,6 +48,7 @@ module; // the macro-using Vulkan header must not be imported into a module purv
  */
 
 export module deren.vulkan.core:descriptor_heap;
+export import deren.utility.shared;
 
 import deren.vstd;
 import :vma;         // the allocator the heaps are allocated from
@@ -353,8 +354,8 @@ namespace deren::vulkan {
         // the allocator, and core creates it after vma.init() for that reason - create_buffer before the
         // allocator exists is an access violation with no log line, no validation message and no allocation
         // error, which is why this took so long to find. See source/backends/vulkan/core/core.cpp.)
-        std::vector<uint8_t> const zeroed_resource(static_cast<std::size_t>(this->resource_heap_size), 0u);
-        std::vector<uint8_t> const zeroed_sampler(static_cast<std::size_t>(this->sampler_heap_size), 0u);
+        deren::utility::vessel::vector<uint8_t> const zeroed_resource(static_cast<std::size_t>(this->resource_heap_size), 0u);
+        deren::utility::vessel::vector<uint8_t> const zeroed_sampler(static_cast<std::size_t>(this->sampler_heap_size), 0u);
         this->resource_heap = allocator.create_buffer(zeroed_resource.data(), zeroed_resource.size(), buffer_type::storage_coherent, heap_usage);
         this->sampler_heap = allocator.create_buffer(zeroed_sampler.data(), zeroed_sampler.size(), buffer_type::storage_coherent, heap_usage);
         if (!this->resource_heap.valid() || !this->sampler_heap.valid()) {

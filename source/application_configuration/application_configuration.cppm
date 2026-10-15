@@ -1,6 +1,6 @@
 // ============================================================================
 // module: app_config
-// module version: 0.30.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Startup configuration: TOML file (config.toml / --config) merged with argv.
 // Pure CPU, no Vulkan dependency.
@@ -21,6 +21,7 @@ module;
 #include <toml++/toml.hpp>
 
 export module deren.application_configuration;
+export import deren.utility.shared;
 export import deren.vstd;
 import deren.utility;
 
@@ -90,9 +91,9 @@ namespace deren::app_config {
 #endif
 
     export struct path_settings {
-        std::string shaders_dir = {};    // shader SPIR-V dir (empty = auto-locate "shaders/" upward)
-        std::string model_dir = {};      // default model dir used when model is empty (auto-locate gltf_model/ if empty)
-        std::string screenshot_dir = {}; // F12 screenshot base directory (empty = current working directory)
+        deren::utility::vessel::string shaders_dir = {};    // shader SPIR-V dir (empty = auto-locate "shaders/" upward)
+        deren::utility::vessel::string model_dir = {};      // default model dir used when model is empty (auto-locate gltf_model/ if empty)
+        deren::utility::vessel::string screenshot_dir = {}; // F12 screenshot base directory (empty = current working directory)
     };
 
     /**
@@ -103,10 +104,10 @@ namespace deren::app_config {
     export struct render_settings {
         int32_t window_width = 1080;
         int32_t window_height = 960;
-        std::string window_title = "deren";                       // GLFW window title
-        bool vsync = true;                                        // true = FIFO_LATEST_READY (FIFO fallback), false = mailbox (uncapped)
-        double max_fps = 0.0;                                     // 0 = uncapped; a positive value caps the render loop
-        std::array<float, 3> clear_color = {0.02f, 0.02f, 0.03f}; // background clear color (RGB, 0..1)
+        deren::utility::vessel::string window_title = "deren";                       // GLFW window title
+        bool vsync = true;                                                           // true = FIFO_LATEST_READY (FIFO fallback), false = mailbox (uncapped)
+        double max_fps = 0.0;                                                        // 0 = uncapped; a positive value caps the render loop
+        deren::utility::vessel::array<float, 3> clear_color = {0.02f, 0.02f, 0.03f}; // background clear color (RGB, 0..1)
         // Initial camera framing ([render] camera_fit): how main() aims the orbit camera at the
         // imported scene. "exterior" (default) fits the WHOLE model from outside - the right answer
         // for a compact object, and what every earlier version did. "interior" stands inside the
@@ -115,13 +116,13 @@ namespace deren::app_config {
         // makes it useless as a global-illumination reference (there is no interior to bounce in).
         // See the log's "initial camera" line for the numbers this resolves to, and use
         // --capture-camera to pin an exact pose.
-        std::string camera_fit = "exterior";
+        deren::utility::vessel::string camera_fit = "exterior";
         // A PINNED initial camera pose: yaw (deg), pitch (deg), distance, target x, y, z - the same six
         // numbers `--capture-camera` takes and the same six the log prints (`camera pose: ...`), so a view
         // can be reproduced from a config, pasted between the two, or reported by a user. ABSENT by
         // default, which leaves `camera_fit` in charge; when present it wins over the fit and is itself
         // overridden by `--capture-camera`.
-        std::array<float, 6> camera_pose = {};
+        deren::utility::vessel::array<float, 6> camera_pose = {};
         bool camera_pose_set = false;
         bool shadow = true; // record the directional shadow pass each frame
         // Cascaded shadow maps ([render] shadow_cascades / shadow_cascade_blend): how many cascades the
@@ -276,7 +277,7 @@ namespace deren::app_config {
          * FSR filter is measured against: the claim "EASU is closer to a native-resolution frame" is a number
          * between these two modes, and a mode deleted after the fact takes its own baseline with it.
          */
-        std::string upscale = "easu";
+        deren::utility::vessel::string upscale = "easu";
         // measure per-pass GPU time with timestamp queries: one vkCmdWriteTimestamp per pass
         // boundary, read back after the frame slot completed, averaged over a 60-frame window
         // (logged + shown in the debug overlay). A no-op on devices that cannot timestamp.
@@ -336,7 +337,7 @@ namespace deren::app_config {
          * centering shift - see the import in `main.cpp`. A background whose ground is not at y = 0 would need
          * its own shift, which is why this is stated here rather than hidden in the loader.
          */
-        std::string background_glb = {};
+        deren::utility::vessel::string background_glb = {};
         bool validation_layers = default_validation_layers; // Vulkan validation layers + debug messenger ([render])
     };
 
@@ -356,7 +357,7 @@ namespace deren::app_config {
         // THE DEFAULT REPRODUCES THE HISTORIC HARD-CODED VECTOR exactly, so a config without this key renders
         // the frame it always did; it is a high sun (59 degrees of elevation, 31 of azimuth) and lowering the
         // elevation is what moves the shadows off a face and onto the ground behind it.
-        std::array<float, 3> sun_direction = {0.3f, 1.0f, 0.5f};
+        deren::utility::vessel::array<float, 3> sun_direction = {0.3f, 1.0f, 0.5f};
         /**
          * THE ENVIRONMENT IMAGE, i.e. the reference package's own way of describing its world.
          *
@@ -376,7 +377,7 @@ namespace deren::app_config {
          * double as a sun. (The visible sky itself is still analytic; with the reference's backdrop dome
          * present - see [render] background_glb - it is occluded anyway.)
          */
-        std::string environment_hdr = {};
+        deren::utility::vessel::string environment_hdr = {};
         /**
          * `environment_intensity`: a linear multiplier applied to every texel of that image - the same
          * degree of freedom the reference package calls its world's `world_strength`.
@@ -444,14 +445,14 @@ namespace deren::app_config {
          *
          * `derive_area_light` below is the ONE place these keys become the frame's values.
          */
-        float area_light_size = 0.0f;                                  // side of the square emitter, metres (0 = NO area light)
-        float area_light_power = 0.0f;                                 // watts (the manifest's Blender unit)
-        std::array<float, 3> area_light_position = {0.0f, 0.0f, 0.0f}; // emitter centre, RELATIVE TO THE AUTHOR ORIGIN (the feet)
-        std::array<float, 3> area_light_target = {0.0f, 0.0f, 0.0f};   // aim point, same frame as position
-        float area_light_intensity = 1.0f;                             // multiplier on the emitter's radiance (>= 0)
-        bool area_light_irradiance = true;                             // true = the emitter TAKES OVER the main light (its direction, its radiance)
-        bool area_light_shadow = true;                                 // the area light's own (soft) visibility
-        float area_light_softness = 0.0f;                              // penumbra world radius, metres; 0 = automatic
+        float area_light_size = 0.0f;                                                     // side of the square emitter, metres (0 = NO area light)
+        float area_light_power = 0.0f;                                                    // watts (the manifest's Blender unit)
+        deren::utility::vessel::array<float, 3> area_light_position = {0.0f, 0.0f, 0.0f}; // emitter centre, RELATIVE TO THE AUTHOR ORIGIN (the feet)
+        deren::utility::vessel::array<float, 3> area_light_target = {0.0f, 0.0f, 0.0f};   // aim point, same frame as position
+        float area_light_intensity = 1.0f;                                                // multiplier on the emitter's radiance (>= 0)
+        bool area_light_irradiance = true;                                                // true = the emitter TAKES OVER the main light (its direction, its radiance)
+        bool area_light_shadow = true;                                                    // the area light's own (soft) visibility
+        float area_light_softness = 0.0f;                                                 // penumbra world radius, metres; 0 = automatic
         // demo_lights ([lighting] demo_lights): spawn this many procedural punctual lights around
         // the scene (a helix at the scene bounds, cycling colors). This is the clustered-light stress
         // mode: with the debug overlay's four light slots the cluster lists and the brute-force loop
@@ -487,17 +488,17 @@ namespace deren::app_config {
      * emitter at all": every field is zero, the caller writes a literal zero `light_ubo` pair and the frame
      * keeps exactly the sun `[render] sun_intensity` and `[lighting] sun_direction` describe.
      *
-     * `std::array<float, 3>` rather than `glm::vec3` on purpose: this module does not depend on glm (see the
+     * `deren::utility::vessel::array<float, 3>` rather than `glm::vec3` on purpose: this module does not depend on glm (see the
      * header block at the top of this file), and the one consumer, `main.cpp`, converts at its call site.
      */
     export struct area_light_derived {
-        bool enabled = false;                                   // false = no emitter: every field below is zero
-        std::array<float, 3> world_centre = {0.0f, 0.0f, 0.0f}; // the emitter's centre, world space
-        float half = 0.0f;                                      // half the emitter's side, metres
-        std::array<float, 3> axis = {0.0f, 0.0f, 0.0f};         // emitter normal (centre -> target), unit
-        std::array<float, 3> to_light_dir = {0.0f, 0.0f, 0.0f}; // author origin -> emitter, unit (the new sun direction)
-        float radiance = 0.0f;                                  // power / (pi * size^2): the emitter's Lambertian radiance
-        float penumbra = 0.0f;                                  // shadow penumbra radius, world metres (0 = no area-light shadow)
+        bool enabled = false;                                                      // false = no emitter: every field below is zero
+        deren::utility::vessel::array<float, 3> world_centre = {0.0f, 0.0f, 0.0f}; // the emitter's centre, world space
+        float half = 0.0f;                                                         // half the emitter's side, metres
+        deren::utility::vessel::array<float, 3> axis = {0.0f, 0.0f, 0.0f};         // emitter normal (centre -> target), unit
+        deren::utility::vessel::array<float, 3> to_light_dir = {0.0f, 0.0f, 0.0f}; // author origin -> emitter, unit (the new sun direction)
+        float radiance = 0.0f;                                                     // power / (pi * size^2): the emitter's Lambertian radiance
+        float penumbra = 0.0f;                                                     // shadow penumbra radius, world metres (0 = no area-light shadow)
     };
 
     /**
@@ -525,7 +526,7 @@ namespace deren::app_config {
      *
      * 4000 W over a 30 m side reads radiance == 1.41471, i.e. the reference package's soft key.
      */
-    export area_light_derived derive_area_light(lighting_settings const& lighting, std::array<float, 3> const& scene_origin);
+    export area_light_derived derive_area_light(lighting_settings const& lighting, deren::utility::vessel::array<float, 3> const& scene_origin);
 
     /**
      * @ingroup app_config
@@ -554,19 +555,19 @@ namespace deren::app_config {
      * rather than dimming one, because a dimmed sun still draws its own terminator.
      */
     export struct toon_settings {
-        float day_strength = 1.0f;                                      // `_DayStrength` (0..1)
-        float head_light_day0 = 0.7f;                                   // `_OtherLightResultStrength_day0` - the author's default
-        float head_light_day1 = 0.3f;                                   // `_OtherLightResultStrength_day1` - the author's default
-        std::array<float, 3> head_light_colour = {0.60f, 0.65f, 0.80f}; // `_OtherLightColor`
-        std::array<float, 3> sun_dark_colour = {0.60f, 0.65f, 0.80f};   // `_MainLightColor_dark`
-        float env_strength = 1.0f;                                      // `_EnvLightStrength`
-        float env_rotation = 0.0f;                                      // `_EnvRotation`, in DEGREES
-        float specular_strength = 1.0f;                                 // `_SpecularStrength`
-        float diffuse_blend_effect = 1.0f;                              // `_DiffuseBlendEffect`
-        float rim_area = 1.0f;                                          // `_RimLightArea` - the author's default
-        float rim_strength = 1.0f;                                      // `_RimLightStrength`
-        float rim_nolxz_strength = 1.0f;                                // `_RimLightNoLxzStrength`
-        float backlight_strength = 1.0f;                                // the backlight compensation's weight
+        float day_strength = 1.0f;                                                         // `_DayStrength` (0..1)
+        float head_light_day0 = 0.7f;                                                      // `_OtherLightResultStrength_day0` - the author's default
+        float head_light_day1 = 0.3f;                                                      // `_OtherLightResultStrength_day1` - the author's default
+        deren::utility::vessel::array<float, 3> head_light_colour = {0.60f, 0.65f, 0.80f}; // `_OtherLightColor`
+        deren::utility::vessel::array<float, 3> sun_dark_colour = {0.60f, 0.65f, 0.80f};   // `_MainLightColor_dark`
+        float env_strength = 1.0f;                                                         // `_EnvLightStrength`
+        float env_rotation = 0.0f;                                                         // `_EnvRotation`, in DEGREES
+        float specular_strength = 1.0f;                                                    // `_SpecularStrength`
+        float diffuse_blend_effect = 1.0f;                                                 // `_DiffuseBlendEffect`
+        float rim_area = 1.0f;                                                             // `_RimLightArea` - the author's default
+        float rim_strength = 1.0f;                                                         // `_RimLightStrength`
+        float rim_nolxz_strength = 1.0f;                                                   // `_RimLightNoLxzStrength`
+        float backlight_strength = 1.0f;                                                   // the backlight compensation's weight
         // WHICH EXPRESSION THE FACE IS WEARING (`_EmotionMap`'s cell): 0 = none, so the face keeps its own albedo,
         // which is what every capture before this key existed was taken at; 1..3 = the atlas' other three cells.
         // IT IS A CONFIG KEY RATHER THAN A MATERIAL VALUE because the material files have none - the game picks the
@@ -585,14 +586,14 @@ namespace deren::app_config {
         // dialog at startup - see wants_model_dialog, which is the only thing that may interpret it).
         // WHICH LOADER READS IT COMES FROM ITS EXTENSION (see model_format_of): .gltf/.glb is the scene
         // importer's, .ply a Gaussian splat cloud, and anything else is reported rather than defaulted.
-        std::string model = {};
+        deren::utility::vessel::string model = {};
         int32_t grid_side = 0; // > 1 enables the instancing stress grid
         path_settings paths = {};
         render_settings render = {};
         lighting_settings lighting = {};
         toon_settings toon = {};
         gui_settings gui = {};
-        std::string config_file = {}; // path actually read (empty = no config file found / used)
+        deren::utility::vessel::string config_file = {}; // path actually read (empty = no config file found / used)
     };
 
     /**
@@ -648,7 +649,7 @@ namespace deren::app_config {
      * @return app_settings with config_file = @p path on success; a partially filled structure
      *         with empty config_file on a read/parse error (the error is logged)
      */
-    export app_settings load_settings(std::string const& path);
+    export app_settings load_settings(std::string_view const path);
 
     /**
      * @ingroup app_config
@@ -665,5 +666,5 @@ namespace deren::app_config {
      * @brief like resolve_from_argv() but with an explicit default config path when no --config
      *        argument is present (used when the caller does not want the cwd-relative default)
      */
-    export app_settings resolve_from_argv(int32_t argc, char const* const* argv, std::string const& default_config_path);
+    export app_settings resolve_from_argv(int32_t argc, char const* const* argv, deren::utility::vessel::string const& default_config_path);
 } // namespace deren::app_config

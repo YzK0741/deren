@@ -4,6 +4,7 @@ module;
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.core:init_utils;
+export import deren.utility.shared;
 export import deren.vstd;
 import deren.utility;
 import deren.vulkan.constant_init;
@@ -35,8 +36,8 @@ export struct logical_device {
  */
 export struct swap_chain_support_details {
     VkSurfaceCapabilitiesKHR capabilities = {};
-    std::vector<VkSurfaceFormatKHR> formats = {};
-    std::vector<VkPresentModeKHR> present_modes = {};
+    deren::utility::vessel::vector<VkSurfaceFormatKHR> formats = {};
+    deren::utility::vessel::vector<VkPresentModeKHR> present_modes = {};
 };
 
 /**
@@ -229,10 +230,10 @@ export struct device_capabilities {
     ///        fit here the tail would be invisible, whose worst case is a named startup failure (GENERAL not
     ///        found), never a copy issued in a layout the device does not accept.
     static constexpr uint32_t host_image_copy_max_src_layouts = 16;
-    std::array<VkImageLayout, host_image_copy_max_src_layouts> host_image_copy_src_layouts = {};
+    deren::utility::vessel::array<VkImageLayout, host_image_copy_max_src_layouts> host_image_copy_src_layouts = {};
     /// @brief the layouts a host copy may write TO (host_image_copy_properties.pCopyDstLayouts) - the upload
     ///        direction's list, kept separate from the source list for the same reason the properties are.
-    std::array<VkImageLayout, host_image_copy_max_src_layouts> host_image_copy_dst_layouts = {};
+    deren::utility::vessel::array<VkImageLayout, host_image_copy_max_src_layouts> host_image_copy_dst_layouts = {};
     /// @brief whether the device has VK_EXT_host_image_copy, its hostImageCopy feature AND GENERAL among its
     ///        copy-SOURCE layouts - what a host copy of an image OUT of this renderer needs (the read-back).
     bool host_image_copy_available = false;
@@ -258,8 +259,8 @@ export struct device_capabilities {
     void query(VkPhysicalDevice physical_device, uint32_t api_version = VK_API_VERSION_1_3) noexcept;
 
     // 选卡和创建设备共用同一份强制能力检查，避免选中不能启动渲染器的 GPU。
-    [[nodiscard]] std::vector<char const*> renderer_missing_requirements() const {
-        std::vector<char const*> missing;
+    [[nodiscard]] deren::utility::vessel::vector<char const*> renderer_missing_requirements() const {
+        deren::utility::vessel::vector<char const*> missing;
         if (features_1_3.dynamicRendering != VK_TRUE) {
             missing.push_back("dynamicRendering (Vulkan 1.3)");
         }
@@ -301,8 +302,8 @@ export void print_device_capabilities(device_capabilities const& capabilities);
  */
 export struct device_creation_info {
     queue_family_indices queue_families = {};
-    std::vector<char const*> extensions = {};
-    std::vector<char const*> validation_layers = {};
+    deren::utility::vessel::vector<char const*> extensions = {};
+    deren::utility::vessel::vector<char const*> validation_layers = {};
     // Feature chain head for vkCreateDevice: must be a VkPhysicalDeviceFeatures2 struct (e.g.
     // device_capabilities::device_pnext()) whose .features carries the Vulkan 1.0 core features
     // and whose pNext links the 1.1/1.2/... feature structs. pEnabledFeatures stays NULL.
@@ -326,7 +327,7 @@ debug_callback(
  * @param validation_layers layer names to check
  * @return true if all layers are supported
  */
-export bool check_validation_layer_support(std::vector<char const*> const& validation_layers) noexcept;
+export bool check_validation_layer_support(deren::utility::vessel::vector<char const*> const& validation_layers) noexcept;
 
 /**
  * @ingroup vulkan_init_utils
@@ -337,7 +338,7 @@ export bool check_validation_layer_support(std::vector<char const*> const& valid
  */
 export bool check_device_extension_support(
     VkPhysicalDevice physical_device,
-    std::vector<char const*> const& required_extensions) noexcept;
+    deren::utility::vessel::vector<char const*> const& required_extensions) noexcept;
 
 /**
  * @ingroup vulkan_init_utils
@@ -394,7 +395,7 @@ export swap_chain_support_details query_swap_chain_support(VkPhysicalDevice devi
  */
 export constexpr VkPresentModeKHR present_mode_fifo_latest_ready = static_cast<VkPresentModeKHR>(1000361000);
 
-export VkPresentModeKHR choose_swap_present_mode(std::vector<VkPresentModeKHR> const& available_present_modes, bool vsync = false) noexcept;
+export VkPresentModeKHR choose_swap_present_mode(deren::utility::vessel::vector<VkPresentModeKHR> const& available_present_modes, bool vsync = false) noexcept;
 
 /**
  * @ingroup vulkan_init_utils
@@ -402,7 +403,7 @@ export VkPresentModeKHR choose_swap_present_mode(std::vector<VkPresentModeKHR> c
  * @param available_formats formats supported by the swap chain
  * @return the chosen surface format
  */
-export VkSurfaceFormatKHR choose_swap_surface_format(std::vector<VkSurfaceFormatKHR> const& available_formats) noexcept;
+export VkSurfaceFormatKHR choose_swap_surface_format(deren::utility::vessel::vector<VkSurfaceFormatKHR> const& available_formats) noexcept;
 
 /**
  * @ingroup vulkan_init_utils
@@ -498,13 +499,13 @@ debug_callback(
     return VK_FALSE; // VK_FALSE means not terminate this function call
 }
 
-bool check_validation_layer_support(std::vector<char const*> const& validation_layers) noexcept {
+bool check_validation_layer_support(deren::utility::vessel::vector<char const*> const& validation_layers) noexcept {
     uint32_t layer_count;
     vkEnumerateInstanceLayerProperties(&layer_count, nullptr);
-    std::vector<VkLayerProperties> available_layers(layer_count);
+    deren::utility::vessel::vector<VkLayerProperties> available_layers(layer_count);
     vkEnumerateInstanceLayerProperties(&layer_count, available_layers.data());
 
-    std::unordered_set<std::string> available_names;
+    deren::utility::vessel::unordered_set<deren::utility::vessel::string> available_names;
     for (auto const& layer : available_layers) {
         available_names.insert(layer.layerName);
     }
@@ -515,14 +516,14 @@ bool check_validation_layer_support(std::vector<char const*> const& validation_l
 
 bool check_device_extension_support(
     VkPhysicalDevice physical_device,
-    std::vector<char const*> const& required_extensions) noexcept {
+    deren::utility::vessel::vector<char const*> const& required_extensions) noexcept {
     uint32_t extension_count;
     vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &extension_count, nullptr);
-    std::vector<VkExtensionProperties> available_extensions(extension_count);
+    deren::utility::vessel::vector<VkExtensionProperties> available_extensions(extension_count);
     vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &extension_count,
                                          available_extensions.data());
 
-    std::set<std::string> required_set(required_extensions.begin(), required_extensions.end());
+    deren::utility::vessel::set<deren::utility::vessel::string> required_set(required_extensions.begin(), required_extensions.end());
     for (auto const& [extension_name, spec_version] : available_extensions) {
         required_set.erase(extension_name);
     }
@@ -536,7 +537,7 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     //      chain, and the device may support the extensions without the features (or vice versa). ----
     uint32_t extension_count = 0;
     vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &extension_count, nullptr);
-    std::vector<VkExtensionProperties> available_extensions(extension_count);
+    deren::utility::vessel::vector<VkExtensionProperties> available_extensions(extension_count);
     vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &extension_count, available_extensions.data());
     auto const has_extension = [&available_extensions](char const* name) {
         return std::any_of(available_extensions.begin(), available_extensions.end(), [name](VkExtensionProperties const& entry) {
@@ -784,7 +785,7 @@ void const* device_capabilities::device_pnext() const noexcept {
 namespace {
     // Append names of enabled (VK_TRUE) members to the output string, return the enabled count
     template <typename T>
-    size_t append_enabled_features(std::string& out, T const& features,
+    size_t append_enabled_features(deren::utility::vessel::string& out, T const& features,
                                    std::initializer_list<std::pair<char const*, VkBool32 T::*>> const& entries) {
         size_t count = 0;
         for (auto const& [name, member] : entries) {
@@ -800,22 +801,22 @@ namespace {
     }
 
     // Wrap output at the given width, indenting continuation lines
-    void print_wrapped(std::string const& text, int32_t const width, std::string_view const indent) {
-        std::string current(indent);
+    void print_wrapped(deren::utility::vessel::string const& text, int32_t const width, std::string_view const indent) {
+        deren::utility::vessel::string current(indent);
         size_t start = 0;
         while (start < text.size()) {
             size_t const comma = text.find(", ", start);
-            size_t const token_end = comma == std::string::npos ? text.size() : comma;
+            size_t const token_end = comma == deren::utility::vessel::string::npos ? text.size() : comma;
             std::string_view const token(text.data() + start, token_end - start);
             if (current.size() > indent.size() && current.size() + token.size() + 2 > static_cast<size_t>(width)) {
                 deren::utility::log("{}", current);
-                current = std::string(indent);
+                current = deren::utility::vessel::string(indent);
             }
             if (current.size() > indent.size()) {
                 current += ", ";
             }
             current += token;
-            if (comma == std::string::npos) {
+            if (comma == deren::utility::vessel::string::npos) {
                 break;
             }
             start = comma + 2;
@@ -834,7 +835,7 @@ void print_device_capabilities(device_capabilities const& capabilities) {
     deren::utility::log(" Vulkan device capabilities");
     deren::utility::log("{}", box_line);
 
-    static constexpr std::array<char const*, 5> device_type_names = {
+    static constexpr deren::utility::vessel::array<char const*, 5> device_type_names = {
         "other",
         "integrated gpu",
         "discrete gpu",
@@ -856,7 +857,7 @@ void print_device_capabilities(device_capabilities const& capabilities) {
     using feature_1_2 = VkPhysicalDeviceVulkan12Features;
     using feature_1_3 = VkPhysicalDeviceVulkan13Features;
 
-    std::string enabled_1_1;
+    deren::utility::vessel::string enabled_1_1;
     size_t const count_1_1 = append_enabled_features(enabled_1_1, capabilities.features_1_1, {
                                                                                                  {"storageBuffer16BitAccess", &feature_1_1::storageBuffer16BitAccess},
                                                                                                  {"uniformAndStorageBuffer16BitAccess", &feature_1_1::uniformAndStorageBuffer16BitAccess},
@@ -874,7 +875,7 @@ void print_device_capabilities(device_capabilities const& capabilities) {
     deren::utility::log(" vulkan 1.1 features ({})", count_1_1);
     print_wrapped(enabled_1_1, 100, "   ");
 
-    std::string enabled_1_2;
+    deren::utility::vessel::string enabled_1_2;
     size_t const count_1_2 = append_enabled_features(enabled_1_2, capabilities.features_1_2, {
                                                                                                  {"samplerMirrorClampToEdge", &feature_1_2::samplerMirrorClampToEdge},
                                                                                                  {"drawIndirectCount", &feature_1_2::drawIndirectCount},
@@ -927,7 +928,7 @@ void print_device_capabilities(device_capabilities const& capabilities) {
     deren::utility::log(" vulkan 1.2 features ({})", count_1_2);
     print_wrapped(enabled_1_2, 100, "   ");
 
-    std::string enabled_1_3;
+    deren::utility::vessel::string enabled_1_3;
     size_t const count_1_3 = append_enabled_features(enabled_1_3, capabilities.features_1_3, {
                                                                                                  {"robustImageAccess", &feature_1_3::robustImageAccess},
                                                                                                  {"inlineUniformBlock", &feature_1_3::inlineUniformBlock},
@@ -960,7 +961,7 @@ void print_device_capabilities(device_capabilities const& capabilities) {
         }
         deren::utility::log("                 {} / opacity micromap {}",
                             capabilities.ray_tracing_pipeline_available ? "ray pipeline available (VK_KHR_ray_tracing_pipeline + maintenance1)" : "ray pipeline NOT available",
-                            capabilities.opacity_micromap_available ? std::format("available (VK_EXT_opacity_micromap, max subdivision level {} 2-state / {} 4-state)", capabilities.opacity_micromap_properties.maxOpacity2StateSubdivisionLevel, capabilities.opacity_micromap_properties.maxOpacity4StateSubdivisionLevel) : "not available");
+                            capabilities.opacity_micromap_available ? deren::utility::vessel::format("available (VK_EXT_opacity_micromap, max subdivision level {} 2-state / {} 4-state)", capabilities.opacity_micromap_properties.maxOpacity2StateSubdivisionLevel, capabilities.opacity_micromap_properties.maxOpacity4StateSubdivisionLevel) : "not available");
         deren::utility::log("   limits      : {} instances, {} geometries, scratch alignment {}",
                             capabilities.acceleration_structure_properties.maxInstanceCount,
                             capabilities.acceleration_structure_properties.maxGeometryCount,
@@ -1045,7 +1046,7 @@ logical_device create_logical_device(
     }
 
     // Use a set to collect unique queue family indices
-    std::set<uint32_t> unique_queue_families = {
+    deren::utility::vessel::set<uint32_t> unique_queue_families = {
         create_info.queue_families.graphics_family.value(),
         create_info.queue_families.present_family.value(),
     };
@@ -1059,7 +1060,7 @@ logical_device create_logical_device(
     }
 
     // Create queue infos
-    std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
+    deren::utility::vessel::vector<VkDeviceQueueCreateInfo> queue_create_infos;
     constexpr float queue_priority = 1.0f;
 
     for (uint32_t queue_family : unique_queue_families) {
@@ -1114,7 +1115,7 @@ logical_device create_logical_device(
     VkDevice device = {};
     VkResult const result = vkCreateDevice(physical_device, &device_create_info, nullptr, &device);
     if (result != VK_SUCCESS) {
-        deren::utility::panic(std::source_location::current(), "Failed to create logical device: {}", std::to_string(result));
+        deren::utility::panic(std::source_location::current(), "Failed to create logical device: {}", deren::utility::vessel::to_string(static_cast<int32_t>(result)));
     }
 
     // Get queues
@@ -1138,7 +1139,7 @@ queue_family_indices find_queue_families(VkPhysicalDevice device, VkSurfaceKHR s
     uint32_t queue_family_count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, nullptr);
 
-    std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
+    deren::utility::vessel::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, queue_families.data());
 
     // Find a suitable queue family
@@ -1221,7 +1222,7 @@ VkPhysicalDevice pick_suitable_device(VkInstance instance, VkSurfaceKHR surface)
         deren::utility::panic("Failed to find GPUs with Vulkan support");
     }
 
-    std::vector<VkPhysicalDevice> devices(device_count);
+    deren::utility::vessel::vector<VkPhysicalDevice> devices(device_count);
     vkEnumeratePhysicalDevices(instance, &device_count, devices.data());
 
     for (auto const& device : devices) {
@@ -1241,7 +1242,7 @@ VkPhysicalDevice pick_suitable_device(VkInstance instance, VkSurfaceKHR surface)
         }
 
         // Check extension support
-        std::vector<char const*> const required_extensions = {
+        deren::utility::vessel::vector<char const*> const required_extensions = {
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         };
         if (surface != VK_NULL_HANDLE && !check_device_extension_support(device, required_extensions)) {
@@ -1292,7 +1293,7 @@ swap_chain_support_details query_swap_chain_support(VkPhysicalDevice device, VkS
     return details;
 }
 
-VkPresentModeKHR choose_swap_present_mode(std::vector<VkPresentModeKHR> const& available_present_modes, bool const vsync) noexcept {
+VkPresentModeKHR choose_swap_present_mode(deren::utility::vessel::vector<VkPresentModeKHR> const& available_present_modes, bool const vsync) noexcept {
     if (vsync) {
         // FIFO_LATEST_READY when the surface offers it (the core enables the extension only when the
         // device has it): vsync-locked like FIFO, but it presents the newest ready image at each
@@ -1310,7 +1311,7 @@ VkPresentModeKHR choose_swap_present_mode(std::vector<VkPresentModeKHR> const& a
     return VK_PRESENT_MODE_FIFO_KHR;
 }
 
-VkSurfaceFormatKHR choose_swap_surface_format(std::vector<VkSurfaceFormatKHR> const& available_formats) noexcept {
+VkSurfaceFormatKHR choose_swap_surface_format(deren::utility::vessel::vector<VkSurfaceFormatKHR> const& available_formats) noexcept {
     for (auto const& available_format : available_formats) {
         if (available_format.format == VK_FORMAT_B8G8R8A8_SRGB && available_format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
             return available_format;
@@ -1398,7 +1399,7 @@ uint32_t find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties
 
 VkFormat find_depth_format(VkPhysicalDevice physical_device) noexcept {
     // Try to find a supported depth format, in order of preference
-    std::vector<VkFormat> const candidates = {
+    deren::utility::vessel::vector<VkFormat> const candidates = {
         VK_FORMAT_D32_SFLOAT_S8_UINT,
         VK_FORMAT_D32_SFLOAT,
         VK_FORMAT_D24_UNORM_S8_UINT,

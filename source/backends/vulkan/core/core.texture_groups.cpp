@@ -10,6 +10,7 @@ module;
 #include <spirv-reflect/spirv_reflect.h>
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
+import deren.utility.shared;
 import :declarations;
 
 namespace deren::vulkan {
@@ -146,7 +147,7 @@ namespace deren::vulkan {
         if (logical_device == VK_NULL_HANDLE)
             return fail(rhi::error::not_ready);
 
-        std::array<std::shared_ptr<rhi::image>, 16> images{};
+        deren::utility::vessel::array<std::shared_ptr<rhi::image>, 16> images{};
         {
             std::lock_guard lock(contract_images_mutex);
             // Validate every input before acquiring or allocating any group resources.

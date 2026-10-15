@@ -3,6 +3,7 @@ module;
 #include <glm/glm.hpp>
 
 export module deren.chores;
+export import deren.utility.shared;
 
 export import deren.vstd;
 import deren.application_configuration;
@@ -32,7 +33,7 @@ namespace deren::chores {
     export struct startup_config {
         deren::app_config::app_settings settings = {}; // merged config-file + argv settings
         std::filesystem::path shaders_dir = {};        // shader SPIR-V directory (configured or located)
-        std::string model_path = {};                   // glTF file to load (configured, model_dir, or located)
+        deren::utility::vessel::string model_path = {};                   // glTF file to load (configured, model_dir, or located)
     };
 
     /**
@@ -50,7 +51,7 @@ namespace deren::chores {
      * @ingroup chores
      * @brief read one shader SPIR-V file into @p out; panic on failure (prints the path)
      */
-    export void load_shader(std::filesystem::path const& dir, std::string_view const file_name, std::vector<uint8_t>& out);
+    export void load_shader(std::filesystem::path const& dir, std::string_view const file_name, deren::utility::vessel::vector<uint8_t>& out);
 
     /**
      * @ingroup chores
@@ -246,7 +247,7 @@ namespace deren::chores {
                           deren::app_config::app_settings const& settings,
                           gui_bindings& bindings,
                           deren::engine::animation::controller& animation,
-                          std::vector<std::string> const& camera_names,
+                          deren::utility::vessel::vector<deren::utility::vessel::string> const& camera_names,
                           std::function<void(int32_t)> const& on_camera_selected);
 
     /**

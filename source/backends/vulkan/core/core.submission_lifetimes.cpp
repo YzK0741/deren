@@ -4,6 +4,7 @@ module;
 #include <vector>
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
+import deren.utility.shared;
 import :declarations;
 
 namespace deren::vulkan {
@@ -29,7 +30,7 @@ namespace deren::vulkan {
     }
 
     void core::poll_submissions(bool all) const noexcept {
-        std::vector<std::unique_ptr<pending_submission>> completed;
+        deren::utility::vessel::vector<std::unique_ptr<pending_submission>> completed;
         {
             std::lock_guard lock(submissions_mutex);
             for (auto i = pending_submissions.begin(); i != pending_submissions.end();) {

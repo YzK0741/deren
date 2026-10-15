@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.vulkan.graphical_user_interface
-// module version: 0.4.1  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Dear ImGui debug overlay: widget / panel layer driven from the runtime's frame
 // steps (runtime::debug_gui). Kept as its own unit so the overlay can be swapped
@@ -22,6 +22,7 @@ module;
 #include <GLFW/glfw3.h>
 
 export module deren.vulkan.graphical_user_interface;
+export import deren.utility.shared;
 export import deren.vstd;
 
 /**
@@ -108,12 +109,12 @@ namespace deren::vulkan::gui {
      */
     export class label_widget final : public widget {
     public:
-        explicit label_widget(std::string text);
-        explicit label_widget(std::function<std::string()> text_fn);
+        explicit label_widget(deren::utility::vessel::string text);
+        explicit label_widget(std::function<deren::utility::vessel::string()> text_fn);
         void draw() override;
 
     private:
-        std::function<std::string()> text_fn; // wraps a fixed string or a per-frame callback
+        std::function<deren::utility::vessel::string()> text_fn; // wraps a fixed string or a per-frame callback
     };
 
     /**
@@ -123,11 +124,11 @@ namespace deren::vulkan::gui {
      */
     export class checkbox_widget final : public widget {
     public:
-        checkbox_widget(std::string label, bool* value, std::function<void(bool)> on_change = {});
+        checkbox_widget(deren::utility::vessel::string label, bool* value, std::function<void(bool)> on_change = {});
         void draw() override;
 
     private:
-        std::string label;
+        deren::utility::vessel::string label;
         bool* value = nullptr; // external state the widget reads/writes
         std::function<void(bool)> on_change;
     };
@@ -138,11 +139,11 @@ namespace deren::vulkan::gui {
      */
     export class slider_widget final : public widget {
     public:
-        slider_widget(std::string label, float* value, float min, float max, std::function<void(float)> on_change = {});
+        slider_widget(deren::utility::vessel::string label, float* value, float min, float max, std::function<void(float)> on_change = {});
         void draw() override;
 
     private:
-        std::string label;
+        deren::utility::vessel::string label;
         float* value = nullptr;
         float min = 0.0f;
         float max = 1.0f;
@@ -159,11 +160,11 @@ namespace deren::vulkan::gui {
      */
     export class vec3_widget final : public widget {
     public:
-        vec3_widget(std::string label, float* value, float speed = 0.05f, std::function<void()> on_change = {});
+        vec3_widget(deren::utility::vessel::string label, float* value, float speed = 0.05f, std::function<void()> on_change = {});
         void draw() override;
 
     private:
-        std::string label;
+        deren::utility::vessel::string label;
         float* value = nullptr; // points at x of an xyz triplet
         float speed = 0.05f;    // DragFloat3 drag speed
         std::function<void()> on_change;
@@ -177,12 +178,12 @@ namespace deren::vulkan::gui {
      */
     export class combo_widget final : public widget {
     public:
-        combo_widget(std::string label, std::vector<std::string> items, int32_t* current_item, std::function<void(int32_t)> on_change = {});
+        combo_widget(deren::utility::vessel::string label, deren::utility::vessel::vector<deren::utility::vessel::string> items, int32_t* current_item, std::function<void(int32_t)> on_change = {});
         void draw() override;
 
     private:
-        std::string label;
-        std::vector<std::string> items;
+        deren::utility::vessel::string label;
+        deren::utility::vessel::vector<deren::utility::vessel::string> items;
         int32_t* current_item = nullptr;
         std::function<void(int32_t)> on_change;
     };
@@ -197,7 +198,7 @@ namespace deren::vulkan::gui {
      */
     export class debug_panel {
     public:
-        explicit debug_panel(std::string title);
+        explicit debug_panel(deren::utility::vessel::string title);
 
         // ---- widget stack (add/remove only affects the end) ----
         void push_back(std::unique_ptr<widget> item);
@@ -207,7 +208,7 @@ namespace deren::vulkan::gui {
         [[nodiscard]] std::size_t size() const noexcept;
 
         // ---- window state ----
-        [[nodiscard]] std::string const& get_title() const noexcept;
+        [[nodiscard]] deren::utility::vessel::string const& get_title() const noexcept;
         void set_open(bool open) noexcept;
         [[nodiscard]] bool open() const noexcept;
 
@@ -226,8 +227,8 @@ namespace deren::vulkan::gui {
         void draw();
 
     private:
-        std::string title;
-        std::vector<std::unique_ptr<widget>> items; // widget stack (tail = top)
+        deren::utility::vessel::string title;
+        deren::utility::vessel::vector<std::unique_ptr<widget>> items; // widget stack (tail = top)
         bool is_open = true;
         float default_width = 0.0f;  // 0 = auto-size
         float default_height = 0.0f; // 0 = auto-size
@@ -281,7 +282,7 @@ namespace deren::vulkan::gui {
          * @return reference to the new panel (stable: panels are heap-held); caller pushes
          *         widgets onto it and may remove it later via remove_panel()
          */
-        debug_panel& add_panel(std::string title);
+        debug_panel& add_panel(deren::utility::vessel::string title);
 
         /**
          * @ingroup vulkan_gui
@@ -323,7 +324,7 @@ namespace deren::vulkan::gui {
         void on_swapchain_recreated() const;
 
     private:
-        std::vector<std::unique_ptr<debug_panel>> panels; // registered panels, drawn in order
+        deren::utility::vessel::vector<std::unique_ptr<debug_panel>> panels; // registered panels, drawn in order
         // true between a successful init() and shutdown(). The ImGui context and backend data
         // themselves live in ImGui's global storage, not here.
         bool active = false;

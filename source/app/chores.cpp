@@ -1,7 +1,7 @@
 module;
 
 // The global-module-fragment include below is load-bearing, not stylistic: with -fno-exceptions
-// and the vendored std module, a chores implementation unit that instantiates std::vector (this
+// and the vendored std module, a chores implementation unit that instantiates deren::utility::vessel::vector (this
 // file does, in load_shader) sees TWO 'operator new(size_t, align_val_t)' declarations - module
 // std's and the textual libc++ copy baked into utility:data_block.pcm (data_block is the one
 // module that never imports std; it includes libc++ headers in its own GMF). The result is
@@ -16,6 +16,7 @@ module;
 #include <span>
 
 module deren.chores;
+import deren.utility.shared;
 
 import deren.promise.gui;
 import deren.engine.gaussian_splatting.probe;
@@ -82,9 +83,9 @@ namespace deren::chores {
     }
 
     // Read a single shader SPIR-V file and print info; panic on failure
-    void load_shader(std::filesystem::path const& dir, std::string_view const file_name, std::vector<uint8_t>& out) {
+    void load_shader(std::filesystem::path const& dir, std::string_view const file_name, deren::utility::vessel::vector<uint8_t>& out) {
         std::filesystem::path const path = dir / file_name;
-        std::optional<std::vector<uint8_t>> const data = deren::utility::read_binary_to_vector(path);
+        std::optional<deren::utility::vessel::vector<uint8_t>> const data = deren::utility::read_binary_to_vector(path);
         if (!data) {
             deren::utility::panic(std::source_location::current(), "cannot open shader file '{}'", path.string());
         }
@@ -151,16 +152,16 @@ namespace deren::chores {
                                   std::string_view const fragment_file,
                                   std::string_view const mesh_file,
                                   std::string_view const meshlet_file = {}) {
-        std::vector<uint8_t> fragment_code;
-        std::vector<uint8_t> mesh_code;
-        std::vector<uint8_t> meshlet_code;
+        deren::utility::vessel::vector<uint8_t> fragment_code;
+        deren::utility::vessel::vector<uint8_t> mesh_code;
+        deren::utility::vessel::vector<uint8_t> meshlet_code;
         load_shader(shaders_dir, fragment_file, fragment_code);
         load_shader(shaders_dir, mesh_file, mesh_code);
         if (!meshlet_file.empty()) {
             load_shader(shaders_dir, meshlet_file, meshlet_code);
         }
 
-        std::expected<void, std::string> const result = runtime.make_pipeline(pipeline_name, fragment_code, mesh_code, meshlet_code);
+        std::expected<void, deren::utility::vessel::string> const result = runtime.make_pipeline(pipeline_name, fragment_code, mesh_code, meshlet_code);
         if (!result) {
             deren::utility::panic(std::source_location::current(), "failed to create pipeline '{}': {}", pipeline_name, result.error());
         }
@@ -196,9 +197,9 @@ namespace deren::chores {
             //
             // The name is the one the character-forward pass binds through `render_environment::default_name`;
             // the pass is handed it rather than hardcoding it (see pass::character_forward_frame).
-            std::vector<uint8_t> character_fragment_code;
-            std::vector<uint8_t> character_mesh_code;
-            std::vector<uint8_t> character_meshlet_code;
+            deren::utility::vessel::vector<uint8_t> character_fragment_code;
+            deren::utility::vessel::vector<uint8_t> character_mesh_code;
+            deren::utility::vessel::vector<uint8_t> character_meshlet_code;
             load_shader(shaders_dir, "character_forward.frag.spv", character_fragment_code);
             load_shader(shaders_dir, "pbr.mesh.spv", character_mesh_code);
             load_shader(shaders_dir, "pbr.meshlet.spv", character_meshlet_code);
@@ -227,9 +228,9 @@ namespace deren::chores {
             // feature: `make_character_forward_frame` falls back to the old pipeline name, so a device that
             // refuses this one draws the old chain rather than nothing - and `set_goo_toon` reports the fallback
             // once, when the knob is turned on.
-            std::vector<uint8_t> goo_fragment_code;
-            std::vector<uint8_t> goo_mesh_code;
-            std::vector<uint8_t> goo_meshlet_code;
+            deren::utility::vessel::vector<uint8_t> goo_fragment_code;
+            deren::utility::vessel::vector<uint8_t> goo_mesh_code;
+            deren::utility::vessel::vector<uint8_t> goo_meshlet_code;
             load_shader(shaders_dir, "goo_toon.frag.spv", goo_fragment_code);
             load_shader(shaders_dir, "pbr.mesh.spv", goo_mesh_code);
             load_shader(shaders_dir, "pbr.meshlet.spv", goo_meshlet_code);
@@ -257,9 +258,9 @@ namespace deren::chores {
             // takes an EMPTY overlay name to mean "draw no overlay" (see character_forward_frame), so a device that
             // refuses this pipeline renders the character without its two masks - which is exactly the frame the
             // model had before they were merged into the asset - rather than drawing them as shaded quads.
-            std::vector<uint8_t> overlay_fragment_code;
-            std::vector<uint8_t> overlay_mesh_code;
-            std::vector<uint8_t> overlay_meshlet_code;
+            deren::utility::vessel::vector<uint8_t> overlay_fragment_code;
+            deren::utility::vessel::vector<uint8_t> overlay_mesh_code;
+            deren::utility::vessel::vector<uint8_t> overlay_meshlet_code;
             load_shader(shaders_dir, "overlay.frag.spv", overlay_fragment_code);
             load_shader(shaders_dir, "pbr.mesh.spv", overlay_mesh_code);
             load_shader(shaders_dir, "pbr.meshlet.spv", overlay_meshlet_code);
@@ -294,8 +295,8 @@ namespace deren::chores {
             // renders exactly the frame this port produced before ① landed - rather than drawing hulls with the
             // toon pipeline, which neither culls front faces nor tests with LESS_OR_EQUAL and would paint whole
             // shaded surfaces over the character.
-            std::vector<uint8_t> outline_fragment_code;
-            std::vector<uint8_t> outline_mesh_code;
+            deren::utility::vessel::vector<uint8_t> outline_fragment_code;
+            deren::utility::vessel::vector<uint8_t> outline_mesh_code;
             load_shader(shaders_dir, "outline.frag.spv", outline_fragment_code);
             load_shader(shaders_dir, "outline.mesh.spv", outline_mesh_code);
             runtime.register_shader("outline.frag.spv", outline_fragment_code);
@@ -311,7 +312,7 @@ namespace deren::chores {
             // attachment, which is nothing `runtime::make_pipeline`'s forward family describes), so there is no
             // named pipeline to create and no registration path of its own - the same arrangement the deferred
             // and TAA stages have.
-            std::vector<uint8_t> rim_fragment_code;
+            deren::utility::vessel::vector<uint8_t> rim_fragment_code;
             load_shader(shaders_dir, "toon_screen_rim.frag.spv", rim_fragment_code);
             runtime.register_shader("toon_screen_rim.frag.spv", rim_fragment_code);
         }
@@ -322,7 +323,7 @@ namespace deren::chores {
             // its pass builds its own pipeline in `create` and there is no named pipeline here. The two rims are
             // mutually exclusive at run time (the rewritten chain silences the article's), which is why both are
             // registered unconditionally and neither is a fallback for the other.
-            std::vector<uint8_t> goo_rim_fragment_code;
+            deren::utility::vessel::vector<uint8_t> goo_rim_fragment_code;
             load_shader(shaders_dir, "goo_rim.frag.spv", goo_rim_fragment_code);
             runtime.register_shader("goo_rim.frag.spv", goo_rim_fragment_code);
         }
@@ -332,7 +333,7 @@ namespace deren::chores {
             // above: the pass builds its own pipeline in its `create` step, from post.vert.spv (the synthetic
             // triangle, registered with the post chain below) and upscale.frag.spv - and that has to have happened
             // before create_passes(), which is where this registration sits.
-            std::vector<uint8_t> upscale_fragment_code;
+            deren::utility::vessel::vector<uint8_t> upscale_fragment_code;
             load_shader(shaders_dir, "upscale.frag.spv", upscale_fragment_code);
             runtime.register_shader("upscale.frag.spv", upscale_fragment_code);
         }
@@ -345,8 +346,8 @@ namespace deren::chores {
             //
             // THE SAMPLERS ARE THE DEVICE ROOT'S (`core::create_samplers`), so there is nothing to create here any
             // more - the app registers the two shaders the post chain's passes build from.
-            std::vector<uint8_t> vertex_code;
-            std::vector<uint8_t> fragment_code;
+            deren::utility::vessel::vector<uint8_t> vertex_code;
+            deren::utility::vessel::vector<uint8_t> fragment_code;
             load_shader(shaders_dir, "post.vert.spv", vertex_code);
             load_shader(shaders_dir, "post.frag.spv", fragment_code);
             runtime.register_shader("post.vert.spv", vertex_code);
@@ -363,8 +364,8 @@ namespace deren::chores {
             // The shadow pass is a PASS (deren.engine.pass.shadow): the app REGISTERS its two shaders and the pass builds
             // the depth-only pipeline itself, from them and the context's depth format - which is why there is no
             // make_* here any more. Optional: without the pipeline the scene simply renders without shadows.
-            std::vector<uint8_t> fragment_code;
-            std::vector<uint8_t> mesh_code;
+            deren::utility::vessel::vector<uint8_t> fragment_code;
+            deren::utility::vessel::vector<uint8_t> mesh_code;
             load_shader(shaders_dir, "shadow.frag.spv", fragment_code);
             runtime.register_shader("shadow.frag.spv", fragment_code);
             // ... and the MESH stage, which is the pass's ONLY geometry stage since step 4 (docs/mesh_shaders.md):
@@ -386,7 +387,7 @@ namespace deren::chores {
             // deren.engine.pass.cluster) - create_passes() below runs that step, and
             // the pass logs its own outcome. It has to be registered HERE, before that call, because a pass
             // created before its shader exists builds nothing and says so.
-            std::vector<uint8_t> compute_code;
+            deren::utility::vessel::vector<uint8_t> compute_code;
             load_shader(shaders_dir, "light_cluster.comp.spv", compute_code);
             runtime.register_shader("light_cluster.comp.spv", compute_code);
         }
@@ -396,14 +397,14 @@ namespace deren::chores {
             // opaque pass binds when it writes the G-buffer, and the fullscreen debug view that
             // turns one stored channel into a visible image. Both optional - without them
             // runtime::set_gbuffer_debug() has no effect and the opaque pass shades into the HDR target directly.
-            std::vector<uint8_t> fragment_code;
-            std::vector<uint8_t> mesh_code;
+            deren::utility::vessel::vector<uint8_t> fragment_code;
+            deren::utility::vessel::vector<uint8_t> mesh_code;
             load_shader(shaders_dir, "pbr.mesh.spv", mesh_code); // the G-buffer pass's geometry stage, and the only one it has
             load_shader(shaders_dir, "gbuffer.frag.spv", fragment_code);
             // ... and the MESHLET form (docs/mesh_shaders.md step 3): one workgroup per meshlet, camera-culled. The
             // runtime prefers it and falls back to the mesh form, which is now the pass's REQUIREMENT - its vertex
             // form went with the rest of the vertex geometry path (step 4).
-            std::vector<uint8_t> meshlet_code;
+            deren::utility::vessel::vector<uint8_t> meshlet_code;
             load_shader(shaders_dir, "pbr.meshlet.spv", meshlet_code);
             auto const gbuffer_result = runtime.make_gbuffer_pipeline(fragment_code, mesh_code, meshlet_code);
 
@@ -415,7 +416,7 @@ namespace deren::chores {
                 // choose between are the device root's now (`core::create_samplers`).
                 // ... AND THIS IS `post.vert.spv`, NOT A GEOMETRY STAGE: a synthetic fullscreen triangle, which is a
                 // vertex stage by nature and stays one (docs/mesh_shaders.md step 4 is about the geometry path).
-                std::vector<uint8_t> vertex_code;
+                deren::utility::vessel::vector<uint8_t> vertex_code;
                 load_shader(shaders_dir, "post.vert.spv", vertex_code);
                 load_shader(shaders_dir, "gbuffer_debug.frag.spv", fragment_code);
                 runtime.register_shader("post.vert.spv", vertex_code);
@@ -452,13 +453,13 @@ namespace deren::chores {
             //
             // IT IS A PASS: the app registers the shader and the pass builds its own compute pipeline
             // from it (see deren.engine.pass.megalights_trace) - `create_passes()` below runs that step.
-            std::vector<uint8_t> megalights_code;
+            deren::utility::vessel::vector<uint8_t> megalights_code;
             load_shader(shaders_dir, "megalights_trace.comp.spv", megalights_code);
             runtime.register_shader("megalights_trace.comp.spv", megalights_code);
             // ... and the chain's temporal resolve, required for the reason any two-pass chain requires its
             // second: what the lighting stage adds is the ACCUMULATION, so a chain whose resolve is missing has
             // nothing to add and runtime::megalights_active() stays false.
-            std::vector<uint8_t> megalights_temporal_code;
+            deren::utility::vessel::vector<uint8_t> megalights_temporal_code;
             load_shader(shaders_dir, "megalights_temporal.comp.spv", megalights_temporal_code);
             runtime.register_shader("megalights_temporal.comp.spv", megalights_temporal_code);
 
@@ -467,18 +468,18 @@ namespace deren::chores {
             // ray-tracing pipeline from them (see deren.engine.pass.ray_traced_shadow), and a pass created
             // before its shaders exist builds nothing and says so. Optional, and the builder refuses on a device
             // without a ray-tracing pipeline: without it the cascaded shadow maps keep running.
-            std::vector<uint8_t> rt_shadow_raygen_code;
+            deren::utility::vessel::vector<uint8_t> rt_shadow_raygen_code;
             load_shader(shaders_dir, "rt_shadow.rgen.spv", rt_shadow_raygen_code);
             runtime.register_shader("rt_shadow.rgen.spv", rt_shadow_raygen_code);
-            std::vector<uint8_t> rt_shadow_closest_hit_code;
+            deren::utility::vessel::vector<uint8_t> rt_shadow_closest_hit_code;
             load_shader(shaders_dir, "rt_shadow.rchit.spv", rt_shadow_closest_hit_code);
             runtime.register_shader("rt_shadow.rchit.spv", rt_shadow_closest_hit_code);
-            std::vector<uint8_t> rt_shadow_miss_code;
+            deren::utility::vessel::vector<uint8_t> rt_shadow_miss_code;
             load_shader(shaders_dir, "rt_shadow.rmiss.spv", rt_shadow_miss_code);
             runtime.register_shader("rt_shadow.rmiss.spv", rt_shadow_miss_code);
             // The any-hit stage: the second stage of the SAME hit group, and the only place an alphaMode MASK
             // surface can be told apart from its bounding triangles (see source/shaders/rt_shadow.rahit).
-            std::vector<uint8_t> rt_shadow_any_hit_code;
+            deren::utility::vessel::vector<uint8_t> rt_shadow_any_hit_code;
             load_shader(shaders_dir, "rt_shadow.rahit.spv", rt_shadow_any_hit_code);
             runtime.register_shader("rt_shadow.rahit.spv", rt_shadow_any_hit_code);
 
@@ -489,10 +490,10 @@ namespace deren::chores {
             // skinned caster's traced shadow is cast by its BIND POSE). Both are built by `create_passes()`
             // below, from the SAME context and the same resource channel every pass gets (see
             // deren.engine.pass.mask_bake and deren.engine.pass.compute_skin), so their shaders are registered here too.
-            std::vector<uint8_t> mask_bake_code;
+            deren::utility::vessel::vector<uint8_t> mask_bake_code;
             load_shader(shaders_dir, "mask_bake.comp.spv", mask_bake_code);
             runtime.register_shader("mask_bake.comp.spv", mask_bake_code);
-            std::vector<uint8_t> compute_skin_code;
+            deren::utility::vessel::vector<uint8_t> compute_skin_code;
             load_shader(shaders_dir, "compute_skin.comp.spv", compute_skin_code);
             runtime.register_shader("compute_skin.comp.spv", compute_skin_code);
 
@@ -502,19 +503,19 @@ namespace deren::chores {
             // four assumptions about the native path (a heap-flagged pipeline with NO layout, `descriptor_heap`
             // declarations, a sampler taken from the sampler heap, parameters through vkCmdPushDataEXT) cannot be
             // tested by a picture until the whole frame is converted.
-            std::vector<uint8_t> heap_probe_code;
+            deren::utility::vessel::vector<uint8_t> heap_probe_code;
             load_shader(shaders_dir, "heap_probe.comp.spv", heap_probe_code);
             runtime.register_shader("heap_probe.comp.spv", heap_probe_code);
             // ... and its GRAPHICS half: the same read through a graphics pipeline, which is a different question
             // (a fragment stage reading the heap, and a pipeline created with the flag and no layout).
-            std::vector<uint8_t> gaussian_vertex_code;
-            std::vector<uint8_t> gaussian_fragment_code;
+            deren::utility::vessel::vector<uint8_t> gaussian_vertex_code;
+            deren::utility::vessel::vector<uint8_t> gaussian_fragment_code;
             load_shader(shaders_dir, "gaussian_raster.vert.spv", gaussian_vertex_code);
             load_shader(shaders_dir, "gaussian_raster.frag.spv", gaussian_fragment_code);
             runtime.register_shader("gaussian_raster.vert.spv", gaussian_vertex_code);
             runtime.register_shader("gaussian_raster.frag.spv", gaussian_fragment_code);
-            std::array<std::vector<uint8_t>, 3> gaussian_compute_code;
-            std::array<std::string_view, 3> const gaussian_compute_names = {"gaussian_reset.comp.spv", "gaussian_prepare.comp.spv", "gaussian_finalize.comp.spv"};
+            deren::utility::vessel::array<deren::utility::vessel::vector<uint8_t>, 3> gaussian_compute_code;
+            deren::utility::vessel::array<std::string_view, 3> const gaussian_compute_names = {"gaussian_reset.comp.spv", "gaussian_prepare.comp.spv", "gaussian_finalize.comp.spv"};
             for (std::size_t i = 0; i < gaussian_compute_names.size(); ++i) {
                 load_shader(shaders_dir, gaussian_compute_names[i].data(), gaussian_compute_code[i]);
                 runtime.register_shader(gaussian_compute_names[i], gaussian_compute_code[i]);
@@ -536,21 +537,21 @@ namespace deren::chores {
                 }
             }
             if (auto const* enabled = std::getenv("DEREN_GAUSSIAN_GPU_PROBE"); enabled != nullptr && std::string_view{enabled} == "1") {
-                std::array<std::span<uint8_t const>, 3> const compute = {gaussian_compute_code[0], gaussian_compute_code[1], gaussian_compute_code[2]};
+                deren::utility::vessel::array<std::span<uint8_t const>, 3> const compute = {gaussian_compute_code[0], gaussian_compute_code[1], gaussian_compute_code[2]};
                 auto report = deren::engine::gaussian_splatting::run_raster_probe(runtime.rhi_face(), gaussian_vertex_code, gaussian_fragment_code, compute, true);
                 if (report) deren::utility::log("Gaussian GPU raster probe: PASS {} cases / {} pixels, maximum RGB error {}, depth max {} ULP, double-order differences {}", report->cases, report->pixels, report->maximum_error, report->maximum_depth_ulp, report->depth_order_differences);
                 else deren::utility::log("Gaussian GPU raster probe: FAIL {}", report.error().message);
             }
-            std::vector<uint8_t> heap_probe_vertex_code;
+            deren::utility::vessel::vector<uint8_t> heap_probe_vertex_code;
             load_shader(shaders_dir, "heap_probe.vert.spv", heap_probe_vertex_code);
             runtime.register_shader("heap_probe.vert.spv", heap_probe_vertex_code);
-            std::vector<uint8_t> heap_probe_fragment_code;
+            deren::utility::vessel::vector<uint8_t> heap_probe_fragment_code;
             load_shader(shaders_dir, "heap_probe.frag.spv", heap_probe_fragment_code);
             runtime.register_shader("heap_probe.frag.spv", heap_probe_fragment_code);
             // ... and its MESH half (docs/mesh_shaders.md step 0): the same triangle, emitted by a mesh stage
             // through a heap-native pipeline. A mesh stage is a different stage type, so this binary has a name
             // of its own rather than replacing the vertex one.
-            std::vector<uint8_t> heap_probe_mesh_code;
+            deren::utility::vessel::vector<uint8_t> heap_probe_mesh_code;
             load_shader(shaders_dir, "heap_probe.mesh.spv", heap_probe_mesh_code);
             runtime.register_shader("heap_probe.mesh.spv", heap_probe_mesh_code);
 
@@ -566,12 +567,12 @@ namespace deren::chores {
         if (grid_side <= 1) {
             return;
         }
-        std::vector<deren::engine::primitive const*> const pbr_primitives = runtime.get_primitives("pbr");
+        deren::utility::vessel::vector<deren::engine::primitive const*> const pbr_primitives = runtime.get_primitives("pbr");
         if (pbr_primitives.empty()) {
             return;
         }
         deren::engine::primitive const& source = *pbr_primitives[0];
-        std::vector<glm::mat4> transforms;
+        deren::utility::vessel::vector<glm::mat4> transforms;
         transforms.reserve(static_cast<size_t>(grid_side) * grid_side);
         float const spacing = 2.5f * scene_radius; // keep instances apart: measure draw scaling, not overdraw
         for (int32_t i = 0; i < grid_side; ++i) {
@@ -596,21 +597,22 @@ namespace deren::chores {
                    deren::app_config::app_settings const& settings,
                    gui_bindings& bindings,
                    deren::engine::animation::controller& animation,
-                   std::vector<std::string> const& camera_names,
+                   deren::utility::vessel::vector<deren::utility::vessel::string> const& camera_names,
                    std::function<void(int32_t)> const& on_camera_selected) {
         if (!use_gui) {
             return;
         }
+        // GUI ABI3 owns vessel strings and containers, matching the application.
         runtime.enable_debug_gui();
         deren::gui::panel& panel = runtime.debug_gui().add_panel("deren debug");
         panel.set_default_size(settings.gui.panel_width, settings.gui.panel_height);
-        panel.add_label([&bindings] { return std::format("fps: {:>6.1f}", bindings.fps); }); // fixed-width field: a growing number must not re-wrap the panel
+        panel.add_label([&bindings] { return deren::utility::vessel::format("fps: {:>6.1f}", bindings.fps); }); // fixed-width field: a growing number must not re-wrap the panel
         // per-pass GPU milliseconds (runtime::gpu_timing_summary): the timing that steers the
         // renderer's performance work, so it sits with the fps line at the top of the panel
-        panel.add_label([&runtime] { return runtime.gpu_timing_summary(); });
+        panel.add_label([&runtime] { return deren::utility::vessel::string(runtime.gpu_timing_summary()); });
         // ... and the CPU phases next to it: above a few hundred fps the frame is CPU/pacing-bound,
         // so the GPU line alone no longer explains the frame time (see runtime::cpu_phase).
-        panel.add_label([&runtime] { return runtime.cpu_timing_summary(); });
+        panel.add_label([&runtime] { return deren::utility::vessel::string(runtime.cpu_timing_summary()); });
         panel.add_checkbox(
             "frustum culling",
             &bindings.cull_enabled,
@@ -637,7 +639,7 @@ namespace deren::chores {
         {
             // deferred-only, via the feature registry
             panel.add_checkbox("ssao", &bindings.ssao_enabled).set_visible_when([&runtime] { return runtime.feature_available("deferred"); });
-            auto make_ssao_slider = [&](std::string label, float* value, float lo, float hi) {
+            auto make_ssao_slider = [&](deren::utility::vessel::string label, float* value, float lo, float hi) {
                 panel.add_slider(std::move(label), value, lo, hi).set_visible_when([&bindings] { return bindings.ssao_enabled; });
             };
             make_ssao_slider("ssao radius", &bindings.ssao_radius, 0.05f, 3.0f);
@@ -669,19 +671,19 @@ namespace deren::chores {
         // not be mutated while a frame records).
         panel.add_combo(
             "render mode",
-            std::vector<std::string>{"pbr (lit)", "unlit (flat)"},
+            deren::utility::vessel::vector<deren::utility::vessel::string>{"pbr (lit)", "unlit (flat)"},
             &bindings.render_mode);
         // selectable BRDF theory models (pbr.frag): preset 0 is the default GGX + joint-Smith;
         // each other preset differs by exactly one piece (NDF or visibility), so the gui is a
         // live A/B comparison. CPU-side write-through (safe mid-run, see runtime::set_brdf_model).
         panel.add_combo(
             "brdf model",
-            std::vector<std::string>{"GGX + joint Smith", "GGX + height-corr. Smith", "Beckmann + Smith", "Blinn-Phong + Smith"},
+            deren::utility::vessel::vector<deren::utility::vessel::string>{"GGX + joint Smith", "GGX + height-corr. Smith", "Beckmann + Smith", "Blinn-Phong + Smith"},
             &bindings.brdf_model,
             [&runtime](int32_t const index) { runtime.set_brdf_model(index); });
         panel.add_combo(
             "diffuse model",
-            std::vector<std::string>{"Lambert", "Oren-Nayar"},
+            deren::utility::vessel::vector<deren::utility::vessel::string>{"Lambert", "Oren-Nayar"},
             &bindings.diffuse_model,
             [&runtime](int32_t const index) { runtime.set_diffuse_model(index); });
         // linear exposure applied before tonemapping (pbr.frag + skybox.frag); main pushes it
@@ -694,7 +696,7 @@ namespace deren::chores {
         panel.add_checkbox("bloom", &bindings.bloom_enabled);
         // the two knobs only matter while the chain runs (main pushes a 0 intensity when the box is clear)
         {
-            auto bloom_knob = [&](std::string label, float* value, float lo, float hi) {
+            auto bloom_knob = [&](deren::utility::vessel::string label, float* value, float lo, float hi) {
                 panel.add_slider(std::move(label), value, lo, hi).set_visible_when([&bindings] { return bindings.bloom_enabled; });
             };
             bloom_knob("bloom intensity", &bindings.bloom_intensity, 0.0f, 3.0f);
@@ -707,7 +709,7 @@ namespace deren::chores {
         panel.add_checkbox("fxaa", &bindings.fxaa_enabled);
         {
             // the knobs only matter while FXAA is on (and while the fxaa pipeline exists at all)
-            auto make_fxaa_slider = [&](std::string label, float* value, float lo, float hi) {
+            auto make_fxaa_slider = [&](deren::utility::vessel::string label, float* value, float lo, float hi) {
                 panel.add_slider(std::move(label), value, lo, hi).set_visible_when([&bindings] { return bindings.fxaa_enabled; });
             };
             make_fxaa_slider("fxaa subpixel", &bindings.fxaa_subpixel, 0.0f, 1.0f);
@@ -721,7 +723,7 @@ namespace deren::chores {
 
             panel.add_combo(
                      "gbuffer channel",
-                     std::vector<std::string>{"albedo", "normal", "roughness", "metallic", "ao", "material id", "depth", "flags", "motion"},
+                     deren::utility::vessel::vector<deren::utility::vessel::string>{"albedo", "normal", "roughness", "metallic", "ao", "material id", "depth", "flags", "motion"},
                      &bindings.gbuffer_channel)
                 .set_visible_when([&bindings] { return bindings.gbuffer_debug; });
         }
@@ -733,7 +735,7 @@ namespace deren::chores {
         {
             // deferred-only, via the feature registry
             panel.add_checkbox("taa", &bindings.taa_enabled).set_visible_when([&runtime] { return runtime.feature_available("taa"); });
-            auto make_taa_slider = [&](std::string label, float* value, float lo, float hi) {
+            auto make_taa_slider = [&](deren::utility::vessel::string label, float* value, float lo, float hi) {
                 panel.add_slider(std::move(label), value, lo, hi).set_visible_when([&bindings] { return bindings.taa_enabled; });
             };
             make_taa_slider("taa history (static)", &bindings.taa_blend_static, 0.0f, 0.98f);
@@ -758,7 +760,7 @@ namespace deren::chores {
         // Softness stays small - a wide band edge erases the steps entirely.
         panel.add_combo(
             "toon shading",
-            std::vector<std::string>{"off (plain pbr)", "2 bands (hardest)", "3 bands", "4 bands", "5 bands", "6 bands", "8 bands (softest)"},
+            deren::utility::vessel::vector<deren::utility::vessel::string>{"off (plain pbr)", "2 bands (hardest)", "3 bands", "4 bands", "5 bands", "6 bands", "8 bands (softest)"},
             &bindings.toon_bands_index);
         panel.add_slider("toon softness", &bindings.toon_softness, 0.01f, 0.25f);
         panel.add_slider("sun intensity", &bindings.sun_intensity, 0.0f, 3.0f);
@@ -769,10 +771,10 @@ namespace deren::chores {
         // looking at" and "how tall is this group" are both answered here instead of by scrolling past
         // thirty-six rows to find the one light that is on.
         {
-            std::vector<std::string> light_items;
+            deren::utility::vessel::vector<deren::utility::vessel::string> light_items;
             light_items.reserve(std::size(bindings.point_lights));
             for (std::size_t i = 0; i < std::size(bindings.point_lights); ++i) {
-                light_items.push_back(std::format("punctual light {}", i + 1));
+                light_items.push_back(deren::utility::vessel::format("punctual light {}", i + 1));
             }
             panel.add_combo("punctual light", std::move(light_items), &bindings.active_light);
         }
@@ -823,7 +825,7 @@ namespace deren::chores {
         // pick which animation plays. All playback state lives in the animation::controller.
         if (animation.has_active()) {
             panel.add_label([&animation] {
-                return std::format("animation '{}' ({}s)", animation.active_name(), animation.loop_duration());
+                return deren::utility::vessel::format("animation '{}' ({}s)", animation.active_name(), animation.loop_duration());
             });
             panel.add_checkbox(
                 "play",
@@ -838,10 +840,10 @@ namespace deren::chores {
                     animation.set_time(value); // scrubbing pauses so the clock does not fight the drag
                 });
             if (animation.playable_count() > 1) {
-                std::vector<std::string> names;
+                deren::utility::vessel::vector<deren::utility::vessel::string> names;
                 names.reserve(animation.playable_count());
                 for (std::size_t i = 0; i < animation.playable_count(); ++i) {
-                    names.push_back(std::string(animation.playable_name(i)));
+                    names.push_back(deren::utility::vessel::string(animation.playable_name(i)));
                 }
                 panel.add_combo(
                     "animation",
@@ -854,7 +856,7 @@ namespace deren::chores {
         // camera selector: "orbit" (free) or any scene camera (its pose seeds the orbit camera,
         // so the mouse keeps working after switching)
         if (!camera_names.empty()) {
-            std::vector<std::string> items;
+            deren::utility::vessel::vector<deren::utility::vessel::string> items;
             items.reserve(camera_names.size() + 1);
             items.push_back("orbit");
             items.insert(items.end(), camera_names.begin(), camera_names.end());
@@ -871,7 +873,7 @@ namespace deren::chores {
         // shader constant in the light UBO - no pipeline or image rebuild, so they are live.
         panel.add_combo(
             "shadow cascades",
-            std::vector<std::string>{"1 (single map)", "2", "3", "4"},
+            deren::utility::vessel::vector<deren::utility::vessel::string>{"1 (single map)", "2", "3", "4"},
             &bindings.shadow_cascades,
             [&runtime](int32_t const index) { runtime.set_shadow_cascades(static_cast<uint32_t>(index) + 1u); });
         panel.add_slider(
@@ -912,7 +914,7 @@ namespace deren::chores {
         // `extra` is the [lighting] demo_lights stress set (M5), appended after the overlay's slots
         // so the overlay keeps working - both share the UBO's light array, so the overlay's slots
         // win when the two together would overflow it.
-        std::array<deren::engine::punctual_light, deren::engine::max_punctual_lights> active = {};
+        deren::utility::vessel::array<deren::engine::punctual_light, deren::engine::max_punctual_lights> active = {};
         uint32_t count = 0;
         for (gui_bindings::light_slot const& slot : bindings.point_lights) {
             if (!slot.enabled || count >= deren::engine::max_punctual_lights) {

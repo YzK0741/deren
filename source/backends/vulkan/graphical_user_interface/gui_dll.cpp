@@ -11,12 +11,11 @@
 // ============================================================================
 module;
 
-#include "panel_adapter_storage.hpp"
-
 #include <GLFW/glfw3.h>
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <list>
 #include <memory>
 #include <string>
 #include <utility>
@@ -24,12 +23,14 @@ module;
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.graphical_user_interface;
+import deren.utility.shared;
 
 import deren.promise.gui;
 
 import deren.utility;
 
 #include "../../../promise/gui/gui_entry.hpp"
+#include "panel_adapter_storage.hpp"
 
 namespace deren::vulkan::gui {
     namespace {
@@ -62,22 +63,22 @@ namespace deren::vulkan::gui {
                 return this->panel;
             }
 
-            deren::gui::widget& add_label(std::string text) override {
+            deren::gui::widget& add_label(deren::utility::vessel::string text) override {
                 return this->keep(std::make_unique<label_widget>(std::move(text)));
             }
-            deren::gui::widget& add_label(std::function<std::string()> text) override {
+            deren::gui::widget& add_label(std::function<deren::utility::vessel::string()> text) override {
                 return this->keep(std::make_unique<label_widget>(std::move(text)));
             }
-            deren::gui::widget& add_checkbox(std::string label, bool* value, std::function<void(bool)> on_change) override {
+            deren::gui::widget& add_checkbox(deren::utility::vessel::string label, bool* value, std::function<void(bool)> on_change) override {
                 return this->keep(std::make_unique<checkbox_widget>(std::move(label), value, std::move(on_change)));
             }
-            deren::gui::widget& add_slider(std::string label, float* value, float min, float max, std::function<void(float)> on_change) override {
+            deren::gui::widget& add_slider(deren::utility::vessel::string label, float* value, float min, float max, std::function<void(float)> on_change) override {
                 return this->keep(std::make_unique<slider_widget>(std::move(label), value, min, max, std::move(on_change)));
             }
-            deren::gui::widget& add_vec3(std::string label, float* value, float speed, std::function<void()> on_change) override {
+            deren::gui::widget& add_vec3(deren::utility::vessel::string label, float* value, float speed, std::function<void()> on_change) override {
                 return this->keep(std::make_unique<vec3_widget>(std::move(label), value, speed, std::move(on_change)));
             }
-            deren::gui::widget& add_combo(std::string label, std::vector<std::string> items, std::int32_t* current_item, std::function<void(std::int32_t)> on_change) override {
+            deren::gui::widget& add_combo(deren::utility::vessel::string label, deren::utility::vessel::vector<deren::utility::vessel::string> items, std::int32_t* current_item, std::function<void(std::int32_t)> on_change) override {
                 return this->keep(std::make_unique<combo_widget>(std::move(label), std::move(items), current_item, std::move(on_change)));
             }
 
@@ -91,7 +92,7 @@ namespace deren::vulkan::gui {
                 return this->panel->size();
             }
 
-            [[nodiscard]] std::string const& title() const noexcept override {
+            [[nodiscard]] deren::utility::vessel::string const& title() const noexcept override {
                 return this->panel->get_title();
             }
             void set_open(bool open) noexcept override {
@@ -115,7 +116,7 @@ namespace deren::vulkan::gui {
             }
 
             debug_panel* panel = nullptr;
-            std::deque<widget_adapter> widgets;
+            deren::utility::vessel::deque<widget_adapter> widgets;
         };
 
         /// THE OVERLAY, AS THE BOUNDARY SPEAKS IT: one `gui_content` (unchanged) plus the panel adapters this
@@ -196,7 +197,7 @@ namespace deren::vulkan::gui {
                 return this->content.wants_mouse();
             }
 
-            deren::gui::panel& add_panel(std::string title) override {
+            deren::gui::panel& add_panel(deren::utility::vessel::string title) override {
                 this->panels.emplace_back(this->content.add_panel(std::move(title)));
                 return this->panels.back();
             }

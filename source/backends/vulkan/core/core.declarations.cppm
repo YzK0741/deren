@@ -15,7 +15,7 @@
 // ============================================================================
 // ============================================================================
 // module: deren.vulkan.core
-// module version: 0.24.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // GPU scaffolding: instance / device / swapchain / VMA / pipeline / descriptor
 // plumbing (core.vma / core.pipeline / core.filter / core.init_utils submodules
@@ -40,6 +40,7 @@ module;
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.core:declarations;
+export import deren.utility.shared;
 import deren.utility;
 export import deren.vstd;
 export import deren.vulkan.core.handles;
@@ -184,8 +185,8 @@ namespace deren::vulkan {
      *       (the anti-aliasing story is TAA/FXAA on the lit image instead).
      * @note the values themselves moved to `deren.engine.render_layout` with `hdr_format` (A1.0).
      */
-    export inline constexpr std::array<VkFormat, gbuffer_target_count> gbuffer_formats = [] {
-        std::array<VkFormat, gbuffer_target_count> formats{};
+    export inline constexpr deren::utility::vessel::array<VkFormat, gbuffer_target_count> gbuffer_formats = [] {
+        deren::utility::vessel::array<VkFormat, gbuffer_target_count> formats{};
         for (std::size_t i = 0; i < formats.size(); ++i) {
             formats[i] = native_render_format(deren::engine::render_layout::gbuffer_formats[i]);
         }
@@ -243,8 +244,8 @@ namespace deren::vulkan {
      *       @p mark_count marks yields mark_count - 1 durations
      */
     export struct gpu_timing_result {
-        std::array<double, gpu_timing_mark_capacity> milliseconds = {}; // elapsed per consecutive mark pair
-        uint32_t mark_count = 0;                                        // marks the frame wrote (0 = no measurement)
+        deren::utility::vessel::array<double, gpu_timing_mark_capacity> milliseconds = {}; // elapsed per consecutive mark pair
+        uint32_t mark_count = 0;                                                           // marks the frame wrote (0 = no measurement)
     };
 
     /**
@@ -314,8 +315,8 @@ namespace deren::vulkan {
             bool simultaneous_use = false;
             bool one_time_submit = false;
             owned_pipeline const* bound_pipeline = nullptr;
-            std::vector<deren::promise::rhi::texture_group_ref> group_refs;
-            std::vector<std::shared_ptr<owned_command_buffer>> secondary_refs;
+            deren::utility::vessel::vector<deren::promise::rhi::texture_group_ref> group_refs;
+            deren::utility::vessel::vector<std::shared_ptr<owned_command_buffer>> secondary_refs;
             [[nodiscard]] deren::promise::rhi::error load_texture_group(deren::promise::rhi::texture_group_ref const& group) override;
             /// `use()` ANSWERS with an `error` now (it does not drop a barrier silently); this flag is only
             /// about how often the backend spells out the REASON for a refusal, so a per-frame caller
@@ -381,7 +382,7 @@ namespace deren::vulkan {
             [[nodiscard]] deren::promise::rhi::error barrier(deren::promise::rhi::image_barrier const& one) override;
             [[nodiscard]] deren::promise::rhi::error copy_image(deren::promise::rhi::image_copy const& copy) override;
             [[nodiscard]] deren::promise::rhi::error copy_buffer(deren::promise::rhi::buffer& destination, deren::promise::rhi::buffer const& source, std::uint64_t size, std::uint64_t source_offset, std::uint64_t destination_offset) override;
-            [[nodiscard]] deren::promise::rhi::error clear_color_image(deren::promise::rhi::image const& target, std::array<float, 4> const& color, deren::promise::rhi::subresource_range const& range) override;
+            [[nodiscard]] deren::promise::rhi::error clear_color_image(deren::promise::rhi::image const& target, deren::utility::vessel::array<float, 4> const& color, deren::promise::rhi::subresource_range const& range) override;
         };
 
         /// A command buffer the caller OWNS, as the contract's `command_buffer` (abi 15).
@@ -527,8 +528,8 @@ namespace deren::vulkan {
             /// is still host-known, so the getters can name the failure instead of reporting silence).
             std::uint32_t latched_mark_count = 0;
             bool latch_failed = false;
-            std::array<std::uint64_t, gpu_timing_mark_capacity> latched_ticks = {};
-            std::array<std::string_view, gpu_timing_mark_capacity> latched_names = {};
+            deren::utility::vessel::array<std::uint64_t, gpu_timing_mark_capacity> latched_ticks = {};
+            deren::utility::vessel::array<std::string_view, gpu_timing_mark_capacity> latched_names = {};
 
             /// latch what THIS slot's last completed submission measured (no new submission since the
             /// previous latch => the snapshot stays as it was). Called between the slot's timeline
@@ -645,14 +646,14 @@ namespace deren::vulkan {
             /// WHAT IT WAS CREATED AS: the geometry the driver's build reads, or the instances the caller writes
             bool top_level = false;
             bool refittable = false;
-            std::vector<VkAccelerationStructureGeometryKHR> geometries = {};
+            deren::utility::vessel::vector<VkAccelerationStructureGeometryKHR> geometries = {};
             /// THE MICROMAP ATTACHMENTS, one per geometry that consults one. `reserve()`d to the geometry count
             /// before the geometries are built, because a geometry's `triangles.pNext` points INTO this vector and
             /// the build reads it later, at record time: a reallocation would leave that pointer dangling, and the
             /// failure mode is a traversal consulting freed memory rather than a compile error.
-            std::vector<VkAccelerationStructureTrianglesOpacityMicromapEXT> micromap_attachments = {};
+            deren::utility::vessel::vector<VkAccelerationStructureTrianglesOpacityMicromapEXT> micromap_attachments = {};
             /// One range per geometry, in the same order as geometries.
-            std::vector<VkAccelerationStructureBuildRangeInfoKHR> ranges = {};
+            deren::utility::vessel::vector<VkAccelerationStructureBuildRangeInfoKHR> ranges = {};
             /// TOP LEVEL: the instance records, in the backend's own host-visible buffer
             deren::promise::rhi::buffer* instances = nullptr;
             void* instances_mapped = nullptr;
@@ -946,7 +947,7 @@ namespace deren::vulkan {
         // through the device and its pool, and a `vk_buffer` through VMA's allocator - both are gone by
         // the time member destructors run, because do_cleanup() destroys them from the destructor BODY.
         // A cleanup registered last runs first (do_cleanup is LIFO) and empties these two.
-        std::vector<vk_command_buffer> frame_command_buffers;
+        deren::utility::vessel::vector<vk_command_buffer> frame_command_buffers;
         /// the recording view `begin_commands()` answers with (one object, reused every frame)
         frame_commands commands_view;
         /// the two frame-domain views `frame_image()` / `frame_readback_buffer()` answer with
@@ -964,32 +965,32 @@ namespace deren::vulkan {
         frame_escape escape_view;
         frame_heap heap_view;
         std::mutex contract_images_mutex;
-        std::unordered_set<deren::promise::rhi::image const*> contract_images;
+        deren::utility::vessel::unordered_set<deren::promise::rhi::image const*> contract_images;
         struct texture_group_state {
             static constexpr std::uint32_t table_slot = 17664;
             static constexpr std::uint32_t texture_base = 17665;
             std::mutex mutex;
             bool gpu_ready = false;
-            std::unordered_set<deren::promise::rhi::texture_group const*> live_groups;
+            deren::utility::vessel::unordered_set<deren::promise::rhi::texture_group const*> live_groups;
             VkDeviceSize reserved_offset = VK_WHOLE_SIZE;
             deren::promise::rhi::object_manager<deren::promise::rhi::buffer> records;
             deren::promise::rhi::object_manager<deren::promise::rhi::image> dummy_image;
             deren::promise::rhi::object_manager<deren::promise::rhi::image_view> dummy_view;
-            std::array<bool, 1024> groups{};
+            deren::utility::vessel::array<bool, 1024> groups{};
             // Slot 0 is reserved for the dummy descriptor.
-            std::array<bool, 2048> views{};
+            deren::utility::vessel::array<bool, 2048> views{};
             struct sampled_view_lease {
                 texture_group_state* state = nullptr;
                 std::uint32_t slot = 0;
                 deren::promise::rhi::object_manager<deren::promise::rhi::image_view> view;
                 ~sampled_view_lease() noexcept;
             };
-            std::unordered_map<deren::promise::rhi::image const*, std::weak_ptr<sampled_view_lease>> cache;
+            deren::utility::vessel::unordered_map<deren::promise::rhi::image const*, std::weak_ptr<sampled_view_lease>> cache;
         };
         struct texture_group_record {
-            std::array<std::uint32_t, 16> indices{};
+            deren::utility::vessel::array<std::uint32_t, 16> indices{};
             std::uint32_t present_mask = 0;
-            std::array<std::uint32_t, 3> padding{};
+            deren::utility::vessel::array<std::uint32_t, 3> padding{};
         };
         static_assert(sizeof(texture_group_record) == 80);
         static_assert(offsetof(texture_group_record, present_mask) == 64);
@@ -998,7 +999,7 @@ namespace deren::vulkan {
                 : deren::promise::rhi::texture_group("deren_texture_group_vulkan") {
             }
             core* owner = nullptr;
-            std::array<std::shared_ptr<texture_group_state::sampled_view_lease>, 16> views{};
+            deren::utility::vessel::array<std::shared_ptr<texture_group_state::sampled_view_lease>, 16> views{};
             texture_group_record record{};
             std::uint32_t allocation = 1024;
             ~owned_texture_group() noexcept override;
@@ -1015,13 +1016,13 @@ namespace deren::vulkan {
             VkSemaphore timeline = VK_NULL_HANDLE;
             std::uint64_t value = 0;
             std::shared_ptr<owned_command_buffer> primary;
-            std::vector<deren::promise::rhi::texture_group_ref> groups;
-            std::vector<std::shared_ptr<owned_command_buffer>> secondaries;
+            deren::utility::vessel::vector<deren::promise::rhi::texture_group_ref> groups;
+            deren::utility::vessel::vector<std::shared_ptr<owned_command_buffer>> secondaries;
             bool submitted = false;
             ~pending_submission() noexcept;
         };
         mutable std::mutex submissions_mutex;
-        mutable std::vector<std::unique_ptr<pending_submission>> pending_submissions;
+        mutable deren::utility::vessel::vector<std::unique_ptr<pending_submission>> pending_submissions;
         void poll_submissions(bool all = false) const noexcept;
         [[nodiscard]] std::shared_ptr<owned_command_buffer> retain_command(owned_command_buffer& command, bool recorded_secondary);
         /// THE COMMAND BUFFERS `create_command_buffer()` HANDED OUT (abi 15), the same registry shape
@@ -1030,7 +1031,7 @@ namespace deren::vulkan {
         /// casting the caller's pointer (the cast is only defined once provenance is known). Erased by
         /// `owned_command_buffer::release()`.
         std::mutex contract_command_buffers_mutex;
-        std::unordered_set<deren::promise::rhi::command_buffer const*> contract_command_buffers;
+        deren::utility::vessel::unordered_set<deren::promise::rhi::command_buffer const*> contract_command_buffers;
         /// the tier-2 address object `query_extension(device_address)` answers with
         struct frame_gpu_sorting final : deren::promise::rhi::gpu_sorting {
             frame_gpu_sorting() noexcept
@@ -1064,7 +1065,7 @@ namespace deren::vulkan {
         frame_device_capabilities capabilities_view;
         frame_shader_group_access shader_groups_view;
         std::mutex contract_pipelines_mutex;
-        std::unordered_set<deren::promise::rhi::pipeline const*> contract_pipelines;
+        deren::utility::vessel::unordered_set<deren::promise::rhi::pipeline const*> contract_pipelines;
         /// the read-back slot's allocation and its cached handle / mapping / capacity: host-visible,
         /// host-coherent and TRANSFER_DST, grown on demand (see frame_readback_buffer())
         vk_buffer readback_slot_buffer;
@@ -1074,8 +1075,8 @@ namespace deren::vulkan {
         /// the extension names this context ENABLED, in this core's own storage (the escape's guard
         /// rail: a pass checks the extension it wants is in here BEFORE it resolves an entry point).
         /// Filled once at construction; the names are literals, so the pointers stay valid.
-        std::vector<char const*> instance_extension_names;
-        std::vector<char const*> device_extension_names;
+        deren::utility::vessel::vector<char const*> instance_extension_names;
+        deren::utility::vessel::vector<char const*> device_extension_names;
         /// true between the ACQUIRE of a frame and the SUBMIT that hands it to the queue: it is the window
         /// `begin_commands()`, `use()`, `copy_image_to_buffer()` and `native_command_buffer()` answer in
         /// (nullptr, or `error::not_ready`, outside it)
@@ -1310,7 +1311,7 @@ namespace deren::vulkan {
         uint32_t graphics_queue_family = VK_QUEUE_FAMILY_IGNORED;
 
         VkSwapchainKHR swap_chain = {};
-        std::vector<VkImage> swap_chain_images = {};
+        deren::utility::vessel::vector<VkImage> swap_chain_images = {};
         VkFormat swap_chain_image_format = {};
         ::deren::promise::rhi::image_extent swap_chain_extent = {};
         /// the swapchain image the contract's frame_begin() acquired (vkAcquireNextImageKHR), i.e. what
@@ -1361,7 +1362,7 @@ namespace deren::vulkan {
         // G-buffer cannot be multisampled without per-sample shading, so the scene has always
         // rendered at 1x, and with no second path there is nothing left for the setting to select.
         // The anti-aliasing story is TAA (and FXAA) on the shaded image instead.
-        std::vector<VkImageView> swap_chain_image_views = {};
+        deren::utility::vessel::vector<VkImageView> swap_chain_image_views = {};
 
         VkFormat color_format = VK_FORMAT_UNDEFINED;
         // ---- THE RENDER CHAIN'S TARGETS ARE THE ENGINE'S (③-D/E A1.1-A1.7) ---------------------------
@@ -1380,9 +1381,9 @@ namespace deren::vulkan {
         // called depth_attachment_format, not depth_format: make_depth_pipeline keeps a parameter named
         // depth_format, which would hide the member of that name and MSVC /W4 reports C4458 (an error under /WX).
         VkFormat depth_attachment_format = {};
-        std::vector<VkImage> depth_images = {};
-        std::vector<VkDeviceMemory> depth_image_memories = {};
-        std::vector<VkImageView> depth_image_views = {};
+        deren::utility::vessel::vector<VkImage> depth_images = {};
+        deren::utility::vessel::vector<VkDeviceMemory> depth_image_memories = {};
+        deren::utility::vessel::vector<VkImageView> depth_image_views = {};
 
         // NOTE: there is deliberately no `command_pool` member beside the frame command buffers below.
         // Each `vk_command_buffer` OWNS ITS OWN pool (handles/handles.cppm): the shared pool was the
@@ -1422,7 +1423,7 @@ namespace deren::vulkan {
          * @note index 0 texture (linear, repeat mips), 1 post (linear, clamp, one mip), 2 gbuffer (nearest, clamp),
          *       3 post-nearest (nearest, clamp), 4 taa (linear mag / nearest min, clamp), 5 shadow (depth compare).
          */
-        std::array<VkSamplerCreateInfo, 6> shared_sampler_infos = {};
+        deren::utility::vessel::array<VkSamplerCreateInfo, 6> shared_sampler_infos = {};
 
         vma_allocator vma = {};
         /// the device-wide descriptor heap (see source/backends/vulkan/core/descriptor_heap): one resource heap and one
@@ -1489,10 +1490,10 @@ namespace deren::vulkan {
         //   - frame_done_semaphores / frame_done_values: TIMELINE, per frame slot, counting
         //     submissions — submit() signals it (GPU completion), wait_frame_slot() is the host
         //     pacing wait that used to be vkWaitForFences
-        std::vector<VkSemaphore> image_available_semaphores = {}; // binary, per frame slot (acquire)
-        std::vector<VkSemaphore> present_ready_semaphores = {};   // binary, per swapchain image (present wait)
-        std::vector<VkSemaphore> frame_done_semaphores = {};      // timeline, per frame slot
-        std::vector<uint64_t> frame_done_values = {};             // last signaled value per slot (host bookkeeping)
+        deren::utility::vessel::vector<VkSemaphore> image_available_semaphores = {}; // binary, per frame slot (acquire)
+        deren::utility::vessel::vector<VkSemaphore> present_ready_semaphores = {};   // binary, per swapchain image (present wait)
+        deren::utility::vessel::vector<VkSemaphore> frame_done_semaphores = {};      // timeline, per frame slot
+        deren::utility::vessel::vector<uint64_t> frame_done_values = {};             // last signaled value per slot (host bookkeeping)
 
         size_t current_frame = 0;
 
@@ -1537,15 +1538,15 @@ namespace deren::vulkan {
         // marks the CURRENT recording of each slot has written (reset by begin_gpu_timing). Also
         // read back as "how many queries to fetch" for the submission that just completed, because
         // a slot is only read after it was paced and before it is recorded again.
-        std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> gpu_timing_marks = {};
+        deren::utility::vessel::array<uint32_t, MAX_FRAMES_IN_FLIGHT> gpu_timing_marks = {};
         // the static names the engine's marks carry (the frame face's name channel, abi 13): mark i
         // of slot s stores the caller's text here, and the profiler's latched snapshot reports it
         // verbatim. THE TEXT MUST OUTLIVE THE FRAME - a literal (the same rule as `window_title`);
         // the backend only stores the view, never the characters.
-        std::array<std::array<std::string_view, gpu_timing_mark_capacity>, MAX_FRAMES_IN_FLIGHT> gpu_timing_names = {};
+        deren::utility::vessel::array<deren::utility::vessel::array<std::string_view, gpu_timing_mark_capacity>, MAX_FRAMES_IN_FLIGHT> gpu_timing_names = {};
         // frame_done value each slot's timings were last read for: a slot is read at most once per
         // submission, so a frame that hits an early return cannot fetch the same results twice
-        std::array<uint64_t, MAX_FRAMES_IN_FLIGHT> gpu_timing_read_value = {};
+        deren::utility::vessel::array<uint64_t, MAX_FRAMES_IN_FLIGHT> gpu_timing_read_value = {};
 
         /**
          * @ingroup vulkan_core

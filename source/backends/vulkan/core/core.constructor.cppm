@@ -30,9 +30,9 @@ module;
 #include <vulkan/vulkan.h>
 
 // LOAD-BEARING, and it is the same trap chores.cpp documents at length: with -fno-exceptions and the vendored
-// std module, a TU that instantiates std::vector sees TWO 'operator new(size_t, align_val_t)' declarations -
+// std module, a TU that instantiates deren::utility::vessel::vector sees TWO 'operator new(size_t, align_val_t)' declarations -
 // module std's and the textual libc++ copy baked into utility:data_block.pcm - and resolves neither, which is
-// "call to operator new is ambiguous" at allocate.h. This file instantiates plenty of std::vector (the device
+// "call to operator new is ambiguous" at allocate.h. This file instantiates plenty of deren::utility::vessel::vector (the device
 // extension-name list, the descriptor pool sizes), and it began seeing both the moment deren.vulkan.core gained an
 // import edge it did not have before: descriptor_heap, whose own module carries a textual Vulkan header in its
 // global module fragment. Textually including glm here makes clang MERGE the two copies, exactly as it does for
@@ -92,7 +92,7 @@ namespace {
 
         if (deren::vulkan::covered_by(declared, offsetof(rhi_create_info, window_title), sizeof(rhi_create_info::window_title)) && desc.window_title != nullptr) {
             // A NULL POINTER KEEPS THE DEFAULT rather than being stored: the title is `char const*`
-            // (a std::string cannot cross the boundary) and a null one is not an empty title but the
+            // (a deren::utility::vessel::string cannot cross the boundary) and a null one is not an empty title but the
             // absence of an answer. The pointer itself is BORROWED until the constructor returns -
             // `init_window` hands it to GLFW, which copies it into the window - so nothing here keeps
             // it: `create_options` holds the pointer and the note on that member says why it is never
@@ -378,7 +378,7 @@ namespace deren::vulkan {
         create_info.pApplicationInfo = &app_info;
 
         // Only windowed rendering needs WSI extensions. No GLFW calls are needed here.
-        std::vector<char const*> extensions;
+        deren::utility::vessel::vector<char const*> extensions;
         if (this->create_options.native_window != nullptr) {
             extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
             extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
@@ -408,7 +408,7 @@ namespace deren::vulkan {
         this->instance_extension_names = extensions;
 
         // enable validation_layers
-        std::vector<char const*> validation_layers;
+        deren::utility::vessel::vector<char const*> validation_layers;
 
         if (enable_validation) {
             validation_layers = {
@@ -434,7 +434,7 @@ namespace deren::vulkan {
 
         if (VkResult result = vkCreateInstance(&create_info, nullptr, &this->instance); result != VK_SUCCESS) {
             // Provide more detailed error info
-            std::string error_msg = "can not create vulkan instance, error code is: ";
+            deren::utility::vessel::string error_msg = "can not create vulkan instance, error code is: ";
             switch (result) {
             case VK_ERROR_OUT_OF_HOST_MEMORY:
                 error_msg += "VK_ERROR_OUT_OF_HOST_MEMORY";
@@ -455,7 +455,7 @@ namespace deren::vulkan {
                 error_msg += "VK_ERROR_INCOMPATIBLE_DRIVER";
                 break;
             default:
-                error_msg += std::to_string(static_cast<int32_t>(result));
+                error_msg += deren::utility::vessel::to_string(static_cast<int32_t>(result));
                 break;
             }
             deren::utility::panic(error_msg);
@@ -560,7 +560,7 @@ namespace deren::vulkan {
         sort_properties.pNext = &subgroup;
         vkGetPhysicalDeviceProperties2(this->physical_device, &sort_properties);
         VkSubgroupFeatureFlags const required_ops = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT | VK_SUBGROUP_FEATURE_ARITHMETIC_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_BIT;
-        this->gpu_sorting_available = check_device_extension_support(this->physical_device, std::vector<char const*>{VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME}) &&
+        this->gpu_sorting_available = check_device_extension_support(this->physical_device, deren::utility::vessel::vector<char const*>{VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME}) &&
                                       capabilities.features_1_3.synchronization2 && push.maxPushDescriptors >= 7u &&
                                       (subgroup.subgroupSize == 32u || subgroup.subgroupSize == 64u) &&
                                       (subgroup.supportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0u &&
@@ -574,7 +574,7 @@ namespace deren::vulkan {
         // VK_EXT_present_mode_fifo_latest_ready is asked for only when the device has it, so the
         // extension is never enabled blindly and the present mode that needs it is only ever chosen
         // from the surface's own list (see choose_swap_present_mode).
-        if (this->create_options.native_window != nullptr && check_device_extension_support(physical_device, std::vector<char const*>{fifo_latest_ready_extension})) {
+        if (this->create_options.native_window != nullptr && check_device_extension_support(physical_device, deren::utility::vessel::vector<char const*>{fifo_latest_ready_extension})) {
             creation_info.extensions.push_back(fifo_latest_ready_extension);
         }
 
@@ -583,7 +583,7 @@ namespace deren::vulkan {
         // the capabilities query - query() leaves them out when either feature is missing, so
         // "enabled" and "available" cannot disagree. A device without them runs the raster paths
         // exactly as before, with ray_query_available false and the RT features refusing to turn on.
-        constexpr std::array<char const*, 3> ray_tracing_extensions = {
+        constexpr deren::utility::vessel::array<char const*, 3> ray_tracing_extensions = {
             VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
             VK_KHR_RAY_QUERY_EXTENSION_NAME,
             VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, // required by the AS extension itself
@@ -596,7 +596,7 @@ namespace deren::vulkan {
         // The RT pipeline and its maintenance1 features, then the micromap: each name is pushed only when
         // the capability query proved BOTH the extension and its feature, so an enabled extension and an
         // available feature cannot disagree (the rule the ray-query block above follows).
-        constexpr std::array<char const*, 2> ray_tracing_pipeline_extensions = {
+        constexpr deren::utility::vessel::array<char const*, 2> ray_tracing_pipeline_extensions = {
             VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
             VK_KHR_RAY_TRACING_MAINTENANCE_1_EXTENSION_NAME,
         };
@@ -783,7 +783,7 @@ namespace deren::vulkan {
             this->swap_chain_extent = {static_cast<uint32_t>(std::max(1, this->create_options.window_width)), static_cast<uint32_t>(std::max(1, this->create_options.window_height))};
             this->swapchain_transfer_src_supported = true;
             this->swap_chain_images.resize(deren::promise::rhi::max_frames_in_flight);
-            std::vector<VkDeviceMemory> allocations(this->swap_chain_images.size());
+            deren::utility::vessel::vector<VkDeviceMemory> allocations(this->swap_chain_images.size());
             for (size_t i = 0; i < allocations.size(); ++i) {
                 VkImageCreateInfo info{};
                 info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -1117,7 +1117,7 @@ namespace deren::vulkan {
         // timestamps reports 0) and how long one tick takes (timestampPeriod, ns/tick).
         uint32_t family_count = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(this->physical_device, &family_count, nullptr);
-        std::vector<VkQueueFamilyProperties> families(family_count);
+        deren::utility::vessel::vector<VkQueueFamilyProperties> families(family_count);
         vkGetPhysicalDeviceQueueFamilyProperties(this->physical_device, &family_count, families.data());
         if (this->graphics_queue_family_index < families.size()) {
             this->timestamp_valid_bits = families[this->graphics_queue_family_index].timestampValidBits;

@@ -6,6 +6,7 @@ module;
 #include <imgui_impl_vulkan.h>
 
 module deren.vulkan.graphical_user_interface;
+import deren.utility.shared;
 
 import deren.utility;
 import deren.vulkan.constant_init;
@@ -137,7 +138,7 @@ namespace deren::vulkan::gui {
 
     // ---- panel management ----
 
-    debug_panel& gui_content::add_panel(std::string title) {
+    debug_panel& gui_content::add_panel(deren::utility::vessel::string title) {
         this->panels.push_back(std::make_unique<debug_panel>(std::move(title)));
         return *this->panels.back();
     }
@@ -193,7 +194,7 @@ namespace deren::vulkan::gui {
 
     // ---- debug_panel ----
 
-    debug_panel::debug_panel(std::string title)
+    debug_panel::debug_panel(deren::utility::vessel::string title)
         : title{std::move(title)} {
     }
 
@@ -219,7 +220,7 @@ namespace deren::vulkan::gui {
         return this->items.size();
     }
 
-    std::string const& debug_panel::get_title() const noexcept {
+    deren::utility::vessel::string const& debug_panel::get_title() const noexcept {
         return this->title;
     }
 
@@ -260,11 +261,11 @@ namespace deren::vulkan::gui {
 
     // ---- widgets ----
 
-    label_widget::label_widget(std::string text)
+    label_widget::label_widget(deren::utility::vessel::string text)
         : text_fn{[t = std::move(text)]() { return t; }} { // copies per frame (stable text)
     }
 
-    label_widget::label_widget(std::function<std::string()> text_fn)
+    label_widget::label_widget(std::function<deren::utility::vessel::string()> text_fn)
         : text_fn{std::move(text_fn)} {
     }
 
@@ -274,7 +275,7 @@ namespace deren::vulkan::gui {
         }
     }
 
-    checkbox_widget::checkbox_widget(std::string label, bool* value, std::function<void(bool)> on_change)
+    checkbox_widget::checkbox_widget(deren::utility::vessel::string label, bool* value, std::function<void(bool)> on_change)
         : label{std::move(label)}
         , value{value}
         , on_change{std::move(on_change)} {
@@ -290,7 +291,7 @@ namespace deren::vulkan::gui {
         }
     }
 
-    slider_widget::slider_widget(std::string label, float* value, float min, float max, std::function<void(float)> on_change)
+    slider_widget::slider_widget(deren::utility::vessel::string label, float* value, float min, float max, std::function<void(float)> on_change)
         : label{std::move(label)}
         , value{value}
         , min{min}
@@ -308,7 +309,7 @@ namespace deren::vulkan::gui {
         }
     }
 
-    vec3_widget::vec3_widget(std::string label, float* value, float const speed, std::function<void()> on_change)
+    vec3_widget::vec3_widget(deren::utility::vessel::string label, float* value, float const speed, std::function<void()> on_change)
         : label{std::move(label)}
         , value{value}
         , speed{speed}
@@ -320,7 +321,7 @@ namespace deren::vulkan::gui {
             return;
         }
         // snapshot the xyz triplet to detect whether the drag actually changed anything
-        std::array<float, 3> const before = {this->value[0], this->value[1], this->value[2]};
+        deren::utility::vessel::array<float, 3> const before = {this->value[0], this->value[1], this->value[2]};
         if (ImGui::DragFloat3(this->label.c_str(), this->value, this->speed)) {
             bool changed = false;
             for (int32_t i = 0; i < 3; ++i) {
@@ -332,7 +333,7 @@ namespace deren::vulkan::gui {
         }
     }
 
-    combo_widget::combo_widget(std::string label, std::vector<std::string> items, int32_t* current_item, std::function<void(int32_t)> on_change)
+    combo_widget::combo_widget(deren::utility::vessel::string label, deren::utility::vessel::vector<deren::utility::vessel::string> items, int32_t* current_item, std::function<void(int32_t)> on_change)
         : label{std::move(label)}
         , items{std::move(items)}
         , current_item{current_item}

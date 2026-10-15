@@ -7,6 +7,7 @@ module;
 #include <vma/vk_mem_alloc.h>
 
 export module deren.vulkan.core:vma;
+export import deren.utility.shared;
 
 export import deren.vstd;
 import deren.utility;
@@ -188,10 +189,10 @@ namespace deren::vulkan {
         // /WX (clang does not warn: -Wshadow is not in the project flags).
         VkDevice logical_device = VK_NULL_HANDLE;
         VkQueue upload_queue = VK_NULL_HANDLE;
-        std::vector<std::pair<VkCommandPool, VkCommandBuffer>> command_cache;
-        std::vector<VkFence> fence_cache = {};
-        std::map<uint64_t, buffer_detail> buffers = {};
-        std::map<uint64_t, image_detail> images = {};
+        deren::utility::vessel::vector<std::pair<VkCommandPool, VkCommandBuffer>> command_cache;
+        deren::utility::vessel::vector<VkFence> fence_cache = {};
+        deren::utility::vessel::map<uint64_t, buffer_detail> buffers = {};
+        deren::utility::vessel::map<uint64_t, image_detail> images = {};
         std::mutex access_mutex = {};
         // Guards command_cache / fence_cache so uploads can safely reuse them outside access_mutex
         std::mutex cache_mutex = {};
@@ -1010,7 +1011,7 @@ namespace deren::vulkan {
         // Step 2: the copy itself, one region per mip. The data is laid out in mip-major order (all layers
         // of mip 0, then all layers of mip 1, ...) exactly as the staging path's VkBufferImageCopy
         // described it with bufferOffset; here the same offset is a POINTER into the caller's memory.
-        std::vector<VkMemoryToImageCopyEXT> regions;
+        deren::utility::vessel::vector<VkMemoryToImageCopyEXT> regions;
         regions.reserve(info.mip_levels);
         VkDeviceSize memory_offset = 0;
         for (uint32_t mip = 0; mip < info.mip_levels; ++mip) {

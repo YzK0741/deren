@@ -3,6 +3,7 @@ module;
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.core.pipeline;
+import deren.utility.shared;
 import :spirv_parser;
 import deren.vulkan.constant_init;
 
@@ -47,8 +48,8 @@ namespace deren::vulkan {
         // multi-target implementation below, with the engine's standard src-alpha blending (the
         // forward pipelines' convention: alpha is coverage, and an opaque draw's alpha 1 reduces the
         // blend math to the source color).
-        std::array<VkFormat, 1> const single_format = {color_format};
-        std::array<VkPipelineColorBlendAttachmentState, 1> const single_blend = {make_color_blend_attachment()};
+        deren::utility::vessel::array<VkFormat, 1> const single_format = {color_format};
+        deren::utility::vessel::array<VkPipelineColorBlendAttachmentState, 1> const single_blend = {make_color_blend_attachment()};
         std::span<VkFormat const> const color_formats = has_color_attachment ? std::span<VkFormat const>(single_format) : std::span<VkFormat const>{};
         std::span<VkPipelineColorBlendAttachmentState const> const blend_attachments = has_color_attachment ? std::span<VkPipelineColorBlendAttachmentState const>(single_blend) : std::span<VkPipelineColorBlendAttachmentState const>{};
         return make_pipeline(device,
@@ -89,7 +90,7 @@ namespace deren::vulkan {
         // its own vertices, the vertex-input state is ignored for such a pipeline, and parsing a mesh module
         // as a VERTEX interface would derive nothing (it declares no Input variables) - an empty attribute
         // list that silently reads no geometry. See docs/mesh_shaders.md.
-        std::vector<VkVertexInputAttributeDescription> attribute_descriptions;
+        deren::utility::vessel::vector<VkVertexInputAttributeDescription> attribute_descriptions;
         uint32_t stride = 0;
         if (first_stage == VK_SHADER_STAGE_VERTEX_BIT) {
             auto vertex_interface_expected = pipeline::parse_shader_stage_interface(vertex_shader_code, VK_SHADER_STAGE_VERTEX_BIT);
@@ -137,7 +138,7 @@ namespace deren::vulkan {
         }
 
         // ---- 3. Fixed-function pipeline state (constexpr factories, see above) ----
-        std::array<VkPipelineShaderStageCreateInfo, 2> shader_stage_create_infos = {
+        deren::utility::vessel::array<VkPipelineShaderStageCreateInfo, 2> shader_stage_create_infos = {
             make_shader_stage(**vertex_shader_module, first_stage),
             make_shader_stage(**fragment_shader_module, VK_SHADER_STAGE_FRAGMENT_BIT),
         };
@@ -145,7 +146,7 @@ namespace deren::vulkan {
         // double-sided materials need per-draw cull control (core dynamic state since Vulkan 1.3);
         // transparent (alphaMode BLEND) leaves disable depth writes per draw, also a 1.3 core
         // dynamic state, so one pipeline serves both opaque and blended draws
-        std::array<VkDynamicState, 6> dynamic_states = {};
+        deren::utility::vessel::array<VkDynamicState, 6> dynamic_states = {};
         uint32_t dynamic_state_count = 4;
         dynamic_states[0] = VK_DYNAMIC_STATE_VIEWPORT;
         dynamic_states[1] = VK_DYNAMIC_STATE_SCISSOR;
@@ -169,7 +170,7 @@ namespace deren::vulkan {
         // target) or the opaque overwrite state (a G-buffer must not blend: there alpha is
         // metallic/roughness/flags data - see make_color_blend_attachment_opaque)
         VkPipelineColorBlendAttachmentState const default_blend = make_color_blend_attachment_opaque();
-        std::vector<VkPipelineColorBlendAttachmentState> const opaque_blend_attachments(color_formats.size(), default_blend);
+        deren::utility::vessel::vector<VkPipelineColorBlendAttachmentState> const opaque_blend_attachments(color_formats.size(), default_blend);
         std::span<VkPipelineColorBlendAttachmentState const> const blends = blend_attachments.empty() ? std::span<VkPipelineColorBlendAttachmentState const>(opaque_blend_attachments) : blend_attachments;
         VkPipelineColorBlendStateCreateInfo const color_blend_state_create_info = make_color_blend_state(blends.data(), static_cast<uint32_t>(blends.size()));
         VkPipelineMultisampleStateCreateInfo const multisample_state_create_info = make_multisample_state(msaa_level);

@@ -5,11 +5,12 @@ module;
 #include <toml++/toml.hpp>
 
 module deren.application_configuration;
+import deren.utility.shared;
 
 import deren.utility;
 
 namespace deren::app_config {
-    app_settings load_settings(std::string const& path) {
+    app_settings load_settings(std::string_view const path) {
         app_settings settings = {};
 
         // toml++ parses to a parse_result when exceptions are disabled; operator bool reports
@@ -26,7 +27,7 @@ namespace deren::app_config {
         // default - which is precisely what made a frame-rate cap look like a no-op: the file that was
         // loaded (the one next to the executable, not the one being edited) simply had no max_fps key.
         {
-            std::ostringstream dumped;
+            deren::utility::vessel::ostringstream dumped;
             dumped << table;
             deren::utility::log("app_config: '{}' contents:\n{}", path, dumped.str());
         }
@@ -35,7 +36,7 @@ namespace deren::app_config {
         // read keys only when present: absent keys keep the struct defaults (an empty model /
         // grid_side = 0 also mean "not specified" to the caller)
         if (toml::node const* node = table.get("model")) {
-            if (std::optional<std::string> const value = node->value<std::string>()) {
+            if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
                 settings.model = *value;
             }
         }
@@ -47,18 +48,18 @@ namespace deren::app_config {
 
         if (toml::table const* paths = table.get_as<toml::table>("paths")) {
             if (toml::node const* node = paths->get("shaders_dir")) {
-                if (std::optional<std::string> const value = node->value<std::string>()) {
+                if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
                     settings.paths.shaders_dir = *value;
                 }
             }
             if (toml::node const* node = paths->get("model_dir")) {
-                if (std::optional<std::string> const value = node->value<std::string>()) {
+                if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
                     settings.paths.model_dir = *value;
                 }
             }
 
             if (toml::node const* node = paths->get("screenshot_dir")) {
-                if (std::optional<std::string> const value = node->value<std::string>()) {
+                if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
                     settings.paths.screenshot_dir = *value;
                 }
             }
@@ -76,7 +77,7 @@ namespace deren::app_config {
                 }
             }
             if (toml::node const* node = render->get("window_title")) {
-                if (std::optional<std::string> const value = node->value<std::string>()) {
+                if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
                     settings.render.window_title = *value;
                 }
             }
@@ -185,7 +186,7 @@ namespace deren::app_config {
                 }
             }
             if (toml::node const* node = render->get("camera_fit")) {
-                if (std::optional<std::string> const value = node->value<std::string>()) {
+                if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
                     settings.render.camera_fit = *value;
                 }
             }
@@ -270,7 +271,7 @@ namespace deren::app_config {
                 }
             }
             if (toml::node const* node = render->get("upscale")) {
-                if (std::optional<std::string> const value = node->value<std::string>()) {
+                if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
                     settings.render.upscale = *value;
                 }
             }
@@ -314,7 +315,7 @@ namespace deren::app_config {
             // is NOT touched here - `main.cpp` resolves a relative one against the executable's directory,
             // because that is where the assets are and the config loader has no idea where the exe sits.
             if (toml::node const* node = render->get("background_glb")) {
-                if (std::optional<std::string> const value = node->value<std::string>()) {
+                if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
                     settings.render.background_glb = *value;
                 }
             }
@@ -427,7 +428,7 @@ namespace deren::app_config {
             // VERBATIM and left relative here; the host resolves it against the executable's directory,
             // because that is where the assets live and this module has no business guessing.
             if (toml::node const* node = lighting->get("environment_hdr")) {
-                if (std::optional<std::string> const value = node->value<std::string>()) {
+                if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
                     settings.lighting.environment_hdr = *value;
                 }
             }
@@ -457,7 +458,7 @@ namespace deren::app_config {
             // vectors take exactly the shape sun_direction takes, and for the same reason: three numbers or
             // nothing, because a partly-specified vector would mix this config's components with the default's
             // and put a light somewhere nobody asked for.
-            auto const read_vec3 = [](toml::table const& source, char const* key, std::array<float, 3>& target) {
+            auto const read_vec3 = [](toml::table const& source, char const* key, deren::utility::vessel::array<float, 3>& target) {
                 if (toml::node const* node = source.get(key)) {
                     if (toml::array const* values = node->as_array(); values != nullptr && values->size() == target.size()) {
                         for (std::size_t i = 0; i < values->size(); ++i) {
@@ -655,7 +656,7 @@ namespace deren::app_config {
         return settings;
     }
 
-    area_light_derived derive_area_light(lighting_settings const& lighting, std::array<float, 3> const& scene_origin) {
+    area_light_derived derive_area_light(lighting_settings const& lighting, deren::utility::vessel::array<float, 3> const& scene_origin) {
         constexpr float pi = 3.14159265358979323846f;
         area_light_derived derived = {};
 
@@ -672,38 +673,38 @@ namespace deren::app_config {
             scene_origin[1] + lighting.area_light_position[1],
             scene_origin[2] + lighting.area_light_position[2],
         };
-        std::array<float, 3> const world_target = {
+        deren::utility::vessel::array<float, 3> const world_target = {
             scene_origin[0] + lighting.area_light_target[0],
             scene_origin[1] + lighting.area_light_target[1],
             scene_origin[2] + lighting.area_light_target[2],
         };
 
-        auto const normalised = [](std::array<float, 3> const& direction) {
+        auto const normalised = [](deren::utility::vessel::array<float, 3> const& direction) {
             float const length_sq = direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2];
             if (!(length_sq > 0.0f)) {
-                return std::array<float, 3>{0.0f, 0.0f, 0.0f};
+                return deren::utility::vessel::array<float, 3>{0.0f, 0.0f, 0.0f};
             }
             float const inverse_length = 1.0f / std::sqrt(length_sq);
-            return std::array<float, 3>{direction[0] * inverse_length, direction[1] * inverse_length, direction[2] * inverse_length};
+            return deren::utility::vessel::array<float, 3>{direction[0] * inverse_length, direction[1] * inverse_length, direction[2] * inverse_length};
         };
 
         // The direction the frame's ONE light gets: from the author's origin towards the emitter. This is what
         // makes the reference package's soft box the sun - main.cpp hands it to runtime.set_sun_direction while
         // the emitter contributes energy (`area_light_irradiance`).
-        std::array<float, 3> const origin_to_light = {
+        deren::utility::vessel::array<float, 3> const origin_to_light = {
             derived.world_centre[0] - scene_origin[0],
             derived.world_centre[1] - scene_origin[1],
             derived.world_centre[2] - scene_origin[2],
         };
         // The emitter's own normal, i.e. the side that emits: centre -> target. It is the penumbra's direction
         // (the second UBO lane's xyz) and the axis the shadow is offset along - see `calc_shadow_area`.
-        std::array<float, 3> const to_target = {
+        deren::utility::vessel::array<float, 3> const to_target = {
             world_target[0] - derived.world_centre[0],
             world_target[1] - derived.world_centre[1],
             world_target[2] - derived.world_centre[2],
         };
-        std::array<float, 3> const to_light = normalised(origin_to_light);
-        std::array<float, 3> const axis = normalised(to_target);
+        deren::utility::vessel::array<float, 3> const to_light = normalised(origin_to_light);
+        deren::utility::vessel::array<float, 3> const axis = normalised(to_target);
         if ((to_light[0] == 0.0f && to_light[1] == 0.0f && to_light[2] == 0.0f) ||
             (axis[0] == 0.0f && axis[1] == 0.0f && axis[2] == 0.0f)) {
             // An emitter AT the author's origin (no direction to light) or aimed at itself (no emitting side).
@@ -753,12 +754,12 @@ namespace deren::app_config {
         return settings.model == model_ask;
     }
 
-    app_settings resolve_from_argv(int32_t const argc, char const* const* const argv, std::string const& default_config_path) {
+    app_settings resolve_from_argv(int32_t const argc, char const* const* const argv, deren::utility::vessel::string const& default_config_path) {
         // 1. Collect the non-option positional arguments (--config <path> / --config=<path> is
         //    consumed as an option, not a positional), so model/grid positions stay stable
         //    regardless of where --config appears.
-        std::string config_path = default_config_path;
-        std::vector<std::string_view> positional;
+        deren::utility::vessel::string config_path = default_config_path;
+        deren::utility::vessel::vector<std::string_view> positional;
         for (int32_t i = 1; i < argc; ++i) {
             std::string_view const arg(argv[i]);
             if (arg == "--config") {
@@ -769,7 +770,7 @@ namespace deren::app_config {
                 continue;
             }
             if (arg.starts_with("--config=")) {
-                config_path = std::string(arg.substr(9));
+                config_path = deren::utility::vessel::string(arg.substr(9));
                 continue;
             }
             positional.push_back(arg);
@@ -785,10 +786,10 @@ namespace deren::app_config {
 
         // 2. Positional argv overrides the file: [0] = model, [1] = grid side (numeric).
         if (!positional.empty() && !positional[0].empty()) {
-            settings.model = std::string(positional[0]);
+            settings.model = deren::utility::vessel::string(positional[0]);
         }
         if (positional.size() > 1 && !positional[1].empty()) {
-            std::string const arg(positional[1]);
+            deren::utility::vessel::string const arg(positional[1]);
             char* end = nullptr;
             // `strtol` answers in `long`, whose width is the PLATFORM's (32 bits on Windows, 64 on Linux): the
             // conversion is explicit so the fixed-width type this file uses everywhere else is not narrowed by

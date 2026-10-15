@@ -53,6 +53,7 @@ module;
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.core;
+import deren.utility.shared;
 
 import deren.promise.rhi;
 
@@ -122,7 +123,7 @@ namespace deren::vulkan {
         // commit (batch ③), and until it lands no pass may migrate - a partial mapping must never read as
         // a green coverage light.
         // ============================================================================================
-        constexpr std::array image_use_pairs = {
+        constexpr deren::utility::vessel::array image_use_pairs = {
             // ---- the fresh-target family: UNDEFINED as the old layout ----
             pair_of(rhi::image_use::undefined, rhi::image_use::color_attachment, deren::vulkan::color_attachment_transition),
             pair_of(rhi::image_use::undefined, rhi::image_use::depth_attachment, deren::vulkan::depth_attachment_transition),
@@ -241,7 +242,7 @@ namespace deren::vulkan {
         //
         // THE FIRST VERSION OF THIS GATE WAS GREEN WHEN IT SHOULD HAVE BEEN RED. Measured, not reasoned:
         // deleting the row `transfer_source -> shader_read` left `-fsyntax-only` at EXIT 0, because
-        //     * `std::array<image_use_pair, 21>` with twenty initializers VALUE-INITIALISES a twenty-first
+        //     * `deren::utility::vessel::array<image_use_pair, 21>` with twenty initializers VALUE-INITIALISES a twenty-first
         //       (dummy `undefined -> undefined`) row, so `size() == 21` still held;
         //     * `unsupported_reason` short-circuited on the table, so the check that was supposed to name
         //       the offending pair reduced to `in_table == !in_table` - a tautology, never false.
@@ -259,7 +260,7 @@ namespace deren::vulkan {
             rhi::image_use from;
             rhi::image_use to;
         };
-        constexpr std::array expected_pairs_from_census = {
+        constexpr deren::utility::vessel::array expected_pairs_from_census = {
             role_pair_expected{rhi::image_use::undefined, rhi::image_use::color_attachment},
             role_pair_expected{rhi::image_use::undefined, rhi::image_use::depth_attachment},
             role_pair_expected{rhi::image_use::undefined, rhi::image_use::shader_read},
@@ -440,25 +441,25 @@ namespace deren::vulkan {
 
         /// every field of one barrier on one line, for the shadow gate's run-time dump (A5 asks for
         /// BOTH sides in the log, not just for "equal or not")
-        [[nodiscard]] std::string barrier_text(VkImageMemoryBarrier2 const& barrier) {
-            return std::format("sType={:#x} pNext={:#x} srcStage={:#x} srcAccess={:#x} dstStage={:#x} dstAccess={:#x} oldLayout={:#x} newLayout={:#x} "
-                               "srcQFI={:#x} dstQFI={:#x} image={:#x} aspect={:#x} mip={}+{} layer={}+{}",
-                               static_cast<std::uint32_t>(barrier.sType),
-                               reinterpret_cast<std::uintptr_t>(barrier.pNext),
-                               static_cast<std::uint64_t>(barrier.srcStageMask),
-                               static_cast<std::uint64_t>(barrier.srcAccessMask),
-                               static_cast<std::uint64_t>(barrier.dstStageMask),
-                               static_cast<std::uint64_t>(barrier.dstAccessMask),
-                               static_cast<std::uint32_t>(barrier.oldLayout),
-                               static_cast<std::uint32_t>(barrier.newLayout),
-                               static_cast<std::uint32_t>(barrier.srcQueueFamilyIndex),
-                               static_cast<std::uint32_t>(barrier.dstQueueFamilyIndex),
-                               reinterpret_cast<std::uintptr_t>(barrier.image),
-                               static_cast<std::uint32_t>(barrier.subresourceRange.aspectMask),
-                               barrier.subresourceRange.baseMipLevel,
-                               barrier.subresourceRange.levelCount,
-                               barrier.subresourceRange.baseArrayLayer,
-                               barrier.subresourceRange.layerCount);
+        [[nodiscard]] deren::utility::vessel::string barrier_text(VkImageMemoryBarrier2 const& barrier) {
+            return deren::utility::vessel::format("sType={:#x} pNext={:#x} srcStage={:#x} srcAccess={:#x} dstStage={:#x} dstAccess={:#x} oldLayout={:#x} newLayout={:#x} "
+                                                  "srcQFI={:#x} dstQFI={:#x} image={:#x} aspect={:#x} mip={}+{} layer={}+{}",
+                                                  static_cast<std::uint32_t>(barrier.sType),
+                                                  reinterpret_cast<std::uintptr_t>(barrier.pNext),
+                                                  static_cast<std::uint64_t>(barrier.srcStageMask),
+                                                  static_cast<std::uint64_t>(barrier.srcAccessMask),
+                                                  static_cast<std::uint64_t>(barrier.dstStageMask),
+                                                  static_cast<std::uint64_t>(barrier.dstAccessMask),
+                                                  static_cast<std::uint32_t>(barrier.oldLayout),
+                                                  static_cast<std::uint32_t>(barrier.newLayout),
+                                                  static_cast<std::uint32_t>(barrier.srcQueueFamilyIndex),
+                                                  static_cast<std::uint32_t>(barrier.dstQueueFamilyIndex),
+                                                  reinterpret_cast<std::uintptr_t>(barrier.image),
+                                                  static_cast<std::uint32_t>(barrier.subresourceRange.aspectMask),
+                                                  barrier.subresourceRange.baseMipLevel,
+                                                  barrier.subresourceRange.levelCount,
+                                                  barrier.subresourceRange.baseArrayLayer,
+                                                  barrier.subresourceRange.layerCount);
         }
 
     } // namespace
@@ -1617,7 +1618,7 @@ namespace deren::vulkan {
         // Color formats one to one; the `depth` ROLE resolves to the device's own depth attachment
         // format; `unknown` as the depth format means NO depth attachment (make_pipeline's
         // VK_FORMAT_UNDEFINED spelling).
-        std::vector<VkFormat> color_formats(desc.color_formats.size());
+        deren::utility::vessel::vector<VkFormat> color_formats(desc.color_formats.size());
         for (std::size_t index = 0; index < desc.color_formats.size(); ++index) {
             color_formats[index] = native_image_format(desc.color_formats[index], this->depth_attachment_format);
             if (color_formats[index] == VK_FORMAT_UNDEFINED) {
@@ -1631,7 +1632,7 @@ namespace deren::vulkan {
 
         // The blend modes are the FOUR RECIPES the survey found; empty means every target is
         // overwritten (opaque), which is the default make_pipeline itself spells.
-        std::vector<VkPipelineColorBlendAttachmentState> blends;
+        deren::utility::vessel::vector<VkPipelineColorBlendAttachmentState> blends;
         blends.reserve(desc.blend_modes.size());
         for (rhi::blend_mode const mode : desc.blend_modes) {
             switch (mode) {
@@ -1809,8 +1810,8 @@ namespace deren::vulkan {
         // Ordinary AS bindings still read the same heap. This avoids ResourceHeapEXT-based AS
         // loads, which lose the device on the NVIDIA driver tested by the native traversal probe.
         // Own all stage mapping arrays until pipeline creation has consumed them.
-        std::vector<std::vector<VkDescriptorSetAndBindingMappingEXT>> mappings(desc.ray_tracing_stages.size());
-        std::vector<VkShaderDescriptorSetAndBindingMappingInfoEXT> mapping_infos(desc.ray_tracing_stages.size());
+        deren::utility::vessel::vector<deren::utility::vessel::vector<VkDescriptorSetAndBindingMappingEXT>> mappings(desc.ray_tracing_stages.size());
+        deren::utility::vessel::vector<VkShaderDescriptorSetAndBindingMappingInfoEXT> mapping_infos(desc.ray_tracing_stages.size());
         for (auto const& binding : desc.acceleration_structure_bindings) {
             auto const capacity = this->descriptor_heaps.resource_size();
             auto const descriptor_size = this->descriptor_heaps.descriptor_stride(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR);
@@ -1855,8 +1856,8 @@ namespace deren::vulkan {
             mapping_infos[index].mappingCount = static_cast<std::uint32_t>(mappings[index].size());
             mapping_infos[index].pMappings = mappings[index].data();
         }
-        std::vector<std::optional<vk_shader_module>> modules(desc.ray_tracing_stages.size());
-        std::vector<VkPipelineShaderStageCreateInfo> stages;
+        deren::utility::vessel::vector<std::optional<vk_shader_module>> modules(desc.ray_tracing_stages.size());
+        deren::utility::vessel::vector<VkPipelineShaderStageCreateInfo> stages;
         stages.reserve(desc.ray_tracing_stages.size());
         for (std::size_t index = 0; index < desc.ray_tracing_stages.size(); ++index) {
             rhi::ray_tracing_stage const& declared = desc.ray_tracing_stages[index];
@@ -1886,7 +1887,7 @@ namespace deren::vulkan {
         // THE GROUP TABLE, with the kind following from WHICH SLOTS ARE FILLED (the descriptor's own rule):
         // any hit slot makes it a hit group, and `triangles` says whether its geometry is triangles. This is the
         // one place the two spellings meet, and it is a translation rather than a second vocabulary.
-        std::vector<VkRayTracingShaderGroupCreateInfoKHR> groups;
+        deren::utility::vessel::vector<VkRayTracingShaderGroupCreateInfoKHR> groups;
         groups.reserve(desc.ray_tracing_groups.size());
         for (rhi::ray_tracing_group const& group : desc.ray_tracing_groups) {
             bool const hit_group = group.closest_hit != rhi::shader_group_none || group.any_hit != rhi::shader_group_none || group.intersection != rhi::shader_group_none;
@@ -2052,7 +2053,7 @@ namespace deren::vulkan {
 
         // The contract's colour formats, converted once into the API's own spelling (see the note below):
         // eight is this backend's ceiling for inherited attachments, and a larger declaration is refused.
-        std::array<VkFormat, 8> native_color_formats = {};
+        deren::utility::vessel::array<VkFormat, 8> native_color_formats = {};
         VkCommandBufferInheritanceRenderingInfo rendering = {};
         VkCommandBufferInheritanceDescriptorHeapInfoEXT heap_inheritance = {};
         VkBindHeapInfoEXT resource_bind = {};
@@ -2876,9 +2877,9 @@ namespace deren::vulkan {
             return rhi::error::ok;
         };
 
-        std::array<VkImageMemoryBarrier2, 8> image_barriers = {};
-        std::array<VkBufferMemoryBarrier2, 8> buffer_barriers = {};
-        std::array<VkMemoryBarrier2, 1> memory_barriers = {};
+        deren::utility::vessel::array<VkImageMemoryBarrier2, 8> image_barriers = {};
+        deren::utility::vessel::array<VkBufferMemoryBarrier2, 8> buffer_barriers = {};
+        deren::utility::vessel::array<VkMemoryBarrier2, 1> memory_barriers = {};
         // THE TWO APPENDED FIELDS ARE READ ONLY AS FAR AS THE CALLER DECLARED (the `struct_size` rule the
         // whole descriptor family lives by): an older caller's bytes decode to "the recipes' stages, no global
         // barrier", which is exactly the behaviour it compiled against.
@@ -2981,7 +2982,7 @@ namespace deren::vulkan {
 
     rhi::error core::frame_commands::barrier(rhi::image_barrier const& one) {
         // The single-image form is the group of one - the same derivation, the same refusals.
-        std::array<rhi::image_barrier, 1> const one_barriers = {one};
+        deren::utility::vessel::array<rhi::image_barrier, 1> const one_barriers = {one};
         rhi::barrier_group const group{
             .struct_size = sizeof(rhi::barrier_group),
             .images = one_barriers,
@@ -3010,7 +3011,7 @@ namespace deren::vulkan {
         // so a 4-slot array refused the scene's own scope and the frame recorded no geometry. The contract
         // places no bound of its own on `rendering_info::colors`; a scope wider than the widest DECLARED
         // site is refused rather than silently truncated.
-        std::array<VkRenderingAttachmentInfo, 8> attachments = {};
+        deren::utility::vessel::array<VkRenderingAttachmentInfo, 8> attachments = {};
         std::uint32_t color_count = 0;
         for (rhi::color_attachment const& one : info.colors) {
             if (color_count >= attachments.size()) {
@@ -3533,7 +3534,7 @@ namespace deren::vulkan {
         size_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
         size_info.geometryCount = static_cast<std::uint32_t>(structure->geometries.size());
         size_info.pGeometries = structure->geometries.data();
-        std::vector<std::uint32_t> primitive_counts;
+        deren::utility::vessel::vector<std::uint32_t> primitive_counts;
         primitive_counts.reserve(structure->ranges.size());
         for (auto const& range : structure->ranges) {
             primitive_counts.push_back(top_level ? instance_capacity : range.primitiveCount);
@@ -4036,7 +4037,7 @@ namespace deren::vulkan {
         return rhi::error::ok;
     }
 
-    rhi::error core::frame_commands::clear_color_image(rhi::image const& target, std::array<float, 4> const& color, rhi::subresource_range const& range) {
+    rhi::error core::frame_commands::clear_color_image(rhi::image const& target, deren::utility::vessel::array<float, 4> const& color, rhi::subresource_range const& range) {
         core* const self = this->owner;
         VkCommandBuffer const command_buffer = this->native();
         if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
@@ -4703,7 +4704,7 @@ namespace deren::vulkan {
         if (marks == 0) {
             return; // a submission with no marks has nothing to fetch
         }
-        std::array<uint64_t, gpu_timing_mark_capacity> ticks = {};
+        deren::utility::vessel::array<uint64_t, gpu_timing_mark_capacity> ticks = {};
         VkResult const status = vkGetQueryPoolResults(self.logical_device, self.timestamp_query_pool, slot * gpu_timing_mark_capacity, marks,
                                                       sizeof(uint64_t) * marks, ticks.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
         if (status == VK_NOT_READY) {

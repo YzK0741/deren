@@ -38,6 +38,7 @@ module;
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.init_utils;
+export import deren.utility.shared;
 
 export import deren.vstd;
 export import deren.vulkan.core; // the vma handles + the vk_* wrappers this interface names
@@ -111,8 +112,8 @@ namespace deren::vulkan::init_utils {
                                     std::span<std::byte const> initial,
                                     buffer_type type,
                                     std::string_view what,
-                                    std::vector<vk_buffer>& buffers,
-                                    std::vector<void*>* mapped = nullptr,
+                                    deren::utility::vessel::vector<vk_buffer>& buffers,
+                                    deren::utility::vessel::vector<void*>* mapped = nullptr,
                                     /// see create_host_buffer above: the bits a heap-backed descriptor needs
                                     VkBufferUsageFlags extra_usage = 0);
 
