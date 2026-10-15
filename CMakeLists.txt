@@ -128,6 +128,7 @@ endif()
 # (see .github/workflows/ci.yml), so it configures with -DVR_NATIVE_ARCH=OFF to get a baseline.
 # (GNU/Clang only - see the dialect table above.)
 option(VR_NATIVE_ARCH "Tune Release builds for the building CPU (-march=native)" ON)
+option(VR_DIAGNOSTICS "Keep optimized stack traces and debug information across executable and plugins" ON)
 set(VR_RELEASE_MARCH "$<IF:$<BOOL:${VR_NATIVE_ARCH}>,-march=native,-march=x86-64-v3>")
 
 if(MSVC)
@@ -151,6 +152,7 @@ if(MSVC)
             # vendored targets get treated with above.
             /external:anglebrackets
             /external:W0
+            $<$<BOOL:${VR_DIAGNOSTICS}>:/Zi>
     )
 else()
     set(COMPILE_OPTIONS
@@ -158,10 +160,9 @@ else()
             -fno-rtti
             -ffunction-sections
             -fdata-sections
-            -flto
+            $<$<NOT:$<BOOL:${VR_DIAGNOSTICS}>>:-flto>
             ${VR_RELEASE_MARCH}
-            -fno-unwind-tables
-            -fno-asynchronous-unwind-tables
+            $<$<NOT:$<BOOL:${VR_DIAGNOSTICS}>>:-fno-unwind-tables;-fno-asynchronous-unwind-tables>
             -fmerge-all-constants
             >
             $<$<CONFIG:Debug>:
@@ -172,6 +173,8 @@ else()
             -Wextra
             -Werror
             -Wno-reserved-module-identifier
+            $<$<BOOL:${VR_DIAGNOSTICS}>:-g;-fno-omit-frame-pointer;-fno-optimize-sibling-calls;-funwind-tables;-fasynchronous-unwind-tables>
+            $<$<AND:$<CONFIG:Release>,$<BOOL:${VR_DIAGNOSTICS}>>:-O2>
     )
 endif()
 
@@ -231,8 +234,7 @@ endif()
 #
 # THE SEAM IS STATE, NOT DIRECTORY:
 #   shared_utility  - the PROCESS-WIDE state: the log sink (queue, worker thread, file handle), the
-#                     startup rotation, panic convergence, and the allocator hook (`:better_pmr`
-#                     sets the process's default std::pmr resource).
+#                     startup rotation, panic convergence, and the mimalloc allocation/free service.
 #   static_utility  - everything per-object or pure, plus the loader: data_block, BVH, frame_clock,
 #                     frame_stats, thread_pool, the platform_* TUs, deren.utility.dynamic_link, and
 #                     the printing / byte-writer TEMPLATES (`log` / `error` / `panic` format in the
@@ -243,7 +245,7 @@ endif()
 # same batch as `deren_vulkan`. Flipping the two together would make the split itself unverifiable.
 #
 # ONE TARGET PER MODULE NAME, EVEN THOUGH BOTH HALVES COMPILE EACH MODULE: `shared_utility` owns
-# `deren.utility.shared` (with its `:better_pmr` partition); `static_utility` owns `deren.utility`
+# `deren.utility.shared` (including the vessel allocator interface); `static_utility` owns `deren.utility`
 # (with `:data_block` / `:bvh` / `:frame_clock` / `:frame_stats` / `:thread_pool`) and
 # `deren.utility.dynamic_link`. Listing one .cppm in two targets would produce two BMIs of one
 # module name, which a single translation unit cannot arbitrate - the same ruling that moved
@@ -302,6 +304,12 @@ add_library(shared_utility SHARED)
 # produce `libshared_utility.dll`, so it is removed on purpose (the import library keeps its
 # conventional spelling through IMPORT_PREFIX).
 set_target_properties(shared_utility PROPERTIES PREFIX "")
+get_filename_component(_trace_compiler_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+find_program(VR_STACKTRACE_SYMBOLIZER NAMES llvm-symbolizer HINTS "${_trace_compiler_dir}")
+if(VR_STACKTRACE_SYMBOLIZER)
+    target_compile_definitions(shared_utility PRIVATE DEREN_LLVM_SYMBOLIZER="${VR_STACKTRACE_SYMBOLIZER}")
+endif()
+target_link_libraries(shared_utility PRIVATE ${CMAKE_DL_LIBS})
 
 target_sources(shared_utility
         PUBLIC
@@ -318,7 +326,10 @@ target_sources(shared_utility
         # (utility.cpp's write_png, reproduced with -fsyntax-only; the crash disappears when the
         # partition re-export becomes a plain import). So the hook is declared in the primary
         # interface and defined here - no partition, nothing lost.
-        source/utility/shared/better_pmr.cpp
+        source/utility/shared/memory.cpp
+        source/utility/shared/allocation_failure.cpp
+        source/utility/shared/stacktrace.cpp
+        source/utility/shared/stacktrace_native.cpp
         # The once-per-process rotation claim, a plain (non-module) TU for the platform_* reason:
         # <windows.h> does not belong in a module's global module fragment.
         source/utility/shared/log_rotation_claim.cpp
@@ -363,6 +374,7 @@ target_sources(static_utility
 # in the file set below, because an entry point is not a virtual base class. The keyword it is
 # declared with is a build concern and lives in source/utility/abi_export.hpp (m04074).
 add_library(promise STATIC)
+target_link_libraries(promise PUBLIC shared_utility)
 
 target_sources(promise
         PUBLIC
@@ -442,11 +454,13 @@ target_compile_definitions(app_config PRIVATE TOML_EXCEPTIONS=0)
 # Keep portable layout definitions in a separate shared target used by both halves.
 # Native structure builders belong to the backend; renderer layout is a portable shared module.
 add_library(vulkan_constant_init STATIC)
+target_link_libraries(vulkan_constant_init PUBLIC shared_utility)
 target_sources(vulkan_constant_init PUBLIC FILE_SET CXX_MODULES FILES
     source/backends/vulkan/constant_init/constant_init.cppm)
 target_link_libraries(vulkan_constant_init PUBLIC Vulkan::Vulkan)
 
 add_library(renderer_layout STATIC)
+target_link_libraries(renderer_layout PUBLIC shared_utility)
 target_sources(renderer_layout PUBLIC FILE_SET CXX_MODULES FILES
     source/engine/render_layout/render_layout.cppm)
 target_link_libraries(renderer_layout PUBLIC promise)
@@ -640,6 +654,9 @@ target_sources(deren_engine
         source/engine/pass/mask_bake.cppm
         source/engine/pass/compute_skin.cppm
         source/engine/pass/scene_constants.cppm
+        source/engine/pass/scene_deformation.cppm
+        source/engine/pass/scene_tables.cppm
+        source/engine/pass/buffer_storage.cppm
         source/engine/pass/output_targets.cppm
         source/engine/pass/cluster.cppm
         source/engine/pass/deferred.cppm
@@ -746,6 +763,7 @@ target_sources(deren_engine
 # cost the loader's sanitizer coverage and buy nothing.
 # ================================================================================================
 add_library(gaussian_loader STATIC)
+target_link_libraries(gaussian_loader PUBLIC shared_utility)
 target_sources(gaussian_loader PUBLIC FILE_SET CXX_MODULES FILES source/gaussian_loader/gaussian_loader.cppm
     PRIVATE source/gaussian_loader/gaussian_loader.cpp)
 
@@ -858,10 +876,8 @@ target_include_directories(xxhash
 )
 
 # mimalloc (vendored under source/third_party/mimalloc, v3.4.4, MIT — see the LICENSE there):
-# allocator backing deren.utility.shared:better_pmr, which routes every std::pmr allocation through
-# it (shared_utility.cppm -> :better_pmr -> mi_aligned_alloc / mi_free_aligned). It moved to
-# shared_utility with the allocator hook, because setting the process's default std::pmr resource is
-# process-wide state. Compiled as
+# allocator backing deren.utility.shared's memory service and utility::vessel.
+# Allocation and deallocation stay in one DLL; no default PMR resource is installed. Compiled as
 # its own plain-C static target from the upstream mi_sources set, mirroring the imgui /
 # xxhash policy (vendored code does not follow the project's -Werror set; headers are
 # SYSTEM so the -Werror consumers that include <mimalloc.h> do not see upstream warnings).
@@ -903,6 +919,8 @@ endif()
 # target's link interface any more. `vstd_lib` stays here because the module's own interface re-exports
 # it (`export import deren.vstd`), and the consumers that import the module link vstd_lib themselves.
 target_link_libraries(deren_assets
+        PUBLIC
+        shared_utility
         PRIVATE
         fastgltf_vendored
         stb_vendored
@@ -990,7 +1008,7 @@ target_link_libraries(static_utility
         shared_utility
 )
 
-# shared_utility: the process-wide half. better_pmr routes std::pmr allocations through the
+# shared_utility: the process-wide half. vessel containers route allocations through the
 # vendored mimalloc (source/third_party/mimalloc), so the dependency moved here with the allocator hook -
 # the executable no longer needs MSYS2's libmimalloc.dll. vstd_lib is all it needs besides: the
 # module imports NEITHER the contract nor static_utility.
@@ -1146,11 +1164,10 @@ else()
             $<$<CONFIG:Release>:-Wl,--gc-sections>
     )
 
-    # Release exe: strip all symbols at link time (smaller single-file build; llvm-strip saves
-    # ~0.8 MB here). Debug keeps its symbols for debugging. Crash reports on a shipped build are
-    # symbol-less by design - keep the unstripped exe around if you need to map addresses.
+    # Strip only lean Release builds. Diagnostic builds retain the exact executable
+    # and debug data for online/offline symbolization.
     target_link_options(${PROJECT_NAME} PRIVATE
-            $<$<CONFIG:Release>:-s>
+            $<$<AND:$<CONFIG:Release>,$<NOT:$<BOOL:${VR_DIAGNOSTICS}>>>:-s>
     )
 endif()
 
@@ -1165,7 +1182,10 @@ option(VR_BUILD_TESTS "Build the headless unit tests" ON)
 
 if(VR_BUILD_TESTS)
     enable_testing()
+    target_compile_definitions(shared_utility PRIVATE DEREN_MEMORY_TESTING)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME test_stacktrace_offline
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source/tests/test_stacktrace_offline.py")
     add_test(NAME test_native_boundary_zero
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source/scripts/check_native_boundary.py"
                 --build-dir "${CMAKE_CURRENT_BINARY_DIR}" --require-zero)
@@ -1184,7 +1204,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_app_config test_utility test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection)
+    set(VR_TEST_TARGETS test_app_config test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1193,6 +1213,7 @@ if(VR_BUILD_TESTS)
 
     foreach(test_target IN ITEMS ${VR_TEST_TARGETS})
         add_executable(${test_target} source/tests/${test_target}.cpp)
+        target_link_libraries(${test_target} shared_utility vstd_lib)
         add_test(NAME ${test_target} COMMAND $<TARGET_FILE:${test_target}>)
         file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run/${test_target}")
         set_tests_properties(${test_target} PROPERTIES
@@ -1283,6 +1304,43 @@ if(VR_BUILD_TESTS)
     )
     # deren.engine.animation is format-neutral / runtime-agnostic; the sampling tests only touch the
     # pure functions, so nothing Vulkan is pulled in.
+    add_library(vessel_probe SHARED source/tests/vessel_probe.cpp)
+    target_link_libraries(vessel_probe PRIVATE shared_utility vstd_lib)
+    set_target_properties(vessel_probe PROPERTIES PREFIX "")
+    if(NOT MSVC)
+        target_compile_options(vessel_probe PRIVATE -fno-sanitize=all)
+        target_link_options(vessel_probe PRIVATE -fno-sanitize=all)
+    endif()
+    target_link_libraries(test_vessel static_utility shared_utility vstd_lib)
+    target_sources(test_vessel PRIVATE source/tests/vessel_child.cpp)
+    target_sources(test_stacktrace PRIVATE source/tests/vessel_child.cpp)
+    target_sources(test_stacktrace PRIVATE source/tests/stacktrace_fault.cpp)
+    target_link_libraries(test_stacktrace static_utility)
+    add_executable(stacktrace_symbolizer_fixture source/tests/stacktrace_symbolizer_fixture.cpp)
+    if(NOT MSVC)
+        target_compile_options(stacktrace_symbolizer_fixture PRIVATE -fno-sanitize=all)
+        target_link_options(stacktrace_symbolizer_fixture PRIVATE -fno-sanitize=all)
+    endif()
+    # A DLL whose DllMain BLOCKS, holding the loader lock: loaded on one thread while another
+    # thread crashes, it is the instrument for "the fatal path must not call back into the loader".
+    add_library(loader_lock_fixture SHARED source/tests/loader_lock_fixture.cpp)
+    if(NOT MSVC)
+        target_compile_options(loader_lock_fixture PRIVATE -fno-sanitize=all)
+        target_link_options(loader_lock_fixture PRIVATE -fno-sanitize=all)
+    endif()
+    target_compile_definitions(test_stacktrace PRIVATE
+        STACKTRACE_FIXTURE="$<TARGET_FILE:stacktrace_symbolizer_fixture>"
+        STACKTRACE_LOADER_FIXTURE="$<TARGET_FILE:loader_lock_fixture>"
+        STACKTRACE_PROBE="$<TARGET_FILE:vessel_probe>"
+        STACKTRACE_DIAGNOSTICS=$<BOOL:${VR_DIAGNOSTICS}>
+        STACKTRACE_HAVE_SYMBOLIZER=$<BOOL:${VR_STACKTRACE_SYMBOLIZER}>
+        # The CROSS-CHECK against the offline decoder: the same raw record has to decode to the same
+        # fault line in both decoders, and nothing else ties the two rules together (see the review).
+        STACKTRACE_DECODER="${CMAKE_CURRENT_SOURCE_DIR}/source/scripts/symbolize_stacktrace.py"
+        STACKTRACE_PYTHON="${Python3_EXECUTABLE}")
+    add_dependencies(test_stacktrace stacktrace_symbolizer_fixture vessel_probe loader_lock_fixture)
+    target_compile_definitions(test_vessel PRIVATE VESSEL_PROBE_FILENAME="$<TARGET_FILE_NAME:vessel_probe>")
+    add_dependencies(test_vessel vessel_probe)
     target_link_libraries(test_animation
             deren_engine
             glm::glm
@@ -1290,10 +1348,10 @@ if(VR_BUILD_TESTS)
     )
     # deren_assets is pure CPU (fastgltf + stb vendored, linked PRIVATE into that DLL); the
     # test loads the repo's gltf_model/DamagedHelmet sample from the working directory.
-    target_link_libraries(test_gaussian_splatting PRIVATE deren_engine)
-    target_link_libraries(test_gaussian_raster PRIVATE deren_engine)
-    target_link_libraries(test_gaussian_gpu_frame PRIVATE deren_engine)
-    target_link_libraries(test_gaussian_loader PRIVATE gaussian_loader)
+    target_link_libraries(test_gaussian_splatting deren_engine)
+    target_link_libraries(test_gaussian_raster deren_engine)
+    target_link_libraries(test_gaussian_gpu_frame deren_engine)
+    target_link_libraries(test_gaussian_loader gaussian_loader)
     target_link_libraries(test_gltf_loader
             deren_assets
             glm::glm
@@ -1455,6 +1513,13 @@ target_link_libraries(test_acceleration_structures
 )
 # Same build-order rule again: this probe resolves deren_vulkan.dll at run time (it does not link it).
 add_dependencies(test_acceleration_structures deren_vulkan)
+if(VR_BUILD_TESTS)
+    add_test(NAME test_acceleration_structures COMMAND $<TARGET_FILE:test_acceleration_structures>)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run/test_acceleration_structures")
+    set_tests_properties(test_acceleration_structures PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run/test_acceleration_structures"
+        TIMEOUT 120)
+endif()
 
 # THE GUI PLUGIN IS BUILT BESIDE THE EXECUTABLE like the renderer backend, and for the same build-order
 # reason - the runtime resolves `deren_gui_vulkan.dll` by NAME through deren.engine.gui_loader, so the file
@@ -1477,7 +1542,7 @@ add_dependencies(deren deren_gui_vulkan)
 add_library(deren_gui_vulkan SHARED)
 add_executable(test_gui_plugin source/tests/test_gui_plugin.cpp)
 target_compile_definitions(test_gui_plugin PRIVATE VR_GUI_PLUGIN_DLL="$<TARGET_FILE:deren_gui_vulkan>")
-target_link_libraries(test_gui_plugin PRIVATE static_utility vstd_lib promise)
+target_link_libraries(test_gui_plugin static_utility vstd_lib promise)
 add_dependencies(test_gui_plugin deren_gui_vulkan)
 # Like the backend spike, this explicitly loads a graphics plugin and is run locally.
 set_target_properties(deren_gui_vulkan PROPERTIES PREFIX "") # deren_gui_vulkan.dll, beside the executable
@@ -1551,6 +1616,9 @@ foreach(_deren_target IN LISTS _deren_targets)
         continue()
     endif()
     target_compile_options(${_deren_target} PRIVATE ${COMPILE_OPTIONS})
+    if(MSVC AND VR_DIAGNOSTICS AND (_deren_type STREQUAL "EXECUTABLE" OR _deren_type STREQUAL "SHARED_LIBRARY"))
+        target_link_options(${_deren_target} PRIVATE /DEBUG)
+    endif()
 endforeach()
 unset(_deren_targets)
 unset(_deren_target)
@@ -1603,6 +1671,47 @@ if(NOT MSVC)
     target_compile_options(app_config PRIVATE -fno-sanitize=float-cast-overflow)
 endif()
 
+# CMake 4.4 synthesizes BMIs for each distinct target option list. These warning
+# and instrumentation exceptions apply to source compilation, not the public
+# module interface. Keep module consumers on one canonical target option list;
+# otherwise a diamond through promise and utility names two BMIs for one module.
+block()
+    get_property(_vessel_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(_vessel_target IN LISTS _vessel_targets)
+        get_target_property(_vessel_options ${_vessel_target} COMPILE_OPTIONS)
+        foreach(_vessel_option IN ITEMS -fno-sanitize=all -fno-sanitize=float-cast-overflow -Wno-unused-parameter /wd4100 /wd4996)
+            if(_vessel_options AND _vessel_option IN_LIST _vessel_options)
+                list(REMOVE_ITEM _vessel_options "${_vessel_option}")
+                get_target_property(_vessel_sources ${_vessel_target} SOURCES)
+                get_target_property(_vessel_module_sets ${_vessel_target} CXX_MODULE_SETS)
+                if(_vessel_module_sets)
+                    foreach(_vessel_module_set IN LISTS _vessel_module_sets)
+                        get_target_property(_vessel_modules ${_vessel_target} CXX_MODULE_SET_${_vessel_module_set})
+                        list(APPEND _vessel_sources ${_vessel_modules})
+                    endforeach()
+                endif()
+                list(REMOVE_DUPLICATES _vessel_sources)
+                foreach(_vessel_source IN LISTS _vessel_sources)
+                    set_property(SOURCE "${_vessel_source}" APPEND PROPERTY COMPILE_OPTIONS
+                        "$<$<STREQUAL:$<TARGET_PROPERTY:NAME>,${_vessel_target}>:${_vessel_option}>")
+                endforeach()
+            endif()
+        endforeach()
+        if(_vessel_options)
+            set_property(TARGET ${_vessel_target} PROPERTY COMPILE_OPTIONS "${_vessel_options}")
+        endif()
+    endforeach()
+    unset(_vessel_targets)
+    unset(_vessel_target)
+    unset(_vessel_options)
+    unset(_vessel_option)
+    unset(_vessel_sources)
+    unset(_vessel_source)
+    unset(_vessel_module_sets)
+    unset(_vessel_module_set)
+    unset(_vessel_modules)
+endblock()
+
 # Vendored libs get function/data sections AND -flto in Release too (plain C/C++ flags, no
 # -Werror set involved): without sections --gc-sections can only drop whole objects, so unused
 # imgui / fastgltf / xxhash / mimalloc functions would survive into the exe; without -flto the
@@ -1616,7 +1725,9 @@ endif()
 if(MSVC)
     set(VR_VENDORED_RELEASE_OPTIONS $<$<CONFIG:Release>:/Gy;/Gw>)
 else()
-    set(VR_VENDORED_RELEASE_OPTIONS $<$<CONFIG:Release>:-flto;-ffunction-sections;-fdata-sections>)
+    set(VR_VENDORED_RELEASE_OPTIONS $<$<CONFIG:Release>:-ffunction-sections;-fdata-sections>
+        $<$<AND:$<CONFIG:Release>,$<NOT:$<BOOL:${VR_DIAGNOSTICS}>>>:-flto>
+        $<$<BOOL:${VR_DIAGNOSTICS}>:-g;-fno-omit-frame-pointer;-fno-optimize-sibling-calls;-funwind-tables;-fasynchronous-unwind-tables>)
 endif()
 
 foreach(vendored_target IN LISTS VR_VENDORED_TARGETS)

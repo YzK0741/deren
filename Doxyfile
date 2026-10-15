@@ -1074,6 +1074,8 @@ WARN_LOGFILE           =
 # was defined in a file the INPUT list did not name.
 
 INPUT                  = ./docs/managed_resources.md \
+                         ./docs/vessel.md \
+                         ./docs/stacktrace.md \
                          ./docs/render_resource_inventory.md \
                          ./source/shaders \
 				./source/backends/vulkan \

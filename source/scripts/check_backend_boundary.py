@@ -310,7 +310,8 @@ UTILITY_SHARED_CONSUMERS = ("libstatic_utility.a", "libderen_engine.a", "libdere
 # The TUs that belong to the process-wide half. If one of these member names shows up in another
 # archive, that archive built its own copy of the shared code (the exact thing the split prevents).
 UTILITY_SHARED_MEMBERS = ("shared_utility.cpp.obj", "shared_utility.cppm.obj", "better_pmr.cpp.obj",
-                          "log_rotation_claim.cpp.obj")
+                          "memory.cpp.obj", "allocation_failure.cpp.obj", "stacktrace.cpp.obj",
+                          "stacktrace_native.cpp.obj", "log_rotation_claim.cpp.obj")
 
 
 def check_shared_utility(build_dir: str, nm: str) -> dict:
