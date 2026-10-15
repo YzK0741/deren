@@ -1,0 +1,227 @@
+[
+  {
+    "baseline_sync_clean": true,
+    "candidate_sync_clean": true,
+    "scenario": "clustered_lights",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0,
+    "baseline_capture": "screenshot_20261014_111705.png",
+    "candidate_capture": "screenshot_20261014_114527.png"
+  },
+  {
+    "baseline_sync_clean": true,
+    "candidate_sync_clean": true,
+    "scenario": "clustered_lights_off",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0,
+    "baseline_capture": "screenshot_20261014_111710.png",
+    "candidate_capture": "screenshot_20261014_114534.png"
+  },
+  {
+    "baseline_sync_clean": true,
+    "candidate_sync_clean": true,
+    "scenario": "deferred",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0,
+    "baseline_capture": "screenshot_20261014_111633.png",
+    "candidate_capture": "screenshot_20261014_114459.png"
+  },
+  {
+    "baseline_sync_clean": true,
+    "candidate_sync_clean": true,
+    "scenario": "deformation",
+    "shape": [
+      960,
+      1080,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0,
+    "baseline_capture": "screenshot_20261014_111804.png",
+    "candidate_capture": "screenshot_20261014_114626.png"
+  },
+  {
+    "baseline_sync_clean": true,
+    "candidate_sync_clean": true,
+    "scenario": "deformation_rt",
+    "shape": [
+      960,
+      1080,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0,
+    "baseline_capture": "screenshot_20261014_111810.png",
+    "candidate_capture": "screenshot_20261014_114634.png"
+  },
+  {
+    "baseline_sync_clean": true,
+    "candidate_sync_clean": true,
+    "scenario": "laevatain_goo_toon",
+    "shape": [
+      960,
+      1080,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0,
+    "baseline_capture": "screenshot_20261014_111719.png",
+    "candidate_capture": "screenshot_20261014_114542.png"
+  },
+  {
+    "baseline_sync_clean": true,
+    "candidate_sync_clean": true,
+    "scenario": "ml_lights",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0,
+    "baseline_capture": "screenshot_20261014_111752.png",
+    "candidate_capture": "screenshot_20261014_114614.png"
+  },
+  {
+    "baseline_sync_clean": true,
+    "candidate_sync_clean": true,
+    "scenario": "ml_scaled",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0,
+    "baseline_capture": "screenshot_20261014_111757.png",
+    "candidate_capture": "screenshot_20261014_114622.png"
+  },
+  {
+    "baseline_sync_clean": true,
+    "candidate_sync_clean": true,
+    "scenario": "rt_smoke",
+    "shape": [
+      960,
+      1080,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0,
+    "baseline_capture": "screenshot_20261014_111745.png",
+    "candidate_capture": "screenshot_20261014_114608.png"
+  },
+  {
+    "baseline_sync_clean": true,
+    "candidate_sync_clean": true,
+    "scenario": "scaled_taa",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0,
+    "baseline_capture": "screenshot_20261014_111732.png",
+    "candidate_capture": "screenshot_20261014_114556.png"
+  },
+  {
+    "baseline_sync_clean": true,
+    "candidate_sync_clean": true,
+    "scenario": "shadow_single",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0,
+    "baseline_capture": "screenshot_20261014_111640.png",
+    "candidate_capture": "screenshot_20261014_114505.png"
+  },
+  {
+    "baseline_sync_clean": true,
+    "candidate_sync_clean": true,
+    "scenario": "sponza",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0,
+    "baseline_capture": "screenshot_20261014_111657.png",
+    "candidate_capture": "screenshot_20261014_114521.png"
+  },
+  {
+    "baseline_sync_clean": true,
+    "candidate_sync_clean": true,
+    "scenario": "taa_fxaa",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0,
+    "baseline_capture": "screenshot_20261014_111738.png",
+    "candidate_capture": "screenshot_20261014_114601.png"
+  },
+  {
+    "baseline_sync_clean": true,
+    "candidate_sync_clean": true,
+    "scenario": "taa_on",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0,
+    "baseline_capture": "screenshot_20261014_111726.png",
+    "candidate_capture": "screenshot_20261014_114548.png"
+  },
+  {
+    "baseline_sync_clean": true,
+    "candidate_sync_clean": true,
+    "scenario": "transparent_blend",
+    "shape": [
+      720,
+      1280,
+      4
+    ],
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "rmse": 0.0,
+    "baseline_capture": "screenshot_20261014_111647.png",
+    "candidate_capture": "screenshot_20261014_114512.png"
+  }
+]

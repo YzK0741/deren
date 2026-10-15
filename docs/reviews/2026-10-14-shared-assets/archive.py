@@ -1,0 +1,106 @@
+from pathlib import Path
+import hashlib, json, shutil, struct, zlib, gzip
+from PIL import Image
+import numpy as np
+
+repo = next(parent for parent in Path(__file__).resolve().parents if (parent/'CMakeLists.txt').exists())
+work = repo/'build-release-dyn-clang64/shared-assets-check'
+archive = repo / 'docs/reviews/2026-10-14-shared-assets'
+archive.mkdir(exist_ok=True)
+stats = []
+def compress_png(path):
+    data = path.read_bytes()
+    chunks = []
+    offset = 8
+    while offset < len(data):
+        size = struct.unpack('>I', data[offset:offset+4])[0]
+        tag = data[offset+4:offset+8]
+        chunks.append((tag, data[offset+8:offset+8+size]))
+        offset += size+12
+    original = zlib.decompress(b''.join(body for tag, body in chunks if tag == b'IDAT'))
+    encoded = zlib.compress(original, 9)
+    assert zlib.decompress(encoded) == original
+    out = data[:8]
+    inserted = False
+    for tag, body in chunks:
+        if tag == b'IDAT':
+            if inserted: continue
+            body = encoded
+            inserted = True
+        out += struct.pack('>I',len(body))+tag+body+struct.pack('>I',zlib.crc32(tag+body))
+    path.write_bytes(out)
+
+for final in sorted(work.glob('candidate-*')):
+    if not final.is_dir(): continue
+    scenario = final.name.removeprefix('candidate-')
+    before = work / ('baseline-'+scenario)
+    before_file = max(before.glob('screenshot_*.png'), key=lambda p:p.stat().st_mtime)
+    final_file = max(final.glob('screenshot_*.png'), key=lambda p:p.stat().st_mtime)
+    a = np.asarray(Image.open(before_file).convert('RGBA')).astype(np.int16)
+    b = np.asarray(Image.open(final_file).convert('RGBA')).astype(np.int16)
+    delta = np.abs(a-b)
+    stats.append(dict(baseline_sync_clean='[ERROR]' not in (before/'debug.log').read_text(errors='replace'), candidate_sync_clean='[ERROR]' not in (final/'debug.log').read_text(errors='replace'), scenario=scenario, shape=list(a.shape), different_pixels=int(np.count_nonzero(np.any(delta,axis=2))), max_channel_delta=int(delta.max()), rmse=float(np.sqrt(np.mean(delta.astype(float)**2)))))
+    stats[-1].update(baseline_capture=before_file.name, candidate_capture=final_file.name)
+    for source in (before,final):
+        target = archive/source.name
+        target.mkdir(exist_ok=True)
+        for file in source.iterdir():
+            if file.suffix not in ('.png','.toml','.log'): continue
+            shutil.copy2(file,target/file.name)
+            if file.suffix == '.png': compress_png(target/file.name)
+for name in ('pbr-resize',):
+    target = archive/name
+    target.mkdir(exist_ok=True)
+    for file in (work/name).iterdir():
+        if file.suffix not in ('.png','.toml','.log'): continue
+        shutil.copy2(file,target/file.name)
+        if file.suffix == '.png': compress_png(target/file.name)
+for source in (work/'run-captures.ps1', repo/'build-release-dyn-clang64/ray-resources-check/pbr-resize.ps1', Path(__file__)):
+    if source.resolve() != (archive/source.name).resolve():
+        shutil.copy2(source,archive/source.name)
+(archive/'pixel-comparison.json').write_text(json.dumps(stats,indent=2)+'\n')
+gaussian = []
+for mode in ('cpu', 'gpu'):
+    before = work/'gaussian-before'/mode
+    final = work/'gaussian-after'/mode
+    before_file = max(before.glob('screenshot_*.png'), key=lambda p:p.stat().st_mtime)
+    final_file = max(final.glob('screenshot_*.png'), key=lambda p:p.stat().st_mtime)
+    a = np.asarray(Image.open(before_file).convert('RGBA')).astype(np.int16)
+    b = np.asarray(Image.open(final_file).convert('RGBA')).astype(np.int16)
+    old_hdr = (before/'capture.rgba16f').read_bytes()
+    new_hdr = (final/'capture.rgba16f').read_bytes()
+    gaussian.append(dict(mode=mode, baseline_capture=before_file.name, candidate_capture=final_file.name,
+                         different_pixels=int(np.count_nonzero(np.any(a != b,axis=2))),
+                         max_channel_delta=int(np.abs(a-b).max()), hdr_bytes_identical=old_hdr==new_hdr,
+                         baseline_hdr_sha256=hashlib.sha256(old_hdr).hexdigest(), candidate_hdr_sha256=hashlib.sha256(new_hdr).hexdigest()))
+    for source in (before, final):
+        target = archive/source.parent.name/mode
+        target.mkdir(parents=True, exist_ok=True)
+        for file in source.iterdir():
+            if file.suffix in ('.png','.toml','.log','.json'):
+                shutil.copy2(file,target/file.name)
+                if file.suffix == '.png': compress_png(target/file.name)
+            elif file.suffix == '.rgba16f':
+                encoded = gzip.compress(file.read_bytes(), compresslevel=9, mtime=0)
+                assert gzip.decompress(encoded) == file.read_bytes()
+                (target/(file.name+'.gz')).write_bytes(encoded)
+(archive/'gaussian-comparison.json').write_text(json.dumps(gaussian,indent=2)+'\n')
+shutil.copy2(repo/'docs/reviews/2026-10-14-gaussian-managed-assets/check-captures.ps1', archive/'check-gaussian.ps1')
+digests = {}
+fixture = Path('deren-ab/gooblender/images/PreIntegratedFGD_GGXDisneyDiffuse.png')
+shutil.copy2(work/'runtime.before'/fixture, archive/fixture.name)
+for root in (work/'runtime.before',repo/'build-release-dyn-clang64'):
+    for file in [root/'deren.exe',root/fixture,*sorted(root.glob('*.dll')),*sorted((root/'shaders').rglob('*'))]:
+        if file.is_file(): digests[str(file.relative_to(repo))]=hashlib.sha256(file.read_bytes()).hexdigest()
+for file in archive.rglob('*'):
+    if file.is_file() and file.name != 'sha256.json': digests[str(file.relative_to(repo))]=hashlib.sha256(file.read_bytes()).hexdigest()
+(archive/'sha256.json').write_text(json.dumps(digests,indent=2)+'\n')
+print(json.dumps(stats,indent=2))
+
+
+
+
+
+
+
+

@@ -1,0 +1,22 @@
+[
+  {
+    "mode": "cpu",
+    "baseline_capture": "screenshot_20261014_114654.png",
+    "candidate_capture": "screenshot_20261014_114713.png",
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "hdr_bytes_identical": true,
+    "baseline_hdr_sha256": "465d30304bd61ff8bc6555c61977a5815a896831316a3f5fae024ab81919c539",
+    "candidate_hdr_sha256": "465d30304bd61ff8bc6555c61977a5815a896831316a3f5fae024ab81919c539"
+  },
+  {
+    "mode": "gpu",
+    "baseline_capture": "screenshot_20261014_114701.png",
+    "candidate_capture": "screenshot_20261014_114720.png",
+    "different_pixels": 0,
+    "max_channel_delta": 0,
+    "hdr_bytes_identical": true,
+    "baseline_hdr_sha256": "00413eda3c0050dc5e56e94e7517b1f8ecb0ed9a258d087653dd0e2fdd90f62f",
+    "candidate_hdr_sha256": "00413eda3c0050dc5e56e94e7517b1f8ecb0ed9a258d087653dd0e2fdd90f62f"
+  }
+]

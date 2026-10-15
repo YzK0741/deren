@@ -1,0 +1,26 @@
+model = "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\chars\\laevatain_goo.glb"
+grid_side = 0
+
+[paths]
+shaders_dir = "C:/Users/23530/Desktop/yzk/deren/build-release-dyn-clang64/shaders"
+model_dir = ''
+screenshot_dir = "C:/Users/23530/Desktop/yzk/deren/build-release-dyn-clang64/scene-tables-check/candidate-laevatain_goo_toon"
+
+[render]
+window_width = 1080
+window_height = 960
+vsync = false
+max_fps = 240
+shadow = true
+validation_layers = true
+goo_toon = true
+character_forward = true
+
+[gui]
+show = false
+
+[lighting]
+env_size = 256
+env_mip_count = 5
+irr_size = 32
+lut_size = 256

@@ -1,0 +1,25 @@
+model = "C:\\Users\\23530\\Desktop\\yzk\\glTF-Sample-Assets\\Models\\DamagedHelmet\\glTF\\DamagedHelmet.gltf"
+grid_side = 0
+
+[paths]
+shaders_dir = "C:/Users/23530/Desktop/yzk/deren/build-release-dyn-clang64/geometry-managed-check/runtime.before/shaders"
+model_dir = ''
+screenshot_dir = "C:/Users/23530/Desktop/yzk/deren/build-release-dyn-clang64/geometry-managed-check/baseline-shadow_single"
+
+[render]
+window_width = 1280
+window_height = 720
+vsync = false
+max_fps = 240
+shadow = true
+validation_layers = true
+shadow_cascades = 1
+
+[gui]
+show = false
+
+[lighting]
+env_size = 256
+env_mip_count = 5
+irr_size = 32
+lut_size = 256
