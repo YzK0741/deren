@@ -6,6 +6,7 @@ module;
 #include <glm/glm.hpp>
 #include <limits>
 module deren.engine.gaussian_splatting.raster;
+import deren.utility.shared;
 namespace deren::engine::gaussian_splatting {
     namespace {
         auto invalid(char const* message) {
@@ -124,7 +125,7 @@ namespace deren::engine::gaussian_splatting {
         }
         // Depth support is three dimensional. Side coverage is tested after
         // projection so the pixel regularization participates in culling.
-        std::array<glm::dvec4, 2> const planes = {row(vp, 2), row(vp, 3) - row(vp, 2)};
+        deren::utility::vessel::array<glm::dvec4, 2> const planes = {row(vp, 2), row(vp, 3) - row(vp, 2)};
         double near_distance = 0;
         double near_radius = 0;
         for (std::size_t i = 0; i < planes.size(); ++i) {
@@ -195,7 +196,7 @@ namespace deren::engine::gaussian_splatting {
         double const xx = x * x;
         double const yy = y * y;
         double const zz = z * z;
-        std::array<double, 16> const basis = {
+        deren::utility::vessel::array<double, 16> const basis = {
             0.28209479177387814,
             -0.4886025119029199 * y,
             0.4886025119029199 * z,

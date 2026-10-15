@@ -10,10 +10,11 @@ module;
 #include <string>
 #include <vector>
 module deren.engine.gaussian_splatting.probe;
+import deren.utility.shared;
 namespace deren::engine::gaussian_splatting {
     namespace rhi = deren::promise::rhi;
     std::expected<std::uint32_t, foundation_error> run_gpu_sort_probe(rhi::api_core& core) {
-        auto fail = [](std::string message) { return std::unexpected(foundation_error{error_code::invalid_argument, std::move(message)}); };
+        auto fail = [](deren::utility::vessel::string message) { return std::unexpected(foundation_error{error_code::invalid_argument, std::move(message)}); };
         auto* ability = rhi::query_extension<rhi::gpu_sorting>(core);
         if (!ability) {
             return fail("GPU sorting capability unavailable");
@@ -28,9 +29,9 @@ namespace deren::engine::gaussian_splatting {
         std::uint32_t cases = 0;
         for (std::uint32_t const count : {0u, 1u, 255u, 256u, 257u, 511u, 512u, 513u, 4095u, 4096u, 4097u, 65537u}) {
             for (std::uint32_t mode = 0; mode < 4; ++mode) {
-                std::vector<std::uint32_t> keys(count);
-                std::vector<std::uint32_t> values(count);
-                std::vector<std::uint32_t> expected(count);
+                deren::utility::vessel::vector<std::uint32_t> keys(count);
+                deren::utility::vessel::vector<std::uint32_t> values(count);
+                deren::utility::vessel::vector<std::uint32_t> expected(count);
                 std::iota(values.begin(), values.end(), 0u);
                 std::iota(expected.begin(), expected.end(), 0u);
                 for (std::uint32_t i = 0; i < count; ++i) {
@@ -105,7 +106,7 @@ namespace deren::engine::gaussian_splatting {
                     std::memcpy(&key, km.data() + i * 4ull, 4);
                     std::memcpy(&value, vm.data() + i * 4ull, 4);
                     if (value != expected[i] || key != keys[expected[i]]) {
-                        return fail("GPU stable sort mismatch at count " + std::to_string(count) + ", mode " + std::to_string(mode) + ", index " + std::to_string(i));
+                        return fail("GPU stable sort mismatch at count " + deren::utility::vessel::to_string(count) + ", mode " + deren::utility::vessel::to_string(mode) + ", index " + deren::utility::vessel::to_string(i));
                     }
                 }
                 ++cases;

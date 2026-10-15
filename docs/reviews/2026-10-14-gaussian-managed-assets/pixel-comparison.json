@@ -1,0 +1,30 @@
+[
+  {
+    "scenario": "static",
+    "mode": "cpu",
+    "different_pixels": 0,
+    "hdr_identical": true,
+    "sync_clean": true
+  },
+  {
+    "scenario": "static",
+    "mode": "gpu",
+    "different_pixels": 0,
+    "hdr_identical": true,
+    "sync_clean": true
+  },
+  {
+    "scenario": "rotation",
+    "mode": "cpu",
+    "different_pixels": 0,
+    "hdr_identical": true,
+    "sync_clean": true
+  },
+  {
+    "scenario": "rotation",
+    "mode": "gpu",
+    "different_pixels": 0,
+    "hdr_identical": true,
+    "sync_clean": true
+  }
+]

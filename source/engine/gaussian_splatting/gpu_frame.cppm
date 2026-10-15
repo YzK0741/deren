@@ -8,9 +8,13 @@ module;
 #include <span>
 #include <vector>
 export module deren.engine.gaussian_splatting.gpu_frame;
+export import deren.utility.shared;
 export import deren.engine.gaussian_splatting.raster;
 import deren.promise.rhi;
 import deren.engine.pass;
+import deren.engine.pass.chain;
+import deren.engine.pass.buffer_storage;
+import deren.engine.render_resource;
 export namespace deren::engine::gaussian_splatting {
     struct gpu_prepare_pipelines {
         deren::promise::rhi::pipeline* reset = nullptr;
@@ -58,6 +62,9 @@ export namespace deren::engine::gaussian_splatting {
         [[nodiscard]] std::uint64_t byte_size() const noexcept {
             return bytes;
         }
+        [[nodiscard]] render_resource::instances::resource_snapshot const& resources() const noexcept {
+            return storage_view;
+        }
         [[nodiscard]] deren::promise::rhi::buffer* draw_buffer() const noexcept {
             return buffers[draw].get();
         }
@@ -77,7 +84,7 @@ export namespace deren::engine::gaussian_splatting {
 
     private:
         gpu_frame() = default;
-        friend std::expected<std::shared_ptr<gpu_frame>, foundation_error> prepare_gpu_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const&, gpu_frame*);
+        friend std::expected<std::shared_ptr<gpu_frame>, foundation_error> prepare_gpu_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const&, gpu_frame*, std::shared_ptr<deren::promise::rhi::api_core>);
         enum buffer_index : std::size_t { instances,
                                           ranges,
                                           keys,
@@ -92,10 +99,17 @@ export namespace deren::engine::gaussian_splatting {
         deren::promise::rhi::api_core* owner = nullptr;
         raster_push push;
         std::uint64_t parameter_address = 0, bytes = 0;
-        std::array<deren::promise::rhi::object_manager<deren::promise::rhi::buffer>, buffer_count> buffers;
+        // The device and asset leases outlive the subchain's drain and all owned allocations.
+        std::shared_ptr<deren::promise::rhi::api_core> device_lease;
+        deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> owners;
         deren::promise::rhi::object_manager<deren::promise::rhi::radix_sorter> sorter;
-        std::vector<std::shared_ptr<raster_asset const>> owners;
+        deren::engine::pass::pass_chain storage_chain;
+        deren::engine::pass::buffer_storage_pass* storage_provider = nullptr;
+        render_resource::instances::resource_snapshot storage_view;
+        deren::utility::vessel::array<render_resource::instances::borrowed<deren::promise::rhi::buffer>, buffer_count> buffers;
     };
     /// reuse must be a completed slot obtained from this factory on the same core.
-    [[nodiscard]] std::expected<std::shared_ptr<gpu_frame>, foundation_error> prepare_gpu_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const& = {}, gpu_frame* = nullptr);
+    /// A reference-only caller keeps the core alive; production passes provide an owning device lease.
+    /// An allocated reference-only frame cannot be promoted to owning reuse; create a fresh frame instead.
+    [[nodiscard]] std::expected<std::shared_ptr<gpu_frame>, foundation_error> prepare_gpu_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const& = {}, gpu_frame* = nullptr, std::shared_ptr<deren::promise::rhi::api_core> = {});
 } // namespace deren::engine::gaussian_splatting

@@ -14,10 +14,11 @@ module;
 #include <string_view>
 #include <vector>
 module deren.gaussian_loader;
+import deren.utility.shared;
 namespace deren::gaussian {
     namespace {
         struct property {
-            std::string name;
+            deren::utility::vessel::string name;
             unsigned bytes;
             bool floating;
             bool signed_value;
@@ -89,7 +90,7 @@ namespace deren::gaussian {
         }
     } // namespace
     load_result parse_ply(std::span<std::byte const> bytes, load_options const& limits) {
-        auto fail = [](error_code code, std::size_t offset, std::string property_name, std::string message) -> load_result {
+        auto fail = [](error_code code, std::size_t offset, deren::utility::vessel::string property_name, deren::utility::vessel::string message) -> load_result {
             return std::unexpected(diagnostic{code, offset, std::move(property_name), std::move(message)});
         };
         if (bytes.size() > limits.max_file_bytes)
@@ -100,7 +101,7 @@ namespace deren::gaussian {
         std::size_t offset = 0;
         bool binary = false, format = false, vertex = false, ended = false;
         std::uint64_t count = 0;
-        std::vector<property> properties;
+        deren::utility::vessel::vector<property> properties;
         while (offset < text.size()) {
             auto end = text.find('\n', offset);
             if (end == text.npos)
@@ -138,11 +139,11 @@ namespace deren::gaussian {
                 auto name = take(line);
                 property p{};
                 if (!vertex || name.empty() || !take(line).empty() || !kind(type, p))
-                    return fail(error_code::invalid_header, line_offset, std::string(name), "unsupported property declaration");
+                    return fail(error_code::invalid_header, line_offset, deren::utility::vessel::string(name), "unsupported property declaration");
                 if (properties.size() >= 256)
                     return fail(error_code::limit_exceeded, line_offset, {}, "too many properties");
                 if (std::any_of(properties.begin(), properties.end(), [name](auto const& old) { return old.name == name; }))
-                    return fail(error_code::invalid_header, line_offset, std::string(name), "duplicate property");
+                    return fail(error_code::invalid_header, line_offset, deren::utility::vessel::string(name), "duplicate property");
                 p.name = name;
                 properties.push_back(std::move(p));
             } else if (command == "end_header") {
@@ -162,7 +163,7 @@ namespace deren::gaussian {
             auto it = std::find_if(properties.begin(), properties.end(), [name](auto const& p) { return p.name == name; });
             return static_cast<std::size_t>(it - properties.begin());
         };
-        std::array<std::size_t, 14> required{};
+        deren::utility::vessel::array<std::size_t, 14> required{};
         unsigned r = 0;
         for (auto name : {"x", "y", "z", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3", "opacity", "f_dc_0", "f_dc_1", "f_dc_2"}) {
             auto i = find(name);
@@ -170,7 +171,7 @@ namespace deren::gaussian {
                 return fail(error_code::missing_property, offset, name, "required attribute absent");
             required[r++] = i;
         }
-        std::array<std::size_t, 45> rest{};
+        deren::utility::vessel::array<std::size_t, 45> rest{};
         rest.fill(properties.size());
         unsigned rest_count = 0;
         for (std::size_t i = 0; i < properties.size(); ++i) {
@@ -179,7 +180,7 @@ namespace deren::gaussian {
                 continue;
             std::uint64_t n = 0;
             auto suffix = std::string_view(name).substr(7);
-            if (!unsigned_number(suffix, n) || n >= 45 || suffix != std::to_string(n) || rest[n] != properties.size())
+            if (!unsigned_number(suffix, n) || n >= 45 || suffix != deren::utility::vessel::to_string(n) || rest[n] != properties.size())
                 return fail(error_code::invalid_header, offset, name, "invalid SH property index");
             rest[n] = i;
             ++rest_count;
@@ -188,7 +189,7 @@ namespace deren::gaussian {
             return fail(error_code::invalid_header, offset, {}, "incomplete SH degree");
         for (unsigned i = 0; i < rest_count; ++i)
             if (rest[i] == properties.size())
-                return fail(error_code::missing_property, offset, "f_rest_" + std::to_string(i), "noncontiguous SH attributes");
+                return fail(error_code::missing_property, offset, "f_rest_" + deren::utility::vessel::to_string(i), "noncontiguous SH attributes");
         std::size_t stride = 0;
         for (auto const& p : properties)
             stride += p.bytes;
@@ -199,7 +200,7 @@ namespace deren::gaussian {
                                              : rest_count == 24  ? 2
                                                                  : 3;
         answer.particles.reserve(static_cast<std::size_t>(count));
-        std::vector<double> row(properties.size());
+        deren::utility::vessel::vector<double> row(properties.size());
         for (std::uint64_t item = 0; item < count; ++item) {
             for (std::size_t i = 0; i < properties.size(); ++i) {
                 auto const& p = properties[i];
@@ -261,7 +262,7 @@ namespace deren::gaussian {
             double matrix[3][3] = {{1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)}, {2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)}, {2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)}};
             for (unsigned i = 0; i < 3; ++i)
                 if (!(point.scale[i] > 0) || !std::isfinite(point.scale[i]))
-                    return fail(error_code::invalid_data, offset, "scale_" + std::to_string(i), "invalid activated scale");
+                    return fail(error_code::invalid_data, offset, "scale_" + deren::utility::vessel::to_string(i), "invalid activated scale");
             for (unsigned i = 0; i < 3; ++i) {
                 double variance = 0;
                 for (unsigned j = 0; j < 3; ++j) {
@@ -293,7 +294,7 @@ namespace deren::gaussian {
         return answer;
     }
     load_result load_ply(std::string_view path, load_options const& limits) {
-        std::ifstream file(std::string(path), std::ios::binary | std::ios::ate);
+        std::ifstream file(deren::utility::vessel::string(path).c_str(), std::ios::binary | std::ios::ate);
         if (!file)
             return std::unexpected(diagnostic{error_code::io, 0, {}, "cannot open file"});
         auto end = file.tellg();
@@ -302,7 +303,7 @@ namespace deren::gaussian {
         auto size = static_cast<std::uint64_t>(end);
         if (size > limits.max_file_bytes || size > std::numeric_limits<std::size_t>::max() || size > std::uint64_t(std::numeric_limits<std::streamsize>::max()))
             return std::unexpected(diagnostic{error_code::limit_exceeded, 0, {}, "file budget exceeded"});
-        std::vector<std::byte> data(static_cast<std::size_t>(size));
+        deren::utility::vessel::vector<std::byte> data(static_cast<std::size_t>(size));
         file.seekg(0);
         if (!file.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(size)))
             return std::unexpected(diagnostic{error_code::io, 0, {}, "file read failed"});

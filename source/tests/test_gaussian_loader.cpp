@@ -9,15 +9,16 @@
 #include <span>
 #include <string>
 #include <vector>
+import deren.utility.shared;
 import deren.gaussian_loader;
 namespace gs = deren::gaussian;
-std::string header(std::string format = "ascii", unsigned count = 1) {
-    std::string s = "ply\nformat " + format + " 1.0\nelement vertex " + std::to_string(count) + "\n";
+deren::utility::vessel::string header(deren::utility::vessel::string format = "ascii", unsigned count = 1) {
+    deren::utility::vessel::string s = "ply\nformat " + format + " 1.0\nelement vertex " + deren::utility::vessel::to_string(count) + "\n";
     for (auto name : {"x", "y", "z", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3", "opacity", "f_dc_0", "f_dc_1", "f_dc_2"})
-        s += "property float " + std::string(name) + "\n";
+        s += "property float " + deren::utility::vessel::string(name) + "\n";
     return s;
 }
-auto parse(std::string const& text, gs::load_options options = {}) {
+auto parse(deren::utility::vessel::string const& text, gs::load_options options = {}) {
     return gs::parse_ply(std::as_bytes(std::span(text.data(), text.size())), options);
 }
 int main() {
@@ -57,10 +58,10 @@ int main() {
         unsigned bands = (degree + 1) * (degree + 1) - 1;
         auto h = header();
         for (unsigned i = 0; i < bands * 3; ++i)
-            h += "property float f_rest_" + std::to_string(i) + "\n";
+            h += "property float f_rest_" + deren::utility::vessel::to_string(i) + "\n";
         h += "property uchar extra\nend_header\n1 2 3 0 0 0 1 0 0 0 0 1 2 3";
         for (unsigned i = 0; i < bands * 3; ++i)
-            h += " " + std::to_string(i + 10);
+            h += " " + deren::utility::vessel::to_string(i + 10);
         auto sh = parse(h + " 255\n");
         CHECK(sh && sh->sh_degree == degree);
         if (sh) {
@@ -85,7 +86,7 @@ int main() {
     auto unknown = header("binary_little_endian");
     unknown += "property short extra\nend_header\n";
     auto payload = binary.substr(binary.find("end_header\n") + 11);
-    auto negative = parse(unknown + payload + std::string(2, char(255)));
+    auto negative = parse(unknown + payload + deren::utility::vessel::string(2, char(255)));
     CHECK(negative);
 
     auto rotated = parse(header() + "end_header\n0 0 0 0.6931471805599453 0 0 0.7071067811865476 0 0 0.7071067811865476 1000 0 0 0\n");
@@ -98,7 +99,7 @@ int main() {
     auto low_opacity = parse(header() + "end_header\n0 0 0 0 0 0 1 0 0 0 -1000 0 0 0\n");
     CHECK(low_opacity && low_opacity->particles[0].opacity == 0);
     auto crlf = good;
-    for (std::size_t pos = 0; (pos = crlf.find('\n', pos)) != std::string::npos; pos += 2)
+    for (std::size_t pos = 0; (pos = crlf.find('\n', pos)) != deren::utility::vessel::string::npos; pos += 2)
         crlf.insert(pos, 1, '\r');
     CHECK(parse(crlf));
     auto huge_count = header();
@@ -118,13 +119,13 @@ int main() {
     // loader change that only breaks the real layout (an unknown property in the middle, a coefficient count that
     // no longer matches the band count) fails here rather than at the viewer.
     {
-        std::string real = "ply\nformat binary_little_endian 1.0\nelement vertex 2\n";
+        deren::utility::vessel::string real = "ply\nformat binary_little_endian 1.0\nelement vertex 2\n";
         for (auto name : {"x", "y", "z", "nx", "ny", "nz", "f_dc_0", "f_dc_1", "f_dc_2"})
-            real += "property float " + std::string(name) + "\n";
+            real += "property float " + deren::utility::vessel::string(name) + "\n";
         for (unsigned i = 0; i < 45; ++i)
-            real += "property float f_rest_" + std::to_string(i) + "\n";
+            real += "property float f_rest_" + deren::utility::vessel::to_string(i) + "\n";
         for (auto name : {"opacity", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3"})
-            real += "property float " + std::string(name) + "\n";
+            real += "property float " + deren::utility::vessel::string(name) + "\n";
         real += "end_header\n";
         auto push = [&real](float value) {
             auto bits = std::bit_cast<std::uint32_t>(value);

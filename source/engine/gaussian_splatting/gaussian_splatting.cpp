@@ -13,18 +13,19 @@ module;
 #include <utility>
 #include <vector>
 module deren.engine.gaussian_splatting;
+import deren.utility.shared;
 namespace deren::engine::gaussian_splatting {
     namespace {
-        auto invalid(std::string message) {
+        auto invalid(deren::utility::vessel::string message) {
             return std::unexpected(foundation_error{error_code::invalid_argument, std::move(message)});
         }
-        auto limited(std::string message) {
+        auto limited(deren::utility::vessel::string message) {
             return std::unexpected(foundation_error{error_code::limit_exceeded, std::move(message)});
         }
         bool float_finite(double value) {
             return std::isfinite(value) && std::abs(value) <= std::numeric_limits<float>::max();
         }
-        std::expected<std::array<double, 6>, foundation_error> covariance_of(deren::gaussian::particle const& p) {
+        std::expected<deren::utility::vessel::array<double, 6>, foundation_error> covariance_of(deren::gaussian::particle const& p) {
             for (float c : p.center) {
                 if (!std::isfinite(c)) {
                     return invalid("non-finite center");
@@ -58,7 +59,7 @@ namespace deren::engine::gaussian_splatting {
             double const x = p.rotation[1] / length;
             double const y = p.rotation[2] / length;
             double const z = p.rotation[3] / length;
-            std::array<std::array<double, 3>, 3> const rotation = {{{1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)}, {2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)}, {2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)}}};
+            deren::utility::vessel::array<deren::utility::vessel::array<double, 3>, 3> const rotation = {{{1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)}, {2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)}, {2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)}}};
             auto entry = [&](unsigned i, unsigned j) {
                 double result = 0;
                 for (unsigned k = 0; k < 3; ++k) {
@@ -67,7 +68,7 @@ namespace deren::engine::gaussian_splatting {
                 }
                 return result;
             };
-            std::array<double, 6> const covariance = {entry(0, 0), entry(0, 1), entry(0, 2), entry(1, 1), entry(1, 2), entry(2, 2)};
+            deren::utility::vessel::array<double, 6> const covariance = {entry(0, 0), entry(0, 1), entry(0, 2), entry(1, 1), entry(1, 2), entry(2, 2)};
             for (double c : covariance) {
                 if (!float_finite(c)) {
                     return invalid("covariance exceeds float32 range");
@@ -75,9 +76,9 @@ namespace deren::engine::gaussian_splatting {
             }
             return covariance;
         }
-        std::expected<std::array<float, 6>, foundation_error> support_bounds(deren::gaussian::particle const& p, std::array<double, 6> const& cov) {
-            std::array<float, 6> result{};
-            constexpr std::array<unsigned, 3> diagonals = {0, 3, 5};
+        std::expected<deren::utility::vessel::array<float, 6>, foundation_error> support_bounds(deren::gaussian::particle const& p, deren::utility::vessel::array<double, 6> const& cov) {
+            deren::utility::vessel::array<float, 6> result{};
+            constexpr deren::utility::vessel::array<unsigned, 3> diagonals = {0, 3, 5};
             for (glm::length_t i = 0; i < 3; ++i) {
                 double const radius = 3 * std::sqrt(cov[diagonals[i]]);
                 double const low = static_cast<double>(p.center[i]) - radius;
@@ -115,8 +116,8 @@ namespace deren::engine::gaussian_splatting {
             return invalid("model matrix must be affine");
         }
         glm::dmat4 const m{model};
-        std::array<glm::dvec3, 3> axes = {glm::dvec3{m[0]}, glm::dvec3{m[1]}, glm::dvec3{m[2]}};
-        std::array<double, 3> lengths{};
+        deren::utility::vessel::array<glm::dvec3, 3> axes = {glm::dvec3{m[0]}, glm::dvec3{m[1]}, glm::dvec3{m[2]}};
+        deren::utility::vessel::array<double, 3> lengths{};
         for (glm::length_t i = 0; i < 3; ++i) {
             lengths[i] = glm::length(axes[i]);
             if (!(lengths[i] > 0)) {
@@ -172,7 +173,7 @@ namespace deren::engine::gaussian_splatting {
                 return;
             }
             std::size_t const chunk = (count + workers - 1u) / workers;
-            std::vector<std::thread> pool;
+            deren::utility::vessel::vector<std::thread> pool;
             pool.reserve(workers - 1u);
             for (std::size_t index = 1; index < workers; ++index) {
                 std::size_t const begin = std::min(count, index * chunk);
@@ -180,7 +181,10 @@ namespace deren::engine::gaussian_splatting {
                 if (begin >= end) {
                     break;
                 }
-                pool.emplace_back([&work, index, begin, end] { work(index, begin, end); });
+                pool.emplace_back([&work, index, begin, end] {
+                    static_cast<void>(deren::utility::diagnostics::prepare_crash_thread());
+                    work(index, begin, end);
+                });
             }
             work(std::size_t{0}, std::size_t{0}, std::min(count, chunk));
             for (std::thread& worker : pool) {
@@ -189,7 +193,7 @@ namespace deren::engine::gaussian_splatting {
         }
     } // namespace
 
-    std::expected<std::vector<draw_reference>, foundation_error> sort_draw_references(std::span<sort_instance const> instances, sort_camera const& camera, foundation_limits const& limits) {
+    std::expected<deren::utility::vessel::vector<draw_reference>, foundation_error> sort_draw_references(std::span<sort_instance const> instances, sort_camera const& camera, foundation_limits const& limits) {
         for (glm::length_t i = 0; i < 3; ++i) {
             if (!std::isfinite(camera.position[i]) || !std::isfinite(camera.forward[i])) {
                 return invalid("non-finite camera");
@@ -248,7 +252,7 @@ namespace deren::engine::gaussian_splatting {
                 }
             }
         }
-        std::vector<std::uint64_t> ids;
+        deren::utility::vessel::vector<std::uint64_t> ids;
         ids.reserve(instances.size());
         for (auto const& i : instances) {
             ids.push_back(i.stable_id);
@@ -261,7 +265,7 @@ namespace deren::engine::gaussian_splatting {
             double depth;
             draw_reference reference;
         };
-        std::vector<depth_reference> keyed;
+        deren::utility::vessel::vector<depth_reference> keyed;
         if (total > keyed.max_size()) {
             return limited("sort scratch exceeds addressable size");
         }
@@ -270,7 +274,7 @@ namespace deren::engine::gaussian_splatting {
         // model transforms and dots measured ~50 ms of the sort's remaining 69 ms on one thread. The instance each
         // particle belongs to comes from a prefix-sum table, so a worker needs ONE binary search at its chunk's start
         // and then walks - the (instance, particle) pair it writes is exactly the serial loop's.
-        std::vector<std::size_t> instance_offsets(instances.size() + 1u, 0u);
+        deren::utility::vessel::vector<std::size_t> instance_offsets(instances.size() + 1u, 0u);
         for (std::size_t i = 0; i < instances.size(); ++i) {
             instance_offsets[i + 1u] = instance_offsets[i] + instances[i].asset->particles.size();
         }
@@ -338,7 +342,7 @@ namespace deren::engine::gaussian_splatting {
         } else {
             std::sort(keyed.begin(), keyed.end(), less);
         }
-        std::vector<draw_reference> result;
+        deren::utility::vessel::vector<draw_reference> result;
         result.reserve(static_cast<std::size_t>(total));
         for (auto const& k : keyed) {
             result.push_back(k.reference);

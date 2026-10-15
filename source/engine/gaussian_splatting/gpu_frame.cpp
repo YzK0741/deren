@@ -7,6 +7,7 @@ module;
 #include <numeric>
 #include <utility>
 module deren.engine.gaussian_splatting.gpu_frame;
+import deren.utility.shared;
 namespace deren::engine::gaussian_splatting {
     namespace rhi = deren::promise::rhi;
     namespace {
@@ -14,7 +15,9 @@ namespace deren::engine::gaussian_splatting {
             return std::unexpected(foundation_error{code, message});
         }
     } // namespace
-    std::expected<std::shared_ptr<gpu_frame>, foundation_error> prepare_gpu_frame(rhi::api_core& core, std::span<raster_instance const> inputs, raster_camera const& camera, foundation_limits const& limits, gpu_frame* reuse) {
+    std::expected<std::shared_ptr<gpu_frame>, foundation_error> prepare_gpu_frame(rhi::api_core& core, std::span<raster_instance const> inputs, raster_camera const& camera, foundation_limits const& limits, gpu_frame* reuse, std::shared_ptr<rhi::api_core> device_lease) {
+        if (device_lease && device_lease.get() != &core)
+            return failure(error_code::invalid_argument, "GPU device lease belongs to another core");
         auto view = validate_raster_camera(camera);
         if (!view) {
             return std::unexpected(view.error());
@@ -22,15 +25,17 @@ namespace deren::engine::gaussian_splatting {
         if (reuse && reuse->owner != &core) {
             return failure(error_code::invalid_argument, "GPU frame belongs to another core");
         }
+        if (reuse && device_lease && !reuse->device_lease && reuse->storage_view.size())
+            return failure(error_code::invalid_argument, "Legacy GPU storage cannot gain an owning device lease; prepare a new frame");
         if (inputs.size() > UINT32_MAX || inputs.size() > limits.max_packed_bytes / (sizeof(instance_record) + sizeof(gpu_instance_range))) {
             return failure(error_code::limit_exceeded, "GPU instance tables exceed budget");
         }
-        std::vector<std::uint32_t> order(inputs.size());
+        deren::utility::vessel::vector<std::uint32_t> order(inputs.size());
         std::iota(order.begin(), order.end(), 0u);
         std::sort(order.begin(), order.end(), [&](auto a, auto b) { return inputs[a].stable_id < inputs[b].stable_id; });
-        std::vector<instance_record> records(inputs.size());
-        std::vector<gpu_instance_range> range_data;
-        std::vector<std::shared_ptr<raster_asset const>> owners;
+        deren::utility::vessel::vector<instance_record> records(inputs.size());
+        deren::utility::vessel::vector<gpu_instance_range> range_data;
+        deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> owners;
         std::uint64_t count = 0;
         for (std::size_t position = 0; position < order.size(); ++position) {
             auto const index = order[position];
@@ -55,6 +60,8 @@ namespace deren::engine::gaussian_splatting {
             owners.push_back(input.asset);
         }
         std::shared_ptr<gpu_frame> result = reuse ? reuse->shared_from_this() : std::shared_ptr<gpu_frame>{new gpu_frame{}};
+        if (device_lease)
+            result->device_lease = device_lease;
         if (count == 0) {
             result->owner = &core;
             result->push = {};
@@ -76,7 +83,7 @@ namespace deren::engine::gaussian_splatting {
         if (!req.scratch_bytes) {
             return failure(error_code::unsupported, "GPU sort count exceeds backend limits");
         }
-        std::array<std::uint64_t, gpu_frame::buffer_count> const sizes = {
+        deren::utility::vessel::array<std::uint64_t, gpu_frame::buffer_count> const sizes = {
             records.size() * sizeof(instance_record), range_data.size() * sizeof(gpu_instance_range), count * 4u, count * 4u,
             count * sizeof(draw_reference), req.scratch_bytes, 16u, sizeof(rhi::draw_indirect_command), sizeof(gpu_prepare_parameters), count * sizeof(gpu_projected_splat)};
         std::uint64_t bytes = 0;
@@ -87,40 +94,81 @@ namespace deren::engine::gaussian_splatting {
             }
             bytes += capacity;
         }
-        // Stage allocations separately: a failed growth must not leave a partially replaced slot.
-        std::array<rhi::object_manager<rhi::buffer>, gpu_frame::buffer_count> replacements;
+        namespace managed = render_resource::instances;
+        using render_resource::resource_id;
+        static constexpr deren::utility::vessel::array ids{resource_id::gaussian_instances, resource_id::gaussian_ranges,
+                                                           resource_id::gaussian_keys, resource_id::gaussian_values, resource_id::gaussian_references,
+                                                           resource_id::gaussian_sort_scratch, resource_id::gaussian_status, resource_id::gaussian_draw,
+                                                           resource_id::gaussian_parameters, resource_id::gaussian_projected};
+        deren::utility::vessel::array<managed::request, gpu_frame::buffer_count> requests;
         auto const flags = rhi::to_bits(rhi::buffer_flag::storage) | rhi::to_bits(rhi::buffer_flag::device_address);
+        bool rebuild = false;
         for (std::size_t i = 0; i < sizes.size(); ++i) {
-            if (result->buffers[i] && result->buffers[i]->size() >= sizes[i]) {
-                continue;
-            }
+            auto& request = requests[i];
+            request.id = ids[i];
+            request.type = managed::kind::buffer;
+            request.life = managed::lifetime::frame_slot;
+            request.scope = render_resource::resource_scope::device_wide; // one completed slot's subchain
             bool const host = i == gpu_frame::instances || i == gpu_frame::ranges || i == gpu_frame::status || i == gpu_frame::parameters;
-            rhi::buffer_desc desc;
-            desc.size = sizes[i];
-            desc.usage = host ? rhi::buffer_usage::storage_coherent : rhi::buffer_usage::storage_gpu_only;
-            desc.flags = flags;
-            if (i == gpu_frame::scratch) {
-                desc.flags |= req.scratch_flags;
-            }
-            if (i == gpu_frame::draw) {
-                desc.flags |= rhi::to_bits(rhi::buffer_flag::indirect);
-            }
-            if (i == gpu_frame::keys || i == gpu_frame::values || i == gpu_frame::references || i == gpu_frame::draw) {
-                desc.flags |= rhi::to_bits(rhi::buffer_flag::transfer_source);
-            }
-            replacements[i] = rhi::object_manager<rhi::buffer>{core.create_buffer(desc)};
-            if (!replacements[i] || replacements[i]->size() < sizes[i]) {
-                return failure(error_code::allocation_failure, "GPU frame buffer creation failed");
-            }
+            request.buffer.size = sizes[i];
+            request.buffer.usage = host ? rhi::buffer_usage::storage_coherent : rhi::buffer_usage::storage_gpu_only;
+            request.buffer.flags = flags;
+            if (i == gpu_frame::scratch)
+                request.buffer.flags |= req.scratch_flags;
+            if (i == gpu_frame::draw)
+                request.buffer.flags |= rhi::to_bits(rhi::buffer_flag::indirect);
+            if (i == gpu_frame::keys || i == gpu_frame::values || i == gpu_frame::references || i == gpu_frame::draw)
+                request.buffer.flags |= rhi::to_bits(rhi::buffer_flag::transfer_source);
+            auto previous = result->storage_view.find(ids[i]);
+            rebuild |= !previous || previous->objects[0].buffer->size() < sizes[i] ||
+                       previous->description.buffer.flags != request.buffer.flags || previous->description.buffer.usage != request.buffer.usage;
         }
-        auto get = [&](std::size_t index) { return replacements[index] ? replacements[index].get() : result->buffers[index].get(); };
-        std::array<std::uint64_t, gpu_frame::buffer_count> addresses{};
-        for (std::size_t i = 0; i < sizes.size(); ++i) {
-            addresses[i] = address->buffer_address(*get(i), 0);
-            if (!addresses[i] || addresses[i] % 16u) {
-                return failure(error_code::invalid_address, "GPU frame buffer address is not aligned");
+        deren::utility::vessel::array<rhi::buffer*, gpu_frame::buffer_count> candidates{};
+        deren::utility::vessel::array<std::uint64_t, gpu_frame::buffer_count> addresses{};
+        error_code admission_code = error_code::allocation_failure;
+        char const* admission_message = "GPU frame buffer creation failed";
+        auto const admit = [&](managed::resource_snapshot const& candidate) {
+            bytes = 0;
+            for (std::size_t i = 0; i < sizes.size(); ++i) {
+                auto generation = candidate.find(ids[i]);
+                candidates[i] = generation && generation->objects.size() == 1 ? generation->objects[0].buffer.get() : nullptr;
+                if (!candidates[i] || candidates[i]->size() < sizes[i]) {
+                    admission_message = "GPU frame buffer is undersized";
+                    return rhi::error::unsupported;
+                }
+                auto const capacity = candidates[i]->size();
+                if (capacity > limits.max_packed_bytes - bytes) {
+                    admission_code = error_code::limit_exceeded;
+                    admission_message = "GPU frame including sort scratch exceeds byte budget";
+                    return rhi::error::unsupported;
+                }
+                bytes += capacity;
+                addresses[i] = address->buffer_address(*candidates[i], 0);
+                if (!addresses[i] || addresses[i] % 16u) {
+                    admission_code = error_code::invalid_address;
+                    admission_message = "GPU frame buffer address is not aligned";
+                    return rhi::error::unsupported;
+                }
+                if (requests[i].buffer.usage == rhi::buffer_usage::storage_coherent && candidates[i]->mapped().size() < sizes[i]) {
+                    admission_message = "GPU frame requires host mapped parameter and status buffers";
+                    return rhi::error::unsupported;
+                }
             }
+            return rhi::error::ok;
+        };
+        auto pending = result->storage_view;
+        if (rebuild) {
+            if (!result->storage_provider)
+                result->storage_provider = &result->storage_chain.emplace<deren::engine::pass::buffer_storage_pass>();
+            result->storage_provider->configure(requests);
+            auto root = result->device_lease ? result->device_lease : std::shared_ptr<rhi::api_core>{&core, [](rhi::api_core*) {}};
+            if (result->storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok)
+                return failure(admission_code, admission_message);
+            pending = result->storage_chain.resources().snapshot();
+        } else if (admit(pending) != rhi::error::ok) {
+            return failure(admission_code, admission_message);
         }
+        auto const get = [&](std::size_t index) { return candidates[index]; };
         // Reserved instance lanes carry this instance's cache base; references keep their existing layout.
         for (auto const& range : range_data) {
             auto const cached = addresses[gpu_frame::projected] + std::uint64_t{range.begin} * sizeof(gpu_projected_splat);
@@ -137,19 +185,12 @@ namespace deren::engine::gaussian_splatting {
         data.draw_address = addresses[gpu_frame::draw];
         data.candidate_count = static_cast<std::uint32_t>(count);
         data.range_count = static_cast<std::uint32_t>(range_data.size());
-        for (auto const i : {gpu_frame::instances, gpu_frame::ranges, gpu_frame::parameters, gpu_frame::status}) {
-            if (get(i)->mapped().size() < sizes[i]) {
-                return failure(error_code::allocation_failure, "GPU frame requires host mapped parameter and status buffers");
-            }
-        }
         std::memcpy(get(gpu_frame::instances)->mapped().data(), records.data(), static_cast<std::size_t>(sizes[gpu_frame::instances]));
         std::memcpy(get(gpu_frame::ranges)->mapped().data(), range_data.data(), static_cast<std::size_t>(sizes[gpu_frame::ranges]));
         std::memcpy(get(gpu_frame::parameters)->mapped().data(), &data, sizeof(data));
-        for (std::size_t i = 0; i < sizes.size(); ++i) {
-            if (replacements[i]) {
-                result->buffers[i] = std::move(replacements[i]);
-            }
-        }
+        for (std::size_t i = 0; i < sizes.size(); ++i)
+            result->buffers[i] = {candidates[i]};
+        result->storage_view = pending;
         result->owner = &core;
         result->owners = std::move(owners);
         result->push = data.raster;
@@ -216,7 +257,7 @@ namespace deren::engine::gaussian_splatting {
         if (error != rhi::error::ok) {
             return error;
         }
-        std::array<rhi::buffer_barrier, 4> const publish = {
+        deren::utility::vessel::array<rhi::buffer_barrier, 4> const publish = {
             rhi::buffer_barrier{.resource = buffers[references].get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::shader_read},
             rhi::buffer_barrier{.resource = buffers[projected].get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::shader_read},
             rhi::buffer_barrier{.resource = buffers[draw].get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::indirect_read},

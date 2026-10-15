@@ -4,6 +4,7 @@ module;
 #include <expected>
 #include <span>
 export module deren.engine.gaussian_splatting.probe;
+export import deren.utility.shared;
 export import deren.engine.gaussian_splatting.raster;
 import deren.promise.rhi;
 export namespace deren::engine::gaussian_splatting {
@@ -18,5 +19,5 @@ export namespace deren::engine::gaussian_splatting {
     [[nodiscard]] std::expected<raster_probe_report, foundation_error> run_raster_probe(
         deren::promise::rhi::api_core& core, std::span<std::uint8_t const> vertex,
         std::span<std::uint8_t const> fragment,
-        std::array<std::span<std::uint8_t const>, 3> compute = {}, bool gpu = false);
+        deren::utility::vessel::array<std::span<std::uint8_t const>, 3> compute = {}, bool gpu = false);
 } // namespace deren::engine::gaussian_splatting

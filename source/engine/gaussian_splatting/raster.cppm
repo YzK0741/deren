@@ -7,9 +7,14 @@ module;
 #include <span>
 #include <vector>
 export module deren.engine.gaussian_splatting.raster;
+export import deren.utility.shared;
 export import deren.engine.gaussian_splatting;
 export import deren.gaussian_loader;
 import deren.promise.rhi;
+import deren.engine.pass.chain;
+import deren.engine.pass.buffer_storage;
+import deren.engine.render_resource;
+import deren.engine.render_resource.instances;
 export namespace deren::engine::gaussian_splatting {
     struct raster_camera {
         glm::mat4 view_projection{1};
@@ -66,10 +71,10 @@ export namespace deren::engine::gaussian_splatting {
 
     private:
         raster_asset() = default;
-        friend std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(deren::promise::rhi::api_core&, deren::gaussian::asset, foundation_limits const&);
+        friend std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(deren::promise::rhi::api_core&, deren::gaussian::asset, foundation_limits const&, std::shared_ptr<deren::promise::rhi::api_core>);
         std::shared_ptr<deren::gaussian::asset const> cpu_asset;
         std::shared_ptr<gpu_asset const> gpu_owner;
-        std::vector<geometry_record> geometry;
+        deren::utility::vessel::vector<geometry_record> geometry;
     };
     class raster_frame {
     public:
@@ -98,27 +103,34 @@ export namespace deren::engine::gaussian_splatting {
         [[nodiscard]] std::uint32_t outside_count() const noexcept {
             return outside;
         }
+        [[nodiscard]] render_resource::instances::resource_snapshot const& resources() const noexcept {
+            return storage_view;
+        }
 
     private:
         raster_frame() = default;
-        friend std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const&, raster_frame*);
+        friend std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const&, raster_frame*, std::shared_ptr<deren::promise::rhi::api_core>);
         raster_push push;
-        std::vector<draw_reference> reference_data;
-        std::vector<instance_record> instance_data;
-        std::vector<std::shared_ptr<raster_asset const>> owners;
-        deren::promise::rhi::object_manager<deren::promise::rhi::buffer> reference_buffer, instance_buffer;
-        /// WHAT EACH BUFFER WAS CREATED WITH, so a later frame can write into it in place instead of creating a new
-        /// one: they are `storage_coherent` (host-visible), which is what the contract's `mapped()` exists for, and
-        /// re-creating 4.5 MB every frame is both the measured cost and the per-frame creation a swapchain rebuild
-        /// may trip over (the plan's Task 8).
-        std::uint64_t reference_capacity = 0;
-        std::uint64_t instance_capacity = 0;
+        deren::utility::vessel::vector<draw_reference> reference_data;
+        deren::utility::vessel::vector<draw_reference> staging_reference_data;
+        deren::utility::vessel::vector<instance_record> instance_data;
+        deren::promise::rhi::api_core* owner = nullptr;
+        // These leases outlive the storage subchain's completion drain.
+        std::shared_ptr<deren::promise::rhi::api_core> device_lease;
+        deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> owners;
+        deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> staging_owners;
+        deren::engine::pass::pass_chain storage_chain;
+        deren::engine::pass::buffer_storage_pass* storage_provider = nullptr;
+        render_resource::instances::resource_snapshot storage_view;
+        render_resource::instances::borrowed<deren::promise::rhi::buffer> reference_buffer, instance_buffer;
         std::uint64_t bytes = 0;
         std::uint32_t total = 0, near_omitted = 0, outside = 0;
     };
-    [[nodiscard]] std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(deren::promise::rhi::api_core&, deren::gaussian::asset, foundation_limits const& = {});
+    [[nodiscard]] std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(deren::promise::rhi::api_core&, deren::gaussian::asset, foundation_limits const& = {}, std::shared_ptr<deren::promise::rhi::api_core> = {});
     /// @param reuse an optional frame to REFILL (the caller keeps it alive; the returned pointer is a non-owning
     ///        view of it when it is given), which is how a steady-state frame allocates nothing. @see raster_frame's
-    ///        capacity members and the plan's Task 8.
-    [[nodiscard]] std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const& = {}, raster_frame* = nullptr);
+    ///        retained buffer capacities and the plan's Task 8.
+    /// A reference-only caller retains the core. Production supplies an owning lease initially;
+    /// an allocated legacy frame cannot gain an owning lease by reuse. Reuse must be a completed slot.
+    [[nodiscard]] std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const& = {}, raster_frame* = nullptr, std::shared_ptr<deren::promise::rhi::api_core> = {});
 } // namespace deren::engine::gaussian_splatting

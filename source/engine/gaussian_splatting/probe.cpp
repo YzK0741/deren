@@ -16,6 +16,7 @@ module;
 #include <string>
 #include <vector>
 module deren.engine.gaussian_splatting.probe;
+import deren.utility.shared;
 import deren.engine.pass;
 import deren.engine.pass.gaussian_splatting;
 import deren.engine.gaussian_splatting.gpu_frame;
@@ -24,7 +25,7 @@ namespace deren::engine::gaussian_splatting {
     namespace pass = deren::engine::pass;
     namespace {
         constexpr float tolerance = 0.005f;
-        auto failure(std::string message, error_code code = error_code::invalid_argument) {
+        auto failure(deren::utility::vessel::string message, error_code code = error_code::invalid_argument) {
             return std::unexpected(foundation_error{code, std::move(message)});
         }
         deren::gaussian::particle particle(glm::vec3 center, glm::vec3 color, glm::vec3 scale) {
@@ -58,9 +59,9 @@ namespace deren::engine::gaussian_splatting {
             glm::vec3 color;
             float opacity;
         };
-        std::expected<std::vector<glm::vec3>, foundation_error> reference_image(
+        std::expected<deren::utility::vessel::vector<glm::vec3>, foundation_error> reference_image(
             std::span<raster_instance const> inputs, raster_frame const& frame, raster_camera const& camera, float depth) {
-            std::vector<packed_asset> packed;
+            deren::utility::vessel::vector<packed_asset> packed;
             for (auto const& input : inputs) {
                 auto value = pack_asset(input.asset->source());
                 if (!value) {
@@ -68,7 +69,7 @@ namespace deren::engine::gaussian_splatting {
                 }
                 packed.push_back(std::move(*value));
             }
-            std::vector<reference_splat> splats;
+            deren::utility::vessel::vector<reference_splat> splats;
             for (auto const& ref : frame.references()) {
                 auto const& input = inputs[ref.instance_index];
                 auto projected = project_splat(input.asset->geometry_records()[ref.local_gaussian_index], input.model, camera);
@@ -88,7 +89,7 @@ namespace deren::engine::gaussian_splatting {
                 }
                 splats.push_back({*projected, *color, p.opacity});
             }
-            std::vector<glm::vec3> pixels(static_cast<std::size_t>(camera.extent.width) * camera.extent.height, glm::vec3{0});
+            deren::utility::vessel::vector<glm::vec3> pixels(static_cast<std::size_t>(camera.extent.width) * camera.extent.height, glm::vec3{0});
             for (std::uint32_t y = 0; y < camera.extent.height; ++y) {
                 for (std::uint32_t x = 0; x < camera.extent.width; ++x) {
                     auto& color = pixels[static_cast<std::size_t>(y) * camera.extent.width + x];
@@ -108,9 +109,9 @@ namespace deren::engine::gaussian_splatting {
         }
         struct shader_pair {
             std::span<std::uint8_t const> vertex, fragment;
-            std::array<std::span<std::uint8_t const>, 3> compute;
+            deren::utility::vessel::array<std::span<std::uint8_t const>, 3> compute;
         };
-        std::expected<std::vector<std::byte>, foundation_error> render_image(
+        std::expected<deren::utility::vessel::vector<std::byte>, foundation_error> render_image(
             rhi::api_core& core, rhi::descriptor_heap& heap, pass::gaussian_splatting_pass& raster,
             std::shared_ptr<raster_frame const> const& frame, raster_camera const& camera, float clear_depth, std::shared_ptr<gpu_frame const> const& gpu = {}) {
             rhi::image_desc desc;
@@ -134,14 +135,14 @@ namespace deren::engine::gaussian_splatting {
                 heap.bind({.commands = commands.get()}) != rhi::error::ok) {
                 return failure("Gaussian probe recording/binding refused");
             }
-            std::array<rhi::image_barrier, 2> const initial = {
+            deren::utility::vessel::array<rhi::image_barrier, 2> const initial = {
                 rhi::image_barrier{.resource = color.get(), .from = rhi::image_use::undefined, .to = rhi::image_use::color_attachment},
                 rhi::image_barrier{.resource = depth.get(), .from = rhi::image_use::undefined, .to = rhi::image_use::depth_attachment},
             };
             if (commands->barrier({.images = initial}) != rhi::error::ok) {
                 return failure("Gaussian probe target transition refused");
             }
-            std::array<rhi::color_attachment, 1> const colors = {rhi::color_attachment{.view = color_view.get(), .load = rhi::load_op::clear, .store = rhi::store_op::store, .clear = {0, 0, 0, 0}}};
+            deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {rhi::color_attachment{.view = color_view.get(), .load = rhi::load_op::clear, .store = rhi::store_op::store, .clear = {0, 0, 0, 0}}};
             rhi::rendering_info clear;
             clear.area = {.width = camera.extent.width, .height = camera.extent.height};
             clear.colors = colors;
@@ -169,8 +170,8 @@ namespace deren::engine::gaussian_splatting {
                 &heap,
                 [](void* owner, rhi::command_buffer& list, std::span<std::byte const> bytes, std::uint32_t extra_lane) {
                     // Match runtime::push_stage_block, including all three heap index lanes.
-                    std::vector<std::byte> transmitted(bytes.begin(), bytes.end());
-                    std::array<std::uint32_t, 3> const lanes = {0u, 0u, extra_lane};
+                    deren::utility::vessel::vector<std::byte> transmitted(bytes.begin(), bytes.end());
+                    deren::utility::vessel::array<std::uint32_t, 3> const lanes = {0u, 0u, extra_lane};
                     auto const lane_bytes = std::as_bytes(std::span{lanes});
                     transmitted.insert(transmitted.end(), lane_bytes.begin(), lane_bytes.end());
                     return static_cast<rhi::descriptor_heap*>(owner)->push_data({.commands = &list, .offset = 0u, .data = transmitted}) == rhi::error::ok;
@@ -190,7 +191,8 @@ namespace deren::engine::gaussian_splatting {
                 content->bytes.size() != static_cast<std::size_t>(camera.extent.width) * camera.extent.height * 8) {
                 return failure("Gaussian probe HDR readback failed");
             }
-            return std::move(content->bytes);
+            // RHI readback keeps its existing ABI container; the diagnostic owns a vessel copy.
+            return deren::utility::vessel::vector<std::byte>(content->bytes.begin(), content->bytes.end());
         }
         std::expected<void, foundation_error> verify_gpu_references(rhi::api_core& core, gpu_frame const& frame, std::span<raster_instance const> inputs, raster_camera const& camera, std::span<draw_reference const> cpu_references, raster_probe_report& report) {
             auto const count = frame.candidate_count();
@@ -206,8 +208,8 @@ namespace deren::engine::gaussian_splatting {
             if (!readback || !list || list->begin_recording({.usage = rhi::to_bits(rhi::command_buffer_usage::one_time_submit)}) != rhi::error::ok) {
                 return failure("GPU reference readback allocation failed");
             }
-            std::array<rhi::buffer*, 4> const sources = {frame.keys_buffer(), frame.values_buffer(), frame.references_buffer(), frame.draw_buffer()};
-            std::array<std::uint64_t, 4> const sizes = {lane_bytes, lane_bytes, lane_bytes * 2u, 16u};
+            deren::utility::vessel::array<rhi::buffer*, 4> const sources = {frame.keys_buffer(), frame.values_buffer(), frame.references_buffer(), frame.draw_buffer()};
+            deren::utility::vessel::array<std::uint64_t, 4> const sizes = {lane_bytes, lane_bytes, lane_bytes * 2u, 16u};
             std::uint64_t offset = 0;
             for (std::size_t i = 0; i < sources.size(); ++i) {
                 rhi::buffer_barrier const barrier{.resource = sources[i], .from = rhi::buffer_use::shader_read_write, .to = rhi::buffer_use::transfer_source};
@@ -225,20 +227,20 @@ namespace deren::engine::gaussian_splatting {
             if (readback->mapped().size() < desc.size) {
                 return failure("GPU reference readback is not mapped");
             }
-            std::vector<std::uint32_t> keys(count);
-            std::vector<std::uint32_t> values(count);
-            std::vector<std::uint32_t> raw_keys(count);
-            std::vector<std::uint32_t> expected(count);
-            std::vector<std::uint32_t> indices(inputs.size());
-            std::vector<draw_reference> references(count);
-            std::vector<draw_reference> candidates;
+            deren::utility::vessel::vector<std::uint32_t> keys(count);
+            deren::utility::vessel::vector<std::uint32_t> values(count);
+            deren::utility::vessel::vector<std::uint32_t> raw_keys(count);
+            deren::utility::vessel::vector<std::uint32_t> expected(count);
+            deren::utility::vessel::vector<std::uint32_t> indices(inputs.size());
+            deren::utility::vessel::vector<draw_reference> references(count);
+            deren::utility::vessel::vector<draw_reference> candidates;
             rhi::draw_indirect_command draw;
             auto const* bytes = readback->mapped().data();
             std::memcpy(keys.data(), bytes, static_cast<std::size_t>(lane_bytes));
             std::memcpy(values.data(), bytes + lane_bytes, static_cast<std::size_t>(lane_bytes));
             std::memcpy(references.data(), bytes + 2u * lane_bytes, static_cast<std::size_t>(2u * lane_bytes));
             std::memcpy(&draw, bytes + 4u * lane_bytes, sizeof(draw));
-            std::vector<bool> seen(count, false);
+            deren::utility::vessel::vector<bool> seen(count, false);
             for (std::uint32_t i = 0; i < count; ++i) {
                 if (values[i] >= count || seen[values[i]]) {
                     return failure("GPU sort values are not a permutation");
@@ -296,7 +298,7 @@ namespace deren::engine::gaussian_splatting {
         }
     } // namespace
     std::expected<raster_probe_report, foundation_error> run_raster_probe(rhi::api_core& core, std::span<std::uint8_t const> vertex, std::span<std::uint8_t const> fragment,
-                                                                          std::array<std::span<std::uint8_t const>, 3> compute, bool gpu) {
+                                                                          deren::utility::vessel::array<std::span<std::uint8_t const>, 3> compute, bool gpu) {
         if (vertex.empty() || fragment.empty() || vertex.size() % 4 != 0 || fragment.size() % 4 != 0) {
             return failure("Gaussian probe requires both SPIR-V stages");
         }
@@ -363,12 +365,12 @@ namespace deren::engine::gaussian_splatting {
             if (gpu_snapshot) {
                 auto const stats = gpu_snapshot->completed_stats(report.cases);
                 if (stats.errors || stats.visible != (*frame)->params().visible_count || stats.outside != (*frame)->outside_count() || stats.near_omitted != (*frame)->near_omitted_count()) {
-                    return failure(std::format("{}: GPU statistics visible{} outside{} near{} errors{} differ from CPU", name, stats.visible, stats.outside, stats.near_omitted, stats.errors));
+                    return failure(deren::utility::vessel::format("{}: GPU statistics visible{} outside{} near{} errors{} differ from CPU", name, stats.visible, stats.outside, stats.near_omitted, stats.errors));
                 }
                 // Re-record the same completed slot to detect stale reset counts and unstable duplicate keys.
                 auto repeat = render_image(core, *heap, raster, *frame, camera, depth, gpu_snapshot);
                 if (!repeat || *repeat != *actual) {
-                    return failure(std::format("{}: GPU repeat is not deterministic", name));
+                    return failure(deren::utility::vessel::format("{}: GPU repeat is not deterministic", name));
                 }
                 if (auto output = verify_gpu_references(core, *gpu_snapshot, inputs, camera, (*frame)->references(), report); !output) {
                     return std::unexpected(output.error());
@@ -377,25 +379,25 @@ namespace deren::engine::gaussian_splatting {
             if (known_center) {
                 glm::vec3 const center = read_pixel(*actual, 16 * 33 + 16);
                 if (glm::any(glm::greaterThan(glm::abs(center - glm::vec3{0.5f, 0, 0.25f}), glm::vec3{tolerance}))) {
-                    return failure(std::format("{}: center RGB {},{},{} expected0.5,0,0.25", name, center.x, center.y, center.z));
+                    return failure(deren::utility::vessel::format("{}: center RGB {},{},{} expected0.5,0,0.25", name, center.x, center.y, center.z));
                 }
             }
             if (known_edge) {
                 glm::vec3 const edge = read_pixel(*actual, 16 * 33 + 32);
                 glm::vec3 const wanted{0, 0.5f * std::exp(-0.5f / 0.3f), 0};
                 if (glm::any(glm::greaterThan(glm::abs(edge - wanted), glm::vec3{tolerance}))) {
-                    return failure(std::format("{}: edge RGB {},{},{} expected green{}", name, edge.x, edge.y, edge.z, wanted.y));
+                    return failure(deren::utility::vessel::format("{}: edge RGB {},{},{} expected green{}", name, edge.x, edge.y, edge.z, wanted.y));
                 }
             }
             for (std::size_t i = 0; i < expected->size(); ++i) {
                 glm::vec3 const rgb = read_pixel(*actual, i);
                 if (!std::isfinite(rgb.x) || !std::isfinite(rgb.y) || !std::isfinite(rgb.z)) {
-                    return failure(std::format("{}: pixel{} contains nonfinite RGB", name, i));
+                    return failure(deren::utility::vessel::format("{}: pixel{} contains nonfinite RGB", name, i));
                 }
                 glm::vec3 const delta = glm::abs(rgb - (*expected)[i]);
                 float const error = std::max({delta.x, delta.y, delta.z});
                 if (!std::isfinite(error) || error > tolerance) {
-                    return failure(std::format("{}: pixel{} RGB {},{},{} expected {},{},{} (error{})", name, i, rgb.x, rgb.y, rgb.z, (*expected)[i].x, (*expected)[i].y, (*expected)[i].z, error));
+                    return failure(deren::utility::vessel::format("{}: pixel{} RGB {},{},{} expected {},{},{} (error{})", name, i, rgb.x, rgb.y, rgb.z, (*expected)[i].x, (*expected)[i].y, (*expected)[i].z, error));
                 }
                 report.maximum_error = std::max(report.maximum_error, error);
             }
@@ -409,7 +411,7 @@ namespace deren::engine::gaussian_splatting {
         if (!overlap_asset) {
             return std::unexpected(overlap_asset.error());
         }
-        std::array<raster_instance, 1> const overlap_inputs = {raster_instance{*overlap_asset, glm::mat4{1}, 1}};
+        deren::utility::vessel::array<raster_instance, 1> const overlap_inputs = {raster_instance{*overlap_asset, glm::mat4{1}, 1}};
         auto camera = simple_camera();
         if (auto result = check(overlap_inputs, camera, 1, "overlap", true); !result) {
             return std::unexpected(result.error());
@@ -426,7 +428,7 @@ namespace deren::engine::gaussian_splatting {
         if (!sh_asset) {
             return std::unexpected(sh_asset.error());
         }
-        std::array<raster_instance, 1> const sh_inputs = {raster_instance{*sh_asset, glm::mat4{1}, 2}};
+        deren::utility::vessel::array<raster_instance, 1> const sh_inputs = {raster_instance{*sh_asset, glm::mat4{1}, 2}};
         if (auto result = check(sh_inputs, camera, 1, "SH direction"); !result) {
             return std::unexpected(result.error());
         }
@@ -445,7 +447,7 @@ namespace deren::engine::gaussian_splatting {
         auto model = glm::translate(glm::mat4{1}, glm::vec3{0.2f, -0.1f, 0.3f});
         model = glm::rotate(model, glm::radians(29.0f), glm::normalize(glm::vec3{1, 2, 3}));
         model = glm::scale(model, glm::vec3{1.3f});
-        std::array<raster_instance, 2> const transformed_inputs = {raster_instance{*transformed_asset, model, 10}, raster_instance{*transformed_asset, glm::translate(model, glm::vec3{0.18f, 0, -0.12f}), 20}};
+        deren::utility::vessel::array<raster_instance, 2> const transformed_inputs = {raster_instance{*transformed_asset, model, 10}, raster_instance{*transformed_asset, glm::translate(model, glm::vec3{0.18f, 0, -0.12f}), 20}};
         camera.position = {2, 1, 3};
         camera.extent = {33, 25};
         auto projection = glm::perspectiveRH_ZO(glm::radians(67.0f), 1.4f, 0.1f, 50.0f);
@@ -463,7 +465,7 @@ namespace deren::engine::gaussian_splatting {
         if (!edge_asset) {
             return std::unexpected(edge_asset.error());
         }
-        std::array<raster_instance, 1> const edge_inputs = {raster_instance{*edge_asset, glm::mat4{1}, 30}};
+        deren::utility::vessel::array<raster_instance, 1> const edge_inputs = {raster_instance{*edge_asset, glm::mat4{1}, 30}};
         if (auto result = check(edge_inputs, camera, 1, "regularized edge", false, true); !result) {
             return std::unexpected(result.error());
         }
@@ -475,19 +477,19 @@ namespace deren::engine::gaussian_splatting {
             if (!degree2_asset) {
                 return std::unexpected(degree2_asset.error());
             }
-            std::array<raster_instance, 1> const degree2_inputs = {raster_instance{*degree2_asset, glm::mat4{1}, 1}};
+            deren::utility::vessel::array<raster_instance, 1> const degree2_inputs = {raster_instance{*degree2_asset, glm::mat4{1}, 1}};
             if (auto result = check(degree2_inputs, camera, 1, "SH degree two"); !result) {
                 return std::unexpected(result.error());
             }
-            std::array<raster_instance, 2> const ties = {raster_instance{*overlap_asset, glm::mat4{1}, 20}, raster_instance{*overlap_asset, glm::mat4{1}, 10}};
+            deren::utility::vessel::array<raster_instance, 2> const ties = {raster_instance{*overlap_asset, glm::mat4{1}, 20}, raster_instance{*overlap_asset, glm::mat4{1}, 10}};
             if (auto result = check(ties, camera, 1, "tied reordered instances"); !result) {
                 return std::unexpected(result.error());
             }
-            std::array<raster_instance, 1> const invisible = {raster_instance{*overlap_asset, glm::translate(glm::mat4{1}, glm::vec3{1000, 0, 0}), 1}};
+            deren::utility::vessel::array<raster_instance, 1> const invisible = {raster_instance{*overlap_asset, glm::translate(glm::mat4{1}, glm::vec3{1000, 0, 0}), 1}};
             if (auto result = check(invisible, camera, 1, "all outside"); !result) {
                 return std::unexpected(result.error());
             }
-            std::array<raster_instance, 1> const far = {raster_instance{*overlap_asset, glm::translate(glm::mat4{1}, glm::vec3{0, 0, -200}), 1}};
+            deren::utility::vessel::array<raster_instance, 1> const far = {raster_instance{*overlap_asset, glm::translate(glm::mat4{1}, glm::vec3{0, 0, -200}), 1}};
             if (auto result = check(far, camera, 1, "far plane"); !result) {
                 return std::unexpected(result.error());
             }
@@ -497,12 +499,12 @@ namespace deren::engine::gaussian_splatting {
             if (!near_asset) {
                 return std::unexpected(near_asset.error());
             }
-            std::array<raster_instance, 1> const near_inputs = {raster_instance{*near_asset, glm::mat4{1}, 1}};
+            deren::utility::vessel::array<raster_instance, 1> const near_inputs = {raster_instance{*near_asset, glm::mat4{1}, 1}};
             if (auto result = check(near_inputs, camera, 1, "near support omitted"); !result) {
                 return std::unexpected(result.error());
             }
             // CPU projection rejects this overflow. GPU must count the error and skip the entire draw.
-            std::array<raster_instance, 1> const overflow = {raster_instance{*overlap_asset, glm::scale(glm::mat4{1}, glm::vec3{3e20f}), 1}};
+            deren::utility::vessel::array<raster_instance, 1> const overflow = {raster_instance{*overlap_asset, glm::scale(glm::mat4{1}, glm::vec3{3e20f}), 1}};
             auto failed_frame = prepare_gpu_frame(core, overflow, camera);
             auto empty = prepare_raster_frame(core, {}, camera);
             if (!failed_frame || !empty) {

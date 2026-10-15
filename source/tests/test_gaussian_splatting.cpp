@@ -13,9 +13,12 @@
 #include <new>
 #include <span>
 #include <vector>
+import deren.utility.shared;
 import deren.promise.rhi;
 import deren.gaussian_loader;
 import deren.engine.gaussian_splatting;
+import deren.engine.render_resource;
+import deren.engine.render_resource.instances;
 // Observe only the allocation sizes made inside a sort call. Input construction is outside this window.
 namespace allocation_probe {
     bool enabled = false;
@@ -76,12 +79,12 @@ namespace {
             return;
         }
         auto const& g = result->geometry[0];
-        CHECK((g.center_opacity == std::array<float, 4>({1, 2, 3, 0.5f})));
-        CHECK((g.covariance_x == std::array<float, 4>({1, 0, 0, 0})));
-        CHECK((g.covariance_yz == std::array<float, 4>({4, 0, 9, 0})));
+        CHECK((g.center_opacity == deren::utility::vessel::array<float, 4>({1, 2, 3, 0.5f})));
+        CHECK((g.covariance_x == deren::utility::vessel::array<float, 4>({1, 0, 0, 0})));
+        CHECK((g.covariance_yz == deren::utility::vessel::array<float, 4>({4, 0, 9, 0})));
         CHECK(result->sh[0].coefficients == a.particles[0].sh);
-        CHECK((result->bounds_min == std::array<float, 3>({-2, -4, -6})));
-        CHECK((result->bounds_max == std::array<float, 3>({4, 8, 12})));
+        CHECK((result->bounds_min == deren::utility::vessel::array<float, 3>({-2, -4, -6})));
+        CHECK((result->bounds_max == deren::utility::vessel::array<float, 3>({4, 8, 12})));
         a.bounds_min = {100, 100, 100};
         CHECK(gs::pack_asset(a)->bounds_min[0] == -2);
         float const q = std::sqrt(0.5f);
@@ -199,7 +202,7 @@ void test_sorting() {
     a.particles[0].center = {0, 0, -1};
     a.particles.push_back(a.particles[0]);
     a.particles[1].center[2] = -3;
-    std::array<gs::sort_instance, 2> instances = {gs::sort_instance{&a, glm::mat4{1}, 20}, gs::sort_instance{&a, glm::translate(glm::mat4{1}, glm::vec3{0, 0, -1}), 10}};
+    deren::utility::vessel::array<gs::sort_instance, 2> instances = {gs::sort_instance{&a, glm::mat4{1}, 20}, gs::sort_instance{&a, glm::translate(glm::mat4{1}, glm::vec3{0, 0, -1}), 10}};
     auto sorted = gs::sort_draw_references(instances, {});
     CHECK(sorted && sorted->size() == 4);
     if (sorted && sorted->size() == 4) {
@@ -292,9 +295,10 @@ struct upload_probe : rhi::api_core {
     bool supported = true;
     unsigned fail_at = 0, calls = 0, undersized_at = 0;
     int releases = 0;
+    int idle_calls = 0;
     probe_address address;
-    std::vector<rhi::buffer_desc> descriptors;
-    std::vector<std::vector<std::byte>> bytes;
+    deren::utility::vessel::vector<rhi::buffer_desc> descriptors;
+    deren::utility::vessel::vector<deren::utility::vessel::vector<std::byte>> bytes;
     upload_probe()
         : api_core("gaussian_upload_probe") {
     }
@@ -358,7 +362,7 @@ struct upload_probe : rhi::api_core {
         return rhi::error::unsupported;
     }
     void wait_idle() override {
-        CHECK(false);
+        ++idle_calls;
     }
     rhi::frame_walker* walk_frames() noexcept override {
         return nullptr;
@@ -382,6 +386,14 @@ struct upload_probe : rhi::api_core {
         return rhi::abi_version;
     }
 };
+template <typename Asset>
+void check_asset_storage(Asset const& asset) {
+    if constexpr (requires { asset.resources(); }) {
+        CHECK(asset.resources().size() == 2);
+    } else {
+        CHECK_MSG(false, "Static Gaussian buffers must be owned by a passchain snapshot");
+    }
+}
 void test_upload() {
     auto packed = gs::pack_asset(sample());
     CHECK(packed);
@@ -391,6 +403,7 @@ void test_upload() {
     auto result = gs::upload_asset(probe, *packed);
     CHECK(result && *result);
     if (result && *result) {
+        check_asset_storage(**result);
         CHECK((*result)->particle_count() == 1);
         CHECK((*result)->byte_size() == 240);
         CHECK((*result)->sh_degree() == 0);
@@ -413,6 +426,7 @@ void test_upload() {
         CHECK(probe.releases == 0);
         shared.reset();
         CHECK(probe.releases == 2);
+        CHECK(probe.idle_calls == 1);
     }
     upload_probe absent;
     absent.supported = false;
@@ -431,21 +445,21 @@ void test_upload() {
         zero.address.zero_at = i;
         failed = gs::upload_asset(zero, *packed);
         CHECK(!failed && failed.error().code == gs::error_code::invalid_address);
-        CHECK(zero.releases == static_cast<int>(i));
+        CHECK(zero.releases == 2); // Admission rejects the complete unused candidate set.
     }
     for (unsigned i = 1; i <= 2; ++i) {
         upload_probe short_buffer;
         short_buffer.undersized_at = i;
         failed = gs::upload_asset(short_buffer, *packed);
         CHECK(!failed && failed.error().code == gs::error_code::allocation_failure);
-        CHECK(short_buffer.releases == static_cast<int>(i));
+        CHECK(short_buffer.releases == 2);
     }
     for (unsigned i = 1; i <= 2; ++i) {
         upload_probe unaligned;
         unaligned.address.unaligned_at = i;
         failed = gs::upload_asset(unaligned, *packed);
         CHECK(!failed && failed.error().code == gs::error_code::invalid_address);
-        CHECK(unaligned.releases == static_cast<int>(i));
+        CHECK(unaligned.releases == 2);
     }
     upload_probe empty;
     empty.supported = false;
@@ -492,7 +506,7 @@ void test_invalid_sort_allocation() {
         auto asset = sample();
         asset.particles.resize(4096, asset.particles[0]);
         mutate(asset.particles[0]);
-        std::array<gs::sort_instance, 1> instances = {gs::sort_instance{&asset, glm::mat4{1}, 1}};
+        deren::utility::vessel::array<gs::sort_instance, 1> instances = {gs::sort_instance{&asset, glm::mat4{1}, 1}};
         allocation_probe::largest = 0;
         allocation_probe::enabled = true;
         auto result = gs::sort_draw_references(instances, {});
@@ -507,7 +521,7 @@ void test_invalid_sort_allocation() {
 }
 void test_covariance_tolerance() {
     auto packed = *gs::pack_asset(sample());
-    auto good = [&](std::array<float, 4> x, std::array<float, 4> yz) {
+    auto good = [&](deren::utility::vessel::array<float, 4> x, deren::utility::vessel::array<float, 4> yz) {
         auto asset = packed;
         asset.geometry[0].covariance_x = x;
         asset.geometry[0].covariance_yz = yz;
@@ -519,7 +533,7 @@ void test_covariance_tolerance() {
     good({1, 0, 0, 0}, {1, 0, 0, 0});                          // rank two
     good({0, 0, 0, 0}, {0, 0, 0, 0});                          // float-underflowed point covariance
     good({1, std::nextafter(1.0f, 2.0f), 0, 0}, {1, 0, 1, 0}); // one-ULP negative eigenvalue
-    auto bad = [&](std::array<float, 4> x, std::array<float, 4> yz) {
+    auto bad = [&](deren::utility::vessel::array<float, 4> x, deren::utility::vessel::array<float, 4> yz) {
         auto asset = packed;
         asset.geometry[0].covariance_x = x;
         asset.geometry[0].covariance_yz = yz;
@@ -544,7 +558,41 @@ void test_covariance_tolerance() {
         CHECK(result && *result);
     }
 }
+void test_owned_upload() {
+    auto device = std::make_shared<upload_probe>();
+    std::weak_ptr<upload_probe> root = device;
+    auto packed = std::make_shared<gs::packed_asset const>(*gs::pack_asset(sample()));
+    std::weak_ptr<gs::packed_asset const> source = packed;
+    auto asset = gs::upload_asset(*device, packed, {}, device);
+    CHECK(asset);
+    if (!asset)
+        return;
+    packed.reset();
+    CHECK(source.expired()); // Upload aliases are released; no duplicate packed cloud stays resident.
+    auto snapshot = (*asset)->resources();
+    namespace rr = deren::engine::render_resource;
+    auto geometry = snapshot.find(rr::resource_id::gaussian_geometry);
+    auto sh = snapshot.find(rr::resource_id::gaussian_sh);
+    CHECK(geometry && sh && snapshot.group(rr::instances::lifetime::scene).size() == 2);
+    CHECK(!geometry->description.initial_data && !sh->description.initial_data);
+    CHECK(geometry->description.initialization_key && sh->description.initialization_key);
+    geometry.reset();
+    sh.reset();
+    asset->reset();
+    device.reset();
+    CHECK(!root.expired());
+    snapshot = {};
+    CHECK(root.expired());
+    upload_probe other;
+    auto unrelated = std::make_shared<upload_probe>();
+    auto input = std::make_shared<gs::packed_asset const>(*gs::pack_asset(sample()));
+    auto refused = gs::upload_asset(other, input, {}, unrelated);
+    CHECK(!refused && refused.error().code == gs::error_code::invalid_argument && other.calls == 0);
+    auto missing = gs::upload_asset(other, std::shared_ptr<gs::packed_asset const>{});
+    CHECK(!missing && missing.error().code == gs::error_code::invalid_argument && other.calls == 0);
+}
 int main() {
+    test_owned_upload();
     test_packing();
     test_invalid_packing();
     test_models();
