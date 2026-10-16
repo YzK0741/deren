@@ -86,6 +86,12 @@ param(
     # prints is the one that means something; this script's own `changed`/exit 1 is about the stale local
     # reference set (see the note at the summary).
     [string]$Compare = "",
+    # THE ADOPTION PLAN'S STAGE GATE: run the whole round with the opt-in render graph enabled
+    # ([render] main_render_graph = true). The activating scenarios must stay byte-identical to the
+    # legacy-frozen hashes, and the scenarios whose tail the graph does not support yet must keep
+    # taking the legacy path - each scenario's own debug.log says which of the two ran, so the
+    # fallback list a round produces IS the work queue for the following stages.
+    [switch]$MainGraph,
     [string]$Model = "C:\Users\23530\Desktop\yzk\glTF-Sample-Assets\Models\DamagedHelmet\glTF\DamagedHelmet.gltf",
     [int]$Frames = 40,
     [string]$Camera = "35,20,7,0,-1.6,0",
@@ -327,6 +333,11 @@ function Write-ScenarioConfig {
         if ($Scenario.extra.ContainsKey($k)) { continue } # the scenario's value wins (see above)
         $lines += "$k = $($defaults[$k])"
     }
+    # -MainGraph adds the one key the graph rounds need; a scenario that names it itself wins, because
+    # TOML forbids a duplicate key and toml++ would reject the whole file (see the note above).
+    if ($MainGraph -and -not $Scenario.extra.ContainsKey("main_render_graph")) {
+        $lines += "main_render_graph = true"
+    }
     foreach ($k in $Scenario.extra.Keys) { $lines += "$k = $($Scenario.extra[$k])" }
     $lines += @(
         "",
@@ -388,6 +399,10 @@ function Invoke-Scenario {
     $p = [System.Diagnostics.Process]::Start($start)
     # the capture exits on its own; the timeout is a safety net, not the expected path
     if (-not $p.WaitForExit(180000)) { $p.Kill(); return @{ ok = $false; why = "timed out" } }
+    # KEEP THIS RUN'S LOG next to its screenshot, before any early return: a -MainGraph round reads its
+    # activation/fallback inventory from the "main graph:" lines in it, a validation finding is only in
+    # it, and the next scenario deletes it. A failed run keeps it too - that is when it is wanted most.
+    if (Test-Path $log) { Copy-Item $log (Join-Path $workDir "$($Scenario.name).debug.log") -Force }
     if ($p.ExitCode -ne 0) { return @{ ok = $false; why = "exit code $($p.ExitCode)" } }
 
     $shot = Get-ChildItem $workDir -Filter "screenshot_*.png" | Select-Object -First 1
