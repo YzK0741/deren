@@ -301,10 +301,13 @@ hazards, stable order, cycles, owned diagnostics and OOM. The Boost allocation
 probe observes the actual compiled graph module as well as its shared adapter.
 
 Subresource ranges, typed parameter visitors, the baseline abstract barrier
-plan and diagnostic dumps are implemented. Execution preparation remains. Execution binding, lease retention, GPU
-recording/submission, descriptor retention and final-state publication follow in B.
-The CPU core does not validate any GPU
-synchronization or replace production rendering.
+plan and diagnostic dumps are implemented, and so are execution preparation, binding, lease
+retention, GPU recording/submission and final-state publication: the converters and the optional
+scoped recording capability live in the backend (see [the RHI mapping audit](render_graph_rhi_mapping.md)),
+and the Bloom, post-chain and main-graph paths record real frames when they are opted in (see
+"Composing an executable graph" and "First main-chain boundary" below). What the CPU core itself
+still does not do is validate GPU synchronization on its own, and the graph does not replace
+production rendering by default.
 
 ## Diagnostic dumps
 

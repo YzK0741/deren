@@ -3,7 +3,9 @@
 Decision: use Boost.Graph 1.92.0 for graph storage, reverse/filtered views and
 traversal underneath the upcoming render graph. deren still owns resource
 semantics, dependency construction, stable scheduling policy and synchronization.
-The render graph production module and A1 compiler are not implemented here.
+The render graph production module and A1 compiler are not implemented here. (Scope of THIS
+increment only: the A1 record of the same day, reviews/2026-10-15-render-graph-a1.md, delivers the
+standalone CPU graph core and supersedes this sentence as a statement about the tree.)
 
 ## Delivered
 

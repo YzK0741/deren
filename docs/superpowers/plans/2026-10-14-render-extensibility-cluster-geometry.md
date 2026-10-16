@@ -127,16 +127,16 @@
 - [x] 2.0 engine 资源簇与 runtime 帧槽保留；保留原 registry/passchain。
 - [x] 2.0a Boost.Graph 1.92.0 头文件子集接入与最小验证：vessel 存储、显式遍历工作区、稳定排序、可恢复环错误和 OOM；原始头文件保持不改，图库不进入 RHI ABI。
 - [x] 2.1 / A1：按 [CPU 图核心实施计划](2026-10-15-render-graph-a1.md) 实现局部 ref、完整资源访问、内容版本、输出根、裁剪、物理依赖和稳定拓扑计划；不改生产帧循环。
-- [ ] 2.2 / A2：子资源范围、view/重复 import 归一化、参数 visitor、抽象同步和 dump。验证 GENERAL 写依赖、范围/溢出、死写裁剪与 preserve/read-write。
+- [x] 2.2 / A2：子资源范围、view/重复 import 归一化、参数 visitor、抽象同步和 dump。验证 GENERAL 写依赖、范围/溢出、死写裁剪与 preserve/read-write。（验收记录：reviews/2026-10-16-render-graph-{ranges,parameters,sync,diagnostics}.md）
 - [x] 2.2 范围部分：mip/layer/aspect 与字节区间、稀疏状态切分、局部输出根、范围 hazard、越界/溢出验证。
 - [x] 2.2 内容参数部分：类型化纹理/缓冲区字段、visitor、只读参数快照和自动访问登记。
 - [x] 2.2 同步基线：用途/stage 校验、显式初始状态、按活跃执行顺序产生稀疏范围屏障、GENERAL 内存依赖、读者 stage 与只读布局转换、保守最终状态。
 - [x] 2.2 诊断与审计：文本/JSON dump、错误 dump、活跃执行使用区间及 RHI 映射审计；前端保留抽象布局，后端做语义映射。
 - [x] 2.2/B 转换准备：独立 RHI 同步数据、图 scope adapter 和 Vulkan GENERAL 未绑定 barrier 模板；不改变前端布局、不因原生布局相同而丢依赖；绑定/录制/提交尚未接入。
-- [ ] 2.3 / B：执行绑定、旧 registry/WSI 适配、RHI 访问矩阵、错误传播、提交包、状态和历史发布。辅助 descriptor/管线/上传 owner 有明确帧槽保留入口。
-- [ ] 2.4 / C：图外 post_resources + 四级 Bloom 子图，composite 人工交接；旧/图路径可切换。先验证声明，再启用图屏障，单个边界只有一个管理者。
-- [ ] 2.5 / D：逐段接管 composite/Output、TAA 和主帧资源流，补齐 bindless/GPU 地址、附件、间接访问及 AS 声明。
-- [ ] 2.6：按段完成固定场景、Gaussian、resize、feature、失败与在途生命周期回归；该段成为默认且没有旧调用者后，删除其旧分支和字段。最后才移除整个 registry/passchain/runner。
+- [x] 2.3 / B：执行绑定、旧 registry/WSI 适配、RHI 访问矩阵、错误传播、提交包、状态和历史发布。辅助 descriptor/管线/上传 owner 有明确帧槽保留入口。（验收记录：reviews/2026-10-16-render-graph-execute.md、-composition.md；主图/后处理已按此录制并提交，未覆盖的分支见 2.5）
+- [x] 2.4 / C：图外 post_resources + 四级 Bloom 子图，composite 人工交接；旧/图路径可切换。先验证声明，再启用图屏障，单个边界只有一个管理者。（验收记录：reviews/2026-10-16-render-graph-{bloom,post}.md；默认仍为旧路径）
+- [ ] 2.5 / D：逐段接管 composite/Output、TAA 和主帧资源流，补齐 bindless/GPU 地址、附件、间接访问及 AS 声明。**当前进度（2026-10-16）**：主链第一边界（geometry -> GBuffer 交接 -> deferred LOAD -> post）与共享只读输入已验收（reviews/2026-10-16-render-graph-{geometry,lighting,shared-inputs}.md）；TAA、GBuffer debug、光追阴影、MegaLights、Gaussian、透明与三个角色/描边阶段仍在 `runtime.frames.cppm` 的资格判定里走旧 scene tail，材质纹理/IBL、per-mesh 地址、meshlet 表与原子统计、间接命令、cluster 生产者尚未声明。
+- [ ] 2.6：按段完成固定场景、Gaussian、resize、feature、失败与在途生命周期回归；该段成为默认且没有旧调用者后，删除其旧分支和字段。最后才移除整个 registry/passchain/runner。**尚未开始**：`[render] main_render_graph` 默认 false（source/application_configuration/application_configuration.cppm）。
 
 **首段生产范围：** `source/engine/pass/post.cppm` / `post.cpp` 中 HDR -> Bloom prefilter -> 三次 downsample -> 四级 sampled 输出；composite、FXAA/upscale、UI、截图与 present 初期保留人工边界。曝光是 push constant，不另建曝光 pass。UI 位于 rendering instance 内，不随意插入 transition。
 
