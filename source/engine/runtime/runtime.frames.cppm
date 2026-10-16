@@ -12,7 +12,8 @@ module;
 
 #include <GLFW/glfw3.h>
 #include <algorithm> // std::min in the resource publication
-#include <bit>       // std::bit_cast for the caster world-matrix hash
+#include <array>
+#include <bit> // std::bit_cast for the caster world-matrix hash
 #include <chrono>
 #include <cstdlib>
 #include <cstring> // std::memcpy, for composing a pass's push block
@@ -30,6 +31,7 @@ import deren.engine.profiling;
 import deren.engine.pipelines;
 import deren.engine.render_resource;
 import deren.engine.render_resource.shared;
+import deren.engine.render_graph.bloom;
 
 import deren.utility;
 import deren.engine.frame_constants; // one frame's shared constants (see update_frame_constants)
@@ -158,6 +160,14 @@ namespace deren::engine {
     }
 
     frame_status runtime::pace_and_acquire() {
+        this->cluster_retention_open = false;
+        this->bloom_graph_locked = true;
+        this->bloom_graph_error = rhi::error::ok;
+        this->bloom_graph_pending = false;
+        this->bloom_graph_pending_generations.fill({});
+        this->post_graph_drew_frame = false;
+        this->main_graph_frame = false;
+        this->post_graph_output = {};
         deren::engine::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::pace};
         if (!this->shared_heap_ready)
             return frame_status::acquire_failed; // No frame may read a descriptor update whose rollback failed.
@@ -261,6 +271,9 @@ namespace deren::engine {
         this->current_image_index = open.frame.image_index;
         // wait_and_acquire succeeded: only this completed slot's former generation can be released/reset.
         this->submitted_resource_views[frame_slot] = {};
+        this->frame_resource_clusters[frame_slot].clear();
+        this->frame_graph_retention[frame_slot].clear();
+        this->cluster_retention_slot = frame_slot;
         this->submitted_fallback_views[frame_slot] = {};
         // ONE LINE, ONCE, SAYING HOW THE MESHLET DISPATCHES REACHED THE GPU (docs/mesh_shaders.md step 3): a frame
         // has been recorded by now, so the two counters answer the question the frame itself cannot - "is the
@@ -399,6 +412,7 @@ namespace deren::engine {
         // UBO and the fitted scene bounds above are all final at this point, and every pass of the frame reads
         // the same numbers the shaders see (see deren.engine.frame_constants).
         this->update_frame_constants();
+        this->cluster_retention_open = true;
         return frame_status::proceed;
     }
 
@@ -1068,6 +1082,13 @@ namespace deren::engine {
         static_cast<runtime*>(owner)->run_tasks(tasks, deren::engine::task_priority::recording);
     }
     void runtime::record_scene() {
+        auto const features = this->active_features();
+        this->main_graph_frame = this->main_graph_enabled && this->deferred_lit_active() &&
+                                 !this->taa_active() && !features.rt_shadow && !this->megalights_active() &&
+                                 !this->gaussian_active() && !features.transparent && !this->feature_active("character_forward") &&
+                                 !this->feature_active("toon_screen_rim") && !this->feature_active("goo_rim");
+        if (this->main_graph_frame)
+            return; // The composed graph records the producer and its attachment barriers.
         this->record_scene_attachments();
         this->update_pass_geometry();
         // THE SCENE PASS records the surface write: the instance over its six declared targets, the segmented
@@ -2830,7 +2851,7 @@ namespace deren::engine {
         this->frame_wiring = wiring;
     }
 
-    void runtime::prepare_stage(pass::stage const& stage) {
+    void runtime::prepare_stage(pass::stage const& stage, bool graph_synchronization) {
         // THE NATIVE HANDLE IS NO LONGER THIS FUNCTION'S (abi 20): every frame a pass is given now carries the
         // CONTRACT buffer (`frame_command_buffer()`), and the pass derives whatever native handle it still needs
         // through the escape. The parameter stays because the frame loop's call shape is "prepare this stage in the
@@ -2848,7 +2869,14 @@ namespace deren::engine {
         if (this->frame_wiring.prepare == nullptr) {
             return; // no owner: the passes keep the frames they just built and record with them
         }
-        this->frame_wiring.prepare(this->frame_wiring.owner, this->make_frame_services(this->frame_command_buffer()), stage.name);
+        auto services = this->make_frame_services(this->frame_command_buffer());
+        if (graph_synchronization) {
+            // The appended graph owns these handoffs; preparation still publishes CPU frame data.
+            auto graph_handoff = [](void*, std::shared_ptr<rhi::command_buffer>, uint32_t) { return true; };
+            services.ensure_gbuffer_targets_sampled = graph_handoff;
+            services.ensure_gbuffer_depth_sampled = graph_handoff;
+        }
+        this->frame_wiring.prepare(this->frame_wiring.owner, services, stage.name);
     }
 
     void runtime::discard_megalights_frame() noexcept {
@@ -3593,21 +3621,126 @@ namespace deren::engine {
             deren::utility::log("runtime: the fallback HDR-target clear was refused through the contract");
         }
     }
+    rhi::error runtime::record_bloom_graph(bool active) {
+        namespace graph = deren::engine::render_graph;
+        namespace scoped = rhi::synchronization;
+        using lease = resource_lease<rhi::image>;
+        static_assert(graph::bloom::level_count == deren::engine::render_layout::bloom_level_count);
+        auto const index = this->current_image_index;
+        if (!this->cluster_retention_open || index >= rhi::max_swapchain_images)
+            return rhi::error::not_ready;
+        auto commands = this->frame_command_buffer();
+        if (!commands)
+            return rhi::error::not_ready;
+        auto retain = [&](size_t family) -> lease {
+            auto generation = this->output_resource_views[family].find(pass::output_targets_pass::ids[family]);
+            if (!generation || generation->device.get() != this->core_owner.get() || index >= generation->objects.size())
+                return {};
+            auto image = generation->objects[index].image.get();
+            if (!image)
+                return {};
+            // This alias pins the complete generation, including the views descriptors refer to.
+            return lease::from_shared(this->core_owner, std::shared_ptr<rhi::image>{std::move(generation), image});
+        };
+        std::array<lease, graph::bloom::level_count> levels;
+        std::array<bool, graph::bloom::level_count> initialized{};
+        for (auto it = this->bloom_graph_states.begin(); it != this->bloom_graph_states.end();) {
+            if (it->first.expired())
+                it = this->bloom_graph_states.erase(it);
+            else
+                ++it;
+        }
+        for (unsigned level = 0; level < levels.size(); ++level) {
+            levels[level] = retain(9 + level);
+            if (!levels[level] || levels[level].get() != this->bloom_images[level][index].get())
+                return rhi::error::not_ready;
+            auto generation = this->output_resource_views[9 + level].find(pass::output_targets_pass::ids[9 + level]);
+            auto state = this->bloom_graph_states.find(weak_bloom_generation{generation});
+            initialized[level] = state != this->bloom_graph_states.end() && state->second[index];
+            this->bloom_graph_pending_generations[level] = std::move(generation);
+        }
+        std::array<graph::resource_state, graph::bloom::level_count> incoming{};
+        for (unsigned i = 0; i < incoming.size(); ++i)
+            if (initialized[i])
+                incoming[i] = {graph::resource_layout::shader_read_only,
+                               graph::pipeline_stage::fragment_shader | graph::pipeline_stage::color_output,
+                               graph::memory_access::read | graph::memory_access::write};
+        auto& retained = this->frame_graph_retention[this->cluster_retention_slot];
+        if (!active) {
+            // Descriptors remain statically used when bloom's weight is zero. No graph content
+            // read is declared for undefined texels; this boundary only establishes their layout.
+            auto extension = rhi::query_extension<rhi::scoped_synchronization>(this->rhi_face());
+            if (!extension)
+                return rhi::error::unsupported;
+            std::array<rhi::scoped_image_barrier, graph::bloom::level_count> barriers;
+            auto pin = std::allocate_shared<decltype(levels)>(deren::utility::memory::allocator<decltype(levels)>{}, levels);
+            retained.push_back(pin);
+            for (unsigned i = 0; i < barriers.size(); ++i) {
+                scoped::image_state before{};
+                if (initialized[i])
+                    before = {scoped::image_layout::shader_read_only,
+                              {scoped::stage::fragment_shader | scoped::stage::color_output, scoped::access::read | scoped::access::write}};
+                barriers[i] = {levels[i].get(), {before, {scoped::image_layout::shader_read_only, {scoped::stage::fragment_shader, scoped::access::read}}, {}}};
+            }
+            auto error = extension->validate(barriers, {});
+            if (error == rhi::error::ok)
+                error = extension->record(*commands, barriers, {});
+            if (error == rhi::error::ok)
+                this->bloom_graph_pending = true;
+            return error;
+        }
+        auto input = retain(0);
+        if (!input || input.get() != this->hdr_images[index].get())
+            return rhi::error::not_ready;
+        auto host = this->make_pass_host();
+        std::array<pass::resolved_io, graph::bloom::level_count> ios;
+        for (unsigned i = 0; i < ios.size(); ++i) {
+            ios[i].push_block = host.push_block;
+            if (!this->bloom_pass[i] || !host.resolve || !host.resolve(host.context, *this->bloom_pass[i], ios[i]) ||
+                ios[i].targets.empty() || ios[i].targets[0].image_handle != levels[i].get() ||
+                ios[i].list != commands.get())
+                return rhi::error::not_ready;
+        }
+        // The legacy HDR owner already made it visible to fragment reads before this boundary.
+        auto prepared = graph::bloom::prepared_chain::prepare(this->core_owner, input, levels,
+                                                              {graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read}, incoming);
+        if (!prepared)
+            return prepared.error().code;
+        retained.push_back(prepared->retention());
+        auto error = prepared->record(*commands, [&](unsigned level, graph::execution::record_context const&) noexcept {
+            if (host.apply_behaviour)
+                host.apply_behaviour(host.context, *this->bloom_pass[level], ios[level]);
+            return this->bloom_pass[level]->record_content(ios[level]);
+        });
+        if (error == rhi::error::ok)
+            this->bloom_graph_pending = true;
+        return error;
+    }
+
     bool runtime::record_post_process() {
         // (no `core&` alias here any more: the last backend-owned read in this function was the bloom chain's
         // off path, and those images are the engine's own from ③-D/E A1.5 on)
 
         // ---- the scene side: close the geometry instance, then the stages that consume the G-buffer
-        this->record_scene_tail();
+        // Eligibility was frozen before recording the scene producer.
+        if (this->main_graph_enabled && !this->main_graph_frame && !this->main_graph_fallback_reported) {
+            deren::utility::log("main graph: unsupported tail combination; using legacy scene tail and post graph");
+            this->main_graph_fallback_reported = true;
+        }
+        if (!this->main_graph_frame)
+            this->record_scene_tail();
 
         if (!this->pass_ready("post_composite")) {
+            if (this->post_graph_enabled)
+                this->bloom_graph_error = rhi::error::not_ready;
             return false; // no post pipeline (creation failed): the HDR frame cannot be presented correctly
         }
 
         std::size_t const index = this->current_image_index;
 
         // HDR scene target -> fragment-shader read (the prefilter and the composite both read it)
-        this->barrier_image_to_sampling();
+        if (!this->main_graph_frame)
+            this->barrier_image_to_sampling();
 
         // The composite's GI upsample also samples the G-buffer depth and normal, and the stage that
         // normally publishes those two is the deferred lighting stage (or the debug view) - both part
@@ -3652,6 +3785,12 @@ namespace deren::engine {
         {
         }
 
+        if (this->post_graph_enabled) {
+            this->bloom_graph_error = this->record_post_graph();
+            if (this->bloom_graph_error != rhi::error::ok)
+                deren::utility::log("post graph: recording refused ({})", static_cast<uint32_t>(this->bloom_graph_error));
+            return this->bloom_graph_error == rhi::error::ok;
+        }
         // ---- THE BLOOM CHAIN, as a stage of FOUR passes (deren.engine.pass.post) ----
         // The chain is four instances of one class; the level IS the pass boundary (each binds a different one of
         // the post family's five sets), and what the host resolves for each is in resolve_post_bloom. The RUNNER
@@ -3660,8 +3799,16 @@ namespace deren::engine {
         // resolve_post_composite, where the weight is zeroed for the debug view - which is also what
         // `active_features().gbuffer_debug` means).
         pass::stage const bloom_stage = {.name = "bloom", .passes = this->bloom_pass, .marks = false};
-        pass::run_report const bloom_report = pass::record_stage(bloom_stage, this->make_pass_host());
-        if (bloom_report.recorded == 0) {
+        pass::run_report bloom_report{};
+        if (this->bloom_graph_enabled) {
+            this->bloom_graph_error = this->record_bloom_graph(this->feature_active("bloom"));
+            if (this->bloom_graph_error != rhi::error::ok) {
+                deren::utility::log("bloom graph: recording refused ({})", static_cast<uint32_t>(this->bloom_graph_error));
+                return false;
+            }
+        } else
+            bloom_report = pass::record_stage(bloom_stage, this->make_pass_host());
+        if (!this->bloom_graph_enabled && bloom_report.recorded == 0) {
             // THE OFF PATH, and it is the frame loop's because it is about the COMPOSITE's descriptor: its set
             // declares all four bloom levels as inputs and multiplies them by the weight it pushed, and a
             // statically-used binding's image has to be in the layout that descriptor declares whether or not the
@@ -3739,6 +3886,10 @@ namespace deren::engine {
         // The return value says whether a fullscreen pass actually wrote the swapchain image: only
         // then is it in GENERAL and only then does it hold this frame's result.
         bool const post_wrote_swapchain = this->record_post_process();
+        if (this->bloom_graph_error != rhi::error::ok) {
+            this->discard_megalights_frame();
+            return frame_status::end_recording_failed;
+        }
         // Screenshot: while the post pass wrote the swapchain image it is still in GENERAL and still owned
         // by this frame - the only point where a read-back copy is legal. Doing it here (rather than after
         // the present) also means the capture needs no extra submit, no re-acquire and no layout hand-back
@@ -3820,10 +3971,17 @@ namespace deren::engine {
         // color_attachment -> present when the post chain wrote the swapchain, undefined -> present when it
         // was skipped (the two recipes the raw presentation barrier chose between). The image is the frame's
         // OWN contract handle (`frame_image()`), which the backend's registry accepts by identity.
-        (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->rhi_face().frame_image(),
-                                                                       .from = post_wrote_swapchain ? rhi::image_use::color_attachment : rhi::image_use::undefined,
-                                                                       .to = (this->create_options.native_window == nullptr) ? rhi::image_use::shader_read : rhi::image_use::present,
-                                                                       .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
+        if (this->post_graph_drew_frame) {
+            this->bloom_graph_error = this->finish_post_graph();
+            if (this->bloom_graph_error != rhi::error::ok) {
+                this->discard_megalights_frame();
+                return frame_status::end_recording_failed;
+            }
+        } else
+            (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->rhi_face().frame_image(),
+                                                                           .from = post_wrote_swapchain ? rhi::image_use::color_attachment : rhi::image_use::undefined,
+                                                                           .to = (this->create_options.native_window == nullptr) ? rhi::image_use::shader_read : rhi::image_use::present,
+                                                                           .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
         // GPU timing: last mark of the frame. The interval it closes is everything after the FXAA
         // (or composite) pass - the screenshot read-back copy and the present barrier.
         this->gpu_mark(gpu_mark_id::frame_end);
@@ -3838,6 +3996,11 @@ namespace deren::engine {
     }
 
     frame_status runtime::submit_and_present() {
+        this->cluster_retention_open = false;
+        if (this->bloom_graph_error != rhi::error::ok) {
+            this->discard_megalights_frame();
+            return frame_status::submit_failed;
+        }
         // The resource table's differential check reports itself HERE, once, at the end of the frame that closes
         // its window - the last point of a frame, so the counters cover EVERY stage (the post and lighting stages record
         // inside `end_recording`, which is why this cannot sit there). THREE frames rather than one, because a
@@ -3898,6 +4061,10 @@ namespace deren::engine {
         }
         if (this->frame_chain != nullptr)
             this->submitted_resource_views[this->frame_ring().position()] = this->frame_chain->resources().snapshot();
+        if ((this->bloom_graph_enabled || this->post_graph_enabled) && this->bloom_graph_pending)
+            for (auto const& generation : this->bloom_graph_pending_generations)
+                if (generation)
+                    this->bloom_graph_states[weak_bloom_generation{generation}][this->current_image_index] = true;
         this->submitted_fallback_views[this->frame_ring().position()] = this->shared_resource_fallback.resources().snapshot();
         this->cpu_timings.add(deren::engine::profiling::cpu_phase::submit_queue, std::chrono::steady_clock::now() - submit_started);
         auto const present_started = std::chrono::steady_clock::now();

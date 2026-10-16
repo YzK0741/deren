@@ -4,9 +4,9 @@
 
 **Goal:** 提高 deren 渲染路径的可组合性，在保留已有画质和功能的基础上，实现静态不透明网格的 GPU 驱动、层级细节选择，随后扩展几何流送。
 
-**Architecture:** CPU 场景组织对象和变换，渲染快照提供稳定实例与资产引用；passchain 管理资源并编译显式访问关系；几何路径产生可见 cluster 和绘制命令，再接入已有 GBuffer、PBR 和后处理。资源所有权、每帧访问计划和几何资产格式分别由独立模块承担。
+**Architecture:** CPU 场景组织对象和变换，渲染快照提供稳定实例与资产引用；engine resource_cluster 管理图外资源所有权，render_graph 编译访问、依赖、裁剪和同步；几何路径产生可见几何 cluster 和绘制命令，再接入 GBuffer、PBR 和后处理。旧 registry/passchain 在对应路径验收后逐段退出。
 
-**Tech Stack:** 当前 C++ modules、Slang、动态 RHI、Vulkan、mesh shader、间接绘制和 CTest；复用当前资源 registry 与 generation lease。
+**Tech Stack:** 当前 C++ modules、Slang、动态 RHI、Vulkan、mesh shader、间接绘制和 CTest；新路径复用 engine resource_cluster/resource_lease，迁移期保留 registry 与 generation lease。
 
 **Spec:** 本文内的范围、接口边界和验收条件，以及本次对话已提出的四步路线。本文是规划产物，不代表已授权修改全部生产代码。
 
@@ -28,7 +28,7 @@
 
 ## 依赖与交付边界
 
-按阶段 1 → 2 → 3 → 4 推进，每阶段可以独立关闭新功能并回退旧渲染路径。
+阶段一场景/快照与阶段二 CPU 图核心、后处理可以独立推进；按当前用户选择先完成资源簇，再推进阶段二。主场景接入复用阶段一稳定快照，阶段三、四仍依次在前置能力验收后实施。生产迁移期间保留可切换旧路径；已经部分提交的帧不能自动重跑旧路径。
 
 阶段四有两个交付点：4A 为全驻留层级 LOD，是轻量版首版；4B 为分页流送，是后续扩展。先验收 4A，再决定是否投入 4B。
 
@@ -109,57 +109,38 @@
 
 **验收：** 现有场景运行与画质不变；动态增删、重挂接不产生悬空引用；共享资产无需复制几何；已发布快照与 GPU 在途资源生命周期一致。静态场景避免全量世界矩阵重算，实际收益由测量确认。
 
-## 阶段二：扩展 passchain 的资源访问计划
+## 阶段二：基于资源簇的渲染图
 
-**交付：** 能验证依赖并为已覆盖的 pass 自动产生同步，新增渲染路径不再要求手动编织整条帧链。
+**2026-10-15 修订：** 以 [Render Graph 设计](../specs/2026-10-15-render-graph-design.md) 为本阶段依据，替换早期固定链访问计划。资源创建和所有权放在图外的 engine `resource_cluster`；图负责资源引用、参数访问、内容版本、依赖、裁剪、排程和同步。不提供 graph.create 或用 extraction 取得资源所有权，首轮不要求资源池。新增设计均为待实现接口，已完成簇机制除外。
 
-**文件边界：**
-- 修改 `source/engine/render_resource/render_resource.cppm`：扩展已有访问声明，不另建重复的资源身份体系。
-- 新增 `source/engine/render_graph/access.cppm`、`compile.cppm`、`compile.cpp`：纯数据访问与编译，独立于具体 pass。
-- 修改 `source/engine/pass/pass.cppm`、`chain.cppm`：收集每帧启用的 pass、编译和执行。
-- 修改 runtime 帧入口及实际迁移的 pass；测试扩展 `test_render_resources.cpp`、`test_pass.cpp`，新增 `test_render_graph.cpp`。
+**已有基础：** [资源簇首版计划](2026-10-15-resource-cluster.md) 已完成：空簇、buffer/image/sampler/view 工厂、owning lease、跨簇同设备共享及 runtime 帧槽保留；完整 CTest 29/29 和资源簇 ASan/UBSan 通过。旧生产资源尚未迁移，旧 snapshot 仍服务原调用者。
 
-**拟定接口边界：**
-- `resource_use` 引用 registry 中解析出的实际 generation/对象身份，描述读写、pipeline stage、访问用途及范围。
-- 访问用途包含采样、storage、颜色/深度附件、transfer、indirect、vertex/index 与 AS build/read；纹理包含 mip/layer/aspect，缓冲包含字节范围。
-- GPU 地址和 bindless 访问通过显式 use 纳入跟踪；资源集合允许按帧生成，声明及所需 lease 保留到执行结束。
-- `compile_access_plan(active_passes, imported_states)` 输出依赖、屏障和最终状态，失败时给出 pass/资源/范围诊断。
-- imported 状态包括历史与呈现资源，最终状态交接给下一图/下一帧；读旧内容与首次 clear/write 必须区分。
-- 首轮维持当前执行顺序、单 graphics queue，不任意重排；资源创建和访问编译各自独立。
+**职责与边界：**
+- 资源包在图外通过簇创建/替换，向构图函数提供明确 lease；簇不持有 layout、有效内容或提交历史。
+- 一个场景/视图不强制一张图；同一次提交的多个子图优先组合，独立图显式交接状态和就绪条件。
+- 同设备实际 image/buffer 及范围是 hazard 身份，不用簇地址或全局 resource_id 去重；view 关联 parent image。
+- 编译器纯 CPU，无设备调用；类型化参数 visitor 产生唯一访问列表，先裁剪值依赖，再为存活访问生成 RAW/WAR/WAW。
+- 执行器使用已有资源/view，runtime 保留实际 lease 和辅助 owner，并按真实 submit 结果发布状态；submit 成功但 present 失败不能回滚。
+- 首版单 graphics queue。图外已创建资源不会因 pass 裁剪自动省去分配；池化、延迟创建和别名后续单独设计。
 
-### 阶段二的访问归一化与执行协议
+**实施划分：**
+- [x] 2.0 engine 资源簇与 runtime 帧槽保留；保留原 registry/passchain。
+- [x] 2.0a Boost.Graph 1.92.0 头文件子集接入与最小验证：vessel 存储、显式遍历工作区、稳定排序、可恢复环错误和 OOM；原始头文件保持不改，图库不进入 RHI ABI。
+- [x] 2.1 / A1：按 [CPU 图核心实施计划](2026-10-15-render-graph-a1.md) 实现局部 ref、完整资源访问、内容版本、输出根、裁剪、物理依赖和稳定拓扑计划；不改生产帧循环。
+- [ ] 2.2 / A2：子资源范围、view/重复 import 归一化、参数 visitor、抽象同步和 dump。验证 GENERAL 写依赖、范围/溢出、死写裁剪与 preserve/read-write。
+- [x] 2.2 范围部分：mip/layer/aspect 与字节区间、稀疏状态切分、局部输出根、范围 hazard、越界/溢出验证。
+- [x] 2.2 内容参数部分：类型化纹理/缓冲区字段、visitor、只读参数快照和自动访问登记。
+- [x] 2.2 同步基线：用途/stage 校验、显式初始状态、按活跃执行顺序产生稀疏范围屏障、GENERAL 内存依赖、读者 stage 与只读布局转换、保守最终状态。
+- [x] 2.2 诊断与审计：文本/JSON dump、错误 dump、活跃执行使用区间及 RHI 映射审计；前端保留抽象布局，后端做语义映射。
+- [x] 2.2/B 转换准备：独立 RHI 同步数据、图 scope adapter 和 Vulkan GENERAL 未绑定 barrier 模板；不改变前端布局、不因原生布局相同而丢依赖；绑定/录制/提交尚未接入。
+- [ ] 2.3 / B：执行绑定、旧 registry/WSI 适配、RHI 访问矩阵、错误传播、提交包、状态和历史发布。辅助 descriptor/管线/上传 owner 有明确帧槽保留入口。
+- [ ] 2.4 / C：图外 post_resources + 四级 Bloom 子图，composite 人工交接；旧/图路径可切换。先验证声明，再启用图屏障，单个边界只有一个管理者。
+- [ ] 2.5 / D：逐段接管 composite/Output、TAA 和主帧资源流，补齐 bindless/GPU 地址、附件、间接访问及 AS 声明。
+- [ ] 2.6：按段完成固定场景、Gaussian、resize、feature、失败与在途生命周期回归；该段成为默认且没有旧调用者后，删除其旧分支和字段。最后才移除整个 registry/passchain/runner。
 
-**归一化身份：** 现有 `resource_id` 是用途标签，registry 也是多实例、多 subchain 的；不能用 `(resource_id, version)` 单独去重。`resolved_resource_ref` 持有 generation lease、scope 中解析出的 object ordinal、实际 RHI 对象及 parent allocation 的规范身份。相同底层 buffer/image 的别名 view 归到同一对象；不同 registry 中相同 id 不得误合并。CPU 写入、bindless heap 发布和 shader 的 GPU 地址读分别声明，不把“已持有 owner”当作“已同步”。
+**首段生产范围：** `source/engine/pass/post.cppm` / `post.cpp` 中 HDR -> Bloom prefilter -> 三次 downsample -> 四级 sampled 输出；composite、FXAA/upscale、UI、截图与 present 初期保留人工边界。曝光是 push constant，不另建曝光 pass。UI 位于 rendering instance 内，不随意插入 transition。
 
-**拟定数据接口（属于 `render_graph`）：**
-- `resource_use { resolved_resource_ref resource; use_kind purpose; access_mode access; stage_set stages; resource_range range; content_op contents; }`；range 为 buffer 字节范围或 image mip/layer/aspect 范围，解析全范围后做越界与溢出检查。
-- `content_op::read_existing / write_discard / read_modify_write` 配合明确的写入覆盖范围；attachment LOAD 是读取，CLEAR 初始化其声明范围，DONT_CARE 使内容无效，部分写不能初始化整个资源。
-- `pass_access_record { pass_key key; span<resource_use const> uses; barrier_owner owner; }`，输入必须是本帧固定的启用集合与实际资源版本。
-- `compile_access_plan(span<pass_access_record const>, span<imported_state const>) -> expected<access_plan, access_diagnostics>`；plan 保存依赖、抽象屏障、最终状态和 lease。纯数据编译不依赖 Vulkan，不创建资源或调用 GPU。
-- `imported_state` 除 layout/access/stage 外包含 generation/object/range、contents_valid 和提交序号；上一帧状态不能无条件复用到替换后的 generation 或另一 swapchain image。
-
-**编译顺序：** 解析实际对象 → 范围归一化 → 合并单 pass 的访问 → 校验内容有效性 → 按固定顺序建立 RAW/WAR/WAW → 为冲突和布局变化生成屏障 → 输出最终状态。RAW/WAW 需要写可见性，WAR 需要执行顺序；GENERAL→GENERAL 不能被当成无需屏障。read→read 仅在布局和用途兼容时合并。单 pass 内的 storage read/write 需要声明 read_modify_write；不能用 pass 前屏障解决绘制时采样同一 attachment 的非法 feedback，首版拒绝这种未支持用法。
-
-**RHI lowering：** 当前 `buffer_barrier` 主要是 use pair，`barrier_group` 的 shader stage hint 不能任意描述 producer/consumer 的阶段集合，`image_barrier` 的范围表达也需核对。2.1 输出“访问用途/范围 → 当前 RHI 表达 → 缺口”表；先迁移可正确表达的组合，不能表达的保留人工边界并诊断。按真实需要扩展边界结构/能力，再跑 backend/native boundary 与 Vulkan tests；不在 engine 里塞 Vulkan mask。AS build、host write、present acquisition/release 各有外部提交/可见性义务，图内 memory barrier 不能替代 fence、flush/invalidate 或 WSI 等待。
-
-**动态 feature 与失败：** frame 开始固定 enable 集合；依赖 producer 是否可提供有效本帧输出进行预检。现有“producer recorded 才开启 consumer”的情况改成显式成功结果，不允许编译时开、执行时静默关。producer 录制/屏障失败时停止依赖消费者，失效其预期输出；本帧未成功提交不得发布新 final states。旧路径与自动路径通过 `barrier_owner::manual / compiled` 划分到资源/范围的访问边界，跨边界交接实际状态，不只按整个 pass 开关决定。
-
-**首个迁移子链：** 先选择 `source/engine/pass/post.cppm` / `post.cpp` 中四级 bloom：HDR imported input → bright-pass prefilter → 三次 downsample → 四级 sampled final state，确认 2.1 的 RHI 对应项全覆盖后冻结选择。随后 composite 从显式人工边界消费这四级输出；bloom 关闭时权重/读取路径必须禁用或使用明确初始化的 fallback，不允许读取旧 bloom。此模块实际还有 composite 和可嵌入 UI 的回调，曝光是 push constant，不另假设独立曝光 pass。首轮 composite、FXAA/upscale、UI、截图 transfer 与 present 保持人工同步；UI 回调处于 rendering instance 内，不能在那里随意插入图级 transition。该范围不具备完整可表达性时，2.4 必须先补 RHI 缺口再迁移，不能删掉不认识的旧屏障。
-
-**新增验收断言：**
-- [ ] 2.1a `test_render_graph`：同一 generation 的不同 frame-slot 对象互不混淆；不同 registry 同 id 不混淆；同 parent image 两个 view 的重叠范围正确关联。
-- [ ] 2.2a `test_render_graph`：GENERAL storage write→sample 仍有依赖；不相交范围无多余依赖；只 clear mip0 后读取 mip1 拒绝；attachment LOAD 未初始化拒绝；部分写再全范围读拒绝。
-- [ ] 2.3a `test_pass` / `test_runtime_injection`：producer disable/refusal、record failure、跨人工边界 imported state 缺失各有诊断；不能继续依赖消费者或发布成功 final state。
-- [ ] 2.4a 在自动/人工两模式运行同一 bloom 子链，验证图像、输出状态、屏障数量与 Vulkan 日志；bloom 开关、resize、更换 generation、frame slot 与 swapchain image 不同编号均覆盖。
-
-- [ ] 2.1 审计所有生产访问，列出声明覆盖表，包括回调中的绘制、GPU 地址、heap 与诊断读回；区分外部边界和可迁移区域。
-- [ ] 2.2 编写 RAW/WAR/WAW、只读共享、不相交子资源、别名和跨帧初始状态测试；实现纯数据依赖与访问检查。GENERAL 布局下仍验证写入可见性。
-- [ ] 2.3 在“只验证”模式运行现有 passchain：保留手写屏障，输出漏声明、未初始化读取与不匹配的 imported 状态。
-- [ ] 2.4 选择一个完整后处理子链迁移自动屏障；验证后按子链推广。每段屏障只有一个负责人，不同时由旧路径和编译器重复生成。
-- [ ] 2.5 编写 feature gate 测试：生产者关闭而消费者开启时不得读取陈旧输出；明确禁用消费者、使用有效历史或 fallback 的行为。
-- [ ] 2.6 覆盖动态资源容量变化、替换失败与旧 generation 保留；构建、完整 CTest、Vulkan 同步验证、图像回归、resize/无窗口验证。
-
-**验收：** 首版几何路径所需的访问能完整声明；屏障计划可查看；迁移子链同步验证无新增错误；新增 pass 不需要新增 runtime 私有资源管理分支。自动裁剪、队列并行、别名分配单独立项。
+**验收：** A1 可独立 CPU 测试；A2+B+C 完成时证明声明驱动、裁剪、自动同步和提交生命周期已有生产用途。无需为每个图资源添加全局 resource_id；图像与旧路径一致，同步验证无新增错误。资源池和多队列不是首段可用前提。场景快照阶段独立推进，不阻塞后处理接入。
 
 ## 阶段三：GPU 驱动的可见几何与间接绘制
 
@@ -273,6 +254,6 @@ root 粗级及其依赖常驻并计入预算；预算小于 root 最低占用时
 
 ## 推荐开始方式
 
-从阶段一的稳定节点句柄开始，随后完成共享资产和快照；不要同时改场景存储、自动屏障和 cluster 格式。阶段一验收后，再细化阶段二的访问编译接口和首个迁移子链。首次实施前审阅本计划，后续阶段根据实测结果细化，保持四阶段目标不变。
+当前资源簇基础已完成，按用户选择优先推进阶段二 A1 纯 CPU 图核心，再做范围/参数、执行与 Bloom 接入；场景身份与快照可独立推进。不要同时改场景存储、自动屏障和几何 cluster 格式。后续阶段根据实测结果细化，保持四阶段目标不变。
 
-优先级：1.0 身份引用清单 → 1.1/1.2 存储及事务化层级 → 1.3 动画与 dirty 更新 → 1.4 资产/材质版本和提交历史 → 1.5 场景各消费者 → 1.6 回归。阶段三先交付 GPU 全量与视锥路径，再评估本帧 Hi-Z；历史两阶段遮挡可独立关闭。阶段四先证明 group cut 与混合 LOD 边界正确，再追求简化率；4B 仍需 4A 验收后决定投入。
+阶段一内部优先级：1.0 身份引用清单 → 1.1/1.2 存储及事务化层级 → 1.3 动画与 dirty 更新 → 1.4 资产/材质版本和提交历史 → 1.5 场景各消费者 → 1.6 回归。阶段三先交付 GPU 全量与视锥路径，再评估本帧 Hi-Z；历史两阶段遮挡可独立关闭。阶段四先证明 group cut 与混合 LOD 边界正确，再追求简化率；4B 仍需 4A 验收后决定投入。

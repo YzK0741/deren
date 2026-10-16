@@ -176,6 +176,7 @@ export namespace deren::engine::pass {
          */
         [[nodiscard]] bool resolve(resolve_context const& context, resolved_io& out) const override;
         void record(resolved_io const& io) override;
+        [[nodiscard]] deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
 
         /// @brief whether the pass built everything it records with (the renderer gates the post chain on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
@@ -281,6 +282,10 @@ export namespace deren::engine::pass {
 
         /// @brief which level of the bloom chain this instance is
         [[nodiscard]] uint32_t level() const noexcept;
+
+        /// Draw only; the graph caller owns all input/output barriers and the composite handoff.
+        /// Pipeline, viewport, heap and target resolution are still the caller's pre-record duties.
+        [[nodiscard]] deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
 
     private:
         /// the pipeline the runner binds: the chain's R16F variant, which the COMPOSITE owns. The NAME is the

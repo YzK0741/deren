@@ -69,11 +69,14 @@ import deren.promise.rhi;
 #include "../promise/rhi/backend_entry.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <expected> // std::expected: the contract's `image::get_content()` (abi 25) answers one
 #include <future>
+#include <memory>
+#include <mutex>
 #include <source_location>
 #include <span>
 #include <string_view>
@@ -343,6 +346,8 @@ namespace {
         rhi::command_buffer_flags usage_echo = rhi::no_command_buffer_flags;
         std::uint32_t executions = 0;
         bool released = false;
+        bool recording = false;
+        bool rendering_active = false;
 
         void release() noexcept override;
         [[nodiscard]] rhi::error begin_recording(rhi::command_buffer_begin_info const& info) override;
@@ -410,6 +415,7 @@ namespace {
         // visible" shape the members below follow); nothing is faked and nothing is dropped, because
         // a silent verb is exactly what the answering rule exists to refuse.
         [[nodiscard]] rhi::error begin_rendering(rhi::rendering_info const& info) noexcept override {
+            this->rendering_active = true;
             this->begun_renderings += 1;
             this->last_layer_count = info.layer_count;
             this->last_secondary_contents = info.secondary_contents;
@@ -417,6 +423,7 @@ namespace {
         }
 
         void end_rendering() noexcept override {
+            this->rendering_active = false;
             this->ended_renderings += 1;
         }
 
@@ -618,12 +625,61 @@ namespace {
     /// The probe's api_core. `final` so that a missing override is a compile error
     /// rather than an inherited pure virtual in an abstract class nobody notices.
     // CPU recording resources for the portability path. No driver or graphics library is used.
+    struct cpu_resource_registry {
+        mutable std::mutex mutex;
+        deren::utility::vessel::vector<rhi::buffer const*> buffers;
+        deren::utility::vessel::vector<rhi::image const*> images;
+        deren::utility::vessel::vector<rhi::image const*> frame_images;
+    };
+    namespace rhi_sync = rhi::synchronization;
+    constexpr std::uint32_t usage_bit(rhi_sync::usage value) noexcept {
+        return static_cast<std::uint32_t>(value);
+    }
     struct cpu_buffer final : rhi::buffer {
+        std::shared_ptr<cpu_resource_registry> registry;
+        std::uint32_t usage_mask = 0;
         std::uint64_t bytes = 0;
         deren::utility::vessel::vector<std::byte> content;
-        explicit cpu_buffer(rhi::buffer_desc const& desc)
+        explicit cpu_buffer(rhi::buffer_desc const& desc, std::shared_ptr<cpu_resource_registry> resources)
             : rhi::buffer("deren_buffer_cpu_probe")
+            , registry(std::move(resources))
             , bytes(desc.size) {
+            switch (desc.usage) {
+            case rhi::buffer_usage::vertex:
+                usage_mask |= usage_bit(rhi_sync::usage::vertex_buffer) | usage_bit(rhi_sync::usage::transfer_destination);
+                break;
+            case rhi::buffer_usage::index:
+                usage_mask |= usage_bit(rhi_sync::usage::index_buffer) | usage_bit(rhi_sync::usage::transfer_destination);
+                break;
+            case rhi::buffer_usage::uniform_gpu_only:
+                usage_mask |= usage_bit(rhi_sync::usage::uniform_buffer) | usage_bit(rhi_sync::usage::transfer_destination);
+                break;
+            case rhi::buffer_usage::uniform_coherent:
+            case rhi::buffer_usage::uniform_cached:
+                usage_mask |= usage_bit(rhi_sync::usage::uniform_buffer);
+                break;
+            case rhi::buffer_usage::storage_coherent:
+            case rhi::buffer_usage::acceleration_structure_scratch:
+            case rhi::buffer_usage::storage_gpu_only:
+                usage_mask |= usage_bit(rhi_sync::usage::storage);
+                break;
+            case rhi::buffer_usage::readback_coherent:
+                usage_mask |= usage_bit(rhi_sync::usage::transfer_destination);
+                break;
+            case rhi::buffer_usage::staging_source:
+                usage_mask |= usage_bit(rhi_sync::usage::transfer_source);
+                break;
+            default:
+                break;
+            }
+            if (rhi::has_flag(desc.flags, rhi::buffer_flag::storage))
+                usage_mask |= usage_bit(rhi_sync::usage::storage);
+            if (rhi::has_flag(desc.flags, rhi::buffer_flag::indirect))
+                usage_mask |= usage_bit(rhi_sync::usage::indirect_buffer);
+            if (rhi::has_flag(desc.flags, rhi::buffer_flag::transfer_source))
+                usage_mask |= usage_bit(rhi_sync::usage::transfer_source);
+            if (rhi::has_flag(desc.flags, rhi::buffer_flag::transfer_destination))
+                usage_mask |= usage_bit(rhi_sync::usage::transfer_destination);
             bool const host = desc.usage == rhi::buffer_usage::uniform_coherent ||
                               desc.usage == rhi::buffer_usage::uniform_cached ||
                               desc.usage == rhi::buffer_usage::storage_coherent ||
@@ -632,8 +688,14 @@ namespace {
                 content.resize(static_cast<std::size_t>(desc.size));
                 std::copy(desc.initial_bytes.begin(), desc.initial_bytes.end(), content.begin());
             }
+            std::lock_guard lock(registry->mutex);
+            registry->buffers.push_back(this);
         }
         void release() noexcept override {
+            {
+                std::lock_guard lock(registry->mutex);
+                std::erase(registry->buffers, this);
+            }
             delete this;
         }
         std::uint64_t size() const noexcept override {
@@ -644,6 +706,7 @@ namespace {
         }
     };
     struct cpu_image_view final : rhi::image_view {
+        std::shared_ptr<rhi::image> parent;
         cpu_image_view() noexcept
             : rhi::image_view("deren_image_view_cpu_probe") {
         }
@@ -651,18 +714,96 @@ namespace {
             delete this;
         }
     };
+    // A snapshot is a different object from the mutable borrowed frame view. The core keeps only
+    // a weak cache, while every retained snapshot (and its views) keeps the core alive.
+    struct cpu_frame_snapshot final : rhi::image, std::enable_shared_from_this<cpu_frame_snapshot> {
+        std::shared_ptr<impl> owner;
+        std::shared_ptr<cpu_resource_registry> registry;
+        std::uint64_t serial;
+        rhi::image_extent shape;
+        rhi::image_format pixel_format;
+        cpu_frame_snapshot(std::shared_ptr<impl> core, std::shared_ptr<cpu_resource_registry> resources,
+                           std::uint64_t epoch, rhi::image_extent extent, rhi::image_format format)
+            : rhi::image("deren_frame_snapshot_cpu_probe")
+            , owner(std::move(core))
+            , registry(std::move(resources))
+            , serial(epoch)
+            , shape(extent)
+            , pixel_format(format) {
+            std::lock_guard lock(registry->mutex);
+            registry->frame_images.push_back(this);
+        }
+        ~cpu_frame_snapshot() noexcept override {
+            std::lock_guard lock(registry->mutex);
+            std::erase(registry->frame_images, this);
+        }
+        void release() noexcept override {
+        } // Ownership is the returned shared_ptr's control block.
+        rhi::image_extent extent() const noexcept override {
+            return shape;
+        }
+        rhi::image_format format() const noexcept override {
+            return pixel_format;
+        }
+        std::expected<rhi::image_content, rhi::error> get_content(rhi::image_copy_region const&) const override {
+            return std::unexpected(rhi::error::unsupported);
+        }
+        bool current() const noexcept;
+        rhi::image_view* make_view(rhi::image_view_desc const& desc) override {
+            if (!current() || desc.base_layer != 0 || desc.base_mip != 0 || desc.layer_count > 1 || desc.mip_count > 1)
+                return nullptr;
+            auto view = std::make_unique<cpu_image_view>();
+            view->parent = shared_from_this();
+            return view.release();
+        }
+    };
+    struct cpu_frame_resources final : rhi::frame_resources {
+        impl* owner = nullptr;
+        std::weak_ptr<cpu_frame_snapshot> cached;
+        cpu_frame_resources() noexcept
+            : rhi::frame_resources("deren_frame_resources_cpu_probe") {
+        }
+        std::shared_ptr<rhi::image> retain_image() noexcept override;
+    };
+    std::atomic<std::uint64_t> live_cpu_images{0};
     struct cpu_image final : rhi::image {
+        std::shared_ptr<cpu_resource_registry> registry;
+        std::uint32_t usage_mask = 0;
+        std::uint64_t canonical_object = 0; // Test-only allocation alias; zero uses this wrapper's identity.
         rhi::image_extent shape;
         rhi::image_format pixel_format;
         std::uint32_t layers, mips;
-        explicit cpu_image(rhi::image_desc const& desc)
+        explicit cpu_image(rhi::image_desc const& desc, std::shared_ptr<cpu_resource_registry> resources)
             : rhi::image("deren_image_cpu_probe")
+            , registry(std::move(resources))
             , shape(desc.extent)
             , pixel_format(desc.format)
             , layers(desc.array_layers)
             , mips(desc.mip_levels != 0 ? desc.mip_levels : std::bit_width(std::max(desc.extent.width, desc.extent.height))) {
+            if (rhi::has_flag(desc.flags, rhi::image_flag::sampled))
+                usage_mask |= usage_bit(rhi_sync::usage::sampled);
+            if (rhi::has_flag(desc.flags, rhi::image_flag::storage))
+                usage_mask |= usage_bit(rhi_sync::usage::storage);
+            if (rhi::has_flag(desc.flags, rhi::image_flag::color_attachment))
+                usage_mask |= usage_bit(rhi_sync::usage::color_attachment);
+            if (rhi::has_flag(desc.flags, rhi::image_flag::depth_attachment))
+                usage_mask |= usage_bit(rhi_sync::usage::depth_stencil_attachment) | usage_bit(rhi_sync::usage::depth_stencil_read);
+            if (rhi::has_flag(desc.flags, rhi::image_flag::sampled) && pixel_format == rhi::image_format::depth)
+                usage_mask |= usage_bit(rhi_sync::usage::depth_stencil_read);
+            if (rhi::has_flag(desc.flags, rhi::image_flag::transfer_source))
+                usage_mask |= usage_bit(rhi_sync::usage::transfer_source);
+            if (rhi::has_flag(desc.flags, rhi::image_flag::transfer_destination))
+                usage_mask |= usage_bit(rhi_sync::usage::transfer_destination);
+            std::lock_guard lock(registry->mutex);
+            registry->images.push_back(this);
+            ++live_cpu_images;
         }
         void release() noexcept override {
+            {
+                std::lock_guard lock(registry->mutex);
+                std::erase(registry->images, this);
+            }
+            --live_cpu_images;
             delete this;
         }
         rhi::image_extent extent() const noexcept override {
@@ -691,11 +832,12 @@ namespace {
         }
     };
     struct cpu_capabilities final : rhi::device_capabilities {
+        bool graphics_enabled = false;
         cpu_capabilities() noexcept
             : rhi::device_capabilities("deren_device_capabilities_cpu_probe") {
         }
         bool mesh_shader() const noexcept override {
-            return false;
+            return graphics_enabled;
         }
         bool ray_query() const noexcept override {
             return false;
@@ -786,7 +928,126 @@ namespace {
             return completion;
         }
     };
-    struct impl final : rhi::api_core {
+    struct cpu_scoped_synchronization final : rhi::scoped_synchronization {
+        impl* owner = nullptr;
+        std::shared_ptr<cpu_resource_registry> registry;
+        bool enabled = true;
+        uint32_t stage_mask = 255;
+        mutable std::int32_t validations_until_failure = -1;
+        mutable std::uint64_t records = 0;
+        mutable std::uint64_t undefined_transitions = 0;
+        cpu_scoped_synchronization() noexcept
+            : rhi::scoped_synchronization("deren_scoped_sync_cpu_probe") {
+        }
+        rhi_sync::stage supported_stages() const noexcept override {
+            return static_cast<rhi_sync::stage>(stage_mask);
+        }
+        rhi::error describe(rhi::image const& resource, rhi::scoped_image_info& info) const noexcept override {
+            std::lock_guard lock(registry->mutex);
+            if (std::find(registry->frame_images.begin(), registry->frame_images.end(), &resource) != registry->frame_images.end()) {
+                auto const& image = static_cast<cpu_frame_snapshot const&>(resource);
+                if (!image.current())
+                    return rhi::error::invalid_argument;
+                info = {1, 1, rhi_sync::aspect::color,
+                        usage_bit(rhi_sync::usage::color_attachment) | usage_bit(rhi_sync::usage::present) |
+                            usage_bit(rhi_sync::usage::sampled) | usage_bit(rhi_sync::usage::transfer_source),
+                        reinterpret_cast<std::uintptr_t>(&resource)};
+                return rhi::error::ok;
+            }
+            if (std::find(registry->images.begin(), registry->images.end(), &resource) == registry->images.end())
+                return rhi::error::invalid_argument;
+            auto const& image = static_cast<cpu_image const&>(resource);
+            info = {image.mips, image.layers, image.pixel_format == rhi::image_format::depth ? rhi_sync::aspect::depth : rhi_sync::aspect::color, image.usage_mask, image.canonical_object != 0 ? image.canonical_object : reinterpret_cast<std::uintptr_t>(&resource)};
+            return rhi::error::ok;
+        }
+        rhi::error describe(rhi::buffer const& resource, rhi::scoped_buffer_info& info) const noexcept override {
+            std::lock_guard lock(registry->mutex);
+            if (std::find(registry->buffers.begin(), registry->buffers.end(), &resource) == registry->buffers.end())
+                return rhi::error::invalid_argument;
+            auto const& buffer = static_cast<cpu_buffer const&>(resource);
+            info = {buffer.bytes, buffer.usage_mask, reinterpret_cast<std::uintptr_t>(&resource)};
+            return rhi::error::ok;
+        }
+        bool valid_scope(rhi_sync::scope scope) const noexcept {
+            auto stages = static_cast<std::uint32_t>(scope.stages), accesses = static_cast<std::uint32_t>(scope.accesses);
+            return (stages & ~stage_mask) == 0 && (accesses & ~3u) == 0 && (accesses == 0 || stages != 0);
+        }
+        bool valid_state(rhi_sync::image_state state, rhi::scoped_image_info const& info, bool destination) const noexcept {
+            if (!valid_scope(state.scope))
+                return false;
+            std::uint32_t required = 0;
+            switch (state.layout) {
+            case rhi_sync::image_layout::undefined:
+                return !destination && state.scope.stages == rhi_sync::stage::none && state.scope.accesses == rhi_sync::access::none;
+            case rhi_sync::image_layout::general:
+                break;
+            case rhi_sync::image_layout::shader_read_only:
+                if (destination && (static_cast<std::uint32_t>(state.scope.accesses) & 2u) != 0)
+                    return false;
+                required = usage_bit(rhi_sync::usage::sampled);
+                break;
+            case rhi_sync::image_layout::color_attachment:
+                if (info.aspects != rhi_sync::aspect::color)
+                    return false;
+                required = usage_bit(rhi_sync::usage::color_attachment);
+                break;
+            case rhi_sync::image_layout::depth_stencil_attachment:
+                if (info.aspects == rhi_sync::aspect::color)
+                    return false;
+                required = usage_bit(rhi_sync::usage::depth_stencil_attachment);
+                break;
+            case rhi_sync::image_layout::depth_stencil_read_only:
+                if (info.aspects == rhi_sync::aspect::color || (destination && (static_cast<std::uint32_t>(state.scope.accesses) & 2u) != 0))
+                    return false;
+                required = usage_bit(rhi_sync::usage::depth_stencil_read);
+                break;
+            case rhi_sync::image_layout::transfer_source:
+                required = usage_bit(rhi_sync::usage::transfer_source);
+                break;
+            case rhi_sync::image_layout::transfer_destination:
+                required = usage_bit(rhi_sync::usage::transfer_destination);
+                break;
+            case rhi_sync::image_layout::present:
+                if (state.scope.stages != rhi_sync::stage::none || state.scope.accesses != rhi_sync::access::none)
+                    return false;
+                required = usage_bit(rhi_sync::usage::present);
+                break;
+            default:
+                return false;
+            }
+            return required == 0 || (info.usage_mask & required) == required;
+        }
+        rhi::error validate(std::span<rhi::scoped_image_barrier const> images, std::span<rhi::scoped_buffer_barrier const> buffers) const noexcept override {
+            if (!enabled)
+                return rhi::error::unsupported;
+            if (validations_until_failure == 0) {
+                validations_until_failure = -1;
+                return rhi::error::operation_failed;
+            }
+            if (validations_until_failure > 0)
+                --validations_until_failure;
+            for (auto const& barrier : images) {
+                rhi::scoped_image_info info{};
+                if (!barrier.resource || describe(*barrier.resource, info) != rhi::error::ok)
+                    return rhi::error::invalid_argument;
+                auto const& range = barrier.transition.range;
+                auto aspects = static_cast<std::uint32_t>(range.aspects);
+                if (range.mip_count == 0 || range.layer_count == 0 || range.base_mip >= info.mip_levels || range.mip_count > info.mip_levels - range.base_mip || range.base_layer >= info.array_layers || range.layer_count > info.array_layers - range.base_layer || aspects == 0 || (aspects & ~static_cast<std::uint32_t>(info.aspects)) != 0 || !valid_state(barrier.transition.before, info, false) || !valid_state(barrier.transition.after, info, true))
+                    return rhi::error::invalid_argument;
+            }
+            for (auto const& barrier : buffers) {
+                rhi::scoped_buffer_info info{};
+                if (!barrier.resource || describe(*barrier.resource, info) != rhi::error::ok)
+                    return rhi::error::invalid_argument;
+                auto const& transition = barrier.transition;
+                if (transition.size == 0 || transition.offset >= info.byte_size || transition.size > info.byte_size - transition.offset || !valid_scope(transition.before) || !valid_scope(transition.after))
+                    return rhi::error::invalid_argument;
+            }
+            return rhi::error::ok;
+        }
+        rhi::error record(rhi::command_buffer&, std::span<rhi::scoped_image_barrier const>, std::span<rhi::scoped_buffer_barrier const>) const noexcept override;
+    };
+    struct impl final : rhi::api_core, std::enable_shared_from_this<impl> {
         /// THE CONTRACT'S THIRD HANDSHAKE (abi 19), with a knob: the engine checks this against its
         /// own `rhi::abi_version`, and the injection test needs BOTH answers - the agreeing one and
         /// a deliberately stale one - to prove the check is the thing that fires. `make_core` below
@@ -797,7 +1058,7 @@ namespace {
 
         [[nodiscard]] rhi::ability_bits abilities() const noexcept override {
             if (portable_mode)
-                return (async_present.completion.valid() ? rhi::to_bits(rhi::extension_kind::async_presentation) : 0u) | rhi::to_bits(rhi::extension_kind::device_address) | rhi::to_bits(rhi::extension_kind::device_capabilities) | rhi::to_bits(rhi::extension_kind::descriptor_heap);
+                return rhi::to_bits(rhi::extension_kind::frame_resources) | (async_present.completion.valid() ? rhi::to_bits(rhi::extension_kind::async_presentation) : 0u) | (scoped_sync.enabled ? rhi::to_bits(rhi::extension_kind::scoped_synchronization) : 0u) | rhi::to_bits(rhi::extension_kind::device_address) | rhi::to_bits(rhi::extension_kind::device_capabilities) | rhi::to_bits(rhi::extension_kind::descriptor_heap);
             // TWO ABILITIES SINCE abi 19: the escape joined device_address, because the ENGINE's runtime
             // asks it for the presentation format before any frame exists (`escape()` dereferences what
             // `query_extension<vulkan_escape>()` answers, so an injected root has to serve it - see
@@ -808,6 +1069,10 @@ namespace {
 
         [[nodiscard]] rhi::extension* query_extension(rhi::extension_kind kind) noexcept override {
             switch (kind) {
+            case rhi::extension_kind::frame_resources:
+                return portable_mode ? &frame_resources : nullptr;
+            case rhi::extension_kind::scoped_synchronization:
+                return portable_mode && scoped_sync.enabled ? &scoped_sync : nullptr;
             case rhi::extension_kind::async_presentation:
                 return portable_mode && async_present.completion.valid() ? &async_present : nullptr;
             case rhi::extension_kind::device_address:
@@ -835,7 +1100,7 @@ namespace {
             if (portable_mode) {
                 if (desc.initial_bytes.size() > desc.size)
                     return nullptr;
-                auto* result = new cpu_buffer(desc);
+                auto* result = new cpu_buffer(desc, resource_registry);
                 if (desc.initial_bytes.empty())
                     std::fill(result->content.begin(), result->content.end(), std::byte{buffer_allocation_fill});
                 return result;
@@ -847,7 +1112,7 @@ namespace {
         [[nodiscard]] rhi::image* create_image(rhi::image_desc const& desc) override {
             if (!accept_resource_creation())
                 return nullptr;
-            return portable_mode && desc.extent.width != 0 && desc.extent.height != 0 && desc.array_layers != 0 && desc.format != rhi::image_format::unknown ? new cpu_image(desc) : nullptr;
+            return portable_mode && desc.extent.width != 0 && desc.extent.height != 0 && desc.array_layers != 0 && desc.format != rhi::image_format::unknown ? new cpu_image(desc, resource_registry) : nullptr;
         }
 
         /// TIER-1 SINCE ABI 26 AND NULL HERE, which is this fake's whole stance: it has no device, so an
@@ -879,7 +1144,15 @@ namespace {
         }
 
         [[nodiscard]] rhi::pipeline* create_pipeline(rhi::pipeline_desc const&) override {
-            return nullptr;
+            struct stub_pipeline final : rhi::pipeline {
+                stub_pipeline()
+                    : rhi::pipeline("CPU graphics probe") {
+                }
+                void release() noexcept override {
+                    delete this;
+                }
+            };
+            return cpu_caps.graphics_enabled ? new stub_pipeline : nullptr;
         }
 
         [[nodiscard]] rhi::query* create_query(rhi::query_desc const&) override {
@@ -895,6 +1168,7 @@ namespace {
         }
 
         [[nodiscard]] rhi::submit_info frame_begin() override {
+            ++frame_serial;
             rhi::submit_info info{};
             // THE RING IS THE ONE CURSOR (see probe_frame_walker): `frame_begin()` reports the same
             // slot the frame walker's `position()` names.
@@ -906,6 +1180,7 @@ namespace {
             // ... AND THE FRAME IS OPEN: this is the window `begin_commands()` and the recording verbs
             // answer in, the same window the real backend's acquire opens (see begin_commands()).
             this->frame_open = true;
+            this->commands.rendering_active = false;
             this->frame_acquired = true;
             return info;
         }
@@ -990,10 +1265,16 @@ namespace {
             this->command_buffer.usage_echo = rhi::no_command_buffer_flags;
             this->command_buffer.executions = 0;
             this->command_buffer.released = false;
+            this->command_buffer.recording = false;
+            this->command_buffer.rendering_active = false;
             return &this->command_buffer;
         }
 
         bool portable_mode = false;
+        std::shared_ptr<cpu_resource_registry> resource_registry = std::make_shared<cpu_resource_registry>();
+        cpu_scoped_synchronization scoped_sync;
+        cpu_frame_resources frame_resources;
+        std::uint64_t frame_serial = 0;
         std::uint8_t buffer_allocation_fill = 0;
         std::int32_t resource_creations_until_failure = -1;
         bool accept_resource_creation() {
@@ -1046,6 +1327,9 @@ namespace {
             // THE OWNER IS SET IN THE CONSTRUCTOR - the same lesson the real backend's constructor
             // states: a view handed out with a null owner dereferences null on its first call.
             this->commands.owner = this;
+            this->scoped_sync.owner = this;
+            this->frame_resources.owner = this;
+            this->scoped_sync.registry = this->resource_registry;
             this->walker.owner = this;
             this->swapchain_view.owner = this;
             this->command_buffer.owner = this;
@@ -1055,7 +1339,50 @@ namespace {
         }
     };
 
+    bool cpu_frame_snapshot::current() const noexcept {
+        return owner->frame_open && owner->frame_serial == serial;
+    }
+    std::shared_ptr<rhi::image> cpu_frame_resources::retain_image() noexcept {
+        if (!owner->frame_open)
+            return {};
+        if (auto image = cached.lock(); image && image->current())
+            return image;
+        auto keep = owner->weak_from_this().lock();
+        if (!keep)
+            return {};
+        auto image = std::allocate_shared<cpu_frame_snapshot>(deren::utility::memory::allocator<cpu_frame_snapshot>{},
+                                                              std::move(keep), owner->resource_registry, owner->frame_serial,
+                                                              owner->borrowed_frame_image.extent(), owner->borrowed_frame_image.format());
+        cached = image;
+        return image;
+    }
+
     // The frame walker's bodies, where `impl` is complete (they answer through its cursor).
+    rhi::error cpu_scoped_synchronization::record(rhi::command_buffer& commands, std::span<rhi::scoped_image_barrier const> images, std::span<rhi::scoped_buffer_barrier const> buffers) const noexcept {
+        probe_command_buffer const* owned = nullptr;
+        if (&commands == static_cast<rhi::command_buffer*>(&owner->commands))
+            owned = &owner->commands;
+        else if (&commands == static_cast<rhi::command_buffer*>(&owner->command_buffer))
+            owned = &owner->command_buffer;
+        else
+            return rhi::error::invalid_argument;
+        if (owned->released || owned->rendering_active || (owned->frame_scoped ? !owner->frame_open : !owned->recording))
+            return rhi::error::not_ready;
+        if (!owned->frame_scoped) {
+            std::lock_guard lock(registry->mutex);
+            for (auto const& barrier : images)
+                if (std::find(registry->frame_images.begin(), registry->frame_images.end(), barrier.resource) != registry->frame_images.end())
+                    return rhi::error::invalid_argument;
+        }
+        auto result = validate(images, buffers);
+        if (result != rhi::error::ok)
+            return result;
+        ++records;
+        for (auto const& barrier : images)
+            if (barrier.transition.before.layout == rhi_sync::image_layout::undefined)
+                ++undefined_transitions;
+        return rhi::error::ok;
+    }
     std::uint32_t probe_frame_walker::slot_count() const noexcept {
         return 2u;
     }
@@ -1065,11 +1392,13 @@ namespace {
     }
 
     rhi::frame_open_info probe_frame_walker::wait_and_acquire() {
+        ++this->owner->frame_serial;
         // THE BY-VALUE POD, part two: `frame_open_info` crosses the boundary like `submit_info` does
         // - decision and frame together - and the slot it reports is the cursor's.
         // Opening a frame here IS opening the recording window: `begin_commands()` and abi 14's
         // timing verbs answer in it, exactly as they do after the real backend's acquire.
         this->owner->frame_open = true;
+        this->owner->commands.rendering_active = false;
         this->owner->frame_acquired = true;
         return {.frame = {.frame_index = this->owner->current_slot, .image_index = this->owner->portable_mode ? 0u : this->owner->creation_window_width}, .result = {}};
     }
@@ -1102,6 +1431,8 @@ namespace {
         // OBSERVED, and it is - every later verb answers `not_ready` (the same shape probe_buffer's
         // release gives through size() == 0).
         this->released = true;
+        this->recording = false;
+        this->rendering_active = false;
     }
 
     rhi::error probe_command_buffer::begin_recording(rhi::command_buffer_begin_info const& info) {
@@ -1111,10 +1442,13 @@ namespace {
         // THE USAGE CROSSES AND IS ECHOED: the four-flag set the caller composed is what the probe
         // remembers, so the test can tell "the call arrived with these bits" from "a default was used".
         this->usage_echo = info.usage;
+        this->recording = true;
+        this->rendering_active = false;
         return rhi::error::ok;
     }
 
     rhi::error probe_command_buffer::end_recording() noexcept {
+        this->recording = false;
         return this->released ? rhi::error::not_ready : rhi::error::ok;
     }
 
@@ -1185,6 +1519,42 @@ deren_make_api_core(std::uint32_t abi_version, deren::promise::rhi::create_info 
 // object. Declared in source/tests/probe_backend.hpp so the test links the same TU the C entry lives in
 // instead of re-compiling the probe (two copies of it would drift).
 namespace deren::vk_test {
+    std::uint64_t probe_scoped_record_count(deren::promise::rhi::api_core const& core) noexcept {
+        return static_cast<impl const&>(core).scoped_sync.records;
+    }
+    std::uint64_t probe_scoped_undefined_count(deren::promise::rhi::api_core const& core) noexcept {
+        return static_cast<impl const&>(core).scoped_sync.undefined_transitions;
+    }
+    void probe_scoped_enabled(deren::promise::rhi::api_core& core, bool enabled) noexcept {
+        static_cast<impl&>(core).scoped_sync.enabled = enabled;
+    }
+    void probe_graphics_enabled(deren::promise::rhi::api_core& core, bool enabled) noexcept {
+        static_cast<impl&>(core).cpu_caps.graphics_enabled = enabled;
+        static_cast<impl&>(core).scoped_sync.stage_mask = enabled ? 255U | 512U : 255U;
+    }
+    std::uint64_t probe_rendering_count(deren::promise::rhi::api_core const& core) noexcept {
+        return static_cast<impl const&>(core).commands.begun_renderings;
+    }
+    void probe_scoped_validation_failure(deren::promise::rhi::api_core& core, std::int32_t successful_validations) noexcept {
+        static_cast<impl&>(core).scoped_sync.validations_until_failure = successful_validations;
+    }
+    void probe_scoped_alias_image(deren::promise::rhi::api_core& core, deren::promise::rhi::image const& alias, deren::promise::rhi::image const& canonical) noexcept {
+        auto const& registry = static_cast<impl&>(core).resource_registry;
+        std::lock_guard lock(registry->mutex);
+        // A foreign object must never be cast to the CPU probe's concrete image type.
+        if (std::find(registry->images.begin(), registry->images.end(), &alias) == registry->images.end() ||
+            std::find(registry->images.begin(), registry->images.end(), &canonical) == registry->images.end())
+            return;
+        auto const& source = static_cast<cpu_image const&>(canonical);
+        auto& target = const_cast<cpu_image&>(static_cast<cpu_image const&>(alias));
+        target.canonical_object = source.canonical_object != 0 ? source.canonical_object : reinterpret_cast<std::uintptr_t>(&canonical);
+    }
+    std::uint64_t probe_live_image_count() noexcept {
+        return live_cpu_images.load();
+    }
+    std::uint64_t probe_idle_wait_count(deren::promise::rhi::api_core const& core) noexcept {
+        return static_cast<impl const&>(core).waits;
+    }
     deren::promise::rhi::image const* probe_heap_image(deren::promise::rhi::api_core& core, std::uint64_t offset) {
         auto const& images = static_cast<impl&>(core).heap.written_images;
         for (auto i = images.rbegin(); i != images.rend(); ++i)

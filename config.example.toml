@@ -41,6 +41,14 @@ screenshot_dir = ""
 
 # ---- [render] window / presentation ----
 [render]
+# Opt-in Bloom render graph; legacy remains the default.
+bloom_render_graph = false
+# Complete post chain, including frame output and presentation handoff. Overrides Bloom-only selection.
+post_render_graph = false
+# Scene attachments + deferred lighting + post in one graph; implies post_render_graph.
+# Use taa = false to exercise this first slice.
+# TAA/debug/RT/MegaLights/Gaussian/transparent/character tails retain the existing path.
+main_render_graph = false
 async_present = false # overlap window presentation with preparation; currently experimental
 offscreen = false     # startup only: no window or surface; scripted captures select this automatically
 # Initial window size in pixels; the window is resizable, resizing rebuilds the

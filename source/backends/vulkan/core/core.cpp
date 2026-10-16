@@ -203,6 +203,7 @@ namespace deren::vulkan {
     }
 
     void core::to_next_frame() noexcept {
+        frame_in_flight = false;
         current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 
@@ -415,6 +416,8 @@ namespace deren::vulkan {
             return false; // NOTHING was rebuilt: the caller must not invalidate the generation's state
         }
         this->zero_extent_recreation_logged = false;
+        this->frame_in_flight = this->frame_acquired = false;
+        ++this->frame_acquire_epoch;
 
         // 1. Wait for the device to be idle
         this->wait_idle();

@@ -219,6 +219,14 @@ namespace deren::engine::pass {
                                                 .range = {}}) != rhi::error::ok) {
             return; // a refused barrier would leave the target in a state nobody declared
         }
+        static_cast<void>(record_content(io));
+    }
+
+    rhi::error post_composite_pass::record_content(resolved_io const& io) noexcept {
+        if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || !io.pipelines[0] ||
+            !io.cmd || !io.list || io.cmd.get() != io.list || !io.targets[0].image_handle || !io.targets[0].view_handle ||
+            io.extent.width == 0 || io.extent.height == 0 || io.push.size() < sizeof(post_push_constants))
+            return rhi::error::invalid_argument;
         // The push block the host filled, with the pass's own stage lane written last: `mode = 2` is what makes
         // post.frag composite instead of prefiltering or downsampling.
         post_push_constants push = {};
@@ -238,11 +246,14 @@ namespace deren::engine::pass {
             .has_depth = false,
             .secondary_contents = false, // the overlay records straight into the primary; no secondary contents
         };
-        if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
-            return;
-        }
+        auto const begun = io.list->begin_rendering(rendering_info);
+        if (begun != rhi::error::ok)
+            return begun;
         io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
-        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
+        if (!io.push_block(*io.cmd, pass::push_bytes(push))) {
+            io.list->end_rendering();
+            return rhi::error::operation_failed;
+        }
         io.list->draw(3, 1, 0, 0);
         // INSIDE the instance, between the draw and its end: the debug overlay composites a UI over the image
         // this draw just wrote and has no load op of its own, so it can be neither a pass nor outside the
@@ -253,6 +264,7 @@ namespace deren::engine::pass {
             this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, *io.cmd);
         }
         io.list->end_rendering();
+        return rhi::error::ok;
     }
 
     // =============================================================================================
@@ -337,6 +349,22 @@ namespace deren::engine::pass {
                                                 .range = {}}) != rhi::error::ok) {
             return;
         }
+        if (record_content(io) != rhi::error::ok)
+            return;
+        // The graph path supplies this handoff through its boundary reader instead.
+        if (this->bloom_level + 1u == render_resource::post_bloom_io.size()) {
+            static_cast<void>(io.list->barrier(rhi::image_barrier{.resource = io.targets[0].image_handle,
+                                                                  .from = rhi::image_use::color_attachment,
+                                                                  .to = rhi::image_use::shader_read,
+                                                                  .range = {}}));
+        }
+    }
+
+    rhi::error post_bloom_pass::record_content(resolved_io const& io) noexcept {
+        if (io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
+            io.extent.width == 0 || io.extent.height == 0 || io.list == nullptr || !io.cmd ||
+            io.cmd.get() != io.list || io.targets[0].image_handle == nullptr || io.targets[0].view_handle == nullptr)
+            return rhi::error::invalid_argument;
         // The push block is composed HERE (S3): the frame's three settings (exposure, the bloom weight and the
         // bright-pass threshold - all of them lanes more than one pass pushes, which is why they are frame
         // settings), the struct's defaults for every lane this stage does not read - which is what the renderer
@@ -361,25 +389,20 @@ namespace deren::engine::pass {
             .has_depth = false,
             .secondary_contents = false,
         };
-        if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
-            return;
-        }
+        auto const begun = io.list->begin_rendering(rendering_info);
+        if (begun != rhi::error::ok)
+            return begun;
         io.list->set_cull_mode(rhi::cull_mode::none);
         // THIS LEVEL'S SOURCE: the third lane says which one, and the HOST turns it into a heap slot (see
         // runtime::push_stage_block). Level 0 (the prefilter) and the composite read the HDR target, which is the
         // lane's 0; a downsample at level N reads the level above it, which is N.
-        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push), this->bloom_level);
+        if (!io.push_block(*io.cmd, pass::push_bytes(push), this->bloom_level)) {
+            io.list->end_rendering();
+            return rhi::error::operation_failed;
+        }
         io.list->draw(3, 1, 0, 0);
         io.list->end_rendering();
-        // THE HAND-BACK, and it is the deepest level's because it has no successor to do it for it: the composite
-        // samples ALL FOUR levels, so the last one has to be left in a sampled layout. The levels before it are
-        // moved by the next level's input transition above - which is why this is one barrier and not four.
-        if (this->bloom_level + 1u == render_resource::post_bloom_io.size()) {
-            static_cast<void>(io.list->barrier(rhi::image_barrier{.resource = io.targets[0].image_handle,
-                                                                  .from = rhi::image_use::color_attachment,
-                                                                  .to = rhi::image_use::shader_read,
-                                                                  .range = {}}));
-        }
+        return rhi::error::ok;
     }
 
 } // namespace deren::engine::pass

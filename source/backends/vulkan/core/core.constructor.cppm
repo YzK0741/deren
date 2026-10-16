@@ -289,6 +289,8 @@ namespace deren::vulkan {
         // changed is who owns the RAII objects, which is what lets `begin_commands()` hand out the
         // frame's list.
         this->commands_view.owner = this;
+        this->scoped_sync.owner = this;
+        this->frame_resources.owner = this;
         this->frame_image_view.owner = this;
         this->readback_slot_view.owner = this;
         // THE FRAME FACE'S VIEWS (abi 13) - `owner` SET HERE, in the constructor, on purpose: a view
@@ -662,6 +664,7 @@ namespace deren::vulkan {
         //      export (`vkCmdDrawMeshTasksEXT` is an undefined symbol if called directly), which is why it is
         //      resolved here through vkGetDeviceProcAddr. Null means the extension is absent.
         this->mesh_shader_available = capabilities.mesh_shader_available;
+        this->task_shader_available = capabilities.mesh_shader_available && capabilities.mesh_shader_features.taskShader == VK_TRUE;
         if (this->mesh_shader_available) {
             this->mesh_dispatch = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksEXT"));
             // the indirect twin comes from the same extension and is resolved the same way; it answers null
@@ -1121,6 +1124,7 @@ namespace deren::vulkan {
         vkGetPhysicalDeviceQueueFamilyProperties(this->physical_device, &family_count, families.data());
         if (this->graphics_queue_family_index < families.size()) {
             this->timestamp_valid_bits = families[this->graphics_queue_family_index].timestampValidBits;
+            this->synchronization_queue_flags = families[this->graphics_queue_family_index].queueFlags;
         }
         this->timestamp_period_ns = this->device_properties.limits.timestampPeriod;
 

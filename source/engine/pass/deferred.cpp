@@ -146,6 +146,14 @@ namespace deren::engine::pass {
                                                 .range = {}}) != rhi::error::ok) {
             return; // a refused barrier would leave the target in a state nobody declared
         }
+        static_cast<void>(record_content(io));
+    }
+
+    rhi::error deferred_pass::record_content(resolved_io const& io) noexcept {
+        if (!this->pass_pipeline || io.targets.empty() || io.pipelines.empty() || !io.pipelines[0] ||
+            !io.list || !io.cmd || io.cmd.get() != io.list || !io.targets[0].image_handle || !io.targets[0].view_handle ||
+            !io.extent.width || !io.extent.height)
+            return rhi::error::invalid_argument;
         // The three stored targets and the G-buffer depth became samples in this STAGE's preamble, in the
         // renderer - the frame's ordering rule about images the G-buffer pass wrote (see deferred_frame's note).
         // THE RENDERING SCOPE RIDES THE CONTRACT NOW (abi 20): one colour attachment, LOAD + STORE (what the raw
@@ -162,9 +170,9 @@ namespace deren::engine::pass {
             .has_depth = false,
             .secondary_contents = false, // no secondary command buffers: the lighting draw records straight into the primary
         };
-        if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
-            return;
-        }
+        auto begun = io.list->begin_rendering(rendering_info);
+        if (begun != rhi::error::ok)
+            return begun;
         // No set to bind: the stored targets and the G-buffer depth are heap slots, and the frame bound the heaps
         // on this command buffer (see begin_recording); the pass's push block carries the two indices.
         io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
@@ -177,9 +185,13 @@ namespace deren::engine::pass {
         push.ssao = glm::vec4(this->ssao_radius, this->ssao_active ? this->ssao_intensity : 0.0f, static_cast<float>(this->ssao_samples), this->ssao_bias);
         push.unlit = this->unlit_shading ? 1.0f : 0.0f;
         push.punctual_replaced = this->pass_frame.punctual_replaced ? 1.0f : 0.0f;
-        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
+        if (!io.push_block(*io.cmd, pass::push_bytes(push))) {
+            io.list->end_rendering();
+            return rhi::error::operation_failed;
+        }
         io.list->draw(3, 1, 0, 0);
         io.list->end_rendering();
+        return rhi::error::ok;
     }
 
 } // namespace deren::engine::pass

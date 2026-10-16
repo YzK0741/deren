@@ -194,6 +194,14 @@ namespace deren::engine::pass {
                                                 .range = {}}) != rhi::error::ok) {
             return;
         }
+        static_cast<void>(record_content(io));
+    }
+
+    rhi::error upscale_pass::record_content(resolved_io const& io) noexcept {
+        if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || !io.pipelines[0] ||
+            !io.cmd || !io.list || io.cmd.get() != io.list || !io.targets[0].image_handle || !io.targets[0].view_handle ||
+            io.extent.width == 0 || io.extent.height == 0)
+            return rhi::error::invalid_argument;
         // The push block is composed HERE (S3), and it is the pass's own. TWO GROUPS OF LANES:
         //
         //   * EASU's four constants, from the two extents the pass can see without being told the scale: the
@@ -228,13 +236,16 @@ namespace deren::engine::pass {
             .has_depth = false,
             .secondary_contents = false, // the overlay records into the primary; nothing here executes a secondary
         };
-        if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
-            return;
-        }
+        auto const begun = io.list->begin_rendering(rendering_info);
+        if (begun != rhi::error::ok)
+            return begun;
         io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
         // The source is a heap slot (see upscale.slang): the appended index lane names it, and the frame bound
         // the heaps for this command buffer, so there is no set to bind here.
-        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
+        if (!io.push_block(*io.cmd, pass::push_bytes(push))) {
+            io.list->end_rendering();
+            return rhi::error::operation_failed;
+        }
         io.list->draw(3, 1, 0, 0);
         // INSIDE the instance, between the draw and its end: this pass is the frame's LAST writer whenever it
         // runs, so the overlay belongs here and NOT in the composite's instance - the composite drew into the
@@ -244,6 +255,7 @@ namespace deren::engine::pass {
             this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, *io.cmd);
         }
         io.list->end_rendering();
+        return rhi::error::ok;
     }
 
 } // namespace deren::engine::pass

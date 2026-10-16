@@ -49,7 +49,7 @@
 //                          flags, and the result is recorded in the spike's own report.
 //   Q3 two mimalloc        likewise a property of the LINK, not of a call: measured with
 //                          `llvm-nm` over both images (both must contain `mi_malloc`/`mi_free`)
-//                          plus the owning-STL audit in source/scripts/check_backend_boundary.py.
+//                          plus the owning-STL audit in scripts/check_backend_boundary.py.
 //
 // THE SAFE DEFAULT: without `--with-device` this test never creates a window or a device, so
 // it runs anywhere and still answers Q4 (weak form), Q5, Q6 and the ABI handshake. With

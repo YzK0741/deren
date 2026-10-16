@@ -110,11 +110,19 @@ namespace deren::engine::pass {
     }
 
     void scene_pass::record(resolved_io const& io) {
+        (void)this->record_content(io);
+    }
+
+    rhi::error scene_pass::record_content(resolved_io const& io) noexcept {
         bool const has_draws = !this->pass_frame.leaves.empty();
-        if (io.targets.empty() || io.list == nullptr || this->pass_frame.extent.width == 0 || this->pass_frame.extent.height == 0 ||
-            (has_draws && (this->pass_frame.make_environment == nullptr || this->pass_frame.segments.empty()))) {
-            return; // the runner resolves all of this or skips the pass (see runtime::resolve_scene_pass)
+        if (io.targets.size() != this->io().targets.size() || io.list == nullptr || this->pass_frame.extent.width == 0 || this->pass_frame.extent.height == 0 ||
+            (has_draws && (this->pass_frame.make_environment == nullptr || this->pass_frame.segments.empty())) ||
+            (has_draws && this->pass_frame.leaves.size() >= min_leaves_for_parallel && this->pass_frame.segments.size() > 1 && !this->pass_frame.run_tasks)) {
+            return rhi::error::invalid_argument;
         }
+        for (auto const& target : io.targets)
+            if (!target.view_handle)
+                return rhi::error::invalid_argument;
 
         // THE INSTANCE, over the targets the declaration names: every colour target in declaration order, and
         // the one DEPTH target in the depth slot. The declarations and the resolved handles are index-aligned,
@@ -153,14 +161,14 @@ namespace deren::engine::pass {
             .has_depth = has_depth,
             .secondary_contents = has_draws,
         };
-        if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
-            return; // a refused scope would leave the targets in a state nobody declared
-        }
+        auto result = io.list->begin_rendering(rendering_info);
+        if (result != rhi::error::ok)
+            return result;
         if (!has_draws) {
             // The clear is frame initialization, even when culling removed every mesh. Lighting and splats
             // still consume these targets; retaining their previous contents accumulates ghosts on camera motion.
             io.list->end_rendering();
-            return;
+            return rhi::error::ok;
         }
 
         // THE SEGMENTS: the renderer's own rule, kept exactly - one segment when there is only one, or when
@@ -175,12 +183,15 @@ namespace deren::engine::pass {
                 // the raw spelling's failed vkEndCommandBuffer was the same hazard the begin flag guards.
                 if (single->end_recording() == rhi::error::ok) {
                     if (io.list->execute(*single) != rhi::error::ok) {
+                        result = rhi::error::operation_failed;
                         deren::utility::log("scene pass: executing the main secondary was refused - the frame records no scene content");
                     }
                 } else {
+                    result = rhi::error::operation_failed;
                     deren::utility::log("scene pass: main secondary end failed - scene skipped this frame");
                 }
             } else {
+                result = rhi::error::operation_failed;
                 deren::utility::log("scene pass: main secondary begin failed - scene skipped this frame");
             }
         } else {
@@ -215,10 +226,12 @@ namespace deren::engine::pass {
             this->pass_frame.run_tasks(this->pass_frame.owner, tasks);
             for (std::size_t s = 0; s < segment_count; ++s) {
                 if (!segment_recorded[s].load(std::memory_order_relaxed)) {
+                    result = rhi::error::operation_failed;
                     continue; // never execute a secondary whose begin failed
                 }
                 rhi::command_buffer* const segment = this->pass_frame.segments[s].buffer;
                 if (io.list->execute(*segment) != rhi::error::ok) {
+                    result = rhi::error::operation_failed;
                     deren::utility::log("scene pass: executing segment {} was refused - its content is missing this frame", s);
                 }
             }
@@ -227,6 +240,7 @@ namespace deren::engine::pass {
         // THE INSTANCE ENDS HERE, which is the whole point of the pass owning it: the lighting stage, the
         // transparent pass, the resolve and the lighting stage all run after this, each opening its own.
         io.list->end_rendering();
+        return result;
     }
 
 } // namespace deren::engine::pass

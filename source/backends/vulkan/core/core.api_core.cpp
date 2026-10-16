@@ -163,7 +163,7 @@ namespace deren::vulkan {
         // measurement says 21 (`transfer_source -> shader_read` was missing, i.e.
         // `transfer_src_to_sampling_transition`, which `source/engine/pass/megalights_temporal.cpp` uses). A green
         // assertion was certifying a WRONG NUMBER, which is worse than no assertion: it made the gap look
-        // covered. The numbers below are the histogram output of `source/scripts/recording_face_census.py`, quoted
+        // covered. The numbers below are the histogram output of `scripts/recording_face_census.py`, quoted
         // so a reader can re-run it:
         //
         //     measured pairs: 22   role values: 11   combinations: 121   unsupported: 99
@@ -177,7 +177,7 @@ namespace deren::vulkan {
         inline constexpr std::uint32_t image_use_value_count = 11;            // the enum's values, contiguous 0..10
         static_assert(image_use_pairs.size() == image_use_pair_count_from_census,
                       "the declaration table must be exactly the pairs the CENSUS measured "
-                      "(source/scripts/recording_face_census.py: 'measured pairs: 22'); a hand count is not evidence");
+                      "(scripts/recording_face_census.py: 'measured pairs: 22'); a hand count is not evidence");
         static_assert(image_use_pair_count_from_census + unsupported_pair_count_from_census ==
                           image_use_value_count * image_use_value_count,
                       "22 measured pairs + 99 unsupported must be exactly the 121 role combinations the census "
@@ -253,7 +253,7 @@ namespace deren::vulkan {
         //     * THE GATE MUST BE ABLE TO FAIL, and that is proven by MUTATION, not by reading the code.
         // ============================================================================================
 
-        /// THE PAIRS THE CENSUS MEASURED - transcribed from `source/scripts/recording_face_census.py`'s output
+        /// THE PAIRS THE CENSUS MEASURED - transcribed from `scripts/recording_face_census.py`'s output
         /// (the `measured pairs` line, printed as role pairs). This is the INDEPENDENT side of the set
         /// equality below: the table is checked against the measurement, never against itself.
         struct role_pair_expected {
@@ -362,7 +362,7 @@ namespace deren::vulkan {
         }
         static_assert(unsupported_combination_count() == unsupported_pair_count_from_census,
                       "the rules must leave exactly the census's 79 combinations unsupported "
-                      "(source/scripts/recording_face_census.py: 'unsupported by this measurement: 79')");
+                      "(scripts/recording_face_census.py: 'unsupported by this measurement: 79')");
 
         [[nodiscard]] consteval bool table_rows_are_unique() noexcept {
             for (std::size_t a = 0; a < image_use_pairs.size(); ++a) {
@@ -808,7 +808,7 @@ namespace deren::vulkan {
         // construction). Until this batch nobody served the ability and the bit was therefore not set -
         // and the engine's heap probes called the device entry point off `core` instead; that is the
         // consumer this bit was waiting for.
-        return (this->create_options.native_window != nullptr ? rhi::to_bits(rhi::extension_kind::async_presentation) : 0u) | (this->gpu_sorting_available ? rhi::to_bits(rhi::extension_kind::gpu_sorting) : 0u) | rhi::to_bits(rhi::extension_kind::vulkan_escape) | rhi::to_bits(rhi::extension_kind::device_address) |
+        return rhi::to_bits(rhi::extension_kind::frame_resources) | rhi::to_bits(rhi::extension_kind::scoped_synchronization) | (this->create_options.native_window != nullptr ? rhi::to_bits(rhi::extension_kind::async_presentation) : 0u) | (this->gpu_sorting_available ? rhi::to_bits(rhi::extension_kind::gpu_sorting) : 0u) | rhi::to_bits(rhi::extension_kind::vulkan_escape) | rhi::to_bits(rhi::extension_kind::device_address) |
                (this->heap_view.ready() ? rhi::to_bits(rhi::extension_kind::descriptor_heap) : 0u) |
                (this->host_image_copy_available ? rhi::to_bits(rhi::extension_kind::host_image_copy) : 0u) |
                // AND THE DEVICE'S OWN FACTS, SERVABLE THE MOMENT THE DEVICE EXISTS (a device with no mesh shader
@@ -1079,6 +1079,10 @@ namespace deren::vulkan {
     }
 
     rhi::extension* core::query_extension(rhi::extension_kind const kind) noexcept {
+        if (kind == rhi::extension_kind::frame_resources)
+            return &this->frame_resources;
+        if (kind == rhi::extension_kind::scoped_synchronization)
+            return &this->scoped_sync;
         if (kind == rhi::extension_kind::async_presentation)
             return this->create_options.native_window != nullptr ? &this->async_presentation_view : nullptr;
         // The invariant is two-way and is checked in two places: at startup on the REAL backend
@@ -1239,6 +1243,7 @@ namespace deren::vulkan {
         answer->size_bytes = desc.size;
         answer->addressable = rhi::has_flag(desc.flags, rhi::buffer_flag::device_address);
         answer->readback = desc.usage == rhi::buffer_usage::readback_coherent;
+        answer->declared_usage = desc.usage;
         answer->declared_flags = desc.flags;
         answer->owner = this;
 
@@ -1254,6 +1259,10 @@ namespace deren::vulkan {
         deren::utility::log("rhi: create_buffer {} B usage {} flags {:#x} -> extra {:#x}, native {:#x}, mapped {}",
                             desc.size, static_cast<std::uint32_t>(desc.usage), desc.flags, extra_usage,
                             reinterpret_cast<std::uintptr_t>(answer->native), answer->mapped_bytes != nullptr);
+        {
+            std::lock_guard const lock(this->contract_buffers_mutex);
+            this->contract_buffers.insert(answer);
+        }
         return answer;
     }
 
@@ -1272,6 +1281,10 @@ namespace deren::vulkan {
     }
 
     void core::owned_buffer::release() noexcept {
+        if (this->owner != nullptr) {
+            std::lock_guard const lock(this->owner->contract_buffers_mutex);
+            this->owner->contract_buffers.erase(this);
+        }
         // RELEASE IS THE ALLOCATOR'S REFERENCE-COUNT DECREMENT, and it happens inside the backend: the
         // destructor resets the `vk_buffer` owner, whose release lambda reaches `free_buffer` - which
         // destroys the buffer only if this was the last reference (rhi.api_core.cppm's ownership note;
@@ -2183,6 +2196,7 @@ namespace deren::vulkan {
             group_refs.clear();
             executable = false;
             bound_pipeline = nullptr;
+            rendering_active = (flags & VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT) != 0;
             recording = true;
             simultaneous_use = (flags & VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT) != 0;
             one_time_submit = (flags & VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT) != 0;
@@ -2260,6 +2274,7 @@ namespace deren::vulkan {
             group_refs.clear();
             executable = false;
             bound_pipeline = nullptr;
+            rendering_active = (flags & VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT) != 0;
             recording = true;
         }
         return result;
@@ -2994,7 +3009,7 @@ namespace deren::vulkan {
     rhi::error core::frame_commands::begin_rendering(rhi::rendering_info const& info) {
         core* const self = this->owner;
         VkCommandBuffer const command_buffer = this->native();
-        if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
+        if (self == nullptr || command_buffer == VK_NULL_HANDLE || !recording || rendering_active) {
             return rhi::error::not_ready;
         }
         if (info.struct_size < sizeof(rhi::rendering_info)) {
@@ -3072,13 +3087,15 @@ namespace deren::vulkan {
             .pStencilAttachment = nullptr,
         };
         vkCmdBeginRendering(command_buffer, &rendering);
+        rendering_active = true;
         return rhi::error::ok;
     }
 
     void core::frame_commands::end_rendering() noexcept {
         VkCommandBuffer const command_buffer = this->native();
-        if (command_buffer != VK_NULL_HANDLE) {
+        if (command_buffer != VK_NULL_HANDLE && recording && rendering_active) {
             vkCmdEndRendering(command_buffer);
+            rendering_active = false;
         }
     }
 
@@ -4465,6 +4482,7 @@ namespace deren::vulkan {
             image_index = static_cast<uint32_t>(current_frame);
             acquired_image_index = image_index;
             frame_in_flight = frame_acquired = true;
+            ++frame_acquire_epoch;
             async_present_queued = false;
             return VK_SUCCESS;
         }
@@ -4496,6 +4514,7 @@ namespace deren::vulkan {
             // and this is what makes `frame_image()` answer at all: before the first successful acquire
             // there is no last-acquired image, only a default index that happens to name one.
             this->frame_acquired = true;
+            ++this->frame_acquire_epoch;
         }
         return result;
     }

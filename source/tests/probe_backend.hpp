@@ -21,8 +21,8 @@
 #pragma once
 
 #include <cstdint>
-#include <memory>
 #include <future>
+#include <memory>
 #include <span>
 
 namespace deren::vk_test {
@@ -39,6 +39,18 @@ namespace deren::vk_test {
     // Fail one image/buffer creation after N successful creations (portable probe only).
     [[nodiscard]] deren::promise::rhi::image const* probe_heap_image(deren::promise::rhi::api_core& core, std::uint64_t offset);
     void probe_buffer_allocation_fill(deren::promise::rhi::api_core& core, std::uint8_t value);
+    [[nodiscard]] std::uint64_t probe_live_image_count() noexcept;
+    [[nodiscard]] std::uint64_t probe_idle_wait_count(deren::promise::rhi::api_core const& core) noexcept;
+    [[nodiscard]] std::uint64_t probe_scoped_record_count(deren::promise::rhi::api_core const& core) noexcept;
+    [[nodiscard]] std::uint64_t probe_scoped_undefined_count(deren::promise::rhi::api_core const& core) noexcept;
+    void probe_scoped_enabled(deren::promise::rhi::api_core& core, bool enabled) noexcept;
+    /// Opt-in stub graphics factories/mesh capability; shader bytes are not validated.
+    void probe_graphics_enabled(deren::promise::rhi::api_core& core, bool enabled) noexcept;
+    [[nodiscard]] std::uint64_t probe_rendering_count(deren::promise::rhi::api_core const& core) noexcept;
+    /// Fail validation after N successful groups; -1 disables injection.
+    void probe_scoped_validation_failure(deren::promise::rhi::api_core& core, std::int32_t successful_validations) noexcept;
+    /// Give two same-core probe wrappers one allocation identity; foreign images are ignored.
+    void probe_scoped_alias_image(deren::promise::rhi::api_core& core, deren::promise::rhi::image const& alias, deren::promise::rhi::image const& canonical) noexcept;
     void probe_resource_failure(deren::promise::rhi::api_core& core, std::int32_t successful_creations);
     void probe_heap_image_failure(deren::promise::rhi::api_core& core, std::int32_t successful_writes, bool persistent = false);
     void probe_present_completion(deren::promise::rhi::api_core& core, std::shared_future<deren::promise::rhi::error> completion);

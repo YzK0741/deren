@@ -23,6 +23,7 @@ import deren.promise.rhi;
 import deren.engine.pass;
 import deren.engine.pass.chain;
 import deren.engine.pass.scene;
+import deren.engine.primitive;
 import deren.engine.render_resource;
 import deren.engine.render_resource.shared;
 
@@ -61,6 +62,9 @@ namespace {
         std::uint32_t rendering_ends = 0;
         std::uint32_t secondary_executions = 0;
         deren::promise::rhi::error rendering_result = deren::promise::rhi::error::ok;
+        deren::promise::rhi::error begin_result = deren::promise::rhi::error::ok;
+        deren::promise::rhi::error end_result = deren::promise::rhi::error::ok;
+        deren::promise::rhi::error execute_result = deren::promise::rhi::error::ok;
         deren::promise::rhi::rect rendering_area = {};
         deren::utility::vessel::vector<deren::promise::rhi::color_attachment> rendering_colors;
         deren::promise::rhi::depth_attachment rendering_depth = {};
@@ -74,16 +78,16 @@ namespace {
         }
 
         [[nodiscard]] deren::promise::rhi::error begin_recording(deren::promise::rhi::command_buffer_begin_info const&) override {
-            return deren::promise::rhi::error::ok;
+            return begin_result;
         }
 
         [[nodiscard]] deren::promise::rhi::error end_recording() noexcept override {
-            return deren::promise::rhi::error::ok;
+            return end_result;
         }
 
         [[nodiscard]] deren::promise::rhi::error execute(deren::promise::rhi::command_buffer&) override {
             ++this->secondary_executions;
-            return deren::promise::rhi::error::ok;
+            return execute_result;
         }
 
         [[nodiscard]] deren::promise::rhi::error use(deren::promise::rhi::image const&, deren::promise::rhi::image_use, deren::promise::rhi::image_use) noexcept override {
@@ -497,7 +501,7 @@ int32_t main() {
         resolved_io io;
         io.list = &commands;
         io.targets = targets;
-        scene.record(io);
+        CHECK(scene.record_content(io) == rhi::error::ok);
         CHECK(commands.rendering_begins == 1u);
         CHECK(commands.rendering_ends == 1u);
         CHECK(commands.secondary_executions == 0u);
@@ -516,14 +520,62 @@ int32_t main() {
         CHECK(commands.rendering_depth.clear_depth == 1.0f);
 
         scene.set_frame(scene_frame{}); // An uninitialized frame must not open a zero-area instance.
-        scene.record(io);
+        CHECK(scene.record_content(io) == rhi::error::invalid_argument);
         CHECK(commands.rendering_begins == 1u);
         scene.set_frame(empty_frame);
         commands.rendering_result = rhi::error::invalid_argument;
-        scene.record(io);
+        CHECK(scene.record_content(io) == rhi::error::invalid_argument);
         CHECK(commands.rendering_begins == 2u);
         CHECK(commands.rendering_ends == 1u); // Never close a scope whose begin was refused.
+        commands.rendering_result = rhi::error::ok;
+        io.targets = std::span(targets).first(5);
+        CHECK(scene.record_content(io) == rhi::error::invalid_argument);
+        io.targets = targets;
+        targets[0].view_handle = nullptr;
+        CHECK(scene.record_content(io) == rhi::error::invalid_argument);
+        CHECK(commands.rendering_begins == 2u);
     }
+
+    // A secondary lifecycle failure must close the primary scope and refuse the graph callback.
+    for (bool parallel : {false, true})
+        for (unsigned failure = 0; failure < 4; ++failure) {
+            namespace rhi = deren::promise::rhi;
+            struct leaf final : deren::engine::primitive {
+                void draw(deren::engine::render_environment&) const override {
+                }
+                void destroy() noexcept override {
+                }
+                bool is_valid() const noexcept override {
+                    return true;
+                }
+            } leaf;
+            std::array<deren::engine::primitive const*, 4> leaves{&leaf, &leaf, &leaf, &leaf};
+            contract_command_buffer commands, first, second;
+            if (failure == 1)
+                first.begin_result = rhi::error::operation_failed;
+            if (failure == 2)
+                first.end_result = rhi::error::operation_failed;
+            if (failure == 3)
+                commands.execute_result = rhi::error::operation_failed;
+            std::array<segment_buffer, 2> segments{{{&first}, {&second}}};
+            scene_frame frame{.leaves = parallel ? std::span<deren::engine::primitive const* const>(leaves) : std::span<deren::engine::primitive const* const>(leaves).first(1),
+                              .segments = parallel ? std::span<segment_buffer const>(segments) : std::span<segment_buffer const>(segments).first(1),
+                              .make_environment = [](void*, std::shared_ptr<rhi::command_buffer>, bool) { return deren::engine::render_environment{}; },
+                              .run_tasks = [](void*, std::span<std::function<void()>> tasks) { for (auto& task : tasks) task(); },
+                              .extent = {16, 16}};
+            scene_pass scene;
+            scene.set_frame(frame);
+            std::array<resolved_binding, 6> targets{};
+            for (auto& target : targets)
+                target.view_handle = reinterpret_cast<rhi::image_view*>(0x1000);
+            resolved_io io;
+            io.list = &commands;
+            io.targets = targets;
+            CHECK(scene.record_content(io) == (failure ? rhi::error::operation_failed : rhi::error::ok));
+            CHECK(commands.rendering_begins == 1 && commands.rendering_ends == 1);
+            if (failure == 1 || failure == 2)
+                CHECK(commands.secondary_executions == (parallel ? 1U : 0U));
+        }
 
     host_state state;
     pass_host const host = make_host(state);

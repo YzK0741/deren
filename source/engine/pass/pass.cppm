@@ -842,6 +842,10 @@ export namespace deren::engine::pass {
          * `resolved_io` carries.
          */
         virtual void record(resolved_io const& io) = 0;
+        /// Optional graph path: content only, with resource synchronization owned by the caller.
+        [[nodiscard]] virtual deren::promise::rhi::error record_content(resolved_io const&) noexcept {
+            return deren::promise::rhi::error::unsupported;
+        }
     };
 
     // =============================================================================================

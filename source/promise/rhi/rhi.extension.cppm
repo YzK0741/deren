@@ -40,11 +40,13 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <future>
+#include <memory>
 #include <span>
 #include <string_view>
 
 export module deren.promise.rhi:extension;
 export import deren.utility.shared;
+export import deren.promise.rhi.synchronization;
 
 import :contract;
 
@@ -116,9 +118,11 @@ export namespace deren::promise::rhi {
         /// acceleration-structure numbers - while the BACKEND had already made the same queries to decide what
         /// to enable. Asking it is both the smaller code and the only shape a second backend can serve.
         device_capabilities = 1u << 6,
-        gpu_sorting = 1u << 8,         ///< stable ascending uint32 key/value radix sort
-        shader_group_access = 1u << 7, ///< portable SBT group data for a pipeline
-        async_presentation = 1u << 9,  ///< snapshot and enqueue presentation without blocking the caller
+        gpu_sorting = 1u << 8,             ///< stable ascending uint32 key/value radix sort
+        shader_group_access = 1u << 7,     ///< portable SBT group data for a pipeline
+        async_presentation = 1u << 9,      ///< snapshot and enqueue presentation without blocking the caller
+        scoped_synchronization = 1u << 10, ///< explicit stage/access scopes and bound resource ranges
+        frame_resources = 1u << 11,        ///< immutable acquired-image snapshots for scoped recording
     };
 
     /// What `api_core::abilities()` returns: a set of `extension_kind` bits.
@@ -137,7 +141,7 @@ export namespace deren::promise::rhi {
         return (abilities & to_bits(kind)) != no_abilities;
     }
 
-    /// Every bit defined here: what a backend with all nine abilities reports, and the
+    /// Every bit defined here: what a backend with all eleven abilities reports, and the
     /// set the plan's §8 consistency gate iterates.
     [[nodiscard]] constexpr auto all_abilities() noexcept -> ability_bits {
         // `extension_kind::ray_tracing` IS NOT HERE ANY MORE (abi 26): its whole shape moved to tier-1, so no
@@ -146,15 +150,15 @@ export namespace deren::promise::rhi {
         return to_bits(extension_kind::device_address) | to_bits(extension_kind::descriptor_heap) |
                to_bits(extension_kind::mesh_shader) |
                to_bits(extension_kind::host_image_copy) | to_bits(extension_kind::vulkan_escape) |
-               to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access) | to_bits(extension_kind::gpu_sorting) | to_bits(extension_kind::async_presentation);
+               to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access) | to_bits(extension_kind::gpu_sorting) | to_bits(extension_kind::async_presentation) | to_bits(extension_kind::scoped_synchronization) | to_bits(extension_kind::frame_resources);
     }
 
-    /// The same nine, as a LIST: what a gate walks to check one bit at a time.
+    /// The same eleven, as a LIST: what a gate walks to check one bit at a time.
     ///
     /// `all_abilities()` is the set as a bitmask; this is the enumeration the consistency gates and
     /// the tests iterate (`abilities()` set => `query_extension()` non-null, and the reverse), so the
     /// list is spelled in ONE place instead of per caller.
-    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> deren::utility::vessel::array<extension_kind, 9> {
+    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> deren::utility::vessel::array<extension_kind, 11> {
         return {
             extension_kind::device_address,
             extension_kind::descriptor_heap,
@@ -165,11 +169,13 @@ export namespace deren::promise::rhi {
             extension_kind::shader_group_access,
             extension_kind::gpu_sorting,
             extension_kind::async_presentation,
+            extension_kind::scoped_synchronization,
+            extension_kind::frame_resources,
         };
     }
 
     static_assert(to_bits(extension_kind::device_address) == 0x1u, "the ability bits are ABI: they do not move");
-    static_assert(all_abilities() == 0x3F7u, "nine active abilities; retired bits are never reused");
+    static_assert(all_abilities() == 0xFF7u, "eleven active abilities; retired bits are never reused");
 
     /// The common root of the tier-2 abilities.
     ///
@@ -187,6 +193,56 @@ export namespace deren::promise::rhi {
     public:
         virtual ~extension() noexcept = default;
         [[nodiscard]] virtual extension_kind kind() const noexcept = 0;
+    };
+
+    /// Snapshots pin the core, but the acquire/submit/resize protocol still owns native image lifetime.
+    /// Scoped describe/record rejects a snapshot once its acquire epoch ends; retain_image is empty outside a frame.
+    struct frame_resources : extension {
+        static constexpr extension_kind extension_id = extension_kind::frame_resources;
+        explicit frame_resources(std::string_view name) noexcept
+            : extension(name) {
+        }
+        extension_kind kind() const noexcept final {
+            return extension_id;
+        }
+        [[nodiscard]] virtual std::shared_ptr<image> retain_image() noexcept = 0;
+    };
+    struct scoped_image_info {
+        uint32_t mip_levels = 0, array_layers = 0;
+        synchronization::aspect aspects = static_cast<synchronization::aspect>(0);
+        uint32_t usage_mask = 0;
+        uint64_t canonical_object = 0; // Stable allocation identity across wrappers, shared by image/buffer domain.
+    };
+    struct scoped_buffer_info {
+        uint64_t byte_size = 0;
+        uint32_t usage_mask = 0;
+        uint64_t canonical_object = 0; // Stable allocation identity across wrappers, shared by image/buffer domain.
+    };
+    struct scoped_image_barrier {
+        image const* resource = nullptr;
+        synchronization::image_transition transition;
+    };
+    struct scoped_buffer_barrier {
+        buffer const* resource = nullptr;
+        synchronization::buffer_transition transition;
+    };
+    /// A new optional interface; existing command-buffer vtables and role-pair PODs do not change.
+    struct scoped_synchronization : extension {
+        static constexpr extension_kind extension_id = extension_kind::scoped_synchronization;
+        explicit scoped_synchronization(std::string_view name) noexcept
+            : extension(name) {
+        }
+        extension_kind kind() const noexcept final {
+            return extension_id;
+        }
+        [[nodiscard]] virtual synchronization::stage supported_stages() const noexcept = 0;
+        /// Describe only objects owned by this core. Foreign objects are rejected before casting.
+        [[nodiscard]] virtual error describe(image const&, scoped_image_info&) const noexcept = 0;
+        [[nodiscard]] virtual error describe(buffer const&, scoped_buffer_info&) const noexcept = 0;
+        /// Validate every entry without recording any commands.
+        [[nodiscard]] virtual error validate(std::span<scoped_image_barrier const>, std::span<scoped_buffer_barrier const>) const noexcept = 0;
+        /// Validate the complete group, then record it atomically. Empty groups still check command ownership/state.
+        [[nodiscard]] virtual error record(command_buffer&, std::span<scoped_image_barrier const>, std::span<scoped_buffer_barrier const>) const noexcept = 0;
     };
 
     /// tier-2 ability: where a buffer lives on the device.

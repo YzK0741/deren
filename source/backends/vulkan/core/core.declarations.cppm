@@ -311,6 +311,7 @@ namespace deren::vulkan {
             /// the buffer this list records into: null = the frame's slot buffer, set = an owned one
             VkCommandBuffer target = VK_NULL_HANDLE;
             bool recording = false;
+            bool rendering_active = false;
             bool executable = false;
             bool simultaneous_use = false;
             bool one_time_submit = false;
@@ -455,6 +456,44 @@ namespace deren::vulkan {
             [[nodiscard]] VkImage handle() const noexcept;
         };
 
+        // A snapshot owns its core, while the core only caches a weak reference to it.
+        struct frame_snapshot final : deren::promise::rhi::image, std::enable_shared_from_this<frame_snapshot> {
+            frame_snapshot() noexcept
+                : deren::promise::rhi::image("deren_frame_snapshot_vulkan") {
+            }
+            std::shared_ptr<core> owner;
+            VkImage native_handle = VK_NULL_HANDLE;
+            deren::promise::rhi::image_extent captured_extent{};
+            deren::promise::rhi::image_format captured_format = deren::promise::rhi::image_format::unknown;
+            std::uint64_t epoch = 0;
+            bool release_logged = false;
+            ~frame_snapshot() noexcept override;
+            [[nodiscard]] bool current() const noexcept;
+            [[nodiscard]] deren::promise::rhi::image_extent extent() const noexcept override {
+                return captured_extent;
+            }
+            [[nodiscard]] deren::promise::rhi::image_format format() const noexcept override {
+                return captured_format;
+            }
+            [[nodiscard]] deren::promise::rhi::image_view* make_view(deren::promise::rhi::image_view_desc const&) override;
+            [[nodiscard]] std::shared_ptr<deren::promise::rhi::image> share() override {
+                return shared_from_this();
+            }
+            [[nodiscard]] std::expected<deren::promise::rhi::image_content, deren::promise::rhi::error> get_content(deren::promise::rhi::image_copy_region const&) const override;
+            void release() noexcept override;
+        };
+        struct frame_resources_view final : deren::promise::rhi::frame_resources {
+            frame_resources_view() noexcept
+                : deren::promise::rhi::frame_resources("deren_frame_resources_vulkan") {
+            }
+            core* owner = nullptr;
+            [[nodiscard]] std::shared_ptr<deren::promise::rhi::image> retain_image() noexcept override;
+        };
+        frame_resources_view frame_resources;
+        std::weak_ptr<frame_snapshot> frame_snapshot_cache;
+        deren::utility::vessel::unordered_set<deren::promise::rhi::image const*> frame_snapshots;
+        std::uint64_t frame_acquire_epoch = 0;
+
         /// The backend's host-visible read-back slot, as the contract's `buffer`.
         ///
         /// A borrowed view for exactly the reasons `frame_image_slot` is; see its note.
@@ -569,6 +608,7 @@ namespace deren::vulkan {
             /// - asking for one this object never declared is the caller's bug, not a backend guess.
             bool addressable = false;
             bool readback = false;
+            deren::promise::rhi::buffer_usage declared_usage = deren::promise::rhi::buffer_usage::vertex;
             core* owner = nullptr;
             /// the capability bits the descriptor declared, kept for the diagnostic a failed address
             /// query needs (nothing else reads it)
@@ -1056,6 +1096,21 @@ namespace deren::vulkan {
         // Acquired before the worker enters presentation, published only by the next frame open.
         mutable uint32_t prefetched_slot = UINT32_MAX;
         uint32_t prefetched_image = 0;
+        struct scoped_sync_view final : deren::promise::rhi::scoped_synchronization {
+            scoped_sync_view() noexcept
+                : deren::promise::rhi::scoped_synchronization("deren_scoped_synchronization_vulkan") {
+            }
+            core* owner = nullptr;
+            [[nodiscard]] deren::promise::rhi::synchronization::stage supported_stages() const noexcept override;
+            [[nodiscard]] deren::promise::rhi::error describe(deren::promise::rhi::image const&, deren::promise::rhi::scoped_image_info&) const noexcept override;
+            [[nodiscard]] deren::promise::rhi::error describe(deren::promise::rhi::buffer const&, deren::promise::rhi::scoped_buffer_info&) const noexcept override;
+            [[nodiscard]] deren::promise::rhi::error validate(std::span<deren::promise::rhi::scoped_image_barrier const>, std::span<deren::promise::rhi::scoped_buffer_barrier const>) const noexcept override;
+            [[nodiscard]] deren::promise::rhi::error record(deren::promise::rhi::command_buffer&, std::span<deren::promise::rhi::scoped_image_barrier const>, std::span<deren::promise::rhi::scoped_buffer_barrier const>) const noexcept override;
+        };
+        scoped_sync_view scoped_sync;
+        VkQueueFlags synchronization_queue_flags = 0;
+        std::mutex contract_buffers_mutex;
+        deren::utility::vessel::unordered_set<deren::promise::rhi::buffer const*> contract_buffers;
         buffer_address_view address_view;
         /// the tier-2 host-copy object `query_extension(host_image_copy)` answers with (③-D/E step 2) -
         /// the first thing that serves that ability, which the contract had announced from the start
@@ -1140,6 +1195,7 @@ namespace deren::vulkan {
          *       runtime::mesh_shaders), because a pass is not the only thing that could want it.
          */
         bool mesh_shader_available = false;
+        bool task_shader_available = false;
         PFN_vkCmdDrawMeshTasksEXT mesh_dispatch = nullptr;
         /// ... and the INDIRECT form (`vkCmdDrawMeshTasksIndirectEXT`), resolved the same way and null on the same
         /// devices: it reads the three group counts out of a BUFFER instead of taking them as arguments, which is

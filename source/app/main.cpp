@@ -584,6 +584,12 @@ int main(int argc, char** argv) {
     // per-pass GPU timings (timestamp queries): on by default, reported in the log + overlay
     runtime.set_gpu_timings(settings.render.gpu_timings);
     runtime.set_async_present(settings.render.async_present);
+    if (auto error = runtime.set_bloom_render_graph(settings.render.bloom_render_graph); error != deren::promise::rhi::error::ok)
+        deren::utility::panic("Bloom render graph is not supported by the selected backend");
+    if (auto error = runtime.set_post_render_graph(settings.render.post_render_graph); error != deren::promise::rhi::error::ok)
+        deren::utility::panic("Post render graph is not supported by the selected backend");
+    if (auto error = runtime.set_main_render_graph(settings.render.main_render_graph); error != deren::promise::rhi::error::ok)
+        deren::utility::panic("Main render graph is not supported by the selected backend");
     // Shadow cascades: applied here (BEFORE the scene import) because the shadow map's layered image
     // is created when the first scene set binds it - see runtime::set_shadow_cascades.
     runtime.set_shadow_cascades(static_cast<uint32_t>(settings.render.shadow_cascades));
@@ -1230,7 +1236,7 @@ int main(int argc, char** argv) {
     // spec's §3.4 names, and the slot is `core::heap_slots::goo_fgd_lut` (754).
     //
     // THE PATH IS RESOLVED FROM THE EXECUTABLE'S OWN DIRECTORY, not from the process's working directory: a
-    // capture runs with `WorkingDirectory` set to its `-WorkDir` (see `source/scripts/windows/capture.ps1`), so a
+    // capture runs with `WorkingDirectory` set to its `-WorkDir` (see `scripts/windows/capture.ps1`), so a
     // CWD-relative path would miss. Nothing here is a new path *convention*: this file is a data file that ships
     // beside the build's own `source/shaders/` and `chars/` directories, and `deren-ab/` is where the reference's assets
     // live in this repository.
@@ -1243,7 +1249,7 @@ int main(int argc, char** argv) {
         deren::utility::vessel::vector<uint8_t> fgd_file = {};
         // `deren::utility::executable_directory()` AND NOT `current_path()`, which is the fix for a measured failure
         // rather than a preference: a capture runs with its working directory set to the harness's `-WorkDir`
-        // (see `source/scripts/windows/capture.ps1`'s launch), so `current_path()` resolved to
+        // (see `scripts/windows/capture.ps1`'s launch), so `current_path()` resolved to
         // `...\deren-ab\laevat\deren-ab\gooblender\images\...` and EVERY step-5 frame was rendered with no LUT
         // uploaded at all - the log said so (`goo FGD LUT: NOT uploaded`) and the three FGD terms read zero.
         // The executable's own directory is `build-release-clang64/`, which is where `deren-ab/` and the

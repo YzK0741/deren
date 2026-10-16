@@ -1155,6 +1155,7 @@ namespace deren::engine {
     // a real camera snapshot (current_ubo), which does not exist yet in the constructor - they stay with
     // the two call sites that have one (on_swapchain_recreated, and set_taa's off -> on edge).
     void runtime::reset_image_generation_state() {
+        this->bloom_graph_pending = false;
         // The G-buffer depth layout flags are one per swapchain image, and a freshly created depth image
         // is in UNDEFINED (which is what a clear flag says); see ensure_gbuffer_depth_sampled.
         // THE GENERATION'S COUNT COMES FROM THE SWAPCHAIN (③-D/E A1.4): the per-image groups are engine-held

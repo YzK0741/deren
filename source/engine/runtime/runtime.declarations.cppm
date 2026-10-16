@@ -40,6 +40,7 @@ module;
 
 export module deren.engine.runtime:declarations;
 export import deren.utility.shared;
+export import deren.engine.resource_cluster;
 
 export import deren.promise.gui;
 
@@ -391,6 +392,21 @@ namespace deren::engine {
         /// reached the device without naming the backend" can do. Nothing else calls them from outside
         /// the class, and no call site inside loses an access level because of this.
         [[nodiscard]] rhi::api_core& rhi_face() const noexcept;
+        [[nodiscard]] std::shared_ptr<resource_cluster> create_resource_cluster(std::string_view name = {}) const {
+            return resource_cluster::create(this->core_owner, name);
+        }
+        /// Call after successful pace_and_acquire and before submit. Single frame-thread writer.
+        [[nodiscard]] rhi::error retain_resource_cluster_for_frame(std::shared_ptr<resource_cluster const> cluster) {
+            if (!this->cluster_retention_open)
+                return rhi::error::not_ready;
+            if (!cluster || cluster->device() != this->core_owner.get())
+                return rhi::error::invalid_argument;
+            auto& retained = this->frame_resource_clusters[this->cluster_retention_slot];
+            if (std::find(retained.begin(), retained.end(), cluster) == retained.end())
+                retained.push_back(std::move(cluster));
+            return rhi::error::ok;
+        }
+
         [[nodiscard]] std::expected<std::shared_ptr<gaussian_splatting::raster_asset const>, gaussian_splatting::foundation_error> create_gaussian_asset(deren::gaussian::asset input, gaussian_splatting::foundation_limits const& limits = {}) {
             return gaussian_splatting::make_raster_asset(this->rhi_face(), std::move(input), limits, this->core_owner);
         }
@@ -1507,6 +1523,25 @@ namespace deren::engine {
         // Active cascades (1 = exactly the single-shadow-map behavior; [render] shadow_cascades) and
         // the fraction of a cascade's range over which the shader blends into the next one.
         render_resource::instances::resource_snapshot shadow_resource_view;
+        bool cluster_retention_open = false;
+        bool bloom_graph_enabled = false, bloom_graph_locked = false;
+        bool post_graph_enabled = false, post_graph_drew_frame = false;
+        bool main_graph_enabled = false, main_graph_frame = false;
+        bool main_graph_reported = false, main_graph_fallback_reported = false;
+        resource_lease<rhi::image> post_graph_output;
+        bool bloom_graph_pending = false;
+        rhi::error bloom_graph_error = rhi::error::ok;
+        using bloom_generation = render_resource::instances::generation;
+        using weak_bloom_generation = std::weak_ptr<bloom_generation const>;
+        // Ownership identity survives an unrelated output-family rebuild and never confuses
+        // recycled allocator handles. Expired generations are removed at the next graph boundary.
+        deren::utility::vessel::map<weak_bloom_generation, deren::utility::vessel::array<bool, rhi::max_swapchain_images>, std::owner_less<weak_bloom_generation>> bloom_graph_states;
+        deren::utility::vessel::array<std::shared_ptr<bloom_generation const>, 5> bloom_graph_pending_generations{};
+        deren::utility::vessel::array<deren::utility::vessel::vector<std::shared_ptr<void const>>, rhi::max_frames_in_flight> frame_graph_retention;
+        uint32_t cluster_retention_slot = 0;
+        // Slots retain even failed recordings/submissions conservatively until paced again.
+        deren::utility::vessel::array<deren::utility::vessel::vector<std::shared_ptr<resource_cluster const>>, rhi::max_frames_in_flight> frame_resource_clusters;
+
         deren::utility::vessel::array<render_resource::instances::resource_snapshot, rhi::max_frames_in_flight> submitted_resource_views{};
         deren::utility::vessel::array<render_resource::instances::resource_snapshot, rhi::max_frames_in_flight> submitted_fallback_views{};
         uint32_t shadow_cascades = 1;
@@ -2962,6 +2997,9 @@ namespace deren::engine {
          *        them. It used to be all of that in one 209-line body, whose real problem was not its length but
          *        that a change to any one of them had to be located inside the other two. */
         [[nodiscard]] bool record_post_process();
+        [[nodiscard]] rhi::error record_bloom_graph(bool active);
+        [[nodiscard]] rhi::error record_post_graph();
+        [[nodiscard]] rhi::error finish_post_graph();
         /**
          * @brief close the geometry instance and record the scene-side stages that follow it
          *        (deferred lighting, the TAA resolve, the G-buffer debug view), each with its own
@@ -3518,6 +3556,37 @@ namespace deren::engine {
          * @note same timing rule as set_exposure: CPU-side, copied into the post push constants
          */
         void set_bloom(float intensity, float threshold) noexcept;
+        /// Select before the first pace attempt. Legacy remains the default until GPU acceptance.
+        [[nodiscard]] rhi::error set_bloom_render_graph(bool enabled) noexcept {
+            if (bloom_graph_locked)
+                return rhi::error::not_ready;
+            if (enabled && !rhi::has_ability(rhi_face().abilities(), rhi::extension_kind::scoped_synchronization))
+                return rhi::error::unsupported;
+            bloom_graph_enabled = enabled;
+            return rhi::error::ok;
+        }
+        [[nodiscard]] rhi::error set_post_render_graph(bool enabled) noexcept {
+            if (bloom_graph_locked)
+                return rhi::error::not_ready;
+            if (!enabled && main_graph_enabled)
+                return rhi::error::invalid_argument;
+            if (enabled && (!rhi::has_ability(rhi_face().abilities(), rhi::extension_kind::scoped_synchronization) ||
+                            !rhi::has_ability(rhi_face().abilities(), rhi::extension_kind::frame_resources)))
+                return rhi::error::unsupported;
+            post_graph_enabled = enabled;
+            return rhi::error::ok;
+        }
+        [[nodiscard]] rhi::error set_main_render_graph(bool enabled) noexcept {
+            if (bloom_graph_locked)
+                return rhi::error::not_ready;
+            if (enabled) {
+                auto error = set_post_render_graph(true);
+                if (error != rhi::error::ok)
+                    return error;
+            }
+            main_graph_enabled = enabled;
+            return rhi::error::ok;
+        }
 
         /**
          * @ingroup runtime
@@ -3919,7 +3988,7 @@ namespace deren::engine {
         /// run the owner's `prepare` for one stage, or do nothing when no owner is wired (see `chain_wiring`)
         /// @note this is also where every pass in @p stage builds ITS OWN frame (see frame_pass::prepare_frame),
         ///       BEFORE the owner's `prepare` - so an owner that still wants to override a frame can
-        void prepare_stage(pass::stage const& stage);
+        void prepare_stage(pass::stage const& stage, bool graph_synchronization = false);
         /// run the owner's `collect` for one stage and apply what it reports (see `frame_results`)
         void collect_stage(std::string_view stage);
         /// clear one image's "the G-buffer instance wrote the motion-vector target" flag, so the next sampler of

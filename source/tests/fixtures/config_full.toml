@@ -8,6 +8,9 @@ screenshot_dir = "captures"
 
 [render]
 async_present = true
+bloom_render_graph = true
+post_render_graph = true
+main_render_graph = true
 offscreen = true
 window_width = 800
 window_height = 600

@@ -304,7 +304,7 @@ namespace deren::app_config {
             // half comes from - see `deren::vulkan::runtime::goo_toon_pipeline_name`. It rides `[render]` rather than the
             // `[toon]` rig table below because it is a frame's render setting rather than a piece of the
             // character's art direction, and because the capture instrument can only override `[render]` keys
-            // (`source/scripts/windows/capture.ps1`), which is what makes the A/B runnable.
+            // (`scripts/windows/capture.ps1`), which is what makes the A/B runnable.
             if (toml::node const* node = render->get("goo_toon")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
                     settings.render.goo_toon = *value;
@@ -380,6 +380,18 @@ namespace deren::app_config {
             if (toml::node const* node = render->get("async_present")) {
                 if (auto value = node->value<bool>())
                     settings.render.async_present = *value;
+            }
+            if (toml::node const* node = render->get("bloom_render_graph")) {
+                if (auto value = node->value<bool>())
+                    settings.render.bloom_render_graph = *value;
+            }
+            if (toml::node const* node = render->get("main_render_graph")) {
+                if (auto value = node->value<bool>())
+                    settings.render.main_render_graph = *value;
+            }
+            if (toml::node const* node = render->get("post_render_graph")) {
+                if (auto value = node->value<bool>())
+                    settings.render.post_render_graph = *value;
             }
             if (toml::node const* node = render->get("offscreen")) {
                 if (auto value = node->value<bool>())

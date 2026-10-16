@@ -143,6 +143,7 @@ export namespace deren::engine::pass {
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
         void record(resolved_io const& io) override;
+        [[nodiscard]] deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
 
         /// @brief whether the pass built the pipeline it records with (the renderer gates the feature on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
