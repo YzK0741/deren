@@ -5,6 +5,8 @@
 # Third-party code / assets
 std/** linguist-vendored
 source/third_party/** linguist-vendored
+# Preserve the upstream bytes checked by Boost's SHA-256 vendor manifest.
+source/third_party/boost/** -text
 gltf_model/** linguist-vendored
 
 # Non-code folders (docs, screenshots)

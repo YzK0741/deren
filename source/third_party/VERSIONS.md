@@ -5,6 +5,16 @@ Pinned versions + local patches for the vendored code under `third_party/`
 uses; system-package equivalents (e.g. MSYS2 packages) are not vendored and
 are not listed here.
 
+## Boost.Graph
+
+- version: 1.92.0; MSYS2 clang64 package revision 4
+- upstream: https://github.com/boostorg/graph
+- local changes: none; 1,665-header BCP subset, not a full Boost distribution
+- license: Boost Software License 1.0 (`boost/LICENSE_1_0.txt`)
+- build: private `boost_graph_headers` INTERFACE target, no Boost binary library
+- provenance, extraction and allocation constraints: [boost/README.md](boost/README.md)
+- reproducible manifest verification: `python scripts/vendor_boost_graph.py --output source/third_party/boost --verify`
+
 ## VRDX (Vulkan Radix Sort)
 
 - version: 0.6.0 (`VRDX_VERSION_*` in `vrdx/include/vk_radix_sort.h`)
