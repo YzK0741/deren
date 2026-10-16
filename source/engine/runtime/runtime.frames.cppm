@@ -3724,7 +3724,22 @@ namespace deren::engine {
         // ---- the scene side: close the geometry instance, then the stages that consume the G-buffer
         // Eligibility was frozen before recording the scene producer.
         if (this->main_graph_enabled && !this->main_graph_frame && !this->main_graph_fallback_reported) {
-            deren::utility::log("main graph: unsupported tail combination; using legacy scene tail and post graph");
+            // WHICH TERM REFUSED THE FRAME, in the order the eligibility predicate tests them: an
+            // adoption round reads this to tell "this branch is not migrated yet" from "the branch is
+            // migrated but a stage reported not-ready on the first frame" - the two need opposite work,
+            // and the log line alone could not say which one it was.
+            auto const features = this->active_features();
+            char const* const reason = !this->deferred_lit_active()                ? "deferred lighting inactive"
+                                       : this->taa_active()                        ? "TAA active"
+                                       : features.rt_shadow                        ? "ray-traced shadow"
+                                       : this->megalights_active()                 ? "MegaLights active"
+                                       : this->gaussian_active()                   ? "Gaussian active"
+                                       : features.transparent                      ? "transparency"
+                                       : this->feature_active("character_forward") ? "character forward"
+                                       : this->feature_active("toon_screen_rim")   ? "toon screen rim"
+                                       : this->feature_active("goo_rim")           ? "goo rim"
+                                                                                   : "unclassified";
+            deren::utility::log("main graph: unsupported tail combination ({}); using legacy scene tail and post graph", reason);
             this->main_graph_fallback_reported = true;
         }
         if (!this->main_graph_frame)

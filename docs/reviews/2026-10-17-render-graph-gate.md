@@ -110,6 +110,53 @@ here.
   directory `build-release-dyn-clang64/render-check/`; the SHA-256 values above are the
   evidence, and the round is reproducible with the two commands in "Method".
 
+## Addendum: the flip explained - the scenario's toggles land after the first frame
+
+The fallback line now names the term that refused the frame (`runtime.frames.cppm`, printed once),
+and the three mixed scenarios answered:
+
+```
+deferred_taa_fxaa   main graph: unsupported tail combination (TAA active) ...
+deformation         main graph: unsupported tail combination (deferred lighting inactive) ...
+laevatain_goo_toon  main graph: unsupported tail combination (character forward) ...
+```
+
+Readiness is NOT the cause: the TAA resolve pipeline is created at log line 642 and the
+character-forward pipelines at 518-530, both well BEFORE the graph frame at 1004/1612 - so
+`pass_ready()` was already true. What changes is the FEATURE STATE, and it changes because these
+toggles do not reach the runtime from the configuration directly: they are copied into the GUI
+binding struct and mirrored into the runtime by the frame loop
+(`source/app/main.cpp:2520-2535` - `gui.character_forward = settings.render.character_forward;`
+and the comment beside it says a config value that never reached the binding "would be overwritten
+by the binding's default on the very first frame"). The first frame's eligibility is frozen before
+that mirroring, so frame 0 is evaluated under the binding DEFAULTS:
+
+| scenario | frame 0 was evaluated with | the rest of the run with |
+| --- | --- | --- |
+| deferred_taa_fxaa | TAA off | TAA on |
+| deformation | G-buffer debug view off (its config sets `gbuffer_debug = true`) | debug view on, so deferred lighting inactive |
+| the four laevatain_* | character forward off | character forward on |
+
+Consequence, and it is worse than "not covered": the single graph-recorded frame of those six
+scenarios is a frame the scenario's own settings would have EXCLUDED - it was rendered with the
+binding defaults, not with the features the scenario is named for. The A/B identity still holds
+(both rounds take the same frame-0 path and the same legacy tail), but those six must not be
+counted as graph coverage, and `deformation`'s entry is really "legacy only, after one pre-toggle
+frame".
+
+Two candidate fixes, both small, and they need a gate round because they change which path frame 0
+takes (and TAA history is temporal):
+
+1. mirror the bindings into the runtime BEFORE the first frame's eligibility is frozen (the real
+   fix: today every binding lands one frame late, which is a general startup-ordering property,
+   not a graph property);
+2. refuse the graph for the run's first frame (a graph-side workaround that leaves the underlying
+   one-frame lag alone - it makes the coverage honest without touching the frame loop's ordering).
+
+Fix 1 is the honest one and matches the comments already in `main.cpp`; fix 2 is the minimal-risk
+one. Neither is implemented here: this stage's job was to measure, and either choice changes runtime
+behaviour that the gate must re-witness.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task is not a declaration: it is to explain and pin the mid-run
