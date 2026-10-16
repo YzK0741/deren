@@ -31,6 +31,26 @@ on:
   pull_request:
 
 jobs:
+  posix-stacktrace:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++ llvm
+      - name: Native POSIX diagnostics (PIE and non-PIE)
+        shell: bash
+        run: |
+          mkdir -p build-stacktrace-posix
+          for mode in pie no-pie; do
+            g++ -std=c++23 -O2 -g -Wall -Wextra -Werror -fno-exceptions \
+              -fno-omit-frame-pointer -fno-optimize-sibling-calls -"$mode" \
+              source/tests/stacktrace_posix_probe.cpp \
+              source/utility/shared/stacktrace_native.cpp \
+              source/utility/shared/stacktrace_posix.cpp \
+              -ldl -pthread -o "build-stacktrace-posix/probe-$mode"
+            python3 source/tests/test_stacktrace_posix.py \
+              "build-stacktrace-posix/probe-$mode" "$(command -v llvm-symbolizer)" -v
+          done
+
   build-and-test:
     name: Release build + ctest + Debug gate + clang-tidy
     runs-on: windows-latest
@@ -321,7 +341,7 @@ jobs:
         run: >-
           cmake --build build-asan --target
           test_app_config test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar
-          test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs
+          test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs
           test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection
 
       - name: Run the headless tests under the sanitizers
@@ -348,4 +368,3 @@ jobs:
           ASAN_OPTIONS: halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ctest --test-dir build-asan --output-on-failure -E test_native_boundary_zero
-

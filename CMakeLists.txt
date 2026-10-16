@@ -273,7 +273,7 @@ endif()
 #      the executable imports libc++.dll and uses the UCRT heap, so both images share ONE C++ runtime
 #      and ONE heap - which is what makes an allocation on one side and a free on the other safe in
 #      this configuration. That premise is now MACHINE-CHECKED rather than assumed: see the
-#      C++-runtime check in source/scripts/check_backend_boundary.py (dll imports enumerated, no static
+#      C++-runtime check in scripts/check_backend_boundary.py (dll imports enumerated, no static
 #      libc++ in any image).
 #   3. THE REASON THE SPLIT EXISTS IS STATE, NOT MEMORY. One log sink per process: two copies mean two
 #      `ofstream`s on one debug.log and two startup rotations, and `rotate_previous_log()` TRUNCATES
@@ -330,6 +330,7 @@ target_sources(shared_utility
         source/utility/shared/allocation_failure.cpp
         source/utility/shared/stacktrace.cpp
         source/utility/shared/stacktrace_native.cpp
+        source/utility/shared/stacktrace_posix.cpp
         # The once-per-process rotation claim, a plain (non-module) TU for the platform_* reason:
         # <windows.h> does not belong in a module's global module fragment.
         source/utility/shared/log_rotation_claim.cpp
@@ -374,7 +375,13 @@ target_sources(static_utility
 # in the file set below, because an entry point is not a virtual base class. The keyword it is
 # declared with is a build concern and lives in source/utility/abi_export.hpp (m04074).
 add_library(promise STATIC)
+
+# Handle-free synchronization data; independent of the existing virtual recording ABI.
+add_library(rhi_sync_contract STATIC)
+target_sources(rhi_sync_contract PUBLIC FILE_SET CXX_MODULES FILES
+    source/promise/rhi/rhi.synchronization.cppm)
 target_link_libraries(promise PUBLIC shared_utility)
+target_link_libraries(promise PUBLIC rhi_sync_contract)
 
 target_sources(promise
         PUBLIC
@@ -458,6 +465,16 @@ target_link_libraries(vulkan_constant_init PUBLIC shared_utility)
 target_sources(vulkan_constant_init PUBLIC FILE_SET CXX_MODULES FILES
     source/backends/vulkan/constant_init/constant_init.cppm)
 target_link_libraries(vulkan_constant_init PUBLIC Vulkan::Vulkan)
+
+add_library(vulkan_synchronization STATIC)
+target_sources(vulkan_synchronization PUBLIC FILE_SET CXX_MODULES FILES
+    source/backends/vulkan/synchronization/synchronization.cppm)
+target_link_libraries(vulkan_synchronization PUBLIC rhi_sync_contract)
+target_include_directories(vulkan_synchronization SYSTEM PUBLIC ${Vulkan_INCLUDE_DIRS})
+if(NOT MSVC)
+    target_compile_options(rhi_sync_contract PRIVATE -fno-sanitize=all)
+    target_compile_options(vulkan_synchronization PRIVATE -fno-sanitize=all)
+endif()
 
 add_library(renderer_layout STATIC)
 target_link_libraries(renderer_layout PUBLIC shared_utility)
@@ -544,6 +561,8 @@ target_sources(deren_vulkan
         # The RHI contract's virtuals for this backend (plan §11.4, S1-C): `core` derives from
         # `deren::promise::rhi::api_core`, so this is where abilities() and the frame calls live.
         source/backends/vulkan/core/core.api_core.cpp
+        source/backends/vulkan/core/core.scoped_synchronization.cpp
+        source/backends/vulkan/core/core.frame_resources.cpp
         source/backends/vulkan/core/radix_sort.cpp
         source/backends/vulkan/core/core.texture_groups.cpp
         source/backends/vulkan/core/core.submission_lifetimes.cpp
@@ -562,6 +581,7 @@ target_sources(deren_vulkan
 # them - which is correct, because the ENGINE never calls them; the unit test links the same target
 # and gets the identical code without importing the backend's module.
 target_link_libraries(deren_vulkan
+        vulkan_synchronization
         vulkan_error_tables
         # The backend implements the contract, so the contract's module is a dependency of THIS target
         # and of nothing else in the backend's direction (source/promise/rhi/*.cppm imports nothing back).
@@ -620,6 +640,11 @@ set(VR_FULL_API_TARGETS deren chores)
 set(VR_APP_EXE deren)
 set(VR_FULL_API_MODULES source/engine/render_start_demo/render_start_demo.cppm)
 set(VR_FULL_API_SOURCES source/engine/render_start_demo/render_start_demo.cpp)
+
+add_library(resource_cluster_core STATIC)
+target_sources(resource_cluster_core PUBLIC FILE_SET CXX_MODULES FILES
+    source/engine/resource_cluster/resource_cluster.cppm)
+target_link_libraries(resource_cluster_core PUBLIC shared_utility promise)
 
 add_library(deren_engine STATIC)
 add_library(deren::engine ALIAS deren_engine)
@@ -705,6 +730,7 @@ target_sources(deren_engine
         source/engine/pass/compute_skin.cpp
         source/engine/pass/cluster.cpp
         source/engine/pass/deferred.cpp
+        source/engine/runtime/runtime.post_graph.cpp
         source/engine/pass/post.cpp
         source/engine/pass/fxaa.cpp
         source/engine/pass/upscale.cpp
@@ -752,7 +778,7 @@ target_sources(deren_engine
 # sources, the flags (the "compile options" foreach below still names this target, by its new name),
 # and the types passed across the seam (`deren::gltf::scenes`). Both images compile `deren.vstd`
 # from the same interface unit and both import libc++.dll - the premise the utility split already
-# rests on, and the one source/scripts/check_backend_boundary.py checks on the artifacts.
+# rests on, and the one scripts/check_backend_boundary.py checks on the artifacts.
 #
 # NO SANITIZER SUPPRESSION, AND THAT IS MEASURED RATHER THAN ASSUMED. The CI sanitizers job builds
 # these tests with -fsanitize=address,undefined and then RUNS them, which is the shape that made
@@ -934,6 +960,7 @@ target_link_libraries(deren_assets
 # parsed deren::gltf::scenes down to the runtime at the call site.
 target_link_libraries(deren_engine
         PUBLIC
+        resource_cluster_core
         gaussian_loader
         glfw
         static_utility
@@ -1180,14 +1207,72 @@ endif()
 # ---------------------------------------------------------------------------------------------
 option(VR_BUILD_TESTS "Build the headless unit tests" ON)
 
+# Private header subset; link only from graph implementation/probes, never the RHI ABI.
+add_library(boost_graph_headers INTERFACE)
+target_include_directories(boost_graph_headers SYSTEM INTERFACE
+    "${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/boost")
+target_compile_definitions(boost_graph_headers INTERFACE BOOST_NO_EXCEPTIONS BOOST_ALL_NO_LIB)
+
+add_library(render_graph_core STATIC)
+target_sources(render_graph_core
+    PUBLIC FILE_SET CXX_MODULES FILES
+        source/engine/render_graph/types.cppm
+        source/engine/render_graph/parameters.cppm
+        source/engine/render_graph/diagnostics.cppm
+        source/engine/render_graph/render_graph.cppm
+    PRIVATE source/engine/render_graph/render_graph.cpp
+        source/engine/render_graph/diagnostics.cpp
+        source/engine/render_graph/boost_exceptions.cpp)
+target_link_libraries(render_graph_core PUBLIC shared_utility vstd_lib PRIVATE boost_graph_headers)
+
+add_library(render_graph_rhi STATIC)
+target_sources(render_graph_rhi PUBLIC FILE_SET CXX_MODULES FILES
+    source/engine/render_graph/rhi.cppm)
+target_link_libraries(render_graph_rhi PUBLIC render_graph_core rhi_sync_contract)
+
+add_library(render_graph_execute STATIC)
+target_sources(render_graph_execute PUBLIC FILE_SET CXX_MODULES FILES source/engine/render_graph/execute.cppm)
+target_link_libraries(render_graph_execute PUBLIC render_graph_rhi resource_cluster_core promise)
+
+add_library(render_graph_compose STATIC)
+target_sources(render_graph_compose PUBLIC FILE_SET CXX_MODULES FILES source/engine/render_graph/compose.cppm)
+target_link_libraries(render_graph_compose PUBLIC render_graph_execute)
+add_library(render_graph_bloom STATIC)
+target_sources(render_graph_bloom PUBLIC FILE_SET CXX_MODULES FILES source/engine/render_graph/bloom.cppm)
+target_link_libraries(render_graph_bloom PUBLIC render_graph_execute)
+add_library(render_graph_lighting STATIC)
+target_sources(render_graph_lighting PUBLIC FILE_SET CXX_MODULES FILES source/engine/render_graph/lighting.cppm)
+target_link_libraries(render_graph_lighting PUBLIC render_graph_core)
+add_library(render_graph_post STATIC)
+target_sources(render_graph_post PUBLIC FILE_SET CXX_MODULES FILES source/engine/render_graph/post.cppm)
+target_link_libraries(render_graph_post PUBLIC render_graph_execute)
+add_library(render_graph_geometry STATIC)
+target_sources(render_graph_geometry PUBLIC FILE_SET CXX_MODULES FILES source/engine/render_graph/geometry.cppm)
+target_link_libraries(render_graph_geometry PUBLIC render_graph_core)
+target_link_libraries(deren_engine PUBLIC render_graph_bloom render_graph_post render_graph_compose render_graph_lighting render_graph_geometry)
+
 if(VR_BUILD_TESTS)
     enable_testing()
     target_compile_definitions(shared_utility PRIVATE DEREN_MEMORY_TESTING)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME test_boost_graph_vendor
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/vendor_boost_graph.py"
+                --output "${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/boost" --verify)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        find_package(Threads REQUIRED)
+        add_executable(stacktrace_posix_probe
+            source/tests/stacktrace_posix_probe.cpp
+            source/utility/shared/stacktrace_native.cpp
+            source/utility/shared/stacktrace_posix.cpp)
+        target_link_libraries(stacktrace_posix_probe PRIVATE ${CMAKE_DL_LIBS} Threads::Threads)
+        add_test(NAME test_stacktrace_posix
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source/tests/test_stacktrace_posix.py"
+                    $<TARGET_FILE:stacktrace_posix_probe> "${VR_STACKTRACE_SYMBOLIZER}")
+    endif()
     add_test(NAME test_stacktrace_offline
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source/tests/test_stacktrace_offline.py")
     add_test(NAME test_native_boundary_zero
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source/scripts/check_native_boundary.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_native_boundary.py"
                 --build-dir "${CMAKE_CURRENT_BINARY_DIR}" --require-zero)
 
     add_test(NAME test_backend_boundary
@@ -1198,13 +1283,13 @@ if(VR_BUILD_TESTS)
         ENVIRONMENT "TMP=${CMAKE_CURRENT_BINARY_DIR}/test-run;TEMP=${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # 完整产品先构建，再量 main/chores/引擎归档，避免半构建产生假性下降。
     add_custom_target(check-backend-boundary
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source/scripts/check_backend_boundary.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_backend_boundary.py"
                 --build-dir "${CMAKE_CURRENT_BINARY_DIR}"
                 --report "${CMAKE_CURRENT_BINARY_DIR}/backend_boundary_report.json"
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_app_config test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection)
+    set(VR_TEST_TARGETS test_app_config test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1313,6 +1398,24 @@ if(VR_BUILD_TESTS)
     endif()
     target_link_libraries(test_vessel static_utility shared_utility vstd_lib)
     target_sources(test_vessel PRIVATE source/tests/vessel_child.cpp)
+    target_link_libraries(test_boost_graph boost_graph_headers render_graph_rhi)
+    target_link_libraries(test_render_graph render_graph_core)
+    target_link_libraries(test_render_graph_ranges render_graph_core)
+    target_link_libraries(test_render_graph_parameters render_graph_core)
+    target_link_libraries(test_render_graph_sync render_graph_core)
+    target_link_libraries(test_render_graph_execute render_graph_execute probe_backend_static)
+    target_link_libraries(test_render_graph_frame render_graph_execute probe_backend_static)
+    target_link_libraries(test_render_graph_compose render_graph_compose probe_backend_static)
+    target_link_libraries(test_render_graph_lighting render_graph_lighting render_graph_post deren_engine)
+    target_link_libraries(test_render_graph_post render_graph_post deren_engine probe_backend_static)
+    target_link_libraries(test_render_graph_bloom render_graph_bloom deren_engine probe_backend_static)
+    target_link_libraries(test_render_graph_dump render_graph_core)
+    target_link_libraries(test_render_graph_lowering render_graph_rhi vulkan_synchronization)
+    add_test(NAME test_render_graph_dump_json
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source/tests/test_render_graph_dump_json.py" $<TARGET_FILE:test_render_graph_dump>)
+    target_sources(test_render_graph PRIVATE source/tests/vessel_child.cpp)
+    target_sources(test_render_graph_parameters PRIVATE source/tests/vessel_child.cpp)
+    target_sources(test_boost_graph PRIVATE source/tests/vessel_child.cpp)
     target_sources(test_stacktrace PRIVATE source/tests/vessel_child.cpp)
     target_sources(test_stacktrace PRIVATE source/tests/stacktrace_fault.cpp)
     target_link_libraries(test_stacktrace static_utility)
@@ -1336,7 +1439,7 @@ if(VR_BUILD_TESTS)
         STACKTRACE_HAVE_SYMBOLIZER=$<BOOL:${VR_STACKTRACE_SYMBOLIZER}>
         # The CROSS-CHECK against the offline decoder: the same raw record has to decode to the same
         # fault line in both decoders, and nothing else ties the two rules together (see the review).
-        STACKTRACE_DECODER="${CMAKE_CURRENT_SOURCE_DIR}/source/scripts/symbolize_stacktrace.py"
+        STACKTRACE_DECODER="${CMAKE_CURRENT_SOURCE_DIR}/scripts/symbolize_stacktrace.py"
         STACKTRACE_PYTHON="${Python3_EXECUTABLE}")
     add_dependencies(test_stacktrace stacktrace_symbolizer_fixture vessel_probe loader_lock_fixture)
     target_compile_definitions(test_vessel PRIVATE VESSEL_PROBE_FILENAME="$<TARGET_FILE_NAME:vessel_probe>")
@@ -1417,6 +1520,7 @@ if(VR_BUILD_TESTS)
     # handshake by running the panic case in a CHILD process of itself (CreateProcessW, so the exit
     # status is not translated by a shell). It links the SAME probe TU the C entry lives in, so the knob
     # (`probe_make_core` with a chosen `api_version()`) cannot drift from the entry's own behaviour.
+    target_link_libraries(test_resource_cluster deren_engine probe_backend_static promise)
     target_link_libraries(test_runtime_injection
             promise
             deren_engine
@@ -1803,7 +1907,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     # root-level module source feeding both the format stamp and a target that depends on other
     # format-listed targets makes ninja see a cycle; format source/app/chores.cppm manually with
     # 'clang-format -i source/app/chores.cppm' - same style, just not automatic)
-    foreach(_tgt shared_utility static_utility backend_loader promise app_config deren_vulkan vulkan_constant_init renderer_layout vulkan_error_tables deren_engine deren_assets ${VR_APP_EXE})
+    foreach(_tgt shared_utility static_utility backend_loader promise rhi_sync_contract app_config deren_vulkan vulkan_constant_init vulkan_synchronization renderer_layout vulkan_error_tables deren_engine deren_assets resource_cluster_core render_graph_core render_graph_rhi render_graph_execute render_graph_compose render_graph_bloom render_graph_post render_graph_lighting render_graph_geometry ${VR_APP_EXE})
         add_dependencies(${_tgt} clang-format)
     endforeach()
 
