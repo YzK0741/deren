@@ -25,7 +25,7 @@ WHY A RATCHET
 THE FLIP GATE IS WHITELIST-AWARE (`--require-zero`)
     The archive boundary cannot reach zero: some symbols are deliberate exceptions. So the
     flip gate asks a different question - NOTHING OUTSIDE THE WHITELIST. The whitelist lives
-    in `source/scripts/backend_boundary_whitelist.json`: one entry per symbol, with the reason it is
+    in `scripts/backend_boundary_whitelist.json`: one entry per symbol, with the reason it is
     still there and what removes it, printed on every run. It is SHRINK-ONLY in three
     enforceable senses:
       * a measured symbol outside the whitelist fails (the list is not an allow-all);
@@ -86,15 +86,15 @@ ONE CONFIGURATION, ONE PAIR (S5, the flip)
     deliberately not part of the quiet-able report.
 
 USAGE
-    python source/scripts/check_backend_boundary.py                       # gate against the baseline
-    python source/scripts/check_backend_boundary.py --update              # ratchet down to today
-    python source/scripts/check_backend_boundary.py --list                # the worklist, demangled, + the imports
-    python source/scripts/check_backend_boundary.py --warn                # ordinary checks report failures; mutations/flip stay strict
-    python source/scripts/check_backend_boundary.py --require-zero        # the flip gate: whitelist-aware + import graph
-    python source/scripts/check_backend_boundary.py --config dynamic      # explicit spelling of the only value
-    python source/scripts/check_backend_boundary.py --build-dir DIR
-    python source/scripts/check_backend_boundary.py --whitelist PATH      # alternate whitelist (tests)
-    python source/scripts/check_backend_boundary.py --repo-root DIR       # alternate tree for the import scan (tests)
+    python scripts/check_backend_boundary.py                       # gate against the baseline
+    python scripts/check_backend_boundary.py --update              # ratchet down to today
+    python scripts/check_backend_boundary.py --list                # the worklist, demangled, + the imports
+    python scripts/check_backend_boundary.py --warn                # ordinary checks report failures; mutations/flip stay strict
+    python scripts/check_backend_boundary.py --require-zero        # the flip gate: whitelist-aware + import graph
+    python scripts/check_backend_boundary.py --config dynamic      # explicit spelling of the only value
+    python scripts/check_backend_boundary.py --build-dir DIR
+    python scripts/check_backend_boundary.py --whitelist PATH      # alternate whitelist (tests)
+    python scripts/check_backend_boundary.py --repo-root DIR       # alternate tree for the import scan (tests)
 """
 from __future__ import annotations
 
@@ -311,7 +311,7 @@ UTILITY_SHARED_CONSUMERS = ("libstatic_utility.a", "libderen_engine.a", "libdere
 # archive, that archive built its own copy of the shared code (the exact thing the split prevents).
 UTILITY_SHARED_MEMBERS = ("shared_utility.cpp.obj", "shared_utility.cppm.obj", "better_pmr.cpp.obj",
                           "memory.cpp.obj", "allocation_failure.cpp.obj", "stacktrace.cpp.obj",
-                          "stacktrace_native.cpp.obj", "log_rotation_claim.cpp.obj")
+                          "stacktrace_native.cpp.obj", "stacktrace_posix.cpp.obj", "log_rotation_claim.cpp.obj")
 
 
 def check_shared_utility(build_dir: str, nm: str) -> dict:
@@ -615,7 +615,7 @@ def write_json(path: str, data: dict) -> None:
 
 
 def main() -> int:
-    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     scripts_dir = os.path.dirname(os.path.abspath(__file__))
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -643,7 +643,7 @@ def main() -> int:
                              "entry, no whitelist entry the ratchet never tracked, application evidence, and no "
                              "engine/application import of a module deren_vulkan owns")
     parser.add_argument("--whitelist", default=None,
-                        help="the flip gate's whitelist (default: source/scripts/backend_boundary_whitelist.json; "
+                        help="the flip gate's whitelist (default: scripts/backend_boundary_whitelist.json; "
                              "shrink-only, hand-edited, never written by --update)")
     parser.add_argument("--repo-root", default=None,
                         help="the tree whose CMakeLists names deren_vulkan's modules and whose sources are "

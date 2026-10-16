@@ -1,8 +1,8 @@
 # Run deren (Windows). Usage:
-#     powershell -ExecutionPolicy Bypass -File source/scripts/windows/run.ps1
-#     powershell -ExecutionPolicy Bypass -File source/scripts/windows/run.ps1 -Model path/to/model.glb
-#     powershell -ExecutionPolicy Bypass -File source/scripts/windows/run.ps1 -Model ... -Grid 8
-#     powershell -ExecutionPolicy Bypass -File source/scripts/windows/run.ps1 -Config my.toml -Type Debug
+#     powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1
+#     powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1 -Model path/to/model.glb
+#     powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1 -Model ... -Grid 8
+#     powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1 -Config my.toml -Type Debug
 #
 # Runs from the repo root so source/shaders/ and gltf_model/ are located by the
 # auto-discovery (or read config.toml). Extra positional args after -- are
@@ -19,10 +19,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$root = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent | Split-Path -Parent
+$root = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
 $exe = Join-Path $root "build-$($Type.ToLowerInvariant())-clang64\deren.exe"
 if (-not (Test-Path $exe)) {
-    Write-Error "not built: $exe`nRun source/scripts/windows/build.ps1 first."
+    Write-Error "not built: $exe`nRun scripts/windows/build.ps1 first."
 }
 
 $args = [System.Collections.Generic.List[string]]::new()

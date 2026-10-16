@@ -6,7 +6,7 @@ repository ships is rigid, and a rigid model cannot show the one thing this fixt
 that moves inside its own object space. `shared_skin_two_nodes.gltf` has a skin but no animation
 channel, so it never deforms either. A hand-written plane grid with per-vertex weights is a base64
 blob nobody can review, so the geometry is emitted from here instead - the same reason
-source/scripts/bake_toon_ramp.py exists on the NPR branch.
+scripts/bake_toon_ramp.py exists on the NPR branch.
 
 THE SHAPE OF THE TEST, which is why the asset is a swinging flag rather than a rotating cube:
 
@@ -21,8 +21,8 @@ the whole swinging half reports "did not move" (the flat olive of gbuffer_debug'
 and after it reports the motion it actually has.
 
 Usage:
-    python source/scripts/make_animated_skin_fixture.py                  # write the committed fixture
-    python source/scripts/make_animated_skin_fixture.py --grid 24 --out /tmp/big.gltf
+    python scripts/make_animated_skin_fixture.py                  # write the committed fixture
+    python scripts/make_animated_skin_fixture.py --grid 24 --out /tmp/big.gltf
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out",
         type=Path,
-        default=Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "animated_skin_plane.gltf",
+        default=Path(__file__).resolve().parent.parent / "source" / "tests" / "fixtures" / "animated_skin_plane.gltf",
         help="output .gltf path (default: source/tests/fixtures/animated_skin_plane.gltf)",
     )
     return parser.parse_args()
@@ -146,7 +146,7 @@ def build(args: argparse.Namespace) -> dict:
     document = {
         "asset": {
             "version": "2.0",
-            "generator": "source/scripts/make_animated_skin_fixture.py: one skin, two joints, a swinging flag",
+            "generator": "scripts/make_animated_skin_fixture.py: one skin, two joints, a swinging flag",
         },
         "scene": 0,
         "scenes": [{"nodes": [0, 2]}],

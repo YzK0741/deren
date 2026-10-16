@@ -7,7 +7,7 @@ to the device through that interface alone. Everything a second backend has to s
 **Measured at this version** (on the artifacts, not read from the code): `deren.exe` imports **no**
 graphics API, the engine's object files carry **no** unresolved `vk*` symbol, and **no** engine source
 names the graphics API. A backend *module* is not importable by the engine either - the loader is the
-only door, and `source/scripts/check_backend_boundary.py` is the gate that keeps it that way.
+only door, and `scripts/check_backend_boundary.py` is the gate that keeps it that way.
 
 ## The contract: `deren.promise.rhi`
 
@@ -146,8 +146,8 @@ is crossed.
 
 | gate | question |
 | --- | --- |
-| `source/scripts/check_native_boundary.py` | the executable's import table, the engine objects' unresolved symbols, and the engine sources' vocabulary |
-| `source/scripts/check_backend_boundary.py` | the symbol ratchet, the whitelist (empty now) and the export table of each plugin |
+| `scripts/check_native_boundary.py` | the executable's import table, the engine objects' unresolved symbols, and the engine sources' vocabulary |
+| `scripts/check_backend_boundary.py` | the symbol ratchet, the whitelist (empty now) and the export table of each plugin |
 | the render gates (`check_render.ps1`, `check_gui.ps1`, `check_rt.ps1`) | that the application really runs the backend it resolved: 14 frozen pixel-identical scenarios, a GUI on/off pair, and a GPU ray-traversal probe |
 
 ## Still open

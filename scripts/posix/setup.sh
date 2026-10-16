@@ -2,7 +2,7 @@
 # POSIX (Linux / WSL / macOS) environment setup for deren.
 #
 # Run from anywhere:
-#     sh source/scripts/posix/setup.sh
+#     sh scripts/posix/setup.sh
 #
 # The glTF parser (fastgltf + simdjson), texture decoder (stb_image) and VMA
 # are vendored under source/third_party/, so the only system dependencies are the
@@ -13,13 +13,13 @@
 # use your own package manager.
 #
 # Afterwards:
-#     sh source/scripts/posix/build.sh              # Debug + Release
-#     sh source/scripts/posix/run.sh                # run the demo
-#     sh source/scripts/posix/run.sh <model.glb> gui
+#     sh scripts/posix/build.sh              # Debug + Release
+#     sh scripts/posix/run.sh                # run the demo
+#     sh scripts/posix/run.sh <model.glb> gui
 
 set -eu
 
-root=$(CDPATH= cd "$(dirname "$0")/../../.." && pwd)
+root=$(CDPATH= cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 
 echo "== deren: POSIX environment setup =="
@@ -130,5 +130,5 @@ fi
 
 echo ""
 echo "environment ready. Next:"
-echo "  sh source/scripts/posix/build.sh      # Debug + Release"
-echo "  sh source/scripts/posix/run.sh        # run the demo"
+echo "  sh scripts/posix/build.sh      # Debug + Release"
+echo "  sh scripts/posix/run.sh        # run the demo"

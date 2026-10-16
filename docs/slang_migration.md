@@ -690,7 +690,7 @@ TWO ROUTES EXIST FOR THOSE STAGES, and neither needs the gate's references to be
 6. **Then the migration's own endgame**, none of it started: move the GLSL sources to `glsl.old/`, make
    `slangc` a required tool instead of a two-phase fallback, drop the `glslc` rules from `CMakeLists.txt`,
    and sync `Doxyfile` (`EXTENSION_MAPPING` for `.slang`), `docs/shaders.md`, the README's shader section
-   and `source/scripts/windows/compile_shaders.ps1` / `compile_shaders.sh`. CI cannot get `slangc` from MSYS2
+   and `scripts/windows/compile_shaders.ps1` / `compile_shaders.sh`. CI cannot get `slangc` from MSYS2
    (`pacman -Ss slang` has no package), so the release job needs the LunarG SDK's `Bin` on PATH or a Slang
    build step.
 

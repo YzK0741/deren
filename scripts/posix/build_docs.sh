@@ -3,7 +3,7 @@
 # compiled to PDF (docs/latex/refman.pdf).
 # POSIX sh (Linux / WSL / macOS / MSYS2 shell): run it from anywhere; the
 # script resolves the repo root. Usage:
-#     sh source/scripts/posix/build_docs.sh
+#     sh scripts/posix/build_docs.sh
 # Requires: doxygen on PATH (or the standard Windows/Unix install dirs) and a
 # TeX toolchain — make + pdflatex/makeindex, latexmk, or bare pdflatex
 # (MiKTeX's per-user install under %LOCALAPPDATA% is found automatically).
@@ -15,8 +15,8 @@
 
 set -eu
 
-# project root = three levels up from source/scripts/<platform>/ holding this script
-root=$(CDPATH= cd "$(dirname "$0")/../../.." && pwd)
+# project root = two levels up from scripts/<platform>/ holding this script
+root=$(CDPATH= cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 
 # normalize a (possibly Windows-style) path for POSIX tests

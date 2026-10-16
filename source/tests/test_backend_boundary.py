@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 
-SCRIPT = Path(__file__).resolve().parents[2] / "source/scripts/check_backend_boundary.py"
+SCRIPT = Path(__file__).resolve().parents[2] / "scripts/check_backend_boundary.py"
 
 
 class BoundaryTests(unittest.TestCase):
@@ -373,7 +373,7 @@ class BoundaryTests(unittest.TestCase):
         # DEPARTURE rather than deleted silently - so the file still says what happened, and the DLL's
         # export table (exactly one `deren_*`) is the surface the flip gate checks instead.
         repository = Path(__file__).resolve().parents[2]
-        scripts = repository / "source" / "scripts"
+        scripts = repository / "scripts"
         self.assertFalse((scripts / "backend_boundary_whitelist.json").exists(),
                          "the legacy whitelist was deleted with source/backends/vulkan/runtime (S5)")
         self.assertFalse((scripts / "backend_boundary_baseline.mingw.json").exists(),

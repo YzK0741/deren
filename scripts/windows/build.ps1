@@ -1,9 +1,9 @@
 # Build deren (Windows). Requires the MSYS2 clang64 toolchain on
-# PATH (run source/scripts/windows/setup.sh first, or start an MSYS2 clang64 shell).
+# PATH (run scripts/windows/setup.sh first, or start an MSYS2 clang64 shell).
 # Usage:
-#     powershell -ExecutionPolicy Bypass -File source/scripts/windows/build.ps1
-#     powershell -ExecutionPolicy Bypass -File source/scripts/windows/build.ps1 -Type Debug
-#     powershell -ExecutionPolicy Bypass -File source/scripts/windows/build.ps1 -Type Release -Clean
+#     powershell -ExecutionPolicy Bypass -File scripts/windows/build.ps1
+#     powershell -ExecutionPolicy Bypass -File scripts/windows/build.ps1 -Type Debug
+#     powershell -ExecutionPolicy Bypass -File scripts/windows/build.ps1 -Type Release -Clean
 #
 # Build directories: build-debug-clang64 / build-release-clang64 in the repo
 # root (not committed). A full Debug + Release pass is the default.
@@ -15,7 +15,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$root = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent | Split-Path -Parent
+$root = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
 Push-Location $root
 
 # ---- make clang64 reachable (idempotent) ----
@@ -28,7 +28,7 @@ if (-not (Get-Command clang++ -ErrorAction SilentlyContinue)) {
     }
 }
 if (-not (Get-Command clang++ -ErrorAction SilentlyContinue)) {
-    Write-Error 'clang++ not found. Run source/scripts/windows/setup.sh (MSYS2 clang64) or add clang64\bin to PATH.'
+    Write-Error 'clang++ not found. Run scripts/windows/setup.sh (MSYS2 clang64) or add clang64\bin to PATH.'
 }
 
 # ---- Vulkan SDK: cmake's find_package(Vulkan) reads VULKAN_SDK ----
@@ -64,4 +64,4 @@ foreach ($config in $Type) {
     $dir = Join-Path $root "build-$($config.ToLowerInvariant())-clang64"
     Write-Host "  $dir\deren.exe  ($config)"
 }
-Write-Host 'run with:  powershell -ExecutionPolicy Bypass -File source/scripts/windows/run.ps1'
+Write-Host 'run with:  powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1'

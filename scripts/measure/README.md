@@ -6,7 +6,7 @@ be re-derived at all: the feature docs quote means, 4x4 tile tables and per-mate
 them came out of one of these.
 
 They need Python 3 with Pillow (`python -c "import PIL"` must work) and nothing else. The captures they
-read come from `source/scripts/windows/capture.ps1`, which lands PNGs in `<BuildDir>/capture/`.
+read come from `scripts/windows/capture.ps1`, which lands PNGs in `<BuildDir>/capture/`.
 
 ## The instruments
 

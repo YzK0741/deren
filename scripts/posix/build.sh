@@ -1,15 +1,15 @@
 #!/bin/sh
 # Build deren on POSIX (Linux / WSL / macOS).
 # Usage:
-#     sh source/scripts/posix/build.sh                 # Debug + Release
-#     sh source/scripts/posix/build.sh Debug           # one config
-#     sh source/scripts/posix/build.sh Release Clean   # clean rebuild
+#     sh scripts/posix/build.sh                 # Debug + Release
+#     sh scripts/posix/build.sh Debug           # one config
+#     sh scripts/posix/build.sh Release Clean   # clean rebuild
 #
 # Build directories: build-debug / build-release in the repo root.
 
 set -eu
 
-root=$(CDPATH= cd "$(dirname "$0")/../../.." && pwd)
+root=$(CDPATH= cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 
 configs="Debug Release"
@@ -41,4 +41,4 @@ for config in $configs; do
     dir="build-$(echo "$config" | tr '[:upper:]' '[:lower:]')"
     echo "  $dir/deren  ($config)"
 done
-echo "run with: sh source/scripts/posix/run.sh"
+echo "run with: sh scripts/posix/run.sh"

@@ -25,7 +25,7 @@ must read a clearly non-zero `moved` after, while a PINNED pose (same matrices e
 read 100% still: that is the null test which says the new path can be zero.
 
 Usage:
-    python source/scripts/measure/motion_channel.py <motion_on.png> <motion_static_reference.png>
+    python scripts/measure/motion_channel.py <motion_on.png> <motion_static_reference.png>
 """
 
 from __future__ import annotations

@@ -7,16 +7,15 @@ import sys
 import time
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import symbolize_stacktrace
 from stacktrace_process import run_bounded
 
-SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 DECODER = SCRIPTS / "symbolize_stacktrace.py"
 
 # A crash record with the two shapes that matter: the first frame IS the fault PC (0x2340 in
-# C:\build\deren.exe), the second is a return address (0x1100). Both bases are non-zero so the
-# decoder does not skip them.
+# C:\build\deren.exe), the second is a return address (0x1100).
 RAW_CRASH = (
     "deren crash code=0xc0000005 fault_pc=0x50002340\n"
     "deren raw stack v1 frames=2 truncated=0\n"
@@ -169,6 +168,14 @@ class DecoderTests(unittest.TestCase):
             result = self._decoder_run(directory, tool, RAW_PANIC)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(self._handed(result), ["0x233f", "0x10ff"])
+
+    def test_elf_zero_load_bias_is_still_a_resolved_module(self):
+        with ScratchDirectory("decoder-elf") as directory:
+            tool = self._fake_tool(directory, "echo all=%*")
+            raw = "frame pc=0x401100 base=0x0 rva=0x401100 module=/tmp/probe\n"
+            result = self._decoder_run(directory, tool, raw)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self._handed(result), ["0x4010ff"])
 
     def test_every_concatenated_record_has_its_own_exact_frame(self):
         with ScratchDirectory("decoder-records") as directory:

@@ -12,9 +12,9 @@ excluded according to their actual CMake target ownership. Every portable module
 including the shared render layout, is checked without source exemptions.
 
 USAGE
-  python source/scripts/check_native_boundary.py                       # report (exit 0)
-  python source/scripts/check_native_boundary.py --require-zero        # fail while anything is left
-  python source/scripts/check_native_boundary.py --build-dir build-release-dyn-clang64
+  python scripts/check_native_boundary.py                       # report (exit 0)
+  python scripts/check_native_boundary.py --require-zero        # fail while anything is left
+  python scripts/check_native_boundary.py --build-dir build-release-dyn-clang64
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ import re
 import subprocess
 import sys
 
-REPO = pathlib.Path(__file__).resolve().parents[2]
+REPO = pathlib.Path(__file__).resolve().parents[1]
 
 # The steps that DO NOT COUNT against the engine, with the reason (see the module docstring).
 ALLOWED = ()
@@ -33,7 +33,7 @@ ALLOWED = ()
 # Sources of the SMALL STATIC LIBRARIES the DLL links (they are compiled into `deren_vulkan.dll` even though
 # they are not in its own `target_sources` block). Read from CMakeLists.txt the same way the DLL's list is, so
 # a file that joins or leaves one of those targets cannot drift out of this gate.
-DLL_LINKED_TARGETS = ("vulkan_error_tables", "vulkan_constant_init")
+DLL_LINKED_TARGETS = ("vulkan_error_tables", "vulkan_constant_init", "vulkan_synchronization")
 PLUGIN_TARGETS = ("deren_vulkan", "deren_gui_vulkan")
 
 # What "touching the API" means in source: a TYPE, a MACRO, an entry point, the escape's native-handle door, or
@@ -232,3 +232,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+

@@ -6,7 +6,7 @@
 # the gate. It cannot answer "what does this KNOB do", because every measurement here is an A/B on one
 # setting of one frame of one scene, taken dozens of times with different values. This is that
 # instrument: one base config, a list of [render] overrides, and a named capture the python tools in
-# source/scripts/measure/ can be pointed at.
+# scripts/measure/ can be pointed at.
 #
 # The overrides are applied to WHOLE LINES in the [render] table (a key that is not already there is
 # appended), and the script asserts that every override actually changed the file - the repository's
@@ -16,9 +16,9 @@
 # means the run you are about to read is the run you already have.
 #
 # Usage:
-#   pwsh -File source/scripts/windows/capture.ps1 -Base my.toml -Tag exp1 -Overrides "ssao_radius=2.0"
-#   pwsh -File source/scripts/windows/capture.ps1 -Base my.toml -Tag wide -Camera "90,0,6.41,0,-18.548,0" -Frames 120
-#   pwsh -File source/scripts/windows/capture.ps1 -Base my.toml -Tag asan -BuildDir build-asan
+#   pwsh -File scripts/windows/capture.ps1 -Base my.toml -Tag exp1 -Overrides "ssao_radius=2.0"
+#   pwsh -File scripts/windows/capture.ps1 -Base my.toml -Tag wide -Camera "90,0,6.41,0,-18.548,0" -Frames 120
+#   pwsh -File scripts/windows/capture.ps1 -Base my.toml -Tag asan -BuildDir build-asan
 #
 # -Base is resolved relative to the WORK directory (see -WorkDir), which is where the configs and the
 # captures live; -Camera "" leaves the pose to the scene's own `camera_fit`, which is deterministic for
@@ -32,7 +32,7 @@
 #
 # The captures land beside the build (`<BuildDir>/gi-probe/`), NOT in the repository: they are 4 MB of
 # scratch per frame and belong with the binaries they came from. That is also why the instruments they
-# are read with now live in the repository (source/scripts/measure/) while the images do not.
+# are read with now live in the repository (scripts/measure/) while the images do not.
 
 param(
     [Parameter(Mandatory = $true)][string]$Base,
@@ -54,7 +54,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $here = $PSScriptRoot
-$repo = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $here))
+$repo = Split-Path -Parent (Split-Path -Parent $here)
 if (-not $WorkDir) { $WorkDir = Join-Path $repo "$BuildDir\gi-probe" }
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 # THE WORK DIRECTORY IS RESOLVED TO AN ABSOLUTE PATH HERE, once, because the config path below is handed to a
@@ -214,12 +214,12 @@ if ($bad) {
 } else {
     Write-Host "  validation clean" -ForegroundColor Green
 }
-# The instruments in source/scripts/measure/ need Pillow, and a shell whose `python` is a different one (a
+# The instruments in scripts/measure/ need Pillow, and a shell whose `python` is a different one (a
 # toolchain's, say) turns that into a traceback under a capture that otherwise succeeded - which reads
 # as a failed run. Say what is missing instead.
 python -c "import PIL" 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "  capture OK, but this shell's python has no Pillow: run 'python source/scripts/measure/mean.py $out' with one that does" -ForegroundColor Yellow
+    Write-Host "  capture OK, but this shell's python has no Pillow: run 'python scripts/measure/mean.py $out' with one that does" -ForegroundColor Yellow
 } else {
     python $mean_tool $out
 }

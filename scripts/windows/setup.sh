@@ -3,7 +3,7 @@
 #
 # Run this from an MSYS2 shell (any of mingw64/clang64/msys terminals work -
 # the script switches to the clang64 toolchain itself):
-#     sh source/scripts/windows/setup.sh
+#     sh scripts/windows/setup.sh
 #
 # What it does:
 #   1. Locates the MSYS2 clang64 toolchain (clang / cmake / ninja must be
@@ -15,11 +15,11 @@
 #   4. Copies config.example.toml to config.toml when missing.
 #
 # Afterwards build with the PowerShell script (or cmake directly):
-#     powershell -ExecutionPolicy Bypass -File source/scripts/windows/build.ps1
+#     powershell -ExecutionPolicy Bypass -File scripts/windows/build.ps1
 
 set -eu
 
-root=$(CDPATH= cd "$(dirname "$0")/../../.." && pwd)
+root=$(CDPATH= cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 
 echo "== deren: Windows (MSYS2) environment setup =="
@@ -99,5 +99,5 @@ fi
 
 echo ""
 echo "environment ready. Next:"
-echo "  powershell -ExecutionPolicy Bypass -File source/scripts/windows/build.ps1   # Debug+Release"
-echo "  powershell -ExecutionPolicy Bypass -File source/scripts/windows/run.ps1     # run the demo"
+echo "  powershell -ExecutionPolicy Bypass -File scripts/windows/build.ps1   # Debug+Release"
+echo "  powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1     # run the demo"

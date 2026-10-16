@@ -67,7 +67,7 @@ def main() -> int:
             # The recorded `pc` is deliberately NOT read: the exact/return split is positional.
             base, offset = (int(frame[i], 16) for i in (2, 3))
             module = frame[4]
-            if not args.symbolizer or not module or not base:
+            if not args.symbolizer or not module:
                 failures += 1
                 continue
             if args.module_dir:
