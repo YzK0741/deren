@@ -4,13 +4,17 @@
 
 > The project was renamed from `vulkan_render` to `deren` on 2026-10-02. Portable modules now use `deren.engine.*` and `deren::engine`; native Vulkan implementations retain `deren.vulkan.*` and `deren::vulkan`.
 
+![The Gaussian viewer: NVIDIA's Bouquet of Flowers (CC BY-SA 4.0), 562,974 splats, rendered by deren](docs/screenshots/gaussian-viewer.jpg)
+
+[Gaussian splatting details and viewer setup](#gaussian-splatting).
+
 <p align="center">
-  <img src="snapshot/DamagedHelmet.png" width="49%" alt="DamagedHelmet with PBR + IBL + shadows" />
-  <img src="snapshot/FlightHelmet.png" width="49%" alt="FlightHelmet with PBR + IBL + shadows" />
+  <img src="docs/screenshots/DamagedHelmet.png" width="49%" alt="DamagedHelmet with PBR + IBL + shadows" />
+  <img src="docs/screenshots/FlightHelmet.png" width="49%" alt="FlightHelmet with PBR + IBL + shadows" />
 </p>
 
 <p align="center">
-  <img src="snapshot/CharacterForward.png" width="34%" alt="The character-forward pipeline on a posed anime model" />
+  <img src="docs/screenshots/CharacterForward.png" width="34%" alt="The character-forward pipeline on a posed anime model" />
 </p>
 
 <sub>The two helmet shots are the default configuration as it stood when they were captured - deferred shading
@@ -19,19 +23,70 @@ with SSAO, the cascaded shadows, the IBL prefilter and the traced-GI path that h
 than re-taken by hand. The character shot is the character-forward pipeline on a posed anime
 model; that session had the `toon shading` combo at `off (plain pbr)`, so the shading response is the smooth
 one and the banded cel looks are the combo's other values (see **Cel/toon shading** below). The debug overlay,
-the title bar and the taskbar were cropped away. See [`snapshot/README.md`](snapshot/README.md) for both.</sub>
+the title bar and the taskbar were cropped away. See [`docs/screenshots/README.md`](docs/screenshots/README.md) for both.</sub>
+
+## Build helpers
+
+The repo ships setup / build / run scripts under `scripts/` for the two
+main platforms — **Windows** (MSYS2 clang64; the environment check + package
+install is a POSIX `sh` script run inside MSYS2, configure/build/run are
+PowerShell) and **POSIX** (Linux / WSL / macOS; everything is `sh`).
+Python is used for the config generators (cross-platform, no shell needed):
+
+```bash
+# config.toml helpers (any platform, Python 3.8+):
+python scripts/make_default_config.py     # copy config.example.toml as-is (asks where to put it)
+python scripts/make_config.py             # interactive: asks every setting (types + defaults shown)
+python scripts/make_config.py path/to/dir # write config.toml into an explicit directory
+```
+
+**Windows (MSYS2)**
+
+```bash
+# 1. in an MSYS2 shell: check clang64, install missing pacman packages,
+#    find the Vulkan SDK, create config.toml from the example
+sh scripts/windows/setup.sh
+
+# 2. build Debug + Release (PowerShell; clang64 bin must be reachable)
+powershell -ExecutionPolicy Bypass -File scripts/windows/build.ps1
+#    or one config / clean:
+powershell -ExecutionPolicy Bypass -File scripts/windows/build.ps1 -Type Release -Clean
+
+# 3. run (PowerShell; forwards extra args to the executable)
+powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1
+powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1 -Model path/to/model.glb -Demo gui
+```
+
+Builds land in `build-debug-clang64/` and `build-release-clang64/`.
+
+**POSIX (Linux / WSL / macOS)**
+
+```sh
+sh scripts/posix/setup.sh     # detect distro, install glfw/glm/toml++/Vulkan via apt/dnf/pacman/brew
+sh scripts/posix/build.sh     # Debug + Release
+sh scripts/posix/run.sh       # run; extra args (model / grid side) are forwarded
+sh scripts/posix/run.sh path/to/model.glb
+```
+
+Builds land in `build-debug/` and `build-release/`.
+
+The Doxygen HTML + LaTeX manual build with `scripts/windows/build_docs.ps1`
+(Windows / PowerShell) or `scripts/posix/build_docs.sh` (POSIX sh) — see the
+[Documentation](#documentation) section.
 
 ## Source layout
 
-All project code lives under `source/`:
+C++ code and shader sources live under `source/`:
 
 - `engine/`: scene, animation, runtime, resources and passes; filters live in `engine/filters/`.
 - `backends/vulkan/`: native Vulkan implementation and GUI plugin.
 - `promise/`: backend-independent RHI and GUI contracts.
 - `app/`, `application_configuration/`, `gltf_loader/`, `utility/`, `vstd/`: application and supporting modules.
-- `tests/`, `scripts/`, `shaders/`, `third_party/`: tests, development tools, shader inputs and vendored code.
+- `tests/`, `shaders/`, `third_party/`: tests, shader inputs and vendored code.
 
-The engine CMake target is `deren_engine` (`deren::engine`). Build shader outputs remain in `<build>/shaders/`; manual shader tools write to the repository `shaders/` output directory. Documentation, configuration, model assets and snapshots remain at the root.
+Development and build tools live in root-level `scripts/`; README images live in `docs/screenshots/`.
+
+The engine CMake target is `deren_engine` (`deren::engine`). Build shader outputs remain in `<build>/shaders/`; manual shader tools write to the repository `shaders/` output directory. Documentation and screenshots live in `docs/`; configuration and model assets remain at the root.
 
 ## Version
 
@@ -124,15 +179,13 @@ that do not consume a semver slot (e.g. `deren.gltf_loader` 0.1.0a after the swi
 
 ## Gaussian splatting
 
-![The Gaussian viewer: NVIDIA's Bouquet of Flowers (CC BY-SA 4.0), 562,974 splats, rendered by deren](docs/images/gaussian-viewer.jpg)
-
 A `.ply` in the `model` key IS a Gaussian splat cloud and nothing else: the extension picks the loader (`.gltf`/`.glb` to the scene importer, `.ply` to `deren::gaussian::load_ply`, anything else refused by name), the cloud is packed onto the device once, and a `gaussian` stage the renderer records between the lighting stage and the blended geometry draws it every frame over the opaque depth. No model is loaded with it - the frame's only other leaf is a placeholder the application builds itself - so what you see is the cloud over the environment.
 
 Measured on the screenshot above (RTX 4060 Laptop, 1280x720): **562,974 splats**, SH degree 3, **135.1 MB** of static tables uploaded once, **zero** validation errors, and a per-frame cost that is CPU-side and parallel across the machine's cores - 67 ms depth sort + 33 ms projection/SH on 16 threads, which is the 9.7 fps the panel shows (the design's out-of-scope item, GPU sorting, is what would take the rest off the CPU).
 
 ```powershell
 # fetch the asset (133 MB, CC BY-SA 4.0 - fetched, never committed) and point config.toml at it:
-./source/scripts/fetch_gaussian_viewer_asset.ps1 -BuildDir build-release-dyn-clang64
+./scripts/fetch_gaussian_viewer_asset.ps1 -BuildDir build-release-dyn-clang64
 #   config.toml:  model = "gaussian-viewer\\flowers\\flowers_1\\flowers_1.ply"
 ./build-release-dyn-clang64/deren.exe    # left-drag orbit, wheel zoom, F12 screenshot, F1 panel, ESC quit
 ```
@@ -141,14 +194,14 @@ Measured on the screenshot above (RTX 4060 Laptop, 1280x720): **562,974 splats**
 
 ## Documentation
 
-The project uses **Doxygen** for API documentation; every module, class, interface **and shader** is annotated in-source with `@defgroup` / `@brief`. The shader sources are part of the generated reference too: `Doxyfile` maps `*.slang` (and the retired `*.vert` / `*.frag` / `*.comp` extensions, plus the `*.glsl` includes) to the C++ parser (`EXTENSION_MAPPING` + `FILE_PATTERNS`), so each shader gets a file page with its documented functions, all collected under the `shaders` group (see [docs/shaders.md](docs/shaders.md) for the pass chain, the shared scene-set binding table and the push-constant contract, and [docs/conventions.md](docs/conventions.md) for the module-name, verb-prefix and partition rules). The generated HTML and the LaTeX manual are **not** committed to the repo (they would drown the source tree in generated files) — build them whenever you need them with the platform wrapper script: `source/scripts/windows/build_docs.ps1` (PowerShell / Windows) or `source/scripts/posix/build_docs.sh` (POSIX sh — WSL / Linux / macOS / an MSYS2 shell). They run `doxygen Doxyfile`, then compile the LaTeX manual into `docs/latex/refman.pdf`:
+The project uses **Doxygen** for API documentation; every module, class, interface **and shader** is annotated in-source with `@defgroup` / `@brief`. The shader sources are part of the generated reference too: `Doxyfile` maps `*.slang` (and the retired `*.vert` / `*.frag` / `*.comp` extensions, plus the `*.glsl` includes) to the C++ parser (`EXTENSION_MAPPING` + `FILE_PATTERNS`), so each shader gets a file page with its documented functions, all collected under the `shaders` group (see [docs/shaders.md](docs/shaders.md) for the pass chain, the shared scene-set binding table and the push-constant contract, and [docs/conventions.md](docs/conventions.md) for the module-name, verb-prefix and partition rules). The generated HTML and the LaTeX manual are **not** committed to the repo (they would drown the source tree in generated files) — build them whenever you need them with the platform wrapper script: `scripts/windows/build_docs.ps1` (PowerShell / Windows) or `scripts/posix/build_docs.sh` (POSIX sh — WSL / Linux / macOS / an MSYS2 shell). They run `doxygen Doxyfile`, then compile the LaTeX manual into `docs/latex/refman.pdf`:
 
 ```bash
 # Windows (PowerShell)
-powershell -ExecutionPolicy Bypass -File source/scripts/windows/build_docs.ps1
+powershell -ExecutionPolicy Bypass -File scripts/windows/build_docs.ps1
 
 # POSIX (Linux / WSL / macOS)
-sh source/scripts/posix/build_docs.sh
+sh scripts/posix/build_docs.sh
 ```
 
 Raw equivalent: `doxygen Doxyfile` (HTML only). `Doxyfile` names the project `deren` (kept in step with `project()` in `CMakeLists.txt`), uses `docs/mainpage.md` as the manual's front page, and lists the `docs/*.md` pages one at a time rather than pointing at the whole directory - `docs/` also holds doxygen's own output and the two reference sets that are not this project's prose, so a new page has to be added to its `INPUT`, and the order of those lines is the manual's chapter order.
@@ -169,7 +222,7 @@ Related source docs (tracked in the repo):
 - [MegaLights reference study](docs/reference/megalights_stochastic_lighting.md) (what UE 5.8.2 does, as a mechanism reference)
 - [MegaLights: stochastic punctual lighting](docs/megalights.md) (the feature, its acceptance numbers and what it cost)
 - [mesh shaders](docs/mesh_shaders.md) (what the stage buys here, this device's limits, the heap-native mesh probe, the shadow pass's mesh stage, and the migration plan)
-- [capture harness](source/scripts/windows/check_render.ps1) and the [measurement instruments](source/scripts/measure/README.md) every number in the docs came out of
+- [capture harness](scripts/windows/check_render.ps1) and the [measurement instruments](scripts/measure/README.md) every number in the docs came out of
 - [source/shaders/reference/official/](source/shaders/reference/official/): reference shaders (IBL / PBR / primitive)
 
 ## Layout
@@ -207,9 +260,8 @@ Related source docs (tracked in the repo):
 │                            #   bodies the leaves include (surface/shading/sky/ibl_specular/heap_slots) stay
 │                            #   here - documented in-source and grouped under the Doxygen "shaders" group
 ├── gltf_model/              # Sample model (DamagedHelmet)
-├── snapshot/                # Screenshots
-├── docs/                    # Usage guides + reference shaders; Doxygen HTML is generated on demand (gitignored)
-├── source/scripts/                 # Platform-split helpers: windows/ (PowerShell build/run/docs/render-check and
+├── docs/                    # Usage guides, screenshots/ + reference shaders; Doxygen HTML is generated on demand (gitignored)
+├── scripts/                 # Platform-split helpers: windows/ (PowerShell build/run/docs/render-check and
 │                            #   capture.ps1; only setup.sh is sh — it must run inside MSYS2) and posix/ (sh),
 │                            #   plus config generators and measure/ (the instruments every number in
 │                            #   the feature docs came out of; see measure/README.md);
@@ -225,11 +277,11 @@ Related source docs (tracked in the repo):
 - [Vulkan SDK](https://vulkan.lunarg.com/sdk/home): what `find_package(Vulkan REQUIRED)` resolves against, and one of the places `slangc` can come from (`Bin/slangc.exe`; MSYS2 ships no Slang package). VMA is **not** taken from its `Include/`: `deren.vulkan.core:vma` includes the vendored `source/third_party/vma/vk_mem_alloc.h`, preferred because distro Vulkan packages do not ship that header
 - System packages: `glfw3`, `glm`, `tomlplusplus` (header-only; MSYS2 `mingw-w64-clang-x86_64-{glfw,glm,tomlplusplus}`)
 - Everything else is vendored under `source/third_party/`: `spirv-reflect`, Dear ImGui (GLFW/Vulkan backends), xxHash, **fastgltf + simdjson** (the glTF parser and its JSON backend, compiled from source into a `fastgltf_vendored` target), **stb_image** (texture decode) and **mimalloc** (allocator behind `deren.utility:better_pmr`, compiled into a `mimalloc_vendored` static target). No system fastgltf/simdjson/mimalloc package and no network fetch is needed — the build is self-contained on both Windows/MSYS2 and Linux. `glfw3`, `mimalloc`, `xxHash` and the other vendored libraries are still linked statically, but the **Windows Release** executable is a dynamic-C++-runtime build: it imports `libc++.dll` and needs four first-party images beside it — `deren_assets.dll` (the asset-loading stack, linked through its import library so the loader brings it in before `main`), `deren_vulkan.dll` and `deren_gui_vulkan.dll` (the two graphics plugins, each exporting one `deren_*` entry and each resolved BY NAME at run time) and `shared_utility.dll` (the process-wide log sink) — plus the build's compiled `source/shaders/` directory. `build-release-dyn-clang64/deren.exe` is therefore no longer a single portable file, and the CI artifact uploads exactly this package. Debug builds are dynamic for the same reason.
-- **Toolchains**: the build files carry an **MSVC** branch beside the clang64 one, and it is not what the scripts or CI drive (`source/scripts/windows/build.ps1` requires `clang++` and pins its directories to `build-<config>-clang64`; `.github/workflows/ci.yml` installs MSYS2 clang64). cl.exe cannot use the clang64 packages' include roots, so three cache variables point the build at unpacked copies instead: `VR_GLM_INCLUDE_DIR` (a directory containing the `glm/` subtree), `VR_GLFW_ROOT` (an unpacked GLFW release: `include/` + `lib-vc2022/`) and `VR_TOMLPP_INCLUDE_DIR` (the `toml++/` subtree). MSVC also builds `source/vstd/vstd_msvc.cppm` instead of `source/vstd/vstd.cppm`: the latter re-exports `std` partition by partition, which crashes cl.exe's front end (`C1001`) on `std::span` / `std::array` / `std::tuple` instantiation, so under MSVC `deren.vstd` re-exports the toolchain's own `std` module and the STL semantics are MSVC's rather than libc++'s. Some clang flags have no MSVC equivalent and are dropped instead of approximated - the comment above the MSVC branch in `CMakeLists.txt` lists them (`-fno-exceptions`, `-fno-rtti`, `-flto`, `-march=native`, `-static`, ...) - so the two toolchains do not produce the same binary shape (and neither Release build ships as a single file any more; see the bullet above).
+- **Toolchains**: the build files carry an **MSVC** branch beside the clang64 one, and it is not what the scripts or CI drive (`scripts/windows/build.ps1` requires `clang++` and pins its directories to `build-<config>-clang64`; `.github/workflows/ci.yml` installs MSYS2 clang64). cl.exe cannot use the clang64 packages' include roots, so three cache variables point the build at unpacked copies instead: `VR_GLM_INCLUDE_DIR` (a directory containing the `glm/` subtree), `VR_GLFW_ROOT` (an unpacked GLFW release: `include/` + `lib-vc2022/`) and `VR_TOMLPP_INCLUDE_DIR` (the `toml++/` subtree). MSVC also builds `source/vstd/vstd_msvc.cppm` instead of `source/vstd/vstd.cppm`: the latter re-exports `std` partition by partition, which crashes cl.exe's front end (`C1001`) on `std::span` / `std::array` / `std::tuple` instantiation, so under MSVC `deren.vstd` re-exports the toolchain's own `std` module and the STL semantics are MSVC's rather than libc++'s. Some clang flags have no MSVC equivalent and are dropped instead of approximated - the comment above the MSVC branch in `CMakeLists.txt` lists them (`-fno-exceptions`, `-fno-rtti`, `-flto`, `-march=native`, `-static`, ...) - so the two toolchains do not produce the same binary shape (and neither Release build ships as a single file any more; see the bullet above).
 
 #### Platform
 
-- **Windows x64** is the shipped configuration: the environment check, configure/build/run scripts under `source/scripts/windows/` are MSYS2 + PowerShell, and the Release build is the packaged runtime set described above (the executable plus the four first-party DLLs, `libc++.dll` and the compiled `source/shaders/`), so it runs on a machine with nothing installed but the GPU driver.
+- **Windows x64** is the shipped configuration: the environment check, configure/build/run scripts under `scripts/windows/` are MSYS2 + PowerShell, and the Release build is the packaged runtime set described above (the executable plus the four first-party DLLs, `libc++.dll` and the compiled `source/shaders/`), so it runs on a machine with nothing installed but the GPU driver.
 - **POSIX (Linux / WSL / macOS)** builds through the `sh` scripts and the same CMake files. The **MSVC** branch is maintained but is not what the scripts or CI drive (see the *Toolchains* bullet above).
 - Measured reference platform: **Windows 11 build 26300, x64**, MSYS2 **clang64**.
 
@@ -243,9 +295,9 @@ The version column gives **the minimum the build actually enforces** where there
 | **Clang + libc++ + lld** | MSYS2 **clang64**, clang **22.1.8** measured | C++23 with **C++20 modules** (`.cppm`). `source/vstd/vstd.cppm` is a trimmed fork of libc++'s generated `std` module, so the STL half of the build is tied to *libc++ from clang64* rather than to "a C++23 compiler" in the abstract — that is the toolchain `.github/workflows/ci.yml` installs and the one this tree's module/`import` semantics are tested on. |
 | **Ninja** | 1.13.2 measured | the generator every script and CI job uses |
 | **slangc** | **required**, pinned upstream release **2026.18.2** (`sha256 747602ae…`, the checksum CI verifies) | **Every shader stage is built from a `.slang` source and CMake refuses to configure without `slangc`** (`find_program` + `FATAL_ERROR`; the GLSL fallback and GLSL stage sources were both removed). MSYS2 ships no Slang package, so it comes from the upstream release zip or the Vulkan SDK's `Bin/`. Pass `-DVR_SLANGC_EXECUTABLE=<path>` or put it on `PATH`. |
-| **Python** | **≥ 3.8** for the scripts (3.14.7 measured) | `source/scripts/make_config.py`, `source/scripts/make_default_config.py`, and the boundary gate |
-| **PowerShell** | **7** (`pwsh`) | `source/scripts/windows/*`, including the render regression check |
-| **`llvm-nm`** | clang-tools-extra (`llvm-nm-18`/`-17` or GNU `nm` also work) | reads the static archives for `source/scripts/check_backend_boundary.py` (the backend-boundary ratchet). Build-time optional; the gate needs one of them. |
+| **Python** | **≥ 3.8** for the scripts (3.14.7 measured) | `scripts/make_config.py`, `scripts/make_default_config.py`, and the boundary gate |
+| **PowerShell** | **7** (`pwsh`) | `scripts/windows/*`, including the render regression check |
+| **`llvm-nm`** | clang-tools-extra (`llvm-nm-18`/`-17` or GNU `nm` also work) | reads the static archives for `scripts/check_backend_boundary.py` (the backend-boundary ratchet). Build-time optional; the gate needs one of them. |
 
 **Compiler dialect** (not a preference — the tree depends on it): C++23, `-fno-rtti`, `-fno-exceptions`, `-Werror`, and `-march=native` for local Release builds (CI sets `-DVR_NATIVE_ARCH=OFF` because it uploads the binary).
 
@@ -277,55 +329,6 @@ Measured reference device (this repository's development machine, and the hardwa
 
 - Each build tree is **~3.2 GB** measured (a Release tree with all test targets, `build-release-clang64`). A clean configure+build needs that much free space plus the object/PDB growth of a Debug tree if you keep one too.
 - **Models are not in the repository**: the renderer is run against `.glb` files you put under `chars/` next to the executable (or point `model` in `config.toml` elsewhere). The character models used for the regression scenarios are tens of megabytes each. A scenario whose model file is absent fails at load with a panic naming the path — that is a missing input, not a rendering bug.
-
-### Scripts
-
-The repo ships setup / build / run scripts under `source/scripts/` for the two
-main platforms — **Windows** (MSYS2 clang64; the environment check + package
-install is a POSIX `sh` script run inside MSYS2, configure/build/run are
-PowerShell) and **POSIX** (Linux / WSL / macOS; everything is `sh`).
-Python is used for the config generators (cross-platform, no shell needed):
-
-```bash
-# config.toml helpers (any platform, Python 3.8+):
-python source/scripts/make_default_config.py     # copy config.example.toml as-is (asks where to put it)
-python source/scripts/make_config.py             # interactive: asks every setting (types + defaults shown)
-python source/scripts/make_config.py path/to/dir # write config.toml into an explicit directory
-```
-
-**Windows (MSYS2)**
-
-```bash
-# 1. in an MSYS2 shell: check clang64, install missing pacman packages,
-#    find the Vulkan SDK, create config.toml from the example
-sh source/scripts/windows/setup.sh
-
-# 2. build Debug + Release (PowerShell; clang64 bin must be reachable)
-powershell -ExecutionPolicy Bypass -File source/scripts/windows/build.ps1
-#    or one config / clean:
-powershell -ExecutionPolicy Bypass -File source/scripts/windows/build.ps1 -Type Release -Clean
-
-# 3. run (PowerShell; forwards extra args to the executable)
-powershell -ExecutionPolicy Bypass -File source/scripts/windows/run.ps1
-powershell -ExecutionPolicy Bypass -File source/scripts/windows/run.ps1 -Model path/to/model.glb -Demo gui
-```
-
-Builds land in `build-debug-clang64/` and `build-release-clang64/`.
-
-**POSIX (Linux / WSL / macOS)**
-
-```sh
-sh source/scripts/posix/setup.sh     # detect distro, install glfw/glm/toml++/Vulkan via apt/dnf/pacman/brew
-sh source/scripts/posix/build.sh     # Debug + Release
-sh source/scripts/posix/run.sh       # run; extra args (model / grid side) are forwarded
-sh source/scripts/posix/run.sh path/to/model.glb
-```
-
-Builds land in `build-debug/` and `build-release/`.
-
-The Doxygen HTML + LaTeX manual build with `source/scripts/windows/build_docs.ps1`
-(Windows / PowerShell) or `source/scripts/posix/build_docs.sh` (POSIX sh) — see the
-[Documentation](#documentation) section.
 
 ### Manual build
 
@@ -364,9 +367,9 @@ Startup is driven by a TOML config file — copy `config.example.toml` to
 Two helpers generate `config.toml` for you: `make_default_config.py`
 (writes the example file as-is; only asks where to put it) and
 `make_config.py` (asks every setting with type hints and defaults) — see
-the [Scripts](#scripts) section.
+the [Build helpers](#build-helpers) section.
 
-Positional argv overrides the file: `argv[1]` = model path, `argv[2]` = grid side (a number). Configurable: model (or the value `"ask"`, which opens the platform's own file dialog at startup; cancelling it, or running where no dialog backend exists, falls back to the default model) / instancing grid, `shaders_dir` / `model_dir` paths, window size / title / vsync / clear color, the initial camera framing (`[render] camera_fit`), shadow & FXAA stage toggles, the render scale (`[render] render_scale`: the fraction of the window the RENDER chain runs at, which the frame's last pass resolves back up to the output extent - 1.0 is unscaled and exact) and which filter does that resolve (`[render] upscale`: `easu`, FSR 1's upsampler, or `linear` as the reference it is measured against), GPU pass timings (`[render] gpu_timings`), the G-buffer debug view (`[render] gbuffer_debug` / `gbuffer_channel`), TAA (`[render] taa` / `taa_blend_static` / `taa_blend_min`), cascaded shadow maps (`[render] shadow_cascades` / `shadow_cascade_blend` / `shadow_map_size`), ray-traced sun shadows (`[render] rt_shadows`, off by default and ignored on a device without ray queries) with their two dynamic-geometry mechanisms (`rt_mask_bake`, default off because its rule measured worse; `rt_skin_bake`, default off, a per-frame re-skin + BLAS refit), clustered light culling (`[render] clustered_lights` + `[lighting] demo_lights`), screen-space ambient occlusion (`[render] ssao` / `ssao_radius` / `ssao_intensity` / `ssao_samples`), the analytic verification mode (`[render] furnace`), pinning an animated scene's pose (`[render] animation_time`, negative = play, which is what makes a capture of an animated scene reproducible at all), the render mode (`[render] unlit`), IBL precompute resolutions, and the debug-panel default size. `config.example.toml` documents every key with the reasoning and the measured limits, and `source/scripts/make_config.py` generates a config interactively.
+Positional argv overrides the file: `argv[1]` = model path, `argv[2]` = grid side (a number). Configurable: model (or the value `"ask"`, which opens the platform's own file dialog at startup; cancelling it, or running where no dialog backend exists, falls back to the default model) / instancing grid, `shaders_dir` / `model_dir` paths, window size / title / vsync / clear color, the initial camera framing (`[render] camera_fit`), shadow & FXAA stage toggles, the render scale (`[render] render_scale`: the fraction of the window the RENDER chain runs at, which the frame's last pass resolves back up to the output extent - 1.0 is unscaled and exact) and which filter does that resolve (`[render] upscale`: `easu`, FSR 1's upsampler, or `linear` as the reference it is measured against), GPU pass timings (`[render] gpu_timings`), the G-buffer debug view (`[render] gbuffer_debug` / `gbuffer_channel`), TAA (`[render] taa` / `taa_blend_static` / `taa_blend_min`), cascaded shadow maps (`[render] shadow_cascades` / `shadow_cascade_blend` / `shadow_map_size`), ray-traced sun shadows (`[render] rt_shadows`, off by default and ignored on a device without ray queries) with their two dynamic-geometry mechanisms (`rt_mask_bake`, default off because its rule measured worse; `rt_skin_bake`, default off, a per-frame re-skin + BLAS refit), clustered light culling (`[render] clustered_lights` + `[lighting] demo_lights`), screen-space ambient occlusion (`[render] ssao` / `ssao_radius` / `ssao_intensity` / `ssao_samples`), the analytic verification mode (`[render] furnace`), pinning an animated scene's pose (`[render] animation_time`, negative = play, which is what makes a capture of an animated scene reproducible at all), the render mode (`[render] unlit`), IBL precompute resolutions, and the debug-panel default size. `config.example.toml` documents every key with the reasoning and the measured limits, and `scripts/make_config.py` generates a config interactively.
 
 Two extra dev-tool flags make a render reproducible without a human at the keyboard (they are stripped from argv before the config merge, so the positional slots above keep their meaning):
 
@@ -392,16 +395,16 @@ The PNG goes to `[paths] screenshot_dir` and the log line prints its full path. 
 
 ### Screenshot regression check (local)
 
-`source/scripts/windows/check_render.ps1` renders a fixed set of scenarios (fixed config, fixed camera,
+`scripts/windows/check_render.ps1` renders a fixed set of scenarios (fixed config, fixed camera,
 fixed frame count), screenshots each, and compares it to a reference captured earlier **on this
 machine**. It answers "did the frame change", not "is it better" - a difference means a change, and
 accepting one is the explicit `-Update` step that keeps it visible in review.
 
 ```powershell
-pwsh -File source/scripts/windows/check_render.ps1 -List      # the scenarios, and which tier each is
-pwsh -File source/scripts/windows/check_render.ps1            # the CORE set: 5 scenarios, 10 renders
-pwsh -File source/scripts/windows/check_render.ps1 -Full      # all 14 scenarios, 28 renders
-pwsh -File source/scripts/windows/check_render.ps1 -Update    # accept the current output as the reference
+pwsh -File scripts/windows/check_render.ps1 -List      # the scenarios, and which tier each is
+pwsh -File scripts/windows/check_render.ps1            # the CORE set: 5 scenarios, 10 renders
+pwsh -File scripts/windows/check_render.ps1 -Full      # all 14 scenarios, 28 renders
+pwsh -File scripts/windows/check_render.ps1 -Update    # accept the current output as the reference
 ```
 
 Fourteen scenarios are defined and each is tagged `core` or `extra`. The default run is the **core five** -

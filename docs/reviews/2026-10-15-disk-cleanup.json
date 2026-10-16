@@ -1,0 +1,3027 @@
+{
+  "Root": "C:\\Users\\23530\\Desktop\\yzk\\deren",
+  "FreeBeforeBytes": 879955968,
+  "Entries": [
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\CMakeFiles",
+      "Kind": "old-build-cache",
+      "Bytes": 1032239626.0,
+      "Directory": true
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren_assets.dll",
+      "Kind": "old-build-binary",
+      "Bytes": 1452032,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren_gui_vulkan.dll",
+      "Kind": "old-build-binary",
+      "Bytes": 1394688,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren_vulkan.dll",
+      "Kind": "old-build-binary",
+      "Bytes": 1670144,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 1765376,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 15388672,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\libapp_config.a",
+      "Kind": "old-build-binary",
+      "Bytes": 3312450,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\libbackend_loader.a",
+      "Kind": "old-build-binary",
+      "Bytes": 1015186,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\libchores.a",
+      "Kind": "old-build-binary",
+      "Bytes": 3122812,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\libderen_assets.dll.a",
+      "Kind": "old-build-binary",
+      "Bytes": 822096,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\libderen_engine.a",
+      "Kind": "old-build-binary",
+      "Bytes": 33669174,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\libderen_gui_vulkan.dll.a",
+      "Kind": "old-build-binary",
+      "Bytes": 1526,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\libderen_vulkan.dll.a",
+      "Kind": "old-build-binary",
+      "Bytes": 1512,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\libfastgltf_vendored.a",
+      "Kind": "old-build-binary",
+      "Bytes": 8997944,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\libgaussian_loader.a",
+      "Kind": "old-build-binary",
+      "Bytes": 397204,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\libimgui.a",
+      "Kind": "old-build-binary",
+      "Bytes": 4357052,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\libmimalloc_vendored.a",
+      "Kind": "old-build-binary",
+      "Bytes": 1542908,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\libpromise.a",
+      "Kind": "old-build-binary",
+      "Bytes": 247236,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\librenderer_layout.a",
+      "Kind": "old-build-binary",
+      "Bytes": 3908,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\libshared_utility.dll.a",
+      "Kind": "old-build-binary",
+      "Bytes": 274832,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\libstatic_utility.a",
+      "Kind": "old-build-binary",
+      "Bytes": 2803030,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\libvstd_lib.a",
+      "Kind": "old-build-binary",
+      "Bytes": 194058,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\libvulkan_constant_init.a",
+      "Kind": "old-build-binary",
+      "Bytes": 3560,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\libvulkan_error_tables.a",
+      "Kind": "old-build-binary",
+      "Bytes": 11770,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\libxxhash.a",
+      "Kind": "old-build-binary",
+      "Bytes": 289090,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\shared_utility.dll",
+      "Kind": "old-build-binary",
+      "Bytes": 1423872,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\test_acceleration_structures.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 704512,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\test_gui_plugin.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 89600,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\test_runtime_dyn.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 1135616,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\test_texture_group.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 688128,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\Microsoft.Management.Infrastructure.ni.pdb\\6f3c94d844dcf0618c106d3458b417c01\\Microsoft.Management.Infrastructure.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 412672,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\Microsoft.PowerShell.Commands.Diagnostics.ni.pdb\\df9b327fb80bb33b11584407b47fd66a1\\Microsoft.PowerShell.Commands.Diagnostics.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 519168,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\Microsoft.PowerShell.Commands.Management.ni.pdb\\6eb0c06d95d28cefffeea92d84ec85251\\Microsoft.PowerShell.Commands.Management.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 1469440,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\Microsoft.PowerShell.Commands.Utility.ni.pdb\\4a62fb67c16ec0ab674bf70e19ff03431\\Microsoft.PowerShell.Commands.Utility.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 5590016,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\Microsoft.PowerShell.ConsoleHost.ni.pdb\\46996ad023c4895efe78df6441d2685f1\\Microsoft.PowerShell.ConsoleHost.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 715776,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\Microsoft.PowerShell.Security.ni.pdb\\b0b88e79f987b5b86fa403fe43960b751\\Microsoft.PowerShell.Security.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 240640,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\Microsoft.WSMan.Management.ni.pdb\\0e3601aac95956277e5d6d6b94bd03291\\Microsoft.WSMan.Management.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 510976,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\mscorlib.ni.pdb\\cefeb8404f06fd53ab981ceb738ad4491\\mscorlib.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 14076928,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\mscorlib.ni.pdb\\d58223d72654fb5882ec14154690476f1\\mscorlib.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 11463680,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\PresentationCore.ni.pdb\\5803e9d76fbd2d263ebe8b600077e69e1\\PresentationCore.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 7703552,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\PresentationFramework.Aero2.ni.pdb\\e2d506573851f3a7b0f84ae96f9054ce1\\PresentationFramework.Aero2.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 101376,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\PresentationFramework.ni.pdb\\bb6e96e2369291f01fcc6afc4ab7a5aa1\\PresentationFramework.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 10849280,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.Configuration.Install.ni.pdb\\4ad70572e16c5482c1304b5bdd7a8b4e1\\System.Configuration.Install.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 60416,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.Configuration.ni.pdb\\07ce16efd4132774a956a4a797a39f261\\System.Configuration.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 543744,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.Configuration.ni.pdb\\833fe03366693fe7ff159f28536084151\\System.Configuration.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 502784,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.Core.ni.pdb\\9f907bb3ac59a07da05d1f58f79a9e951\\System.Core.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 6056960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.Core.ni.pdb\\bb07136870fe16689354570c12dfe6e61\\System.Core.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 6089728,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.Data.ni.pdb\\da58b87bdf01fd423956102e820782021\\System.Data.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 3779584,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.DirectoryServices.ni.pdb\\6d33ae64bd4aff47856e4c413acfee8c1\\System.DirectoryServices.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 576512,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.Drawing.ni.pdb\\0965a1c42e0c1dc106365dcb960b767c1\\System.Drawing.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 871424,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.Drawing.ni.pdb\\28d036f5145bae226d9b72692695eb581\\System.Drawing.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 936960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.Management.Automation.ni.pdb\\53c62a5c5e3377262a932f8c4090b6801\\System.Management.Automation.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 16493568,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.Management.ni.pdb\\2dcb8264b9d90fd29cf34533bf97ff7c1\\System.Management.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 379904,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.Management.ni.pdb\\b3ec645ff02c1e5f8dc3ce59af5963dc1\\System.Management.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 429056,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.ni.pdb\\4c3f76440960cd4a016a723cfd9955311\\System.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 5090304,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.ni.pdb\\7df64ae9a0def9c161dcc89b5b6cfc871\\System.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 5368832,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.Numerics.ni.pdb\\cc21eda5f660b6b7af57221026aa17641\\System.Numerics.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 150528,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.ServiceProcess.ni.pdb\\a23f888c7d40854283085181a5928f941\\System.ServiceProcess.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 84992,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.ServiceProcess.ni.pdb\\f1ab806894f673790d9e2fb89bdb64941\\System.ServiceProcess.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 93184,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.Transactions.ni.pdb\\87e84ed36eb3ec699534815b3ce7dfef1\\System.Transactions.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 379904,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.Windows.Forms.ni.pdb\\1446e1c786c3a44eda43b4e637aeaf3f1\\System.Windows.Forms.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 6507520,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.Windows.Forms.ni.pdb\\55e09867c5a194ed6ef8371c7a8f656f1\\System.Windows.Forms.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 7080960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.Xaml.ni.pdb\\1911fe5be2bd6c6ad8a6a2c1555d787a1\\System.Xaml.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 1027072,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.Xml.ni.pdb\\76545365d7c2ec7c5179314707d4fa231\\System.Xml.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 3836928,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\System.Xml.ni.pdb\\b9aa46ad030c43fa1d0f0049f48fb1e71\\System.Xml.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 4123648,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-clang64\\deren-flame.etl.NGENPDB\\WindowsBase.ni.pdb\\e35a956c050bf385918609ecdd4e46a81\\WindowsBase.ni.pdb",
+      "Kind": "old-build-binary",
+      "Bytes": 2223104,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\CMakeFiles",
+      "Kind": "old-build-cache",
+      "Bytes": 1126339881.0,
+      "Directory": true
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\deren_assets.dll",
+      "Kind": "old-build-binary",
+      "Bytes": 17758720,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\deren_gui_vulkan.dll",
+      "Kind": "old-build-binary",
+      "Bytes": 7054848,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\deren_vulkan.dll",
+      "Kind": "old-build-binary",
+      "Bytes": 16712704,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\deren.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 55503872,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\libapp_config.a",
+      "Kind": "old-build-binary",
+      "Bytes": 4185414,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\libbackend_loader.a",
+      "Kind": "old-build-binary",
+      "Bytes": 1372648,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\libchores.a",
+      "Kind": "old-build-binary",
+      "Bytes": 4052264,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\libderen_assets.dll.a",
+      "Kind": "old-build-binary",
+      "Bytes": 800408,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\libderen_engine.a",
+      "Kind": "old-build-binary",
+      "Bytes": 54135474,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\libderen_gui_vulkan.dll.a",
+      "Kind": "old-build-binary",
+      "Bytes": 1526,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\libderen_vulkan.dll.a",
+      "Kind": "old-build-binary",
+      "Bytes": 1512,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\libfastgltf_vendored.a",
+      "Kind": "old-build-binary",
+      "Bytes": 12296082,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\libgaussian_loader.a",
+      "Kind": "old-build-binary",
+      "Bytes": 558512,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\libimgui.a",
+      "Kind": "old-build-binary",
+      "Bytes": 5921164,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\libmimalloc_vendored.a",
+      "Kind": "old-build-binary",
+      "Bytes": 1543070,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\libpromise.a",
+      "Kind": "old-build-binary",
+      "Bytes": 345394,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\librenderer_layout.a",
+      "Kind": "old-build-binary",
+      "Bytes": 9414,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\libshared_utility.dll.a",
+      "Kind": "old-build-binary",
+      "Bytes": 258442,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\libstatic_utility.a",
+      "Kind": "old-build-binary",
+      "Bytes": 3666126,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\libvstd_lib.a",
+      "Kind": "old-build-binary",
+      "Bytes": 438924,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\libvulkan_constant_init.a",
+      "Kind": "old-build-binary",
+      "Bytes": 2236,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\libvulkan_error_tables.a",
+      "Kind": "old-build-binary",
+      "Bytes": 20088,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\libxxhash.a",
+      "Kind": "old-build-binary",
+      "Bytes": 289100,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\shared_utility.dll",
+      "Kind": "old-build-binary",
+      "Bytes": 2650112,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\test_acceleration_structures.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 5610496,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\test_gui_plugin.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 1643520,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\test_runtime_dyn.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 28249088,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-gaussian-clang64\\test_texture_group.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 4819968,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\CMakeFiles",
+      "Kind": "old-build-cache",
+      "Bytes": 1061203792.0,
+      "Directory": true
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\deren_assets.dll",
+      "Kind": "old-build-binary",
+      "Bytes": 17059840,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\deren_gui_vulkan.dll",
+      "Kind": "old-build-binary",
+      "Bytes": 6766080,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\deren_vulkan.dll",
+      "Kind": "old-build-binary",
+      "Bytes": 15679488,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\deren.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 46624256,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\libapp_config.a",
+      "Kind": "old-build-binary",
+      "Bytes": 4143194,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\libbackend_loader.a",
+      "Kind": "old-build-binary",
+      "Bytes": 1340938,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\libchores.a",
+      "Kind": "old-build-binary",
+      "Bytes": 3917906,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\libderen_assets.dll.a",
+      "Kind": "old-build-binary",
+      "Bytes": 822096,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\libderen_engine.a",
+      "Kind": "old-build-binary",
+      "Bytes": 45358848,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\libderen_gui_vulkan.dll.a",
+      "Kind": "old-build-binary",
+      "Bytes": 1526,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\libderen_vulkan.dll.a",
+      "Kind": "old-build-binary",
+      "Bytes": 1512,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\libfastgltf_vendored.a",
+      "Kind": "old-build-binary",
+      "Bytes": 11600512,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\libgaussian_loader.a",
+      "Kind": "old-build-binary",
+      "Bytes": 554116,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\libimgui.a",
+      "Kind": "old-build-binary",
+      "Bytes": 5611916,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\libmimalloc_vendored.a",
+      "Kind": "old-build-binary",
+      "Bytes": 1543016,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\libpromise.a",
+      "Kind": "old-build-binary",
+      "Bytes": 336922,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\librenderer_layout.a",
+      "Kind": "old-build-binary",
+      "Bytes": 9410,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\libshared_utility.dll.a",
+      "Kind": "old-build-binary",
+      "Bytes": 274832,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\libstatic_utility.a",
+      "Kind": "old-build-binary",
+      "Bytes": 3659620,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\libvstd_lib.a",
+      "Kind": "old-build-binary",
+      "Bytes": 438922,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\libvulkan_constant_init.a",
+      "Kind": "old-build-binary",
+      "Bytes": 2232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\libvulkan_error_tables.a",
+      "Kind": "old-build-binary",
+      "Bytes": 20080,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\libxxhash.a",
+      "Kind": "old-build-binary",
+      "Bytes": 289096,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\shared_utility.dll",
+      "Kind": "old-build-binary",
+      "Bytes": 2645504,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\test_acceleration_structures.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 5525504,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\test_gui_plugin.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 1604608,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\test_runtime_dyn.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 23068160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-profile-dwarf-clang64\\test_texture_group.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 4733952,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\CMakeFiles",
+      "Kind": "old-build-cache",
+      "Bytes": 1117615078.0,
+      "Directory": true
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\deren_assets.dll",
+      "Kind": "old-build-binary",
+      "Bytes": 30423040,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\libapp_config.a",
+      "Kind": "old-build-binary",
+      "Bytes": 9356174,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\libbackend_loader.a",
+      "Kind": "old-build-binary",
+      "Bytes": 2928378,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\libderen_assets.dll.a",
+      "Kind": "old-build-binary",
+      "Bytes": 1952810,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\libfastgltf_vendored.a",
+      "Kind": "old-build-binary",
+      "Bytes": 25667894,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\libgaussian_loader.a",
+      "Kind": "old-build-binary",
+      "Bytes": 1625578,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\libimgui.a",
+      "Kind": "old-build-binary",
+      "Bytes": 15272726,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\libloader_lock_fixture.dll",
+      "Kind": "old-build-binary",
+      "Bytes": 15872,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\libloader_lock_fixture.dll.a",
+      "Kind": "old-build-binary",
+      "Bytes": 1376,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\libmimalloc_vendored.a",
+      "Kind": "old-build-binary",
+      "Bytes": 1156852,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\libpromise.a",
+      "Kind": "old-build-binary",
+      "Bytes": 366620,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\librenderer_layout.a",
+      "Kind": "old-build-binary",
+      "Bytes": 10152,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\libshared_utility.dll.a",
+      "Kind": "old-build-binary",
+      "Bytes": 323422,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\libstatic_utility.a",
+      "Kind": "old-build-binary",
+      "Bytes": 9565168,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\libvessel_probe.dll.a",
+      "Kind": "old-build-binary",
+      "Bytes": 1958,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\libvstd_lib.a",
+      "Kind": "old-build-binary",
+      "Bytes": 440740,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\libvulkan_constant_init.a",
+      "Kind": "old-build-binary",
+      "Bytes": 2982,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\libvulkan_error_tables.a",
+      "Kind": "old-build-binary",
+      "Bytes": 20996,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\libxxhash.a",
+      "Kind": "old-build-binary",
+      "Bytes": 76118,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\shared_utility.dll",
+      "Kind": "old-build-binary",
+      "Bytes": 4431872,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\stacktrace_symbolizer_fixture.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 24576,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\test_app_config.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 6971904,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\test_stacktrace.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 3456512,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\test_vessel.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 5257216,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\test_vulkan_capabilities.exe",
+      "Kind": "old-build-binary",
+      "Bytes": 2425344,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-asan-clang64\\vessel_probe.dll",
+      "Kind": "old-build-binary",
+      "Bytes": 28160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-production-clang64\\CMakeFiles",
+      "Kind": "old-build-cache",
+      "Bytes": 35426729.0,
+      "Directory": true
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-production-clang64\\libmimalloc_vendored.a",
+      "Kind": "old-build-binary",
+      "Bytes": 2037960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-production-clang64\\libshared_utility.dll.a",
+      "Kind": "old-build-binary",
+      "Bytes": 156750,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-production-clang64\\libvstd_lib.a",
+      "Kind": "old-build-binary",
+      "Bytes": 440080,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-vessel-production-clang64\\shared_utility.dll",
+      "Kind": "old-build-binary",
+      "Bytes": 3814912,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-stacktrace-lean-clang64\\CMakeFiles",
+      "Kind": "old-build-cache",
+      "Bytes": 30777786.0,
+      "Directory": true
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-stacktrace-lean-clang64\\libmimalloc_vendored.a",
+      "Kind": "old-build-binary",
+      "Bytes": 527902,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-stacktrace-lean-clang64\\libshared_utility.dll.a",
+      "Kind": "old-build-binary",
+      "Bytes": 156138,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-stacktrace-lean-clang64\\libvstd_lib.a",
+      "Kind": "old-build-binary",
+      "Bytes": 5110,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-stacktrace-lean-clang64\\shared_utility.dll",
+      "Kind": "old-build-binary",
+      "Bytes": 445440,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-stacktrace-posix\\probe",
+      "Kind": "old-build-binary",
+      "Bytes": 124456,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-stacktrace-posix\\probe-no-pie",
+      "Kind": "old-build-binary",
+      "Bytes": 126192,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-stacktrace-posix\\probe-pie",
+      "Kind": "old-build-binary",
+      "Bytes": 125896,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\near-1\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\near-1\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\near-2\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\near-2\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\near-3\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\near-3\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\rotation-1\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\rotation-1\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\rotation-2\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\rotation-2\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\rotation-3\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\rotation-3\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\runtime\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\runtime\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\runtime\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 971264,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\runtime\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1604608,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\runtime\\libc++.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1659392,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\runtime\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\skin-taa-1\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\skin-taa-1\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\skin-taa-40\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\skin-taa-40\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\skin-taa-41\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\skin-taa-41\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\static-1\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\static-1\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\static-2\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\static-2\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\static-3\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-check\\static-3\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\near-1\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\near-1\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\near-2\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\near-2\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\near-3\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\near-3\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\rotation-1\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\rotation-1\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\rotation-2\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\rotation-2\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\rotation-3\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\rotation-3\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\skin-taa-1\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\skin-taa-1\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\skin-taa-40\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\skin-taa-40\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\skin-taa-41\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\skin-taa-41\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\static-1\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\static-1\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\static-2\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\static-2\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\static-3\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-invalid-wsi\\static-3\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-validation\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\async-present-validation\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\bake-managed-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\bake-managed-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\bake-managed-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\bake-managed-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1672704,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\bake-managed-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\bake-managed-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\blas-managed-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\blas-managed-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\blas-managed-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\blas-managed-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1665536,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\blas-managed-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\blas-managed-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\camera-resources-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\camera-resources-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\camera-resources-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\camera-resources-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1626112,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\camera-resources-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\camera-resources-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\cluster-resources-check\\gaussian\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\cluster-resources-check\\gaussian\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\cluster-resources-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\cluster-resources-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\cluster-resources-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\cluster-resources-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1617920,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\cluster-resources-check\\runtime.before\\libc++.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1659392,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\cluster-resources-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\cluster-resources-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deformation-resources-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deformation-resources-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deformation-resources-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deformation-resources-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1626624,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deformation-resources-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deformation-resources-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deren-ab\\rhi\\loader_experiment\\loader_experiment.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 19968,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deren-ab\\rhi\\loader_experiment\\probe_def.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 12800,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deren-ab\\rhi\\loader_experiment\\probe_excl.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 12800,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deren-ab\\rhi\\loader_experiment\\probe_static_link.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 20992,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deren-ab\\rhi\\loader_experiment\\probe.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 12800,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deren-ab\\rhi\\module_dll_spike\\build\\libspike_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 13824,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deren-ab\\rhi\\module_dll_spike\\build\\spike_consumer_dllonly.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 19456,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deren-ab\\rhi\\module_dll_spike\\build\\spike_consumer.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 19456,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deren-ab\\rhi\\module_dll_spike\\build\\CMakeFiles\\4.4.3\\CompilerIdCXX\\a.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 16896,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deren-ab\\rhi\\module_dll_spike\\build-asan\\libspike_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 41984,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deren-ab\\rhi\\module_dll_spike\\build-asan\\spike_consumer_dllonly.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 48128,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deren-ab\\rhi\\module_dll_spike\\build-asan\\spike_consumer.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 48128,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\deren-ab\\rhi\\module_dll_spike\\build-asan\\CMakeFiles\\4.4.3\\CompilerIdCXX\\a.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 45568,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-assets-managed-check\\baseline-rotation\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-assets-managed-check\\baseline-rotation\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-assets-managed-check\\baseline-static\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-assets-managed-check\\baseline-static\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-assets-managed-check\\final-rotation\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-assets-managed-check\\final-rotation\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-assets-managed-check\\final-static\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-assets-managed-check\\final-static\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-assets-managed-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-assets-managed-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-assets-managed-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-assets-managed-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1657344,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-assets-managed-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-assets-managed-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\near-1\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\near-1\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\near-2\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\near-2\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\near-3\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\near-3\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\rotation-1\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\rotation-1\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\rotation-2\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\rotation-2\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\rotation-3\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\rotation-3\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\runtime\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\runtime\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\runtime\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 952320,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\runtime\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1602048,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\runtime\\libc++.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1659392,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\runtime\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 37888,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\runtime\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\static-1\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\static-1\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\static-2\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\static-2\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\static-3\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\static-3\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\validation-near\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\validation-near\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\validation-rotation\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\validation-rotation\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\validation-static\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-baseline-f57c54b2\\validation-static\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-cache-hdr-baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-cache-images\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-cache-images\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-cpu-managed-check\\baseline-rotation\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-cpu-managed-check\\baseline-rotation\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-cpu-managed-check\\baseline-static\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-cpu-managed-check\\baseline-static\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-cpu-managed-check\\final-rotation\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-cpu-managed-check\\final-rotation\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-cpu-managed-check\\final-static\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-cpu-managed-check\\final-static\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-cpu-managed-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-cpu-managed-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-cpu-managed-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-cpu-managed-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1646080,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-cpu-managed-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-cpu-managed-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-managed-check\\baseline-rotation\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-managed-check\\baseline-rotation\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-managed-check\\baseline-static\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-managed-check\\baseline-static\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-managed-check\\candidate-rotation\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-managed-check\\candidate-rotation\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-managed-check\\candidate-static\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-managed-check\\candidate-static\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-managed-check\\final-rotation\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-managed-check\\final-rotation\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-managed-check\\final-static\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-managed-check\\final-static\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-managed-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-managed-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-managed-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-managed-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1638912,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-managed-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-managed-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-maxrestore\\baseline-gui-hdr\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-maxrestore\\baseline-gui-hdr-1\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-maxrestore\\baseline-gui-hdr-2\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-maxrestore\\baseline-gui-hdr-3\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-turn-check\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-turn-check\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\geometry-managed-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\geometry-managed-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\geometry-managed-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\geometry-managed-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1684480,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\geometry-managed-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\geometry-managed-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gpu-camera-history-held\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gpu-camera-history-held\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gpu-hdr-timing-green\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gpu-hdr-timing-green\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gpu-performance-acceptance\\rotation-1\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gpu-performance-acceptance\\rotation-1\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gpu-performance-acceptance\\rotation-2\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gpu-performance-acceptance\\rotation-2\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gpu-performance-acceptance\\rotation-3\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gpu-performance-acceptance\\rotation-3\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gpu-performance-acceptance\\static-1\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gpu-performance-acceptance\\static-1\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gpu-performance-acceptance\\static-2\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gpu-performance-acceptance\\static-2\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gpu-performance-acceptance\\static-3\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gpu-performance-acceptance\\static-3\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\managed-resources-check\\gaussian\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\managed-resources-check\\gaussian\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\managed-resources-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\managed-resources-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\managed-resources-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\managed-resources-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1611264,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\managed-resources-check\\runtime.before\\libc++.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1659392,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\managed-resources-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\micromap-managed-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\micromap-managed-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\micromap-managed-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\micromap-managed-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1675776,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\micromap-managed-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\micromap-managed-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\ml-history-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\ml-history-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\ml-history-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\ml-history-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1626112,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\ml-history-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\ml-history-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\offscreen-check\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\offscreen-check\\final\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\offscreen-check\\final\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\offscreen-check\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\offscreen-check\\reference-cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\offscreen-check\\reference-gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\output-resources-check\\gaussian\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\output-resources-check\\gaussian\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\output-resources-check\\gaussian-final\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\output-resources-check\\gaussian-final\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\output-resources-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\output-resources-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\output-resources-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\output-resources-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1627136,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\output-resources-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\output-resources-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\pbr-shadow-audit\\fit-audit.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 111616,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\post-resources-check\\gaussian\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\post-resources-check\\gaussian\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\post-resources-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\post-resources-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\post-resources-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\post-resources-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1633280,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\post-resources-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\post-resources-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\ray-resources-check\\gaussian\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\ray-resources-check\\gaussian\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\ray-resources-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\ray-resources-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\ray-resources-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\ray-resources-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1630720,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\ray-resources-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\ray-resources-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\scene-constants-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\scene-constants-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\scene-constants-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\scene-constants-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1622528,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\scene-constants-check\\runtime.before\\libc++.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1659392,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\scene-constants-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\scene-constants-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\scene-tables-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\scene-tables-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\scene-tables-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\scene-tables-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1630208,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\scene-tables-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\scene-tables-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\shared-assets-check\\gaussian-after\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\shared-assets-check\\gaussian-after\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\shared-assets-check\\gaussian-before\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\shared-assets-check\\gaussian-before\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\shared-assets-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\shared-assets-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\shared-assets-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\shared-assets-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1689088,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\shared-assets-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\shared-assets-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\near-1\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\near-1\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\near-2\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\near-2\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\near-3\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\near-3\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\rotation-1\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\rotation-1\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\rotation-2\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\rotation-2\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\rotation-3\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\rotation-3\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\skin-taa-1\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\skin-taa-1\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\skin-taa-40\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\skin-taa-40\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\skin-taa-41\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\skin-taa-41\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\static-1\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\static-1\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\static-2\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\static-2\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\static-3\\baseline\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check\\static-3\\candidate\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check-validation\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\skin-history-check-validation\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\stacktrace-assessment\\diagnostic.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 475136,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\stacktrace-assessment\\o0-debug.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 480768,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\stacktrace-assessment\\o3-lto-debug.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 521728,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\stacktrace-assessment\\o3-lto-no-unwind-debug.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 521728,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\stacktrace-assessment\\probe.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 48640,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\stacktrace-gaussian-check\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\stacktrace-gaussian-check\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\test-run\\deren_probe_backend_detach_probe.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 30208,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\test-run\\test_runtime_dyn.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 831488,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\test-run\\test_dynamic_link\\deren_probe_backend_detach_probe.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 558080,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\tlas-audit-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\tlas-audit-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\tlas-audit-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\tlas-audit-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1683456,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\tlas-audit-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\tlas-audit-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\tlas-managed-check\\runtime.before\\deren_assets.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1564160,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\tlas-managed-check\\runtime.before\\deren_gui_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1055232,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\tlas-managed-check\\runtime.before\\deren_vulkan.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 972288,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\tlas-managed-check\\runtime.before\\deren.exe",
+      "Kind": "duplicate-test-output",
+      "Bytes": 1660928,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\tlas-managed-check\\runtime.before\\libprobe_backend.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 40960,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\tlas-managed-check\\runtime.before\\shared_utility.dll",
+      "Kind": "duplicate-test-output",
+      "Bytes": 448000,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\vessel-complete-gaussian-check\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\vessel-complete-gaussian-check\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\vessel-gaussian-check\\cpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\vessel-gaussian-check\\gpu\\capture.rgba16f",
+      "Kind": "duplicate-test-output",
+      "Bytes": 7372808,
+      "Directory": false
+    },
+    {
+      "Path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\gaussian-viewer\\flowers_1.zip",
+      "Kind": "extracted-download-archive",
+      "Bytes": 125492223,
+      "Directory": false
+    }
+  ],
+  "FreeAfterBytes": 7666188288,
+  "RemovedTargets": 503,
+  "FailedTargets": []
+}

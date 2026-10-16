@@ -40,3 +40,9 @@ edge from its text density and the taskbar's top edge from the first row that is
 width). Pixels inside the crop are the renderer's own; the crop was re-encoded with Pillow
 (`optimize=True`) and NOT resampled.
 
+
+## gaussian-viewer.jpg
+
+The Gaussian viewer renders NVIDIA's Bouquet of Flowers (CC BY-SA 4.0), with
+562,974 splats. See [Gaussian splatting](../gaussian_splatting.md) for the asset
+and viewer details.

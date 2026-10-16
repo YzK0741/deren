@@ -140,7 +140,7 @@ and no gate can exist.
 This project already made exactly this argument once, for the camera, and built the answer:
 `--capture-sweep` advances the camera by a fixed number of degrees **per frame index** precisely so that
 "a capture move[s] ... not per wall-clock second, so a sweep capture is as reproducible as a still one"
-(`main.cpp:34-44`), and the gate already uses it (`glossy_motion`, `source/scripts/windows/check_render.ps1`).
+(`main.cpp:34-44`), and the gate already uses it (`glossy_motion`, `scripts/windows/check_render.ps1`).
 The animation clock now needs its sibling: a frame-indexed advance (`--capture-animation-sweep
 <seconds per frame>`, or equivalently making the controller's time a function of the frame index under
 capture). **Without it this feature cannot be accepted at all**, which is why it is step 0 and not a
@@ -266,9 +266,9 @@ The specific instruments, all of which exist:
 
 ```powershell
 # the regression that keeps this fixed - seed the references BEFORE the change
-pwsh -File source/scripts/windows/check_render.ps1 -List
-pwsh -File source/scripts/windows/check_render.ps1 -Update
-pwsh -File source/scripts/windows/check_render.ps1            # each scenario runs twice and must hash-equal itself first
+pwsh -File scripts/windows/check_render.ps1 -List
+pwsh -File scripts/windows/check_render.ps1 -Update
+pwsh -File scripts/windows/check_render.ps1            # each scenario runs twice and must hash-equal itself first
 # $env:DEREN_BASELINE_DIR overrides %LOCALAPPDATA%\deren\baseline
 
 # the baseline of the BUG (step 0): static camera, swept animation, motion channel
@@ -276,9 +276,9 @@ pwsh -File source/scripts/windows/check_render.ps1            # each scenario ru
   --capture-camera=35,20,7,0,-1.6,0 --capture-animation-sweep=0.02   # gbuffer_debug=true, gbuffer_channel=8
 ```
 
-and, for the A/B at one swept pose, `python source/scripts/measure/diff.py`, `tiletab.py` and `mean.py` on the
+and, for the A/B at one swept pose, `python scripts/measure/diff.py`, `tiletab.py` and `mean.py` on the
 TAA-on and TAA-off captures, with `spec_material.py` for a per-material reading from channels 2/3/1.
-`source/scripts/measure/README.md` fixes the unit: every recorded number is **mean green**.
+`scripts/measure/README.md` fixes the unit: every recorded number is **mean green**.
 
 Once the fixture is committed, the deformation scenario joins `check_render.ps1`'s list (`:87-134`) with
 its own config (`taa = true`, `gui.show = false`, a pinned frame-indexed animation sweep) - that scenario
@@ -324,7 +324,7 @@ image, descriptor family or render target.
 | --- | --- |
 | the gap, documented by the code | DONE - `source/shaders/gbuffer.frag:83-88`, `docs/shaders.md:79-82` |
 | step 0(a) frame-indexed animation sweep | DONE - `--capture-animation-sweep`; byte-neutral without the flag (the rigid reference capture stayed `77EFE3C2D80A3C34F3B3229CC91AC27A9A47440A2393B8C0677795E0AB8E1C53` before and after it), two runs of one sweep hash-equal, and two different rates produce two different poses |
-| step 0(b) animated skinned fixture + the instrument | DONE - `source/scripts/make_animated_skin_fixture.py` -> `source/tests/fixtures/animated_skin_plane.gltf` (169 vertices / 288 triangles / one pinned joint + one animated about Z / 5 keyframes over 2 s), and `source/scripts/measure/motion_channel.py`. The bug's baseline: 229,267 foreground px, **100.00% still**, **one** distinct value |
+| step 0(b) animated skinned fixture + the instrument | DONE - `scripts/make_animated_skin_fixture.py` -> `source/tests/fixtures/animated_skin_plane.gltf` (169 vertices / 288 triangles / one pinned joint + one animated about Z / 5 keyframes over 2 s), and `scripts/measure/motion_channel.py`. The bug's baseline: 229,267 foreground px, **100.00% still**, **one** distinct value |
 | step 1 the skins (heap family, buffers, publication, vertex stage) | DONE - `skin_matrices_previous` in both grid files, the per-slot previous buffer + its CPU copy, `runtime::advance_motion_deformations()`, and the second skin blend in `source/shaders/pbr.vert`. Measured on the swept fixture: **0.00% -> 65.59% moved** (150,371 px, mean deviation 17.14, worst 104, 597 distinct values) with the pinned left half correctly still (34.41%); the PINNED-pose null test **100.00% still**; the rigid reference capture byte-identical; ctest 8/8; zero validation findings. On a REAL character from the sample assets (Fox, 24 joints): swept **100.00% moved** (266,727 px, 218 distinct values) against **100.00% still** when the pose is pinned - every skinned pixel reports the motion it has, and none reports any when nothing changed |
 | step 2 the morph weights (a second weight region per morph block) | DONE - the block is `[deltas][weights][previous weights]`, the bake writes both regions equal, `animation::controller::update` copies the current region forward before overwriting it, and `source/shaders/pbr.vert` blends the static deltas a second time with the previous weights and composes it with the previous skin matrices (`skin_previous(morph_previous(v))`). Measured on AnimatedMorphCube: **100.00% still -> 99.99% moved** (303,749 px, mean deviation 123.03, 14,144 distinct values); SimpleMorph **100.00% -> 99.48% moved**; both pinned-pose null tests **100.00% still**; the flag's step-1 numbers identical to the digit; ctest 8/8; gate 10/10 with 0 changed and 0 flaky; the rigid reference capture byte-identical |
 | step 3 the documents that call the gap current | DONE - `docs/shaders.md`, `docs/mainpage.md`, the `source/shaders/gbuffer.frag` note and the layout notes in `pbr.vert`, `runtime::morph_scratch()` and `material_push_constants::morph_base` describe the finished state, and the one case that is still not carried is stated wherever the covered ones are: alpha-blended geometry |

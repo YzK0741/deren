@@ -36,6 +36,8 @@ implementation details, measured results and the limits of each feature.
   pass chain separates scene rendering, lighting and post processing, with shared named
   pipelines available to its stages. See \ref md_docs_2pass__io__design "Pass I/O design"
   and \ref md_docs_2runtime__split "Runtime split".
+  The independent CPU render-graph core adds typed parameter snapshots and visitors, range-aware dependencies, culling and
+  stable ordering plus optional single-queue abstract barriers for future migration; see \ref md_docs_2render__graph "CPU render graph".
 - **Temporal anti-aliasing on a 1x G-buffer.** A Halton(2,3) projection jitter, per-pixel
   camera motion vectors written by the G-buffer, and a reprojected, neighborhood-clamped
   history with a view-depth disocclusion guard. TAA is the engine's anti-aliasing because a
@@ -162,8 +164,8 @@ One contract, and every graphics backend is an implementation of it.
   answering with the abi number the contract declares. The executable is not rebuilt.
 
 Three instruments keep that true, and all three measure artifacts rather than prose:
-`source/scripts/check_native_boundary.py` (the executable's import table, the engine objects' unresolved
-symbols and the engine sources' vocabulary), `source/scripts/check_backend_boundary.py` (the symbol ratchet
+`scripts/check_native_boundary.py` (the executable's import table, the engine objects' unresolved
+symbols and the engine sources' vocabulary), `scripts/check_backend_boundary.py` (the symbol ratchet
 plus the whitelist) and the per-image checks in CI. Measured at this version: **0** graphics-API
 imports in `deren.exe`, **0** unresolved `vk*` symbols in the engine's objects, **0** engine sources
 naming the graphics API.

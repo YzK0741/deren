@@ -32,7 +32,7 @@ for file in (work/'final-resize').iterdir():
         target.mkdir(exist_ok=True)
         shutil.copy2(file, target/file.name)
 shutil.copy2(work/'check-captures.ps1', archive/'check-captures.ps1')
-shutil.copy2(repo/'source/scripts/windows/check_gaussian_resize.ps1', archive/'check-resize.ps1')
+shutil.copy2(repo/'scripts/windows/check_gaussian_resize.ps1', archive/'check-resize.ps1')
 for file in archive.rglob('*.png'):
     data, offset, chunks = file.read_bytes(), 8, []
     while offset < len(data):
