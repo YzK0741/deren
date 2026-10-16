@@ -45,7 +45,7 @@ validation layers enabled ( 1 )
 
 instance init succeeded
 
-instance handler is 0x20769040a80
+instance handler is 0x20fd2e56430
 
 create debug messenger succeeded
 
@@ -243,41 +243,41 @@ descriptor heap: layout reserved (texture array at 1114112, material table at 11
 
 descriptor heap: 6 shared samplers written to the sampler grid at 65536
 
-rhi: create_command_buffer secondary -> native 0x2070049c0d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x20f8049c0d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x2070049f8d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x20f8049f8d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x207004a30d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x20f804a30d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x207004a68d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x20f804a68d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x207004aa0d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x20f804aa0d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x207004ad8d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x20f804ad8d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x207004b10d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x20f804b10d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x207004b48d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x20f804b48d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x207004b80d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x20f804b80d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x207004bb8d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x20f804bb8d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x207004bf0d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x20f804bf0d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x207004c28d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x20f804c28d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x207004c60d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x20f804c60d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x207004c98d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x20f804c98d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x207004cd0d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x20f804cd0d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x207004d08d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x20f804d08d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x207004d40d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x20f804d40d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x207004d78d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x20f804d78d0 (its own command pool)
 
 rhi: create_image managed output target 1080x960 layers 1 mips 1 -> handle 0x3
 
@@ -483,7 +483,7 @@ rhi: create_image furnace environment cube 1x1 layers 6 mips 1 -> handle 0x59
 
 shadow cascades set to 3
 
-vulkan runtime initialized: 395.8 ms (async model load + env generation running in background)
+vulkan runtime initialized: 496.3 ms (async model load + env generation running in background)
 
 loaded shader: C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\shaders\pbr.frag.spv (54320 bytes)
 
@@ -659,7 +659,7 @@ SUCCESS: alphaMode MASK bake pipeline created (the mask is collapsed into the st
 
 SUCCESS: compute skinning pipeline created (skinned casters can be refitted per frame)
 
-model loaded + environment cubemap (startup window incl. runtime init): 1212.7 ms
+model loaded + environment cubemap (startup window incl. runtime init): 1462.4 ms
 
 scene loaded: 35 textures, 11 materials, 11 primitives
 
@@ -781,7 +781,7 @@ toon sidecar: 159 row(s) belong to a material whose rows are NOT CONTIGUOUS - me
 
 generating IBL (prefilter/irradiance/BRDF LUT) + resolving materials...
 
-  IBL (prefilter/irradiance/BRDF LUT) + material resolve, parallel wall: 1070.6 ms
+  IBL (prefilter/irradiance/BRDF LUT) + material resolve, parallel wall: 1226.1 ms
 
 rhi: create_image unnamed image 256x256 layers 6 mips 5 -> handle 0x5b
 
@@ -815,13 +815,13 @@ rhi: create_image material texture 256x1 layers 1 mips 1 -> handle 0x64
 
 rhi: create_buffer 16 B usage 5 flags 0x1 -> extra 0x20000, native 0x1930000000193, mapped true
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native probe sampled grid slot 16384 through sampler slot 2048 and read back 0xffffffff (texture red 0xffff, alpha 0xffff); the material table's DEFAULT record read 0xffff (its white base colour is 0xffff)
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x66
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -829,7 +829,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x67
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16897 into a 4x4 target and read back rgba 0,0,0,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -837,7 +837,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x68
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native MESH probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -861,7 +861,7 @@ rhi: create_buffer 2400 B usage 1 flags 0x3 -> extra 0xa0000, native 0x1ac000000
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x6b
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -869,7 +869,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x6c
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16897 into a 4x4 target and read back rgba 0,0,0,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -877,7 +877,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x6d
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native MESH probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -909,13 +909,13 @@ rhi: create_image material texture 256x1 layers 1 mips 1 -> handle 0x74
 
 rhi: create_buffer 16 B usage 5 flags 0x1 -> extra 0x20000, native 0x1d100000001d1, mapped true
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native probe sampled grid slot 16384 through sampler slot 2048 and read back 0xffffffff (texture red 0xffff, alpha 0xffff); the material table's DEFAULT record read 0xffff (its white base colour is 0xffff)
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x76
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -923,7 +923,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x77
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16897 into a 4x4 target and read back rgba 0,0,0,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -931,7 +931,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x78
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native MESH probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -965,13 +965,13 @@ rhi: create_image material texture 1024x1024 layers 1 mips 1 -> handle 0x7f
 
 rhi: create_buffer 16 B usage 5 flags 0x1 -> extra 0x20000, native 0x1f800000001f8, mapped true
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native probe sampled grid slot 16384 through sampler slot 2048 and read back 0xffffffff (texture red 0xffff, alpha 0xffff); the material table's DEFAULT record read 0xffff (its white base colour is 0xffff)
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x81
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -979,7 +979,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x82
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16897 into a 4x4 target and read back rgba 0,0,0,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -987,7 +987,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x83
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native MESH probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1011,7 +1011,7 @@ rhi: create_buffer 21396 B usage 1 flags 0x3 -> extra 0xa0000, native 0x21100000
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x86
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1019,7 +1019,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x87
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16897 into a 4x4 target and read back rgba 0,0,0,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1027,7 +1027,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x88
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native MESH probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1055,13 +1055,13 @@ rhi: create_image material texture 2048x2048 layers 1 mips 12 -> handle 0x8d
 
 rhi: create_buffer 16 B usage 5 flags 0x1 -> extra 0x20000, native 0x2310000000231, mapped true
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native probe sampled grid slot 16384 through sampler slot 2048 and read back 0xffffffff (texture red 0xffff, alpha 0xffff); the material table's DEFAULT record read 0xffff (its white base colour is 0xffff)
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x8f
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1069,7 +1069,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x90
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16897 into a 4x4 target and read back rgba 0,0,0,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1077,7 +1077,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x91
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native MESH probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1103,13 +1103,13 @@ rhi: create_image material texture 1024x1024 layers 1 mips 1 -> handle 0x94
 
 rhi: create_buffer 16 B usage 5 flags 0x1 -> extra 0x20000, native 0x24f000000024f, mapped true
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native probe sampled grid slot 16384 through sampler slot 2048 and read back 0xffffffff (texture red 0xffff, alpha 0xffff); the material table's DEFAULT record read 0xffff (its white base colour is 0xffff)
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x96
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1117,7 +1117,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x97
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16897 into a 4x4 target and read back rgba 0,0,0,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1125,7 +1125,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x98
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native MESH probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1157,13 +1157,13 @@ rhi: create_image material texture 512x512 layers 1 mips 1 -> handle 0x9e
 
 rhi: create_buffer 16 B usage 5 flags 0x1 -> extra 0x20000, native 0x2730000000273, mapped true
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native probe sampled grid slot 16384 through sampler slot 2048 and read back 0xffffffff (texture red 0xffff, alpha 0xffff); the material table's DEFAULT record read 0xffff (its white base colour is 0xffff)
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0xa0
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1171,7 +1171,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0xa1
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16897 into a 4x4 target and read back rgba 0,0,0,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1179,7 +1179,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0xa2
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native MESH probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1203,7 +1203,7 @@ rhi: create_buffer 3756 B usage 1 flags 0x3 -> extra 0xa0000, native 0x28c000000
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0xa5
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1211,7 +1211,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0xa6
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16897 into a 4x4 target and read back rgba 0,0,0,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1219,7 +1219,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0xa7
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native MESH probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1245,13 +1245,13 @@ rhi: create_image material texture 256x256 layers 1 mips 1 -> handle 0xab
 
 rhi: create_buffer 16 B usage 5 flags 0x1 -> extra 0x20000, native 0x2aa00000002aa, mapped true
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native probe sampled grid slot 16384 through sampler slot 2048 and read back 0xffffffff (texture red 0xffff, alpha 0xffff); the material table's DEFAULT record read 0xffff (its white base colour is 0xffff)
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0xad
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1259,7 +1259,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0xae
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16897 into a 4x4 target and read back rgba 0,0,0,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1267,7 +1267,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0xaf
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native MESH probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1297,13 +1297,13 @@ rhi: create_image material texture 2048x2048 layers 1 mips 12 -> handle 0xb4
 
 rhi: create_buffer 16 B usage 5 flags 0x1 -> extra 0x20000, native 0x2cc00000002cc, mapped true
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native probe sampled grid slot 16384 through sampler slot 2048 and read back 0xffffffff (texture red 0xffff, alpha 0xffff); the material table's DEFAULT record read 0xffff (its white base colour is 0xffff)
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0xb6
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1311,7 +1311,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0xb7
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16897 into a 4x4 target and read back rgba 0,0,0,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1319,7 +1319,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0xb8
 
-rhi: create_command_buffer primary -> native 0x207004f38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x20f804f38d0 (its own command pool)
 
 descriptor heap: the heap-native MESH probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1593,6 +1593,8 @@ resource table: verified 3 declaration handle(s) for pass 'shadow'
 
 shadow: the casters are DISPATCHED (mesh stage) - 11 casters, 85 triangles per workgroup
 
+shadow: the casters are DISPATCHED (mesh stage) - 11 casters, 85 triangles per workgroup
+
 mesh indirect: the meshlet dispatches go through the contract's draw_mesh_tasks_indirect (argument buffer bound, 131072 records per frame in flight - two command classes - a slot is the primitive's meshlet_base)
 
 resource table: verified 6 declaration handle(s) for pass 'scene'
@@ -1615,7 +1617,7 @@ runtime: frame rate limited to 240.0 fps
 
 mesh indirect: 44 meshlet dispatch(es) went through the INDIRECT entry point, 0 through the direct call
 
-main graph: unsupported tail combination; using legacy scene tail and post graph
+main graph: unsupported tail combination (character forward); using legacy scene tail and post graph
 
 resource table: verified 2 declaration handle(s) for pass 'character_forward'
 
@@ -1639,7 +1641,7 @@ rhi shadow gate (A5)   derived: sType=0x3b9f9492 pNext=0x0 srcStage=0x1000 srcAc
 
 rhi shadow gate (A5)   recipe : sType=0x3b9f9492 pNext=0x0 srcStage=0x1000 srcAccess=0x800 dstStage=0x400 dstAccess=0x100 oldLayout=0x1 newLayout=0x1 srcQFI=0xffffffff dstQFI=0xffffffff image=0x0 aspect=0x1 mip=0+1 layer=0+1
 
-screenshot saved: C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\render-check\screenshot_20261016_152542.png (1080x960)
+screenshot saved: C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\render-check\screenshot_20261016_160058.png (1080x960)
 
 camera pose (F12 screenshot): 0.0000,0.0000,2.4000,0.0000,-0.9000,0.0000   -> [render] camera_pose = [...] or --capture-camera
 

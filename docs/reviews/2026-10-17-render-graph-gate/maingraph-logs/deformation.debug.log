@@ -48,7 +48,7 @@ validation layers enabled ( 1 )
 
 instance init succeeded
 
-instance handler is 0x27ba9f0d850
+instance handler is 0x1f9a82d9cd0
 
 create debug messenger succeeded
 
@@ -246,41 +246,41 @@ descriptor heap: layout reserved (texture array at 1114112, material table at 11
 
 descriptor heap: 6 shared samplers written to the sampler grid at 65536
 
-rhi: create_command_buffer secondary -> native 0x27baca7c0d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x1f9aaeac0d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x27baca7f8d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x1f9aaeaf8d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x27baca830d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x1f9aaeb30d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x27baca868d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x1f9aaeb68d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x27baca8a0d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x1f9aaeba0d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x27baca8d8d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x1f9aaebd8d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x27baca910d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x1f9aaec10d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x27baca948d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x1f9aaec48d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x27baca980d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x1f9aaec80d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x27baca9b8d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x1f9aaecb8d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x27baca9f0d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x1f9aaecf0d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x27bacaa28d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x1f9aaed28d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x27bacaa60d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x1f9aaed60d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x27bacaa98d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x1f9aaed98d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x27bacaad0d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x1f9aaedd0d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x27bacab08d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x1f9aaee08d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x27bacab40d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x1f9aaee40d0 (its own command pool)
 
-rhi: create_command_buffer secondary -> native 0x27bacab78d0 (its own command pool)
+rhi: create_command_buffer secondary -> native 0x1f9aaee78d0 (its own command pool)
 
 rhi: create_image managed output target 1080x960 layers 1 mips 1 -> handle 0x3
 
@@ -486,7 +486,7 @@ rhi: create_image furnace environment cube 1x1 layers 6 mips 1 -> handle 0x59
 
 shadow cascades set to 3
 
-vulkan runtime initialized: 354.4 ms (async model load + env generation running in background)
+vulkan runtime initialized: 459.8 ms (async model load + env generation running in background)
 
 loaded shader: C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\shaders\pbr.frag.spv (54320 bytes)
 
@@ -662,7 +662,7 @@ SUCCESS: alphaMode MASK bake pipeline created (the mask is collapsed into the st
 
 SUCCESS: compute skinning pipeline created (skinned casters can be refitted per frame)
 
-model loaded + environment cubemap (startup window incl. runtime init): 548.1 ms
+model loaded + environment cubemap (startup window incl. runtime init): 709.4 ms
 
 scene loaded: 0 textures, 1 materials, 1 primitives
 
@@ -690,7 +690,7 @@ toon sidecar: none beside 'C:\Users\23530\Desktop\yzk\deren\source\tests\fixture
 
 generating IBL (prefilter/irradiance/BRDF LUT) + resolving materials...
 
-  IBL (prefilter/irradiance/BRDF LUT) + material resolve, parallel wall: 987.7 ms
+  IBL (prefilter/irradiance/BRDF LUT) + material resolve, parallel wall: 1168.3 ms
 
 rhi: create_image unnamed image 256x256 layers 6 mips 5 -> handle 0x5b
 
@@ -718,7 +718,7 @@ rhi: create_buffer 1728 B usage 1 flags 0x3 -> extra 0xa0000, native 0x18a000000
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x62
 
-rhi: create_command_buffer primary -> native 0x27bacad38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x1f9aaf038d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -726,7 +726,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x63
 
-rhi: create_command_buffer primary -> native 0x27bacad38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x1f9aaf038d0 (its own command pool)
 
 descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16897 into a 4x4 target and read back rgba 0,0,0,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -734,7 +734,7 @@ descriptor heap: the heap-native GRAPHICS probe read that pixel back through the
 
 rhi: create_image heap probe target 4x4 layers 1 mips 1 -> handle 0x64
 
-rhi: create_command_buffer primary -> native 0x27bacad38d0 (its own command pool)
+rhi: create_command_buffer primary -> native 0x1f9aaf038d0 (its own command pool)
 
 descriptor heap: the heap-native MESH probe rendered grid slot 16896 into a 4x4 target and read back rgba 255,255,255,255 (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)
 
@@ -1018,7 +1018,7 @@ gui: screen-space AO has no effect: the G-buffer pass or its lighting stage was 
 
 mesh indirect: 4 meshlet dispatch(es) went through the INDIRECT entry point, 0 through the direct call
 
-main graph: unsupported tail combination; using legacy scene tail and post graph
+main graph: unsupported tail combination (deferred lighting inactive); using legacy scene tail and post graph
 
 resource table: verified 5 declaration handle(s) for pass 'gbuffer-debug'
 
@@ -1038,7 +1038,7 @@ rhi shadow gate (A5)   derived: sType=0x3b9f9492 pNext=0x0 srcStage=0x1000 srcAc
 
 rhi shadow gate (A5)   recipe : sType=0x3b9f9492 pNext=0x0 srcStage=0x1000 srcAccess=0x800 dstStage=0x400 dstAccess=0x100 oldLayout=0x1 newLayout=0x1 srcQFI=0xffffffff dstQFI=0xffffffff image=0x0 aspect=0x1 mip=0+1 layer=0+1
 
-screenshot saved: C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\render-check\screenshot_20261016_152512.png (1080x960)
+screenshot saved: C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\render-check\screenshot_20261016_160018.png (1080x960)
 
 camera pose (F12 screenshot): 0.0000,0.0000,4.0000,0.0000,0.0000,0.0000   -> [render] camera_pose = [...] or --capture-camera
 

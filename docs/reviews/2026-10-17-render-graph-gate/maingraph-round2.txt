@@ -1,0 +1,99 @@
+[profile] dsh=C:\Users\23530\Desktop\yzk\deepseek-harness | vk=C:\Users\23530\Desktop\yzk\deren
+
+=== deferred (deferred G-buffer + lighting, no AA stage)
+  CHANGED: FAE60C0B1D8C1191 vs reference FA1C1BED4DD611C5
+  current output kept at C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\render-check\deferred.actual.png
+  if the change is intended: re-run with -Update
+
+=== deferred_taa_fxaa (deferred + TAA + FXAA (the AA path))
+  CHANGED: 6B2E158EF4907DC5 vs reference 1717D7818EB2A001
+  current output kept at C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\render-check\deferred_taa_fxaa.actual.png
+  if the change is intended: re-run with -Update
+
+=== deferred_ssao_off (deferred with SSAO disabled)
+  CHANGED: 9225A8F720AAFDCB vs reference 00B884D8C54CBB9F
+  current output kept at C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\render-check\deferred_ssao_off.actual.png
+  if the change is intended: re-run with -Update
+
+=== shadow_single (one cascade, i.e. the historic shadow path)
+  CHANGED: FD433FDD1757A5D4 vs reference D4DE14C42D3CBA21
+  current output kept at C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\render-check\shadow_single.actual.png
+  if the change is intended: re-run with -Update
+
+=== unlit (flat base colour, no shading)
+  CHANGED: C83D94FE2FECC136 vs reference F3C2D7FEFDAD864F
+  current output kept at C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\render-check\unlit.actual.png
+  if the change is intended: re-run with -Update
+
+=== transparent_blend (deferred + an alphaMode BLEND material)
+  CHANGED: 4D3FD6ACB2953BE4 vs reference 698869C771DC25AA
+  current output kept at C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\render-check\transparent_blend.actual.png
+  if the change is intended: re-run with -Update
+
+=== sponza (Sponza interior, the heavy scene)
+  CHANGED: 24D55DE5C6E814EE vs reference FEF4F9E4AA0C2E6B
+  current output kept at C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\render-check\sponza.actual.png
+  if the change is intended: re-run with -Update
+
+=== metal_rough_glossy (the material/roughness sweep)
+  CHANGED: 2863F34F88A1CA66 vs reference FA8BD8BE20BEDC12
+  current output kept at C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\render-check\metal_rough_glossy.actual.png
+  if the change is intended: re-run with -Update
+
+=== glossy_motion (the material sweep, CAMERA MOVING)
+  CHANGED: 4C37D65D852F5623 vs reference 1CB4B6B6DE557E61
+  current output kept at C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\render-check\glossy_motion.actual.png
+  if the change is intended: re-run with -Update
+
+=== deformation (a skinned mesh DEFORMING (the motion channel))
+  ok  (723569BA0D03640C)
+
+=== laevatain_goo_toon (the REWRITTEN toon chain on the goo character)
+  CHANGED: EE9C60615048F432 vs reference BE2C53B4F0157D7B
+  current output kept at C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\render-check\laevatain_goo_toon.actual.png
+  if the change is intended: re-run with -Update
+
+=== laevatain_goo_toon_body (the REWRITTEN toon chain at the BODY pose (the RS materials))
+  CHANGED: 06110B27563D4CBE vs reference F9C607D7E7F8B2C7
+  current output kept at C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\render-check\laevatain_goo_toon_body.actual.png
+  if the change is intended: re-run with -Update
+
+=== laevatain_no_sidecar (the same character WITHOUT a toon sidecar (fallback))
+  CHANGED: 41CEA21B0F046981 vs reference 92473A8244CFE718
+  current output kept at C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\render-check\laevatain_no_sidecar.actual.png
+  if the change is intended: re-run with -Update
+
+=== laevatain_old_chain (the OLD toon chain on the same goo character)
+  CHANGED: 84A41141128286CE vs reference 2F3DE14D0C1B150A
+  current output kept at C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\render-check\laevatain_old_chain.actual.png
+  if the change is intended: re-run with -Update
+
+---------------- summary ----------------
+  set      : full   (of 14 defined)
+  defined  : 14   ran: 14   skipped: 0
+  passed   : 1
+  changed  : 13
+  flaky    : 0
+  unseeded : 0
+  references: C:\Users\23530\AppData\Local\deren\baseline
+  actual hashes written to: C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\render-check\render_hashes.txt
+
+scenario                 actual             reference          verdict
+deferred                 FAE60C0B1D8C1191   FAE60C0B1D8C1191   matched
+deferred_ssao_off        9225A8F720AAFDCB   9225A8F720AAFDCB   matched
+deferred_taa_fxaa        6B2E158EF4907DC5   6B2E158EF4907DC5   matched
+deformation              723569BA0D03640C   723569BA0D03640C   matched
+glossy_motion            4C37D65D852F5623   4C37D65D852F5623   matched
+laevatain_goo_toon       EE9C60615048F432   EE9C60615048F432   matched
+laevatain_goo_toon_body  06110B27563D4CBE   06110B27563D4CBE   matched
+laevatain_no_sidecar     41CEA21B0F046981   41CEA21B0F046981   matched
+laevatain_old_chain      84A41141128286CE   84A41141128286CE   matched
+metal_rough_glossy       2863F34F88A1CA66   2863F34F88A1CA66   matched
+shadow_single            FD433FDD1757A5D4   FD433FDD1757A5D4   matched
+sponza                   24D55DE5C6E814EE   24D55DE5C6E814EE   matched
+transparent_blend        4D3FD6ACB2953BE4   4D3FD6ACB2953BE4   matched
+unlit                    C83D94FE2FECC136   C83D94FE2FECC136   matched
+
+against docs/reviews/2026-10-17-render-graph-gate/legacy-hashes.txt: matched 14, mismatched 0, total 14
+compare_render_hashes: PASS (14 of 14)
+  comparison: PASS (this is the verdict that matters; changed above is the stale local reference set)

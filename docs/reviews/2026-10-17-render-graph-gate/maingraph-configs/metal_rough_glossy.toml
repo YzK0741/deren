@@ -14,8 +14,8 @@ max_fps = 240
 shadow = true
 validation_layers = true
 main_render_graph = true
-taa = false
 camera_fit = 'exterior'
+taa = false
 
 [gui]
 show = false

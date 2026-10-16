@@ -137,37 +137,46 @@ that mirroring, so frame 0 is evaluated under the binding DEFAULTS:
 | deformation | G-buffer debug view off (its config sets `gbuffer_debug = true`) | debug view on, so deferred lighting inactive |
 | the four laevatain_* | character forward off | character forward on |
 
-Consequence, and it is worse than "not covered": the single graph-recorded frame of those six
-scenarios is a frame the scenario's own settings would have EXCLUDED - it was rendered with the
-binding defaults, not with the features the scenario is named for. The A/B identity still holds
-(both rounds take the same frame-0 path and the same legacy tail), but those six must not be
-counted as graph coverage, and `deformation`'s entry is really "legacy only, after one pre-toggle
-frame".
+What this is NOT: a defect. Frame 0 is not "wrongly claimed" by the graph - the renderer's own
+semantics are that a toggle mid-run is seen by the frame AFTER it (see the note at
+`source/app/main.cpp:2860`), so frame 0 genuinely runs WITHOUT TAA, without the debug view and
+without the character stages. The graph covering that frame is correct for the frame's actual
+feature state; what it is not is coverage of the scenario's named features.
 
-Two candidate fixes, both small, and they need a gate round because they change which path frame 0
-takes (and TAA history is temporal):
+The consequence is a COVERAGE statement, and it is the actionable half:
 
-1. mirror the bindings into the runtime BEFORE the first frame's eligibility is frozen (the real
-   fix: today every binding lands one frame late, which is a general startup-ordering property,
-   not a graph property);
-2. refuse the graph for the run's first frame (a graph-side workaround that leaves the underlying
-   one-frame lag alone - it makes the coverage honest without touching the frame loop's ordering).
+- 7 scenarios (deferred, deferred_ssao_off, shadow_single, sponza, unlit, glossy_motion,
+  metal_rough_glossy) record the whole run through the graph, and their A/B identity really is
+  graph against legacy;
+- 6 scenarios (deferred_taa_fxaa, deformation, the four laevatain_*) exercise the graph for frame 0
+  only; their A/B identity is legacy against legacy for the remaining 39 frames, so it must not be
+  read as "the graph path is witnessed for TAA / the debug view / the character chain";
+- transparent_blend is legacy only (the documented exclusion works).
 
-Fix 1 is the honest one and matches the comments already in `main.cpp`; fix 2 is the minimal-risk
-one. Neither is implemented here: this stage's job was to measure, and either choice changes runtime
-behaviour that the gate must re-witness.
+An attempt to "fix" this by refusing the graph on the run's first frame (an `main_graph_armed`
+latch) was written, measured and REVERTED: the suite rejected it -
+`source/tests/test_render_graph_post.cpp:255` requires `graph == 1 && legacy == 0` for a
+`main_render_graph = true` single-frame compose, which is exactly the contract "the first frame goes
+through the graph", and the latch also contradicted the renderer's own toggle semantics. The reason
+naming stayed; the latch did not.
+
+So stage 2 inherits two jobs, in this order: (a) the declaration work below, and (b) when a stage
+wants to claim a scenario as graph-covered, it needs the scenario to actually stay on the graph for
+the whole run - which for the six means the features that exclude it must be either migrated or left
+out of that scenario, not "the first frame counts".
 
 ## What stage 1 changes about the plan
 
-1. Stage 2's first task is not a declaration: it is to explain and pin the mid-run
-   eligibility flip (which term changes, and whether a graph-recorded first frame followed
-   by legacy frames is acceptable per the plan's "a partially recorded frame cannot re-run
-   the legacy path" rule - the switch is decided before recording, so it is legal, but 1
-   graph frame out of 40 is not coverage).
+1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the
+   frame is now named in the log, the mechanism is the renderer's own one-frame toggle lag (frame 0
+   runs without the scenario's features, so the graph covering it is correct), and the attempted
+   first-frame exclusion was rejected by `test_render_graph_post`. What remains for stage 2 is the
+   coverage rule below, not a fix.
 2. The declaration work (material textures/IBL, per-mesh addresses, meshlet tables with
    atomic writes, indirect commands) stays necessary - the 7 graph-only scenarios cover
    deferred, SSAO-off, shadow-single, sponza, unlit, glossy motion and the material sweep,
    and their accesses are still declared only through the shared read-only bundle.
 3. The scenario gate now has a per-scenario path inventory as evidence, which the next
-   stages can diff against: a stage is done when its scenario moves from "graph first, then
-   legacy" (or "legacy only") to "graph only" AND stays byte-identical.
+   stages can diff against: a stage is done when its scenario moves to "graph only" for the whole
+   run AND stays byte-identical - and the inventory, not the hash file, is what says whether the
+   graph was on the path at all.

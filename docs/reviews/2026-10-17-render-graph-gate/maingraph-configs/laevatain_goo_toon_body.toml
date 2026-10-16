@@ -14,8 +14,8 @@ max_fps = 240
 shadow = true
 validation_layers = true
 main_render_graph = true
-goo_toon = true
 character_forward = true
+goo_toon = true
 
 [gui]
 show = false
