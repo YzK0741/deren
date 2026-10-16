@@ -28,6 +28,9 @@ namespace {
         CHECK(settings.model == "Models/tri.gltf");
         CHECK(settings.render.vsync);
         check_presentation_settings(settings, true);
+        CHECK(settings.render.bloom_render_graph);
+        CHECK(settings.render.post_render_graph);
+        CHECK(settings.render.main_render_graph);
         CHECK(!settings.render.shadow);
         CHECK(settings.render.shadow_cascades == 2);
         CHECK(settings.render.shadow_cascade_blend > 0.24f && settings.render.shadow_cascade_blend < 0.26f);
@@ -82,6 +85,9 @@ namespace {
     void test_load_settings_missing_file_keeps_defaults() {
         deren::app_config::app_settings const settings = deren::app_config::load_settings(VR_TEST_SOURCE_DIR "/source/tests/fixtures/does_not_exist.toml");
         check_presentation_settings(settings, false);
+        CHECK(!settings.render.bloom_render_graph);
+        CHECK(!settings.render.post_render_graph);
+        CHECK(!settings.render.main_render_graph);
         CHECK(settings.model.empty());
         CHECK(settings.render.shadow);
         CHECK(!settings.render.fxaa);
@@ -161,7 +167,7 @@ namespace {
         CHECK(settings.lighting.area_light_softness == 0.0f);
     }
 
-    // source/scripts/make_config.py WRITES config.toml, so every value it can emit has to be a value
+    // scripts/make_config.py WRITES config.toml, so every value it can emit has to be a value
     // app_config can read back - including the ones whose bounds the loader clamps. This fixture is
     // that generator's full default output (one entry per key it writes); it exists because the two
     // drifted apart once already: the generator silently omitted eleven [render] keys the parser
