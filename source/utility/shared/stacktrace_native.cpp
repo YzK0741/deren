@@ -15,6 +15,9 @@
 #include <dlfcn.h>
 #include <unistd.h>
 #include <unwind.h>
+#if defined(__linux__)
+#include <link.h>
+#endif
 #endif
 
 #ifndef DEREN_LLVM_SYMBOLIZER
@@ -166,7 +169,7 @@ namespace deren::utility::detail::trace_native {
         if (output && output != INVALID_HANDLE_VALUE)
             static_cast<void>(WriteFile(output, value, static_cast<DWORD>(size), &written, nullptr));
 #else
-        static_cast<void>(::write(STDERR_FILENO, value, size));
+        [[maybe_unused]] auto const written = ::write(STDERR_FILENO, value, size);
 #endif
     }
 
@@ -224,6 +227,24 @@ namespace deren::utility::detail::trace_native {
             return false;
         std::memcpy(frame.module, info.dli_fname, length + 1);
         frame.base = reinterpret_cast<std::uintptr_t>(info.dli_fbase);
+#if defined(__linux__)
+        // ELF symbol addresses use the load bias, which is zero for a non-PIE executable.
+        struct lookup {
+            std::uintptr_t pc;
+            std::uintptr_t* base;
+        } lookup{pc, &frame.base};
+        dl_iterate_phdr(+[](dl_phdr_info* image, std::size_t, void* opaque) {
+            auto& value = *static_cast<struct lookup*>(opaque);
+            for (unsigned i = 0; i < image->dlpi_phnum; ++i) {
+                auto const& segment = image->dlpi_phdr[i];
+                auto const begin = image->dlpi_addr + segment.p_vaddr;
+                if (segment.p_type == PT_LOAD && value.pc >= begin && value.pc - begin < segment.p_memsz) {
+                    *value.base = image->dlpi_addr;
+                    return 1;
+                }
+            }
+            return 0; }, &lookup);
+#endif
 #endif
         frame.offset = pc - frame.base;
         return true;
@@ -359,16 +380,12 @@ namespace deren::utility::detail::trace_native {
         }
     } // namespace
 #endif
-    bool prepare_thread() noexcept {
 #if defined(_WIN32)
+    bool prepare_thread() noexcept {
         ULONG guarantee = 64 * 1024;
         return SetThreadStackGuarantee(&guarantee) != FALSE;
-#else
-        return false;
-#endif
     }
     bool install_handler() noexcept {
-#if defined(_WIN32)
         HANDLE stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
         if ((!stderr_handle || stderr_handle == INVALID_HANDLE_VALUE) && !emergency_output.load(std::memory_order_relaxed)) {
             HANDLE const file = open_crash_log();
@@ -381,16 +398,12 @@ namespace deren::utility::detail::trace_native {
         static_cast<void>(prepare_thread());
         SetUnhandledExceptionFilter(crash_filter);
         return true;
-#else
-        return false;
-#endif
     }
 
     process_status symbolize_group(char const* executable, char const* module, std::uintptr_t const* offsets,
                                    std::uint32_t count, bool inlines, char* output, std::size_t cap,
                                    std::size_t& written, std::uint32_t timeout_ms) noexcept {
         written = 0;
-#if defined(_WIN32)
         wchar_t application[2048], object[2048], command[8192];
         if (!count || count > capacity || !cap || !timeout_ms)
             return process_status::failed;
@@ -552,16 +565,6 @@ namespace deren::utility::detail::trace_native {
             status = process_status::failed;
         cleanup();
         return status;
-#else
-        static_cast<void>(executable);
-        static_cast<void>(module);
-        static_cast<void>(offsets);
-        static_cast<void>(count);
-        static_cast<void>(inlines);
-        static_cast<void>(output);
-        static_cast<void>(cap);
-        static_cast<void>(timeout_ms);
-        return process_status::unavailable;
-#endif
     }
+#endif // Windows process and exception handling; POSIX lives in stacktrace_posix.cpp.
 } // namespace deren::utility::detail::trace_native

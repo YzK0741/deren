@@ -12,8 +12,9 @@ auto readable = diag::symbolize(trace); // Healthy context: allocates and starts
 
 Capture uses fixed storage for at most 64 addresses. Depth zero returns an empty
 trace; skip excludes additional caller frames. Raw records retain PC, module base,
-RVA and module path - an unresolved frame reports `base=0x0` and repeats its
-absolute PC in the `rva=` field, so a zero base means "no RVA". Symbolization keeps
+object address and module path. Windows records use a module base and RVA;
+POSIX records use the load bias and object virtual address. A resolved non-PIE
+ELF can have `base=0x0`; an empty module path identifies an unresolved frame. Symbolization keeps
 these records when symbols or the tool are unavailable, and a tool that writes
 nothing is `unavailable` rather than `ok`. Its timeout applies across module groups;
 output is bounded. `symbolizer_options::executable = "off"` selects raw output only.
@@ -75,8 +76,38 @@ Overflow reserve is per thread. The project thread pool, logging worker and Gaus
 not install or replace the process exception filter. Other libraries may replace
 that filter; ASAN owns native fault reporting in sanitizer builds, where the
 native-fault assertions are skipped. They run in the optimized Release suite.
-POSIX has capture/raw-output fallbacks, but no signal handler in this integration;
-Windows Clang is the validated platform.
+Windows Clang is validated; POSIX behavior is described below.
+
+## POSIX diagnostics
+
+Normal capture uses `_Unwind_Backtrace` with fixed address storage. In a healthy
+context, `dladdr` locates the module, ELF program headers supply the load bias,
+and `llvm-symbolizer` decodes object addresses.
+The native launcher uses `posix_spawn` with an explicit executable and argument
+array, filtered environment, nonblocking pipe, timeout and output cap. A separate
+process group is killed and the direct child reaped on completion or failure.
+This contains ordinary descendants; it is not a sandbox for a tool that deliberately
+escapes its process group.
+
+`install_crash_handler()` installs `sigaction` handlers for SIGSEGV, SIGBUS, SIGILL
+and SIGFPE. `prepare_crash_thread()` supplies a 64 KiB alternate signal stack for
+the calling thread and preserves an existing alternate stack. Existing project
+worker entry points already call it. SIGABRT remains untouched, including when
+`fast_panic` aborts.
+
+The signal handler writes only the signal number, context PC and (for memory
+faults) data address to stderr, then re-raises the signal with its default action.
+It performs no unwinding, module lookup, formatting-library call, allocation,
+logging or symbolization. The PC extraction covers Linux x86-64 and ARM64;
+other architectures report zero rather than a fabricated PC. A complete crash
+chain depends on the OS core dump/debugger; the signal record alone is not an
+ASLR-independent offline trace. Full call chains are available from normal
+capture and ordinary panic. Missing stderr may lose the signal record.
+
+Linux x86-64 was tested in Ubuntu/WSL using optimized PIE and non-PIE probes,
+including actual memory faults and a worker stack overflow. macOS is outside this
+integration. These native probes do not claim a complete Linux renderer build.
+A small independent Linux CI job runs the same tests.
 
 ## Builds and offline decoding
 
@@ -91,13 +122,13 @@ restricted inherited handles, a filtered environment and a kill-on-close Windows
 job. The environment filter is the same rule the offline tool applies: a variable
 that rewrites the tool's output protocol (`LLVM_SYMBOLIZER_OPTS`) never reaches the
 child, so the text is always read as the one protocol this service decodes. There is
-no tool invocation on the fatal path.
+no tool invocation inside fast_panic or the OS crash/signal handlers.
 
 Archive the exact EXE, DLL and debug data with each crash log. An offline tool
 can decode the raw records:
 
 ```text
-python source/scripts/symbolize_stacktrace.py crash.log --module-dir archived-build
+python scripts/symbolize_stacktrace.py crash.log --module-dir archived-build
 ```
 
 The script applies the same rule this service does - the first frame after each
