@@ -140,6 +140,9 @@ static const uint heap_slots_rt_visibility_storage = heap_slot_base + 711u;
 // the visibility buffer (V0.1b): one R32_UINT id per render pixel, per swapchain image. 719..726 is the range the
 // removed MegaLights storage twins left free, which is what keeps every existing per-image array's number.
 static const uint heap_slots_visibility = heap_slot_base + 719u;
+/// the CAPTURE-ONLY STEP's own depth image (727..734): no shader samples it yet; it is in the grid because the
+/// managed-output adoption path writes a sampled descriptor for every family and the host/shader grids must agree.
+static const uint heap_slots_visibility_depth = heap_slot_base + 727u;
 static const uint heap_slots_gbuffer_albedo = heap_slot_base + 551u;
 static const uint heap_slots_gbuffer_normal = heap_slot_base + 559u;
 static const uint heap_slots_gbuffer_material = heap_slot_base + 567u;
