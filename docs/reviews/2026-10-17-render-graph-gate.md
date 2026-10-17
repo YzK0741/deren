@@ -382,6 +382,30 @@ same range or the graph's content validation refuses the plan), so the adapter t
 input; and the runtime must skip its hand-back barrier on graph frames, where the graph's lighting barrier
 replaces it.
 
+The shadow pass is now MIGRATED on stale-map frames. `graph_shadow_frame` is frozen with the eligibility
+and includes the pass's own reuse test (a reused map is not written, so the graph must not declare its
+producer); when it holds, `record_post_graph` imports the map with UNDEFINED prior contents (the first
+frame's image really is in UNDEFINED layout, and the producer's write is allowed to discard it), appends
+the pass as lane 9 through `graph::shadow`, and records it with the barrier-free `record_content` entry;
+the legacy stage and the runtime's hand-back barrier are skipped, because the graph now emits both the
+per-layer transitions and the read transition the lighting pass needs. A frame that does not record the
+pass keeps the Stage 2H split (sampled import + declared reads).
+
+Two measurements shaped it, and both are recorded as limitations rather than worked around silently:
+
+- a LAYER-RANGED write declaration (the active cascade run) makes the graph's `prepare()` refuse the frame
+  with `unsupported` - the transition never reaches the backend, so the adapter declares the whole image.
+  That is safe (a declaration is an ordering promise, not an operation: no discard is recorded, the spare
+  layers keep their previous contents, and nothing samples them) but imprecise; making the range exact is
+  a follow-up for the execution/backends path;
+- the import's prior CONTENTS matter: with the sampled prior state of Stage 2H, the first frame's image is
+  still UNDEFINED natively and the submit is rejected with a layout mismatch - the graph-recorded frame
+  needs `initial_contents::undefined`, which is exactly what the pass's legacy per-layer barrier spelled.
+
+Evidence: CTest 44/44; the gate round with the graph on is byte-identical for all fourteen scenarios
+(matched 14, mismatched 0) with zero validation findings, and `test_render_graph_lighting` asserts the
+producer/consumer ordering for the shadow image (42 checks, 0 failed).
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the

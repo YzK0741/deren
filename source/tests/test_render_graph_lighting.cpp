@@ -3,12 +3,14 @@
 #include <array>
 import deren.engine.render_graph.lighting;
 import deren.engine.render_graph.cluster;
+import deren.engine.render_graph.shadow;
 import deren.engine.render_graph.post;
 import deren.engine.render_graph.geometry;
 import deren.engine.pass.deferred;
 namespace rg = deren::engine::render_graph;
 namespace lighting = rg::lighting;
 namespace cluster = rg::cluster;
+namespace shadow = rg::shadow;
 namespace post = rg::post;
 namespace rhi = deren::promise::rhi;
 int main() {
@@ -226,6 +228,52 @@ int main() {
                         lit_position = i;
                 }
                 CHECK(sort_position < lit_position);
+            }
+        }
+    }
+    {
+        // THE CASCADED-SHADOW PRODUCER AND ITS CONSUMER (adoption stage 2H): the map is one layered depth array;
+        // the pass writes the ACTIVE cascade run and the lighting stage reads it - the graph owns the
+        // write -> read ordering that the runtime's hand-back barrier publishes for legacy frames.
+        rg::builder graph;
+        rg::resource_state const sampled{rg::resource_layout::shader_read_only, rg::pipeline_stage::fragment_shader, rg::memory_access::read};
+        auto cascades = *graph.import_texture({71, 1}, rg::initial_contents::defined, "shadow cascades", {1, 4, rg::texture_aspect::depth}, sampled);
+        auto shadow_producer = shadow::append(graph, {cascades, 3});
+        CHECK(shadow_producer);
+        if (shadow_producer) {
+            rg::resource_state const attached{rg::resource_layout::color_attachment, rg::pipeline_stage::color_output, rg::memory_access::write};
+            lighting::inputs inputs{};
+            inputs.color = *graph.import_texture({71, 2}, rg::initial_contents::defined, "emissive", {}, attached);
+            for (unsigned i = 0; i < 3; ++i)
+                inputs.surface[i] = *graph.import_texture({71, 3 + i}, rg::initial_contents::defined, "surface", {}, attached);
+            inputs.depth = *graph.import_texture({71, 6}, rg::initial_contents::defined, "depth", {1, 1, rg::texture_aspect::depth},
+                                                 rg::resource_state{rg::resource_layout::depth_stencil_attachment, rg::pipeline_stage::depth_stencil,
+                                                                    rg::memory_access::write});
+            auto camera = *graph.import_buffer({71, 7}, rg::initial_contents::defined, "camera", {64},
+                                               rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::fragment_shader, rg::memory_access::read});
+            auto light = *graph.import_buffer({71, 8}, rg::initial_contents::defined, "light", {64},
+                                              rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::fragment_shader, rg::memory_access::read});
+            lighting::shared_inputs shared{camera, light};
+            shared.shadow_cascades = cascades;
+            inputs.shared = shared;
+            auto lit = lighting::append(graph, inputs);
+            CHECK(lit && graph.export_resource(inputs.color));
+            auto plan = graph.compile({true});
+            CHECK(plan);
+            if (plan && lit) {
+                bool ordered = false;
+                for (auto const& barrier : plan->barriers)
+                    if (barrier.resource == cascades.index() && barrier.before_pass == lit->pass.index() && barrier.memory_dependency)
+                        ordered = true;
+                CHECK(ordered);
+                std::size_t producer_position = plan->execution_order.size(), consumer_position = plan->execution_order.size();
+                for (std::size_t i = 0; i < plan->execution_order.size(); ++i) {
+                    if (plan->execution_order[i] == shadow_producer->pass.index())
+                        producer_position = i;
+                    if (plan->execution_order[i] == lit->pass.index())
+                        consumer_position = i;
+                }
+                CHECK(producer_position < consumer_position);
             }
         }
     }

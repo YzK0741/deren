@@ -10,6 +10,7 @@ import deren.engine.render_graph.compose;
 import deren.engine.render_graph.lighting;
 import deren.engine.render_graph.geometry;
 import deren.engine.render_graph.cluster;
+import deren.engine.render_graph.shadow;
 import deren.engine.pass;
 import deren.engine.pass.output_targets;
 import deren.promise.rhi;
@@ -19,16 +20,25 @@ namespace deren::engine {
     namespace {
         struct post_recording_payload {
             pass::pass_host host{};
-            std::array<pass::resolved_io, 9> ios;
-            std::array<pass::frame_pass*, 9> passes{};
+            std::array<pass::resolved_io, 10> ios;
+            std::array<pass::frame_pass*, 10> passes{};
             rhi::error record(unsigned lane) const noexcept {
                 if (host.apply_behaviour)
                     host.apply_behaviour(host.context, *passes[lane], ios[lane]);
-                return passes[lane]->record_content(ios[lane]);
+                auto error = passes[lane]->record_content(ios[lane]);
+                if (error != rhi::error::ok) // which lane refused, and with what - one line, once per failure
+                    deren::utility::log("post graph: lane {} refused recording ({})", lane, static_cast<uint32_t>(error));
+                return error;
             }
         };
         rhi::error post_build_error(graph::execution::build_error const& error) noexcept {
-            return error.execution ? error.execution->code : rhi::error::invalid_argument;
+            if (!error.execution)
+                return rhi::error::invalid_argument;
+            // WHICH PASS AND RESOURCE, when the execution layer names them: an unusable usage or stage is the one
+            // failure whose code alone cannot be acted on.
+            deren::utility::log("post graph: execution refused ({}) at pass {} resource {}", static_cast<uint32_t>(error.execution->code),
+                                error.execution->pass, error.execution->resource);
+            return error.execution->code;
         }
         rhi::error clear_post_target(pass::resolved_io const& io) noexcept {
             if (!io.list || io.targets.empty() || !io.targets[0].view_handle || !io.extent.width || !io.extent.height)
@@ -251,11 +261,13 @@ namespace deren::engine {
                 cluster_counts_ref = *counts_import;
                 cluster_indices_ref = *indices_import;
             }
-            // THE CASCADED SHADOW MAP (adoption stage 2H, consumer half): the shadow pass renders it outside the graph
-            // and the renderer's hand-back barrier makes every allocated layer sampled before the graph records, so
-            // the import's prior state already matches - declaring the lighting reads here is knowledge, not a
-            // barrier. Migrating the producer is the next step; a frame without an allocated shadow map keeps the
-            // pre-migration split (nothing declared).
+            // THE CASCADED SHADOW MAP (adoption stage 2H). Two shapes, depending on who owns the producer this frame:
+            // - a GRAPH-RECORDED shadow pass (the maps are stale) writes the array, so the import declares its prior
+            //   contents UNDEFINED: the first frame's image really is in UNDEFINED layout, and the producer's write
+            //   (the only access) is allowed to discard it - the graph then emits the attachment transition the
+            //   pass's legacy record used to own;
+            // - otherwise (a reused map, or a frame that cannot record the pass) the map was handed back as sampled
+            //   by the renderer before the graph records, and only the lighting reads are declared.
             std::optional<graph::texture_ref> shadow_cascades{};
             if (this->shadow_allocated_layers != 0) {
                 auto shadow_generation = this->shadow_resource_view.find(render_resource::resource_id::shadow_map);
@@ -263,11 +275,12 @@ namespace deren::engine {
                     auto* shadow_image = shadow_generation->objects[slot].image.get();
                     if (shadow_image) {
                         auto shadow_lease = lease::from_shared(this->core_owner, std::shared_ptr<rhi::image>{std::move(shadow_generation), shadow_image});
-                        auto shadow_ref =
-                            build.import_texture(shadow_lease,
-                                                 {graph::initial_contents::defined,
-                                                  {graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read}},
-                                                 "shadow cascades");
+                        graph::execution::import_state const shadow_import =
+                            this->graph_shadow_frame
+                                ? graph::execution::import_state{graph::initial_contents::undefined, {}}
+                                : graph::execution::import_state{graph::initial_contents::defined,
+                                                                 {graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read}};
+                        auto shadow_ref = build.import_texture(shadow_lease, shadow_import, "shadow cascades");
                         if (!shadow_ref)
                             return post_build_error(shadow_ref.error());
                         shadow_cascades = *shadow_ref;
@@ -355,6 +368,27 @@ namespace deren::engine {
                     cluster_added->pass, [payload](graph::cluster::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(8); });
                 if (!cluster_bound)
                     return post_build_error(cluster_bound.error());
+            }
+            // THE CASCADED-SHADOW PRODUCER AS A GRAPH PASS (adoption stage 2H): only on a frame whose maps are stale
+            // (the reuse test), because the graph's write declaration has to match what the pass actually writes -
+            // a reused map is not written and the lighting read already has its sampled state (the import above).
+            // The write range is the RESOLVED target count, which is exactly the layer run the pass records.
+            if (this->graph_shadow_frame && shadow_cascades) {
+                pass::stage shadow_stage{.name = "shadow", .passes = this->shadow_pass, .marks = false};
+                this->prepare_stage(shadow_stage, true);
+                passes[9] = this->shadow_pass[0];
+                ios[9].push_block = host.push_block;
+                if (!passes[9] || !host.resolve || !host.resolve(host.context, *passes[9], ios[9]) || ios[9].list != commands.get() || ios[9].targets.empty())
+                    return rhi::error::not_ready;
+                auto shadow_added = build.append([&](graph::builder& description) noexcept {
+                    return graph::shadow::append(description, {*shadow_cascades, static_cast<std::uint32_t>(ios[9].targets.size())});
+                });
+                if (!shadow_added)
+                    return post_build_error(shadow_added.error());
+                auto shadow_bound = build.bind_pass<graph::shadow::parameters>(
+                    shadow_added->pass, [payload](graph::shadow::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(9); });
+                if (!shadow_bound)
+                    return post_build_error(shadow_bound.error());
             }
             auto geometry = build.append([&](graph::builder& description) noexcept {
                 return graph::geometry::append(description, {inputs.hdr, lighting_inputs.surface, *velocity_ref, *depth_ref, shared_geometry});

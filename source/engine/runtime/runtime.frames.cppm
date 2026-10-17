@@ -837,6 +837,17 @@ namespace deren::engine {
         // Every later reader - record_scene(), the fallback log - uses this frozen value.
         this->main_graph_frame = this->main_graph_candidate();
         this->graph_cluster_frame = this->main_graph_frame && this->cluster_resources_available();
+        // THE SHADOW PASS'S OWN RECORDING DECISION, measured here because the graph lane may hold it: the pass runs
+        // only when a shading stage reads the map AND this slot's maps are stale (the reuse test below). The
+        // signature and the reuse flag are what the code later uses, so they are computed once here, before the
+        // freeze, and the freeze itself only adds the graph's conditions.
+        render_features const features = this->active_features();
+        uint64_t const geometry_signature = this->shadow_geometry_signature();
+        bool const shadow_reuse =
+            this->shadow_rendered_version[frame_slot] == this->shadow_content_version && this->shadow_rendered_models[frame_slot] == geometry_signature;
+        this->graph_shadow_frame = this->main_graph_frame && features.shadow && !shadow_reuse && this->shadow_allocated_layers != 0 &&
+                                   this->shadow_pass[0] != nullptr && frame_slot < this->shadow_images.size() &&
+                                   static_cast<bool>(this->shadow_images[frame_slot]);
 
         // Debug and unlit frames can skip the entire deferred stage; they must not retain its history.
         this->megalights_resolved = false;
@@ -933,14 +944,11 @@ namespace deren::engine {
         // Feature registry (runtime::active_features): the pass runs only when a shading stage will
         // actually read the map - the flat render mode skips it entirely, which is worth ~45% of the
         // frame (see the measured numbers in the struct's documentation).
-        render_features const features = this->active_features();
-        // Geometry half of the reuse test: one fingerprint of every input the pass reads - see
-        // shadow_geometry_signature().
-        uint64_t const geometry_signature = this->shadow_geometry_signature();
+        // (`features`, the geometry signature and `shadow_reuse` are computed with the frame's eligibility freeze:
+        // the graph lane's membership depends on the same reuse test.)
         // Skip the whole pass when this slot's maps are still valid: unchanged fit (content version)
         // AND unchanged caster geometry (hash). The maps stay in SHADER_READ_ONLY and the descriptor
         // set still points at them, so there is nothing to record - not even the read barriers.
-        bool const shadow_reuse = this->shadow_rendered_version[frame_slot] == this->shadow_content_version && this->shadow_rendered_models[frame_slot] == geometry_signature;
         if (features.shadow && !shadow_reuse) {
             deren::engine::profiling::cpu_phase_timer const shadow_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::shadow}; // the sub-phase of scene that records every cascade
             if (static_cast<bool>(this->shadow_images[static_cast<std::size_t>(frame_slot)])) {
@@ -959,23 +967,30 @@ namespace deren::engine {
                 // allocated layer, including the spare ones), and the bookkeeping that makes the next frame's reuse
                 // test true. The frame itself - the per-cascade secondaries, the map's edge and the two callbacks -
                 // is built HERE and handed to the pass by whoever owns it (see make_shadow_frame/prepare_stage).
-                pass::stage const shadow_stage = {.name = "shadow", .passes = this->shadow_pass, .marks = false};
-                {
-                    this->prepare_stage(shadow_stage);
-                    [[maybe_unused]] pass::run_report const shadow_report = pass::record_stage(shadow_stage, this->make_pass_host());
-                }
-                // Hand the cascades back to the shading stages as a sampled array texture: the layers just rendered go
-                // depth-attachment -> shader-read (the src masks publish the attachment write), and the SPARE layers a
-                // shrank cascade count left behind are covered by the same range - the descriptor's array view spans
-                // every allocated layer, so "one barrier, whole array" is the invariant. That count is the IMAGE's,
-                // which is why this is the host's and not the pass's.
-                if (rhi::command_buffer* const frame_commands = this->frame_command_buffer().get(); frame_commands != nullptr) {
-                    // depth_attachment -> depth_read, over every layer the image owns (the range the raw
-                    // barrier retargeted); what stays here is the host's count, not a mask pair.
-                    (void)frame_commands->barrier(rhi::image_barrier{.resource = this->shadow_images[static_cast<std::size_t>(frame_slot)].get(),
-                                                                     .from = rhi::image_use::depth_attachment,
-                                                                     .to = rhi::image_use::depth_read,
-                                                                     .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = this->shadow_allocated_layers}});
+                // ON A GRAPH FRAME THE COMPOSED GRAPH OWNS THE RECORDING (adoption stage 2H): its lane declares the
+                // active cascade layers as written and the lighting read as the consumer, so the graph emits the
+                // per-layer transitions AND the hand-back this block would issue - and one submission never runs
+                // both barrier paths. The bookkeeping below still runs: it is what makes the NEXT frame's reuse
+                // test true, graph-recorded or not.
+                if (!this->graph_shadow_frame) {
+                    pass::stage const shadow_stage = {.name = "shadow", .passes = this->shadow_pass, .marks = false};
+                    {
+                        this->prepare_stage(shadow_stage);
+                        [[maybe_unused]] pass::run_report const shadow_report = pass::record_stage(shadow_stage, this->make_pass_host());
+                    }
+                    // Hand the cascades back to the shading stages as a sampled array texture: the layers just rendered go
+                    // depth-attachment -> shader-read (the src masks publish the attachment write), and the SPARE layers a
+                    // shrank cascade count left behind are covered by the same range - the descriptor's array view spans
+                    // every allocated layer, so "one barrier, whole array" is the invariant. That count is the IMAGE's,
+                    // which is why this is the host's and not the pass's.
+                    if (rhi::command_buffer* const frame_commands = this->frame_command_buffer().get(); frame_commands != nullptr) {
+                        // depth_attachment -> depth_read, over every layer the image owns (the range the raw
+                        // barrier retargeted); what stays here is the host's count, not a mask pair.
+                        (void)frame_commands->barrier(rhi::image_barrier{.resource = this->shadow_images[static_cast<std::size_t>(frame_slot)].get(),
+                                                                         .from = rhi::image_use::depth_attachment,
+                                                                         .to = rhi::image_use::depth_read,
+                                                                         .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = this->shadow_allocated_layers}});
+                    }
                 }
                 this->shadow_rendered_version[frame_slot] = this->shadow_content_version;
                 this->shadow_rendered_models[frame_slot] = geometry_signature;
