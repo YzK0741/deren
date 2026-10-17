@@ -400,8 +400,8 @@ ordinary Bloom intensity/debug-view gates still apply.
 then three downsamples. Each reads the previous image in the fragment shader and
 CLEARs its own color attachment. A fifth boundary pass samples all four outputs;
 it records synchronization only and establishes the composite's incoming state.
-The HDR transition is still owned by the preceding legacy boundary. The graph
-callback uses `post_bloom_pass::record_content`, which omits all legacy barriers.
+The HDR transition belongs to the preceding graph lane. The graph
+callback uses `post_bloom_pass::record_content`, which records content only - the graph emits the barriers.
 Pipeline binding, viewport, heap slots, shader constants and fullscreen draws are
 shared with the established implementation.
 
@@ -418,7 +418,7 @@ rebuild does not discard another image's frontier, and returning to a still-live
 generation preserves its state. Expired generation entries are reclaimed. Reused
 images retain fragment-read/color-write scopes even though their texels are
 cleared. A graph failure aborts end_recording and blocks submission; it never
-falls back to legacy commands after partial graph recording. Present failure does
+records a second path after a partial graph. Present failure does
 not undo an already successful queue submission.
 
 When Bloom is disabled, a scoped boundary establishes sampled layouts for the
@@ -453,8 +453,8 @@ a source execution scope covering its acquire-semaphore wait. Discarding content
 does not remove WSI ordering. This augmentation belongs to the acquired-image
 protocol; ordinary owned images retain the generic UNDEFINED mapping.
 
-Composite/resolve callbacks use checked `record_content` entry points without
-legacy barriers. UI stays inside the final rendering instance. Screenshot/readback
+Composite/resolve callbacks use checked `record_content` entry points that record
+content only (the graph emits the barriers). UI stays inside the final rendering instance. Screenshot/readback
 still runs through its existing protocol after drawing. A separate graph handoff
 then establishes PRESENT (windowed) or sampled (offscreen), with PRESENT carrying
 no destination stage/access. Recording failure blocks submission instead of
@@ -513,8 +513,10 @@ protocol were RETIRED on 2026-10-17: with MegaLights removed the graph could rec
 scene tail, the legacy post/bloom chains and the switches that could select them were deleted. Every gate
 scenario records through the graph and is byte-identical to the frozen references, and a ray-traced frame has
 been A/B-verified byte-identical between the two paths (see the gate review's stages 2F-2O, the RT slices and the
-cleanup section at its end). A frame that cannot be recorded (a missing pipeline or overlay pass) now FAILS with
-one log line instead of falling back: there is no second path to fall back to.
+cleanup section at its end). A frame that cannot be recorded no longer has a second path to fall back to, and the
+two readiness cases differ on purpose: a missing SCENE pipeline leaves nothing to record, so the frame presents
+the cleared background and logs once (a frame loop must survive a pipeline that failed to build); a missing
+POST/OVERLAY pass is refused by the graph itself and FAILS the frame with one log line.
 
 `deren.engine.render_graph.lighting::append` accepts the three surface refs, depth
 and existing scene-color ref. It declares fragment sampling and a preserve-write
@@ -528,8 +530,8 @@ surface targets, velocity, HDR and depth. These imports start with undefined
 contents, and the geometry callback clears them even when the scene has no visible
 leaves. The existing scene pass still owns secondary recording and scheduling;
 its checked content entry point propagates begin/end/execute failures after closing
-the rendering scope. Graph eligibility is frozen before the legacy scene producer
-would record, so supported frames have no duplicate geometry or attachment barriers.
+the rendering scope. The scene's lane is the only producer, so a frame has no
+duplicate geometry or attachment barriers.
 
 Mesh/material/bindless inputs, deformation, shadow and cluster producers, host
 publication and inactive descriptor-layout protocols remain outside this graph's
@@ -555,7 +557,7 @@ and submission. Importing defined read state does not itself synchronize a host
 write. No fake GPU upload pass or host-write barrier is introduced.
 Camera/light imports must support uniform-buffer use, matching the shader's
 ConstantBuffer declarations. A custom storage-only constant generation is refused
-by graph preparation even if the legacy provider validation accepted it.
+by graph preparation even if the declaration's own validation accepted it.
 
 Task and mesh shader stages are available throughout the CPU graph, RHI scope
 bridge and diagnostics. Vulkan maps them to their EXT stage bits and advertises
@@ -570,9 +572,9 @@ commands and cluster producers still need separate declarations. The shared bund
 does not claim to enumerate every resource the pass can access.
 See the [shared-input acceptance record](reviews/2026-10-16-render-graph-shared-inputs.md).
 
-During graph-owned deferred preparation, the existing surface/depth ensure hooks
-are suppressed; CPU frame preparation still runs. The graph emits the handoff, then
+During graph-owned deferred preparation the graph emits the surface/depth handoff
+itself; CPU frame preparation still runs. The graph emits the handoff, then
 checked deferred record_content records only LOAD/draw commands. Recording or
-preparation failure blocks submission; no legacy tail is replayed after partial
+preparation failure blocks submission; no second path is replayed after partial
 graph recording. See the [lighting acceptance record](reviews/2026-10-16-render-graph-lighting.md)
 and [geometry acceptance record](reviews/2026-10-16-render-graph-geometry.md).

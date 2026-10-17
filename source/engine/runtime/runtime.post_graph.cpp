@@ -810,10 +810,9 @@ namespace deren::engine {
         // THE GAUSSIAN HDR CAPTURE (moved here from the legacy scene tail when that tail went): a measurement
         // script asks for the pre-post HDR image of the screenshot frame (`DEREN_GAUSSIAN_HDR_CAPTURE` is the
         // path, see docs/gaussian_splatting.md). The image is copied out HERE because this is the point where the
-        // frame's HDR exists and its layout is known: the graph just recorded it and left it sampled (the post
-        // chain reads it); on a frame the graph did not record it was the legacy chain's colour attachment. The
-        // readback itself stays the screenshot path's (runtime.readback.cppm), which is why only the copy and the
-        // buffer publication live here.
+        // frame's HDR exists and its layout is known: the graph just recorded it (the post chain reads it), and
+        // this frame's recorder is the only one there is. The readback itself stays the screenshot path's
+        // (runtime.readback.cppm), which is why only the copy and the buffer publication live here.
         if (this->screenshot_requested && std::getenv("DEREN_GAUSSIAN_HDR_CAPTURE")) {
             auto* hdr = this->hdr_images[this->current_image_index].get();
             auto const extent = this->render_extent();
@@ -821,10 +820,17 @@ namespace deren::engine {
             desc.size = static_cast<std::uint64_t>(extent.width) * extent.height * 8u;
             desc.usage = rhi::buffer_usage::readback_coherent;
             this->gaussian_hdr_readback = rhi::object_manager<rhi::buffer>{this->rhi_face().create_buffer(desc)};
+            // THE PAIR IS THE LEGACY ONE ON PURPOSE: the contract's transition vocabulary has a
+            // (color_attachment -> transfer_source) recipe and no (sampled-read -> transfer_source) one, because
+            // nothing in the frame pipeline copies out of an image it just sampled. A copy after a sampled read
+            // needs no ordering beyond the write flush that recipe carries, and the image is left in the state the
+            // frame's next graph import discards (the HDR is re-imported with undefined contents).
             auto const from = rhi::image_use::color_attachment;
-            if (!hdr || !this->gaussian_hdr_readback ||
-                commands->barrier(rhi::image_barrier{.resource = hdr, .from = from, .to = rhi::image_use::transfer_source}) != rhi::error::ok) {
-                deren::utility::log("Gaussian HDR capture: FAIL allocation or entry barrier (hdr={} buffer={} barrier={})", hdr != nullptr, static_cast<bool>(this->gaussian_hdr_readback), static_cast<uint32_t>(hdr != nullptr && this->gaussian_hdr_readback ? commands->barrier(rhi::image_barrier{.resource = hdr, .from = from, .to = rhi::image_use::transfer_source}) : rhi::error::invalid_argument));
+            if (!hdr || !this->gaussian_hdr_readback) {
+                deren::utility::log("Gaussian HDR capture: FAIL allocation");
+            } else if (auto const entry = commands->barrier(rhi::image_barrier{.resource = hdr, .from = from, .to = rhi::image_use::transfer_source});
+                       entry != rhi::error::ok) {
+                deren::utility::log("Gaussian HDR capture: FAIL entry barrier ({})", static_cast<std::uint32_t>(entry));
             } else {
                 auto const copied = commands->copy_image_to_buffer(*this->gaussian_hdr_readback, *hdr, {.extent = extent});
                 auto const restored = commands->barrier(rhi::image_barrier{.resource = hdr, .from = rhi::image_use::transfer_source, .to = from});

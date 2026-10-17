@@ -1113,35 +1113,15 @@ namespace deren::engine {
         static_cast<runtime*>(owner)->run_tasks(tasks, deren::engine::task_priority::recording);
     }
     bool runtime::main_graph_candidate() const noexcept {
-        // TAA is no longer an exclusion (adoption stage 2I): the composed graph records its resolve and history copy
-        // as two lanes, writes the resolve's WORKING image from geometry and lighting, and keeps the history copy
-        // alive by exporting the history image - without that export the value-root culling dropped the copy and the
-        // history was never written (that was the flip's whole defect).
-        // THE G-BUFFER DEBUG VIEW is no exclusion either (stage 2J): it needs the G-BUFFER pass, not the lighting
-        // stage, because on a debug frame it records INSTEAD of lighting. THE TRANSPARENT PASS (stage 2K) and THE
-        // THREE CHARACTER PASSES (stage 2L) record as lanes over the working image in the legacy order, THE
-        // GAUSSIAN RASTER (stage 2O) records between lighting and transparency, and THE RAY-TRACED SHADOW PASS
-        // (RT stage 2b) records between geometry and lighting - the write/read pair on its visibility image is
-        // what orders it. NOTHING is excluded by FEATURE any more: the stochastic punctual lighting chain was
-        // removed, so every feature this renderer still has is recorded by the graph.
-        auto const features = this->active_features();
-        if (!this->gbuffer_pass_active())
-            return false;
-        // AN ACTIVE RAY-TRACED SHADOW PASS WITH NO PIPELINE IS NOT A GRAPH CANDIDATE (RT stage 2b): the lane records
-        // it, so a frame that cannot would only be "recorded" by dropping the effect - it takes the legacy path
-        // instead, the same rule the overlay lanes follow.
-        if (features.rt_shadow && this->rt_shadow_pass[0] == nullptr)
-            return false;
-        // EVERY ACTIVE OVERLAY'S PASS MUST BE IN THE CHAIN: a graph frame records the overlay lanes, so a frame whose
-        // active feature has no pass could only be "recorded" by silently dropping the effect. Such a frame takes the
-        // legacy path instead, which gates the same features on their passes (measured by test_render_graph_post).
-        if (this->feature_active("character_forward") && this->character_forward_pass[0] == nullptr)
-            return false;
-        if (this->feature_active("toon_screen_rim") && this->toon_screen_rim_pass[0] == nullptr)
-            return false;
-        if (this->feature_active("goo_rim") && this->goo_rim_pass[0] == nullptr)
-            return false;
-        return true;
+        // THE FRAME IS GRAPH-RECORDED WHENEVER THERE IS A SCENE TO RECORD. Everything else the graph needs - the post
+        // chain, the overlay lanes, the ray-traced shadow's pipeline - is the graph's OWN readiness question:
+        // record_post_graph refuses a lane whose pass did not build and end_recording fails the frame on that error.
+        // The one condition that leaves nothing to record is a missing G-buffer pipeline, and that frame is NOT failed:
+        // record_post_process defines it with the background colour (a pipeline that failed to build is a startup log
+        // line, not an undefined frame - and a headless runtime with no chain at all must still advance frames). The
+        // per-feature exclusions that used to live here existed only because the legacy tail could record those lanes
+        // differently; that path is gone.
+        return this->gbuffer_pass_active();
     }
     bool runtime::cluster_resources_available() noexcept {
         if (this->cluster_pass[0] == nullptr)
@@ -3112,11 +3092,31 @@ namespace deren::engine {
         // or overlay pass), and a frame that fails it is reported once and failed rather than recorded by a
         // path that no longer exists.
         if (!this->main_graph_frame) {
+            // NOTHING CAN RECORD THIS FRAME (no G-buffer pipeline): DEFINE the frame rather than fail it or present
+            // undefined pixels. The swapchain image is transitioned off undefined, cleared to the background colour and
+            // left in the colour-attachment state - exactly what the post chain leaves on a normal frame - so
+            // end_recording's present transition takes its usual from-state and the frame completes normally. This is
+            // the degenerate case a frame loop must survive: a pipeline that failed to build is a log line, not a broken
+            // frame (and the independent review of this cleanup measured that the alternative - returning false without
+            // a status - presented an UNDEFINED image as a successful frame).
             if (!this->main_graph_not_ready_reported) {
-                deren::utility::log("main graph: the frame has no recordable scene (a pipeline or overlay pass is missing); frames are only graph-recorded now");
+                deren::utility::log("main graph: the frame has no recordable scene (the G-buffer pipeline is missing); presenting the cleared background");
                 this->main_graph_not_ready_reported = true;
             }
-            return false;
+            auto* const commands = this->frame_command_buffer().get();
+            auto* const image = this->rhi_face().frame_image();
+            rhi::subresource_range const whole{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u};
+            if (commands == nullptr || image == nullptr)
+                return false;
+            if (commands->barrier(rhi::image_barrier{.resource = image, .from = rhi::image_use::undefined, .to = rhi::image_use::color_attachment, .range = whole}) != rhi::error::ok)
+                return false;
+            if (commands->clear_color_image(*image,
+                                            deren::utility::vessel::array<float, 4>{this->background_color.r, this->background_color.g, this->background_color.b, 1.0f},
+                                            whole) != rhi::error::ok)
+                return false;
+            // The swapchain image WAS written: end_recording's present transition starts at the attachment state, and
+            // post_wrote_swapchain == true is also what keeps the screenshot path's read-back legal on this frame.
+            return true;
         }
         if (!this->pass_ready("post_composite")) {
             this->bloom_graph_error = rhi::error::not_ready;

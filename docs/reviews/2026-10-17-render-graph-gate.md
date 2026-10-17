@@ -997,7 +997,7 @@ deletion cannot simply drop).
 ## The legacy scene tail and the startup switches are gone (the graph is the only path)
 
 With MegaLights removed there was nothing left that could select the legacy path, so the tail went and the
-switches followed it (commit `bb1-legacy-tail`). This is the payload of the whole adoption: the frame recorder is
+switches followed it (commit `c42d3e33`). This is the payload of the whole adoption: the frame recorder is
 one function again instead of two parallel ones.
 
 WHAT WAS DELETED:
@@ -1012,10 +1012,11 @@ WHAT WAS DELETED:
   their lock state and the `bloom_graph_locked` first-pace lock, the `[render] main_render_graph` /
   `post_render_graph` / `bloom_render_graph` config keys (example + test fixture too) and the three calls in
   `main.cpp`; the gate's `-Legacy` switch (the tail it selected does not exist).
-- The failure semantics changed with them: an ineligible frame (missing post pipeline, or an active overlay
-  feature without its pass) records NOTHING and FAILS with one log line instead of silently taking the tail.
-  That is what `record_post_process`'s guard says, and `test_render_graph_post`'s modes were updated to match
-  (its post-only-graph section, which could only exist with the switch, is gone; the always-on modes remain).
+- The failure semantics changed with them: the legacy tail is gone, and the two readiness cases were split by the
+  post-review fix below - a missing G-buffer pipeline leaves nothing to record and presents the cleared background
+  (once-logged), while a missing post/overlay pass is refused by the graph and fails the frame. The old
+  `test_render_graph_post` post-only section went with the switch; the runtime-frame matrix was cut down with the
+  tail and then RE-ADDED (reduced) by the post-review fix.
 
 WHAT STAYED (and why): the pass runner (`prepare_stage`, `record_stage`, `frame_services`/`ensure_*`) is still
 used by tests and by the graph builder's per-lane `prepare_stage`; the passes' per-pass legacy `record()`
@@ -1031,7 +1032,7 @@ the evidence now.
 
 ## The legacy recording verb and its ordering-rule services are gone
 
-The last code that could record a pass the OLD way went in the same cleanup (commit `bb2-record-verb`): the
+The last code that could record a pass the OLD way went in the same cleanup (commit `a2e1b369`): the
 `frame_pass::record` virtual, the pass runner (`pass::record_stage`) and every pass's legacy `record()` body.
 
 WHAT WAS DELETED:
@@ -1054,7 +1055,8 @@ WHAT WAS DELETED:
   runtime call them - and the graph's lane uses `record_content` exactly as before.
 
 TESTS: `test_pass`'s runner sections (resolve/behaviour/record order, mark pairs, skip semantics, chain
-init/record) went with the runner; the create/readiness/declaration/resource-table/frame-constant sections stay.
+init/record) went with the runner; the create/declaration/resource-table/frame-constant sections stay, and
+`chain.init`/`chain.ready` coverage was re-added by the post-review fix.
 The gaussian probes and their tests call `record_owned`; the injection test's TAA history mode does too. The graph
 tests' fake passes lost their legacy `record()` overrides (they already counted via `record_content`).
 
@@ -1063,8 +1065,8 @@ i.e. deleting the second recording mechanism changed no pixel, which is the clai
 
 ## Final state: one recording path, and what is left of the pass framework
 
-After the three cleanups (MegaLights `bc2d22c1`, the capture move `022ec09c`, the tail + switches `c42d3e33`,
-the record verb + ordering services `a2e1b369`, and the dead-helper/comment pass in this commit) the renderer has
+After the cleanup series (MegaLights `bc2d22c1`, the capture move `022ec09c`, the tail + switches `c42d3e33`,
+the record verb + ordering services `a2e1b369`, and the dead-helper/comment pass) the renderer has
 ONE recording path and one scheduler:
 
 - `runtime::record_main_drawcalls` computes the frame's eligibility flags and builds the acceleration structures;
@@ -1084,3 +1086,41 @@ reference with a clean validation log on every scenario; `check_rt.ps1` PASS (GP
 40 frames, clean validation); the capture instrument writes its file from the graph path. The RT A/B pair is
 retired with the second path (there is no legacy configuration left to compare against) - the frozen-reference
 gate is the byte-identity evidence, and it was captured from the tail that no longer exists.
+
+
+## Post-review fixes (independent reviewer, 2026-10-17)
+
+An independent read-only review of the series (7 commits, full tree, no repo changes) verified the one-path claim,
+the family renumbering end to end, the toon/goo body relocation, the gaussian/taa record_owned split and the
+verification itself: CTest 44/44, the 15-scenario gate `matched 15, mismatched 0` with zero validation findings,
+and `check_rt.ps1` PASS. It found one real defect and two coverage/doc problems; they are fixed here.
+
+1. THE INELIGIBLE FRAME PRESENTED AN UNDEFINED IMAGE (major). `record_post_process` returned false without setting
+   a status when `main_graph_frame` was false, so `end_recording` went on to transition the swapchain off undefined
+   and present it as `proceed` - while the same function's comment, docs/render_graph.md and this record all said
+   the frame fails. The fix splits the two readiness cases explicitly (see `main_graph_candidate`):
+   - a missing G-BUFFER pipeline leaves nothing to record: `record_post_process` now transitions the frame image off
+     undefined, clears it to the background colour and returns true, so the frame is DEFINED and completes normally
+     (once-logged). This is the degenerate case a frame loop must survive, and it is what headless runtimes with
+     stub chains rely on.
+   - a missing POST or OVERLAY pass is a graph readiness refusal (`record_post_graph` returns not_ready): the frame
+     FAILS with one log line, as before.
+   `main_graph_candidate` is now just `gbuffer_pass_active()`; the per-feature exclusions existed only to let the
+   legacy tail record those lanes and are gone with it.
+2. THE BEHAVIOUR-CHANGE CLAIM WAS UNTESTED (major). The runtime-frame matrix in `test_render_graph_post` had been
+   deleted with the legacy path (the earlier record wrongly called it "remaining"), and the `chain.ready`/`chain.init`
+   section of `test_pass` went with the runner. Both are re-added: a reduced 6-mode matrix (eligible proceed, missing
+   overlay pass fails, deferred failure fails, injected validation failure fails, empty scene frame fails) plus the
+   no-G-buffer case (cleared background, proceed), and `chain.init`/`chain.ready` checks.
+3. SMALLER FIXES. The gaussian HDR capture's failure path re-invoked its entry barrier inside the log expression
+   (recording it twice) - it now captures the error once; that block's comment no longer mentions a legacy frame;
+   living docs that still advertised the removed MegaLights chain as a current feature or described the deleted
+   legacy path in the present tense were updated (mainpage, README heap inventory, managed_resources, config example,
+   the gate script's blind-spot note, application_configuration); and the placeholder commit names in this record
+   (`bb1-legacy-tail`/`bb2-record-verb`) were replaced with the real hashes.
+
+STILL OPEN (found by the review, deliberately NOT in this fix commit): dead plumbing the runner deletion left behind
+(`pass_host::{frame,feature_active}`, seven `frame_services` fields, four `run_report` counters, `stage::marks`,
+`runtime::sub_render_task`, the shadow pass's `own_layer_transitions` dead branch), ~8 orphaned doc blocks in
+runtime.declarations.cppm, and ~20 stale present-tense "legacy record/path" comments across the pass modules. None
+changes behavior; they are the next mechanical sweep.

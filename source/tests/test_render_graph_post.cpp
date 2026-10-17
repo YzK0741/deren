@@ -136,5 +136,90 @@ int main() {
                 CHECK(state.stages == rg::pipeline_stage::none && state.access == rg::memory_access::none);
         }
     }
+    // ---- THE RUNTIME'S FRAME STATUS ON THE ONE PATH: an ELIGIBLE frame records through the graph and proceeds; an
+    //      INELIGIBLE one (active overlay with no pass, no G-buffer pipeline, empty scene frame) records NOTHING and
+    //      FAILS. The failure status is the contract the legacy-tail removal left behind, and it is what the
+    //      independent review caught missing: returning false without a status meant `end_recording` went on to
+    //      transition the swapchain from undefined and present it as `proceed` (an undefined frame).
+    for (unsigned mode = 0; mode < 6; ++mode) {
+        rhi::create_info options{};
+        options.window_width = options.window_height = 16;
+        auto core = deren::vk_test::probe_make_core(options, rhi::abi_version, true);
+        deren::vk_test::probe_graphics_enabled(*core, true);
+        deren::engine::scene_tree::scene scene;
+        pass::pass_chain chain;
+        chain.emplace<pass::output_targets_pass>();
+        auto& scene_pass = chain.emplace<pass::scene_pass>();
+        auto& deferred = chain.emplace<test_deferred>();
+        deferred.fail = mode == 3;
+        chain.emplace<test_composite>();
+        for (unsigned i = 0; i < 4; ++i)
+            chain.emplace<pass::post_bloom_pass>(i);
+        deren::engine::runtime runtime{core, options};
+        runtime.set_scene(scene);
+        deren::engine::runtime::chain_wiring wiring{};
+        struct context {
+            unsigned mode;
+            pass::scene_pass* scene;
+        } context{mode, &scene_pass};
+        wiring.owner = &context;
+        wiring.feature_active = [](void* owner, deren::engine::runtime::feature_facts const& facts, std::string_view name) {
+            auto mode = static_cast<struct context*>(owner)->mode;
+            return (name == "scene" && facts.gbuffer_pipeline) || (name == "bloom" && facts.bloom) ||
+                   (name == "toon_screen_rim" && mode == 1) || (name == "goo_rim" && mode == 2);
+        };
+        wiring.prepare = [](void* owner, deren::engine::runtime::frame_services const& services, std::string_view stage) {
+            if (stage == "scene") {
+                auto* context = static_cast<struct context*>(owner);
+                context->scene->set_frame(context->mode == 5 ? pass::scene_frame{} : services.make_scene_frame(services.owner));
+            }
+        };
+        runtime.set_pass_chain(chain, wiring);
+        std::array<uint8_t, 4> shader{3, 2, 35, 7};
+        CHECK(runtime.make_gbuffer_pipeline(shader, shader));
+        CHECK(runtime.pace_and_acquire() == deren::engine::frame_status::proceed);
+        CHECK(runtime.begin_recording() == deren::engine::frame_status::proceed);
+        auto before_render = deren::vk_test::probe_rendering_count(*core);
+        runtime.record_main_drawcalls();
+        // modes 1/2 activate an overlay feature with no pass: eligibility is refused BEFORE anything records.
+        if (mode == 1 || mode == 2)
+            CHECK(deren::vk_test::probe_rendering_count(*core) == before_render);
+        if (mode == 4)
+            deren::vk_test::probe_scoped_validation_failure(*core, 0);
+        auto const end = runtime.end_recording();
+        if (mode != 0) {
+            CHECK(end == deren::engine::frame_status::end_recording_failed);
+            CHECK(runtime.submit_and_present() == deren::engine::frame_status::submit_failed);
+            CHECK(deferred.graph == (mode == 3 ? 1U : 0U));
+            if (mode >= 4)
+                CHECK(deren::vk_test::probe_rendering_count(*core) == before_render);
+        } else {
+            CHECK(end == deren::engine::frame_status::proceed);
+            CHECK(runtime.submit_and_present() == deren::engine::frame_status::proceed);
+            CHECK(deferred.graph == 1);
+            CHECK(deren::vk_test::probe_rendering_count(*core) > before_render);
+        }
+    }
+    {
+        // NO G-BUFFER PIPELINE AT ALL: there is nothing to record, and the frame is DEFINED rather than failed or
+        // presented undefined - the cleared background is the frame's content (the review's MAJOR 1 scenario).
+        rhi::create_info options{};
+        options.window_width = options.window_height = 16;
+        auto core = deren::vk_test::probe_make_core(options, rhi::abi_version, true);
+        deren::vk_test::probe_graphics_enabled(*core, true);
+        deren::engine::scene_tree::scene scene;
+        pass::pass_chain chain;
+        chain.emplace<pass::output_targets_pass>();
+        chain.emplace<test_composite>();
+        deren::engine::runtime runtime{core, options};
+        runtime.set_scene(scene);
+        runtime.set_pass_chain(chain, {});
+        CHECK(runtime.pace_and_acquire() == deren::engine::frame_status::proceed);
+        CHECK(runtime.begin_recording() == deren::engine::frame_status::proceed);
+        runtime.record_main_drawcalls();
+        CHECK(runtime.end_recording() == deren::engine::frame_status::proceed);
+        CHECK(runtime.submit_and_present() == deren::engine::frame_status::proceed);
+    }
+
     return deren::vk_test::finish("test_render_graph_post");
 }

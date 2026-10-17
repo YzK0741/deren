@@ -252,8 +252,7 @@ namespace deren::app_config {
         // (logged + shown in the debug overlay). A no-op on devices that cannot timestamp.
         bool gpu_timings = true;
         bool async_present = false;
-        // the paths the graph cannot record yet (ray-traced shadows, gaussian splats,
-        // Gaussian splats) fall back to the legacy tail per frame, with the reason logged
+        // the composed render graph is the only recording path: there is no per-frame fallback any more
         bool offscreen = false;
         // G-buffer debug view ([render] gbuffer_debug / gbuffer_channel): draws the opaque scene
         // into the three G-buffer targets and shows the selected channel through the ordinary post

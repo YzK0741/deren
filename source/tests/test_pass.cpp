@@ -599,6 +599,25 @@ int32_t main() {
         CHECK(!chain.as_stage().marks);
     }
 
+    // ---- the chain's two convenience calls the runtime still uses: `init` is the whole create step and
+    //      `ready(name)` is the readiness question asked in the DECLARATION's vocabulary ----
+    {
+        pass_chain chain{"gi"};
+        chain.add(probe);
+        chain.add(tail);
+        state.log.clear();
+        run_report const created = chain.init(make_context());
+        CHECK(created.created == 2);
+        CHECK(created.rejected.empty());
+        CHECK(chain.ready("probe"));
+        CHECK(chain.ready("tail"));
+        CHECK(!chain.ready("absent"));
+        probe.is_ready = false;
+        CHECK(!chain.ready("probe"));
+        CHECK(chain.ready("tail")); // ... independently of its neighbour
+        probe.is_ready = true;
+    }
+
     // ---- the chain also KEPT objects that are not passes (`keep`, whose only users were the renderer's two jobs).
     //      THE PROMISE WENT WITH THE FUNCTION: those two jobs are ordinary members of the renderer now, because they
     //      are the only non-pass GPU-owning objects left, and a container that exists to hold exactly two objects of

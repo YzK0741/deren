@@ -3,7 +3,7 @@
 Passes can describe dynamic image and buffer requirements. The passchain collects all descriptions,
 merges compatible producers, creates complete resource generations, and distributes a shared snapshot.
 Production migrations now cover raster shadow images, clustered-light count/index buffers and camera/light/head
-constant buffers, G-buffer attachments, HDR/scene-input, TAA history, LDR, Bloom, MegaLights and RT visibility images;
+constant buffers, G-buffer attachments, HDR/scene-input, TAA history, LDR, Bloom and RT visibility images;
 existing GPU bindings and barriers remain explicit.
 
 Shared motion-transform, skin/previous-skin and morph buffers are also managed by
@@ -157,32 +157,16 @@ LDR/history/Bloom replacement follows the same complete admission, idle wait, bo
 submitted-snapshot rules as the base targets. Admission validates the expected lifetime and derived
 extent of each family. Runtime no longer allocates or destroys these images in the legacy rebuild loop.
 
-## MegaLights and ray-traced visibility
+## Ray-traced visibility
 
-The three ray-related passes declare their own output images, using the same requests as the shared
-producer. MegaLights trace/resolve/history use output-image scope and half resolution with a 1x1 floor.
-Trace and resolve require sampled/storage usage; resolve also needs transfer-source usage for its copy.
-History uses `history` lifetime and sampled/transfer-destination usage. RT visibility is full-resolution
-R16F, has output-size lifetime and **frame-slot** scope, with sampled/storage usage.
+The ray-traced shadow pass declares its own output image with the same request as the shared producer:
+full-resolution R16F, output-size lifetime and **frame-slot** scope, sampled/storage usage. Runtime validates the
+expected scope and instance count per family, then adopts the generation using its actual object count, publishes
+both the sampled and the storage heap descriptions, and keeps a sampled view for attachment / resource-table
+routing. Submitted snapshots retain retired images until the relevant slot completes.
 
-Runtime validates the expected scope and instance count per family, then adopts each generation using
-its actual object count. Storage images receive both sampled and storage heap descriptions at the existing
-slots. A sampled image view is retained for attachments/resource-table routing; storage heap publication
-uses the storage role. The former runtime allocation loops are removed; only the furnace cube remains in
-that legacy render-target rebuild function.
-
-Each concrete pass holds its bound snapshot. MegaLights trace restarts its sequence when its trace
-generation changes; temporal resets its resolved/history state on resolve/history replacement. Runtime
-invalidates the MegaLights history-valid array when any of its three generations changes. Ordinary
-reconciliation reuses generations and preserves state. Existing dispatches, copies and barriers remain
-unchanged, and submitted snapshots retain retired images until the relevant slot completes.
-
-MegaLights history becomes valid only when the temporal pass reports that it copied a new history for
-the current output image. The shader guards history sampling with the validity bit in `extents.w`;
-the push layout and ABI are unchanged. Toggle changes and generation replacement invalidate history.
-Frames that skip MegaLights (including G-buffer debug and unlit frames), failed recording, and failed
-submission invalidate the current image. A presentation failure after successful submission does not
-discard the GPU work. See the [temporal correctness review](reviews/2026-10-14-megalights-history-fix.md).
+The MegaLights trace/resolve/history families this section also described were removed from the tree on
+2026-10-17 (the render graph gate review records it); the inventory rows for them are historical.
 
 ## Shared deformation storage
 
