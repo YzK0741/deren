@@ -124,13 +124,39 @@ namespace deren::engine::pass {
         // extent and hands them over every frame), and this pass owns no per-generation handle.
     }
 
+    rhi::error cluster_pass::record_content(resolved_io const& io) noexcept {
+        if (!this->pass_pipeline.has_value() || io.pipelines.empty() || io.pipelines[0] == nullptr || this->pass_frame.cluster_count == 0)
+            return rhi::error::invalid_argument; // the runner resolves this or skips the pass (see runtime::resolve_cluster_pass)
+        if (io.list == nullptr)
+            return rhi::error::invalid_argument;
+        // The dispatch reads the frame's OWN camera and light slots and writes the same generation's cluster
+        // buffers - and it needs no bind to do it: the frame bound the heaps once, and the two indices its push
+        // block carries pick the slot. A compute stage is not part of a rendering instance, so this still records
+        // before vkCmdBeginRendering.
+        // NO BIND IS RECORDED HERE (abi 21): the pass NAMES its pipeline in `behaviour::pipelines`, so the
+        // runner binds it before this entry is called - a frame that cannot resolve it does not record the
+        // pass at all.
+        // The shader's only push fields are the heap frame/image indices. The host appends them to
+        // the empty pass-specific payload; no earlier pass in this command buffer may be assumed to set them.
+        if (!io.push_block(*io.list, {}))
+            return rhi::error::invalid_argument;
+        io.list->dispatch((this->pass_frame.cluster_count + group_size - 1u) / group_size, 1, 1);
+        return rhi::error::ok;
+    }
+
     void cluster_pass::record(resolved_io const& io) {
-        if (!this->pass_pipeline.has_value() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
-            io.barrier_buffers.size() < render_resource::cluster_barriers.size() || this->pass_frame.cluster_count == 0) {
-            return; // the runner resolves all of this or skips the pass (see runtime::resolve_cluster_pass)
+        if (io.barrier_buffers.size() < render_resource::cluster_barriers.size()) {
+            return; // the runner resolves the declared handles or does not record the pass at all
         }
-        // THE CONTRACT'S OWN HANDLES (abi 20): the record series names the handles the resolved binding
-        // publishes BESIDE the raw lanes, so the guard and the barrier below speak one vocabulary.
+        if (this->record_content(io) != rhi::error::ok)
+            return;
+        // THE LEGACY PATH'S OWN ORDERING (and only its): the graph path declares these two buffers and emits
+        // the dependency itself, so its recorder calls record_content instead. A compute SHADER_WRITE is not
+        // visible to a later SHADER_READ without this barrier - one entry per buffer, because a buffer barrier
+        // covers a single buffer. The handles come from the DECLARATION, which is what makes this the writer's
+        // own ordering rather than something the host has to remember on the pass's behalf.
+        // THE ROLES RIDE THE CONTRACT (abi 20): (shader_write, shader_read) is the pair the raw masks spelled
+        // (COMPUTE_SHADER/SHADER_WRITE -> the shader stages/SHADER_READ), and the batch is the one call.
         rhi::buffer* counts = io.barrier_buffers[barrier_counts].buffer_handle;
         rhi::buffer* indices = io.barrier_buffers[barrier_indices].buffer_handle;
         auto const managed_counts = this->resource_view.find(render_resource::resource_id::cluster_counts);
@@ -141,40 +167,13 @@ namespace deren::engine::pass {
             counts = managed_counts->objects[io.frame.slot].buffer.get();
             indices = managed_indices->objects[io.frame.slot].buffer.get();
         }
-        if (io.list == nullptr || counts == nullptr || indices == nullptr) {
+        if (counts == nullptr || indices == nullptr)
             return;
-        }
-
-        // The dispatch reads the frame's OWN camera and light slots and writes the same generation's cluster
-        // buffers - and it needs no bind to do it: the frame bound the heaps once, and the two indices its push
-        // block carries pick the slot. A compute stage is not part of a rendering instance, so this still records
-        // before vkCmdBeginRendering.
-        // NO BIND IS RECORDED HERE ANY MORE (abi 21): this pass NAMES its pipeline in `behaviour::pipelines`,
-        // so the RUNNER binds it before record() is called - and since the pipeline migration it binds it
-        // through the contract (`bind_pipeline`), which carries the compute bind point the backend decided. The
-        // guard above still asks whether the frame HAS the pipeline (a frame that cannot resolve it does not
-        // record the pass at all), and the raw `vkCmdBindPipeline` this spot used to issue was a second bind of
-        // the same object.
-        // The shader's only push fields are the heap frame/image indices. The host appends them to
-        // the empty pass-specific payload; no earlier pass in this command buffer may be assumed to set them.
-        if (!io.push_block(*io.list, {}))
-            return;
-        io.list->dispatch((this->pass_frame.cluster_count + group_size - 1u) / group_size, 1, 1);
-
-        // Hand the two buffers to the fragment stages that read them later in this submission (forward shading
-        // inside the main instance, and the deferred lighting pass): a compute SHADER_WRITE is not visible to a
-        // later SHADER_READ without this barrier. One entry per buffer, because a buffer barrier covers a
-        // single buffer - and the two handles come from the DECLARATION, which is what makes this the writer's
-        // own ordering rather than something the host has to remember on the pass's behalf.
-        // THE ROLES RIDE THE CONTRACT NOW (abi 20): (shader_write, shader_read) is the pair the raw masks spelled
-        // (COMPUTE_SHADER/SHADER_WRITE -> the shader stages/SHADER_READ), and the batch is the one call.
         deren::utility::vessel::array<rhi::buffer_barrier, 2> const barriers = {
             rhi::buffer_barrier{.resource = counts, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::shader_read, .offset = 0, .size = 0},
             rhi::buffer_barrier{.resource = indices, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::shader_read, .offset = 0, .size = 0},
         };
-        if (io.list->barrier(rhi::barrier_group{.buffers = barriers}) != rhi::error::ok) {
-            return; // a refused barrier would hand the fragment stages buffers nobody declared readable
-        }
+        static_cast<void>(io.list->barrier(rhi::barrier_group{.buffers = barriers}));
     }
 
 } // namespace deren::engine::pass

@@ -80,6 +80,14 @@ export namespace deren::engine::pass {
         void on_swapchain_recreated(pass_host const& host) override;
         void record(resolved_io const& io) override;
 
+        /// @brief the dispatch alone, with none of this pass's own ordering
+        ///
+        /// The legacy path's `record()` owns the two buffer barriers that publish the sort's writes to the
+        /// fragment stages (see its comment). A graph-recorded frame declares those same buffers instead and
+        /// the graph emits the ordering, so its recorder calls THIS entry: the two barrier paths must never
+        /// both run for one submission (the migration rule the post chain's passes already follow).
+        deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
+
         /// @brief whether the pass built what it records with (the renderer gates its feature on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
         /// @brief the framework's generic form of the same question, so an owner holding only a chain can ask it

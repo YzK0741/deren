@@ -290,6 +290,29 @@ uniforms + three IBL images), 31 checks, 0 failed. CTest 44/44. The gate round w
 byte-identical to the same-session legacy round for all fourteen scenarios (matched 14, mismatched 0)
 with zero validation findings, and thirteen scenarios recorded through the graph.
 
+## Stage 2F: the cluster sort is prepared for the graph, and what its migration needs next
+
+The clustered-light sort (`pass::cluster_pass`) is the review's "cluster producer" item. Its migration is
+two steps; the first is in: `cluster_pass::record_content()` now records the dispatch alone, while the
+legacy `record()` keeps owning its two buffer barriers (`shader_write -> shader_read`) - the same
+`deferred`/`bloom` split the graph path already uses through `post_recording_payload::record`, so a
+graph-recorded frame can never execute both barrier paths for one submission. The legacy path is
+unchanged (deferred and sponza keep their hashes) and the suite is green.
+
+The second step's prerequisites, measured rather than assumed:
+
+- the main-graph eligibility is frozen in `record_scene()`, which runs AFTER the cluster stage inside
+  `record_main_drawcalls()` - so "skip the legacy stage, the graph records it" requires moving the freeze
+  to the top of `record_main_drawcalls()`;
+- on a main-graph frame the sort's only consumers are the in-graph deferred lighting pass (heap bindings
+  11/12); the legacy shadow pass does not read the cluster lists (`shadow.cppm` has no cluster reference -
+  it renders depth from the light), so moving the sort inside the graph does not starve a legacy consumer.
+- the two per-slot cluster buffers come from a managed snapshot (`cluster_counts`/`cluster_indices`), so
+  they can be imported as leases like the other generated inputs.
+
+The second step is the next increment: a graph adapter declaring the two per-slot buffers (the producer as
+a discard write, the lighting pass as a read), the earlier eligibility freeze, and the runtime wiring.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the
