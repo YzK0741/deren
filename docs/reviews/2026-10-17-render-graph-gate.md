@@ -898,3 +898,35 @@ the same TLAS, and the gate script records that the sampled-lights path is not c
 acceptance needs a different instrument), the acceleration-structure RESOURCE KIND (the TLAS as a graph resource -
 the full B model; today the build is a pre-graph border step published by RT stage 1's barrier), and then the
 per-segment retirement of the legacy tail.
+
+## Final state (end of the RT slice): what changed after the closure above
+
+The closure section was written when the ray-traced shadows were still excluded. They are not any more: RT stage 1
+gave the rhi its acceleration-structure barrier semantics, RT stage 2a gave the graph its ray-tracing stage
+vocabulary, and RT stage 2b made the ray-traced shadow pass a graph lane - with the strongest verification of the
+whole adoption, because it is the first feature that was never in the graph:
+
+- **an RT frame is byte-identical between the paths**: the sponza RT-smoke config (forty frames, `rt_shadows =
+  true`) rendered once with `main_render_graph = false` and once on the graph - both validation-clean, both
+  `F0B480ECB33C8091`;
+- `check_rt.ps1` PASS on the graph path (GPU traversal probe, forty frames, clean validation, screenshot);
+- the gate round is still byte-identical for all fifteen scenarios with zero validation findings, and CTest is
+  44/44.
+
+So the coverage statement is: the whole frame of all fifteen gate scenarios, plus the ray-traced shadow chain,
+is recorded by one composed graph, and the default is flipped. What the graph still does NOT model, in the
+narrowed list:
+
+1. **MegaLights** - its trace is a COMPUTE ray query reading the same TLAS. The migration shape is known (the
+   trace/resolve/history images are declarable, the TLAS read stays out-of-model like the RT shadow pass's), but
+   its acceptance is the open question: the gate script itself records that the sampled-lights path is NOT
+   capture-reproducible, so a byte-identical criterion cannot be applied and a different instrument is needed.
+2. **The acceleration-structure RESOURCE KIND** - the full B model, with the TLAS as a first-class graph resource.
+   Today the build is a pre-graph border step published by RT stage 1's barrier; this kind is what would let the
+   build itself be a graph pass, and the earlier note in this review records the ordered work it needs.
+3. **The legacy tail's per-segment retirement** - blocked on 1-2: the tail is still selected by exactly the
+   MegaLights exclusion, so no segment is unreachable yet.
+
+Everything else on the checklist is in or closed by a measured scope decision (the 2P note), and the machinery
+the next session needs is in place: the stage vocabulary, the barrier semantics, the lane pattern, the gate and
+the RT acceptance instrument.

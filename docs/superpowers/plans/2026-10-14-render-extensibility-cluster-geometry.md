@@ -111,7 +111,7 @@
 
 ## 阶段二：基于资源簇的渲染图
 
-**2026-10-17 收尾：** 渲染图对**整帧**的覆盖已完成并默认开启：15/15 门禁场景整帧走一张组合图（逐字节等价 legacy、验证层零发现），`[render] main_render_graph` 默认 `true`；清单上除"光追阴影 / MegaLights"之外的全部渲染内容已进图，两项非渲染内容（上传/截图回读、次级命令缓冲）以范围判定关闭。**唯一阻塞**是图核心缺少**加速结构（AS）资源种类**——光追阴影与 MegaLights 的 trace 读 TLAS，因此它们仍按帧回退 legacy tail，旧路径的逐段退役等待这一核心特性。完整证据、图内/图外清单与续做步骤见 [渲染图迁移记录](../../reviews/2026-10-17-render-graph-gate.md) 的 Closure 一节。
+**2026-10-17 收尾：** 渲染图对**整帧**的覆盖已完成并默认开启：15/15 门禁场景整帧走一张组合图（逐字节等价 legacy、验证层零发现），`[render] main_render_graph` 默认 `true`；清单上除"光追阴影 / MegaLights"之外的全部渲染内容已进图，两项非渲染内容（上传/截图回读、次级命令缓冲）以范围判定关闭。**光追阴影已进图**（RT stage 1-2b：rhi 的 AS 屏障语义 + 图的 ray_tracing 阶段 + RT 阴影 lane，RT 帧开图 vs legacy 逐字节一致、check_rt PASS）；**剩余阻塞缩小为两项**：MegaLights（compute ray query 读 TLAS，且其验收不可捕获复现，需另定仪器）与图核心的**加速结构（AS）资源种类**（TLAS 作为图资源，完整 B 模型）——旧路径的逐段退役依赖这两项。完整证据、图内/图外清单与续做步骤见 [渲染图迁移记录](../../reviews/2026-10-17-render-graph-gate.md) 的 Closure 一节。
 
 **2026-10-15 修订：** 以 [Render Graph 设计](../specs/2026-10-15-render-graph-design.md) 为本阶段依据，替换早期固定链访问计划。资源创建和所有权放在图外的 engine `resource_cluster`；图负责资源引用、参数访问、内容版本、依赖、裁剪、排程和同步。不提供 graph.create 或用 extraction 取得资源所有权，首轮不要求资源池。新增设计均为待实现接口，已完成簇机制除外。
 
