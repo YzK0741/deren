@@ -914,18 +914,21 @@ whole adoption, because it is the first feature that was never in the graph:
   44/44.
 
 So the coverage statement is: the whole frame of all fifteen gate scenarios, plus the ray-traced shadow chain,
-is recorded by one composed graph, and the default is flipped. What the graph still does NOT model, in the
-narrowed list:
+is recorded by one composed graph, and the default is flipped. The owner's decision on the remainder, recorded
+here so no future reader re-litigates it:
 
-1. **MegaLights** - its trace is a COMPUTE ray query reading the same TLAS. The migration shape is known (the
-   trace/resolve/history images are declarable, the TLAS read stays out-of-model like the RT shadow pass's), but
-   its acceptance is the open question: the gate script itself records that the sampled-lights path is NOT
-   capture-reproducible, so a byte-identical criterion cannot be applied and a different instrument is needed.
-2. **The acceleration-structure RESOURCE KIND** - the full B model, with the TLAS as a first-class graph resource.
-   Today the build is a pre-graph border step published by RT stage 1's barrier; this kind is what would let the
-   build itself be a graph pass, and the earlier note in this review records the ordered work it needs.
-3. **The legacy tail's per-segment retirement** - blocked on 1-2: the tail is still selected by exactly the
-   MegaLights exclusion, so no segment is unreachable yet.
+1. **MegaLights is kept as an EXPERIMENTAL feature, outside the graph.** Its trace is a compute ray query reading
+   the same TLAS, and the migration shape is known (the trace/resolve/history images are declarable, the TLAS read
+   stays out-of-model like the RT shadow pass's) - but the sampled-lights path is not capture-reproducible (the
+   gate script records one binary, one config, three different runs), so the project's byte-identical criterion
+   cannot be applied to it, and the owner's call is to keep it experimental rather than invent a weaker acceptance
+   for it now. The legacy scene tail therefore remains, solely as THIS feature's fallback; the per-segment
+   retirement is complete in the sense that no other feature selects it any more.
+2. **The acceleration-structure RESOURCE KIND (the full B model) is deferred** as its own optional slice: with the
+   RT shadows in the graph through the out-of-model TLAS plus RT stage 1's barrier, the kind is no longer needed
+   for coverage - it is the clean-model work, with its ordered requirements already recorded in this review.
+3. The legacy tail is now the MegaLights-ONLY fallback and is documented as such; nothing else selects it, and the
+   gate's inventory proves it (all fifteen scenarios are pure graph).
 
 Everything else on the checklist is in or closed by a measured scope decision (the 2P note), and the machinery
 the next session needs is in place: the stage vocabulary, the barrier semantics, the lane pattern, the gate and

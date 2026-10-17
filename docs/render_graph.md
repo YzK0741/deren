@@ -509,15 +509,16 @@ and [implementation acceptance](reviews/2026-10-16-render-graph-composition.md).
 ## First main-chain boundary
 
 `[render] main_render_graph` (or `set_main_render_graph(...)` before the first pace) enables scene
-geometry, GBuffer handoff, deferred lighting, the whole scene tail (shadow composition, cluster sort, TAA
-resolve + history copy, GBuffer debug view, transparency, character forward and the two screen rims) and post
-in one graph, and also enables the post graph. **It now DEFAULTS TO TRUE**: every gate scenario records
-through the graph and is byte-identical to the legacy path (see the gate review's stages 2F-2L). What still
-selects the legacy scene tail before graph recording, per frame and with the reason logged, is the set the
-graph cannot express yet: ray-traced shadows and MegaLights (their traces read the TLAS, and the graph has no
-acceleration-structure resource kind) and the Gaussian splats. Startup selection is locked like the existing
-graph options. Disabling post while main is selected is an invalid argument; disable main first if changing
-startup configuration.
+geometry, GBuffer handoff, deferred lighting, the whole scene tail (shadow composition, cluster sort, the
+ray-traced shadow chain, TAA resolve + history copy, GBuffer debug view, gaussian splats, transparency, character
+forward and the two screen rims) and post in one graph, and also enables the post graph. **It now DEFAULTS TO
+TRUE**: every gate scenario records through the graph and is byte-identical to the legacy path, and a ray-traced
+frame has been A/B-verified byte-identical between the two paths (see the gate review's stages 2F-2O and the RT
+slices). The ONLY feature that still selects the legacy scene tail before graph recording, per frame and with the
+reason logged, is **MegaLights**, kept as an EXPERIMENTAL feature by the owner's decision: its trace is a compute
+ray query whose sampled-lights result is not capture-reproducible, so it has no byte-identical acceptance
+instrument. Startup selection is locked like the existing graph options. Disabling post while main is selected is
+an invalid argument; disable main first if changing startup configuration.
 
 `deren.engine.render_graph.lighting::append` accepts the three surface refs, depth
 and existing scene-color ref. It declares fragment sampling and a preserve-write
