@@ -76,11 +76,7 @@ export namespace deren::engine::pass {
          * over; `add` still takes a pass it does NOT own, for a test or for a pass that lives elsewhere.
          */
         deren::utility::vessel::vector<std::unique_ptr<frame_pass>> owned = {};
-        // called writes_marks, not marks: the constructor's marks parameter would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).
-        /// whether the runner writes a mark pair around the chain (false for every chain in this renderer: the
-        /// frame loop owns the marks and their positions are the timing report's contract)
-        bool writes_marks = false;
 
     public:
         pass_chain() = default;
@@ -113,9 +109,8 @@ export namespace deren::engine::pass {
             return managed_resources.write_frame_buffer(completed_slot, id, bytes);
         }
 
-        explicit pass_chain(std::string_view name, bool marks = false) noexcept
-            : chain_name(name)
-            , writes_marks(marks) {
+        explicit pass_chain(std::string_view name) noexcept
+            : chain_name(name) {
         }
 
         /**
@@ -173,39 +168,24 @@ export namespace deren::engine::pass {
             return nullptr;
         }
 
-        /**
-         * @brief whether the pass whose declaration is called @p name is READY to record (see `frame_pass::ready`)
-         *
-         * WHY THIS IS ON THE CHAIN rather than in the caller: an owner that holds the passes as typed members asks
-         * `deferred.pipeline_ready()`; an owner that holds only the CHAIN - which is what a renderer handed a chain
-         * from outside holds - has to ask by the one key the declaration vocabulary gives, its name. The two
-         * questions are the same question, and this is the form that survives the handover.
-         * @return false when no pass in the chain declares that name, or when the one that does is not ready
-         */
-        [[nodiscard]] bool ready(std::string_view const name) const noexcept {
-            frame_pass* const pass = this->find(name);
-            return pass != nullptr && pass->ready();
-        }
-
-        /// @brief the stage the runner is handed: this chain's name, list and mark policy
-        /// @note non-const because `stage::passes` carries MUTABLE pointers (a pass writes its own state in
-        ///       `record`); the chain itself is fixed once the frame starts
-        [[nodiscard]] stage as_stage() noexcept {
-            return stage{.name = this->chain_name, .passes = std::span<frame_pass*>(this->passes.data(), this->passes.size()), .marks = this->writes_marks};
-        }
-        /// @brief the same view from a CONST chain, for a caller that only reads the list - the owner resolving a
-        ///        pipeline name asks every pass in the chain, which is a read of the chain, not of a pass
-        [[nodiscard]] stage as_stage() const noexcept {
-            return stage{.name = this->chain_name, .passes = std::span<frame_pass*>(const_cast<frame_pass**>(this->passes.data()), this->passes.size()), .marks = this->writes_marks};
-        }
-
-        /// @brief the runner's create step over every pass in the chain, in order
+        /// @brief the chain's create step: every pass built from ONE context, in add order
         [[nodiscard]] run_report init(pass_context const& context) {
             return create_stage(this->as_stage(), context);
         }
-        /// @brief the runner's record step over every pass in the chain, in order
-        [[nodiscard]] run_report record(pass_host const& host) {
-            return record_stage(this->as_stage(), host);
+        /// @brief the readiness question, asked in the DECLARATION's vocabulary (a chain from outside holds no
+        ///        typed member to ask; see frame_pass::ready)
+        [[nodiscard]] bool ready(std::string_view const name) const noexcept {
+            for (frame_pass* const pass : this->passes) {
+                if (pass != nullptr && pass->io().name == name) {
+                    return pass->ready();
+                }
+            }
+            return false;
+        }
+
+        /// @brief the chain as a run of passes, in add order, for whoever resolves or walks them
+        [[nodiscard]] stage as_stage() noexcept {
+            return stage{.name = this->chain_name, .passes = std::span<frame_pass*>(this->passes.data(), this->passes.size()), .marks = false};
         }
     };
 

@@ -64,7 +64,7 @@ namespace deren::engine::pass {
         }
     }
 
-    void gaussian_splatting_pass::record(resolved_io const& io) {
+    void gaussian_splatting_pass::record_owned(resolved_io const& io) {
         static_cast<void>(this->record_impl(io, true));
     }
 

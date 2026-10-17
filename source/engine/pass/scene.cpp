@@ -109,10 +109,6 @@ namespace deren::engine::pass {
         }
     }
 
-    void scene_pass::record(resolved_io const& io) {
-        (void)this->record_content(io);
-    }
-
     rhi::error scene_pass::record_content(resolved_io const& io) noexcept {
         bool const has_draws = !this->pass_frame.leaves.empty();
         if (io.targets.size() != this->io().targets.size() || io.list == nullptr || this->pass_frame.extent.width == 0 || this->pass_frame.extent.height == 0 ||

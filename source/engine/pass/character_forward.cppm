@@ -158,7 +158,6 @@ export namespace deren::engine::pass {
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
-        void record(resolved_io const& io) override;
 
         /// \brief the record body alone - none of this pass's own ordering
         ///

@@ -224,14 +224,6 @@ namespace {
     auto* const fake_shadow_sampler = &shadow_sampler_object;
     static_assert(std::is_same_v<decltype(rr::shared::sampler_set{}.of(rr::sampler_hint::shadow)),
                                  deren::promise::rhi::sampler*>);
-    deren::utility::vessel::array<deren::promise::rhi::pipeline*, 4> const fake_pipelines = {
-        reinterpret_cast<deren::promise::rhi::pipeline*>(0x1), reinterpret_cast<deren::promise::rhi::pipeline*>(0x2), reinterpret_cast<deren::promise::rhi::pipeline*>(0x3), reinterpret_cast<deren::promise::rhi::pipeline*>(0x4)};
-    /// the push block the fake host composes: raw bytes, as a real host does (the framework has no pass's type)
-    deren::utility::vessel::array<std::byte, 4> const fake_push = {std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
-    /// the per-image view lists the fake host resolves (one entry per swapchain image of its fake frame): what a
-    /// pass that owns a per-image descriptor family is handed, so the test can assert the runner passes them on
-    deren::utility::vessel::array<deren::promise::rhi::image_view*, 3> const fake_per_image = {
-        reinterpret_cast<deren::promise::rhi::image_view*>(0xA0), reinterpret_cast<deren::promise::rhi::image_view*>(0xA1), reinterpret_cast<deren::promise::rhi::image_view*>(0xA2)};
 
     /// the host's own state: the log every callback writes, plus what the fake host answers
     struct host_state {
@@ -250,71 +242,8 @@ namespace {
         uint16_t last_extent_element = 0;
     };
 
-    vp::frame_identity host_frame(void* ctx) {
-        return static_cast<host_state*>(ctx)->frame;
-    }
-
-    bool host_feature_active(void* ctx, std::string_view const feature) {
-        auto const& active = static_cast<host_state*>(ctx)->active_features;
-        return std::find(active.begin(), active.end(), feature) != active.end();
-    }
-
-    /// the resolver a real runtime would write: the extent rule is applied HERE, from the declaration
-    bool host_resolve(void* ctx, vp::frame_pass const& pass, vp::resolved_io& out) {
-        auto& state = *static_cast<host_state*>(ctx);
-        state.log.emplace_back(deren::utility::vessel::string("resolve:") + deren::utility::vessel::string(pass.io().name));
-        if (pass.io().name == state.failing_pass) {
-            return false;
-        }
-        vp::behaviour const& behaviour = pass.behaviour();
-        state.last_extent_of = behaviour.extent_of;
-        state.last_extent_element = behaviour.extent_of_element;
-        out.frame = state.frame;
-        out.cmd = fake_cmd;
-        out.own = state.own;
-        out.pipelines = std::span<deren::promise::rhi::pipeline* const>(fake_pipelines.data(), behaviour.pipelines.size());
-        out.push = fake_push;
-        // the declared render targets, resolved the way an own binding is: the view for the instance, the
-        // image for a barrier
-        for (std::size_t t = 0; t < pass.io().targets.size() && t < out.target_storage.size(); ++t) {
-            out.target_storage[t] = {.image_handle = reinterpret_cast<deren::promise::rhi::image*>(0x80 + t), .view_handle = reinterpret_cast<deren::promise::rhi::image_view*>(0x70 + t)};
-        }
-        out.targets = std::span<vp::resolved_binding const>(out.target_storage.data(), pass.io().targets.size());
-        // THE PER-IMAGE VIEW LISTS: what a pass that owns a per-image descriptor family needs (its write callback
-        // is handed an image index, and `own` only carries the current frame's handles). A synthetic host fills
-        // them here so the test can assert the runner hands them through untouched - the framework does not
-        // interpret them.
-        for (std::size_t k = 0; k < pass.io().bindings.size() && k < out.own_per_image.size(); ++k) {
-            out.own_per_image[k] = std::span<deren::promise::rhi::image_view* const>(fake_per_image.data(), fake_per_image.size());
-        }
-        out.extent = behaviour.extent == vp::extent_rule::half ? deren::promise::rhi::image_extent{state.frame.extent.width / 2u, state.frame.extent.height / 2u} : state.frame.extent;
-        return true;
-    }
-
-    void host_apply_behaviour(void* ctx, vp::frame_pass const& pass, vp::resolved_io const&) {
-        auto& state = *static_cast<host_state*>(ctx);
-        state.log.emplace_back(deren::utility::vessel::string("behaviour:") + deren::utility::vessel::string(pass.io().name) +
-                               (pass.behaviour().resync_viewport ? ":resync" : ":plain"));
-    }
-
-    void host_mark_begin(void* ctx, std::string_view const name) {
-        static_cast<host_state*>(ctx)->log.emplace_back(deren::utility::vessel::string("mark_begin:") + deren::utility::vessel::string(name));
-    }
-
-    void host_mark_end(void* ctx, std::string_view const name) {
-        static_cast<host_state*>(ctx)->log.emplace_back(deren::utility::vessel::string("mark_end:") + deren::utility::vessel::string(name));
-    }
-
     vp::pass_host make_host(host_state& state) {
-        return vp::pass_host{
-            .context = &state,
-            .frame = host_frame,
-            .feature_active = host_feature_active,
-            .resolve = host_resolve,
-            .apply_behaviour = host_apply_behaviour,
-            .mark_begin = host_mark_begin,
-            .mark_end = host_mark_end,
-        };
+        return vp::pass_host{.context = &state};
     }
 
     /// the create-time context: what a pass builds itself from, and the point of the split is that ANY owner can
@@ -390,22 +319,6 @@ namespace {
         void on_swapchain_recreated(vp::pass_host const&) override {
             state_ptr->log.emplace_back(deren::utility::vessel::string("recreate:") + deren::utility::vessel::string(io_decl.name));
         }
-        void record(vp::resolved_io const& io) override {
-            state_ptr->log.emplace_back(deren::utility::vessel::string("record:") + deren::utility::vessel::string(io_decl.name));
-            last_cmd = io.cmd;
-            last_pipelines = io.pipelines.size();
-            last_push_size = io.push.size();
-            last_extent = io.extent;
-            last_image_index = io.frame.image_index;
-            last_slot = io.frame.slot;
-            last_image_count = io.frame.image_count;
-            last_targets = io.targets.size();
-            last_target_view = io.targets.empty() ? nullptr : io.targets[0].view_handle;
-            last_target_image = io.targets.empty() ? nullptr : io.targets[0].image_handle;
-            // the per-image view lists, as the pass received them (see resolved_io::own_per_image)
-            last_per_image_first = io.own_per_image.empty() || io.own_per_image[0].empty() ? nullptr : io.own_per_image[0][0];
-            last_per_image_length = io.own_per_image.empty() ? 0 : io.own_per_image[0].size();
-        }
 
         std::shared_ptr<deren::promise::rhi::command_buffer> last_cmd = {};
         std::size_t last_pipelines = 0;
@@ -438,14 +351,6 @@ namespace {
     constexpr deren::utility::vessel::array<rr::render_target, 1> fullscreen_targets = {fullscreen_target};
     constexpr vp::behaviour compute_behaviour = {.kind = vp::behaviour_kind::compute, .group_size_x = 4, .group_size_y = 4, .group_size_z = 4, .extent = vp::extent_rule::resource, .pipelines = compute_pipeline_names};
     constexpr vp::behaviour fullscreen_behaviour = {.kind = vp::behaviour_kind::fullscreen, .extent = vp::extent_rule::half, .pipelines = fullscreen_pipeline_names, .resync_viewport = true};
-    /// a behaviour whose extent rule names a RESOURCE **and one element of it**: the framework carries the pair,
-    /// and the HOST is the layer that maps it to a size (the bloom chain's four levels are the first real user -
-    /// see vp::behaviour::extent_of_element)
-    constexpr vp::behaviour level_behaviour = {.kind = vp::behaviour_kind::fullscreen,
-                                               .extent = vp::extent_rule::resource,
-                                               .extent_of = rr::resource_id::bloom,
-                                               .extent_of_element = 2,
-                                               .pipelines = fullscreen_pipeline_names};
 } // namespace
 
 template <typename Chain>
@@ -611,75 +516,6 @@ int32_t main() {
         CHECK(create_stage(st, make_context()).created == 2); // a null slot is skipped, not counted
     }
 
-    // ---- record: the order of resolve, behaviour and record, and the stage's mark around all of it ----
-    {
-        deren::utility::vessel::array<frame_pass*, 2> passes = {&probe, &tail};
-        stage const st = {.name = "scene", .passes = passes};
-        state.log.clear();
-        run_report const report = record_stage(st, host);
-        CHECK(report.recorded == 2);
-        CHECK(report.skipped_inactive == 0);
-        CHECK(report.marked == 1);
-        CHECK(state.log.front() == "mark_begin:scene"); // the stage owns the mark: first and last
-        CHECK(state.log.back() == "mark_end:scene");
-        // per pass: resolve, then the behaviour's mechanical part, then record
-        CHECK(at(state.log, "resolve:probe") < at(state.log, "behaviour:probe:plain"));
-        CHECK(at(state.log, "behaviour:probe:plain") < at(state.log, "record:probe"));
-        CHECK(at(state.log, "record:probe") < at(state.log, "resolve:tail"));
-        // ... and the behaviour is passed through, not interpreted: the fullscreen pass asked for a resync
-        CHECK(has(state.log, "behaviour:tail:resync"));
-    }
-
-    // ---- what a pass is GIVEN, which is the reason it needs no device state of its own ----
-    {
-        deren::utility::vessel::array<frame_pass*, 2> passes = {&probe, &tail};
-        stage const st = {.name = "scene", .passes = passes};
-        state.log.clear();
-        run_report const given = record_stage(st, host);
-        CHECK(given.recorded == 2);
-        CHECK(probe.last_cmd == fake_cmd);  // the command buffer is handed out per frame...
-        CHECK(probe.last_image_index == 3); // ... and both frame counters, kept apart
-        CHECK(probe.last_slot == 1);
-        CHECK(probe.last_pipelines == 1);      // one declared name -> one resolved pipeline
-        CHECK(tail.last_pipelines == 2);       // two names -> two, in the declared order
-        CHECK(probe.last_extent.width == 640); // extent_rule::resource, with a fake host that hands the frame's
-        CHECK(tail.last_extent.width == 320);  // extent_rule::half is half of it, applied by the resolver
-        // ... the host-composed push block as raw bytes, and the GENERATION's image count - which is what a pass
-        // sizes per-image state from, and is not the image index
-        CHECK(probe.last_push_size == fake_push.size());
-        CHECK(probe.last_image_count == 3);
-        // ... and the images it RENDERS INTO, declared apart from the bindings because an attachment is bound
-        // by a rendering instance and not by a set: a compute pass declares none, the fullscreen one gets its
-        // view and its image resolved
-        CHECK(probe.last_targets == 0);
-        CHECK(tail.last_targets == 1);
-        CHECK(tail.last_target_view == reinterpret_cast<deren::promise::rhi::image_view*>(0x70));
-        CHECK(tail.last_target_image == reinterpret_cast<deren::promise::rhi::image*>(0x80));
-        // ... and the PER-IMAGE VIEW LISTS reached the pass untouched: a pass that owns per-image state reads
-        // each image's own handles from them, which `own` (the current frame's) cannot supply - see
-        // resolved_io::own_per_image
-        CHECK(probe.last_per_image_length == 3); // one entry per swapchain image of the frame
-        CHECK(probe.last_per_image_first != nullptr);
-    }
-
-    // ---- the extent rule's (resource, element) PAIR reaches the host, which is the only layer that can map it
-    //      to a size: the framework carries a declaration, it does not interpret one ----
-    {
-        fake_pass level{named_io("bloom_level"), level_behaviour, "gi", state};
-        deren::utility::vessel::array<frame_pass*, 1> passes = {&level};
-        stage const st = {.name = "post", .passes = passes};
-        state.log.clear();
-        run_report const report = record_stage(st, host);
-        CHECK(report.recorded == 1);
-        CHECK(state.last_extent_of == rr::resource_id::bloom); // the family the rule names...
-        CHECK(state.last_extent_element == 2);                 // ... and WHICH of its images
-        // ... and a declaration that names no element says 0 rather than an arbitrary level: the field is
-        // additive, so every declaration written before it existed still means exactly what it meant
-        CHECK(fullscreen_behaviour.extent_of_element == 0);
-        CHECK(compute_behaviour.extent_of_element == 0);
-        CHECK(fullscreen_behaviour.extent_of == rr::resource_id::none);
-    }
-
     // ---- the create-time context on its own: a pass is built from THIS and nothing else ----
     {
         vp::pass_context const context = make_context();
@@ -710,43 +546,6 @@ int32_t main() {
         run_report const built = create_stage(st, make_context());
         CHECK(built.created == 1);
         CHECK(state.created_with_sampler == fake_shadow_sampler); // chosen by hint, never named by the pass
-    }
-
-    // ---- an inactive feature is skipped WITHOUT being resolved: what makes an off feature byte-exact ----
-    {
-        deren::utility::vessel::array<frame_pass*, 2> passes = {&probe, &gated};
-        stage const st = {.name = "scene", .passes = passes};
-        state.log.clear();
-        run_report const report = record_stage(st, host);
-        CHECK(report.recorded == 1);
-        CHECK(report.skipped_inactive == 1);
-        CHECK(!has(state.log, "resolve:gated")); // not resolved...
-        CHECK(!has(state.log, "record:gated"));  // ... and not recorded
-    }
-
-    // ---- a frame that cannot resolve a pass skips it, and does not apply its behaviour either ----
-    {
-        deren::utility::vessel::array<frame_pass*, 2> passes = {&probe, &tail};
-        stage const st = {.name = "scene", .passes = passes};
-        state.log.clear();
-        state.failing_pass = "tail";
-        run_report const report = record_stage(st, host);
-        state.failing_pass = {};
-        CHECK(report.recorded == 1);
-        CHECK(report.skipped_unresolved == 1);
-        CHECK(!has(state.log, "behaviour:tail:resync")); // a pass recorded with unresolved handles is worse
-        CHECK(!has(state.log, "record:tail"));
-    }
-
-    // ---- a stage that nests inside another's instance can decline its own mark pair ----
-    {
-        deren::utility::vessel::array<frame_pass*, 1> passes = {&probe};
-        stage const st = {.name = "nested", .passes = passes, .marks = false};
-        state.log.clear();
-        run_report const report = record_stage(st, host);
-        CHECK(report.marked == 0);
-        CHECK(!has(state.log, "mark_begin:nested"));
-        CHECK(has(state.log, "record:probe"));
     }
 
     // ---- a rebuilt swapchain tells EVERY pass: the hazard the manual reset list keeps missing ----
@@ -782,9 +581,9 @@ int32_t main() {
         CHECK(own == 4);
     }
 
-    // ---- THE CHAIN: a value that holds a run of passes and its ORDER, and nothing else - it must behave
-    //      exactly like the separate stages it replaces (same per-pass feature gate, resolver and record),
-    //      because that is the whole claim its header makes ----
+    // ---- THE CHAIN: a value that holds a run of passes and its ORDER, plus the lookups an owner uses - the
+    //      runner steps it used to wrap (`init`/`record`) went with the legacy runner, and the graph's builder takes
+    //      the same pass list through `stage` ----
     {
         pass_chain chain{"gi"};
         CHECK(chain.empty());
@@ -792,57 +591,12 @@ int32_t main() {
         chain.add(probe);
         chain.add(tail);
         CHECK(chain.size() == 2);
-        // the lookup is by the DECLARATION's name, so a caller never has to know the chain's order to find one
         CHECK(chain.find("tail") == static_cast<frame_pass*>(&tail));
         CHECK(chain.find("nothing") == nullptr);
-        // ... and the stage it hands the runner is its own name, its own list, and its own mark policy
+        // ... and the stage it hands a resolver is its own name, its own list, and its own (disabled) mark policy
         CHECK(chain.as_stage().name == "gi");
         CHECK(chain.as_stage().passes.size() == 2);
         CHECK(!chain.as_stage().marks);
-
-        state.log.clear();
-        run_report const created = chain.init(make_context());
-        CHECK(created.created == 2);
-        CHECK(created.rejected.empty());
-        CHECK(at(state.log, "create:probe") < at(state.log, "create:tail")); // the ORDER OF THE add CALLS
-
-        state.log.clear();
-        run_report const recorded = chain.record(host);
-        CHECK(recorded.recorded == 2);
-        // the order of resolve/behaviour/record is the runner's, unchanged by the chain: resolve then behaviour
-        // then the pass, per pass, in chain order
-        CHECK(at(state.log, "resolve:probe") < at(state.log, "behaviour:probe:plain"));
-        CHECK(at(state.log, "behaviour:probe:plain") < at(state.log, "record:probe"));
-        CHECK(at(state.log, "record:probe") < at(state.log, "resolve:tail"));
-    }
-    {
-        // a pass whose feature is off is skipped INSIDE the chain, exactly as it was inside its own stage - a
-        // chain that could skip differently would be a scheduler, which this class deliberately is not
-        pass_chain chain{"gi"};
-        chain.add(probe);
-        chain.add(gated); // feature "off"
-        state.log.clear();
-        run_report const recorded = chain.record(host);
-        CHECK(recorded.recorded == 1);
-        CHECK(recorded.skipped_inactive == 1);
-        CHECK(!has(state.log, "record:gated"));
-    }
-
-    // ---- `chain.ready(name)`: the readiness question asked in the DECLARATION's vocabulary, which is the only key
-    //      an owner that holds a chain instead of typed members has. It is what the renderer's feature registry asks
-    //      now ("the knob is on AND the pass built its pipeline") ----
-    {
-        pass_chain chain{"probe"};
-        chain.add(probe);
-        chain.add(tail);
-        CHECK(chain.ready("probe")); // the fake says it is ready
-        CHECK(chain.ready("tail"));
-        CHECK(!chain.ready("absent")); // a name no pass in this chain declares is not "ready"
-        // ... and a pass that says it did not build what it records with is not ready
-        probe.is_ready = false;
-        CHECK(!chain.ready("probe"));
-        CHECK(chain.ready("tail")); // ... independently of its neighbour
-        probe.is_ready = true;
     }
 
     // ---- the chain also KEPT objects that are not passes (`keep`, whose only users were the renderer's two jobs).
@@ -945,8 +699,6 @@ int32_t main() {
             void create(vp::pass_context const&) override {
             }
             void on_swapchain_recreated(vp::pass_host const&) override {
-            }
-            void record(vp::resolved_io const&) override {
             }
         };
         /// the owner side of a resolve_context: a table plus the lookups the framework declares

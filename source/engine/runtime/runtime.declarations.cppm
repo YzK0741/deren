@@ -1278,12 +1278,10 @@ namespace deren::engine {
          * old layout is only honest for a depth nothing has written (see that constant's warning).
          * @note must be called outside a rendering instance (it records a pipeline barrier)
          */
-        bool ensure_gbuffer_depth_sampled(std::shared_ptr<rhi::command_buffer> command_buffer, uint32_t image_index);
         // Per-swapchain-image flag: set by the G-buffer instance, cleared by
         // ensure_gbuffer_depth_sampled(). Per IMAGE rather than per frame because each image owns
         // its own depth image, and that depth keeps whatever layout its last recorded frame left it
         // in until that image comes around again.
-        deren::utility::vessel::vector<bool> gbuffer_depth_written = {};
 
         /**
          * @ingroup runtime
@@ -1298,9 +1296,7 @@ namespace deren::engine {
          *       discarded surface.
          * @note must be called outside a rendering instance (it records a pipeline barrier)
          */
-        bool ensure_gbuffer_targets_sampled(std::shared_ptr<rhi::command_buffer> command_buffer, uint32_t image_index);
         // Per-swapchain-image flag: set by the G-buffer instance, cleared by the accessor above.
-        deren::utility::vessel::vector<bool> gbuffer_targets_written = {};
 
         /**
          * @ingroup runtime
@@ -1314,10 +1310,8 @@ namespace deren::engine {
          *       would be a lie on every frame where TAA already moved the image).
          * @note must be called outside a rendering instance (it records a pipeline barrier)
          */
-        bool ensure_velocity_sampled(std::shared_ptr<rhi::command_buffer> command_buffer, uint32_t image_index);
         // Per-swapchain-image flag: set by the G-buffer instance, cleared by whichever stage first
         // hands the motion-vector target to a sampler (see ensure_velocity_sampled).
-        deren::utility::vessel::vector<bool> velocity_written = {};
         /**
          * Per frame slot: the acceleration structure handle whose heap slot was last WRITTEN.
          *
@@ -2530,13 +2524,9 @@ namespace deren::engine {
             // ---- the frame's ORDERING RULES a stage preamble runs: the runtime's per-image bookkeeping, whose
             //      flags belong to the passes that WROTE those images (see each accessor). Each takes the FRAME's
             //      contract buffer (see `cmd` above) and derives the native handle internally. ----
-            bool (*ensure_gbuffer_targets_sampled)(void* owner, std::shared_ptr<rhi::command_buffer> cmd, uint32_t image_index) = nullptr;
-            bool (*ensure_gbuffer_depth_sampled)(void* owner, std::shared_ptr<rhi::command_buffer> cmd, uint32_t image_index) = nullptr;
-            bool (*ensure_velocity_sampled)(void* owner, std::shared_ptr<rhi::command_buffer> cmd, uint32_t image_index) = nullptr;
             /// clear that flag WITHOUT recording a transition: what a stage whose own pass samples the image
             /// does when the resolve that would have published it runs LATER in the frame (the TAA resolve and
             /// the debug view both leave a later pass to publish the motion-vector target)
-            void (*require_velocity_publish)(void* owner, uint32_t image_index) = nullptr;
             /// the renderer's feature registry, for a stage preamble gated on the same predicate the runner gates
             /// the stage on (the ray-traced shadow's and the TAA resolve's preambles are the two that ask)
             bool (*feature_active)(void* owner, std::string_view name) = nullptr;
@@ -3965,12 +3955,11 @@ namespace deren::engine {
         /// run the owner's `prepare` for one stage, or do nothing when no owner is wired (see `chain_wiring`)
         /// @note this is also where every pass in @p stage builds ITS OWN frame (see frame_pass::prepare_frame),
         ///       BEFORE the owner's `prepare` - so an owner that still wants to override a frame can
-        void prepare_stage(pass::stage const& stage, bool graph_synchronization = false);
+        void prepare_stage(pass::stage const& stage);
         /// run the owner's `collect` for one stage and apply what it reports (see `frame_results`)
         void collect_stage(std::string_view stage);
         /// clear one image's "the G-buffer instance wrote the motion-vector target" flag, so the next sampler of
         /// that image publishes it (what a stage whose pass samples it after TAA already moved it must do)
-        void require_velocity_publish(uint32_t image_index);
         /// the per-cascade secondaries a shadow frame's span points at (see make_shadow_frame).
         /// CONTRACT pointers, not natives: `shadow_frame::cascades` is `std::span<rhi::command_buffer* const>`,
         /// and the caller-owned `shared_ptr`s those pointers borrow live in `shadow_recording`.

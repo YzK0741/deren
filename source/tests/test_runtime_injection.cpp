@@ -99,8 +99,6 @@ namespace {
         }
         void on_swapchain_recreated(pass::pass_host const&) override {
         }
-        void record(pass::resolved_io const&) override {
-        }
     };
 
     namespace managed = deren::engine::render_resource::instances;
@@ -299,12 +297,12 @@ int main(int const argc, char** const argv) {
             *static_cast<float*>(owner) = value.history_valid;
             return true;
         };
-        taa.record(io);
+        taa.record_owned(io);
         CHECK(taa.wrote_history() && observed_history == 0);
         managed::resource_context context{.output_images = rhi::max_swapchain_images, .render_extent = {.width = 4, .height = 4, .depth = 1}};
         CHECK(application.prepare_resources(device, context) == rhi::error::ok);
         CHECK(taa.wrote_history()); // rebinding an unchanged generation must preserve state
-        taa.record(io);
+        taa.record_owned(io);
         CHECK(taa.wrote_history() && observed_history == 1);
         pass::pass_chain replacement;
         auto& outputs = replacement.emplace<pass::output_targets_pass>();
@@ -314,10 +312,10 @@ int main(int const argc, char** const argv) {
         taa.bind_resources(outputs.resources());
         CHECK(!taa.wrote_history());
         own[1].image_handle = new_history->objects[0].image.get();
-        taa.record(io);
+        taa.record_owned(io);
         CHECK(taa.wrote_history() && observed_history == 0);
         taa.bind_resources(outputs.resources());
-        taa.record(io);
+        taa.record_owned(io);
         CHECK(taa.wrote_history() && observed_history == 1);
         CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
         CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);

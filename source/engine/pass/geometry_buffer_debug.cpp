@@ -97,28 +97,6 @@ namespace deren::engine::pass {
         return this->debug_channel;
     }
 
-    void gbuffer_debug_pass::record(resolved_io const& io) {
-        if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
-            io.extent.width == 0 || io.extent.height == 0 || io.list == nullptr || io.targets[0].view_handle == nullptr)
-            return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
-        // THE FOUR IMAGES THIS PASS READS BECOME SAMPLES, in ONE dependency info and in the declaration's order -
-        // the three stored targets, then the motion-vector target. A pipeline barrier may not be recorded inside a
-        // rendering instance, which is why this is here and not after the scope.
-        deren::utility::vessel::array<rhi::image_barrier, render_resource::gbuffer_debug_barriers.size()> barriers = {};
-        for (std::size_t b = 0; b < barriers.size(); ++b) {
-            // COLOR_ATTACHMENT -> SHADER_READ, the shipped `hdr_sampling_transition` pair: the backend derives
-            // the masks and the layouts from it (abi 20).
-            barriers[b] = rhi::image_barrier{.resource = io.barrier_images[b].image_handle,
-                                             .from = rhi::image_use::color_attachment,
-                                             .to = rhi::image_use::shader_read,
-                                             .range = {}};
-        }
-        if (io.list->barrier(rhi::barrier_group{.images = barriers}) != rhi::error::ok) {
-            return; // a refused barrier would leave the inputs in a state nobody declared
-        }
-        static_cast<void>(this->record_content(io));
-    }
-
     rhi::error gbuffer_debug_pass::record_content(resolved_io const& io) noexcept {
         if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
             io.extent.width == 0 || io.extent.height == 0 || io.list == nullptr || io.targets[0].view_handle == nullptr)

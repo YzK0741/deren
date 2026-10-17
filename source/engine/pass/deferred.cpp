@@ -120,34 +120,6 @@ namespace deren::engine::pass {
         return this->unlit_shading;
     }
 
-    void deferred_pass::record(resolved_io const& io) {
-        if (!this->pass_pipeline.has_value() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
-            io.extent.width == 0 || io.extent.height == 0) {
-            return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
-        }
-        // THE CONTRACT HANDLES ARE THE GUARD (plan X5 B2): the raw lane is gone, so this reads the lane the pass
-        // records through - a null one is exactly "this frame has no target".
-        deren::promise::rhi::image* const target = io.targets[0].image_handle;
-        deren::promise::rhi::image_view* const target_view = io.targets[0].view_handle;
-        if (target == nullptr || target_view == nullptr) {
-            return;
-        }
-        // The scene-colour dependency, which cannot be folded into the sampling transitions below: it does not
-        // change layout, and its consumer is this instance's LOAD - a color-attachment access, not the
-        // FRAGMENT_SHADER read those transitions publish. Dynamic rendering inserts no dependency of its own between
-        // two instances, so without it the load is not ordered after the G-buffer pass's store.
-        // THE PAIR RIDES THE CONTRACT NOW (abi 20): the backend derives the masks and the layouts from the
-        // (color_attachment, color_attachment) recipe this site has always used - a dependency that does not
-        // change layout, and the one table pair that spells exactly that.
-        if (io.list->barrier(rhi::image_barrier{.resource = io.targets[0].image_handle,
-                                                .from = rhi::image_use::color_attachment,
-                                                .to = rhi::image_use::color_attachment,
-                                                .range = {}}) != rhi::error::ok) {
-            return; // a refused barrier would leave the target in a state nobody declared
-        }
-        static_cast<void>(record_content(io));
-    }
-
     rhi::error deferred_pass::record_content(resolved_io const& io) noexcept {
         if (!this->pass_pipeline || io.targets.empty() || io.pipelines.empty() || !io.pipelines[0] ||
             !io.list || !io.cmd || io.cmd.get() != io.list || !io.targets[0].image_handle || !io.targets[0].view_handle ||

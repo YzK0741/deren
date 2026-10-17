@@ -454,7 +454,7 @@ namespace deren::engine {
                 if (!cluster_added)
                     return post_build_error(cluster_added.error());
                 pass::stage cluster_stage{.name = "cluster", .passes = this->cluster_pass, .marks = false};
-                this->prepare_stage(cluster_stage, true);
+                this->prepare_stage(cluster_stage);
                 passes[8] = this->cluster_pass[0];
                 ios[8].push_block = host.push_block;
                 if (!passes[8] || !host.resolve || !host.resolve(host.context, *passes[8], ios[8]) || ios[8].list != commands.get())
@@ -470,7 +470,7 @@ namespace deren::engine {
             // The write range is the RESOLVED target count, which is exactly the layer run the pass records.
             if (this->graph_shadow_frame && shadow_cascades) {
                 pass::stage shadow_stage{.name = "shadow", .passes = this->shadow_pass, .marks = false};
-                this->prepare_stage(shadow_stage, true);
+                this->prepare_stage(shadow_stage);
                 passes[9] = this->shadow_pass[0];
                 ios[9].push_block = host.push_block;
                 if (!passes[9] || !host.resolve || !host.resolve(host.context, *passes[9], ios[9]) || ios[9].list != commands.get() || ios[9].targets.empty())
@@ -492,7 +492,7 @@ namespace deren::engine {
                 return post_build_error(geometry.error());
             this->update_pass_geometry();
             pass::stage scene_stage{.name = "scene", .passes = this->scene_pass, .marks = false};
-            this->prepare_stage(scene_stage, true);
+            this->prepare_stage(scene_stage);
             passes[7] = this->scene_pass[0];
             ios[7].push_block = host.push_block;
             if (!passes[7] || !host.resolve || !host.resolve(host.context, *passes[7], ios[7]) ||
@@ -504,13 +504,10 @@ namespace deren::engine {
                 if (ios[7].targets[i].image_handle != expected[i])
                     return rhi::error::invalid_argument;
             auto geometry_bound = build.bind_pass<graph::geometry::parameters>(geometry->pass,
-                                                                               [this, payload, index](graph::geometry::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                                                                               [this, payload](graph::geometry::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
                                                                                    auto error = payload->record(7);
                                                                                    if (error != rhi::error::ok)
                                                                                        return error;
-                                                                                   this->gbuffer_depth_written[index] = true;
-                                                                                   this->gbuffer_targets_written[index] = true;
-                                                                                   this->velocity_written[index] = true;
                                                                                    this->gpu_mark(gpu_mark_id::scene_end);
                                                                                    this->gpu_mark(gpu_mark_id::rt_shadow_end);
                                                                                    return rhi::error::ok;
@@ -523,7 +520,7 @@ namespace deren::engine {
             // owns the image's two transitions; the pass's record_content keeps the launch alone.
             if (this->graph_rt_frame && rt_visibility) {
                 pass::stage rt_stage{.name = "rt_shadow", .passes = this->rt_shadow_pass, .marks = false};
-                this->prepare_stage(rt_stage, true);
+                this->prepare_stage(rt_stage);
                 passes[18] = this->rt_shadow_pass[0];
                 ios[18].push_block = host.push_block;
                 if (!passes[18] || !host.resolve || !host.resolve(host.context, *passes[18], ios[18]) || ios[18].list != commands.get())
@@ -544,19 +541,17 @@ namespace deren::engine {
                     return post_build_error(appended.error());
                 lit = *appended;
                 pass::stage stage{.name = "deferred", .passes = this->deferred_pass, .marks = false};
-                this->prepare_stage(stage, true);
+                this->prepare_stage(stage);
                 passes[6] = this->deferred_pass[0];
                 ios[6].push_block = host.push_block;
                 if (!passes[6] || !host.resolve || !host.resolve(host.context, *passes[6], ios[6]) ||
                     ios[6].list != commands.get() || ios[6].targets.size() != 1 || ios[6].targets[0].image_handle != scene_target_image)
                     return rhi::error::not_ready;
                 auto bound = build.bind_pass<graph::lighting::parameters>(lit->pass,
-                                                                          [this, payload, index](graph::lighting::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                                                                          [this, payload](graph::lighting::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
                                                                               auto error = payload->record(6);
                                                                               if (error != rhi::error::ok)
                                                                                   return error;
-                                                                              this->gbuffer_depth_written[index] = false;
-                                                                              this->gbuffer_targets_written[index] = false;
                                                                               this->gpu_mark(gpu_mark_id::lighting_end);
                                                                               this->gpu_mark(gpu_mark_id::gaussian_prepare_end);
                                                                               this->gpu_mark(gpu_mark_id::gaussian_sort_end);
@@ -575,7 +570,7 @@ namespace deren::engine {
                 // the lighting stage on a debug frame. Its four input transitions and the HDR write are the graph's
                 // now; the frame loop's own HDR transition for this view belongs to legacy frames only.
                 pass::stage debug_stage{.name = "gbuffer_debug", .passes = this->gbuffer_debug_stage, .marks = false};
-                this->prepare_stage(debug_stage, true);
+                this->prepare_stage(debug_stage);
                 passes[12] = this->gbuffer_debug_stage[0];
                 ios[12].push_block = host.push_block;
                 if (!passes[12] || !host.resolve || !host.resolve(host.context, *passes[12], ios[12]) || ios[12].list != commands.get() ||
@@ -597,7 +592,7 @@ namespace deren::engine {
             // the graph owns the pass-level boundary: the working image as a preserve write and the depth as a read.
             if (this->gaussian_active()) {
                 pass::stage gaussian_stage{.name = "gaussian", .passes = this->gaussian_pass, .marks = false};
-                this->prepare_stage(gaussian_stage, true);
+                this->prepare_stage(gaussian_stage);
                 passes[17] = this->gaussian_pass[0];
                 ios[17].push_block = host.push_block;
                 if (!passes[17] || !host.resolve || !host.resolve(host.context, *passes[17], ios[17]) || ios[17].list != commands.get() ||
@@ -618,7 +613,7 @@ namespace deren::engine {
             // legacy record issues itself, and this declaration is what orders lighting -> transparent -> TAA.
             if (this->active_features().transparent) {
                 pass::stage transparent_stage{.name = "transparent", .passes = this->transparent_pass, .marks = false};
-                this->prepare_stage(transparent_stage, true);
+                this->prepare_stage(transparent_stage);
                 passes[13] = this->transparent_pass[0];
                 ios[13].push_block = host.push_block;
                 if (!passes[13] || !host.resolve || !host.resolve(host.context, *passes[13], ios[13]) || ios[13].list != commands.get() ||
@@ -640,7 +635,7 @@ namespace deren::engine {
             // the rims declare the depth/albedo reads their shaders take through per-image heap slots.
             if (this->feature_active("character_forward")) {
                 pass::stage character_stage{.name = "character_forward", .passes = this->character_forward_pass, .marks = false};
-                this->prepare_stage(character_stage, true);
+                this->prepare_stage(character_stage);
                 passes[14] = this->character_forward_pass[0];
                 ios[14].push_block = host.push_block;
                 if (!passes[14] || !host.resolve || !host.resolve(host.context, *passes[14], ios[14]) || ios[14].list != commands.get() ||
@@ -658,7 +653,7 @@ namespace deren::engine {
             }
             if (this->feature_active("toon_screen_rim")) {
                 pass::stage toon_stage{.name = "toon_screen_rim", .passes = this->toon_screen_rim_pass, .marks = false};
-                this->prepare_stage(toon_stage, true);
+                this->prepare_stage(toon_stage);
                 passes[15] = this->toon_screen_rim_pass[0];
                 ios[15].push_block = host.push_block;
                 if (!passes[15] || !host.resolve || !host.resolve(host.context, *passes[15], ios[15]) || ios[15].list != commands.get() ||
@@ -676,7 +671,7 @@ namespace deren::engine {
             }
             if (this->feature_active("goo_rim")) {
                 pass::stage goo_stage{.name = "goo_rim", .passes = this->goo_rim_pass, .marks = false};
-                this->prepare_stage(goo_stage, true);
+                this->prepare_stage(goo_stage);
                 passes[16] = this->goo_rim_pass[0];
                 ios[16].push_block = host.push_block;
                 if (!passes[16] || !host.resolve || !host.resolve(host.context, *passes[16], ios[16]) || ios[16].list != commands.get() ||
@@ -699,7 +694,7 @@ namespace deren::engine {
             // legacy frames only.
             if (this->graph_taa_frame && taa_history) {
                 pass::stage taa_stage{.name = "taa", .passes = this->taa_pass, .marks = false};
-                this->prepare_stage(taa_stage, true);
+                this->prepare_stage(taa_stage);
                 passes[10] = this->taa_pass[0];
                 ios[10].push_block = host.push_block;
                 if (!passes[10] || !host.resolve || !host.resolve(host.context, *passes[10], ios[10]) || ios[10].list != commands.get())

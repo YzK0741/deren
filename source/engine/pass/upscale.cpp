@@ -159,44 +159,6 @@ namespace deren::engine::pass {
         this->set_frame(upscale_frame{.after_draw = this->overlay_callback});
     }
 
-    void upscale_pass::record(resolved_io const& io) {
-        if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
-            io.extent.width == 0 || io.extent.height == 0) {
-            return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
-        }
-        // THE CONTRACT'S OWN HANDLES (abi 20): the raw `VkImage`/`VkImageView` become the handles the
-        // resolved binding publishes BESIDE them (the pilot's framework change), so the guard speaks the
-        // vocabulary the record series does.
-        if (io.targets[0].image_handle == nullptr || io.targets[0].view_handle == nullptr) {
-            return;
-        }
-        // THE INPUT FIRST, and it is THIS pass's transition rather than the frame loop's: the LDR image was
-        // written by the composite earlier in this same command buffer, so its old layout is known to be a
-        // colour attachment and the src masks have to publish that write. It is the declaration's one barrier
-        // image, so the handle is the one the pass named - and on a frame this pass does not run, nothing moves
-        // the image at all (the composite writes it as an attachment, or writes the swapchain directly).
-        // THE PAIR RIDES THE CONTRACT (abi 20): the backend derives the masks and the layouts from the
-        // (color_attachment, shader_read) recipe, which the shadow gate `static_assert`s field for field.
-        if (!io.barrier_images.empty() && io.barrier_images[0].image_handle != nullptr) {
-            if (io.list->barrier(rhi::image_barrier{.resource = io.barrier_images[0].image_handle,
-                                                    .from = rhi::image_use::color_attachment,
-                                                    .to = rhi::image_use::shader_read,
-                                                    .range = {}}) != rhi::error::ok) {
-                return; // a refused barrier would leave the input in a state nobody declared
-            }
-        }
-        // ... then the swapchain, which the instance CLEARs: UNDEFINED as the old layout asserts nothing about
-        // contents the resolve is about to replace entirely (the same claim the composite and FXAA make - a
-        // CLEAR instance's old layout is dead by definition). Also the contract's (abi 20).
-        if (io.list->barrier(rhi::image_barrier{.resource = io.targets[0].image_handle,
-                                                .from = rhi::image_use::undefined,
-                                                .to = rhi::image_use::color_attachment,
-                                                .range = {}}) != rhi::error::ok) {
-            return;
-        }
-        static_cast<void>(record_content(io));
-    }
-
     rhi::error upscale_pass::record_content(resolved_io const& io) noexcept {
         if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || !io.pipelines[0] ||
             !io.cmd || !io.list || io.cmd.get() != io.list || !io.targets[0].image_handle || !io.targets[0].view_handle ||

@@ -197,31 +197,6 @@ namespace deren::engine::pass {
         return true;
     }
 
-    void post_composite_pass::record(resolved_io const& io) {
-        if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
-            io.push.size() < sizeof(post_push_constants) || io.extent.width == 0 || io.extent.height == 0) {
-            return; // the runner resolves all of this or skips the pass (see runtime::resolve_post_composite)
-        }
-        // THE RAW LOCALS ARE GONE (plan X5 B2) and nothing below used them: the recording verbs take the
-        // contract handles, so the guard reads the lane the pass actually records through.
-        if (io.list == nullptr || io.targets[0].image_handle == nullptr || io.targets[0].view_handle == nullptr) {
-            return; // this frame's publication left no contract handle: the pass cannot record
-        }
-        // The target becomes a colour attachment BEFORE the instance (a pipeline barrier may not be recorded
-        // inside one) with UNDEFINED as its old layout: the instance CLEARs it, so whatever it held is dead - and
-        // on the FXAA path the target is the LDR image, which the previous frame's FXAA pass left in a sampled
-        // layout, which is exactly the claim UNDEFINED does not make.
-        // THE PAIR RIDES THE CONTRACT NOW (abi 20): the backend derives the masks and the layouts from the
-        // (undefined, color_attachment) pair - the shipped recipe, proved field-for-field by the shadow gate.
-        if (io.list->barrier(rhi::image_barrier{.resource = io.targets[0].image_handle,
-                                                .from = rhi::image_use::undefined,
-                                                .to = rhi::image_use::color_attachment,
-                                                .range = {}}) != rhi::error::ok) {
-            return; // a refused barrier would leave the target in a state nobody declared
-        }
-        static_cast<void>(record_content(io));
-    }
-
     rhi::error post_composite_pass::record_content(resolved_io const& io) noexcept {
         if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || !io.pipelines[0] ||
             !io.cmd || !io.list || io.cmd.get() != io.list || !io.targets[0].image_handle || !io.targets[0].view_handle ||
@@ -321,43 +296,6 @@ namespace deren::engine::pass {
 
     uint32_t post_bloom_pass::level() const noexcept {
         return this->bloom_level;
-    }
-
-    void post_bloom_pass::record(resolved_io const& io) {
-        if (io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
-            io.extent.width == 0 || io.extent.height == 0 || io.list == nullptr || io.targets[0].image_handle == nullptr ||
-            io.targets[0].view_handle == nullptr) {
-            return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
-        }
-        // THE INPUT FIRST, in the order the old chain moved things: the level this stage READS becomes a sample.
-        // Only levels 1..3 declare one - level 0's input is the HDR target, which the frame loop moved before the
-        // chain (it is the one owner of that transition, because the composite reads HDR too and because it is
-        // needed on the frames the bloom chain is skipped entirely). The pair rides the contract (abi 20): the
-        // backend derives the (color_attachment, shader_read) masks from the shipped recipe.
-        if (!io.barrier_images.empty() && io.barrier_images[0].image_handle != nullptr) {
-            if (io.list->barrier(rhi::image_barrier{.resource = io.barrier_images[0].image_handle,
-                                                    .from = rhi::image_use::color_attachment,
-                                                    .to = rhi::image_use::shader_read,
-                                                    .range = {}}) != rhi::error::ok) {
-                return;
-            }
-        }
-        // ... then the level this stage WRITES, with UNDEFINED as its old layout: the instance CLEARs it.
-        if (io.list->barrier(rhi::image_barrier{.resource = io.targets[0].image_handle,
-                                                .from = rhi::image_use::undefined,
-                                                .to = rhi::image_use::color_attachment,
-                                                .range = {}}) != rhi::error::ok) {
-            return;
-        }
-        if (record_content(io) != rhi::error::ok)
-            return;
-        // The graph path supplies this handoff through its boundary reader instead.
-        if (this->bloom_level + 1u == render_resource::post_bloom_io.size()) {
-            static_cast<void>(io.list->barrier(rhi::image_barrier{.resource = io.targets[0].image_handle,
-                                                                  .from = rhi::image_use::color_attachment,
-                                                                  .to = rhi::image_use::shader_read,
-                                                                  .range = {}}));
-        }
     }
 
     rhi::error post_bloom_pass::record_content(resolved_io const& io) noexcept {

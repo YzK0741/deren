@@ -80,7 +80,5 @@ export namespace deren::engine::pass {
         }
         void on_swapchain_recreated(pass_host const&) override {
         }
-        void record(resolved_io const&) override {
-        }
     };
 } // namespace deren::engine::pass

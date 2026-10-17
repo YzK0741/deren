@@ -1162,13 +1162,10 @@ namespace deren::engine {
         // fixed-size arrays now, so their `size()` is the contract's bound rather than the number of images
         // this generation actually has - `swap_chain_images` is the one that still answers that.
         std::size_t const image_count = static_cast<std::size_t>(rhi::max_swapchain_images);
-        this->gbuffer_depth_written.assign(image_count, false);
         // The motion-vector images died with the generation as well: clear the layout flag so the first
         // frame of the new generation takes the attachment -> sampled transition (see
         // ensure_velocity_sampled).
-        this->velocity_written.assign(image_count, false);
         this->rt_binding_written.assign(image_count, nullptr);
-        this->gbuffer_targets_written.assign(image_count, false);
         this->taa_history_initialized.assign(image_count, false);
         this->inactive_descriptor_images_seeded = false;
         // a generation has nothing to blend with, and it is reset HERE rather than only on the off -> on

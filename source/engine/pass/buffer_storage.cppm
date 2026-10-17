@@ -37,8 +37,6 @@ export namespace deren::engine::pass {
         }
         void on_swapchain_recreated(pass_host const&) override {
         }
-        void record(resolved_io const&) override {
-        }
     };
     using resource_storage_pass = buffer_storage_pass;
 } // namespace deren::engine::pass

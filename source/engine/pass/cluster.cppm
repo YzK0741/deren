@@ -78,7 +78,6 @@ export namespace deren::engine::pass {
         }
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
-        void record(resolved_io const& io) override;
 
         /// @brief the dispatch alone, with none of this pass's own ordering
         ///

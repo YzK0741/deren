@@ -1028,3 +1028,35 @@ also the proof that the ONE recording path produces the frames the TWO paths use
 RT A/B capture pair is retired with the second path: there is no "legacy" configuration to compare against, so the
 byte-identical gate against the frozen references (which were captured from that tail) plus the RT smoke test are
 the evidence now.
+
+## The legacy recording verb and its ordering-rule services are gone
+
+The last code that could record a pass the OLD way went in the same cleanup (commit `bb2-record-verb`): the
+`frame_pass::record` virtual, the pass runner (`pass::record_stage`) and every pass's legacy `record()` body.
+
+WHAT WAS DELETED:
+- `pass::frame_pass::record(resolved_io const&)` (the pure virtual) and the pass runner `pass::record_stage` plus
+  the `pass_host::mark_begin`/`mark_end` callbacks it alone used; `pass_chain::record`. `record_content` is the
+  only recording verb a pass has now, and `create_stage`/`recreate_stage`/`pass_chain::init`/`ready` remain (they
+  are the create and readiness steps the graph path still uses).
+- The sixteen legacy `record()` definitions (character_forward, cluster, deferred, fxaa, gaussian, gbuffer_debug,
+  goo_rim, post x2, ray_traced_shadow, scene, shadow, taa, toon_screen_rim, transparent, upscale) and the five
+  no-op producers' inline ones. TWO of them were the content rather than the barriers (toon_screen_rim and
+  goo_rim delegated to them), so their bodies are kept as a private `record_impl` the graph entry calls - the
+  content survives, only the verb changed.
+- The per-image publish-rule services: `frame_services::ensure_gbuffer_targets_sampled` /
+  `ensure_gbuffer_depth_sampled` / `ensure_velocity_sampled` / `require_velocity_publish`, the runtime methods
+  behind them, the `gbuffer_targets_written` / `gbuffer_depth_written` / `velocity_written` flags (write-only once
+  the graph owned the barriers) and their constructor resets. The demo's stage preamble no longer issues any of
+  them: the graph declares the hand-offs these rules existed to make unpublishable.
+- Two entries had to stay, as NON-virtual helpers, because probes call them outside a graph: the gaussian pass's
+  and the TAA pass's owned-barrier recording (`record_owned`). They are not an interface - no runner and no
+  runtime call them - and the graph's lane uses `record_content` exactly as before.
+
+TESTS: `test_pass`'s runner sections (resolve/behaviour/record order, mark pairs, skip semantics, chain
+init/record) went with the runner; the create/readiness/declaration/resource-table/frame-constant sections stay.
+The gaussian probes and their tests call `record_owned`; the injection test's TAA history mode does too. The graph
+tests' fake passes lost their legacy `record()` overrides (they already counted via `record_content`).
+
+VERIFICATION: CTest 44/44, the 15-scenario gate byte-identical with a clean validation log, `check_rt.ps1` PASS -
+i.e. deleting the second recording mechanism changed no pixel, which is the claim this whole cleanup rests on.

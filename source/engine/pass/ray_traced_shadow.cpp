@@ -168,42 +168,6 @@ namespace deren::engine::pass {
         // The one-shot log line stays set, because "this pass traces rays" does not become untrue on a resize.
     }
 
-    void rt_shadow_pass::record(resolved_io const& io) {
-        if (!this->record_ready(io))
-            return;
-        rhi::image* const visibility = io.barrier_images[barrier_visibility].image_handle;
-
-        // The image is written as a storage image (GENERAL) and read by the lighting stage as a sampler
-        // (SHADER_READ). Both transitions happen here, around the dispatch, because this is the only place that
-        // knows the image is being rewritten - the lighting stage's descriptor declares SHADER_READ whether or
-        // not this pass ran (see the off path in the frame loop).
-        // THE PAIR IS THE SHIPPED RECIPE AND THE STAGE IS THE HINT (abi 21): (undefined, shader_write) is
-        // `undefined_to_general_transition`, and `stage_hint::ray_tracing` replaces the stage that recipe names
-        // (COMPUTE_SHADER) with the one that actually RAN - a traceRays LAUNCH, not a dispatch. THE OVERRIDE IS
-        // MEASURED, which is what the barrier model's own note asks for before a vocabulary grows: with the
-        // recipe's stage the writes go unsynchronised and the lighting stage samples an image the trace has not
-        // finished writing (measured: half the model lost its sun, deterministically, while a constant write -
-        // which no ordering can make wrong - came out right).
-        deren::utility::vessel::array<rhi::image_barrier, 1> const to_general = {
-            rhi::image_barrier{.resource = visibility, .from = rhi::image_use::undefined, .to = rhi::image_use::shader_write, .range = {}},
-        };
-        if (io.list->barrier(rhi::barrier_group{.images = to_general, .stage = rhi::stage_hint::ray_tracing}) != rhi::error::ok) {
-            return; // a refused barrier would leave the visibility image in a state nobody declared
-        }
-        if (this->record_content(io) != rhi::error::ok)
-            return;
-
-        // ... and the hand-off to the lighting stage, with the SAME hint and for the SAME reason: the recipe
-        // (shader_write, shader_read) is `general_to_sampling_transition`, and its SOURCE stage is the
-        // ray-tracing one here (see the first barrier's note).
-        deren::utility::vessel::array<rhi::image_barrier, 1> const to_sampling = {
-            rhi::image_barrier{.resource = visibility, .from = rhi::image_use::shader_write, .to = rhi::image_use::shader_read, .range = {}},
-        };
-        if (io.list->barrier(rhi::barrier_group{.images = to_sampling, .stage = rhi::stage_hint::ray_tracing}) != rhi::error::ok) {
-            return; // a refused hand-off would leave the visibility image in a state nobody declared
-        }
-    }
-
     bool rt_shadow_pass::record_ready(resolved_io const& io) const noexcept {
         return this->pass_pipeline.has_value() && io.barrier_images.size() >= render_resource::rt_shadow_barriers.size() &&
                !io.pipelines.empty() && io.pipelines[0] != nullptr && io.list != nullptr &&

@@ -555,7 +555,7 @@ namespace {
         io.target_storage[1] = {.image_handle = reinterpret_cast<rhi::image*>(std::uintptr_t{3}), .view_handle = reinterpret_cast<rhi::image_view*>(std::uintptr_t{4})};
         io.targets = std::span{io.target_storage}.first(2);
         io.push_block = {&push, push_frame};
-        p.record(io);
+        p.record_owned(io);
         CHECK(p.last_error() == rhi::error::ok);
         CHECK(commands.draws == 1 && commands.vertices == 6 && commands.instances == 2);
         CHECK(commands.color_load == rhi::load_op::load && commands.depth_load == rhi::load_op::load);
@@ -568,24 +568,24 @@ namespace {
         }
         commands.reset();
         push.refused = true;
-        p.record(io);
+        p.record_owned(io);
         CHECK(commands.draws == 0 && commands.barriers == 0 && p.last_error() != rhi::error::ok);
         push.refused = false;
         commands.reset();
         commands.fail_bind = true;
-        p.record(io);
+        p.record_owned(io);
         CHECK(commands.draws == 0 && commands.barriers == 0);
         commands.reset();
         commands.fail_begin = true;
-        p.record(io);
+        p.record_owned(io);
         CHECK(commands.draws == 0 && commands.begins == 1 && commands.ends == 0 && commands.barriers == 2);
         commands.reset();
         commands.fail_barrier = 1;
-        p.record(io);
+        p.record_owned(io);
         CHECK(commands.draws == 0 && commands.begins == 0);
         p.set_frame({});
         commands.reset();
-        p.record(io);
+        p.record_owned(io);
         CHECK(commands.draws == 0 && commands.barriers == 0);
     }
 } // namespace

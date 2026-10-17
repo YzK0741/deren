@@ -1530,71 +1530,6 @@ namespace deren::engine {
     // The TAA resolve's factory is gone: `deren.engine.pass.taa` builds its own pipeline and owns its per-image
     // history flags in its create step, from its own declaration and its own shaders (the app registers those).
 
-    bool runtime::ensure_gbuffer_depth_sampled(std::shared_ptr<rhi::command_buffer> command_buffer, uint32_t const image_index) {
-        // Nothing to do when no G-buffer instance ran for this image: the depth is already in the
-        // layout the sampling descriptors declare (it keeps whatever the last frame for this image
-        // left it in), so re-transitioning would only claim a layout the image is not in.
-        if (image_index >= this->gbuffer_depth_written.size() || !this->gbuffer_depth_written[image_index]) {
-            return false;
-        }
-        // The G-buffer pass left it in GENERAL: publish the attachment
-        // write and flip it to the layout the sampling descriptors declare. One barrier per frame,
-        // whichever of the three sampling stages gets here first.
-        //
-        // depth_attachment -> depth_read, recorded on the contract buffer the frame's recording face
-        // speaks (the same buffer the raw spelling derived its native handle from). A REFUSED barrier
-        // leaves the flag armed: the next sampling stage retries rather than claiming a state nobody
-        // declared, which is why the flag flips only on `ok`.
-        if (command_buffer->barrier(rhi::image_barrier{.resource = this->gbuffer_depth_images[image_index].get(),
-                                                       .from = rhi::image_use::depth_attachment,
-                                                       .to = rhi::image_use::depth_read,
-                                                       .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}}) != rhi::error::ok) {
-            return false;
-        }
-        this->gbuffer_depth_written[image_index] = false;
-        return true;
-    }
-
-    bool runtime::ensure_gbuffer_targets_sampled(std::shared_ptr<rhi::command_buffer> command_buffer, uint32_t const image_index) {
-        // Nothing to do when no G-buffer instance ran for this image, or when an earlier stage already
-        // took the transition (the ray-traced shadow pass runs first when it runs): re-transitioning
-        // would claim a COLOR_ATTACHMENT old layout the image is not in.
-        if (image_index >= this->gbuffer_targets_written.size() || !this->gbuffer_targets_written[image_index]) {
-            return false;
-        }
-        // color_attachment -> shader_read for every stored surface target, in ONE contract batch (what the
-        // raw vkCmdPipelineBarrier2 carried).
-        deren::utility::vessel::array<rhi::image_barrier, deren::engine::render_layout::gbuffer_target_count> barriers = {};
-        for (uint32_t target = 0; target < deren::engine::render_layout::gbuffer_target_count; ++target) {
-            barriers[target] = rhi::image_barrier{.resource = this->gbuffer_images[target][image_index].get(),
-                                                  .from = rhi::image_use::color_attachment,
-                                                  .to = rhi::image_use::shader_read,
-                                                  .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}};
-        }
-        if (command_buffer->barrier(rhi::barrier_group{.images = barriers}) != rhi::error::ok) {
-            return false; // the flag stays armed so a later sampler retries (see ensure_gbuffer_depth_sampled)
-        }
-        this->gbuffer_targets_written[image_index] = false;
-        return true;
-    }
-    bool runtime::ensure_velocity_sampled(std::shared_ptr<rhi::command_buffer> command_buffer, uint32_t const image_index) {
-        // Nothing to do when no G-buffer instance ran for this image, or when an earlier sampler
-        // already took the transition (the TAA resolve, which runs before the GI denoiser in the same
-        // frame): re-transitioning would claim a COLOR_ATTACHMENT old layout the image is not in.
-        if (image_index >= this->velocity_written.size() || !this->velocity_written[image_index]) {
-            return false;
-        }
-        // color_attachment -> shader_read (what hdr_sampling_transition spelled).
-        if (command_buffer->barrier(rhi::image_barrier{.resource = this->velocity_images[image_index].get(),
-                                                       .from = rhi::image_use::color_attachment,
-                                                       .to = rhi::image_use::shader_read,
-                                                       .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}}) != rhi::error::ok) {
-            return false; // the flag stays armed so a later sampler retries (see ensure_gbuffer_depth_sampled)
-        }
-        this->velocity_written[image_index] = false;
-        return true;
-    }
-
     bool runtime::gbuffer_pass_active() const noexcept {
         // THE MESH FORMS ARE THE PIPELINE NOW (docs/mesh_shaders.md step 4): `gbuffer_pipeline` is the vertex form,
         // which no longer exists, so the question is whether EITHER mesh form was built.
@@ -2682,13 +2617,6 @@ namespace deren::engine {
                                                                                                  if (phase < 3u)
                                                                                                      static_cast<runtime*>(context)->gpu_mark(static_cast<gpu_mark_id>(static_cast<std::uint32_t>(gpu_mark_id::gaussian_prepare_end) + phase));
                                                                                              }}; },
-            .ensure_gbuffer_targets_sampled =
-                [](void* owner, std::shared_ptr<rhi::command_buffer> cmd, uint32_t image) { return static_cast<runtime*>(owner)->ensure_gbuffer_targets_sampled(cmd, image); },
-            .ensure_gbuffer_depth_sampled =
-                [](void* owner, std::shared_ptr<rhi::command_buffer> cmd, uint32_t image) { return static_cast<runtime*>(owner)->ensure_gbuffer_depth_sampled(cmd, image); },
-            .ensure_velocity_sampled =
-                [](void* owner, std::shared_ptr<rhi::command_buffer> cmd, uint32_t image) { return static_cast<runtime*>(owner)->ensure_velocity_sampled(cmd, image); },
-            .require_velocity_publish = [](void* owner, uint32_t image) { static_cast<runtime*>(owner)->require_velocity_publish(image); },
             .feature_active = [](void* owner, std::string_view name) { return static_cast<runtime const*>(owner)->feature_active(name); },
         };
     }
@@ -2737,15 +2665,9 @@ namespace deren::engine {
         this->frame_wiring = wiring;
     }
 
-    void runtime::prepare_stage(pass::stage const& stage, bool graph_synchronization) {
-        // THE NATIVE HANDLE IS NO LONGER THIS FUNCTION'S (abi 20): every frame a pass is given now carries the
-        // CONTRACT buffer (`frame_command_buffer()`), and the pass derives whatever native handle it still needs
-        // through the escape. The parameter stays because the frame loop's call shape is "prepare this stage in the
-        // frame's recording", and a caller that has the handle should not have to drop it to call this.
-        // THE PASSES BUILD THEIR OWN FRAMES FIRST, from the facts this renderer publishes for THIS STAGE:
-        //     structure phase rebuilds DURING this frame (see make_frame_facts);
-        //   * before the owner's `prepare`, so an owner that still wants to add to a frame (or override one)
-        //     has the last word - the ordering the seam has always had.
+    void runtime::prepare_stage(pass::stage const& stage) {
+        // THE PASSES BUILD THEIR OWN FRAMES from the facts this renderer publishes for THIS STAGE: every field
+        // that rebuilds DURING the frame (the structure phase) is the one this call must be late for.
         this->stage_facts = this->make_frame_facts();
         for (pass::frame_pass* const pass : stage.passes) {
             if (pass != nullptr) {
@@ -2755,14 +2677,7 @@ namespace deren::engine {
         if (this->frame_wiring.prepare == nullptr) {
             return; // no owner: the passes keep the frames they just built and record with them
         }
-        auto services = this->make_frame_services(this->frame_command_buffer());
-        if (graph_synchronization) {
-            // The appended graph owns these handoffs; preparation still publishes CPU frame data.
-            auto graph_handoff = [](void*, std::shared_ptr<rhi::command_buffer>, uint32_t) { return true; };
-            services.ensure_gbuffer_targets_sampled = graph_handoff;
-            services.ensure_gbuffer_depth_sampled = graph_handoff;
-        }
-        this->frame_wiring.prepare(this->frame_wiring.owner, services, stage.name);
+        this->frame_wiring.prepare(this->frame_wiring.owner, this->make_frame_services(this->frame_command_buffer()), stage.name);
     }
 
     void runtime::collect_stage(std::string_view const stage) {
@@ -2777,12 +2692,6 @@ namespace deren::engine {
         // bookkeeping.
         if (results.taa_wrote_history && this->current_image_index < this->image_view_proj.size()) {
             this->image_view_proj[this->current_image_index] = this->current_ubo.view_proj_unjittered;
-        }
-    }
-
-    void runtime::require_velocity_publish(uint32_t const image_index) {
-        if (image_index < this->velocity_written.size()) {
-            this->velocity_written[image_index] = false;
         }
     }
 
@@ -2916,8 +2825,6 @@ namespace deren::engine {
             // No mark pair for this stage, and deliberately: its cost is already accounted for by the marks around
             // the passes it records, so adding a query pair here would only change the report. The runtime keeps writing
             // the end mark itself, right after the stage.
-            .mark_begin = nullptr,
-            .mark_end = nullptr,
         };
     }
 

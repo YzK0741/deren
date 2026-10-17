@@ -175,7 +175,6 @@ export namespace deren::engine::pass {
          * attachment does the transfer in hardware when its format is sRGB).
          */
         [[nodiscard]] bool resolve(resolve_context const& context, resolved_io& out) const override;
-        void record(resolved_io const& io) override;
         [[nodiscard]] deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
 
         /// @brief whether the pass built everything it records with (the renderer gates the post chain on this)
@@ -278,7 +277,6 @@ export namespace deren::engine::pass {
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
-        void record(resolved_io const& io) override;
 
         /// @brief which level of the bloom chain this instance is
         [[nodiscard]] uint32_t level() const noexcept;

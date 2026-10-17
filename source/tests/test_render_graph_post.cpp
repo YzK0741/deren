@@ -45,8 +45,6 @@ struct test_composite final : pass::frame_pass {
     }
     void on_swapchain_recreated(pass::pass_host const&) override {
     }
-    void record(pass::resolved_io const&) override {
-    }
     rhi::error record_content(pass::resolved_io const&) noexcept override {
         return rhi::error::ok;
     }
@@ -56,7 +54,7 @@ struct test_composite final : pass::frame_pass {
 };
 struct test_deferred final : pass::frame_pass {
     test_pipeline pipeline;
-    unsigned legacy = 0, graph = 0;
+    unsigned graph = 0;
     bool fail = false;
     deren::engine::render_resource::pass_io const& io() const noexcept override {
         return deren::engine::render_resource::deferred_io;
@@ -71,9 +69,6 @@ struct test_deferred final : pass::frame_pass {
     void create(pass::pass_context const&) override {
     }
     void on_swapchain_recreated(pass::pass_host const&) override {
-    }
-    void record(pass::resolved_io const&) override {
-        ++legacy;
     }
     rhi::error record_content(pass::resolved_io const&) noexcept override {
         ++graph;

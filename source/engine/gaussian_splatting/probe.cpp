@@ -177,7 +177,7 @@ namespace deren::engine::gaussian_splatting {
                     return static_cast<rhi::descriptor_heap*>(owner)->push_data({.commands = &list, .offset = 0u, .data = transmitted}) == rhi::error::ok;
                 },
             };
-            raster.record(io);
+            raster.record_owned(io);
             if (raster.last_error() != rhi::error::ok) {
                 return failure("Gaussian probe raster recording refused");
             }

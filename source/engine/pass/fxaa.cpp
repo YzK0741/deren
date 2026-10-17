@@ -108,46 +108,6 @@ namespace deren::engine::pass {
         this->set_frame(fxaa_frame{.after_draw = this->overlay_callback});
     }
 
-    void fxaa_pass::record(resolved_io const& io) {
-        if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
-            io.extent.width == 0 || io.extent.height == 0) {
-            return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
-        }
-        // THE CONTRACT'S OWN HANDLES (abi 20): the raw `VkImage`/`VkImageView` this pass used to read out of
-        // the resolved io are the SAME objects, published beside the raw ones by the pilot's framework change
-        // (`resolved_binding::image_handle` / `view_handle`).
-        if (io.targets[0].image_handle == nullptr || io.targets[0].view_handle == nullptr) {
-            return;
-        }
-        // THE INPUT FIRST, and it is THIS pass's transition rather than the frame loop's: the LDR image was written
-        // by the composite earlier in this same command buffer, so its old layout is known to be a colour attachment
-        // and the src masks have to publish that write. It is the declaration's one barrier image, so the handle is
-        // the one the pass named - and on a frame this pass does not run, nothing moves the image at all (the
-        // composite writes it as an attachment and the next frame writes it again).
-        // THE PAIR RIDES THE CONTRACT (abi 20): the backend derives the masks and the layouts from the
-        // (color_attachment, shader_read) pair - the shipped recipe, which the shadow gate `static_assert`s
-        // field for field against the raw transition this line used to spell.
-        if (!io.barrier_images.empty() && io.barrier_images[0].image_handle != nullptr) {
-            if (io.list->barrier(rhi::image_barrier{.resource = io.barrier_images[0].image_handle,
-                                                    .from = rhi::image_use::color_attachment,
-                                                    .to = rhi::image_use::shader_read,
-                                                    .range = {}}) != rhi::error::ok) {
-                return; // a refused barrier would leave the input in a state nobody declared
-            }
-        }
-        // ... then the swapchain, which the instance CLEARs: UNDEFINED as the old layout asserts nothing about
-        // contents the filter is about to replace entirely.
-        // ... and the swapchain target, whose old state is UNDEFINED because the instance CLEARs it. The
-        // backend derives the (undefined, color_attachment) recipe (abi 20).
-        if (io.list->barrier(rhi::image_barrier{.resource = io.targets[0].image_handle,
-                                                .from = rhi::image_use::undefined,
-                                                .to = rhi::image_use::color_attachment,
-                                                .range = {}}) != rhi::error::ok) {
-            return;
-        }
-        static_cast<void>(record_content(io));
-    }
-
     rhi::error fxaa_pass::record_content(resolved_io const& io) noexcept {
         if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || !io.pipelines[0] ||
             !io.cmd || !io.list || io.cmd.get() != io.list || !io.targets[0].image_handle || !io.targets[0].view_handle ||

@@ -151,10 +151,6 @@ namespace deren::engine::pass {
         this->pass_frame = frame;
     }
 
-    void shadow_pass::record(resolved_io const& io) {
-        this->record_impl(io, true);
-    }
-
     rhi::error shadow_pass::record_content(resolved_io const& io) noexcept {
         if (!this->pipeline_ready() || io.targets.empty() || io.list == nullptr || this->pass_frame.record_cascade == nullptr ||
             this->pass_frame.run_tasks == nullptr || this->pass_frame.map_size == 0u)

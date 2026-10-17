@@ -62,50 +62,6 @@ namespace deren::engine::pass {
         this->pass_frame = frame;
     }
 
-    void character_forward_pass::record(resolved_io const& io) {
-        // BOTH LEAF LISTS ARE THE GATE, not just the toon one: a frame whose only character geometry is the
-        // article's two masks still has something to multiply, and returning on `leaves.empty()` alone would
-        // silently drop it. Either list being non-empty is the pass having work to do.
-        if (this->pass_frame.make_environment == nullptr || this->pass_frame.pipeline_name.empty() || io.targets.size() < 2 || io.list == nullptr ||
-            (this->pass_frame.leaves.empty() && this->pass_frame.overlay_leaves.empty() && this->pass_frame.outline_leaves.empty())) {
-            return; // the runner resolves all of this or skips the pass (see make_character_forward_frame)
-        }
-
-        // TWO HAND-OFFS, and both are needed for the same reason the transparent pass needs them: the
-        // lighting stage (or the transparent pass after it) left the depth in SHADER_READ_ONLY, so it has
-        // to go back to the attachment layout before this instance can test against it; and the scene
-        // colour's last store has to be published before this instance LOADs the same image, because
-        // dynamic rendering inserts no dependency between two instances.
-        // THE BATCH RIDES THE CONTRACT (abi 20): the same two pairs, in the same order, in ONE barrier call.
-        deren::utility::vessel::array<rhi::image_barrier, 2> const barriers = {
-            rhi::image_barrier{.resource = io.targets[1].image_handle,
-                               .from = rhi::image_use::shader_read,
-                               .to = rhi::image_use::depth_attachment,
-                               .range = {}},
-            rhi::image_barrier{.resource = io.targets[0].image_handle,
-                               .from = rhi::image_use::color_attachment,
-                               .to = rhi::image_use::color_attachment,
-                               .range = {}},
-        };
-        if (io.list->barrier(rhi::barrier_group{.images = barriers}) != rhi::error::ok) {
-            return; // a refused barrier would leave an attachment in a state nobody declared
-        }
-
-        if (this->record_content(io) != rhi::error::ok)
-            return;
-
-        // Hand the depth back to the layout everything downstream samples it in. TWO later stages read this
-        // image (the resolve's disocclusion guard and the composite's edge test), and this pass is what took
-        // it out of SHADER_READ - so leaving it as an attachment would make every read after it a layout
-        // error. The colour target needs no hand-back: the composite transitions it for itself.
-        if (io.list->barrier(rhi::image_barrier{.resource = io.targets[1].image_handle,
-                                                .from = rhi::image_use::depth_attachment,
-                                                .to = rhi::image_use::shader_read,
-                                                .range = {}}) != rhi::error::ok) {
-            return; // a refused barrier would leave the depth in a state nobody declared
-        }
-    }
-
     rhi::error character_forward_pass::record_content(resolved_io const& io) noexcept {
         if (this->pass_frame.make_environment == nullptr || this->pass_frame.pipeline_name.empty() || io.targets.size() < 2 || io.list == nullptr ||
             (this->pass_frame.leaves.empty() && this->pass_frame.overlay_leaves.empty() && this->pass_frame.outline_leaves.empty()))

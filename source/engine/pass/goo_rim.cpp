@@ -125,7 +125,7 @@ namespace deren::engine::pass {
         return this->pass_pipeline.has_value() ? this->pass_pipeline->contract : nullptr;
     }
 
-    void goo_rim_pass::record(resolved_io const& io) {
+    void goo_rim_pass::record_impl(resolved_io const& io) {
         if (!this->pipeline_ready() || io.targets.empty() || io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
         }
@@ -174,7 +174,7 @@ namespace deren::engine::pass {
         if (!this->pipeline_ready() || io.targets.empty() || io.targets[0].view_handle == nullptr || io.extent.width == 0 ||
             io.extent.height == 0 || io.list == nullptr)
             return rhi::error::invalid_argument;
-        this->record(io);
+        this->record_impl(io);
         return rhi::error::ok;
     }
 

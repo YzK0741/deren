@@ -79,7 +79,6 @@ export namespace deren::engine::pass {
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
-        void record(resolved_io const& io) override;
 
         /// \brief the record body alone - none of this pass's own ordering
         ///
@@ -87,6 +86,7 @@ export namespace deren::engine::pass {
         /// legacy path owns; one submission therefore never runs both barrier paths. character_forward's legacy
         /// record keeps its two hand-offs and its depth hand-back; the two rim passes own no barriers at all (their
         /// sampled inputs are declared here, because the graph orders and transitions what the record only indexes).
+        void record_impl(resolved_io const& io);
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
 
         /// @brief whether the pass built the pipeline it records with (the owner's feature gate asks this)

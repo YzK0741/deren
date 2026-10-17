@@ -85,7 +85,6 @@ export namespace deren::engine::pass {
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
-        void record(resolved_io const& io) override;
 
         /// @brief the CLEAR instance, the push and the fullscreen draw alone - none of this pass's own ordering
         ///

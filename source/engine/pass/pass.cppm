@@ -597,8 +597,6 @@ export namespace deren::engine::pass {
         /// the mechanical pre-record step the behaviour asks for: bind the pipelines, resync the viewport
         void (*apply_behaviour)(void* context, frame_pass const& pass, resolved_io const& io) = nullptr;
         /// open and close one stage's timing interval: the STAGE owns the mark, not the pass
-        void (*mark_begin)(void* context, std::string_view stage_name) = nullptr;
-        void (*mark_end)(void* context, std::string_view stage_name) = nullptr;
     };
 
     /**
@@ -827,18 +825,6 @@ export namespace deren::engine::pass {
         [[nodiscard]] virtual bool ready() const noexcept {
             return true;
         }
-        /**
-         * @brief record into the frame, with the resources the declaration asked for already resolved
-         *
-         * NOT const, and this is a correction the first real pass forced rather than a convenience: a pass
-         * that owns per-generation state has to be able to repair it while recording. The guarantee that layer
-         * actually needs is the one this keeps:
-         * a pass holds no device state BETWEEN frames and is handed everything it needs to record - the
-         * command buffer, its own bindings, the pipelines, the extent and the push block. What
-         * it must not do is reach for anything the run did not resolve, and that is enforced by what
-         * `resolved_io` carries.
-         */
-        virtual void record(resolved_io const& io) = 0;
         /// Optional graph path: content only, with resource synchronization owned by the caller.
         [[nodiscard]] virtual deren::promise::rhi::error record_content(resolved_io const&) noexcept {
             return deren::promise::rhi::error::unsupported;
@@ -910,53 +896,6 @@ export namespace deren::engine::pass {
             }
             p->create(context);
             ++report.created;
-        }
-        return report;
-    }
-
-    /**
-     * @brief record one stage: resolve, apply the behaviour, record, and bracket it with the stage's mark
-     *
-     * THE ORDER OF THESE STEPS IS THE CONTRACT, and each has a reason:
-     *  1. an INACTIVE pass is not resolved and not recorded at all - several passes document exactly that
-     *     ("where any requirement is missing the pass is not even recorded"), and it is what makes a feature
-     *     that is off byte-identical rather than merely invisible;
-     *  2. `resolve` may still fail for a frame (a declared resource the frame does not have), and that is skipped
-     *     WITHOUT recording, because a pass recorded with unresolved handles is worse than a pass not running;
-     *  3. the behaviour's mechanical part happens BEFORE `record()`, never inside it, which is what makes the
-     *     viewport resync unforgettable;
-     *  4. the marks bracket the stage, so a pass cannot mark out of order - the defect the positional
-     *     `gpu_mark_id` enumeration allows today.
-     */
-    [[nodiscard]] inline run_report record_stage(stage const& st, pass_host const& host) {
-        run_report report;
-        bool const marks_open = st.marks && host.mark_begin != nullptr && host.mark_end != nullptr;
-        if (marks_open) {
-            host.mark_begin(host.context, st.name);
-        }
-        for (frame_pass* const p : st.passes) {
-            if (p == nullptr) {
-                continue;
-            }
-            if (host.feature_active != nullptr && !p->feature().empty() && !host.feature_active(host.context, p->feature())) {
-                ++report.skipped_inactive;
-                continue;
-            }
-            resolved_io io = {};
-            io.push_block = host.push_block; // the heap push every converted stage needs (see resolved_io)
-            if (host.resolve == nullptr || !host.resolve(host.context, *p, io)) {
-                ++report.skipped_unresolved;
-                continue;
-            }
-            if (host.apply_behaviour != nullptr) {
-                host.apply_behaviour(host.context, *p, io);
-            }
-            p->record(io);
-            ++report.recorded;
-        }
-        if (marks_open) {
-            host.mark_end(host.context, st.name);
-            ++report.marked;
         }
         return report;
     }

@@ -139,7 +139,7 @@ namespace deren::engine::pass {
         }
     } // namespace
 
-    void taa_pass::record(resolved_io const& io) {
+    void taa_pass::record_owned(resolved_io const& io) {
         this->history_written = false;
         bool history_valid = false;
         if (!taa_frame_ready(io, this->valid_history, history_valid))

@@ -49,46 +49,6 @@ namespace deren::engine::pass {
         this->pass_frame = frame;
     }
 
-    void transparent_pass::record(resolved_io const& io) {
-        if (this->pass_frame.make_environment == nullptr || !this->pass_frame.secondary || this->pass_frame.leaves.empty() || io.targets.size() < 2 || io.list == nullptr) {
-            return; // the runner resolves all of this or skips the pass (see runtime::resolve_transparent_pass)
-        }
-
-        // The lighting stage sampled the surface depth, so it is in SHADER_READ_ONLY: hand it back to the
-        // attachment layout for the depth test. The scene target is already in COLOR_ATTACHMENT (the lighting
-        // instance ended as an attachment write), but dynamic rendering inserts no dependency between two
-        // instances, so that store still has to be published before this instance LOADs the same image.
-        // THE BATCH RIDES THE CONTRACT (abi 20): two images, the same two pairs and the same order the raw
-        // barriers carried - `sampling_to_depth_attachment_transition` on the depth, then
-        // `color_attachment_dependency` on the scene target, in ONE barrier call.
-        deren::utility::vessel::array<rhi::image_barrier, 2> const barriers = {
-            rhi::image_barrier{.resource = io.targets[1].image_handle,
-                               .from = rhi::image_use::shader_read,
-                               .to = rhi::image_use::depth_attachment,
-                               .range = {}},
-            rhi::image_barrier{.resource = io.targets[0].image_handle,
-                               .from = rhi::image_use::color_attachment,
-                               .to = rhi::image_use::color_attachment,
-                               .range = {}},
-        };
-        if (io.list->barrier(rhi::barrier_group{.images = barriers}) != rhi::error::ok) {
-            return; // a refused barrier would leave an attachment in a state nobody declared
-        }
-        if (this->record_content(io) != rhi::error::ok)
-            return;
-        // Hand the depth back to the layout everything downstream samples it in: this pass took it out of
-        // SHADER_READ to depth-test against it, and TWO later stages read the same image (the resolve's
-        // disocclusion guard and the composite's edge test). Nothing else would move it - the flag-driven
-        // transition was already consumed by the lighting stage - so a frame with blended geometry would leave
-        // the image as an attachment and every read after it would be a layout error.
-        if (io.list->barrier(rhi::image_barrier{.resource = io.targets[1].image_handle,
-                                                .from = rhi::image_use::depth_attachment,
-                                                .to = rhi::image_use::shader_read,
-                                                .range = {}}) != rhi::error::ok) {
-            return; // a refused barrier would leave the depth in a state nobody declared
-        }
-    }
-
     rhi::error transparent_pass::record_content(resolved_io const& io) noexcept {
         if (this->pass_frame.make_environment == nullptr || !this->pass_frame.secondary || this->pass_frame.leaves.empty() ||
             io.targets.size() < 2 || io.list == nullptr)

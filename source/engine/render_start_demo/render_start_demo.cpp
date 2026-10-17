@@ -210,8 +210,6 @@ namespace deren::engine {
             // without silencing the stage that draws the character, and a preamble gated on the wrong one would
             // touch the G-buffer on a frame this pass does not record.
             if (services.feature_active != nullptr && services.feature_active(services.owner, "toon_screen_rim")) {
-                static_cast<void>(services.ensure_gbuffer_targets_sampled(services.owner, services.cmd, services.image_index));
-                static_cast<void>(services.ensure_gbuffer_depth_sampled(services.owner, services.cmd, services.image_index));
             }
         } else if (stage == "goo_rim") {
             // THE SAME FRAME-ORDER DUTY as the article's contour above, and the same predicate shape: this stage
@@ -220,16 +218,12 @@ namespace deren::engine {
             // THE PASS'S OWN FEATURE NAME, which the table below answers with `goo_toon_active()` - so a frame with
             // `[render] goo_toon = false` never touches the surface here either.
             if (services.feature_active != nullptr && services.feature_active(services.owner, "goo_rim")) {
-                static_cast<void>(services.ensure_gbuffer_targets_sampled(services.owner, services.cmd, services.image_index));
-                static_cast<void>(services.ensure_gbuffer_depth_sampled(services.owner, services.cmd, services.image_index));
             }
         } else if (stage == "rt_shadow") {
             // THIS STAGE'S FRAME-ORDER DUTY: it may be the first sampler of the stored surface this frame, and
             // whoever samples it FIRST publishes the G-buffer instance's attachment writes. Gated on the same
             // predicate the runner gates the stage on, so the frame never touches them on a frame it does not run.
             if (services.feature_active != nullptr && services.feature_active(services.owner, "rt_shadow")) {
-                static_cast<void>(services.ensure_gbuffer_targets_sampled(services.owner, services.cmd, services.image_index));
-                static_cast<void>(services.ensure_gbuffer_depth_sampled(services.owner, services.cmd, services.image_index));
             }
             // runs between the G-buffer pass and the lighting stage, so it may be the FIRST sampler of the stored
             // surface this frame - the estimator reads the albedo, the normal, the material and the depth to evaluate
@@ -239,19 +233,14 @@ namespace deren::engine {
             // layout, which the validation layer reported as a descriptor/ layout mismatch and which left the
             // estimate at zero.)
             if (services.feature_active != nullptr && services.feature_active(services.owner, "megalights")) {
-                static_cast<void>(services.ensure_gbuffer_targets_sampled(services.owner, services.cmd, services.image_index));
-                static_cast<void>(services.ensure_gbuffer_depth_sampled(services.owner, services.cmd, services.image_index));
                 // ... AND THE MOTION-VECTOR TARGET, which this stage's second pass is the first sampler of: the
                 // resolve reprojects its history with it. This is the ordering rule the chain runs between its
                 // two halves; here both passes are in one stage, so the rule runs before either records - correct
                 // for the same reason, because nothing between them writes that target.
-                static_cast<void>(services.ensure_velocity_sampled(services.owner, services.cmd, services.image_index));
             }
         } else if (stage == "deferred") {
             // ... and the same frame-order duty as the ray-traced shadow's above, for the same reason. Its frame is
             // the pass's own now (see pass::deferred_frame / frame_pass::prepare_frame).
-            static_cast<void>(services.ensure_gbuffer_targets_sampled(services.owner, services.cmd, services.image_index));
-            static_cast<void>(services.ensure_gbuffer_depth_sampled(services.owner, services.cmd, services.image_index));
         } else if (stage == "taa" || stage == "gbuffer_debug") {
             // BOTH STAGES HAND THE STORED SURFACE TO SAMPLERS THIS FRAME, and both are gated exactly as the runner
             // gates the stage. The motion-vector flag is CLEARED rather than published: the chain later in the
@@ -265,13 +254,10 @@ namespace deren::engine {
                     // is armed and consumes it, so whichever stage samples the velocity first publishes it and
                     // the later ones are no-ops: the property that broke when the stochastic punctual lighting
                     // chain started sampling it before this stage.
-                    static_cast<void>(services.ensure_velocity_sampled(services.owner, services.cmd, services.image_index));
                 } else {
                     // The debug view only needs the flag out of its own accessor's way - its pass reads no motion
                     // vector - so clearing stays right for it.
-                    services.require_velocity_publish(services.owner, services.image_index);
                 }
-                static_cast<void>(services.ensure_gbuffer_depth_sampled(services.owner, services.cmd, services.image_index));
             }
         } else if (stage == "post_composite") {
             // No frame work left: the composite composes its own (which target it writes, who draws the overlay,

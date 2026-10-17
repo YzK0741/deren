@@ -39,8 +39,6 @@ struct test_composite final : pass::frame_pass {
     }
     void on_swapchain_recreated(pass::pass_host const&) override {
     }
-    void record(pass::resolved_io const&) override {
-    }
     pass::owned_pipeline named_pipeline(std::string_view name) const noexcept override {
         return name == "post_hdr" ? pass::owned_pipeline{.contract = const_cast<test_pipeline*>(&pipeline)} : pass::owned_pipeline{};
     }

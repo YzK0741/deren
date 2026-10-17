@@ -144,36 +144,4 @@ namespace deren::engine::pass {
         return rhi::error::ok;
     }
 
-    void cluster_pass::record(resolved_io const& io) {
-        if (io.barrier_buffers.size() < render_resource::cluster_barriers.size()) {
-            return; // the runner resolves the declared handles or does not record the pass at all
-        }
-        if (this->record_content(io) != rhi::error::ok)
-            return;
-        // THE LEGACY PATH'S OWN ORDERING (and only its): the graph path declares these two buffers and emits
-        // the dependency itself, so its recorder calls record_content instead. A compute SHADER_WRITE is not
-        // visible to a later SHADER_READ without this barrier - one entry per buffer, because a buffer barrier
-        // covers a single buffer. The handles come from the DECLARATION, which is what makes this the writer's
-        // own ordering rather than something the host has to remember on the pass's behalf.
-        // THE ROLES RIDE THE CONTRACT (abi 20): (shader_write, shader_read) is the pair the raw masks spelled
-        // (COMPUTE_SHADER/SHADER_WRITE -> the shader stages/SHADER_READ), and the batch is the one call.
-        rhi::buffer* counts = io.barrier_buffers[barrier_counts].buffer_handle;
-        rhi::buffer* indices = io.barrier_buffers[barrier_indices].buffer_handle;
-        auto const managed_counts = this->resource_view.find(render_resource::resource_id::cluster_counts);
-        auto const managed_indices = this->resource_view.find(render_resource::resource_id::cluster_indices);
-        if (managed_counts && managed_indices) {
-            if (io.frame.slot >= managed_counts->objects.size() || io.frame.slot >= managed_indices->objects.size())
-                return;
-            counts = managed_counts->objects[io.frame.slot].buffer.get();
-            indices = managed_indices->objects[io.frame.slot].buffer.get();
-        }
-        if (counts == nullptr || indices == nullptr)
-            return;
-        deren::utility::vessel::array<rhi::buffer_barrier, 2> const barriers = {
-            rhi::buffer_barrier{.resource = counts, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::shader_read, .offset = 0, .size = 0},
-            rhi::buffer_barrier{.resource = indices, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::shader_read, .offset = 0, .size = 0},
-        };
-        static_cast<void>(io.list->barrier(rhi::barrier_group{.buffers = barriers}));
-    }
-
 } // namespace deren::engine::pass

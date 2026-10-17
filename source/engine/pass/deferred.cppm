@@ -66,7 +66,6 @@ export namespace deren::engine::pass {
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
-        void record(resolved_io const& io) override;
         [[nodiscard]] deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
 
         /// @brief whether the pass built what it records with (the renderer gates the deferred path on this)

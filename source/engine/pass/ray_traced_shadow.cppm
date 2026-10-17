@@ -147,7 +147,6 @@ export namespace deren::engine::pass {
         void describe_resources(render_resource::instances::resource_context const&, deren::utility::vessel::vector<render_resource::instances::request>&) const override;
         void bind_resources(render_resource::instances::resource_snapshot const&) override;
         void on_swapchain_recreated(pass_host const& host) override;
-        void record(resolved_io const& io) override;
 
         /// \brief the push and the traceRays launch alone - none of this pass's own ordering
         ///

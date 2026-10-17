@@ -89,7 +89,6 @@ export namespace deren::engine::pass {
         void describe_resources(render_resource::instances::resource_context const&, deren::utility::vessel::vector<render_resource::instances::request>&) const override;
         void bind_resources(render_resource::instances::resource_snapshot const&) override;
         void on_swapchain_recreated(pass_host const& host) override;
-        void record(resolved_io const& io) override;
 
         /// @brief the resolve alone, with none of this pass's own ordering (see taa.cpp's two entry notes)
         ///
@@ -100,6 +99,7 @@ export namespace deren::engine::pass {
         /// graph emits both the attachment transitions and the transfer round trip the legacy path owns here.
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
         /// @brief the history copy alone, with none of this pass's own ordering
+        void record_owned(resolved_io const& io);
         deren::promise::rhi::error record_copy(resolved_io const& io) noexcept;
 
         /// @brief whether the pass built everything it records with (the renderer gates the feature on this)

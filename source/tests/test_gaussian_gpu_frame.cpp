@@ -262,7 +262,7 @@ int main() {
     io.target_storage[1] = {.image_handle = reinterpret_cast<rhi::image*>(std::uintptr_t{3}), .view_handle = reinterpret_cast<rhi::image_view*>(std::uintptr_t{4})};
     io.targets = std::span{io.target_storage}.first(2);
     io.push_block = {&complete, push};
-    stage.record(io);
+    stage.record_owned(io);
     CHECK(stage.last_error() == rhi::error::ok && complete.draws == 1u);
     CHECK((complete.operations == deren::utility::vessel::vector<deren::utility::vessel::string>{"bind", "push8", "compute", "bind", "push8", "compute", "sort", "bind", "push8", "compute", "bind", "push112", "begin", "indirect"}));
     auto empty = gs::prepare_gpu_frame(device, {}, camera());
@@ -271,7 +271,7 @@ int main() {
     commands zero;
     io.list = &zero;
     io.push_block.owner = &zero;
-    stage.record(io);
+    stage.record_owned(io);
     CHECK(zero.draws == 0u && zero.operations.empty());
     stage.set_frame({});
     reused->reset();
