@@ -1157,7 +1157,7 @@ namespace deren::engine {
     void runtime::reset_image_generation_state() {
         this->bloom_graph_pending = false;
         // The G-buffer depth layout flags are one per swapchain image, and a freshly created depth image
-        // is in UNDEFINED (which is what a clear flag says); see ensure_gbuffer_depth_sampled.
+        // is in UNDEFINED (which is what a clear flag says); the graph declares the transitions that used to be tracked.
         // THE GENERATION'S COUNT COMES FROM THE SWAPCHAIN (③-D/E A1.4): the per-image groups are engine-held
         // fixed-size arrays now, so their `size()` is the contract's bound rather than the number of images
         // this generation actually has - `swap_chain_images` is the one that still answers that.

@@ -3578,7 +3578,7 @@ int32_t main() {
         CHECK_MSG(graph_site.find("if (this->feature_active(\"goo_rim\"))") != deren::utility::vessel::string::npos, "and gated on the chain's own feature name");
         // ... and the G-buffer's publication is gated on the same feature name, or a frame with `goo_toon` off
         // would transition images for a pass that never draws
-        CHECK_MSG(demo.find("services.feature_active(services.owner, \"goo_rim\")") != deren::utility::vessel::string::npos, "the stage preamble is gated on the same name");
+        CHECK_MSG(graph_site.find("feature_active(\"goo_rim\")") != deren::utility::vessel::string::npos, "the lane is gated on the same name");
     }
 
     // ---- (c10) STEP 13: `RS EFF` (MECHANISM TABLE #14) ----

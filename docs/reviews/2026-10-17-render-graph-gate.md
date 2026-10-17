@@ -1060,3 +1060,27 @@ tests' fake passes lost their legacy `record()` overrides (they already counted 
 
 VERIFICATION: CTest 44/44, the 15-scenario gate byte-identical with a clean validation log, `check_rt.ps1` PASS -
 i.e. deleting the second recording mechanism changed no pixel, which is the claim this whole cleanup rests on.
+
+## Final state: one recording path, and what is left of the pass framework
+
+After the three cleanups (MegaLights `bc2d22c1`, the capture move `022ec09c`, the tail + switches `c42d3e33`,
+the record verb + ordering services `a2e1b369`, and the dead-helper/comment pass in this commit) the renderer has
+ONE recording path and one scheduler:
+
+- `runtime::record_main_drawcalls` computes the frame's eligibility flags and builds the acceleration structures;
+  `runtime::record_post_process` checks readiness and calls `record_post_graph`, which builds, prepares and records
+  the whole frame graph (scene chain + post chain). There is no second recorder, no fallback and no startup
+  selection.
+- A pass has one recording verb (`record_content`), a create step and a per-frame frame builder; the runner that
+  used to resolve/apply/record for the legacy path is gone, and with it the per-pass legacy `record()` bodies and
+  the per-image ordering-rule services (`ensure_*`, `require_velocity_publish`, the `*_written` flags).
+- The Gaussian and TAA passes keep a non-virtual `record_owned` entry ONLY for their probe/test callers, which
+  record outside a graph; the graph lanes call `record_content`.
+- `runtime::begin_rendering` (the legacy scene-instance helper) is gone with its caller, and the demo's stage
+  preamble now hands over the five frames only the runtime can build - it no longer touches an image.
+
+FINAL EVIDENCE (this cleanup series): CTest 44/44; the 15-scenario gate matches every byte of every frozen
+reference with a clean validation log on every scenario; `check_rt.ps1` PASS (GPU hit/miss/mask, both TLAS slots,
+40 frames, clean validation); the capture instrument writes its file from the graph path. The RT A/B pair is
+retired with the second path (there is no legacy configuration left to compare against) - the frozen-reference
+gate is the byte-identity evidence, and it was captured from the tail that no longer exists.

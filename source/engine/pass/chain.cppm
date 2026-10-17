@@ -53,7 +53,7 @@ export namespace deren::engine::pass {
     /**
      * @brief an ordered list of passes, with the runner's create and record steps over it
      *
-     * The two calls are the framework's own (`create_stage` / `record_stage`), which is what keeps a chain from
+     * The create and readiness steps are the framework's own (`create_stage` / `ready`), which is what keeps a chain from
      * growing into a second runner: everything a pass is given, everything the runner does around it and every
      * report it produces are unchanged.
      */

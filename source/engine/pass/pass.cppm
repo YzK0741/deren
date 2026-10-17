@@ -84,7 +84,7 @@ export namespace deren::engine::pass {
     enum class behaviour_kind : uint8_t {
         compute,     // a dispatch: the pass records it, the extent and the workgroup size are declared
         ray_tracing, // a vkCmdTraceRaysKHR: the pass records it, the launch dims ARE the declared extent, and
-                     // the runner's half is the same bind - only the bind POINT differs (see record_stage)
+                     // the graph's record step applies the same bind - only the bind POINT differs (see host_apply_behaviour)
         fullscreen,  // one fullscreen triangle per target
         graphics,    // a draw per piece of scene content (a leaf, a light, a caster)
         instanced,   // one draw per instance - the shadow cascades' shape

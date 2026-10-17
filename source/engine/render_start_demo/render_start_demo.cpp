@@ -142,23 +142,18 @@ namespace deren::engine {
 
     void render_start_demo::prepare(void* const owner, runtime::frame_services const& services, std::string_view const stage) {
         render_start_demo& self = *static_cast<render_start_demo*>(owner);
-        // THE FRAME'S TOOLKIT, cached for the callbacks that are carried by a PASS's frame and therefore cannot be
-        // handed it (the reflection's recording - see the member's own note).
-        // ... and the one fact the renderer's own policy reads about a pass it no longer holds: whether the lighting
-        // stage is in the flat render mode, which is what makes a screen-space effect pointless on such a frame. Published on
-        // every stage prepare rather than once, because it is one bool and the app can flip it between frames.
+        // THE FLAT RENDER MODE is the one fact the renderer's policy reads about a pass it no longer holds: a
+        // screen-space effect is pointless on such a frame. Published per stage because it is one bool the app
+        // can flip between frames.
         if (self.runtime_owner != nullptr && self.deferred != nullptr) {
             self.runtime_owner->set_scene_unlit(self.deferred->unlit());
         }
-        // The stage names are the frame's own structure (the same names the runtime's stage structs carry), so this
-        // switch is the frame ORDER written once, where the passes live. WHAT IS NOT HERE ANY MORE: the frames.
-        // Every pass builds its own before this runs (see frame_pass::prepare_frame), so what is left per stage is
-        // only what is genuinely this owner's - the frame-ORDER duties (whose first sample publishes an image) and
-        // the one answer no one else can give a pass (whether this frame's structures exist).
-        // THE THREE FRAMES THIS DEMO STILL HANDS OVER, and they are the three the runtime still builds (see
-        // `frame_services`): each carries the renderer's own recording machinery - the per-slot secondary buffers
-        // for the scene and the transparent pass, the per-cascade secondaries for the shadow - so the frame cannot
-        // be composed by the pass alone yet. Every other frame is the pass's own.
+        // THE FRAMES ONLY THE RUNTIME CAN BUILD are handed over here (see frame_services): the scene, shadow and
+        // transparent frames carry the runtime's own recording machinery (per-slot secondaries, per-cascade
+        // secondaries, the draw-state factory), and the gaussian and character frames carry the leaf lists and the
+        // camera the runtime owns. The ORDERING RULES those stages used to run in this preamble - whose first
+        // sample publishes an image - are the composed graph's now (it declares the hand-offs), so nothing here
+        // touches an image. Every other frame is the pass's own (see frame_pass::prepare_frame).
         if (stage == "shadow") {
             if (self.shadow != nullptr) {
                 self.shadow->set_frame(services.make_shadow_frame(services.owner));
@@ -172,17 +167,6 @@ namespace deren::engine {
                 self.transparent->set_frame(services.make_transparent_frame(services.owner));
             }
         } else if (stage == "gaussian") {
-            // NO FRAME-ORDER DUTY OF ITS OWN, and that is what the neighbouring stages say about themselves for the
-            // same reason: the lighting stage is the one that samples the depth, so `ensure_gbuffer_depth_sampled` is
-            // already what that stage did, and the splat pass's own `record` owns the two transitions between
-            // "sampled" and "attachment" it needs (see deren.engine.pass.gaussian_splatting). An ensure here was
-            // tried, on the hunch that a cloud-only frame had no other sampler to publish the writes - and it is the
-            // one thing probe C leaves standing: with every splat culled (0 visible of 562,974, so the pass records
-            // nothing) a scripted resize STILL corrupts, which removes the draw and leaves these two calls as the
-            // stage's only remaining effect on the frame's images.
-            //
-            // The SNAPSHOT is the runtime's, because it owns the camera and the frame's completion points (see
-            // make_gaussian_frame); an empty one means this frame draws no splats, which the pass treats as a no-op.
             if (self.gaussian != nullptr) {
                 if (services.gaussian_timing)
                     self.gaussian->set_timing(services.gaussian_timing(services.owner));
@@ -193,87 +177,10 @@ namespace deren::engine {
                     self.gaussian->set_frame(services.make_gaussian_frame(services.owner));
             }
         } else if (stage == "character_forward") {
-            // NO FRAME-ORDER DUTY of its own: this stage's two declared targets were both published long before
-            // it runs (the lighting stage samples the depth, so `ensure_gbuffer_depth_sampled` is already what the
-            // stage that first read it did), and the pass itself owns the two transitions between "sampled" and
-            // "attachment" that it needs. So this branch hands over the frame - the leaf list and the pipeline
-            // name - and nothing else.
             if (self.character_forward != nullptr) {
                 self.character_forward->set_frame(services.make_character_forward_frame(services.owner));
             }
-        } else if (stage == "toon_screen_rim") {
-            // THIS STAGE'S FRAME-ORDER DUTY, and it is the reason it declares no barrier images: it SAMPLES the
-            // G-buffer (the depth it compares and the albedo it lightens), so whoever samples that surface FIRST
-            // this frame has to publish the G-buffer instance's attachment writes. Gated on the same predicate
-            // the runner gates THIS STAGE on - which is the pass's own feature name, `toon_screen_rim`, and NOT
-            // the surface stage's: the two were one name until the rewritten chain needed to silence the contour
-            // without silencing the stage that draws the character, and a preamble gated on the wrong one would
-            // touch the G-buffer on a frame this pass does not record.
-            if (services.feature_active != nullptr && services.feature_active(services.owner, "toon_screen_rim")) {
-            }
-        } else if (stage == "goo_rim") {
-            // THE SAME FRAME-ORDER DUTY as the article's contour above, and the same predicate shape: this stage
-            // samples the G-buffer (the depth it compares, the normal and the material id it reads), so whoever
-            // samples that surface FIRST this frame publishes the G-buffer instance's attachment writes. Gated on
-            // THE PASS'S OWN FEATURE NAME, which the table below answers with `goo_toon_active()` - so a frame with
-            // `[render] goo_toon = false` never touches the surface here either.
-            if (services.feature_active != nullptr && services.feature_active(services.owner, "goo_rim")) {
-            }
-        } else if (stage == "rt_shadow") {
-            // THIS STAGE'S FRAME-ORDER DUTY: it may be the first sampler of the stored surface this frame, and
-            // whoever samples it FIRST publishes the G-buffer instance's attachment writes. Gated on the same
-            // predicate the runner gates the stage on, so the frame never touches them on a frame it does not run.
-            if (services.feature_active != nullptr && services.feature_active(services.owner, "rt_shadow")) {
-            }
-            // runs between the G-buffer pass and the lighting stage, so it may be the FIRST sampler of the stored
-            // surface this frame - the estimator reads the albedo, the normal, the material and the depth to evaluate
-            // its sampled lights, and the G-buffer instance's attachment writes have to be published before those
-            // reads. Gated on the same predicate the runner gates the stage on, so a frame that does not run it
-            // touches nothing. (Measured: without this the pass dispatched against images still in their attachment
-            // layout, which the validation layer reported as a descriptor/ layout mismatch and which left the
-            // estimate at zero.)
-            if (services.feature_active != nullptr && services.feature_active(services.owner, "megalights")) {
-                // ... AND THE MOTION-VECTOR TARGET, which this stage's second pass is the first sampler of: the
-                // resolve reprojects its history with it. This is the ordering rule the chain runs between its
-                // two halves; here both passes are in one stage, so the rule runs before either records - correct
-                // for the same reason, because nothing between them writes that target.
-            }
-        } else if (stage == "deferred") {
-            // ... and the same frame-order duty as the ray-traced shadow's above, for the same reason. Its frame is
-            // the pass's own now (see pass::deferred_frame / frame_pass::prepare_frame).
-        } else if (stage == "taa" || stage == "gbuffer_debug") {
-            // BOTH STAGES HAND THE STORED SURFACE TO SAMPLERS THIS FRAME, and both are gated exactly as the runner
-            // gates the stage. The motion-vector flag is CLEARED rather than published: the chain later in the
-            // frame is what will publish that image, and clearing it here is what stops this stage's own accessor
-            // from claiming it (and, on the debug view's path, from letting a later pass transition it twice).
-            if (services.feature_active != nullptr && services.feature_active(services.owner, stage == "taa" ? "taa" : "gbuffer-debug")) {
-                if (stage == "taa") {
-                    // PUBLISHED, NOT CLEARED, for the TAA stage: its resolve samples the motion vectors and the
-                    // host owns that transition now (the pass used to record the barrier itself, unconditionally -
-                    // see source/engine/pass/taa.cpp). `ensure_velocity_sampled` does it only while the G-buffer's flag
-                    // is armed and consumes it, so whichever stage samples the velocity first publishes it and
-                    // the later ones are no-ops: the property that broke when the stochastic punctual lighting
-                    // chain started sampling it before this stage.
-                } else {
-                    // The debug view only needs the flag out of its own accessor's way - its pass reads no motion
-                    // vector - so clearing stays right for it.
-                }
-            }
-        } else if (stage == "post_composite") {
-            // No frame work left: the composite composes its own (which target it writes, who draws the overlay,
-            // whether this frame's bloom sum exists), and the overlay hook was installed once in `attach`.
-        } else if (stage == "fxaa") {
-            // ... and neither has the FXAA pass, whose frame is the overlay hook it was given in `attach`.
-        } else if (stage == "upscale") {
-            // ... AND NEITHER HAS THE RESOLVE, and that is the whole answer rather than an omission: its frame is
-            // the overlay hook it was given in `attach`, it owns the two transitions it records (the LDR image it
-            // reads and the swapchain it writes), and every value it pushes is either its own or the frame's -
-            // so there is no frame-ORDER duty for this owner to run before it, which is exactly the shape the
-            // composite's and FXAA's stages above have.
         }
-        // A stage with no entry above is a stage whose pass wants nothing from this owner: the world-space probe
-        // cache's declaration resolves every value it needs, and the frames of every other stage are the passes'
-        // own (see frame_pass::prepare_frame).
     }
 
     void render_start_demo::collect(void* const owner, std::string_view const stage, runtime::frame_results& out) {

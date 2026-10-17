@@ -1252,67 +1252,6 @@ namespace deren::engine {
         [[nodiscard]] bool deferred_lit_active() const noexcept;
 
         /**
-         * @brief record the barrier that hands the G-buffer depth to the stage that SAMPLES it, and
-         *        return true when a barrier was written
-         * @param command_buffer the frame's command buffer, in the CONTRACT's spelling (see below)
-         * @param image_index the swapchain image whose G-buffer depth is being sampled
-         *
-         * WHY THE CONTRACT HANDLE AND NOT A NATIVE ONE: every caller is either the frame loop or a chain
-         * owner's stage preamble replying to `frame_services` (see that struct's `ensure_*` entries), and
-         * BOTH now hold the frame's buffer as the contract's `shared_ptr<rhi::command_buffer>` - the same
-         * value `frame_command_buffer()` and `resolved_io::cmd` carry. The function converts ONCE,
-         * internally, through `native_handle()`; a native parameter here would push that conversion onto
-         * every caller and put the escape back in the chain owner's hands.
-         *
-         * Three stages read that depth - the deferred lighting stage (binding 3, world-position
-         * reconstruction and SSAO), the TAA resolve (its disocclusion guard) and the G-buffer debug
-         * view (channel 6) - and a frame runs the lighting stage OR the debug view, with TAA layered
-         * on the lighting stage. The layout to transition FROM therefore depends on whether the
-         * G-buffer pass rendered this frame, which is what gbuffer_depth_written tracks; that is why
-         * this is one accessor instead of a `shadow_map_sampling_transition` copy at each of the
-         * three call sites (two of which would then declare an old layout the image is not in).
-         *
-         * The transition itself is shadow_map_sampling_transition: GENERAL as the old layout (as it is
-         * for every image now) with the fragment-test src masks, so the attachment write is published
-         * AND the contents survive - unlike undefined_to_depth_sampling_transition, whose UNDEFINED
-         * old layout is only honest for a depth nothing has written (see that constant's warning).
-         * @note must be called outside a rendering instance (it records a pipeline barrier)
-         */
-        // Per-swapchain-image flag: set by the G-buffer instance, cleared by
-        // ensure_gbuffer_depth_sampled(). Per IMAGE rather than per frame because each image owns
-        // its own depth image, and that depth keeps whatever layout its last recorded frame left it
-        // in until that image comes around again.
-
-        /**
-         * @ingroup runtime
-         * @brief publish the stored surface targets' attachment writes and make them samples
-         * @return whether a transition was recorded (false = they were already readable)
-         * @note the SAME "whose write is it" question ensure_gbuffer_depth_sampled() answers, for the
-         *       three stored surface targets: the G-buffer instance writes them as COLOR attachments and
-         *       TWO stages sample them - the ray-traced sun shadow (which runs first when it runs at all)
-         *       and the deferred lighting stage. Whoever gets here first does the transition and the other
-         *       finds the flag clear; without it the second one claims a COLOR_ATTACHMENT old layout the
-         *       image is not in, which is a validation error and, on a driver that believes it, a
-         *       discarded surface.
-         * @note must be called outside a rendering instance (it records a pipeline barrier)
-         */
-        // Per-swapchain-image flag: set by the G-buffer instance, cleared by the accessor above.
-
-        /**
-         * @ingroup runtime
-         * @brief publish the G-buffer motion-vector target's attachment write and make it a sample
-         * @return whether a transition was recorded (false = the image was already readable)
-         * @note the same "whose write is it" question ensure_gbuffer_depth_sampled() answers, for the
-         *       motion-vector target: the G-buffer instance writes it as a COLOR attachment, and the
-         *       two stages that sample it are the TAA resolve (a FRAGMENT stage, which transitions it
-         *       itself as part of its own barrier batch) and the GI denoiser's resolve (a COMPUTE
-         *       stage, which is why this exists - a second unconditional COLOR_ATTACHMENT old layout
-         *       would be a lie on every frame where TAA already moved the image).
-         * @note must be called outside a rendering instance (it records a pipeline barrier)
-         */
-        // Per-swapchain-image flag: set by the G-buffer instance, cleared by whichever stage first
-        // hands the motion-vector target to a sampler (see ensure_velocity_sampled).
-        /**
          * Per frame slot: the acceleration structure handle whose heap slot was last WRITTEN.
          *
          * WHY IT EXISTS, and it is a validation error rather than tidiness: the top level structure is rebuilt
@@ -2354,7 +2293,6 @@ namespace deren::engine {
          * @note uses vkCmdBeginRendering (dynamic rendering, Vulkan 1.3 core - the only path
          *       the engine supports; device selection requires an apiVersion >= 1.3 device)
          */
-        void begin_rendering(uint32_t image_index, bool secondary_contents = false) const;
 
         // ---- scene resource management (see the members above) ----
         void init_scene_resources();     // camera UBO buffers + white fallback texture + texture sampler + material table
