@@ -63,27 +63,28 @@ namespace deren::engine::pass {
             }
         }
     }
+
     void gaussian_splatting_pass::record(resolved_io const& io) {
+        static_cast<void>(this->record_impl(io, true));
+    }
+
+    rhi::error gaussian_splatting_pass::record_content(resolved_io const& io) noexcept {
+        return this->record_impl(io, false);
+    }
+
+    rhi::error gaussian_splatting_pass::record_impl(resolved_io const& io, bool const own_barriers) noexcept {
         struct timing_scope {
             gaussian_splatting::gpu_frame_timing points;
             bool delegated = false;
-            void mark_all() {
-                if (points.mark) {
-                    for (std::uint32_t phase = 0; phase < 3u; ++phase) {
-                        points.mark(points.owner, phase);
-                    }
-                }
-                delegated = true;
-            }
             ~timing_scope() {
-                if (!delegated) {
-                    mark_all();
-                }
+                if (!delegated && points.mark)
+                    for (std::uint32_t phase = 0; phase < 3u; ++phase)
+                        points.mark(points.owner, phase);
             }
         } marks{timing};
         record_error = rhi::error::ok;
         if ((!frame && !gpu_snapshot) || (gpu_snapshot ? gpu_snapshot->candidate_count() : frame->params().visible_count) == 0) {
-            return;
+            return rhi::error::ok; // nothing to draw is not a failure: the stage records nothing without a cloud
         }
         auto const& params = gpu_snapshot ? gpu_snapshot->params() : frame->params();
         if (!pipeline || io.list == nullptr || io.push_block.push == nullptr || io.targets.size() != 2 ||
@@ -91,34 +92,40 @@ namespace deren::engine::pass {
             static_cast<float>(io.extent.width) != params.viewport_width || static_cast<float>(io.extent.height) != params.viewport_height ||
             params.instances_address == 0 || params.references_address == 0) {
             record_error = rhi::error::invalid_argument;
-            return;
+            return record_error;
         }
+        // THE GPU COMPUTE CHAIN STAYS INSIDE THIS RECORDER, and that is the model's boundary rather than a gap: its
+        // three dispatches (prepare/sort/finalize) write and read the frame snapshot's OWN buffers (no other pass
+        // touches them) and the snapshot emits their barriers itself, so the pass-level boundary the graph needs is
+        // just the raster's target write and depth read.
         if (gpu_snapshot) {
             marks.delegated = true;
             record_error = gpu_snapshot->record_preparation(*io.list, {compute[0].get(), compute[1].get(), compute[2].get()}, io.push_block, timing);
             if (record_error != rhi::error::ok) {
-                return;
-            }
-        } else {
-            {
-                marks.mark_all();
+                return record_error;
             }
         }
         record_error = io.list->bind_pipeline(*pipeline);
         if (record_error != rhi::error::ok) {
-            return;
+            return record_error;
         }
         if (!io.push_block(*io.list, push_bytes(params))) {
             record_error = rhi::error::unsupported;
-            return;
+            return record_error;
         }
+        // THE IMAGE HAND-OFFS THE LEGACY FRAME OWNS: the depth comes back from a sampler for the raster's depth
+        // test, the target's last store is published for the LOAD, and the depth is handed back for the next
+        // sampler. A graph-recorded frame declares the two accesses instead and the graph emits all three - so its
+        // recorder calls record_content() and the two paths never run together.
         deren::utility::vessel::array<rhi::image_barrier, 2> const barriers = {
             rhi::image_barrier{.resource = io.targets[1].image_handle, .from = rhi::image_use::shader_read, .to = rhi::image_use::depth_attachment},
             rhi::image_barrier{.resource = io.targets[0].image_handle, .from = rhi::image_use::color_attachment, .to = rhi::image_use::color_attachment},
         };
-        record_error = io.list->barrier(rhi::barrier_group{.images = barriers});
-        if (record_error != rhi::error::ok) {
-            return;
+        if (own_barriers) {
+            record_error = io.list->barrier(rhi::barrier_group{.images = barriers});
+            if (record_error != rhi::error::ok) {
+                return record_error;
+            }
         }
         rhi::image_barrier const restore{.resource = io.targets[1].image_handle, .from = rhi::image_use::depth_attachment, .to = rhi::image_use::shader_read};
         deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::load, .store = rhi::store_op::store}};
@@ -130,11 +137,13 @@ namespace deren::engine::pass {
         scope.has_depth = true;
         record_error = io.list->begin_rendering(scope);
         if (record_error != rhi::error::ok) {
-            auto const recovered = io.list->barrier(restore);
-            if (recovered != rhi::error::ok) {
-                record_error = recovered;
+            if (own_barriers) {
+                auto const recovered = io.list->barrier(restore);
+                if (recovered != rhi::error::ok) {
+                    record_error = recovered;
+                }
             }
-            return;
+            return record_error;
         }
         io.list->set_viewport({.width = params.viewport_width, .height = params.viewport_height, .min_depth = 0, .max_depth = 1});
         io.list->set_scissor(scope.area);
@@ -146,9 +155,12 @@ namespace deren::engine::pass {
             io.list->draw(6, params.visible_count, 0, 0);
         }
         io.list->end_rendering();
-        auto const restored = io.list->barrier(restore);
-        if (restored != rhi::error::ok) {
-            record_error = restored;
+        if (own_barriers) {
+            auto const restored = io.list->barrier(restore);
+            if (restored != rhi::error::ok) {
+                record_error = restored;
+            }
         }
+        return record_error;
     }
 } // namespace deren::engine::pass

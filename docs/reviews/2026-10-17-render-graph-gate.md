@@ -610,6 +610,33 @@ stays for exactly the three things the graph cannot express yet - the ray-traced
 traces read the TLAS, and the graph has no acceleration-structure resource kind) and the Gaussian splats - and
 per-segment retirement is what removes each of those one at a time.
 
+## Stage 2N: the Gaussian splats - enabling split in, the flip waits for a splat asset
+
+The Gaussian chain is ONE pass object with two halves: a GPU compute chain (three dispatches - reset, prepare,
+finalize - recorded by the frame snapshot's `record_preparation`, which also emits their buffer barriers) and the
+raster (depth test against the opaque depth, alpha blending into the working image, indirect draw from the
+snapshot's own command buffer). Its vertex data reaches the shader as BDAs over primitive-owned buffers - the
+out-of-model per-draw pattern, already recorded.
+
+The split: `record_impl(io, own_barriers)` is the one body; the legacy `record()` passes `true` (it keeps the two
+image hand-offs at the entry - depth back to an attachment, the target's instance dependency - and the depth
+hand-back at the exit) and the graph entry `record_content()` passes `false`, so a graph-recorded frame declares
+the pass-level boundary (a preserve-write target and a depth read) and the graph emits it. The GPU compute chain
+calls its own buffer barriers from inside the same recorder: those buffers are the frame snapshot's private
+ones, no other pass touches them, and the graph's boundary is the raster, exactly as it does not see the scene
+pass's per-draw state.
+
+The test that pins the legacy command sequence (`test_gaussian_raster`: `barriers == 0` on a push refusal,
+`barriers == 2` on a failed begin, three transitions on the success path) caught the first split - a wrapper that
+ran the hand-offs before the validation recorded two barriers where the shipped order records none. The flag
+form restores the order exactly, and CTest is 44/44.
+
+What is NOT done, and why: a `.ply` Gaussian cloud is the only way to turn the feature on in the app, and the
+repository carries no such asset - so no gate scenario can exercise the path, and the migration's gate criterion
+(byte-identical vs legacy with the graph on) cannot be met here. The flip of the gaussian exclusion waits for a
+splat fixture; everything below it (the adapter shape and the lane) is a mechanical repeat of the transparent
+pass's.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the
