@@ -91,6 +91,17 @@ export namespace deren::engine::pass {
         void on_swapchain_recreated(pass_host const& host) override;
         void record(resolved_io const& io) override;
 
+        /// @brief the resolve alone, with none of this pass's own ordering (see taa.cpp's two entry notes)
+        ///
+        /// A graph-recorded frame cannot declare this pass as one graph pass: the resolve WRITES the HDR target
+        /// as an attachment and the history copy READS it as a transfer source, and the render graph's model
+        /// allows one access per resource per pass. The migration therefore records two graph passes from this
+        /// one pass object - the resolve through THIS entry and the history copy through `record_copy` - and the
+        /// graph emits both the attachment transitions and the transfer round trip the legacy path owns here.
+        deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
+        /// @brief the history copy alone, with none of this pass's own ordering
+        deren::promise::rhi::error record_copy(resolved_io const& io) noexcept;
+
         /// @brief whether the pass built everything it records with (the renderer gates the feature on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
         /// @brief the framework's generic form of the same question, so an owner holding only a chain can ask it
@@ -123,6 +134,13 @@ export namespace deren::engine::pass {
         void reset_history() noexcept;
 
     private:
+        /// @brief the resolve's drawing half
+        /// @param own_transitions true for the legacy record (this pass's attachment/input barriers), false for
+        ///        a graph-recorded frame (the graph declares them)
+        bool record_resolve(resolved_io const& io, bool history_valid, bool own_transitions);
+        /// @brief the HDR -> history copy's half
+        /// @param own_transitions true for the legacy record (the transfer round trip), false for the graph
+        bool record_copy(resolved_io const& io, bool own_transitions);
         render_resource::instances::resource_snapshot resource_view;
         /// the four inputs the resolve reads, which the declaration numbers contiguously from zero
         static constexpr uint32_t own_binding_count = 4;

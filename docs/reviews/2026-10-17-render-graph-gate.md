@@ -406,6 +406,27 @@ Evidence: CTest 44/44; the gate round with the graph on is byte-identical for al
 (matched 14, mismatched 0) with zero validation findings, and `test_render_graph_lighting` asserts the
 producer/consumer ordering for the shadow image (42 checks, 0 failed).
 
+## Stage 2I: TAA needs two graph passes, and the split is in
+
+The TAA resolve is the next pass to migrate, and the first eligibility exclusion to remove. Measured: it
+CANNOT be declared as ONE graph pass. The resolve writes the HDR target as a colour attachment and then
+copies that same image into the history image as a transfer source, so a single declaration would hold two
+accesses to one resource with different scopes - which the graph's model refuses (one access per resource
+per pass; anything else is `conflicting_access`). The migration therefore records TWO graph passes from the
+one pass object: the resolve and the history copy.
+
+The enabling half is in: `taa_pass::record_content()` (the resolve, no barriers) and `taa_pass::record_copy()`
+(the HDR -> history copy, no barriers), while the legacy `record()` keeps its attachment/input barriers and
+its transfer round trip - the same split the cluster sort, the shadow pass, the deferred pass and the bloom
+chain use, so one submission never runs both barrier paths. The legacy path is unchanged: CTest 44/44, and
+both the plain `deferred` scenario and the TAA scenario (`deferred_taa_fxaa`) keep their gate hashes.
+
+Remaining for the item: the two graph adapters, the wiring (lanes, plus the scene-colour/history/velocity
+declarations), and removing `taa_active()` from the eligibility predicate. The history image is the part
+that needs its own rule: its prior contents are the PREVIOUS frame's resolve, so unlike the transient
+images its import state is "defined, sampled, written by the TAA copy last frame", and the graph only
+transitions it - it must never discard it.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the
