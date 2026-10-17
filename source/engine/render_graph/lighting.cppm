@@ -40,14 +40,20 @@ export namespace deren::engine::render_graph::lighting {
         /// every allocated layer sampled before the graph records - so declaring it here is the consumer half:
         /// the graph knows the reads and emits no barrier, and migrating the producer is a separate step.
         std::optional<texture_ref> shadow_cascades = {};
+        /// THE RAY-TRACED VISIBILITY IMAGE (RT stage 2b): the lighting stage's descriptor statically binds it too,
+        /// and on a graph-recorded RT frame the graph records its PRODUCER (the ray-traced shadow lane) - so the
+        /// read has to be declared here or the two passes would be independent in the plan and could be scheduled
+        /// in either order. Absent on a frame whose ray-traced shadow pass did not run.
+        std::optional<texture_ref> rt_visibility = {};
     };
     struct shared_parameters {
         buffer_read camera, light;
         std::optional<ibl_parameters> ibl = {};
         std::optional<cluster_parameters> cluster = {};
         std::optional<texture_read> shadow_cascades = {};
+        std::optional<texture_read> rt_visibility = {};
         void visit_resources(parameter_visitor& visit) const noexcept {
-            visit(camera, light, ibl, cluster, shadow_cascades);
+            visit(camera, light, ibl, cluster, shadow_cascades, rt_visibility);
         }
     };
     struct inputs {
@@ -97,6 +103,8 @@ export namespace deren::engine::render_graph::lighting {
             }
             if (in.shared->shadow_cascades)
                 params.shared->shadow_cascades = texture_read{*in.shared->shadow_cascades, {}, sampled};
+            if (in.shared->rt_visibility)
+                params.shared->rt_visibility = texture_read{*in.shared->rt_visibility, {}, sampled};
         }
         auto added = graph.add_pass("deferred lighting", std::move(params));
         if (!added)

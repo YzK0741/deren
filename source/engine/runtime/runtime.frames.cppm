@@ -857,6 +857,11 @@ namespace deren::engine {
         // says which producer the graph records.
         this->graph_debug_frame = this->main_graph_frame && !this->deferred_lit_active() && this->gbuffer_pass_active() &&
                                   this->gbuffer_debug_stage[0] != nullptr;
+        // THE RAY-TRACED SHADOW LANE (RT stage 2b): the lane declares the visibility image's storage write from the
+        // ray-tracing stage and the lighting lane declares the sampled read, so the graph owns the write -> hand-off
+        // pair the pass's legacy record issues itself. The pass records only when its feature is on and its pipeline
+        // exists - the same answer the legacy stage is gated on.
+        this->graph_rt_frame = this->main_graph_frame && this->active_features().rt_shadow && this->rt_shadow_pass[0] != nullptr;
 
         // Debug and unlit frames can skip the entire deferred stage; they must not retain its history.
         this->megalights_resolved = false;
@@ -1145,12 +1150,18 @@ namespace deren::engine {
         // history was never written (that was the flip's whole defect).
         // THE G-BUFFER DEBUG VIEW is no exclusion either (stage 2J): it needs the G-BUFFER pass, not the lighting
         // stage, because on a debug frame it records INSTEAD of lighting. THE TRANSPARENT PASS (stage 2K) and THE
-        // THREE CHARACTER PASSES (stage 2L) record as lanes over the working image in the legacy order, and THE
-        // GAUSSIAN RASTER (stage 2O) records between lighting and transparency, where the legacy tail runs it. What
-        // remains excluded are the paths whose PASSES are still outside the graph: the ray-traced shadows and
-        // MegaLights (their traces read the TLAS, which the graph has no resource kind for).
+        // THREE CHARACTER PASSES (stage 2L) record as lanes over the working image in the legacy order, THE
+        // GAUSSIAN RASTER (stage 2O) records between lighting and transparency, and THE RAY-TRACED SHADOW PASS
+        // (RT stage 2b) records between geometry and lighting - the write/read pair on its visibility image is
+        // what orders it. What remains excluded is MegaLights (its trace reads the TLAS, which the graph has no
+        // resource kind for yet).
         auto const features = this->active_features();
-        if (!this->main_graph_enabled || !this->gbuffer_pass_active() || features.rt_shadow || this->megalights_active())
+        if (!this->main_graph_enabled || !this->gbuffer_pass_active() || this->megalights_active())
+            return false;
+        // AN ACTIVE RAY-TRACED SHADOW PASS WITH NO PIPELINE IS NOT A GRAPH CANDIDATE (RT stage 2b): the lane records
+        // it, so a frame that cannot would only be "recorded" by dropping the effect - it takes the legacy path
+        // instead, the same rule the overlay lanes follow.
+        if (features.rt_shadow && this->rt_shadow_pass[0] == nullptr)
             return false;
         // EVERY ACTIVE OVERLAY'S PASS MUST BE IN THE CHAIN: a graph frame records the overlay lanes, so a frame whose
         // active feature has no pass could only be "recorded" by silently dropping the effect. Such a frame takes the

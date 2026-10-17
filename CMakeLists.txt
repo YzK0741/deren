@@ -1270,8 +1270,11 @@ target_link_libraries(render_graph_character PUBLIC render_graph_core)
 add_library(render_graph_gaussian STATIC)
 target_sources(render_graph_gaussian PUBLIC FILE_SET CXX_MODULES FILES source/engine/render_graph/gaussian.cppm)
 target_link_libraries(render_graph_gaussian PUBLIC render_graph_core)
+add_library(render_graph_rt_shadow STATIC)
+target_sources(render_graph_rt_shadow PUBLIC FILE_SET CXX_MODULES FILES source/engine/render_graph/rt_shadow.cppm)
+target_link_libraries(render_graph_rt_shadow PUBLIC render_graph_core)
 target_link_libraries(deren_engine PUBLIC render_graph_bloom render_graph_post render_graph_compose render_graph_lighting render_graph_geometry
-                                  render_graph_cluster render_graph_shadow render_graph_taa render_graph_gbuffer_debug render_graph_transparent render_graph_character render_graph_gaussian)
+                                  render_graph_cluster render_graph_shadow render_graph_taa render_graph_gbuffer_debug render_graph_transparent render_graph_character render_graph_gaussian render_graph_rt_shadow)
 
 if(VR_BUILD_TESTS)
     enable_testing()

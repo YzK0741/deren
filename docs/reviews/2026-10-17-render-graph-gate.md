@@ -864,3 +864,37 @@ change, and the A/B verification of an RT frame with the graph on. The TLAS itse
 model for now - its build is a pre-graph border step in the same command buffer (submission order), and RT stage
 1's `build_write -> shader_read` barrier publishes it; the acceleration-structure RESOURCE KIND (the full B
 model, with the TLAS as a graph resource) is the later slice.
+
+## RT stage 2b: the ray-traced shadow pass is a graph lane - and an RT frame is byte-identical
+
+The ray-traced shadow pass is migrated. `graph::rt_shadow` declares its only in-model access (the visibility
+image, a STORAGE write from the RAY-TRACING stage) plus the G-buffer surfaces and depth as sampled reads - the
+tracer reconstructs its ray origins from them, so declaring those accesses is what orders geometry -> trace - and
+`lighting::shared_inputs` grew an optional `rt_visibility` sampled read: that write/read pair is the hand-off edge
+the pass's legacy record used to issue with its own two barriers. `record_post_graph` records the pass as lane 18
+between the G-buffer producer and the lighting stage, importing the visibility image from its per-frame-slot
+family with a KNOWN sampled state (the 2B seed guarantees one per generation); `main_graph_candidate()` no longer
+excludes `features.rt_shadow`, and an active RT shadow pass with no pipeline is a fallback (the overlay rule).
+
+Two backend pieces were needed and are in: the native sync layer's stage boundary moved from 1023 to 2047 and
+`map_stages` maps `stage::ray_tracing` to VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR (the first graph frame
+refused with `execution refused (8) at pass 2` until that was done - the plan's barrier could not be lowered), and
+`supported_stages()` reports the bit only when the device can run those stages. The two frozen test expectations
+moved with the vocabulary (invalid stage bit 1024 -> 2048 in the sync test; the lowering test now asserts 1024
+MAPS to the RT stage).
+
+Evidence - the strongest of the adoption, because this is the first feature that was never in the graph:
+
+- CTest 44/44;
+- the gate round is byte-identical for all fifteen scenarios (matched 15, mismatched 0);
+- **AN RT FRAME IS BYTE-IDENTICAL BETWEEN THE PATHS**: the same sponza RT-smoke config rendered forty frames with
+  `rt_shadows = true`, once with `main_render_graph = false` and once on the graph (the default), both
+  validation-clean and both producing `F0B480ECB33C8091`;
+- `check_rt.ps1` is PASS on the graph path: the GPU traversal probe plus forty frames, clean validation,
+  screenshot.
+
+What remains for RT as a standard feature: MegaLights (still excluded - its trace is a compute ray query reading
+the same TLAS, and the gate script records that the sampled-lights path is not capture-reproducible, so its
+acceptance needs a different instrument), the acceleration-structure RESOURCE KIND (the TLAS as a graph resource -
+the full B model; today the build is a pre-graph border step published by RT stage 1's barrier), and then the
+per-segment retirement of the legacy tail.

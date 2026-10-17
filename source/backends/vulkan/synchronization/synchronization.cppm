@@ -28,7 +28,8 @@ export namespace deren::vulkan::synchronization {
     }
     constexpr std::expected<VkPipelineStageFlags2, contract::error> map_stages(contract::stage stages) noexcept {
         auto bits = static_cast<uint32_t>(stages);
-        if (bits & ~1023U)
+        // RT stage 1: the ray-tracing pipeline stage bit (1024) is part of the vocabulary now, so the boundary is 2047.
+        if (bits & ~2047U)
             return std::unexpected(contract::error::unsupported);
         VkPipelineStageFlags2 result = 0;
         if (bits & static_cast<uint32_t>(contract::stage::vertex_shader))
@@ -37,6 +38,10 @@ export namespace deren::vulkan::synchronization {
             result |= VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
         if (bits & static_cast<uint32_t>(contract::stage::compute_shader))
             result |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        // THE RAY-TRACING PIPELINE STAGES (RT stage 1/2b): the visibility image is written by a traceRays launch, and
+        // the transition that carries that write names this stage. A ray query inside a compute shader stays 4U.
+        if (bits & static_cast<uint32_t>(contract::stage::ray_tracing))
+            result |= VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
         if (bits & static_cast<uint32_t>(contract::stage::color_output))
             result |= VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
         if (bits & static_cast<uint32_t>(contract::stage::depth_stencil))

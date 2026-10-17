@@ -1538,6 +1538,10 @@ namespace deren::engine {
         // Whether THIS frame's G-buffer debug view is recorded by the composed graph (it REPLACES the lighting lane
         // on such a frame, which is why the eligibility asks for the G-buffer pass rather than the lighting stage).
         bool graph_debug_frame = false;
+        // Whether THIS frame's ray-traced shadow pass is recorded by the composed graph (RT stage 2b): the lane declares
+        // the visibility image's storage write from the ray-tracing stage and the lighting lane declares the sampled
+        // read, so the graph owns the write -> hand-off pair the pass's legacy record issues itself.
+        bool graph_rt_frame = false;
         // Per swapchain image: whether the TAA history image has been transitioned to sampled at least once (by
         // either path). The graph can only import "defined contents in a KNOWN layout", so its first use of a
         // history image needs the one transition the legacy pass issues for itself - and the invariant every frame

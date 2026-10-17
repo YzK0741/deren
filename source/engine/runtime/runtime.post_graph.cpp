@@ -15,6 +15,7 @@ import deren.engine.render_graph.taa;
 import deren.engine.render_graph.gbuffer_debug;
 import deren.engine.render_graph.transparent;
 import deren.engine.render_graph.character;
+import deren.engine.render_graph.rt_shadow;
 import deren.engine.render_graph.gaussian;
 import deren.engine.pass.transparent;
 import deren.engine.pass.taa;
@@ -27,8 +28,8 @@ namespace deren::engine {
     namespace {
         struct post_recording_payload {
             pass::pass_host host{};
-            std::array<pass::resolved_io, 18> ios;
-            std::array<pass::frame_pass*, 18> passes{};
+            std::array<pass::resolved_io, 19> ios;
+            std::array<pass::frame_pass*, 19> passes{};
             rhi::error record(unsigned lane) const noexcept {
                 if (host.apply_behaviour)
                     host.apply_behaviour(host.context, *passes[lane], ios[lane]);
@@ -404,6 +405,33 @@ namespace deren::engine {
             }
             graph::geometry::shared_inputs shared_geometry{shared_refs[0], shared_refs[1], shared_refs[2], shared_refs[3], shared_refs[4], shared_refs[5], shared_refs[6]};
             shared_geometry.meshlets = graph::geometry::meshlet_inputs{shared_refs[8], shared_refs[9], shared_refs[10], shared_refs[11]};
+            // THE RAY-TRACED VISIBILITY IMAGE (RT stage 2b): its producer is a lane of this graph and the lighting
+            // stage declares the matching sampled read, so the graph owns the write -> hand-off pair the pass's
+            // legacy record issues itself. Imported with a KNOWN sampled state: the 2B seed transitioned it once
+            // this generation, and the per-frame write is the layout transition the plan emits.
+            std::optional<graph::texture_ref> rt_visibility{};
+            if (this->graph_rt_frame) {
+                // The family's publication is per FRAME SLOT (one visibility image per structure/FIF slot), which is why
+                // this is the shadow map's shape rather than `retain`'s: the lease comes from the generation's object at
+                // the slot, and it is checked against the borrowed array the pass's descriptor sees.
+                auto const rt_slot = this->frame_ring().position();
+                auto rt_generation = this->output_resource_views[16].find(pass::output_targets_pass::ids[16]);
+                if (!rt_generation || rt_generation->device.get() != this->core_owner.get() || rt_slot >= rt_generation->objects.size())
+                    return rhi::error::not_ready;
+                auto* rt_image = rt_generation->objects[rt_slot].image.get();
+                if (!rt_image || !this->rt_shadow_image_views[rt_slot] || rt_image != this->rt_shadow_images[rt_slot].get())
+                    return rhi::error::not_ready;
+                auto rt_lease = lease::from_shared(this->core_owner, std::shared_ptr<rhi::image>{std::move(rt_generation), rt_image});
+                if (!rt_lease)
+                    return rhi::error::not_ready;
+                graph::execution::import_state const rt_import{
+                    graph::initial_contents::defined,
+                    graph::resource_state{graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read}};
+                auto rt_ref = build.import_texture(rt_lease, rt_import, "RT shadow visibility");
+                if (!rt_ref)
+                    return post_build_error(rt_ref.error());
+                rt_visibility = *rt_ref;
+            }
             graph::lighting::shared_inputs lighting_shared{shared_refs[0], shared_refs[7]};
             if (ibl_environment && ibl_irradiance && ibl_lut)
                 lighting_shared.ibl = graph::lighting::ibl_inputs{*ibl_environment, *ibl_irradiance, *ibl_lut};
@@ -411,6 +439,8 @@ namespace deren::engine {
                 lighting_shared.cluster = graph::lighting::cluster_inputs{*cluster_counts_ref, *cluster_indices_ref};
             if (shadow_cascades)
                 lighting_shared.shadow_cascades = *shadow_cascades;
+            if (rt_visibility)
+                lighting_shared.rt_visibility = *rt_visibility;
             lighting_inputs.shared = lighting_shared;
             // THE CLUSTERED-LIGHT SORT AS A GRAPH PASS (adoption stage 2G): its two per-slot buffers are imported
             // above and declared by the adapter, the lighting pass declares the same buffers as reads, and the
@@ -486,6 +516,27 @@ namespace deren::engine {
                                                                                });
             if (!geometry_bound)
                 return post_build_error(geometry_bound.error());
+            // THE RAY-TRACED SHADOW LANE (RT stage 2b): recorded between the G-buffer producer and the lighting stage its
+            // visibility feeds. The adapter declares the storage write from the ray-tracing stage plus the G-buffer
+            // reads the tracer reconstructs its ray origins from, so the graph orders geometry -> trace -> lighting and
+            // owns the image's two transitions; the pass's record_content keeps the launch alone.
+            if (this->graph_rt_frame && rt_visibility) {
+                pass::stage rt_stage{.name = "rt_shadow", .passes = this->rt_shadow_pass, .marks = false};
+                this->prepare_stage(rt_stage, true);
+                passes[18] = this->rt_shadow_pass[0];
+                ios[18].push_block = host.push_block;
+                if (!passes[18] || !host.resolve || !host.resolve(host.context, *passes[18], ios[18]) || ios[18].list != commands.get())
+                    return rhi::error::not_ready;
+                auto rt_added = build.append([&](graph::builder& description) noexcept {
+                    return graph::rt_shadow::append(description, {*rt_visibility, lighting_inputs.surface, *depth_ref});
+                });
+                if (!rt_added)
+                    return post_build_error(rt_added.error());
+                auto rt_bound = build.bind_pass<graph::rt_shadow::parameters>(
+                    rt_added->pass, [payload](graph::rt_shadow::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(18); });
+                if (!rt_bound)
+                    return post_build_error(rt_bound.error());
+            }
             if (!this->graph_debug_frame) {
                 auto appended = build.append([&](graph::builder& description) noexcept { return graph::lighting::append(description, lighting_inputs); });
                 if (!appended)

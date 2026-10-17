@@ -49,7 +49,11 @@ namespace {
         fresh.range.mip_count = 0;
         CHECK(!native::map_image(fresh));
         fresh.range.mip_count = 1;
+        // RT stage 1 moved the boundary: 1024 is the ray-tracing pipeline stage now (it must MAP), so the unmapped
+        // bit the refusal is pinned on is 2048.
         fresh.before.scope.stages = static_cast<rhi_sync::stage>(1024);
+        CHECK(native::map_image(fresh) && (native::map_image(fresh)->srcStageMask & VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR) != 0);
+        fresh.before.scope.stages = static_cast<rhi_sync::stage>(2048);
         CHECK(!native::map_image(fresh));
         fresh.before.scope = compute_write;
         fresh.range.base_mip = UINT32_MAX;
