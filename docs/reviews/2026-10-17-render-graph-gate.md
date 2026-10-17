@@ -165,6 +165,44 @@ wants to claim a scenario as graph-covered, it needs the scenario to actually st
 the whole run - which for the six means the features that exclude it must be either migrated or left
 out of that scenario, not "the first frame counts".
 
+## Stage 2B: the two transient-descriptor barriers are outside the graph's content model
+
+Stage 2's first planned step was to take the last two hand-issued barriers into the graph. On a
+main-graph frame `runtime.post_graph.cpp` issues an `undefined -> shader_read` transition for the
+ray-traced visibility image and the MegaLights resolve image, because the deferred lighting descriptor
+set keeps both statically bound even when the predicate excludes their producers. That makes the runtime
+a second barrier owner inside a graph-recorded frame - the thing the migration rule forbids in the long
+run.
+
+Three attempts, three measurements, one conclusion: the graph core cannot express this transition today.
+
+1. Importing both images with `initial_contents::undefined` and declaring them as sampled reads of the
+   lighting pass is rejected at COMPILE. An active read must have defined contents
+   (`render_graph.cpp:254` returns `error_code::undefined_read`; the manual says the same).
+2. Importing them with `initial_contents::defined` and leaving the prior state empty is rejected by the
+   IMPORT itself: the builder will not accept "the contents are defined" without the state those
+   contents are in, so the main-graph frame fails to build (`test_render_graph_post` reported the
+   failed frame) - and the same mistake in a unit test surfaces later as a `foreign_ref`, because the
+   unchecked import leaves a default ref behind.
+3. Deleting the two barriers outright leaves the graph-only scenarios byte-identical and
+   validation-clean (`deferred` FAE60C0B..., `sponza` 24D55DE5..., zero VUID/ERROR/WARNING lines), but
+   that is NOT evidence enough: these images are bound through the descriptor heap, and a heap-bound
+   sampled image's layout state is exactly what the layers are weakest at. The project's own comment
+   ("Inactive statically bound descriptors retain their existing external layout protocol") records
+   that the barrier exists for this protocol, so this record does not delete a barrier on a blind spot.
+
+The barriers stay, with the reason written down: the transition is not a data dependency the graph
+models - it is descriptor-layout initialization for an image whose contents are deliberately undefined.
+Taking it over needs one of two real changes, both bigger than a declaration:
+
+- a graph-core concept for a "descriptor-initialization transition" (a read of contents that are
+  undefined by design), which the content model deliberately refuses today; or
+- pointing those two heap descriptors at a known-good dummy image on main-graph frames, so no
+  transition is needed at all - a descriptor-heap change rather than a declaration.
+
+Consequence: stage 2 proceeds with the declaration work, and the two barriers remain a tracked
+out-of-model exception.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the
