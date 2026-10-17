@@ -270,6 +270,26 @@ read-only input and the per-draw lanes would become offsets into a declared reso
 transient-descriptor barriers in Stage 2B: **what keeps an item out is a data-layout fact, not a missing
 declaration**.
 
+## Stage 2E: the scene-wide IBL images are declared; the material texture set is not
+
+The lighting stage's image set is now complete at the graph level: the prefiltered environment cube, the
+irradiance cube and the BRDF LUT (the "material textures/IBL" item on the review's list) are imported as
+sampled reads and declared through `lighting::ibl_inputs`. They are uploaded once at startup and
+read-only afterwards, so their prior state is the sampled one and the declaration adds knowledge rather
+than a barrier.
+
+The other half of that item - the per-material textures - is not declarable, for the same reason as
+per-mesh addresses: they are individual images bound through the descriptor heap's 128-slot array
+(`owned_textures`/`owned_texture_views`, capacity `scene_texture_capacity`), uploaded per asset. A graph
+declaration would amount to enumerating up to 128 dynamically populated images for zero barriers; the
+enabler that would make it declarable is a single array image (or a fixed pool) imported once - a
+storage decision, not a graph feature.
+
+Evidence: the lighting pass now declares 10 accesses in the test (five stage accesses + two shared
+uniforms + three IBL images), 31 checks, 0 failed. CTest 44/44. The gate round with the graph on is
+byte-identical to the same-session legacy round for all fourteen scenarios (matched 14, mismatched 0)
+with zero validation findings, and thirteen scenarios recorded through the graph.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the

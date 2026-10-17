@@ -77,6 +77,19 @@ int main() {
                                                       rg::resource_state{rg::resource_layout::color_attachment, rg::pipeline_stage::color_output, rg::memory_access::write});
         inputs.depth = *graph.import_texture({1, 5}, rg::initial_contents::defined, "depth", {1, 1, rg::texture_aspect::depth},
                                              rg::resource_state{rg::resource_layout::depth_stencil_attachment, rg::pipeline_stage::depth_stencil, rg::memory_access::write});
+        // THE SCENE-WIDE IBL (adoption stage 2E): three sampled images the lighting stage reads every frame, plus
+        // the two shared uniforms - the declared pass now covers the whole image set it samples.
+        auto camera = *graph.import_buffer({1, 20}, rg::initial_contents::defined, "camera", {64},
+                                           rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::fragment_shader, rg::memory_access::read});
+        auto light = *graph.import_buffer({1, 21}, rg::initial_contents::defined, "light", {64},
+                                          rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::fragment_shader, rg::memory_access::read});
+        rg::resource_state const ibl_state{rg::resource_layout::shader_read_only, rg::pipeline_stage::fragment_shader, rg::memory_access::read};
+        auto env = *graph.import_texture({1, 22}, rg::initial_contents::defined, "IBL environment", {}, ibl_state);
+        auto irr = *graph.import_texture({1, 23}, rg::initial_contents::defined, "IBL irradiance", {}, ibl_state);
+        auto lut = *graph.import_texture({1, 24}, rg::initial_contents::defined, "IBL LUT", {}, ibl_state);
+        lighting::shared_inputs shared{camera, light};
+        shared.ibl = lighting::ibl_inputs{env, irr, lut};
+        inputs.shared = shared;
         auto lit = lighting::append(graph, inputs);
         CHECK(lit);
         if (!lit)
@@ -93,7 +106,9 @@ int main() {
         if (plan) {
             CHECK(plan->execution_order.size() == 6 && plan->outputs.size() == 1);
             auto params = plan->passes[lit->pass.index()].parameters.get<lighting::parameters>();
-            CHECK(params && plan->passes[lit->pass.index()].accesses.size() == 5);
+            // five stage accesses + two shared uniforms + three IBL images
+            CHECK(params && plan->passes[lit->pass.index()].accesses.size() == 10);
+            CHECK(params && params->shared && params->shared->ibl && params->shared->ibl->environment.resource == env);
             bool load = false, sampled = false;
             for (auto const& barrier : plan->barriers) {
                 if (barrier.resource == inputs.color.index() && barrier.before_pass == lit->pass.index())

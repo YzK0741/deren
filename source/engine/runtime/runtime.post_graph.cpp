@@ -189,6 +189,28 @@ namespace deren::engine {
             auto velocity_ref = build.import_texture(velocity, {}, "GBuffer velocity");
             if (!velocity_ref)
                 return post_build_error(velocity_ref.error());
+            // THE SCENE-WIDE IBL (adoption stage 2E): the prefiltered environment cube, the irradiance cube and the
+            // BRDF LUT are real sampled images the deferred lighting stage reads every frame - uploaded once at
+            // startup, read-only afterwards. They were invisible to the graph; declaring them as sampled reads
+            // makes the pass's image set complete. Their prior state is the sampled one (the upload transitioned
+            // them), so this adds knowledge, not a barrier.
+            std::optional<graph::texture_ref> ibl_environment{}, ibl_irradiance{}, ibl_lut{};
+            {
+                constexpr std::array<std::string_view, 3> names{"IBL environment", "IBL irradiance", "IBL LUT"};
+                std::array<std::optional<graph::texture_ref>*, 3> refs{&ibl_environment, &ibl_irradiance, &ibl_lut};
+                for (std::size_t i = 0; i < names.size() && i < this->ibl_images.size(); ++i) {
+                    if (!this->ibl_images[i])
+                        continue;
+                    auto ibl_lease = lease::from_shared(this->core_owner, this->ibl_images[i]);
+                    auto ref = build.import_texture(ibl_lease,
+                                                    {graph::initial_contents::defined,
+                                                     {graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read}},
+                                                    names[i]);
+                    if (!ref)
+                        return post_build_error(ref.error());
+                    *refs[i] = *ref;
+                }
+            }
             // CPU writes were published for the completed slot before submission. These
             // imports describe GPU reads, not fictitious GPU upload writes.
             auto const slot = this->frame_ring().position();
@@ -249,7 +271,10 @@ namespace deren::engine {
             }
             graph::geometry::shared_inputs shared_geometry{shared_refs[0], shared_refs[1], shared_refs[2], shared_refs[3], shared_refs[4], shared_refs[5], shared_refs[6]};
             shared_geometry.meshlets = graph::geometry::meshlet_inputs{shared_refs[8], shared_refs[9], shared_refs[10], shared_refs[11]};
-            lighting_inputs.shared = graph::lighting::shared_inputs{shared_refs[0], shared_refs[7]};
+            graph::lighting::shared_inputs lighting_shared{shared_refs[0], shared_refs[7]};
+            if (ibl_environment && ibl_irradiance && ibl_lut)
+                lighting_shared.ibl = graph::lighting::ibl_inputs{*ibl_environment, *ibl_irradiance, *ibl_lut};
+            lighting_inputs.shared = lighting_shared;
             auto geometry = build.append([&](graph::builder& description) noexcept {
                 return graph::geometry::append(description, {inputs.hdr, lighting_inputs.surface, *velocity_ref, *depth_ref, shared_geometry});
             });

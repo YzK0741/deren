@@ -6,13 +6,28 @@ module;
 export module deren.engine.render_graph.lighting;
 export import deren.engine.render_graph;
 export namespace deren::engine::render_graph::lighting {
+    /// The scene-wide image-based lighting the lighting stage samples: the prefiltered environment cube, the
+    /// irradiance cube and the BRDF LUT (heap bindings 2-4). All three are uploaded once and read-only
+    /// afterwards, so declaring them adds the graph's knowledge, not frame-level ordering - which is the
+    /// point: the pass's sampled inputs stop being invisible to the graph.
+    struct ibl_inputs {
+        texture_ref environment, irradiance, lut;
+    };
+    struct ibl_parameters {
+        texture_read environment, irradiance, lut;
+        void visit_resources(parameter_visitor& visit) const noexcept {
+            visit(environment, irradiance, lut);
+        }
+    };
     struct shared_inputs {
         buffer_ref camera, light;
+        std::optional<ibl_inputs> ibl = {};
     };
     struct shared_parameters {
         buffer_read camera, light;
+        std::optional<ibl_parameters> ibl = {};
         void visit_resources(parameter_visitor& visit) const noexcept {
-            visit(camera, light);
+            visit(camera, light, ibl);
         }
     };
     struct inputs {
@@ -34,7 +49,9 @@ export namespace deren::engine::render_graph::lighting {
         texture_ref color;
         pass_ref pass;
     };
-    // Mesh/material textures, IBL, cluster/shadow inputs retain their external protocols.
+    // Mesh/material textures, the cluster/shadow producers and the transient feature images retain their
+    // external protocols; the scene-wide IBL images are declared through `shared_inputs` because they are
+    // real sampled resources the lighting stage reads every frame.
     [[nodiscard]] std::expected<outputs, graph_error> append(builder& graph, inputs const& in) noexcept {
         std::array refs{in.color, in.surface[0], in.surface[1], in.surface[2], in.depth};
         for (std::size_t i = 0; i < refs.size(); ++i)
@@ -48,7 +65,11 @@ export namespace deren::engine::render_graph::lighting {
                           {}};
         if (in.shared) {
             constexpr access_scope uniform{resource_usage::uniform_buffer, pipeline_stage::fragment_shader};
-            params.shared = shared_parameters{{in.shared->camera, {}, uniform}, {in.shared->light, {}, uniform}};
+            params.shared = shared_parameters{{in.shared->camera, {}, uniform}, {in.shared->light, {}, uniform}, {}};
+            if (in.shared->ibl)
+                params.shared->ibl = ibl_parameters{{in.shared->ibl->environment, {}, sampled},
+                                                    {in.shared->ibl->irradiance, {}, sampled},
+                                                    {in.shared->ibl->lut, {}, sampled}};
         }
         auto added = graph.add_pass("deferred lighting", std::move(params));
         if (!added)
