@@ -161,7 +161,12 @@ export namespace deren::promise::rhi {
     /// refuses it (its format switch has no case) rather than misreading it.
     /// (The append's own convention - explicit HIGH-BIT value at the end of the list when the range ends
     /// in a role/sentinel enumerator, and no existing number ever moves - is written down beside
-    /// `image_format` in rhi.api_core.cppm, where the next value will be added.)
+    /// `image_format` in rhi.api_core.cppm.)
+    /// AND ITS FIRST FOLLOW-UP, SAME RULE (2026-10-17): `r32_uint` joins the enum at 0x80000001u for the
+    /// visibility buffer the geometry path is gaining - one 32-bit unsigned channel holding a packed
+    /// visibility id. No enumerator moved, nothing already crossing the boundary changed shape, and an
+    /// older backend refuses the value (its `native_image_format` switch has no case), so this is not a
+    /// renumbering either. The `abi_version` number does not move.
     /// 16 -> 17 in the contract-only runtime's merged slice (③-D/E step 2, S2+S3 - the SECOND thing the
     /// abi-17 number was held for, and the reason it is spelled here): `vulkan_escape` APPENDED
     /// `native_swapchain_image_format()` - a virtual on an existing tier-2 interface, which is the case

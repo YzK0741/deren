@@ -560,6 +560,13 @@ export namespace deren::promise::rhi {
     /// (its `native_image_format` switch has no case) instead of misreading it - the documented answer
     /// to a descriptor a backend cannot honour.
     ///
+    /// `r32_uint` is the NEXT APPEND (2026-10-17, same high-bit rule): one 32-bit unsigned channel, the
+    /// format the visibility buffer is created with - the main view's geometry raster writes one packed
+    /// (item, meshlet, triangle) id per pixel and a resolve pass reads it back. An unsigned channel is the
+    /// BYTE LAYOUT the caller needs (the id is arithmetic, not a colour), which is the §17 test for naming
+    /// a format instead of a role. It also gives the resolve pass a sampled read of the same image without a
+    /// byte reinterpretation, and no `abi_version` bump follows for the same reason as `r16_sfloat`.
+    ///
     /// AND THE CONVENTION THAT APPEND ESTABLISHED, for the next value someone adds here: an append to an
     /// enum whose range ENDS in a role/sentinel enumerator (this one's `depth = 0x7FFFFFFF`) takes an
     /// explicit value in the HIGH BITS at the END of the list, never a slot beside the named values. The
@@ -582,6 +589,7 @@ export namespace deren::promise::rhi {
                                               r32g32b32_sfloat = 7,     ///< three 32-bit float channels
                                               depth = 0x7FFFFFFFu,      ///< ROLE: a depth attachment the backend shapes
                                               r16_sfloat = 0x80000000u, ///< APPENDED: one half-float channel (ray-traced visibility)
+                                              r32_uint = 0x80000001u,   ///< APPENDED: one 32-bit unsigned channel (visibility buffer)
     };
 
     /// How many bytes ONE texel of @p format takes in host memory. `unknown` answers 0 (a format the
@@ -607,6 +615,8 @@ export namespace deren::promise::rhi {
             return 12u; // three 32-bit floats
         case image_format::r16_sfloat:
             return 2u; // one half-float
+        case image_format::r32_uint:
+            return 4u; // one 32-bit unsigned word
         case image_format::unknown:
         case image_format::depth:
             break;

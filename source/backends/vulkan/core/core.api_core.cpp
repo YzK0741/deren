@@ -528,6 +528,10 @@ namespace deren::vulkan {
             // new contract value must not silently become whatever the integer happens to mean.
             case rhi_image_format::r16_sfloat:
                 return VK_FORMAT_R16_SFLOAT;
+            // APPENDED for the visibility buffer (2026-10-17): one 32-bit unsigned channel holding the
+            // packed visibility id. Spelled out like every other mapping for the reason above.
+            case rhi_image_format::r32_uint:
+                return VK_FORMAT_R32_UINT;
             case rhi_image_format::depth:
                 return depth_format;
             case rhi_image_format::unknown:
