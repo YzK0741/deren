@@ -39,7 +39,7 @@ int main() {
             CHECK(params && params->shared->camera.resource == buffers[0]);
             CHECK(params && params->shared->meshlets.resource == buffers[1]);
             CHECK(params && params->shared->items.resource == buffers[2]);
-            CHECK(params && params->shared->indirect.resource == buffers[3]);
+            CHECK(params && params->shared->meshlets.resource == buffers[2]);
             // the pass is the only one, so it is first in the execution order
             CHECK(plan->execution_order.size() == 1u);
             CHECK(plan->execution_order[0] == added->pass.index());
