@@ -227,8 +227,12 @@ namespace deren::engine {
                 shared_import{&this->scene_table_resource_views[5], id::meshlet_table, 0, this->meshlet_buffer.get(), mesh, graph::memory_access::read, "meshlet table"},
                 shared_import{&this->scene_table_resource_views[8], id::meshlet_culled_table, 0, this->meshlet_culled_buffer.get(), mesh, graph::memory_access::read, "host-culled meshlets"},
                 shared_import{&this->scene_table_resource_views[7], id::meshlet_statistics, 0, this->meshlet_stats_buffer.get(), mesh,
-                              graph::memory_access::read | graph::memory_access::write, "meshlet statistics"}};
-            std::array<graph::buffer_ref, 11> shared_refs;
+                              graph::memory_access::read | graph::memory_access::write, "meshlet statistics"},
+                // The mesh draws are indirect records: the command buffer is consumed at the DRAW-INDIRECT stage,
+                // so its import reports the draw-indirect stage instead of the mesh stage.
+                shared_import{&this->scene_table_resource_views[6], id::mesh_indirect_commands, 0, this->mesh_indirect_buffer.get(),
+                              graph::pipeline_stage::draw_indirect, graph::memory_access::read, "mesh indirect commands"}};
+            std::array<graph::buffer_ref, 12> shared_refs;
             for (unsigned i = 0; i < shared_imports.size(); ++i) {
                 auto const& entry = shared_imports[i];
                 auto generation = entry.resources->find(entry.resource);
@@ -244,7 +248,7 @@ namespace deren::engine {
                 shared_refs[i] = *imported;
             }
             graph::geometry::shared_inputs shared_geometry{shared_refs[0], shared_refs[1], shared_refs[2], shared_refs[3], shared_refs[4], shared_refs[5], shared_refs[6]};
-            shared_geometry.meshlets = graph::geometry::meshlet_inputs{shared_refs[8], shared_refs[9], shared_refs[10]};
+            shared_geometry.meshlets = graph::geometry::meshlet_inputs{shared_refs[8], shared_refs[9], shared_refs[10], shared_refs[11]};
             lighting_inputs.shared = graph::lighting::shared_inputs{shared_refs[0], shared_refs[7]};
             auto geometry = build.append([&](graph::builder& description) noexcept {
                 return graph::geometry::append(description, {inputs.hdr, lighting_inputs.surface, *velocity_ref, *depth_ref, shared_geometry});

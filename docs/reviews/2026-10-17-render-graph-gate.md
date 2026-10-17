@@ -219,6 +219,11 @@ pass's declaration:
   cannot be smuggled into the read-only bundle: it is imported with a read-write prior state
   (`{general, mesh_shader, read | write}`), the two tables with a read prior state. Import indices follow
   `pass::scene_tables_pass::ids`: 5 = meshlet table, 7 = statistics, 8 = host-culled table.
+- **indirect commands** followed in the same increment: the mesh draws are `draw_mesh_tasks_indirect`
+  records, so this buffer is declared as a `buffer_read` with the `indirect_buffer` usage at the
+  **draw_indirect** stage (import index 6) rather than a storage read by the mesh stage. The geometry
+  pass now declares 17 accesses (six stage writes + seven shared reads + four meshlet inputs), and the
+  gate round that follows is byte-identical for all fourteen scenarios with zero validation findings.
 
 Evidence:
 
@@ -234,8 +239,6 @@ Evidence:
 
 What this deliberately does not cover (the remaining declaration items):
 
-- **indirect commands**: the mesh draws consume a host-written command buffer at the `draw_indirect`
-  stage, which needs the indirect usage declared rather than a storage read - a separate increment;
 - **per-mesh addresses** and **material textures/IBL**: descriptor-heap bindings, not buffers of this
   bundle;
 - **cluster producers**: the cluster/culling work still runs outside the graph;

@@ -13,6 +13,10 @@ export namespace deren::engine::render_graph::geometry {
         buffer_ref table;
         buffer_ref culled;
         buffer_ref statistics;
+        /// This frame slot's draw arguments, consumed at the DRAW-INDIRECT stage rather than read by the mesh
+        /// stage - the mesh draws are `draw_mesh_tasks_indirect` records, so the graph declares the indirect
+        /// usage instead of a storage read.
+        buffer_ref indirect;
     };
     struct shared_inputs {
         buffer_ref camera, materials, instances, previous_transforms, skin, previous_skin, morph;
@@ -21,8 +25,9 @@ export namespace deren::engine::render_graph::geometry {
     struct meshlet_parameters {
         buffer_read table, culled;
         buffer_read_write statistics;
+        buffer_read indirect;
         void visit_resources(parameter_visitor& visit) const noexcept {
-            visit(table, culled, statistics);
+            visit(table, culled, statistics, indirect);
         }
     };
     struct shared_parameters {
@@ -75,10 +80,14 @@ export namespace deren::engine::render_graph::geometry {
                 {in.shared->skin, {}, mesh},
                 {in.shared->previous_skin, {}, mesh},
                 {in.shared->morph, {}, mesh}};
-            if (in.shared->meshlets)
-                params.shared->meshlets = meshlet_parameters{{in.shared->meshlets->table, {}, mesh},
-                                                             {in.shared->meshlets->culled, {}, mesh},
-                                                             {in.shared->meshlets->statistics, {}, mesh}};
+            if (in.shared->meshlets) {
+                constexpr access_scope indirect{resource_usage::indirect_buffer, pipeline_stage::draw_indirect};
+                params.shared->meshlets = meshlet_parameters{
+                    {in.shared->meshlets->table, {}, mesh},
+                    {in.shared->meshlets->culled, {}, mesh},
+                    {in.shared->meshlets->statistics, {}, mesh},
+                    {in.shared->meshlets->indirect, {}, indirect}};
+            }
         }
         auto added = graph.add_pass("scene geometry", std::move(params));
         if (!added)
