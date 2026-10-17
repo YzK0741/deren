@@ -15,6 +15,7 @@ import deren.engine.render_graph.taa;
 import deren.engine.render_graph.gbuffer_debug;
 import deren.engine.render_graph.transparent;
 import deren.engine.render_graph.character;
+import deren.engine.render_graph.gaussian;
 import deren.engine.pass.transparent;
 import deren.engine.pass.taa;
 import deren.engine.pass;
@@ -26,8 +27,8 @@ namespace deren::engine {
     namespace {
         struct post_recording_payload {
             pass::pass_host host{};
-            std::array<pass::resolved_io, 17> ios;
-            std::array<pass::frame_pass*, 17> passes{};
+            std::array<pass::resolved_io, 18> ios;
+            std::array<pass::frame_pass*, 18> passes{};
             rhi::error record(unsigned lane) const noexcept {
                 if (host.apply_behaviour)
                     host.apply_behaviour(host.context, *passes[lane], ios[lane]);
@@ -529,6 +530,28 @@ namespace deren::engine {
                     debug_added->pass, [payload](graph::gbuffer_debug::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(12); });
                 if (!debug_bound)
                     return post_build_error(debug_bound.error());
+            }
+            // THE GAUSSIAN RASTER AS A GRAPH PASS (adoption stage 2O): the legacy tail runs it BEFORE transparency
+            // (lighting -> gaussian -> transparent), so it is appended here. Its GPU compute chain keeps its own
+            // buffer barriers inside the recorder - the snapshot's private buffers, no other pass touches them - and
+            // the graph owns the pass-level boundary: the working image as a preserve write and the depth as a read.
+            if (this->gaussian_active()) {
+                pass::stage gaussian_stage{.name = "gaussian", .passes = this->gaussian_pass, .marks = false};
+                this->prepare_stage(gaussian_stage, true);
+                passes[17] = this->gaussian_pass[0];
+                ios[17].push_block = host.push_block;
+                if (!passes[17] || !host.resolve || !host.resolve(host.context, *passes[17], ios[17]) || ios[17].list != commands.get() ||
+                    ios[17].targets.size() != 2 || ios[17].targets[0].image_handle != scene_target_image || ios[17].targets[1].image_handle != depth.get())
+                    return rhi::error::not_ready;
+                auto gaussian_added = build.append([&](graph::builder& description) noexcept {
+                    return graph::gaussian::append(description, {scene_target, *depth_ref});
+                });
+                if (!gaussian_added)
+                    return post_build_error(gaussian_added.error());
+                auto gaussian_bound = build.bind_pass<graph::gaussian::parameters>(
+                    gaussian_added->pass, [payload](graph::gaussian::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(17); });
+                if (!gaussian_bound)
+                    return post_build_error(gaussian_bound.error());
             }
             // THE TRANSPARENT PASS AS A GRAPH PASS (adoption stage 2K): it blends the alpha geometry over the lit
             // working image and reads the opaque depth. The graph owns the two hand-off transitions the pass's

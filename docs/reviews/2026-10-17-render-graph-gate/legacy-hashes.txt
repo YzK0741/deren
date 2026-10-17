@@ -26,3 +26,7 @@
   actual  (41CEA21B0F046981)
 === laevatain_old_chain (the OLD toon chain on the same goo character)
   actual  (84A41141128286CE)
+
+=== gaussian_splat (a gaussian splat cloud (the splat chain))
+    actual  (8555C8295938D118)
+

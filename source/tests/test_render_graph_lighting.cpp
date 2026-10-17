@@ -6,6 +6,7 @@ import deren.engine.render_graph.cluster;
 import deren.engine.render_graph.shadow;
 import deren.engine.render_graph.taa;
 import deren.engine.render_graph.transparent;
+import deren.engine.render_graph.gaussian;
 import deren.engine.render_graph.post;
 import deren.engine.render_graph.geometry;
 import deren.engine.pass.deferred;
@@ -15,6 +16,7 @@ namespace cluster = rg::cluster;
 namespace shadow = rg::shadow;
 namespace taa = rg::taa;
 namespace transparent = rg::transparent;
+namespace gaussian = rg::gaussian;
 namespace post = rg::post;
 namespace rhi = deren::promise::rhi;
 int main() {
@@ -352,6 +354,42 @@ int main() {
                 bool depth_transitioned = false;
                 for (auto const& barrier : plan->barriers)
                     if (barrier.resource == depth.index() && barrier.before_pass == transparent->pass.index())
+                        depth_transitioned = true;
+                CHECK(depth_transitioned);
+            }
+        }
+    }
+    // THE GAUSSIAN RASTER (adoption stage 2O): it composes over the same working image the transparent pass does
+    // (the graph orders the two by the resource) and reads the opaque depth through the depth test.
+    {
+        rg::builder graph;
+        rg::resource_state const sampled{rg::resource_layout::shader_read_only, rg::pipeline_stage::fragment_shader, rg::memory_access::read};
+        auto scene_color = *graph.import_texture({83, 1}, rg::initial_contents::defined, "scene colour", {}, sampled);
+        auto velocity = *graph.import_texture({83, 2}, rg::initial_contents::defined, "velocity", {}, sampled);
+        auto depth = *graph.import_texture({83, 3}, rg::initial_contents::defined, "depth", {1, 1, rg::texture_aspect::depth}, sampled);
+        auto history = *graph.import_texture({83, 4}, rg::initial_contents::defined, "TAA history", {}, sampled);
+        auto hdr = *graph.import_texture({83, 5}, rg::initial_contents::undefined, "HDR", {}, rg::resource_state{});
+        auto resolve = rg::taa::append_resolve(graph, {scene_color, velocity, depth, history, hdr});
+        CHECK(resolve);
+        if (resolve) {
+            auto gaussian = rg::gaussian::append(graph, {resolve->target, depth});
+            CHECK(gaussian);
+            CHECK(graph.export_resource(hdr) && graph.export_resource(history));
+            auto plan = graph.compile({true});
+            CHECK(plan);
+            if (plan && gaussian) {
+                CHECK(plan->passes[gaussian->pass.index()].accesses.size() == 2); // the preserve-write target + the depth read
+                std::size_t resolve_position = plan->execution_order.size(), gaussian_position = plan->execution_order.size();
+                for (std::size_t i = 0; i < plan->execution_order.size(); ++i) {
+                    if (plan->execution_order[i] == resolve->pass.index())
+                        resolve_position = i;
+                    if (plan->execution_order[i] == gaussian->pass.index())
+                        gaussian_position = i;
+                }
+                CHECK(resolve_position < gaussian_position);
+                bool depth_transitioned = false;
+                for (auto const& barrier : plan->barriers)
+                    if (barrier.resource == depth.index() && barrier.before_pass == gaussian->pass.index())
                         depth_transitioned = true;
                 CHECK(depth_transitioned);
             }

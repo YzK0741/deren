@@ -208,6 +208,14 @@ $scenarios = @(
        model = "$repo\source\tests\fixtures\animated_skin_plane.gltf"
        camera = "0,0,4,0,0,0"
        animation_sweep = "0.02" }
+    # A GAUSSIAN SPLAT CLOUD, and the reason it exists is that a .ply MODEL PATH is the ONLY way to turn the
+    # gaussian feature on at all: without a scenario the whole splat chain - the GPU compute preparation, the
+    # raster and their graph migration - is unreachable by the net. The asset is the repository's own ASCII
+    # fixture, so a fresh checkout renders the same 160-splat ribbon.
+    @{ name = "gaussian_splat"; desc = "a gaussian splat cloud (the splat chain)"; tier = "extra";
+       extra = @{ taa = "false" }
+       model = "$repo\source\tests\fixtures\gaussian_ribbon.ply"
+       camera = "0,0,4,0,0,0" }
     # THE REWRITTEN TOON CHAIN ON A CHARACTER (`[render] character_forward` + `[render] goo_toon`), and the
     # reason it exists is that the seven landed steps of that rewrite (iris / screen rim / base+skin+cloth+hair
     # diffuse / specular / face - see goo_toon_plan.md) were accepted by a HAND-RUN A/B: capture the arm, capture

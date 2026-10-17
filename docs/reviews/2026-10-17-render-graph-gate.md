@@ -637,6 +637,29 @@ repository carries no such asset - so no gate scenario can exercise the path, an
 splat fixture; everything below it (the adapter shape and the lane) is a mechanical repeat of the transparent
 pass's.
 
+## Stage 2O: the Gaussian splats migrate - and the net grows the scenario that can see them
+
+The blocker stage 2N recorded was not the pass, it was the NET: a `.ply` model path is the only way to turn the
+gaussian feature on, and the repository carried no such asset, so no scenario could exercise the chain. The fix
+is a committed ASCII fixture (`source/tests/fixtures/gaussian_ribbon.ply`, 160 splats on a tilted ribbon, the
+same 14-float layout the loader's own test documents) and a fifteenth scenario, `gaussian_splat`, which the
+script marks `tier = "extra"` and whose description says what it is for. Its reference hash was seeded from the
+LEGACY path (the exclusion was still on, so the run logged "unsupported tail (Gaussian active)") - that makes
+the reference the legacy frame by construction.
+
+Then the migration proper: `graph::gaussian` declares the working image as a preserve-write colour attachment and
+the opaque depth as a depth-stencil read; `record_post_graph` records it as lane 17, BEFORE the transparent lane,
+because the legacy tail runs the gaussian stage before the transparent pass (lighting -> gaussian -> transparent
+-> character). The GPU compute chain keeps its own buffer barriers inside the recorder (the snapshot's private
+buffers - no other pass touches them), so the graph's boundary is the raster. `gaussian_active()` leaves the
+eligibility predicate, and the pass-availability guard family grows nothing new because the gaussian lane is
+gated on the same answer the legacy stage uses.
+
+Evidence: CTest 44/44 (the lighting graph test also composes the gaussian adapter now: two accesses, the
+producer-before-raster ordering and the depth transition); the gate round is byte-identical for all FIFTEEN
+scenarios (matched 15, mismatched 0) with zero validation findings, and all fifteen record through the graph.
+The gaussian scenario's hash is the same `8555C8295938D118` the legacy capture seeded.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the

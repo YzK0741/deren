@@ -1122,11 +1122,12 @@ namespace deren::engine {
         // history was never written (that was the flip's whole defect).
         // THE G-BUFFER DEBUG VIEW is no exclusion either (stage 2J): it needs the G-BUFFER pass, not the lighting
         // stage, because on a debug frame it records INSTEAD of lighting. THE TRANSPARENT PASS (stage 2K) and THE
-        // THREE CHARACTER PASSES (stage 2L) record as lanes over the working image in the legacy order. What remains
-        // excluded are the paths whose PASSES are still outside the graph: the ray-traced shadows and MegaLights
-        // (their traces read the TLAS, which the graph has no resource kind for) and the Gaussian splats.
+        // THREE CHARACTER PASSES (stage 2L) record as lanes over the working image in the legacy order, and THE
+        // GAUSSIAN RASTER (stage 2O) records between lighting and transparency, where the legacy tail runs it. What
+        // remains excluded are the paths whose PASSES are still outside the graph: the ray-traced shadows and
+        // MegaLights (their traces read the TLAS, which the graph has no resource kind for).
         auto const features = this->active_features();
-        if (!this->main_graph_enabled || !this->gbuffer_pass_active() || features.rt_shadow || this->megalights_active() || this->gaussian_active())
+        if (!this->main_graph_enabled || !this->gbuffer_pass_active() || features.rt_shadow || this->megalights_active())
             return false;
         // EVERY ACTIVE OVERLAY'S PASS MUST BE IN THE CHAIN: a graph frame records the overlay lanes, so a frame whose
         // active feature has no pass could only be "recorded" by silently dropping the effect. Such a frame takes the
