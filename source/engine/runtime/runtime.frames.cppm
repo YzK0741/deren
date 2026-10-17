@@ -848,6 +848,10 @@ namespace deren::engine {
         this->graph_shadow_frame = this->main_graph_frame && features.shadow && !shadow_reuse && this->shadow_allocated_layers != 0 &&
                                    this->shadow_pass[0] != nullptr && frame_slot < this->shadow_images.size() &&
                                    static_cast<bool>(this->shadow_images[frame_slot]);
+        // THE TAA RESOLVE'S LANES: reachable once the eligibility predicate lets a TAA frame through (that flip is
+        // the next step); the resolve and its history copy are two graph passes because the model allows one
+        // access per resource per pass, and the history's cross-frame state rides taa_history_in_transfer_state.
+        this->graph_taa_frame = this->main_graph_frame && this->taa_active() && this->taa_pass[0] != nullptr;
 
         // Debug and unlit frames can skip the entire deferred stage; they must not retain its history.
         this->megalights_resolved = false;

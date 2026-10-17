@@ -431,9 +431,26 @@ two: 5 and 2 accesses, a memory dependency on the HDR target before the copy, an
 the copy in the execution order (50 checks, 0 failed; CTest 44/44). Nothing calls the adapters from the
 runtime yet, so no rendering behaviour changed.
 
-Remaining after that: the runtime wiring (the scene-colour target switch when TAA is on, the history and
-velocity declarations, the two lanes) and removing `taa_active()` from the eligibility predicate. The
-history image's rule stands: its import is defined and sampled, and the graph must only transition it.
+Remaining after that: the runtime wiring and removing `taa_active()` from the eligibility predicate.
+
+The wiring is in, and it is deliberately DORMANT: `main_graph_frame` still excludes TAA, so `graph_taa_frame`
+(`main_graph_frame && taa_active() && the pass resolved`) can never be true yet. What the wiring does:
+
+- the geometry and lighting passes write the TAA WORKING image (output-target family 5, the "scene colour")
+  on a TAA frame and the HDR image (family 0) otherwise - one `scene_target` choice threads through both
+  appends and their target assertions;
+- the history (family 7) is imported with defined, sampled contents and, after the graph records, the runtime
+  hands it back from transfer-destination to sampled - because the state the graph's copy leaves OUTLIVES the
+  plan, and a state that outlives the plan is exactly what the graph cannot own (the legacy path's hand-back
+  has the same reason);
+- two lanes record the split pass: `payload->record(10)` calls the pass's `record_content` (resolve) and lane
+  11 calls `record_copy` (history copy) through the same `taa_pass` object.
+
+Nothing changed behaviourally: CTest 44/44, and `deferred`/`deferred_taa_fxaa` keep their gate hashes
+(`deferred_taa_fxaa` still falls back with "TAA active", which is the expected dormant state).
+
+The next step - the one that makes it live - is removing `taa_active()` from `main_graph_candidate()` and
+gating on the real thing.
 
 ## What stage 1 changes about the plan
 

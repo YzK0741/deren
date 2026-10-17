@@ -1533,6 +1533,8 @@ namespace deren::engine {
         // Whether THIS frame's cascaded-shadow pass is recorded by the composed graph: true only when the frame
         // is graph-eligible AND the pass actually runs this frame (the maps are not reused) AND the map resolved.
         bool graph_shadow_frame = false;
+        // Whether THIS frame's TAA resolve (and its history copy) is recorded by the composed graph.
+        bool graph_taa_frame = false;
         bool main_graph_reported = false, main_graph_fallback_reported = false;
         resource_lease<rhi::image> post_graph_output;
         bool bloom_graph_pending = false;

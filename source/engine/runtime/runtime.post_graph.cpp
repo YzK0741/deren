@@ -11,6 +11,8 @@ import deren.engine.render_graph.lighting;
 import deren.engine.render_graph.geometry;
 import deren.engine.render_graph.cluster;
 import deren.engine.render_graph.shadow;
+import deren.engine.render_graph.taa;
+import deren.engine.pass.taa;
 import deren.engine.pass;
 import deren.engine.pass.output_targets;
 import deren.promise.rhi;
@@ -20,8 +22,8 @@ namespace deren::engine {
     namespace {
         struct post_recording_payload {
             pass::pass_host host{};
-            std::array<pass::resolved_io, 10> ios;
-            std::array<pass::frame_pass*, 10> passes{};
+            std::array<pass::resolved_io, 12> ios;
+            std::array<pass::frame_pass*, 12> passes{};
             rhi::error record(unsigned lane) const noexcept {
                 if (host.apply_behaviour)
                     host.apply_behaviour(host.context, *passes[lane], ios[lane]);
@@ -120,6 +122,37 @@ namespace deren::engine {
         if (!input_ref)
             return post_build_error(input_ref.error());
         inputs.hdr = *input_ref;
+        // THE TAA WORKING IMAGE AND HISTORY (adoption stage 2I): on a TAA frame the geometry and lighting passes
+        // write the TAA working image (the "scene colour", family 5) and the resolve turns it into this HDR image.
+        // The history (family 7) is the PREVIOUS frame's resolve: it is only ever transitioned, never discarded, and
+        // it is always left SAMPLED outside the graph - this frame's copy's transfer-destination state is handed
+        // back right after the graph records (see below), the same rule the legacy path's hand-back keeps.
+        graph::texture_ref scene_target = inputs.hdr;
+        rhi::image* scene_target_image = input.get();
+        std::optional<graph::texture_ref> taa_history{};
+        rhi::image* taa_history_image = nullptr;
+        if (this->graph_taa_frame) {
+            graph::resource_state taa_scene_state{};
+            auto taa_scene = retain(5, graph::invalid_index, taa_scene_state);
+            auto const& ids = pass::output_targets_pass::ids;
+            if (!taa_scene || !this->output_resource_views[5].find(ids[5]))
+                return rhi::error::not_ready;
+            auto taa_scene_ref = build.import_texture(taa_scene, {}, "TAA scene colour");
+            if (!taa_scene_ref)
+                return post_build_error(taa_scene_ref.error());
+            scene_target = *taa_scene_ref;
+            scene_target_image = taa_scene.get();
+            graph::resource_state history_state{};
+            auto taa_history_lease = retain(7, graph::invalid_index, history_state);
+            if (!taa_history_lease || !this->output_resource_views[7].find(ids[7]))
+                return rhi::error::not_ready;
+            graph::resource_state const history_prior{graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read};
+            auto taa_history_ref = build.import_texture(taa_history_lease, {graph::initial_contents::defined, history_prior}, "TAA history");
+            if (!taa_history_ref)
+                return post_build_error(taa_history_ref.error());
+            taa_history = *taa_history_ref;
+            taa_history_image = taa_history_lease.get();
+        }
         for (unsigned i = 0; i < 4; ++i) {
             auto level = retain(9 + i, i, level_states[i]);
             if (!level || level.get() != this->bloom_images[i][index].get())
@@ -174,7 +207,7 @@ namespace deren::engine {
                         return error;
                 }
             graph::lighting::inputs lighting_inputs{};
-            lighting_inputs.color = inputs.hdr;
+            lighting_inputs.color = scene_target;
             for (unsigned i = 0; i < 3; ++i) {
                 graph::resource_state state{};
                 auto surface = retain(1 + i, graph::invalid_index, state);
@@ -391,7 +424,7 @@ namespace deren::engine {
                     return post_build_error(shadow_bound.error());
             }
             auto geometry = build.append([&](graph::builder& description) noexcept {
-                return graph::geometry::append(description, {inputs.hdr, lighting_inputs.surface, *velocity_ref, *depth_ref, shared_geometry});
+                return graph::geometry::append(description, {scene_target, lighting_inputs.surface, *velocity_ref, *depth_ref, shared_geometry});
             });
             if (!geometry)
                 return post_build_error(geometry.error());
@@ -404,7 +437,7 @@ namespace deren::engine {
                 ios[7].list != commands.get() || ios[7].targets.size() != 6)
                 return rhi::error::not_ready;
             std::array expected{this->gbuffer_images[0][index].get(), this->gbuffer_images[1][index].get(), this->gbuffer_images[2][index].get(),
-                                velocity.get(), input.get(), depth.get()};
+                                velocity.get(), scene_target_image, depth.get()};
             for (unsigned i = 0; i < expected.size(); ++i)
                 if (ios[7].targets[i].image_handle != expected[i])
                     return rhi::error::invalid_argument;
@@ -431,7 +464,7 @@ namespace deren::engine {
             passes[6] = this->deferred_pass[0];
             ios[6].push_block = host.push_block;
             if (!passes[6] || !host.resolve || !host.resolve(host.context, *passes[6], ios[6]) ||
-                ios[6].list != commands.get() || ios[6].targets.size() != 1 || ios[6].targets[0].image_handle != input.get())
+                ios[6].list != commands.get() || ios[6].targets.size() != 1 || ios[6].targets[0].image_handle != scene_target_image)
                 return rhi::error::not_ready;
             auto bound = build.bind_pass<graph::lighting::parameters>(lit->pass,
                                                                       [this, payload, index](graph::lighting::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
@@ -452,6 +485,43 @@ namespace deren::engine {
                                                                       });
             if (!bound)
                 return post_build_error(bound.error());
+            // THE TAA RESOLVE AND ITS HISTORY COPY (adoption stage 2I): TWO graph passes from the one pass object.
+            // The resolve turns the working image (which geometry and lighting just wrote) into this HDR image;
+            // the copy moves that HDR image into the history. The graph owns the attachment transition, the
+            // transfer round trip and the ordering between them - the pass's legacy record keeps all of that for
+            // legacy frames only.
+            if (this->graph_taa_frame && taa_history) {
+                pass::stage taa_stage{.name = "taa", .passes = this->taa_pass, .marks = false};
+                this->prepare_stage(taa_stage, true);
+                passes[10] = this->taa_pass[0];
+                ios[10].push_block = host.push_block;
+                if (!passes[10] || !host.resolve || !host.resolve(host.context, *passes[10], ios[10]) || ios[10].list != commands.get())
+                    return rhi::error::not_ready;
+                passes[11] = this->taa_pass[0];
+                ios[11].push_block = host.push_block;
+                if (!host.resolve(host.context, *passes[11], ios[11]) || ios[11].list != commands.get())
+                    return rhi::error::not_ready;
+                auto resolve_added = build.append([&](graph::builder& description) noexcept {
+                    return graph::taa::append_resolve(description, {scene_target, *velocity_ref, *depth_ref, *taa_history, inputs.hdr});
+                });
+                if (!resolve_added)
+                    return post_build_error(resolve_added.error());
+                auto resolve_bound = build.bind_pass<graph::taa::resolve_parameters>(
+                    resolve_added->pass, [payload](graph::taa::resolve_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(10); });
+                if (!resolve_bound)
+                    return post_build_error(resolve_bound.error());
+                auto copy_added = build.append([&](graph::builder& description) noexcept {
+                    return graph::taa::append_history_copy(description, {inputs.hdr, *taa_history});
+                });
+                if (!copy_added)
+                    return post_build_error(copy_added.error());
+                auto copy_bound = build.bind_pass<graph::taa::copy_parameters>(
+                    copy_added->pass, [payload](graph::taa::copy_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                        return static_cast<pass::taa_pass*>(payload->passes[11])->record_copy(payload->ios[11]);
+                    });
+                if (!copy_bound)
+                    return post_build_error(copy_bound.error());
+            }
         }
         for (unsigned i = 0; i < 4; ++i)
             passes[i] = this->bloom_pass[i];
@@ -512,6 +582,18 @@ namespace deren::engine {
         auto error = prepared->record(*commands);
         if (error != rhi::error::ok)
             return error;
+        // THE TAA HISTORY'S HAND-BACK (adoption stage 2I): the graph's copy leaves the history image in
+        // transfer-destination, and the invariant every frame's import relies on is "the history is sampled outside
+        // the graph" - so the frame that wrote it hands it back, exactly as the legacy TAA record does for its own
+        // frame. The graph cannot own a state that outlives its plan, which is why this stays the runtime's.
+        if (this->graph_taa_frame && taa_history_image != nullptr) {
+            auto const hand_back = commands->barrier(rhi::image_barrier{.resource = taa_history_image,
+                                                                        .from = rhi::image_use::transfer_destination,
+                                                                        .to = rhi::image_use::shader_read,
+                                                                        .range = {}});
+            if (hand_back != rhi::error::ok)
+                return hand_back;
+        }
         if (this->main_graph_frame && !this->main_graph_reported) {
             deren::utility::log("main graph: scene geometry -> GBuffer handoff -> deferred LOAD -> post recorded in one graph");
             this->main_graph_reported = true;
