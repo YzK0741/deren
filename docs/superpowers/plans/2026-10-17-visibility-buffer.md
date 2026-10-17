@@ -131,6 +131,12 @@ model[16]                                           // row-major，与 push bloc
 - [x] V0.3b-3a runtime 帧与记录器：`visibility_item_candidate`（v0 接纳规则）、`record_visibility_items`（逐 leaf 写 item 表 / 104 B push / 第三 run 的 indirect 命令 / dispatch）、`make_visibility_frame`；mesh 命令表 2→3 个 run（前两个是旧 geometry lane 的命令类，capture 必须独占第三个）。提交 `8b39b69e`。
 - [x] V0.3b-3b capture-only 接线（专用 depth）：新增 managed family `visibility_depth`（per-swapchain-image，sampled + depth_attachment，heap 槽 727..734，schema 76 项/77 ids）+ runtime 的 `visibility_depth_images/views` 与 publish/adopt + pass 的 depth target 改为它；`record_post_graph` 在 geometry lane 之前追加 `graph::visibility::append`（vis id + capture depth 导入；camera/meshlet/items/indirect 四个 refs；shared_imports 扩到 13 项），demo chain 注册 pass，chores 注册两个 shader 让 pass 自建 pipeline；`publish_frame_resources` 发布两个 family。**结果：两次运行同 hash、门禁 15/15 逐字节一致、零 validation。** 这次没有共享 writer，之前的顺序不确定性消失。
 - [x] V0.3b-3c 证据尝试一：把 vis id target `export_resource` 以防图裁剪。结果：pass 确实执行了（validation 立刻报出问题），但出现 `VUID-vkCmdBeginRendering-pRenderingInfo-09592`——导出的 imported attachment 在 begin_rendering 时仍是 `UNDEFINED`。原因：`initial_contents::undefined` 的导入把首次布局转换交给图，而导出的、无消费者的 lane 没有拿到那次转换。修复方向（下次）：像 TAA history 首次使用那样，由 runtime 在导入前对 vis id / capture depth 各做一次 `undefined -> GENERAL` 的首次转换（并记录"该 image 指针已初始化"，换 generation 时失效），然后用 `initial_contents::defined + prior GENERAL` 导入；或者干脆跳过 export，等 V0.4 resolve 成为真实消费者（图就不会裁剪它）。
+- [x] V0.3b-3c 证据尝试二：按"TAA history 首次使用"规则，在导入前对 vis id / capture depth 各做一次
+  `undefined -> attachment` 的 barrier（并用 image 指针做 generation 标记），再以 `defined + GENERAL`
+  导入、并继续 export。结果：**同样的 VUID-vkCmdBeginRendering-pRenderingInfo-09592 仍在**。这说明问题不在
+  首次转换本身，而在"export 一个被 import 的 attachment"这条图路径（导出的资源被当作外部/最终状态处理，
+  与 pass 的第一 writer 声明冲突）。结论：不再用 export 强推"无消费者的 lane"执行——正确的消费者是 V0.4 的
+  resolve pass；它一出现图就不会裁剪，且首次转换也会由图按常规 import 生成。这条尝试已回退。
 - [ ] V0.3b-3c capture 正确性证据（正式）：lane 目前只有"写 id 和 capture depth"两个没有消费者的输出，graph 的裁剪会让它可能根本不执行（日志里没有 recorder 的 item 计数行，说明这一点很可能成立）。证据路线：把 vis id target `export_resource`（或直接等 V0.4 resolve 消费它），再确认 `recorded N items` 日志与读回样例 id。不要在没有这条证据前声称 capture 已工作。
 - [ ] V0.4 resolve lane：compute shader + 共享 gbuffer body 抽取 + 写回 5 个目标；CPU 参考单测（重心/插值/clear 语义）。
 - [ ] V0.5 接入帧：runtime pass 注册、lane 选择/回退、配置开关、config/docs 同步；`test_runtime_injection` 类覆盖"开关开→新 lane，开关关→旧 lane，不可用→回退"。
