@@ -91,6 +91,25 @@ namespace deren::engine::pass {
             return; // a refused barrier would leave an attachment in a state nobody declared
         }
 
+        if (this->record_content(io) != rhi::error::ok)
+            return;
+
+        // Hand the depth back to the layout everything downstream samples it in. TWO later stages read this
+        // image (the resolve's disocclusion guard and the composite's edge test), and this pass is what took
+        // it out of SHADER_READ - so leaving it as an attachment would make every read after it a layout
+        // error. The colour target needs no hand-back: the composite transitions it for itself.
+        if (io.list->barrier(rhi::image_barrier{.resource = io.targets[1].image_handle,
+                                                .from = rhi::image_use::depth_attachment,
+                                                .to = rhi::image_use::shader_read,
+                                                .range = {}}) != rhi::error::ok) {
+            return; // a refused barrier would leave the depth in a state nobody declared
+        }
+    }
+
+    rhi::error character_forward_pass::record_content(resolved_io const& io) noexcept {
+        if (this->pass_frame.make_environment == nullptr || this->pass_frame.pipeline_name.empty() || io.targets.size() < 2 || io.list == nullptr ||
+            (this->pass_frame.leaves.empty() && this->pass_frame.overlay_leaves.empty() && this->pass_frame.outline_leaves.empty()))
+            return rhi::error::invalid_argument; // the runner resolves this or does not record the pass at all
         // LOAD on both attachments: the lit frame and the opaque surface are what this pass draws OVER.
         // THE SCOPE RIDES THE CONTRACT TOO (abi 20): one colour attachment and the depth, both LOAD + STORE, and
         // no `secondary_contents` bit - this pass records straight into the primary, which is the whole point of
@@ -115,7 +134,7 @@ namespace deren::engine::pass {
             .secondary_contents = false, // the raw call passed no flags: this pass records into the primary
         };
         if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
-            return; // a refused scope would leave the attachments in a state nobody declared
+            return rhi::error::invalid_argument; // a refused scope would leave the attachments in a state nobody declared
         }
 
         render_environment env = this->pass_frame.make_environment(this->pass_frame.owner, io.cmd, /*gbuffer=*/false);
@@ -193,17 +212,7 @@ namespace deren::engine::pass {
         }
 
         io.list->end_rendering();
-
-        // Hand the depth back to the layout everything downstream samples it in. TWO later stages read this
-        // image (the resolve's disocclusion guard and the composite's edge test), and this pass is what took
-        // it out of SHADER_READ - so leaving it as an attachment would make every read after it a layout
-        // error. The colour target needs no hand-back: the composite transitions it for itself.
-        if (io.list->barrier(rhi::image_barrier{.resource = io.targets[1].image_handle,
-                                                .from = rhi::image_use::depth_attachment,
-                                                .to = rhi::image_use::shader_read,
-                                                .range = {}}) != rhi::error::ok) {
-            return; // a refused barrier would leave the depth in a state nobody declared
-        }
+        return rhi::error::ok;
     }
 
 } // namespace deren::engine::pass

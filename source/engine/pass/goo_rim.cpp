@@ -168,4 +168,14 @@ namespace deren::engine::pass {
         io.list->end_rendering();
     }
 
+    rhi::error goo_rim_pass::record_content(resolved_io const& io) noexcept {
+        // THIS PASS OWNS NO BARRIERS: the legacy record body IS the content (its sampled inputs are heap slots the
+        // graph declares on its behalf), so the graph entry only refuses what the runner would have refused.
+        if (!this->pipeline_ready() || io.targets.empty() || io.targets[0].view_handle == nullptr || io.extent.width == 0 ||
+            io.extent.height == 0 || io.list == nullptr)
+            return rhi::error::invalid_argument;
+        this->record(io);
+        return rhi::error::ok;
+    }
+
 } // namespace deren::engine::pass

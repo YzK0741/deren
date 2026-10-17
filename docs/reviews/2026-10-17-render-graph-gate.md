@@ -547,6 +547,33 @@ byte-identical for all fourteen scenarios (matched 14, mismatched 0) with zero v
 pure-graph scenario count is now 10. The only fallback group left is the four laevatain (character/rim) scenarios
 - the three character passes.
 
+## Stage 2L: the three character passes - enabling splits in
+
+The last fallback group is the four laevatain scenarios, and their chain is three passes: the character-forward
+pass (the character's own leaves, its 描边 outline group and its overlay masks, drawn INTO the frame with LOAD
+on the scene target and the depth), the toon screen rim and the goo rim (fullscreen additive effects). Measured
+shape:
+
+- `character_forward` owns two entry hand-offs (depth back to an attachment for the depth test, the scene
+  target's instance dependency) plus the exit depth hand-back - exactly the transparent pass's pattern;
+- the two rim passes own NO barriers: their sampled inputs (the depth and the albedo) are per-swapchain-image
+  HEAP SLOTS the shader indexes with its push-constant image index, and the legacy path relies on those images
+  already being in a sampled layout. That is the out-of-model binding pattern again (like the material texture
+  set): the graph cannot see the heap read, but it CAN declare the access, and declaring it is what makes the
+  graph transition and order what the record only indexes.
+
+The enabling splits are in: `character_forward_pass::record_content()` records the LOAD instance and the three
+draw groups alone, with the legacy `record()` keeping its two entry barriers, the content call and the depth
+hand-back; the two rim passes expose `record_content()` that refuses what the runner would have refused and then
+runs their (barrier-free) record body - for them the legacy body IS the content, and the declaration exists so
+the graph recorder has one uniform entry. The legacy path is unchanged: CTest 44/44 and all four laevatain
+scenarios keep their gate hashes.
+
+Remaining for the item: three adapters (the scene target as a preserve-write colour attachment for all three,
+plus the depth read for character_forward and the declared sampled reads of depth/albedo for the rims), the
+runtime lanes in the legacy order (transparent -> character_forward -> toon rim -> goo rim -> TAA), and removing
+the three feature exclusions.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the
