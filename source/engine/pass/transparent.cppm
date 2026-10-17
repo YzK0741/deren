@@ -81,6 +81,14 @@ export namespace deren::engine::pass {
         void on_swapchain_recreated(pass_host const& host) override;
         void record(resolved_io const& io) override;
 
+        /// @brief the secondary, the LOAD instance and the execute alone - none of this pass's own ordering
+        ///
+        /// The legacy path's `record()` owns the two hand-off barriers at the entry (depth back to an attachment,
+        /// the scene target's dependency) and the depth hand-back at the exit (two later stages sample the depth).
+        /// A graph-recorded frame declares those reads/writes instead and the graph emits all of them - so its
+        /// recorder calls THIS entry and one submission never runs both barrier paths.
+        deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
+
         void set_frame(transparent_frame const& frame) noexcept;
 
     private:

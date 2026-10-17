@@ -513,6 +513,25 @@ with zero validation findings; the `deformation` scenario - the debug-view scena
 with its hash unchanged (`723569BA0D03640C`), and the pure-graph scenario count is now 9 (the seven before plus
 the TAA scenario and `deformation`).
 
+## Stage 2K: the transparent pass - enabling split in
+
+The alpha-blended geometry is the next pass (the `transparent_blend` scenario is the last single-scenario
+fallback). Measured shape: the pass LOADs the shaded scene target and the opaque depth, records the blended
+leaves into a per-slot secondary and executes it inside one instance; it owns TWO hand-off barriers at the entry
+(depth back to an attachment for the depth test, and the scene target's attachment-to-attachment dependency) and
+ONE depth hand-back at the exit (two later stages sample that depth: the TAA disocclusion guard and the
+composite's edge test).
+
+The enabling split is in: `transparent_pass::record_content()` records the secondary, the LOAD instance and the
+execute alone, while the legacy `record()` keeps the entry barriers, calls the content entry, and issues the
+depth hand-back - the same split every migrated pass uses. The legacy path is unchanged: CTest 44/44 and the
+`transparent_blend` scenario keeps its gate hash.
+
+Remaining for the item: a `graph::transparent` adapter (the scene target as a preserve-write colour attachment,
+the depth as a depth-attachment read), the runtime lane, and removing `features.transparent` from the
+eligibility - the graph then orders lighting -> transparent -> TAA by the same resource declarations the
+hand-off barriers used to publish.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the

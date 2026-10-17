@@ -74,7 +74,25 @@ namespace deren::engine::pass {
         if (io.list->barrier(rhi::barrier_group{.images = barriers}) != rhi::error::ok) {
             return; // a refused barrier would leave an attachment in a state nobody declared
         }
+        if (this->record_content(io) != rhi::error::ok)
+            return;
+        // Hand the depth back to the layout everything downstream samples it in: this pass took it out of
+        // SHADER_READ to depth-test against it, and TWO later stages read the same image (the resolve's
+        // disocclusion guard and the composite's edge test). Nothing else would move it - the flag-driven
+        // transition was already consumed by the lighting stage - so a frame with blended geometry would leave
+        // the image as an attachment and every read after it would be a layout error.
+        if (io.list->barrier(rhi::image_barrier{.resource = io.targets[1].image_handle,
+                                                .from = rhi::image_use::depth_attachment,
+                                                .to = rhi::image_use::shader_read,
+                                                .range = {}}) != rhi::error::ok) {
+            return; // a refused barrier would leave the depth in a state nobody declared
+        }
+    }
 
+    rhi::error transparent_pass::record_content(resolved_io const& io) noexcept {
+        if (this->pass_frame.make_environment == nullptr || !this->pass_frame.secondary || this->pass_frame.leaves.empty() ||
+            io.targets.size() < 2 || io.list == nullptr)
+            return rhi::error::invalid_argument; // the runner resolves this or does not record the pass at all
         // The leaves go into the frame slot's transparent secondary, with inheritance matching the instance
         // below: ONE colour attachment at 1x. A secondary does not inherit state from its primary, so it binds
         // the shared scene block for itself - the same bind the scene pass's segments make.
@@ -138,7 +156,7 @@ namespace deren::engine::pass {
             .secondary_contents = true, // the raw call passed VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT
         };
         if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
-            return; // a refused scope would leave the attachments in a state nobody declared
+            return rhi::error::invalid_argument; // a refused scope would leave the attachments in a state nobody declared
         }
         if (recorded) {
             if (io.list->execute(*this->pass_frame.secondary) != rhi::error::ok) {
@@ -146,18 +164,7 @@ namespace deren::engine::pass {
             }
         }
         io.list->end_rendering();
-
-        // Hand the depth back to the layout everything downstream samples it in: this pass took it out of
-        // SHADER_READ to depth-test against it, and TWO later stages read the same image (the resolve's
-        // disocclusion guard and the composite's edge test). Nothing else would move it - the flag-driven
-        // transition was already consumed by the lighting stage - so a frame with blended geometry would leave
-        // the image as an attachment and every read after it would be a layout error.
-        if (io.list->barrier(rhi::image_barrier{.resource = io.targets[1].image_handle,
-                                                .from = rhi::image_use::depth_attachment,
-                                                .to = rhi::image_use::shader_read,
-                                                .range = {}}) != rhi::error::ok) {
-            return; // a refused barrier would leave the depth in a state nobody declared
-        }
+        return rhi::error::ok;
     }
 
 } // namespace deren::engine::pass
