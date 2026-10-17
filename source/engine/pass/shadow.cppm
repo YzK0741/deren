@@ -113,6 +113,14 @@ export namespace deren::engine::pass {
         void on_swapchain_recreated(pass_host const& host) override;
         void record(resolved_io const& io) override;
 
+        /// @brief the cascade rendering alone, with none of this pass's own ordering
+        ///
+        /// The legacy `record()` transitions each cascade layer to a renderable depth attachment right before
+        /// rendering it (see its comment). A graph-recorded frame declares the shadow map as a written graph
+        /// resource instead, and the graph emits the transitions AND the hand-back that the runtime issues for
+        /// legacy frames - so its recorder calls THIS entry: the two barrier paths must never both run.
+        deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
+
         /// @brief whether the pass built the pipeline it records with (the renderer gates its feature on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
         /// @brief the framework's generic form of the same question, so an owner holding only a chain can ask it
@@ -127,6 +135,10 @@ export namespace deren::engine::pass {
         void set_frame(shadow_frame const& frame) noexcept;
 
     private:
+        /// @brief the one cascade-recording body, parameterised by who owns the per-layer transitions
+        /// @param own_layer_transitions true for the legacy path (each layer transitions right before it renders),
+        ///        false for a graph-recorded frame (the graph declares the writes and emits them)
+        void record_impl(resolved_io const& io, bool own_layer_transitions);
         static constexpr std::string_view vertex_shader_name = "shadow.vert.spv";
         static constexpr std::string_view fragment_shader_name = "shadow.frag.spv";
         /// THE MESH STAGE'S OWN MODULE, from the same shader file's `mesh_main` entry (docs/mesh_shaders.md step

@@ -370,6 +370,18 @@ Two follow-ups are recorded rather than implemented:
   in the graph yet. Taking it in needs a new core resource kind plus usage/barrier lowering for
   acceleration-structure reads at ray-tracing stages - a core feature, not a declaration.
 
+The producer's enabling half is in: `shadow_pass::record_content()` records the cascades with none of the
+pass's own ordering (the per-layer `undefined -> depth_attachment` transitions are skipped; the legacy
+`record()` keeps them), which is what a graph-recorded frame needs - the graph declares the shadow map as a
+written graph resource and emits both those transitions and the hand-back the runtime issues for legacy
+frames. The legacy path is unchanged: CTest 44/44 and the deferred/sponza gate hashes are unchanged.
+
+The next step's boundary is measured rather than guessed: the graph adapter must declare the ACTIVE cascade
+layers only (the pass writes `min(cascades, targets)` layers, and the lighting read has to cover exactly the
+same range or the graph's content validation refuses the plan), so the adapter takes the layer count as an
+input; and the runtime must skip its hand-back barrier on graph frames, where the graph's lighting barrier
+replaces it.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the
