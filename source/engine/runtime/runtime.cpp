@@ -1538,6 +1538,91 @@ namespace deren::engine {
 
     // THIS FRAME'S COMPACTED RUN of a primitive's surviving meshlets. The layout is the shared table's, one frame
     // lane apart, so a workgroup id selects the i-th SURVIVOR directly - and the entry point needs no second lookup.
+    // ---- THE VISIBILITY CAPTURE'S FRAME DATA (visibility-buffer v0.3b-3) ----------------------------
+    bool runtime::visibility_item_candidate() const noexcept {
+        std::uint32_t items = 0;
+        for (primitive const* const leaf : this->frame_visible) {
+            if (leaf == nullptr || items >= runtime::visibility_item_capacity) {
+                return false;
+            }
+            // v0's admission rule (see the declaration): default pipeline semantics only - a custom pipeline is
+            // a different stage, an instanced draw's model comes from the instance table per workgroup, and a
+            // skinning/morphing draw's records would need the per-frame deformation data this item row does not
+            // carry. ANY other leaf means the WHOLE frame is not captured, never a partial one.
+            if (!leaf->pipeline_name.empty() || (leaf->push.flags & 1u) != 0u || leaf->push.skin_base != 0u || leaf->push.morph_targets != 0u) {
+                return false;
+            }
+            if (!leaf->vertex_buffer || !leaf->index_buffer || leaf->meshlet_count == 0u) {
+                return false;
+            }
+            ++items;
+        }
+        return items > 0u;
+    }
+
+    bool runtime::record_visibility_items(deren::promise::rhi::command_buffer& command_buffer, std::uint32_t& recorded) {
+        namespace vis = deren::engine::visibility;
+        recorded = 0;
+        if (this->visibility_items_mapped == nullptr || this->mesh_indirect_mapped == nullptr || !this->mesh_indirect_buffer || this->frame_visible.empty()) {
+            return false;
+        }
+        auto* const commands = static_cast<rhi::mesh_task_command*>(this->mesh_indirect_mapped);
+        std::uint32_t const frame_slot = this->frame_ring().position();
+        std::uint32_t item = 0;
+        for (primitive const* const leaf : this->frame_visible) {
+            if (leaf == nullptr || item >= runtime::visibility_item_capacity) {
+                return false;
+            }
+            if (!leaf->pipeline_name.empty() || (leaf->push.flags & 1u) != 0u || leaf->push.skin_base != 0u || leaf->push.morph_targets != 0u ||
+                !leaf->vertex_buffer || !leaf->index_buffer || leaf->meshlet_count == 0u) {
+                return false; // the candidate scan refused this frame; a mixed frame must not be recorded
+            }
+            std::uint64_t const vertex_address = this->buffer_address(*leaf->vertex_buffer);
+            std::uint64_t const index_address = this->buffer_address(*leaf->index_buffer);
+            if (vertex_address == 0u || index_address == 0u) {
+                return false;
+            }
+            std::array<float, 16> model = {};
+            std::memcpy(model.data(), &leaf->push.model, sizeof(model));
+            std::uint32_t const index_width = leaf->index_type == rhi::index_type::uint16 ? 2u : 4u;
+            vis::draw_item const row = vis::make_draw_item(vertex_address, index_address, 0u, 0, index_width, leaf->meshlet_base,
+                                                           leaf->push.material_index.value, leaf->push.motion_base, model);
+            if (!runtime::visibility_items_write(this, item, std::as_bytes(std::span(&row, 1u)))) {
+                return false;
+            }
+            // THE SCALAR ITEM BLOCK: the stage's own 104-byte shape (see deren.engine.visibility::push_block):
+            // the item's model matrix, the item index the packed id carries and the frame slot whose camera lane
+            // the stage reads, then the SAME eight geometry lanes the other mesh stages take - with `first_index`
+            // carrying the item's MESHLET RUN base and `index_count` its meshlet count (the dispatch's groups).
+            vis::push_block block{};
+            std::memcpy(block.model.data(), &leaf->push.model, sizeof(block.model));
+            block.item_index = item;
+            block.frame_slot = frame_slot;
+            block.geometry.vertex_address_low = static_cast<std::uint32_t>(vertex_address & 0xFFFFFFFFu);
+            block.geometry.vertex_address_high = static_cast<std::uint32_t>(vertex_address >> 32u);
+            block.geometry.index_address_low = static_cast<std::uint32_t>(index_address & 0xFFFFFFFFu);
+            block.geometry.index_address_high = static_cast<std::uint32_t>(index_address >> 32u);
+            block.geometry.first_index = leaf->meshlet_base;
+            block.geometry.index_count = leaf->meshlet_count;
+            block.geometry.base_vertex = 0;
+            block.geometry.index_width = index_width;
+            if (!runtime::push_raw_block(this, command_buffer, std::as_bytes(std::span(&block, 1u)))) {
+                return false;
+            }
+            // THE DISPATCH: one command per item, in the THIRD command run (the first two are the scene's
+            // culled/unculled classes, which the old geometry lane still writes on a capture frame).
+            std::size_t const command_index = static_cast<std::size_t>(frame_slot) * runtime::mesh_command_capacity + runtime::visibility_command_run + item;
+            commands[command_index] = rhi::mesh_task_command{.groups_x = leaf->meshlet_count, .groups_y = 1u, .groups_z = 1u};
+            std::uint64_t const offset = static_cast<std::uint64_t>(command_index) * rhi::mesh_task_command_size;
+            if (command_buffer.draw_mesh_tasks_indirect(*this->mesh_indirect_buffer, offset, 1u, rhi::mesh_task_command_size) != rhi::error::ok) {
+                return false;
+            }
+            ++item;
+        }
+        recorded = item;
+        return item > 0u;
+    }
+
     bool runtime::visibility_items_write(void* const owner, uint32_t const base, std::span<std::byte const> const records) {
         runtime* const self = static_cast<runtime*>(owner);
         if (self->visibility_items_mapped == nullptr) {

@@ -2087,6 +2087,21 @@ namespace deren::engine {
 
     /// the scene pass's per-frame input: the leaves, the segments, and the three things only the renderer can
     /// answer (see scene_frame). Built here rather than stored, because every field is this frame's.
+    // ---- THE VISIBILITY RASTER'S FRAME (visibility-buffer v0.3b-3) -----------------------------------
+    // Rebuilt per frame for the reason every frame here is: the recorder walks THIS frame's visible leaves and
+    // writes THIS frame slot's item/command lanes, so a frame value that outlived its frame would address the
+    // wrong slot. `item_count` is left zero here - the candidate scan answers whether the frame is capturable at
+    // all, and the recorder counts what it actually recorded.
+    pass::visibility_frame runtime::make_visibility_frame() noexcept {
+        pass::visibility_frame frame{};
+        frame.record_items = [](void* owner, deren::promise::rhi::command_buffer& command_buffer, std::uint32_t& recorded) {
+            return static_cast<runtime*>(owner)->record_visibility_items(command_buffer, recorded);
+        };
+        frame.owner = this;
+        frame.extent = this->render_extent();
+        return frame;
+    }
+
     pass::scene_frame runtime::make_scene_frame() noexcept {
         uint32_t const frame_slot = this->frame_ring().position();
         // the pass's view of the per-slot secondary buffers (members, so the span it holds outlives the stage)

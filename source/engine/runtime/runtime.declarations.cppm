@@ -61,7 +61,8 @@ import deren.engine.pass.compute_skin;          // ... and the compute-skinning 
 import deren.engine.pass.geometry_buffer_debug; // the fifteenth: the G-buffer debug view
 import deren.engine.pass.shadow;                // the sixteenth: the directional shadow map, one depth-only cascade per layer
 import deren.engine.pass.cluster;
-import deren.engine.visibility; // the visibility buffer's packed id and draw-item record
+import deren.engine.pass.visibility_raster; // the raster pass's frame: what the lane records through
+import deren.engine.visibility;             // the visibility buffer's packed id and draw-item record
 import deren.engine.pass.scene_constants;
 import deren.engine.pass.scene_deformation;
 import deren.engine.pass.scene_tables;
@@ -1962,10 +1963,10 @@ namespace deren::engine {
         /// "0 direct" is what says the seam is the one in use rather than a silent fall-back)
         std::atomic<uint64_t> mesh_indirect_dispatches = 0;
         std::atomic<uint64_t> mesh_indirect_direct_fallbacks = 0;
-        /// HOW MANY COMMANDS one frame's lane holds (docs/mesh_shaders.md step 3): TWO runs of `meshlet_capacity`, one
+        /// HOW MANY COMMANDS one frame's lane holds (docs/mesh_shaders.md step 3): THREE runs of `meshlet_capacity`, one
         /// per COMMAND CLASS, because a HOST-CULLED run and an unculled one (the shadow pass) dispatch the same
         /// primitive with DIFFERENT counts - and a shared slot would hand both passes whichever wrote last.
-        static constexpr uint32_t mesh_command_capacity = 2u * deren::engine::meshlet_capacity;
+        static constexpr uint32_t mesh_command_capacity = 3u * deren::engine::meshlet_capacity;
         /**
          * @brief THE MESH CULLING COUNTERS (docs/mesh_shaders.md step 3, "what the culling buys"): a mesh entry adds
          *        to one per workgroup, the host reads the buffer back once at shutdown and logs the totals
@@ -2009,6 +2010,24 @@ namespace deren::engine {
         render_resource::instances::borrowed<rhi::buffer> visibility_items_buffer = {};
         void* visibility_items_mapped = nullptr;
         static bool visibility_items_write(void* owner, uint32_t base, std::span<std::byte const> records);
+        /// the last command run of a frame's mesh table: the RUN THE VISIBILITY RASTER WRITES (the first two are
+        /// the scene's culled/unculled classes and the shadow pass reuses them, so the capture lane must not)
+        static constexpr uint32_t visibility_command_run = 2u * deren::engine::meshlet_capacity;
+        /**
+         * @brief whether THIS frame can be captured into the visibility buffer
+         *
+         * v0's admission rule, and every clause is a way the per-item resolve data would be WRONG: only leaves
+         * with default pipeline semantics (a custom pipeline is a different stage), no instanced draw (its model
+         * comes from the instance table per workgroup), no skinning and no morph (the per-item record carries one
+         * model matrix and one vertex fetch), geometry with a meshlet run and device addresses. A frame with any
+         * other leaf is not captured AT ALL - a partially captured frame would be a wrong picture later, and
+         * the capture step must never produce one.
+         */
+        [[nodiscard]] bool visibility_item_candidate() const noexcept;
+        /// @brief build the visibility raster pass's frame: the item recorder + extent (rebuild per frame)
+        pass::visibility_frame make_visibility_frame() noexcept;
+        /// the recorder: push each admitted item's own block, write its table row and issue its dispatch
+        bool record_visibility_items(deren::promise::rhi::command_buffer& command_buffer, std::uint32_t& recorded);
         /**
          * THE STRUCTURE PHASE ITSELF, which is one value now (see `deren.engine.ray_tracing`): the bottom and top level
          * structures, the map from their indices back to the casters they were built from, and the MASK/skin
