@@ -238,4 +238,71 @@ export namespace deren::engine::visibility {
             .model = model,
         };
     }
+
+    // =============================================================================================
+    // 4. THE RESOLVE'S MATH, AS A CPU REFERENCE (the compute shader mirrors it)
+    //
+    //    A pixel's packed id names a triangle; the resolve pass must turn (pixel, depth, triangle) back
+    //    into WORLD-space attributes. That is screen-space barycentrics over the three projected vertices,
+    //    made perspective-correct by the vertices' `w`, then a linear interpolation of the attributes. The
+    //    arithmetic is written here first because it is testable exactly on the CPU - the shader has the
+    //    same expression, and a wrong weight is a subtly wrong surface rather than an error.
+    // =============================================================================================
+    struct barycentrics {
+        float a = 0.0f;
+        float b = 0.0f;
+        float c = 0.0f;
+    };
+
+    /**
+     * @brief the screen-space barycentrics of @p p inside the triangle (@p pa, @p pb, @p pc)
+     * @return the weights; all zero for a degenerate triangle (the caller must treat that as "no triangle"),
+     *         which is a defined answer rather than a division by zero
+     * @note the weights are the SIGNED ones (they sum to one even outside the triangle); the caller decides
+     *       whether a point outside is a bug via the depth/id reconstruction (it should not happen for a
+     *       pixel the rasterizer covered)
+     */
+    [[nodiscard]] constexpr barycentrics screen_barycentrics(std::array<float, 2> const& p,
+                                                             std::array<float, 2> const& pa,
+                                                             std::array<float, 2> const& pb,
+                                                             std::array<float, 2> const& pc) noexcept {
+        float const twice_area = (pb[0] - pa[0]) * (pc[1] - pa[1]) - (pb[1] - pa[1]) * (pc[0] - pa[0]);
+        if (twice_area == 0.0f) {
+            return {};
+        }
+        float const a = ((pb[0] - p[0]) * (pc[1] - p[1]) - (pb[1] - p[1]) * (pc[0] - p[0])) / twice_area;
+        float const b = ((pc[0] - p[0]) * (pa[1] - p[1]) - (pc[1] - p[1]) * (pa[0] - p[0])) / twice_area;
+        return barycentrics{a, b, 1.0f - a - b};
+    }
+
+    /**
+     * @brief the perspective-correct weights for a screen-space barycentric triple
+     * @param w_a/w_b/w_c the three vertices' clip-space w (the rasterizer's perspective divide denominator)
+     * @return the weights normalized to one; all zero when the denominator collapses (degenerate input)
+     */
+    [[nodiscard]] constexpr barycentrics perspective_correct(barycentrics const& weights, float const w_a, float const w_b, float const w_c) noexcept {
+        if (w_a == 0.0f || w_b == 0.0f || w_c == 0.0f) {
+            return {};
+        }
+        float const a = weights.a / w_a;
+        float const b = weights.b / w_b;
+        float const c = weights.c / w_c;
+        float const sum = a + b + c;
+        if (sum == 0.0f) {
+            return {};
+        }
+        return barycentrics{a / sum, b / sum, c / sum};
+    }
+
+    /// @brief interpolate a float2 attribute at @p weights
+    [[nodiscard]] constexpr std::array<float, 2> interpolate2(barycentrics const& weights, std::array<float, 2> const& a, std::array<float, 2> const& b, std::array<float, 2> const& c) noexcept {
+        return {weights.a * a[0] + weights.b * b[0] + weights.c * c[0], weights.a * a[1] + weights.b * b[1] + weights.c * c[1]};
+    }
+
+    /// @brief interpolate a float3 attribute at @p weights
+    [[nodiscard]] constexpr std::array<float, 3> interpolate3(barycentrics const& weights, std::array<float, 3> const& a, std::array<float, 3> const& b, std::array<float, 3> const& c) noexcept {
+        return {weights.a * a[0] + weights.b * b[0] + weights.c * c[0], weights.a * a[1] + weights.b * b[1] + weights.c * c[1],
+                weights.a * a[2] + weights.b * b[2] + weights.c * c[2]};
+    }
+
 } // namespace deren::engine::visibility

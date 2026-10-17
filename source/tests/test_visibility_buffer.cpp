@@ -172,6 +172,59 @@ namespace {
     }
 } // namespace
 
+namespace {
+    void test_resolve_barycentrics() {
+        std::array<float, 2> const pa{0.0f, 0.0f};
+        std::array<float, 2> const pb{4.0f, 0.0f};
+        std::array<float, 2> const pc{0.0f, 4.0f};
+        auto const close = [](float const a, float const b) { return std::abs(a - b) < 1e-5f; };
+        // the centroid is (1/3, 1/3, 1/3)
+        auto const centre = screen_barycentrics({4.0f / 3.0f, 4.0f / 3.0f}, pa, pb, pc);
+        CHECK(close(centre.a, 1.0f / 3.0f));
+        CHECK(close(centre.b, 1.0f / 3.0f));
+        CHECK(close(centre.c, 1.0f / 3.0f));
+        // a vertex is itself: weight one, the other two zero
+        auto const at_b = screen_barycentrics(pb, pa, pb, pc);
+        CHECK(close(at_b.a, 0.0f));
+        CHECK(close(at_b.b, 1.0f));
+        CHECK(close(at_b.c, 0.0f));
+        // the weights sum to one everywhere (signed, outside included)
+        auto const outside = screen_barycentrics({8.0f, 8.0f}, pa, pb, pc);
+        CHECK(close(outside.a + outside.b + outside.c, 1.0f));
+        // a degenerate triangle is defined as "no triangle", not a division by zero
+        auto const degenerate = screen_barycentrics({1.0f, 1.0f}, pa, pb, {8.0f, 0.0f});
+        CHECK(degenerate.a == 0.0f);
+        CHECK(degenerate.b == 0.0f);
+        CHECK(degenerate.c == 0.0f);
+    }
+
+    void test_resolve_perspective_and_interpolation() {
+        auto const close = [](float const a, float const b) { return std::abs(a - b) < 1e-5f; };
+        barycentrics const centre{1.0f / 3.0f, 1.0f / 3.0f, 1.0f / 3.0f};
+        // equal w: the screen weights ARE the object weights
+        auto const uniform = perspective_correct(centre, 2.0f, 2.0f, 2.0f);
+        CHECK(close(uniform.a, 1.0f / 3.0f));
+        // w = (1, 2, 4): raw ratios (1, 1/2, 1/4) normalized
+        auto const corrected = perspective_correct(centre, 1.0f, 2.0f, 4.0f);
+        CHECK(close(corrected.a, (1.0f / 1.0f) / (1.0f + 0.5f + 0.25f)));
+        CHECK(close(corrected.a + corrected.b + corrected.c, 1.0f));
+        // a zero w collapses to "no weights" rather than inf/NaN
+        auto const collapsed = perspective_correct(centre, 0.0f, 1.0f, 1.0f);
+        CHECK(collapsed.a == 0.0f && collapsed.b == 0.0f && collapsed.c == 0.0f);
+        // interpolation hits the vertex values at the vertices
+        std::array<float, 3> const va{1.0f, 2.0f, 3.0f};
+        std::array<float, 3> const vb{5.0f, 7.0f, 11.0f};
+        std::array<float, 3> const vc{-1.0f, 0.0f, 2.0f};
+        auto const value = interpolate3(barycentrics{0.0f, 1.0f, 0.0f}, va, vb, vc);
+        CHECK(close(value[0], 5.0f));
+        CHECK(close(value[1], 7.0f));
+        CHECK(close(value[2], 11.0f));
+        auto const mid = interpolate2(barycentrics{0.5f, 0.5f, 0.0f}, {2.0f, 4.0f}, {6.0f, 8.0f}, {0.0f, 0.0f});
+        CHECK(close(mid[0], 4.0f));
+        CHECK(close(mid[1], 6.0f));
+    }
+} // namespace
+
 int main() {
     test_id_layout();
     test_id_round_trip();
@@ -180,5 +233,7 @@ int main() {
     test_push_block_layout();
     test_draw_item_builder();
     test_shader_mirror();
+    test_resolve_barycentrics();
+    test_resolve_perspective_and_interpolation();
     return deren::vk_test::finish("test_visibility_buffer");
 }
