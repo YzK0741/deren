@@ -1,5 +1,6 @@
 module;
 #include <array>
+#include <cstdlib>
 #include <memory>
 #include <optional>
 #include <span>
@@ -811,6 +812,35 @@ namespace deren::engine {
         // without this the graph-recorded TAA frame differs (the resolve reprojects against a stale matrix).
         if (this->graph_taa_frame)
             this->collect_stage("taa");
+        // THE GAUSSIAN HDR CAPTURE (moved here from the legacy scene tail when that tail went): a measurement
+        // script asks for the pre-post HDR image of the screenshot frame (`DEREN_GAUSSIAN_HDR_CAPTURE` is the
+        // path, see docs/gaussian_splatting.md). The image is copied out HERE because this is the point where the
+        // frame's HDR exists and its layout is known: the graph just recorded it and left it sampled (the post
+        // chain reads it); on a frame the graph did not record it was the legacy chain's colour attachment. The
+        // readback itself stays the screenshot path's (runtime.readback.cppm), which is why only the copy and the
+        // buffer publication live here.
+        if (this->screenshot_requested && std::getenv("DEREN_GAUSSIAN_HDR_CAPTURE")) {
+            auto* hdr = this->hdr_images[this->current_image_index].get();
+            auto const extent = this->render_extent();
+            rhi::buffer_desc desc;
+            desc.size = static_cast<std::uint64_t>(extent.width) * extent.height * 8u;
+            desc.usage = rhi::buffer_usage::readback_coherent;
+            this->gaussian_hdr_readback = rhi::object_manager<rhi::buffer>{this->rhi_face().create_buffer(desc)};
+            auto const from = rhi::image_use::color_attachment;
+            if (!hdr || !this->gaussian_hdr_readback ||
+                commands->barrier(rhi::image_barrier{.resource = hdr, .from = from, .to = rhi::image_use::transfer_source}) != rhi::error::ok) {
+                deren::utility::log("Gaussian HDR capture: FAIL allocation or entry barrier (hdr={} buffer={} barrier={})", hdr != nullptr, static_cast<bool>(this->gaussian_hdr_readback), static_cast<uint32_t>(hdr != nullptr && this->gaussian_hdr_readback ? commands->barrier(rhi::image_barrier{.resource = hdr, .from = from, .to = rhi::image_use::transfer_source}) : rhi::error::invalid_argument));
+            } else {
+                auto const copied = commands->copy_image_to_buffer(*this->gaussian_hdr_readback, *hdr, {.extent = extent});
+                auto const restored = commands->barrier(rhi::image_barrier{.resource = hdr, .from = rhi::image_use::transfer_source, .to = from});
+                rhi::buffer_barrier const host{.resource = this->gaussian_hdr_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read};
+                auto const published = commands->barrier(rhi::barrier_group{.buffers = std::span{&host, 1}});
+                if (copied != rhi::error::ok || restored != rhi::error::ok || published != rhi::error::ok)
+                    deren::utility::log("Gaussian HDR capture: FAIL copy or publication");
+                else
+                    this->gaussian_hdr_extent = extent;
+            }
+        }
         if (this->main_graph_frame && !this->main_graph_reported) {
             deren::utility::log("main graph: scene geometry -> GBuffer handoff -> deferred LOAD -> post recorded in one graph");
             this->main_graph_reported = true;

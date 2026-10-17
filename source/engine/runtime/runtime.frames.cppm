@@ -3339,27 +3339,6 @@ namespace deren::engine {
                 this->gpu_mark(gpu_mark_id::gaussian_finalize_end);
             }
             this->gpu_mark(gpu_mark_id::gaussian_raster_end);
-            if (this->screenshot_requested && std::getenv("DEREN_GAUSSIAN_HDR_CAPTURE")) {
-                auto* hdr = this->hdr_images[this->current_image_index].get();
-                auto* commands = this->frame_command_buffer().get();
-                auto const extent = this->render_extent();
-                rhi::buffer_desc desc;
-                desc.size = static_cast<std::uint64_t>(extent.width) * extent.height * 8u;
-                desc.usage = rhi::buffer_usage::readback_coherent;
-                this->gaussian_hdr_readback = rhi::object_manager<rhi::buffer>{this->rhi_face().create_buffer(desc)};
-                if (!hdr || !this->gaussian_hdr_readback || commands->barrier(rhi::image_barrier{.resource = hdr, .from = rhi::image_use::color_attachment, .to = rhi::image_use::transfer_source}) != rhi::error::ok) {
-                    deren::utility::log("Gaussian HDR capture: FAIL allocation or entry barrier");
-                } else {
-                    auto const copied = commands->copy_image_to_buffer(*this->gaussian_hdr_readback, *hdr, {.extent = extent});
-                    auto const restored = commands->barrier(rhi::image_barrier{.resource = hdr, .from = rhi::image_use::transfer_source, .to = rhi::image_use::color_attachment});
-                    rhi::buffer_barrier const host{.resource = this->gaussian_hdr_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read};
-                    auto const published = commands->barrier(rhi::barrier_group{.buffers = std::span{&host, 1}});
-                    if (copied != rhi::error::ok || restored != rhi::error::ok || published != rhi::error::ok)
-                        deren::utility::log("Gaussian HDR capture: FAIL copy or publication");
-                    else
-                        this->gaussian_hdr_extent = extent;
-                }
-            }
             this->record_transparent_pass();
 
             // THE TOON CHARACTER STAGE, and its position here is the whole point of it: AFTER the lighting
