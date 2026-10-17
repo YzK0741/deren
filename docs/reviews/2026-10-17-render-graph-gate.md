@@ -768,3 +768,34 @@ lanes (the trace/resolve/history stages are compute work with image outputs - th
 the gaussian compute chain already demonstrated), remove the two exclusions, and only then delete the legacy
 tail segment by segment: the legacy stages are reachable only on frames whose exclusion fires, so each deletion
 becomes provable by a build in which no gate scenario can reach it.
+
+## The remaining blocker in detail: what an acceleration-structure resource kind would take
+
+The retirement of the legacy tail needs exactly one capability the graph does not have: a resource kind for the
+TLAS the ray-traced shadow and MegaLights traces read. This note records what that takes, measured against the
+current code, so the next session starts from the real seam instead of rediscovering it.
+
+1. **A stage vocabulary for ray tracing comes first, not the resource kind.** The graph's `pipeline_stage` is a
+   bit set (vs/fs/cs/color/depth/transfer/vertex-input/draw-indirect/task/mesh - bits 1..512), and
+   `synchronization.hpp` rejects anything above `1023`. The rhi's barrier stages mirror that set, and the
+   backend's `scoped_sync_view::supported_stages()` maps each use to a stage mask it knows. A TLAS read happens in
+   RAYGEN/MISS/CLOSEST-HIT/INTERSECTION stages, none of which is representable today - so an acceleration-structure
+   usage could not state its scope honestly, let alone lower it. The order is therefore: add the ray-tracing stage
+   bits to the graph's and the rhi's stage vocabulary, teach the backend's stage mapping them, then the kind.
+2. **Then the resource kind itself**: `resource_kind::acceleration_structure` plus a (parameterless) shape and
+   range in `types.cppm`, an import/export pair on the builder, and `valid_initial_state`/`valid_scope` cases
+   (an acceleration structure has no layouts; its "state" is a block of usages - the model would need an
+   acceleration-structure usage enum, and the graph's layout vocabulary maps to undefined/general only).
+3. **Then the lowering and the backend barrier**: the rhi's `image_use`/`buffer_use` have no acceleration-structure
+   use, and Vulkan needs an acceleration-structure memory barrier plus the appropriate AS build/write use when
+   the TLAS is rebuilt per frame (the RT shadow path rebuilds it) - that is a backend `scoped_sync_view` change
+   with its own tests, not a declaration.
+4. **Only then the passes**: declare the TLAS read on the shadow producer (the TLAS build is itself a pass with a
+   write use), the RT shadow pass's visibility-image write and its shadow-descriptor read, and the MegaLights
+   trace/resolve/history accesses; add their lanes (the cluster sort and the gaussian compute chain are the shape
+   precedents); remove the two exclusions; and delete the legacy tail segment by segment, each deletion proven by
+   a build in which no gate scenario can reach it.
+
+The alternative decision, if the graph is not the place for those two features: keep them as the documented
+legacy-tail exception and delete only the segments nothing else can reach. That choice belongs to the owner of
+the roadmap, not to this record - both are honest endings, and the difference is the four steps above.
