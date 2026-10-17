@@ -104,6 +104,49 @@ int main() {
             CHECK(load && sampled);
         }
     }
+    {
+        // THE GPU-DRIVEN GEOMETRY INPUTS (adoption stage 2C): the mesh stage reads the meshlet records and this
+        // frame's host-culled run, and ATOMICALLY updates the per-slot statistics counters (InterlockedAdd) -
+        // that is why the statistics carry a read-write declaration instead of joining the read-only bundle.
+        rg::builder graph;
+        rg::geometry::inputs in{};
+        in.color = *graph.import_texture({51, 1}, rg::initial_contents::undefined, "HDR", {}, rg::resource_state{});
+        in.velocity = *graph.import_texture({51, 2}, rg::initial_contents::undefined, "velocity", {}, rg::resource_state{});
+        in.depth = *graph.import_texture({51, 3}, rg::initial_contents::undefined, "depth", {1, 1, rg::texture_aspect::depth}, rg::resource_state{});
+        for (unsigned i = 0; i < 3; ++i)
+            in.surface[i] = *graph.import_texture({51, 4 + i}, rg::initial_contents::undefined, "surface", {}, rg::resource_state{});
+        std::array<rg::buffer_ref, 7> shared_buffers;
+        for (unsigned i = 0; i < shared_buffers.size(); ++i)
+            shared_buffers[i] = *graph.import_buffer({51, 10 + i}, rg::initial_contents::defined, "shared", {64},
+                                                     rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::mesh_shader | rg::pipeline_stage::fragment_shader,
+                                                                        rg::memory_access::read});
+        rg::resource_state const read_state{rg::resource_layout::general, rg::pipeline_stage::mesh_shader, rg::memory_access::read};
+        rg::resource_state const read_write_state{rg::resource_layout::general, rg::pipeline_stage::mesh_shader,
+                                                  rg::memory_access::read | rg::memory_access::write};
+        auto table = *graph.import_buffer({51, 20}, rg::initial_contents::defined, "meshlet table", {64}, read_state);
+        auto culled = *graph.import_buffer({51, 21}, rg::initial_contents::defined, "host-culled meshlets", {64}, read_state);
+        auto stats = *graph.import_buffer({51, 22}, rg::initial_contents::defined, "meshlet statistics", {32}, read_write_state);
+        in.shared = rg::geometry::shared_inputs{shared_buffers[0], shared_buffers[1], shared_buffers[2],
+                                                shared_buffers[3], shared_buffers[4], shared_buffers[5], shared_buffers[6]};
+        in.shared->meshlets = rg::geometry::meshlet_inputs{table, culled, stats};
+        auto drawn = rg::geometry::append(graph, in);
+        CHECK(drawn && graph.export_resource(in.color));
+        auto plan = graph.compile({true});
+        CHECK(plan);
+        if (plan && drawn) {
+            CHECK(plan->passes[drawn->pass.index()].accesses.size() == 16); // six stage writes + seven shared reads + three meshlet inputs
+            auto params = plan->passes[drawn->pass.index()].parameters.get<rg::geometry::parameters>();
+            CHECK(params && params->shared && params->shared->meshlets);
+            bool statistics_read_write = false, table_read = false;
+            for (auto const& access : plan->passes[drawn->pass.index()].accesses) {
+                if (access.resource == stats.index() && access.mode == rg::content_access::read_write)
+                    statistics_read_write = true;
+                if (access.resource == table.index() && access.mode == rg::content_access::read)
+                    table_read = true;
+            }
+            CHECK(statistics_read_write && table_read);
+        }
+    }
     rg::builder aliases;
     auto ref = *aliases.import_texture({2, 1}, rg::initial_contents::defined, "alias", {}, rg::resource_state{rg::resource_layout::shader_read_only, rg::pipeline_stage::fragment_shader, rg::memory_access::read});
     CHECK(!lighting::append(aliases, {ref, {ref, ref, ref}, ref}));

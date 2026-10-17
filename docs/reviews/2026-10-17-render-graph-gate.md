@@ -203,6 +203,46 @@ Taking it over needs one of two real changes, both bigger than a declaration:
 Consequence: stage 2 proceeds with the declaration work, and the two barriers remain a tracked
 out-of-model exception.
 
+## Stage 2C: the GPU-driven geometry inputs are declared
+
+The shared-read-only bundle covered only the eight scene buffers. The mesh stage's own inputs stayed
+undeclared: the meshlet records it reads, this frame slot's host-culled run, and - the review's explicit
+item - the statistics counters it updates with `InterlockedAdd`. They are now part of the geometry
+pass's declaration:
+
+- `geometry::shared_inputs` grew an optional `meshlet_inputs{table, culled, statistics}`, declared as
+  `buffer_read` {storage, mesh_shader} for the two tables and `buffer_read_write` {storage,
+  mesh_shader} for the statistics. The buffers themselves stay owned by the scene-tables producer and
+  are still created outside the graph - what changed is that the graph now knows the pass touches them,
+  so it owns their ordering instead of leaving them invisible.
+- the runtime's `shared_imports` table gained an explicit access column, so the read-write counter buffer
+  cannot be smuggled into the read-only bundle: it is imported with a read-write prior state
+  (`{general, mesh_shader, read | write}`), the two tables with a read prior state. Import indices follow
+  `pass::scene_tables_pass::ids`: 5 = meshlet table, 7 = statistics, 8 = host-culled table.
+
+Evidence:
+
+- `test_render_graph_lighting` now composes the geometry pass with the meshlet inputs and asserts the
+  pass's 16 accesses (six stage writes + seven shared reads + three meshlet inputs), the presence of the
+  declared group in the compiled parameters, and - by mode - that the statistics are `read_write` while
+  the table is `read`. 30 checks, 0 failed.
+- CTest 44/44.
+- The gate round with the graph on is byte-identical to the same-session legacy round for all fourteen
+  scenarios (`matched 14, mismatched 0`), and the validation screening over the fourteen debug logs
+  reports zero findings - so the newly declared atomic writes are ordered by the graph's plan without
+  tripping synchronization validation.
+
+What this deliberately does not cover (the remaining declaration items):
+
+- **indirect commands**: the mesh draws consume a host-written command buffer at the `draw_indirect`
+  stage, which needs the indirect usage declared rather than a storage read - a separate increment;
+- **per-mesh addresses** and **material textures/IBL**: descriptor-heap bindings, not buffers of this
+  bundle;
+- **cluster producers**: the cluster/culling work still runs outside the graph;
+- the statistics declaration covers the whole buffer even though the shader addresses one slot's stride;
+  a byte-range declaration of just this slot's counters would be more precise and is a possible
+  follow-up (the whole-buffer read-write is conservative and correct, not minimal).
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the

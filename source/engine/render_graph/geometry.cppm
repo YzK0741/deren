@@ -6,13 +6,30 @@ module;
 export module deren.engine.render_graph.geometry;
 export import deren.engine.render_graph;
 export namespace deren::engine::render_graph::geometry {
+    /// The GPU-driven geometry inputs (adoption stage 2C): the mesh stage reads the meshlet records and this
+    /// frame slot's host-culled run as storage buffers, and it ATOMICALLY updates the per-slot statistics -
+    /// `InterlockedAdd` on the stats stride - which is why the statistics cannot join the read-only bundle.
+    struct meshlet_inputs {
+        buffer_ref table;
+        buffer_ref culled;
+        buffer_ref statistics;
+    };
     struct shared_inputs {
         buffer_ref camera, materials, instances, previous_transforms, skin, previous_skin, morph;
+        std::optional<meshlet_inputs> meshlets = {};
+    };
+    struct meshlet_parameters {
+        buffer_read table, culled;
+        buffer_read_write statistics;
+        void visit_resources(parameter_visitor& visit) const noexcept {
+            visit(table, culled, statistics);
+        }
     };
     struct shared_parameters {
         buffer_read camera, materials, instances, previous_transforms, skin, previous_skin, morph;
+        std::optional<meshlet_parameters> meshlets = {};
         void visit_resources(parameter_visitor& visit) const noexcept {
-            visit(camera, materials, instances, previous_transforms, skin, previous_skin, morph);
+            visit(camera, materials, instances, previous_transforms, skin, previous_skin, morph, meshlets);
         }
     };
     struct inputs {
@@ -58,6 +75,10 @@ export namespace deren::engine::render_graph::geometry {
                 {in.shared->skin, {}, mesh},
                 {in.shared->previous_skin, {}, mesh},
                 {in.shared->morph, {}, mesh}};
+            if (in.shared->meshlets)
+                params.shared->meshlets = meshlet_parameters{{in.shared->meshlets->table, {}, mesh},
+                                                             {in.shared->meshlets->culled, {}, mesh},
+                                                             {in.shared->meshlets->statistics, {}, mesh}};
         }
         auto added = graph.add_pass("scene geometry", std::move(params));
         if (!added)

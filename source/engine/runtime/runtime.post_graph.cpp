@@ -206,18 +206,29 @@ namespace deren::engine {
                 size_t instance;
                 rhi::buffer* expected;
                 graph::pipeline_stage stages;
+                // THE ACCESS THE IMPORT REPORTS AS ITS PRIOR STATE, and the one that has to differ: the mesh
+                // stage's statistics counters are ATOMICALLY read-modify-written (InterlockedAdd), so that
+                // buffer is imported as read-write - it cannot join the read-only bundle.
+                graph::memory_access access;
                 std::string_view name;
             };
             std::array shared_imports{
-                shared_import{&this->camera_resource_view, id::camera_ubo, slot, this->camera_buffers[slot].get(), mesh | fragment, "scene camera"},
-                shared_import{&this->scene_table_resource_views[0], id::material_table, 0, this->material_buffer.get(), fragment, "scene materials"},
-                shared_import{&this->scene_table_resource_views[1], id::instance_table, 0, this->instance_buffer.get(), mesh, "scene instances"},
-                shared_import{&this->deformation_resource_views[0], id::motion_vectors, slot, this->motion_buffers[slot].get(), mesh, "previous transforms"},
-                shared_import{&this->deformation_resource_views[1], id::skin_matrices, slot, this->skin_buffers[slot].get(), mesh, "skin matrices"},
-                shared_import{&this->deformation_resource_views[2], id::skin_matrices_previous, slot, this->skin_buffers_previous[slot].get(), mesh, "previous skin matrices"},
-                shared_import{&this->deformation_resource_views[3], id::morph_targets, slot, this->morph_buffers[slot].get(), mesh, "morph data"},
-                shared_import{&this->light_resource_view, id::light_ubo, slot, this->light_buffers[slot].get(), fragment, "scene light"}};
-            std::array<graph::buffer_ref, 8> shared_refs;
+                shared_import{&this->camera_resource_view, id::camera_ubo, slot, this->camera_buffers[slot].get(), mesh | fragment, graph::memory_access::read, "scene camera"},
+                shared_import{&this->scene_table_resource_views[0], id::material_table, 0, this->material_buffer.get(), fragment, graph::memory_access::read, "scene materials"},
+                shared_import{&this->scene_table_resource_views[1], id::instance_table, 0, this->instance_buffer.get(), mesh, graph::memory_access::read, "scene instances"},
+                shared_import{&this->deformation_resource_views[0], id::motion_vectors, slot, this->motion_buffers[slot].get(), mesh, graph::memory_access::read, "previous transforms"},
+                shared_import{&this->deformation_resource_views[1], id::skin_matrices, slot, this->skin_buffers[slot].get(), mesh, graph::memory_access::read, "skin matrices"},
+                shared_import{&this->deformation_resource_views[2], id::skin_matrices_previous, slot, this->skin_buffers_previous[slot].get(), mesh, graph::memory_access::read, "previous skin matrices"},
+                shared_import{&this->deformation_resource_views[3], id::morph_targets, slot, this->morph_buffers[slot].get(), mesh, graph::memory_access::read, "morph data"},
+                shared_import{&this->light_resource_view, id::light_ubo, slot, this->light_buffers[slot].get(), fragment, graph::memory_access::read, "scene light"},
+                // The GPU-driven geometry inputs: the meshlet records, this slot's host-culled run (both plain
+                // storage reads) and this slot's atomic statistics counters (read-write). The indices into
+                // scene_table_resource_views follow pass::scene_tables_pass::ids.
+                shared_import{&this->scene_table_resource_views[5], id::meshlet_table, 0, this->meshlet_buffer.get(), mesh, graph::memory_access::read, "meshlet table"},
+                shared_import{&this->scene_table_resource_views[8], id::meshlet_culled_table, 0, this->meshlet_culled_buffer.get(), mesh, graph::memory_access::read, "host-culled meshlets"},
+                shared_import{&this->scene_table_resource_views[7], id::meshlet_statistics, 0, this->meshlet_stats_buffer.get(), mesh,
+                              graph::memory_access::read | graph::memory_access::write, "meshlet statistics"}};
+            std::array<graph::buffer_ref, 11> shared_refs;
             for (unsigned i = 0; i < shared_imports.size(); ++i) {
                 auto const& entry = shared_imports[i];
                 auto generation = entry.resources->find(entry.resource);
@@ -227,12 +238,13 @@ namespace deren::engine {
                 if (!buffer || buffer != entry.expected)
                     return rhi::error::invalid_argument;
                 auto retained_buffer = resource_lease<rhi::buffer>::from_shared(this->core_owner, std::shared_ptr<rhi::buffer>{std::move(generation), buffer});
-                auto imported = build.import_buffer(retained_buffer, {graph::initial_contents::defined, {graph::resource_layout::general, entry.stages, graph::memory_access::read}}, entry.name);
+                auto imported = build.import_buffer(retained_buffer, {graph::initial_contents::defined, {graph::resource_layout::general, entry.stages, entry.access}}, entry.name);
                 if (!imported)
                     return post_build_error(imported.error());
                 shared_refs[i] = *imported;
             }
             graph::geometry::shared_inputs shared_geometry{shared_refs[0], shared_refs[1], shared_refs[2], shared_refs[3], shared_refs[4], shared_refs[5], shared_refs[6]};
+            shared_geometry.meshlets = graph::geometry::meshlet_inputs{shared_refs[8], shared_refs[9], shared_refs[10]};
             lighting_inputs.shared = graph::lighting::shared_inputs{shared_refs[0], shared_refs[7]};
             auto geometry = build.append([&](graph::builder& description) noexcept {
                 return graph::geometry::append(description, {inputs.hdr, lighting_inputs.surface, *velocity_ref, *depth_ref, shared_geometry});
