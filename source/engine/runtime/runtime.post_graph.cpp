@@ -594,6 +594,11 @@ namespace deren::engine {
             if (hand_back != rhi::error::ok)
                 return hand_back;
         }
+        // THE TAA STAGE'S COLLECTED RESULT: the legacy tail collects it after its own TAA stage, and a written history
+        // is what publishes this frame's UNJITTERED view-projection for the NEXT frame's reprojection. Measured:
+        // without this the graph-recorded TAA frame differs (the resolve reprojects against a stale matrix).
+        if (this->graph_taa_frame)
+            this->collect_stage("taa");
         if (this->main_graph_frame && !this->main_graph_reported) {
             deren::utility::log("main graph: scene geometry -> GBuffer handoff -> deferred LOAD -> post recorded in one graph");
             this->main_graph_reported = true;

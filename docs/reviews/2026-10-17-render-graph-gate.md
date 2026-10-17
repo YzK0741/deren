@@ -452,6 +452,25 @@ Nothing changed behaviourally: CTest 44/44, and `deferred`/`deferred_taa_fxaa` k
 The next step - the one that makes it live - is removing `taa_active()` from `main_graph_candidate()` and
 gating on the real thing.
 
+That flip was attempted and REVERTED, with a precise bisection that is the whole answer to "how far it got":
+
+- 1 frame: byte-identical between the paths;
+- 2 frames: byte-identical;
+- 3 frames: DIFFERENT - and with the harness's image rotation, frame 3 is the first frame whose per-image
+  HISTORY is valid (frame 1 writes image 0's history through the copy, frame 2 image 1's, frame 3 reuses
+  image 0).
+
+So the resolve, the working-image switch, the history copy, the runtime hand-back and the collected result
+are all correct WITHIN a frame; the defect is in the CROSS-FRAME history/reprojection chain - either the
+history contents a frame writes, or the previous-view-projection publication that feeds the next reprojection
+of that image. The `collect_stage("taa")` call the legacy tail makes for exactly that publication is now wired
+into the graph path as well (it publishes `view_proj_unjittered` into `image_view_proj` when the history was
+written), and it was measured NOT to change the divergence - so the next measurement is a direct comparison of
+the history image's contents after one frame in both paths, and of the per-image `image_view_proj` values.
+
+The predicate keeps `!taa_active()` until that is explained. Everything else of the wiring stays in place and
+dormant (the collection call included - it is what the live path will need).
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the
