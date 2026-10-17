@@ -831,6 +831,11 @@ namespace deren::engine {
             return; // no frame is open (see begin_recording): there is nothing to record into
         }
         uint32_t const frame_slot = this->frame_ring().position();
+        // FREEZE THE GRAPH FRAME'S ELIGIBILITY HERE, before the first recording decision that depends on it: the
+        // cluster sort is recorded by the composed graph on an eligible frame and by the legacy stage otherwise,
+        // and that decision comes before record_scene() (which used to be the only place the predicate ran).
+        // Every later reader - record_scene(), the fallback log - uses this frozen value.
+        this->main_graph_frame = this->main_graph_candidate();
 
         // Debug and unlit frames can skip the entire deferred stage; they must not retain its history.
         this->megalights_resolved = false;
@@ -1081,12 +1086,15 @@ namespace deren::engine {
     void runtime::run_shadow_tasks(void* const owner, std::span<std::function<void()>> const tasks) {
         static_cast<runtime*>(owner)->run_tasks(tasks, deren::engine::task_priority::recording);
     }
-    void runtime::record_scene() {
+    bool runtime::main_graph_candidate() const noexcept {
         auto const features = this->active_features();
-        this->main_graph_frame = this->main_graph_enabled && this->deferred_lit_active() &&
-                                 !this->taa_active() && !features.rt_shadow && !this->megalights_active() &&
-                                 !this->gaussian_active() && !features.transparent && !this->feature_active("character_forward") &&
-                                 !this->feature_active("toon_screen_rim") && !this->feature_active("goo_rim");
+        return this->main_graph_enabled && this->deferred_lit_active() &&
+               !this->taa_active() && !features.rt_shadow && !this->megalights_active() &&
+               !this->gaussian_active() && !features.transparent && !this->feature_active("character_forward") &&
+               !this->feature_active("toon_screen_rim") && !this->feature_active("goo_rim");
+    }
+    void runtime::record_scene() {
+        // Eligibility was frozen at the top of record_main_drawcalls() - see main_graph_candidate()'s note.
         if (this->main_graph_frame)
             return; // The composed graph records the producer and its attachment barriers.
         this->record_scene_attachments();

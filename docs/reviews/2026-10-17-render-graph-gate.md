@@ -322,6 +322,14 @@ lighting pass, and the sort earlier in the execution order (36 checks, 0 failed)
 adapter from the runtime yet, so no rendering behaviour changed (deferred and sponza keep their hashes);
 the runtime wiring is the next increment.
 
+The first runtime half followed: the eligibility predicate moved into `main_graph_candidate()` and is now
+frozen at the TOP of `record_main_drawcalls()`, before the cluster sort's owner is decided - `record_scene()`
+and the fallback log read the frozen value instead of recomputing it. The gate round after the move is
+byte-identical for all fourteen scenarios (matched 14, mismatched 0), validation-clean, and the
+per-scenario graph/legacy inventory is unchanged - so the earlier freeze changed the ordering of the
+decision, not its value. What remains for the cluster producer is the wiring itself: import the two
+per-slot snapshots, append the sort as graph lane 8, and bind its recorder.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the

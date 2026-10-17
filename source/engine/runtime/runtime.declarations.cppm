@@ -2912,6 +2912,17 @@ namespace deren::engine {
         void record_scene();
 
         /**
+         * @brief whether THIS frame's feature set lets the composed graph record the scene path
+         * @note The predicate is one expression over live state (`deferred_lit_active()`, `taa_active()`, the
+         *       feature facts and the toggles). It is evaluated ONCE per frame, at the top of
+         *       `record_main_drawcalls()`, and stored in `main_graph_frame`: the first recording decision that
+         *       depends on it is the cluster sort's owner (the composed graph or the legacy stage), which is
+         *       recorded before `record_scene()` runs. Every later reader uses the frozen value - a frame's
+         *       features cannot change mid-recording.
+         */
+        [[nodiscard]] bool main_graph_candidate() const noexcept;
+
+        /**
          * @ingroup runtime
          * @brief record the transparent pass into @p command_buffer: the alpha-blended leaves, shaded
          *        while they draw and blended over the image the lighting stage just wrote,
