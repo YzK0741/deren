@@ -1111,14 +1111,14 @@ namespace deren::engine {
         static_cast<runtime*>(owner)->run_tasks(tasks, deren::engine::task_priority::recording);
     }
     bool runtime::main_graph_candidate() const noexcept {
-        // TAA is the one exclusion the wiring is READY for (stage 2I: two lanes, working-image switch, history
-        // hand-back, collected result) but NOT enabled by: with the flip, a single frame and the first two frames
-        // are byte-identical to the legacy path and every frame from the first VALID-HISTORY one diverges - so the
-        // remaining defect is in the cross-frame history/reprojection chain, and the flip waits for it. See the
-        // review's stage 2I for the bisection.
+        // TAA is no longer an exclusion (adoption stage 2I): the composed graph records its resolve and history copy
+        // as two lanes, writes the resolve's WORKING image from geometry and lighting, and keeps the history copy
+        // alive by exporting the history image - without that export the value-root culling dropped the copy and the
+        // history was never written (that was the flip's whole defect). The exclusions that remain are the paths
+        // whose PASSES are still outside the graph.
         auto const features = this->active_features();
         return this->main_graph_enabled && this->deferred_lit_active() &&
-               !this->taa_active() && !features.rt_shadow && !this->megalights_active() &&
+               !features.rt_shadow && !this->megalights_active() &&
                !this->gaussian_active() && !features.transparent && !this->feature_active("character_forward") &&
                !this->feature_active("toon_screen_rim") && !this->feature_active("goo_rim");
     }

@@ -146,6 +146,19 @@ namespace deren::engine {
             auto taa_history_lease = retain(7, graph::invalid_index, history_state);
             if (!taa_history_lease || !this->output_resource_views[7].find(ids[7]))
                 return rhi::error::not_ready;
+            // THE HISTORY'S FIRST USE: the graph can only import "defined contents in a KNOWN layout", and a history
+            // image that no path has transitioned yet is still in UNDEFINED - so the runtime performs the one
+            // transition the legacy pass performs for itself, keeping the invariant every frame relies on: the
+            // history is SAMPLED whenever the graph starts. (After this, the post-record hand-back keeps it so.)
+            if (index >= this->taa_history_initialized.size() || !this->taa_history_initialized[index]) {
+                auto const first_use = commands->barrier(rhi::image_barrier{.resource = taa_history_lease.get(),
+                                                                            .from = rhi::image_use::undefined,
+                                                                            .to = rhi::image_use::shader_read,
+                                                                            .range = {}});
+                if (first_use != rhi::error::ok)
+                    return first_use;
+                this->taa_history_initialized[index] = true;
+            }
             graph::resource_state const history_prior{graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read};
             auto taa_history_ref = build.import_texture(taa_history_lease, {graph::initial_contents::defined, history_prior}, "TAA history");
             if (!taa_history_ref)
@@ -153,6 +166,11 @@ namespace deren::engine {
             taa_history = *taa_history_ref;
             taa_history_image = taa_history_lease.get();
         }
+        // A LEGACY TAA frame transitions the history for itself (its first-use barrier) and leaves it sampled by its
+        // own hand-back: record that too, so a later graph frame imports a KNOWN layout instead of re-issuing the
+        // first-use transition on an image that is no longer UNDEFINED.
+        if (this->taa_active() && index < this->taa_history_initialized.size())
+            this->taa_history_initialized[index] = true;
         for (unsigned i = 0; i < 4; ++i) {
             auto level = retain(9 + i, i, level_states[i]);
             if (!level || level.get() != this->bloom_images[i][index].get())
@@ -515,6 +533,12 @@ namespace deren::engine {
                 });
                 if (!copy_added)
                     return post_build_error(copy_added.error());
+                // THE COPY MUST BE LIVE, and that is not automatic: its only output is the history image, which no
+                // pass in THIS frame reads - the value-root culling would drop the pass and the history would never
+                // be written (measured: the graph path then behaved as if every frame were a first frame). Exporting
+                // the history is what keeps the pass in the plan; the next frame's resolve is its consumer.
+                if (auto exported = build.export_resource(*taa_history); !exported)
+                    return post_build_error(exported.error());
                 auto copy_bound = build.bind_pass<graph::taa::copy_parameters>(
                     copy_added->pass, [payload](graph::taa::copy_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
                         return static_cast<pass::taa_pass*>(payload->passes[11])->record_copy(payload->ios[11]);

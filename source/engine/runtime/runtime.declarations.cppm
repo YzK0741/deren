@@ -1535,6 +1535,11 @@ namespace deren::engine {
         bool graph_shadow_frame = false;
         // Whether THIS frame's TAA resolve (and its history copy) is recorded by the composed graph.
         bool graph_taa_frame = false;
+        // Per swapchain image: whether the TAA history image has been transitioned to sampled at least once (by
+        // either path). The graph can only import "defined contents in a KNOWN layout", so its first use of a
+        // history image needs the one transition the legacy pass issues for itself - and the invariant every frame
+        // relies on is that the history is sampled whenever the graph starts.
+        deren::utility::vessel::vector<bool> taa_history_initialized = {};
         bool main_graph_reported = false, main_graph_fallback_reported = false;
         resource_lease<rhi::image> post_graph_output;
         bool bloom_graph_pending = false;
