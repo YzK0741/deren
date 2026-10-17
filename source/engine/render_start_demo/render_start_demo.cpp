@@ -18,6 +18,7 @@ module;
 module deren.engine.render_start_demo;
 
 import deren.utility;
+import deren.engine.pass.visibility_raster; // the visibility buffer's raster pass
 
 namespace deren::engine {
 
@@ -34,6 +35,7 @@ namespace deren::engine {
         this->chain.emplace<pass::output_targets_pass>();
         this->chain.emplace<pass::gbuffer_debug_pass>();
         this->chain.emplace<pass::shadow_pass>();
+        this->chain.emplace<pass::visibility_raster_pass>();
         this->chain.emplace<pass::scene_pass>();
         this->chain.emplace<pass::transparent_pass>();
         // ... AND THE GAUSSIAN SPLAT CLOUD, whose create step only builds its pipeline (it owns no descriptor

@@ -977,6 +977,9 @@ namespace deren::engine {
         // called scene_pass, not scene_stage: the local of that name in
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         deren::utility::vessel::array<pass::frame_pass*, 1> scene_pass = {};
+        /// the visibility buffer's raster pass (bound by declaration name; null when the chain has none)
+        deren::utility::vessel::array<pass::frame_pass*, 1> visibility_pass = {};
+        pass::visibility_raster_pass* visibility_raster = nullptr;
         /// THE TRANSPARENT PASS (deren.engine.pass.transparent): the same scene, its own LOAD instance, after lighting
         // called transparent_pass, not transparent_stage: the local of that name in
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
@@ -1331,7 +1334,10 @@ namespace deren::engine {
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> velocity_image_views = {};
         /// the visibility buffer (V0.1b): per swapchain image, the id the raster wrote and the resolve samples
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> visibility_images = {};
+        /// the capture-only step's OWN depth image: two depth writers on one frame were order-dependent (measured)
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> visibility_depth_images = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> visibility_image_views = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> visibility_depth_image_views = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> scene_color_images = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> scene_color_image_views = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> gbuffer_depth_images = {};

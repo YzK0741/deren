@@ -18,6 +18,7 @@ import deren.engine.render_graph.transparent;
 import deren.engine.render_graph.character;
 import deren.engine.render_graph.rt_shadow;
 import deren.engine.render_graph.gaussian;
+import deren.engine.render_graph.visibility;
 import deren.engine.pass.transparent;
 import deren.engine.pass.taa;
 import deren.engine.pass;
@@ -387,8 +388,12 @@ namespace deren::engine {
                 // The mesh draws are indirect records: the command buffer is consumed at the DRAW-INDIRECT stage,
                 // so its import reports the draw-indirect stage instead of the mesh stage.
                 shared_import{&this->scene_table_resource_views[6], id::mesh_indirect_commands, 0, this->mesh_indirect_buffer.get(),
-                              graph::pipeline_stage::draw_indirect, graph::memory_access::read, "mesh indirect commands"}};
-            std::array<graph::buffer_ref, 12> shared_refs;
+                              graph::pipeline_stage::draw_indirect, graph::memory_access::read, "mesh indirect commands"},
+                // THE VISIBILITY ITEM TABLE (v0.2b): the raster lane declares it as a read so the table's
+                // producer/consumer dependency is the graph's
+                shared_import{&this->scene_table_resource_views[9], id::visibility_items, 0, this->visibility_items_buffer.get(), mesh,
+                              graph::memory_access::read, "visibility items"}};
+            std::array<graph::buffer_ref, 13> shared_refs;
             for (unsigned i = 0; i < shared_imports.size(); ++i) {
                 auto const& entry = shared_imports[i];
                 auto generation = entry.resources->find(entry.resource);
@@ -483,6 +488,61 @@ namespace deren::engine {
                     shadow_added->pass, [payload](graph::shadow::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(9); });
                 if (!shadow_bound)
                     return post_build_error(shadow_bound.error());
+            }
+            // ---- THE VISIBILITY BUFFER'S RASTER LANE (visibility-buffer v0.3b-3b) ----------------------
+            // CAPTURE ONLY: it runs BESIDE the old geometry lane and writes ONLY its own two images (the id
+            // target and a capture-owned depth), so no pass shares a writer with it - which is what makes the
+            // frame deterministic (the shared-depth attempt was measured to be order-dependent and reverted).
+            // The G-buffer lane still produces the real frame; the resolve pass that consumes these ids is V0.4.
+            bool const visibility_candidate = this->visibility_raster != nullptr && this->visibility_raster->has_pipeline() && this->visibility_item_candidate();
+            if (!visibility_candidate && this->visibility_raster != nullptr && this->visibility_raster->has_pipeline()) {
+                static bool not_admitted_logged = false;
+                if (!not_admitted_logged) {
+                    not_admitted_logged = true;
+                    deren::utility::log("visibility capture: frame NOT admitted (custom pipeline/instancing/skin/morph or no meshlet run) - the old path alone records it");
+                }
+            }
+            if (visibility_candidate) {
+                graph::resource_state visibility_id_state{};
+                auto visibility_lease = retain(14, graph::invalid_index, visibility_id_state);
+                graph::resource_state visibility_depth_state{};
+                auto depth_lease = retain(15, graph::invalid_index, visibility_depth_state);
+                if (!visibility_lease || visibility_lease.get() != this->visibility_images[index].get() || !depth_lease ||
+                    depth_lease.get() != this->visibility_depth_images[index].get()) {
+                    return rhi::error::not_ready;
+                }
+                auto visibility_ref = build.import_texture(visibility_lease, {graph::initial_contents::undefined, {}}, "visibility buffer");
+                if (!visibility_ref) {
+                    return post_build_error(visibility_ref.error());
+                }
+                auto capture_depth_ref = build.import_texture(depth_lease, {graph::initial_contents::undefined, {}}, "visibility capture depth");
+                if (!capture_depth_ref) {
+                    return post_build_error(capture_depth_ref.error());
+                }
+                graph::visibility::inputs visibility_inputs{*visibility_ref, *capture_depth_ref};
+                visibility_inputs.shared = graph::visibility::shared_inputs{shared_refs[0], shared_refs[8], shared_refs[12], shared_refs[11]};
+                auto visibility_added = build.append([&](graph::builder& description) noexcept {
+                    return graph::visibility::append(description, visibility_inputs);
+                });
+                if (!visibility_added) {
+                    return post_build_error(visibility_added.error());
+                }
+                pass::stage visibility_stage{.name = "visibility raster", .passes = this->visibility_pass};
+                this->prepare_stage(visibility_stage);
+                passes[3] = this->visibility_pass[0];
+                ios[3].push_block = host.push_block;
+                if (!passes[3] || !host.resolve || !host.resolve(host.context, *passes[3], ios[3]) || ios[3].list != commands.get() ||
+                    ios[3].targets.size() != 2) {
+                    return rhi::error::not_ready;
+                }
+                this->visibility_raster->set_frame(this->make_visibility_frame());
+                auto visibility_bound = build.bind_pass<graph::visibility::parameters>(
+                    visibility_added->pass, [payload](graph::visibility::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                        return payload->record(3);
+                    });
+                if (!visibility_bound) {
+                    return post_build_error(visibility_bound.error());
+                }
             }
             auto geometry = build.append([&](graph::builder& description) noexcept {
                 return graph::geometry::append(description, {scene_target, lighting_inputs.surface, *velocity_ref, *depth_ref, shared_geometry});

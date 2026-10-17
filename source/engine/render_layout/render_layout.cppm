@@ -344,6 +344,9 @@ export namespace deren::engine::render_layout {
          *       place would renumber every array after it.
          */
         static constexpr uint32_t visibility = heap_slot_base + 719u;
+        /// the capture-only step's own depth image (727..734): NOT sampled by any shader, but the managed-output
+        /// adoption path writes a sampled descriptor for every family, so it owns a slot like the rest
+        static constexpr uint32_t visibility_depth = heap_slot_base + 727u;
     };
 
     // ================================================================================================

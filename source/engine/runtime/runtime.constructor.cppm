@@ -1571,6 +1571,7 @@ namespace deren::engine {
                 adopt(9 + level, this->bloom_images[level], this->bloom_image_views[level]);
             adopt(13, this->rt_shadow_images, this->rt_shadow_image_views);
             adopt(14, this->visibility_images, this->visibility_image_views);
+            adopt(15, this->visibility_depth_images, this->visibility_depth_image_views);
             this->reset_image_generation_state();
         }
         this->output_resource_views = output_views;

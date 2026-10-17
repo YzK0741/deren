@@ -1875,6 +1875,10 @@ namespace deren::engine {
         // consulted by `resolve_declaration` for own per-swapchain-image bindings alone. `find()` is what
         // every one of those sites uses, and it answers exactly what the family form answered.
         owned_family(render_resource::resource_id::hdr, 0, this->hdr_images, this->hdr_image_views);
+        // THE VISIBILITY BUFFER AND ITS CAPTURE-ONLY DEPTH (visibility-buffer v0.3b): the raster pass names both as
+        // render TARGETS, so the table has to carry the current image or the declaration cannot resolve.
+        owned_family(render_resource::resource_id::visibility_buffer, 0, this->visibility_images, this->visibility_image_views);
+        owned_family(render_resource::resource_id::visibility_depth, 0, this->visibility_depth_images, this->visibility_depth_image_views);
         owned_family(render_resource::resource_id::ldr, 0, this->ldr_images, this->ldr_image_views);
         // THE G-BUFFER CLUSTER IS THE ENGINE'S OWN (③-D/E A1.4), published the same way and for the same
         // reason: NO FAMILY-SPAN CONSUMER. `gbuffer_depth` and `velocity` ARE `own` per-image bindings of the
@@ -2618,6 +2622,8 @@ namespace deren::engine {
         auto const at = [&chain](std::string_view const name) -> pass::frame_pass* { return chain.find(name); };
         this->cluster_pass = {at("cluster")};
         this->shadow_pass = {at("shadow")};
+        this->visibility_pass = {at("visibility raster")};
+        this->visibility_raster = static_cast<pass::visibility_raster_pass*>(at("visibility raster"));
         this->scene_pass = {at("scene")};
         this->transparent_pass = {at("transparent")};
         this->gaussian_pass = {at("gaussian")};

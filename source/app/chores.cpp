@@ -194,6 +194,9 @@ namespace deren::chores {
             deren::utility::vessel::vector<uint8_t> visibility_fragment_code;
             load_shader(shaders_dir, "visibility.mesh.spv", visibility_mesh_code);
             load_shader(shaders_dir, "visibility.frag.spv", visibility_fragment_code);
+            // the pass fetches the same two modules through `pass_context::shader`, so they must be REGISTERED
+            runtime.register_shader("visibility.mesh.spv", visibility_mesh_code);
+            runtime.register_shader("visibility.frag.spv", visibility_fragment_code);
             std::expected<void, deren::utility::vessel::string> const built = runtime.make_visibility_pipeline(visibility_mesh_code, visibility_fragment_code);
             if (!built) {
                 deren::utility::panic(std::source_location::current(), "failed to create the visibility pipeline: {}", built.error());

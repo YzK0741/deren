@@ -68,7 +68,7 @@ export namespace deren::engine::pass {
     /// the declaration's two attachments: the id target (colour) and the shared depth image
     inline constexpr std::array<render_resource::render_target, 2> visibility_raster_targets = {{
         {.resource = render_resource::resource_id::visibility_buffer, .kind = render_resource::target_kind::color},
-        {.resource = render_resource::resource_id::gbuffer_depth, .kind = render_resource::target_kind::depth},
+        {.resource = render_resource::resource_id::visibility_depth, .kind = render_resource::target_kind::depth},
     }};
 
     inline constinit render_resource::pass_io const visibility_raster_io = {

@@ -91,6 +91,8 @@ export namespace deren::engine::render_resource {
         // the visibility buffer: one R32_UINT packed id per pixel of the main view's opaque geometry,
         // written by the visibility raster pass and read by the resolve pass (one per swapchain image)
         visibility_buffer,
+        // the capture-only step's own depth image: the raster lane must not share the G-buffer's depth writer
+        visibility_depth,
         // ---- one per frame slot ----
         shadow_map,
         rt_shadow_visibility,
@@ -246,6 +248,7 @@ export namespace deren::engine::render_resource {
         {.id = resource_id::taa_history, .name = "taa_history", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::persistent},
         // the ONE channel is the whole payload: an unsigned id, not a colour (see deren.engine.visibility)
         {.id = resource_id::visibility_buffer, .name = "visibility_buffer", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::visibility_depth, .name = "visibility_depth", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
         // FOUR LAYERS, not one: the runtime creates the shadow map as ONE layered image (`max_shadow_cascades` layers, one per cascade, plus the spare layers a shrank count leaves behind - see create_shadow_resources), and the shadow pass renders into them one at a time. The count was 1 (the default) until that pass was declared, which made `element = cascade` illegal for every cascade but the first - the same correction the bloom family needed, and the validator`s element check is what says so.
         {.id = resource_id::shadow_map, .name = "shadow_map", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame, .count = 4},
         {.id = resource_id::rt_shadow_visibility, .name = "rt_shadow_visibility", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
