@@ -77,6 +77,8 @@ scene/pbr.slang:main:fragment:pbr.frag.spv
 scene/pbr.slang:mesh_main:mesh:pbr.mesh.spv
 scene/pbr.slang:meshlet_main:mesh:pbr.meshlet.spv
 scene/pbr.slang:outline_mesh_main:mesh:outline.mesh.spv
+"scene/visibility.slang:mesh_main:mesh:visibility.mesh.spv",
+"scene/visibility.slang:main:fragment:visibility.frag.spv",
 toon/outline.slang:frag_main:fragment:outline.frag.spv
 lighting/shadow.slang:main:fragment:shadow.frag.spv
 lighting/shadow.slang:mesh_main:mesh:shadow.mesh.spv

@@ -2153,6 +2153,12 @@ set(VR_SLANG_SOURCES
     # the SAME FILE because the hull has to be skinned, morphed and placed by the same body as the surface it
     # outlines - a second copy of that body is how an outline detaches from a deforming character.
     scene/pbr.slang:outline_mesh_main:mesh:outline.mesh.spv
+    # visibility.slang is THE VISIBILITY BUFFER's two stages (visibility-buffer v0.3): the mesh entry
+    # rasterizes triangles and carries ONE FLAT PACKED ID per triangle, the fragment writes it into the
+    # R32_UINT visibility target. No pipeline loads them yet - the raster lane lands next - so the frames
+    # cannot move, and the test that compares the four places a .spv is named covers them from here on.
+    scene/visibility.slang:mesh_main:mesh:visibility.mesh.spv
+    scene/visibility.slang:main:fragment:visibility.frag.spv
     # ... and the outline's FRAGMENT stage, which shades that hull with the G-buffer normal of the surface
     # BEHIND it (the author's `MyZmdOutlineShader.shader:196-198`). ITS ENTRY IS `frag_main`, NOT `main`, and the
     # reason is measured rather than stylistic: it INCLUDES character_forward.slang for `toon_diffuse`, which
