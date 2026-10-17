@@ -285,7 +285,9 @@ namespace deren::app_config {
         bool async_present = false;
         bool bloom_render_graph = false; // opt-in Bloom graph; selected before the first frame
         bool post_render_graph = false;  // complete post chain; includes frame snapshot/final handoff
-        bool main_render_graph = false;  // GBuffer handoff + deferred + post; unsupported tails retain legacy
+        bool main_render_graph = true;   // the composed frame: GBuffer handoff + deferred + the whole scene tail + post;
+                                         // the paths the graph cannot record yet (ray-traced shadows, MegaLights,
+                                         // Gaussian splats) fall back to the legacy tail per frame, with the reason logged
         bool offscreen = false;
         // G-buffer debug view ([render] gbuffer_debug / gbuffer_channel): draws the opaque scene
         // into the three G-buffer targets and shows the selected channel through the ordinary post

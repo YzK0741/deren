@@ -87,7 +87,7 @@ namespace {
         check_presentation_settings(settings, false);
         CHECK(!settings.render.bloom_render_graph);
         CHECK(!settings.render.post_render_graph);
-        CHECK(!settings.render.main_render_graph);
+        CHECK(settings.render.main_render_graph); // the composed frame is the DEFAULT now: the legacy tail is the fallback
         CHECK(settings.model.empty());
         CHECK(settings.render.shadow);
         CHECK(!settings.render.fxaa);

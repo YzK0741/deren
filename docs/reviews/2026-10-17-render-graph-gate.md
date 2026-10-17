@@ -593,6 +593,23 @@ the gate round is byte-identical for all fourteen scenarios (matched 14, mismatc
 findings, and ALL FOURTEEN scenarios now record through the graph - the four laevatain scenarios are the ones
 this stage moved, and the pure-graph count is 14 of 14.
 
+## Stage 2M: the default flips - the composed graph is the frame now
+
+`[render] main_render_graph` now DEFAULTS TO TRUE, and the flip is validated by the gate round that does NOT
+inject the key: all fourteen scenarios record through the graph and are byte-identical to the legacy reference
+(matched 14, mismatched 0) with zero validation findings across the fourteen logs. `test_app_config` asserted
+the old default and now asserts the new one - that is the CPU-side statement of the flip.
+
+One honest caveat from the first flip round: `laevatain_old_chain` mismatched its frozen reference once. It is
+an animated scenario, and a standalone rerun plus the next full round both reproduce the reference hash
+(`84A41141128286CE`) exactly; the round that differed was a timing-shifted capture of the same code (the review's
+known "the frozen baseline is stale by design, the same-session two-round compare is the verdict" caveat).
+
+What the default means for the remaining work: the legacy scene tail is now the FALLBACK, not the main path. It
+stays for exactly the three things the graph cannot express yet - the ray-traced shadows and MegaLights (their
+traces read the TLAS, and the graph has no acceleration-structure resource kind) and the Gaussian splats - and
+per-segment retirement is what removes each of those one at a time.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the
