@@ -47,11 +47,11 @@ namespace deren::engine::pass {
     }
 
     std::string_view post_composite_pass::feature() const noexcept {
-        // NO FEATURE NAME, and that is deliberate rather than an oversight: the runner only asks a pass's feature
+        // NO FEATURE NAME, and that is deliberate rather than an oversight: the record step only asks a pass's feature
         // when it has one, and this pass's gate is the HOST's - `record_post_process` returns before the chain
         // when the pipelines or the frame's composite set are missing. A name here would be a second copy of that
         // question, and the deferred step measured what a pass feature name with no branch in the runtime does
-        // (the runner skips the pass on every frame and the frame goes unlit).
+        // (the record step skips the pass on every frame and the frame goes unlit).
         return {};
     }
 
@@ -92,7 +92,7 @@ namespace deren::engine::pass {
     void post_composite_pass::on_swapchain_recreated(pass_host const&) {
         // Nothing to reset: the two pipelines depend on the surface's FORMAT (a session-stable device fact) and
         // on nothing whose size changes, and the sets this pass binds belong to the post family, whose owner
-        // retires them (the runner calls this so a pass that owned a family could not forget to - see
+        // retires them (the record step calls this so a pass that owned a family could not forget to - see
         // recreate_stage).
     }
 
@@ -251,7 +251,7 @@ namespace deren::engine::pass {
         , declared_io(&render_resource::post_bloom_io[this->bloom_level]) {
         // The behaviour is a MEMBER because the ELEMENT is part of it: four instances of this class cannot share
         // one declaration of "which resource my extent comes from". Everything else is every other fullscreen
-        // pass's: the runner sets the viewport and scissor from the extent the rule produced.
+        // pass's: the record step sets the viewport and scissor from the extent the rule produced.
         this->pass_behaviour = deren::engine::pass::behaviour{
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::resource,

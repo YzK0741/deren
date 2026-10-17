@@ -47,7 +47,7 @@ namespace deren::engine::pass {
     std::string_view fxaa_pass::feature() const noexcept {
         // THE NAME THE RENDERER ALREADY ANSWERS: `f.fxaa` = "the knob is on AND the pipeline exists", which is one
         // definition (`runtime::post_fxaa_active`) shared with the composite's target choice and the overlay's
-        // owner - so the runner's gate, the frame's target and the overlay cannot disagree about whether this pass
+        // owner - so the record step's gate, the frame's target and the overlay cannot disagree about whether this pass
         // runs.
         return "fxaa";
     }

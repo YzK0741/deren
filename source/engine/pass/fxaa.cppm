@@ -19,7 +19,7 @@
  * second copy of those thirteen lanes is a second thing that can drift) and the LDR image it reads, which is a heap
  * slot the shader names itself.
  *
- * IT IS ALSO THE PASS THAT MADE `vk_pipeline::begin_pipeline` unnecessary for the post chain: the runner binds the
+ * IT IS ALSO THE PASS THAT MADE `vk_pipeline::begin_pipeline` unnecessary for the post chain: the record step binds the
  * pipeline from `behaviour::pipelines` and sets the viewport from the declaration's extent, so the pass sets only
  * the cull mode, and the renderer's `record_fullscreen_triangle` helper (whose last caller this was) is gone with
  * it.
@@ -107,7 +107,7 @@ export namespace deren::engine::pass {
             .extent = extent_rule::full, // the filter runs at the frame's resolution
             .extent_of = resource_id::none,
             .pipelines = pipeline_names,
-            .resync_viewport = true, // the runner sets the viewport and scissor from io.extent
+            .resync_viewport = true, // the record step sets the viewport and scissor from io.extent
         };
         void release_owned() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;

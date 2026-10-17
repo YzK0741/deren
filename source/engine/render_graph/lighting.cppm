@@ -20,7 +20,7 @@ export namespace deren::engine::render_graph::lighting {
         }
     };
     /// The clustered-light sort's per-slot output, which the lighting stage reads as storage buffers (the
-    /// heap bindings the sort's legacy path publishes with its own two barriers). Declared here, the graph
+    /// heap bindings the sort's removed legacy path published with its own two barriers). Declared here, the graph
     /// owns the producer -> consumer dependency instead of the pass.
     struct cluster_inputs {
         buffer_ref counts, indices;

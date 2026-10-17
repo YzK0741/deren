@@ -17,7 +17,7 @@
  * WHY THE EXTENT IS THE ONE THING THAT MAKES IT WORK, and it is the reason this pass exists as a pass rather
  * than as a line in the composite: its `behaviour` declares `extent_rule::resource` over
  * `resource_id::swapchain_image`, and `runtime::resolve_resource_extent` answers that resource with the
- * OUTPUT extent - the one entry in the table that is not the frame's. So the runner sets this pass's viewport
+ * OUTPUT extent - the one entry in the table that is not the frame's. So the record step sets this pass's viewport
  * and scissor from the presented image while every other pass in the frame works at the render extent, and
  * the ratio between the two IS the render scale (nothing in this pass has to be told what it is).
  *
@@ -180,7 +180,7 @@ export namespace deren::engine::pass {
             .extent = extent_rule::resource,
             .extent_of = resource_id::swapchain_image,
             .pipelines = pipeline_names,
-            .resync_viewport = true, // the runner sets the viewport and scissor from io.extent
+            .resync_viewport = true, // the record step sets the viewport and scissor from io.extent
         };
         void release_owned() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;

@@ -88,7 +88,7 @@ export namespace deren::engine::pass {
 
         /// @brief the CLEAR instance, the push and the fullscreen draw alone - none of this pass's own ordering
         ///
-        /// The legacy path's `record()` transitions the four sampled G-buffer images itself (see its comment). A
+        /// The removed legacy path's `record()` transitioned the four sampled G-buffer images itself (see its comment). A
         /// graph-recorded frame declares those reads and the HDR target write instead, and the graph emits both -
         /// so its recorder calls THIS entry and one submission never runs both barrier paths.
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
@@ -126,7 +126,7 @@ export namespace deren::engine::pass {
             .extent = extent_rule::full, // the view runs at the frame's resolution
             .extent_of = resource_id::none,
             .pipelines = pipeline_names,
-            .resync_viewport = true, // the runner sets the viewport and scissor from io.extent
+            .resync_viewport = true, // the record step sets the viewport and scissor from io.extent
         };
         void release_owned() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;

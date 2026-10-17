@@ -1119,8 +1119,15 @@ and `check_rt.ps1` PASS. It found one real defect and two coverage/doc problems;
    the gate script's blind-spot note, application_configuration); and the placeholder commit names in this record
    (`bb1-legacy-tail`/`bb2-record-verb`) were replaced with the real hashes.
 
-STILL OPEN (found by the review, deliberately NOT in this fix commit): dead plumbing the runner deletion left behind
-(`pass_host::{frame,feature_active}`, seven `frame_services` fields, four `run_report` counters, `stage::marks`,
-`runtime::sub_render_task`, the shadow pass's `own_layer_transitions` dead branch), ~8 orphaned doc blocks in
-runtime.declarations.cppm, and ~20 stale present-tense "legacy record/path" comments across the pass modules. None
-changes behavior; they are the next mechanical sweep.
+CLEANED UP in the follow-up sweep commit (the last item the review asked for): the dead plumbing the runner
+deletion left behind (`pass_host::{frame,feature_active}`, the seven unused `frame_services` fields and their
+assignments, four `run_report` counters, `stage::marks` and its 16 initializers, `runtime::sub_render_task`, and the
+shadow pass's `own_layer_transitions` parameter plus its dead branch); the ~8 orphaned doc blocks in
+runtime.declarations.cppm (including the three MegaLights field docs and the older GI ones); the dangling
+ml-storage note in render_layout.cppm; and the stale framework vocabulary and present-tense "legacy record/path"
+comments across the pass modules, adapters and runtime (the framework now calls its own record step a record step,
+and the removed legacy path is spoken of in the past tense). The sweep caught one real over-deletion before it
+landed: a blanket line removal dropped `resolve_context.frame` in `make_resolve_context`, which zeroed every
+resolved extent (the gate round failed 0/15 with a `vkCmdSetViewport width 0` validation error); the line is
+restored and the gate is back to 15/15. Verification of the sweep: CTest 44/44, gate 15/15 byte-identical with a
+clean validation log, check_rt.ps1 PASS.

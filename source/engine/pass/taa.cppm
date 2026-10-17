@@ -8,8 +8,8 @@
  * WHY THIS PASS IS THE INTERESTING ONE: a compute pass proved the shape first, and this one
  * proves it for the other half of the frame. A fullscreen pass owns a render TARGET (an attachment is not a
  * descriptor: it is declared as a `render_target` and bound by a rendering instance), it opens that instance
- * itself (the load op is its knowledge, not the runner's), and the two things it must not be able to forget -
- * the pipeline being bound and the viewport being set - are done FOR it by the runner before `record`.
+ * itself (the load op is its knowledge, not the record step's), and the two things it must not be able to forget -
+ * the pipeline being bound and the viewport being set - are done FOR it by the record step before `record`.
  *
  * WHAT IT OWNS: its pipeline, its push block's SHAPE, and the two pieces of state that say what
  * its history holds: whether each image has one, and whether the last resolve wrote it.
@@ -23,7 +23,7 @@
  * The order the host has to preserve is recorded at the call site.
  *
  * THE GENERATION RESET is the one piece of this pass that is not a straight move, and it is small now: the
- * runner calls `on_swapchain_recreated` for every pass in a stage, and what this pass has to forget is which
+ * record step calls `on_swapchain_recreated` for every pass in a stage, and what this pass has to forget is which
  * images hold a history - the images of the old generation are gone.
  */
 
@@ -96,7 +96,7 @@ export namespace deren::engine::pass {
         /// as an attachment and the history copy READS it as a transfer source, and the render graph's model
         /// allows one access per resource per pass. The migration therefore records two graph passes from this
         /// one pass object - the resolve through THIS entry and the history copy through `record_copy` - and the
-        /// graph emits both the attachment transitions and the transfer round trip the legacy path owns here.
+        /// graph emits both the attachment transitions and the transfer round trip the removed legacy path owned here.
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
         /// @brief the history copy alone, with none of this pass's own ordering
         void record_owned(resolved_io const& io);
@@ -135,11 +135,11 @@ export namespace deren::engine::pass {
 
     private:
         /// @brief the resolve's drawing half
-        /// @param own_transitions true for the legacy record (this pass's attachment/input barriers), false for
+        /// @param own_transitions true for the removed legacy record (this pass's attachment/input barriers), false for
         ///        a graph-recorded frame (the graph declares them)
         bool record_resolve(resolved_io const& io, bool history_valid, bool own_transitions);
         /// @brief the HDR -> history copy's half
-        /// @param own_transitions true for the legacy record (the transfer round trip), false for the graph
+        /// @param own_transitions true for the removed legacy record (the transfer round trip), false for the graph
         bool record_copy(resolved_io const& io, bool own_transitions);
         render_resource::instances::resource_snapshot resource_view;
         /// the four inputs the resolve reads, which the declaration numbers contiguously from zero
@@ -155,7 +155,7 @@ export namespace deren::engine::pass {
             .extent = extent_rule::full, // the resolve runs at the frame's resolution
             .extent_of = resource_id::none,
             .pipelines = pipeline_names,
-            .resync_viewport = true, // the runner sets the viewport and scissor: the hazard this field exists for
+            .resync_viewport = true, // the record step sets the viewport and scissor: the hazard this field exists for
         };
         void release_owned() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;

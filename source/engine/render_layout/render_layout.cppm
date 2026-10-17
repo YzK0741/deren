@@ -289,10 +289,6 @@ export namespace deren::engine::render_layout {
         static constexpr uint32_t gbuffer_material = heap_slot_base + 567u;
         static constexpr uint32_t gbuffer_depth = heap_slot_base + 575u;
         static constexpr uint32_t gbuffer_velocity = heap_slot_base + 583u;
-        /// @brief the same two images written as STORAGE descriptors (see @ref rt_visibility_storage)
-        /// @note their compute passes WRITE them and the lighting stage SAMPLES them, and no single heap
-        ///       descriptor is both kinds - so the trace and the resolve each need a second slot, at the end of
-        ///       the used region for the same reason the others are there.
         /**
          * @brief the joint blocks as they were ONE FRAME AGO, per frame slot: the deformation half of a
          *        motion vector

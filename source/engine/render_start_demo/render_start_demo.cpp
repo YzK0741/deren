@@ -1,11 +1,8 @@
 // The demo's implementation: the two callbacks the runtime asks for, and nothing else. Every branch below is a
 // STAGE of this application's frame - the same names the runtime's frame loop uses for its stage structs - and what
-// it does is what the runtime used to do inline: hand each pass its frame (built from the runtime's own data) and
-// run the frame's ordering rules that belong to that stage.
-//
-// Moved out of `runtime.cpp` UNCHANGED in behaviour, and the order inside each branch is deliberate: the frame is
-// set FIRST, then the ordering rules run, exactly where the two used to sit relative to `record_stage` - so the
-// command stream is identical and the capture gate decides the move.
+// it does is hand that stage's passes the frames only the runtime can build (its own recording machinery, and the
+// leaf lists/camera it owns). The per-stage ORDERING RULES that used to run here are the composed graph's now: it
+// declares those image hand-offs, so this preamble no longer touches an image.
 
 module;
 
@@ -348,7 +345,7 @@ namespace deren::engine {
             // THE RUNTIME'S COMPOSED PREDICATE (`post_upscale_active`: the render chain is smaller than the
             // output AND the pass built its pipeline), relayed exactly as `fxaa` is - the runtime is what knows
             // the render scale and the pass registry, and this owner is what knows the chain. Nothing of the
-            // pass's own is added here: its `ready()` half is already inside the fact, so the runner's gate and
+            // pass's own is added here: its `ready()` half is already inside the fact, so the record step's gate and
             // the composite's target choice cannot disagree about whether the resolve runs.
             return facts.upscale;
         }
@@ -376,7 +373,7 @@ namespace deren::engine {
         }
         if (name == "deferred") {
             // THE LIGHTING STAGE'S OWN GATE, and it is deliberately the SAME predicate the frame loop's branch uses:
-            // the runner asks this before resolving the pass, and the frame loop asks it before recording the stage,
+            // the record step asks this before resolving the pass, and the frame loop asks it before recording the stage,
             // so one answer means the two cannot disagree about whether the lighting runs this frame.
             return facts.deferred_lit;
         }
@@ -424,7 +421,7 @@ namespace deren::engine {
 
     void render_start_demo::recreated([[maybe_unused]] void* const owner) {
         // This demo keeps no descriptor family of its own: every pass in the chain retires its own, which the
-        // runner does through recreate_stage, so there is nothing left here to reset.
+        // record step does through recreate_stage, so there is nothing left here to reset.
     }
 
 } // namespace deren::engine

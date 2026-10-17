@@ -45,7 +45,7 @@ export import deren.engine.resource_cluster;
 export import deren.promise.gui;
 
 import deren.engine.profiling;
-import deren.engine.pass;                      // the pass framework: the host the runner talks to, and the stage runner
+import deren.engine.pass;                      // the pass framework: the host the record step talks to, and the stage record step
 import deren.engine.pass.taa;                  // the second, and the first GRAPHICS one
 import deren.engine.pass.scene;                // the third: the scene itself, whose work is DATA rather than a declaration
 import deren.engine.pass.transparent;          // the fourth: the blended geometry, over the shaded frame
@@ -876,7 +876,7 @@ namespace deren::engine {
         // `set_pass_chain`, which fills these arrays and the two GI halves BY DECLARATION NAME - the stage sequence,
         // its order and the marks are the frame loop's and stay. The two JOBS are not
         // passes and are still created here, from the same context the passes are.
-        /// the bloom chain's stage, in level order (the runner walks the array; a stage IS the order, which is why
+        /// the bloom chain's stage, in level order (the record step walks the array; a stage IS the order, which is why
         /// it is an array of pointers and never a container whose iteration order is an accident)
         // called bloom_pass, not bloom_stage: the local of that name in
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
@@ -956,7 +956,7 @@ namespace deren::engine {
         // reading exactly what it read before TAA existed. A copy of the resolved frame becomes the
         // next frame's history (no ping-pong, hence no per-frame descriptor rewrites).
         // The TAA resolve is a PASS (deren.engine.pass.taa): it owns its pipeline and its per-image history flags, so
-        // all that is left here is the pass member and the stage the runner is handed.
+        // all that is left here is the pass member and the stage the record step is handed.
         // Per swapchain image: whether that image has a GI history yet. First frame after startup or
         // after a resize there is none, and the resolve then uses the current trace alone.
         // The shaders the app has loaded, by file name, for the passes that build their own pipelines. The APP
@@ -1055,7 +1055,7 @@ namespace deren::engine {
         bool taa_on = false; // [render] taa
         /**
          * WHETHER THE TOON CHARACTER STAGE IS SWITCHED ON. Default FALSE, and that default is the whole
-         * contract of this feature's landing: with it off the pass's `feature()` answers inactive, the runner
+         * contract of this feature's landing: with it off the pass's `feature()` answers inactive, the record step
          * never resolves or records it, and every frame is bit-for-bit what it was before the stage existed -
          * which is what the capture gate checks and what this project requires of a behaviour-visible
          * addition. `set_character_forward` is the only writer.
@@ -1084,7 +1084,7 @@ namespace deren::engine {
         // (through `taa_pass::wrote_history`, the renderer updates it only for a frame that really resolved).
         deren::utility::vessel::vector<glm::mat4> image_view_proj = {};
         /**
-         * @brief the host the pass runner talks to: the callbacks a stage needs, and the create-time facts
+         * @brief the host the pass record step talks to: the callbacks a stage needs, and the create-time facts
          * @note rebuilt per call (it is a struct of function pointers), so it holds no state of its own; the
          *       context is this runtime, which is what the callbacks cast back to
          */
@@ -1212,7 +1212,7 @@ namespace deren::engine {
         /// create the TAA resolve's shared sampler if it does not exist (see create_passes for why it is
         /// made here rather than in a pipeline builder)
         /**
-         * @brief resolve a pass's declaration into this frame's handles (the runner's `resolve` callback)
+         * @brief resolve a pass's declaration into this frame's handles (the record step's `resolve` callback)
          * @return false when this frame cannot run the pass, which skips it WITHOUT recording anything
          * @note THE PER-PASS SWITCH IS GONE: this function fills the frame's shared constants and asks the pass
          *       to resolve its own declaration (see `frame_pass::resolve`), so the table's contents and the
@@ -1445,11 +1445,11 @@ namespace deren::engine {
         bool graph_debug_frame = false;
         // Whether THIS frame's ray-traced shadow pass is recorded by the composed graph (RT stage 2b): the lane declares
         // the visibility image's storage write from the ray-tracing stage and the lighting lane declares the sampled
-        // read, so the graph owns the write -> hand-off pair the pass's legacy record issues itself.
+        // read, so the graph owns the write -> hand-off pair the pass's removed legacy record issued.
         bool graph_rt_frame = false;
         // Per swapchain image: whether the TAA history image has been transitioned to sampled at least once (by
         // either path). The graph can only import "defined contents in a KNOWN layout", so its first use of a
-        // history image needs the one transition the legacy pass issues for itself - and the invariant every frame
+        // history image needs the one transition the removed legacy pass issued for itself - and the invariant every frame
         // relies on is that the history is sampled whenever the graph starts.
         deren::utility::vessel::vector<bool> taa_history_initialized = {};
         // Whether the two STATICALLY BOUND descriptor images (the ray-traced visibility image and the MegaLights
@@ -1749,7 +1749,7 @@ namespace deren::engine {
         // that one conversion, so no call site spells the escape out by hand.
         /**
          * @brief THE FRAME'S OWN COMMAND BUFFER, in the contract's OWNERSHIP SPELLING: what
-         *        `resolved_io::cmd`, `resolve_context::cmd` and `frame_services::cmd` carry.
+         *        `resolved_io::cmd` and `resolve_context::cmd` carry.
          *
          * THE CONTROL BLOCK IS NON-OWNING, and that is the core's own answer rather than a shortcut here:
          * `begin_commands()` hands out `&core::commands_view`, a STABLE member the core owns and answers
@@ -2389,7 +2389,7 @@ namespace deren::engine {
              * this frame has OPAQUE geometry for the character-forward stage to re-shade, AND the stage is
              * switched on. The two are one flag rather than two because the stage has nothing to say about a
              * frame with no opaque geometry - and because the pass's own gate must be able to answer "skip"
-             * without the runner ever resolving its declaration.
+             * without the record step ever resolving its declaration.
              */
             bool character_forward_pending = false;
             bool gbuffer_pipeline = false; // the surface pipeline exists (the scene pass records with it)
@@ -2406,7 +2406,7 @@ namespace deren::engine {
          * pass wanted which frame - thirteen `set_frame` calls, five stage preambles and nine result reads, every
          * one of them naming a concrete pass. Handing the chain over means the runtime must stop naming passes,
          * and this is the boundary that replaces it: the DATA is the runtime's (the leaves the culling produced,
-         * the per-cascade secondaries, the per-image publish flags) and the PASS is the chain owner's, so the
+         * the per-cascade secondaries) and the PASS is the chain owner's, so the
          * runtime builds the frame and the owner hands it to the pass it belongs to.
          *
          * A VALUE, rebuilt per stage call: every field is a function pointer plus the one `owner` they all take,
@@ -2415,33 +2415,6 @@ namespace deren::engine {
          */
         struct frame_services {
             void* owner = nullptr; // this runtime: what every function pointer below casts back to
-            /**
-             * THE COMMAND BUFFER THIS FRAME RECORDS INTO, in the CONTRACT's ownership spelling (abi 21): the
-             * same borrowed, non-owning `shared_ptr` `resolved_io::cmd` and `resolve_context::cmd` carry (see
-             * `runtime::frame_command_buffer`). A stage preamble that hands it to one of the `ensure_*`
-             * ordering rules below passes THIS value through unchanged; an owner that wants a native handle
-             * has to derive one through the escape, exactly as the contract's own rule states.
-             */
-            std::shared_ptr<rhi::command_buffer> cmd = {};
-            /// which swapchain image this frame is recording (the per-image rules below take it, and a stage
-            /// preamble that is gated on an image's own state needs it)
-            uint32_t image_index = 0;
-            // ---- the frame's TOOLKIT: the facts a family, a push block or a barrier needs, so that an owner can
-            //      do what the renderer's own resolvers used to do without reaching into it ----
-            // NO DEVICE LANE (abi 21): a family builds its pipelines through the CONTRACT (`rhi::api_core`, the
-            // context's `face`), and the one thing an owner still needs a device FOR - an allocated entry point,
-            // like the probes' own vkCmdDrawMeshTasksEXT - it resolves through `native_device_of(face)` itself.
-            // The field that stood here had no reader left.
-            /// the six shared samplers a declaration chooses between by hint (see render_resource::shared)
-            render_resource::shared::sampler_set samplers = {};
-            /// THIS FRAME'S RESOURCES, in the declaration's own vocabulary: what a pass's declaration names, and
-            /// the handles behind it - the channel that lets an owner read any PUBLISHED family's views (its own
-            /// sets, or a second family over the same layout) without the renderer handing over its image arrays
-            pass::resource_table const* table = nullptr;
-            /// the frame's identity (image index, slot, count, extent), for a recording that sizes its own work
-            pass::frame_identity frame = {};
-            /// the frame's constants, for a push block an owner composes itself
-            frame_constants const* constants = nullptr;
             // ---- the frames ONLY the runtime can build, because they carry its own recording machinery (the
             //      per-slot secondary buffers, the per-cascade secondaries, the draw-state factory and the task
             //      scheduling those run through). Every other frame is the PASS's own now: see
@@ -2455,19 +2428,10 @@ namespace deren::engine {
             pass::character_forward_frame (*make_character_forward_frame)(void* owner) = nullptr;
             /// the GAUSSIAN snapshot: the immutable per-frame upload the splat pass draws, built by the runtime
             /// because it owns the camera and the frame's completion points. An empty pointer means "nothing to
-            /// draw this frame", which the pass's own record() already treats as a no-op.
+            /// draw this frame".
             std::shared_ptr<gaussian_splatting::raster_frame const> (*make_gaussian_frame)(void* owner) = nullptr;
             std::shared_ptr<gaussian_splatting::gpu_frame const> (*make_gaussian_gpu_frame)(void* owner, bool pipelines_ready) = nullptr;
             gaussian_splatting::gpu_frame_timing (*gaussian_timing)(void* owner) = nullptr;
-            // ---- the frame's ORDERING RULES a stage preamble runs: the runtime's per-image bookkeeping, whose
-            //      flags belong to the passes that WROTE those images (see each accessor). Each takes the FRAME's
-            //      contract buffer (see `cmd` above) and derives the native handle internally. ----
-            /// clear that flag WITHOUT recording a transition: what a stage whose own pass samples the image
-            /// does when the resolve that would have published it runs LATER in the frame (the TAA resolve and
-            /// the debug view both leave a later pass to publish the motion-vector target)
-            /// the renderer's feature registry, for a stage preamble gated on the same predicate the runner gates
-            /// the stage on (the ray-traced shadow's and the TAA resolve's preambles are the two that ask)
-            bool (*feature_active)(void* owner, std::string_view name) = nullptr;
         };
 
         /**
@@ -2475,7 +2439,7 @@ namespace deren::engine {
          * @brief what the runtime needs from whoever owns this frame's concrete passes
          *
          * `prepare` runs immediately before a stage records, and it is where the owner gives its passes their
-         * frames and runs the frame's ordering rules for that stage (see `frame_services`). `collect` runs after
+         * frames for that stage (see `frame_services`). `collect` runs after
          * a stage, and it is where the owner reports the results the frame loop decides on (see `frame_results`).
          * The NAME is the stage's, which is the frame's own structure - the owner switches on it and the runtime
          * never learns which pass is behind it.
@@ -2485,7 +2449,7 @@ namespace deren::engine {
             void (*prepare)(void* owner, frame_services const& services, std::string_view stage) = nullptr;
             void (*collect)(void* owner, std::string_view stage, frame_results& out) = nullptr;
             /**
-             * The FEATURE TABLE, in the declaration's vocabulary: what the runner gates each pass on, what the
+             * The FEATURE TABLE, in the declaration's vocabulary: what the record step gates each pass on, what the
              * overlay offers and what the startup log reports (see `feature_facts` for the renderer's half).
              */
             bool (*feature_active)(void* owner, feature_facts const& facts, std::string_view name) = nullptr;
@@ -2494,7 +2458,7 @@ namespace deren::engine {
             bool (*feature_available)(void* owner, feature_facts const& facts, std::string_view name) = nullptr;
             /**
              * The swapchain was rebuilt, so every per-generation object the owner holds is stale - the same call the
-             * runner makes for a pass, for the GPU-owning things the owner keeps OUTSIDE the chain (this
+             * record step makes for a pass, for the GPU-owning things the owner keeps OUTSIDE the chain (this
              * application's reflection descriptor family is the one today).
              */
             void (*recreated)(void* owner) = nullptr;
@@ -2573,7 +2537,7 @@ namespace deren::engine {
          *    between them, the denoise half) is the frame loop's;
          *  * @p chain must OUTLIVE the recording, exactly as the wiring's owner must;
          *  * @p wiring is the per-frame knowledge the renderer does not have (see `chain_wiring`).
-         * @note a name the chain does not declare leaves that stage empty, which the runner treats as "no pass here" -
+         * @note a name the chain does not declare leaves that stage empty, which the record step treats as "no pass here" -
          *       a frame that draws less rather than a crash
          */
         void set_pass_chain(pass::pass_chain& chain, chain_wiring wiring) noexcept;
@@ -2819,29 +2783,14 @@ namespace deren::engine {
         [[nodiscard]] uint64_t shadow_geometry_signature() const;
 
         /**
-         * @ingroup runtime
-         * @brief record the scene pass into @p command_buffer: move the single-sampled G-buffer
-         *        targets (surface + velocity + the pass's own depth) into their render layouts, resync
-         *        the pass geometry, then record the opaque leaves into them - no shading at all
-         * @param command_buffer the frame's primary command buffer
-         *
-         * The engine's only scene path. It draws no background: the lighting stage writes the sky
-         * into the pixels no geometry covered (source/shaders/sky.glsl, the same function the removed
-         * forward skybox pass used). Alpha-blended geometry is recorded by
-         * record_transparent_pass() after the lighting stage, because a blended surface has to
-         * compose over the SHADED image - a G-buffer cannot hold a surface that does not exist yet.
-         * record_scene_tail() turns the G-buffer into the frame afterwards through the deferred
-         * lighting PASS (deren.engine.pass.deferred, resolved by resolve_deferred_pass()).
-         */
-
-        /**
-         * @brief whether THIS frame's feature set lets the composed graph record the scene path
-         * @note The predicate is one expression over live state (`deferred_lit_active()`, `taa_active()`, the
-         *       feature facts and the toggles). It is evaluated ONCE per frame, at the top of
-         *       `record_main_drawcalls()`, and stored in `main_graph_frame`: the first recording decision that
-         *       depends on it is the cluster sort's owner (the composed graph or the legacy stage), which is
-         *       recorded before `record_scene()` runs. Every later reader uses the frozen value - a frame's
-         *       features cannot change mid-recording.
+         * @brief whether there is a scene for the composed graph to record
+         * @note The only condition is a G-buffer pipeline (`gbuffer_pass_active()`): everything else the graph
+         *       needs - the post chain, the overlay lanes, the ray-traced shadow's pipeline - is the graph's own
+         *       readiness question (a lane whose pass did not build is refused by record_post_graph, and the frame
+         *       fails on that error). A frame with no scene at all is NOT failed: record_post_process defines it
+         *       with the background colour. The per-feature exclusions that used to live here existed only
+         *       because the legacy tail could record those lanes differently; that path is gone.
+         *       Evaluated ONCE per frame at the top of record_main_drawcalls() and frozen in `main_graph_frame`.
          */
         [[nodiscard]] bool main_graph_candidate() const noexcept;
 
@@ -2849,42 +2798,11 @@ namespace deren::engine {
          * @brief whether this frame's cluster sort has the managed buffers the graph lane imports
          * @note The graph records the sort inside the frame only when its two per-slot buffers are resolvable
          *       AND hold an object for this frame slot (they do on every real frame; a stub chain that resolved
-         *       the declarations but never created the buffers has none). A frame that lacks them keeps the
-         *       PRE-MIGRATION behaviour instead of failing: the legacy stage records the sort outside the graph
-         *       and the graph does not declare its reads.
+         *       the declarations but never created the buffers has none). A frame that lacks them fails the graph's build:
+         *       there is no second path to record the sort outside the graph
+         *       and the graph declares no reads for that frame.
          */
         [[nodiscard]] bool cluster_resources_available() noexcept;
-
-        /**
-         * @ingroup runtime
-         * @brief record the transparent pass into @p command_buffer: the alpha-blended leaves, shaded
-         *        while they draw and blended over the image the lighting stage just wrote,
-         *        depth-testing against the G-buffer depth
-         * @param command_buffer the frame's primary command buffer
-         *
-         * Runs AFTER the lighting stage (deren.engine.pass.deferred, the stage recorded just before it), in an
-         * instance of its own, and that order is the whole
-         * reason it is separate. Blending needs a shaded image underneath, and the lighting stage
-         * needs the G-buffer depth as a SAMPLED texture - an image cannot be sampled and used as a
-         * depth attachment in the same instance, so the depth is handed back to attachment layout in
-         * between (sampling_to_depth_attachment_transition). It draws no sky (the lighting stage
-         * already put the sky in the pixels no geometry covered) and does not write depth (every
-         * transparent leaf draws with depth writes off, see primitive::draw).
-         * @note these leaves carry no motion vectors, so TAA reprojects them with whatever the opaque
-         *       surface behind them reported - good enough while the camera is the only thing moving,
-         *       and the thing to revisit when object motion vectors land.
-         */
-
-        /**
-         * @ingroup runtime
-         * @brief move the attachments of one scene path into the layouts its rendering instance
-         *        declares, before vkCmdBeginRendering - dynamic rendering has no automatic
-         *        transitions the way a render pass does
-         * @param command_buffer the frame's primary command buffer
-         * @note the set is the G-buffer mode's three single-sampled surface targets, the motion-vector
-         *       target and the scene color the emissive goes into, plus the pass's own 1x depth image;
-         *       the main HDR target is not touched here
-         */
 
         /**
          * @ingroup runtime
@@ -2899,56 +2817,19 @@ namespace deren::engine {
 
         /**
          * @ingroup runtime
-         * @brief record the opaque scene into @p command_buffer: one secondary per task-pool worker
-         *        segment (or a single one for a small frame), each inheriting the instance's color +
-         *        depth attachments, plus the transparent secondary where the frame records one - the
-         *        primary executes them in order inside the rendering instance
-         * @param command_buffer the frame's primary command buffer
-         * @note neither the G-buffer choice nor the transparent half is a parameter of this entry
-         *       point: the leaves' pipelines and the optional extras are chosen inside the frame's own
-         *       recording path (see record_main_segment() and record_transparent_pass())
+         * @brief record the frame's back half through the composed graph
          *
-         * Shared by the opaque and transparent halves on purpose - the segmentation, the per-segment secondary
-         * lifetime and the execute order are the same work in either; only the pipelines the leaves
-         * bind (chosen in record_main_segment()) and the two optional extras
-         * differ.
+         * THE ONE RECORDING PATH: the graph records the scene chain and the post chain (see record_post_graph),
+         * after this function has checked that the frame is recordable at all. An ineligible frame (no G-buffer
+         * pipeline) is DEFINED rather than failed - the swapchain image is cleared to the background colour - so a
+         * frame loop survives a pipeline that failed to build; a frame whose POST or OVERLAY pass is missing is
+         * refused by the graph and fails with one log line.
+         * @return true when a fullscreen pass actually wrote the SWAPCHAIN image (the HDR frame's post-processed
+         *         result), false when the frame was refused before recording the graph
          */
-
-        /**
-         * @ingroup runtime
-         * @brief record one contiguous slice of the main-pass leaves into @p command_buffer:
-         *        bind the shared scene block, then draw the leaves of @p leaves (a sub-range of
-         *        frame_visible). When @p draw_skybox the skybox background is drawn first so
-         *        the background stays ordered before the scene (segment 0 only); later
-         *        segments are pure scene.
-         * @note stage 3 of parallel recording: each task-pool worker records one segment into
-         *       its own secondary command buffer (see sub_render_task), the primary executes
-         *       them in order. Only bind/push/draw commands - caller owns barriers + the
-         *       rendering instance.
-         */
-        /** @brief close the scene rendering instance and record the post-process pass (HDR ->
-         *         exposure/tonemap -> swapchain) plus the debug overlay on the final image
-         *  @return true when a fullscreen pass actually wrote the SWAPCHAIN image (so it is in
-         *          GENERAL and its contents are this frame's post-processed
-         *          result); false when the pass was skipped (no pipeline/descriptors), in which case
-         *          the swapchain image was never transitioned and the caller must not pretend
-         *          otherwise to the present barrier or the screenshot copy
-         *  @note this function only SEQUENCES the frame's back half: the scene-side tail is recorded by
-         *        record_scene_tail, and the bloom chain and the composite are two STAGES of passes
-         *        (deren.engine.pass.post) whose frames this function sets and resolves - the renderer no longer records
-         *        them. It used to be all of that in one 209-line body, whose real problem was not its length but
-         *        that a change to any one of them had to be located inside the other two. */
         [[nodiscard]] bool record_post_process();
         [[nodiscard]] rhi::error record_post_graph();
         [[nodiscard]] rhi::error finish_post_graph();
-        /**
-         * @brief close the geometry instance and record the scene-side stages that follow it
-         *        (deferred lighting, the TAA resolve, the G-buffer debug view), each with its own
-         *        GPU timing mark
-         * @note the marks are unconditional even when a stage does not run this frame: the
-         *       label-to-interval mapping is positional, so a skipped stage writes its mark
-         *       immediately after the previous one and its interval reads 0
-         */
         /**
          * @brief whether the FXAA pass is this frame's LAST writer (the frame's own question: the composite's
          *        target and pipeline variant, the overlay's owner, set_fxaa() and the feature registry all ask it)
@@ -2976,52 +2857,6 @@ namespace deren::engine {
         static void draw_overlay_after(void* owner, deren::promise::rhi::command_buffer& commands);
         /** @brief the overlay, when it should draw into @p command_buffer (inside the caller's instance) */
         void record_overlay_if_enabled(rhi::command_buffer& commands);
-        /** @brief transition @p image to SHADER_READ_ONLY (a barrier must not be recorded inside a
-         *         rendering instance, so this is always called before vkCmdBeginRendering)
-         *  @note the only caller left is the HDR target's transition before the post chain - the one transition the
-         *        chain's passes deliberately do NOT own (see render_resource::post_composite_io). The
-         *        colour-attachment twin this pair used to have is gone with the recorders that used it. */
-        /**
-         * @brief record one segment of the main pass (see the doc block above record_opaque_scene)
-         * @param gbuffer_pass true = the leaves bind the G-buffer pipeline (the opaque instance of
-         *        the deferred path); false = they bind their own forward pipelines. Passed in rather
-         *        than re-derived from gbuffer_pass_active(), because the deferred path also has
-         *        forward-style segments: its transparent pass runs while the G-buffer pass is the
-         *        active mode, and still shades while it draws.
-         */
-
-        /**
-         * @ingroup runtime
-         * @brief one recording job of the parallel main pass (stage 3): records @p leaves (a
-         *        contiguous slice of the frame's visible leaves) into @p command_buffer, a
-         *        per-slot SECONDARY command buffer. operator() begins the secondary (inheriting
-         *        the main instance's color+depth attachments via dynamic rendering 1.3
-         *        inheritance info), records the slice and ends it, so a batch of these can be
-         *        posted straight to the shared task pool and the recording group waited on.
-         * @note value type (span + handle + formats; no owning pointers), safe to copy into
-         *       std::function for the pool; the begin-info is assembled fresh inside operator()
-         *       so copies never share dangling pNext chains.
-         */
-        struct sub_render_task {
-            std::span<primitive const* const> leaves = {};
-            // Color attachment formats of the instance this secondary is recorded into, in
-            // attachment order: one entry (the HDR target) when the leaves shade into it, the four G-buffer
-            // attachments when the opaque pass writes the G-buffer. Held by value because the task outlives the
-            // call that builds it (it is moved into the task pool).
-            deren::utility::vessel::array<rhi::image_format, deren::engine::gbuffer_pass_attachment_count> color_formats = {};
-            uint32_t color_count = 0;                                    // formats in use (1 when only the HDR target, 4 for surface targets + HDR)
-            rhi::image_format depth_format = rhi::image_format::unknown; // main depth attachment format
-            std::uint32_t rasterization_samples = 1u;
-            bool gbuffer_pass = false;      // leaves bind the G-buffer pipeline (not the HDR-shading ones)
-            runtime const* owner = nullptr; // recording context (scene set / pipeline caches)
-            // set to true by operator() when the secondary was actually recorded (begin + end
-            // succeeded). Points into a per-frame array owned by the caller of the task batch;
-            // the caller waits the recording group before reading it, so no extra sync is
-            // needed. The primary must NOT execute a segment whose begin failed.
-            std::atomic<bool>* recorded = nullptr;
-
-            void operator()() const; // defined in runtime.cpp (module-private)
-        };
 
         /** @brief end the rendering instance / render pass and finish recording;
          *         end_recording_failed when vkEndCommandBuffer fails */
@@ -3841,7 +3676,7 @@ namespace deren::engine {
 
         /// @brief whether a cloud is set to draw (`feature_active`'s half of the splat stage's gate)
         ///
-        /// The gate is not cosmetic: the runner asks a pass's feature BEFORE it resolves the declaration, so
+        /// The gate is not cosmetic: the record step asks a pass's feature BEFORE it resolves the declaration, so
         /// answering false here is what keeps a session with no cloud from resolving the stage's targets at all -
         /// the same reason every other stage's gate is the pass's own feature name.
         [[nodiscard]] bool gaussian_active() const noexcept {
@@ -3875,7 +3710,7 @@ namespace deren::engine {
         /// for the whole recording (a local would dangle the moment the builder returned).
         [[nodiscard]] pass::shadow_frame make_shadow_frame() noexcept;
         /// every builder and ordering rule above, bound to this runtime: what `chain_wiring::prepare` is handed
-        [[nodiscard]] frame_services make_frame_services(std::shared_ptr<rhi::command_buffer> command_buffer) noexcept;
+        [[nodiscard]] frame_services make_frame_services() noexcept;
         /// this frame's half of the feature table (see `feature_facts`), which is what the owner's answers are
         /// composed from
         [[nodiscard]] feature_facts make_feature_facts() const noexcept;

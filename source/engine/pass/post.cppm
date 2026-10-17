@@ -24,7 +24,7 @@
  * the level they write, the one-lane push and the fullscreen draw - and the deepest level's HAND-BACK (it moves
  * its own output to a sampled layout, because the composite samples all four levels and the last level has no
  * successor to do it for it, the same writer's hand-back every traced pass uses). They build no pipeline: the
- * runner binds the chain's R16F variant, which their `behaviour` names and the host resolves (the shape the
+ * record step binds the chain's R16F variant, which their `behaviour` names and the host resolves (the shape the
  * temporal resolve's first extraction had, and the reason it needed no new framework).
  *
  * WHAT NEITHER OWNS, recorded because it is a decision rather than an omission: the HDR target's transition to a
@@ -188,7 +188,7 @@ export namespace deren::engine::pass {
         [[nodiscard]] deren::promise::rhi::pipeline* composite_pipeline() const noexcept;
         /// @brief the R16F pipeline: the bloom levels, and the LDR target a resolve will read
         [[nodiscard]] deren::promise::rhi::pipeline* hdr_pipeline() const noexcept;
-        /// @brief the pipeline the runner binds by default: the SWAPCHAIN variant, which `resolve` replaces on
+        /// @brief the pipeline the record step binds by default: the SWAPCHAIN variant, which `resolve` replaces on
         ///        the frames a resolve finishes (the declaration names ONE pipeline, and this pass owns both variants)
         [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
         /**
@@ -218,9 +218,9 @@ export namespace deren::engine::pass {
         static constexpr std::string_view vertex_shader_name = "post.vert.spv"; // the synthetic fullscreen triangle
         static constexpr std::string_view fragment_shader_name = "post.frag.spv";
 
-        /// ONE name: the behaviour says which pipeline the runner binds, and the host fills that slot with the
+        /// ONE name: the behaviour says which pipeline the record step binds, and the host fills that slot with the
         /// variant the frame's TARGET needs (see composite_pipeline / hdr_pipeline) - two names here would make
-        /// the runner bind both, and the second would win.
+        /// the record step bind both, and the second would win.
         static constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {"post_composite"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
@@ -229,7 +229,7 @@ export namespace deren::engine::pass {
             .extent = extent_rule::full, // the composite runs at the frame's resolution
             .extent_of = resource_id::none,
             .pipelines = pipeline_names,
-            .resync_viewport = true, // the runner sets the viewport and scissor from io.extent
+            .resync_viewport = true, // the record step sets the viewport and scissor from io.extent
         };
         void release_owned() noexcept;
         /// @brief compose the chain's push block for this frame's target choice (see resolve)
@@ -286,7 +286,7 @@ export namespace deren::engine::pass {
         [[nodiscard]] deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
 
     private:
-        /// the pipeline the runner binds: the chain's R16F variant, which the COMPOSITE owns. The NAME is the
+        /// the pipeline the record step binds: the chain's R16F variant, which the COMPOSITE owns. The NAME is the
         /// composite's (`post_composite_pass::bloom_pipeline_name`) because the owner resolves it by asking ITS
         /// passes (`frame_pass::named_pipeline`) - and one shared object is the point: a copy per level would be
         /// five identical pipelines.

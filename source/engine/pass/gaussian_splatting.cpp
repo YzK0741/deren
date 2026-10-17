@@ -113,7 +113,7 @@ namespace deren::engine::pass {
             record_error = rhi::error::unsupported;
             return record_error;
         }
-        // THE IMAGE HAND-OFFS THE LEGACY FRAME OWNS: the depth comes back from a sampler for the raster's depth
+        // THE IMAGE HAND-OFFS THE REMOVED LEGACY FRAME OWNED: the depth comes back from a sampler for the raster's depth
         // test, the target's last store is published for the LOAD, and the depth is handed back for the next
         // sampler. A graph-recorded frame declares the two accesses instead and the graph emits all three - so its
         // recorder calls record_content() and the two paths never run together.

@@ -15,7 +15,7 @@ import deren.promise.rhi;
  * @brief per-recording-session render state: the session's command buffer, which pipeline is
  * bound and how to bind others.
  *
- * One instance exists per parallel recording worker (each sub_render_task builds its own, per
+ * One instance exists per parallel recording worker (each parallel recording worker builds its own, per
  * frame), so the command buffer and the "currently bound pipeline" state are always
  * thread-local - workers never share them. The environment carries the session's command
  * buffer, its default pipeline and the injected binder, and lets a primitive's draw() bind the

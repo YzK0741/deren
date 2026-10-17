@@ -150,7 +150,7 @@ export namespace deren::engine::pass {
 
         /// \brief the push and the traceRays launch alone - none of this pass's own ordering
         ///
-        /// The legacy record owns the visibility image's two transitions (undefined -> shader_write around the
+        /// The removed legacy record owned the visibility image's two transitions (undefined -> shader_write around the
         /// launch, shader_write -> shader_read as the hand-off to the lighting stage), both with the RAY-TRACING
         /// stage hint because the writer is a traceRays LAUNCH rather than a dispatch. A graph-recorded frame
         /// declares those accesses (the pass writes the image as storage at pipeline_stage::ray_tracing, the

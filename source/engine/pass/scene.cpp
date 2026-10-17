@@ -1,5 +1,5 @@
 // The scene pass's implementation: the rendering instance, the parallel segments, and the draw loop that used
-// to live in `runtime::record_opaque_scene` / `record_main_segment` / `sub_render_task`. Keeps the
+// to live in `deren.engine.pass.scene`'s own recording path and the runtime's segment callback. Keeps the
 // same attachment order, same clear values, same segment count rule, same per-segment bind and
 // draw order, same secondary inheritance - so the capture gate decides the move on the twelve scenarios, which
 // between them cover the deferred surface write, the forward shading path and the lighting stage that reads the

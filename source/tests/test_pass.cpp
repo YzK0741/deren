@@ -593,10 +593,9 @@ int32_t main() {
         CHECK(chain.size() == 2);
         CHECK(chain.find("tail") == static_cast<frame_pass*>(&tail));
         CHECK(chain.find("nothing") == nullptr);
-        // ... and the stage it hands a resolver is its own name, its own list, and its own (disabled) mark policy
+        // ... and the stage it hands a resolver is its own name and its own list
         CHECK(chain.as_stage().name == "gi");
         CHECK(chain.as_stage().passes.size() == 2);
-        CHECK(!chain.as_stage().marks);
     }
 
     // ---- the chain's two convenience calls the runtime still uses: `init` is the whole create step and

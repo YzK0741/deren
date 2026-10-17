@@ -100,7 +100,7 @@ namespace deren::engine::pass {
     rhi::error gbuffer_debug_pass::record_content(resolved_io const& io) noexcept {
         if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
             io.extent.width == 0 || io.extent.height == 0 || io.list == nullptr || io.targets[0].view_handle == nullptr)
-            return rhi::error::invalid_argument; // the runner resolves this or does not record the pass at all
+            return rhi::error::invalid_argument; // the record step resolves this or does not record the pass at all
         // ... and the two pieces of per-image bookkeeping the frame USED to carry are now the renderer's stage
         // preamble (see gbuffer_debug_frame's replacement note): the depth's hand-back and the motion-vector flag's
         // clearing are the frame's ordering rules about images the G-buffer pass wrote.

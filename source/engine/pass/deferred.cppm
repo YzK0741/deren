@@ -116,7 +116,7 @@ export namespace deren::engine::pass {
             .extent = extent_rule::full, // the lighting runs at the frame's resolution
             .extent_of = resource_id::none,
             .pipelines = pipeline_names,
-            .resync_viewport = true, // the runner sets the viewport and scissor from io.extent
+            .resync_viewport = true, // the record step sets the viewport and scissor from io.extent
         };
         void release_owned() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;

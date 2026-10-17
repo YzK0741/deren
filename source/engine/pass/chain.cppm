@@ -2,23 +2,23 @@
 
 /**
  * @file source/engine/pass/chain.cppm
- * @brief A chain of passes: the list, its order, and the two runner calls over it.
+ * @brief A chain of passes: the list, its order, and the create/readiness steps over it.
  * @defgroup engine_pass_chain Pass Chain
  *
- * WHY THIS EXISTS. The runner already had both halves of "run a group of passes" (`create_stage` and
- * `record_stage`), and the renderer still re-stated the LIST at every call site: one `deren::utility::vessel::array<frame_pass*, 1>`
- * member per pass, one `stage{.name = ..., .passes = ..., .marks = false}` construction per call, and the order
- * written in the frame loop's statement sequence. A chain makes that a VALUE instead of a convention: the passes
- * are added once, in order, and the two calls take the chain.
+ * WHY THIS EXISTS. The framework already had the create step (`create_stage`), and the renderer still re-stated
+ * the LIST at every call site: one `deren::utility::vessel::array<frame_pass*, 1>` member per pass, one
+ * `stage{.name = ..., .passes = ...}` construction per call, and the order written in the frame loop's statement
+ * sequence. A chain makes that a VALUE instead of a convention: the passes are added once, in order, and the
+ * steps take the chain.
  *
- * WHAT IT IS NOT: not a scheduler, and not a second runner. The OWNERSHIP it has is the `emplace` form's: a pass
+ * WHAT IT IS NOT: not a scheduler, and not a second record step. The OWNERSHIP it has is the `emplace` form's: a pass
  * built INTO the chain is allocated, destroyed and ordered by the chain, and the renderer that built it keeps a
  * non-owning view - while `add` still takes a pass the chain does NOT own (a test's, or one that lives elsewhere),
  * so the two forms say which of them owns whom. Nothing else about a pass's lifetime is a chain's business: the
  * framework's own rule for everything a pass is handed is that a holder of a pass holds a VIEW (see
  * `pass_context`). Nor does a chain decide ANYTHING per pass: each pass's `feature()` gate, its resolver and its
- * behaviour still belong to the runner, so a chain of four passes runs exactly like the four separate stages it
- * replaced, down to the per-pass `resolved_io` the runner builds for each of them.
+ * behaviour still belong to the framework's record step, so a chain of four passes runs exactly like the four separate stages it
+ * replaced, down to the per-pass `resolved_io` the record step builds for each of them.
  *
  * THE ORDER IS THE DATA, and that is the point of the container: `trace -> lobe -> denoise -> filter` is what
  * makes a chain work (each stage reads what the one before it wrote), and in this class that order is a
@@ -27,7 +27,7 @@
  *
  * WHAT A CHAIN DELIBERATELY DOES NOT EXPRESS: a pass that must run only when an EARLIER pass in the same chain
  * recorded (the spatial filter, which must not filter a stale accumulation). That stays where it belongs - the
- * feature registry, whose `feature_active` is asked per pass, in order, by the runner - because a chain that
+ * feature registry, whose `feature_active` is asked per pass, in order, by the record step - because a chain that
  * could skip its own tail would be a scheduler, and this renderer's feature gates are already the one place
  * where "does this pass run this frame" is answered.
  */
@@ -51,17 +51,17 @@ import deren.engine.render_resource;
 export namespace deren::engine::pass {
 
     /**
-     * @brief an ordered list of passes, with the runner's create and record steps over it
+     * @brief an ordered list of passes, with the record step's create and record steps over it
      *
      * The create and readiness steps are the framework's own (`create_stage` / `ready`), which is what keeps a chain from
-     * growing into a second runner: everything a pass is given, everything the runner does around it and every
+     * growing into a second record step: everything a pass is given, everything the record step does around it and every
      * report it produces are unchanged.
      */
     class pass_chain {
         render_resource::instances::resource_registry managed_resources;
         // called chain_name, not name: pass_chain::name() declares that name and a member of it would
         // duplicate it and hide the accessor.
-        /// the name the runner is handed for the whole chain (used by marks, which every chain here disables)
+        /// the name the record step is handed for the whole chain (used by marks, which every chain here disables)
         std::string_view chain_name = {};
         /// the passes, in the order they were added; fixed once the frame starts, so nothing allocates per frame
         deren::utility::vessel::vector<frame_pass*> passes = {};
@@ -185,7 +185,7 @@ export namespace deren::engine::pass {
 
         /// @brief the chain as a run of passes, in add order, for whoever resolves or walks them
         [[nodiscard]] stage as_stage() noexcept {
-            return stage{.name = this->chain_name, .passes = std::span<frame_pass*>(this->passes.data(), this->passes.size()), .marks = false};
+            return stage{.name = this->chain_name, .passes = std::span<frame_pass*>(this->passes.data(), this->passes.size())};
         }
     };
 

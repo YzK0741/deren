@@ -133,7 +133,7 @@ namespace deren::engine {
         // write the TAA working image (the "scene colour", family 5) and the resolve turns it into this HDR image.
         // The history (family 7) is the PREVIOUS frame's resolve: it is only ever transitioned, never discarded, and
         // it is always left SAMPLED outside the graph - this frame's copy's transfer-destination state is handed
-        // back right after the graph records (see below), the same rule the legacy path's hand-back keeps.
+        // back right after the graph records (see below), the same rule the removed legacy path's hand-back kept.
         graph::texture_ref scene_target = inputs.hdr;
         rhi::image* scene_target_image = input.get();
         std::optional<graph::texture_ref> taa_history{};
@@ -155,7 +155,7 @@ namespace deren::engine {
                 return rhi::error::not_ready;
             // THE HISTORY'S FIRST USE: the graph can only import "defined contents in a KNOWN layout", and a history
             // image that no path has transitioned yet is still in UNDEFINED - so the runtime performs the one
-            // transition the legacy pass performs for itself, keeping the invariant every frame relies on: the
+            // transition the removed legacy pass performed for itself, keeping the invariant every frame relies on: the
             // history is SAMPLED whenever the graph starts. (After this, the post-record hand-back keeps it so.)
             if (index >= this->taa_history_initialized.size() || !this->taa_history_initialized[index]) {
                 auto const first_use = commands->barrier(rhi::image_barrier{.resource = taa_history_lease.get(),
@@ -173,7 +173,7 @@ namespace deren::engine {
             taa_history = *taa_history_ref;
             taa_history_image = taa_history_lease.get();
         }
-        // A LEGACY TAA frame transitions the history for itself (its first-use barrier) and leaves it sampled by its
+        // THE REMOVED LEGACY TAA frame transitioned the history for itself (its first-use barrier) and left it sampled by its
         // own hand-back: record that too, so a later graph frame imports a KNOWN layout instead of re-issuing the
         // first-use transition on an image that is no longer UNDEFINED.
         if (this->taa_active() && index < this->taa_history_initialized.size())
@@ -207,12 +207,11 @@ namespace deren::engine {
             if (!kept)
                 return post_build_error(kept.error());
         }
-        pass::stage composite{.name = "post_composite", .passes = this->post_composite_stage, .marks = false};
+        pass::stage composite{.name = "post_composite", .passes = this->post_composite_stage};
         this->prepare_stage(composite);
         if (settings.resolution != graph::post::resolve::none) {
             pass::stage resolve{.name = settings.resolution == graph::post::resolve::fxaa ? "fxaa" : "upscale",
-                                .passes = settings.resolution == graph::post::resolve::fxaa ? std::span<pass::frame_pass*>{this->fxaa_pass} : std::span<pass::frame_pass*>{this->upscale_pass},
-                                .marks = false};
+                                .passes = settings.resolution == graph::post::resolve::fxaa ? std::span<pass::frame_pass*>{this->fxaa_pass} : std::span<pass::frame_pass*>{this->upscale_pass}};
             this->prepare_stage(resolve);
         }
         // Resolve in its final allocation: resolved_io contains spans into its own storage.
@@ -445,15 +444,15 @@ namespace deren::engine {
             lighting_inputs.shared = lighting_shared;
             // THE CLUSTERED-LIGHT SORT AS A GRAPH PASS (adoption stage 2G): its two per-slot buffers are imported
             // above and declared by the adapter, the lighting pass declares the same buffers as reads, and the
-            // graph owns the producer -> consumer dependency - the pass's legacy path keeps its own two barriers
-            // for legacy frames only, and its recorder here uses the barrier-free record_content entry.
+            // graph owns the producer -> consumer dependency - the removed legacy path kept its own two barriers
+            // for the frames it alone recorded, and its recorder here uses the barrier-free record_content entry.
             if (this->graph_cluster_frame) {
                 auto cluster_added = build.append([&](graph::builder& description) noexcept {
                     return graph::cluster::append(description, {*cluster_counts_ref, *cluster_indices_ref});
                 });
                 if (!cluster_added)
                     return post_build_error(cluster_added.error());
-                pass::stage cluster_stage{.name = "cluster", .passes = this->cluster_pass, .marks = false};
+                pass::stage cluster_stage{.name = "cluster", .passes = this->cluster_pass};
                 this->prepare_stage(cluster_stage);
                 passes[8] = this->cluster_pass[0];
                 ios[8].push_block = host.push_block;
@@ -469,7 +468,7 @@ namespace deren::engine {
             // a reused map is not written and the lighting read already has its sampled state (the import above).
             // The write range is the RESOLVED target count, which is exactly the layer run the pass records.
             if (this->graph_shadow_frame && shadow_cascades) {
-                pass::stage shadow_stage{.name = "shadow", .passes = this->shadow_pass, .marks = false};
+                pass::stage shadow_stage{.name = "shadow", .passes = this->shadow_pass};
                 this->prepare_stage(shadow_stage);
                 passes[9] = this->shadow_pass[0];
                 ios[9].push_block = host.push_block;
@@ -491,7 +490,7 @@ namespace deren::engine {
             if (!geometry)
                 return post_build_error(geometry.error());
             this->update_pass_geometry();
-            pass::stage scene_stage{.name = "scene", .passes = this->scene_pass, .marks = false};
+            pass::stage scene_stage{.name = "scene", .passes = this->scene_pass};
             this->prepare_stage(scene_stage);
             passes[7] = this->scene_pass[0];
             ios[7].push_block = host.push_block;
@@ -519,7 +518,7 @@ namespace deren::engine {
             // reads the tracer reconstructs its ray origins from, so the graph orders geometry -> trace -> lighting and
             // owns the image's two transitions; the pass's record_content keeps the launch alone.
             if (this->graph_rt_frame && rt_visibility) {
-                pass::stage rt_stage{.name = "rt_shadow", .passes = this->rt_shadow_pass, .marks = false};
+                pass::stage rt_stage{.name = "rt_shadow", .passes = this->rt_shadow_pass};
                 this->prepare_stage(rt_stage);
                 passes[18] = this->rt_shadow_pass[0];
                 ios[18].push_block = host.push_block;
@@ -540,7 +539,7 @@ namespace deren::engine {
                 if (!appended)
                     return post_build_error(appended.error());
                 lit = *appended;
-                pass::stage stage{.name = "deferred", .passes = this->deferred_pass, .marks = false};
+                pass::stage stage{.name = "deferred", .passes = this->deferred_pass};
                 this->prepare_stage(stage);
                 passes[6] = this->deferred_pass[0];
                 ios[6].push_block = host.push_block;
@@ -568,8 +567,8 @@ namespace deren::engine {
                 // THE G-BUFFER DEBUG VIEW AS A GRAPH PASS (adoption stage 2J): it samples the stored targets and the
                 // motion vectors and CLEARS the HDR target into one visible channel - the lane that runs INSTEAD of
                 // the lighting stage on a debug frame. Its four input transitions and the HDR write are the graph's
-                // now; the frame loop's own HDR transition for this view belongs to legacy frames only.
-                pass::stage debug_stage{.name = "gbuffer_debug", .passes = this->gbuffer_debug_stage, .marks = false};
+                // now; the frame loop's own HDR transition for this view belonged to the removed legacy path.
+                pass::stage debug_stage{.name = "gbuffer_debug", .passes = this->gbuffer_debug_stage};
                 this->prepare_stage(debug_stage);
                 passes[12] = this->gbuffer_debug_stage[0];
                 ios[12].push_block = host.push_block;
@@ -586,12 +585,12 @@ namespace deren::engine {
                 if (!debug_bound)
                     return post_build_error(debug_bound.error());
             }
-            // THE GAUSSIAN RASTER AS A GRAPH PASS (adoption stage 2O): the legacy tail runs it BEFORE transparency
+            // THE GAUSSIAN RASTER AS A GRAPH PASS (adoption stage 2O): the removed legacy tail ran it BEFORE transparency
             // (lighting -> gaussian -> transparent), so it is appended here. Its GPU compute chain keeps its own
             // buffer barriers inside the recorder - the snapshot's private buffers, no other pass touches them - and
             // the graph owns the pass-level boundary: the working image as a preserve write and the depth as a read.
             if (this->gaussian_active()) {
-                pass::stage gaussian_stage{.name = "gaussian", .passes = this->gaussian_pass, .marks = false};
+                pass::stage gaussian_stage{.name = "gaussian", .passes = this->gaussian_pass};
                 this->prepare_stage(gaussian_stage);
                 passes[17] = this->gaussian_pass[0];
                 ios[17].push_block = host.push_block;
@@ -610,9 +609,9 @@ namespace deren::engine {
             }
             // THE TRANSPARENT PASS AS A GRAPH PASS (adoption stage 2K): it blends the alpha geometry over the lit
             // working image and reads the opaque depth. The graph owns the two hand-off transitions the pass's
-            // legacy record issues itself, and this declaration is what orders lighting -> transparent -> TAA.
+            // removed legacy record issued, and this declaration is what orders lighting -> transparent -> TAA.
             if (this->active_features().transparent) {
-                pass::stage transparent_stage{.name = "transparent", .passes = this->transparent_pass, .marks = false};
+                pass::stage transparent_stage{.name = "transparent", .passes = this->transparent_pass};
                 this->prepare_stage(transparent_stage);
                 passes[13] = this->transparent_pass[0];
                 ios[13].push_block = host.push_block;
@@ -630,11 +629,11 @@ namespace deren::engine {
                     return post_build_error(transparent_bound.error());
             }
             // THE CHARACTER CHAIN (adoption stage 2L): the character-forward pass and the two screen rims compose over
-            // the shaded frame in the legacy order (transparent -> character forward -> toon rim -> goo rim -> TAA).
+            // the shaded frame in the old order (transparent -> character forward -> toon rim -> goo rim -> TAA).
             // All three keep the scene target as a PRESERVE write; the forward pass reads the depth as a depth test,
             // the rims declare the depth/albedo reads their shaders take through per-image heap slots.
             if (this->feature_active("character_forward")) {
-                pass::stage character_stage{.name = "character_forward", .passes = this->character_forward_pass, .marks = false};
+                pass::stage character_stage{.name = "character_forward", .passes = this->character_forward_pass};
                 this->prepare_stage(character_stage);
                 passes[14] = this->character_forward_pass[0];
                 ios[14].push_block = host.push_block;
@@ -652,7 +651,7 @@ namespace deren::engine {
                     return post_build_error(character_bound.error());
             }
             if (this->feature_active("toon_screen_rim")) {
-                pass::stage toon_stage{.name = "toon_screen_rim", .passes = this->toon_screen_rim_pass, .marks = false};
+                pass::stage toon_stage{.name = "toon_screen_rim", .passes = this->toon_screen_rim_pass};
                 this->prepare_stage(toon_stage);
                 passes[15] = this->toon_screen_rim_pass[0];
                 ios[15].push_block = host.push_block;
@@ -670,7 +669,7 @@ namespace deren::engine {
                     return post_build_error(toon_bound.error());
             }
             if (this->feature_active("goo_rim")) {
-                pass::stage goo_stage{.name = "goo_rim", .passes = this->goo_rim_pass, .marks = false};
+                pass::stage goo_stage{.name = "goo_rim", .passes = this->goo_rim_pass};
                 this->prepare_stage(goo_stage);
                 passes[16] = this->goo_rim_pass[0];
                 ios[16].push_block = host.push_block;
@@ -690,10 +689,10 @@ namespace deren::engine {
             // THE TAA RESOLVE AND ITS HISTORY COPY (adoption stage 2I): TWO graph passes from the one pass object.
             // The resolve turns the working image (which geometry and lighting just wrote) into this HDR image;
             // the copy moves that HDR image into the history. The graph owns the attachment transition, the
-            // transfer round trip and the ordering between them - the pass's legacy record keeps all of that for
-            // legacy frames only.
+            // transfer round trip and the ordering between them - kept by the pass's removed legacy record.
+            // (The legacy frames it alone recorded are gone with that path.)
             if (this->graph_taa_frame && taa_history) {
-                pass::stage taa_stage{.name = "taa", .passes = this->taa_pass, .marks = false};
+                pass::stage taa_stage{.name = "taa", .passes = this->taa_pass};
                 this->prepare_stage(taa_stage);
                 passes[10] = this->taa_pass[0];
                 ios[10].push_block = host.push_block;
@@ -792,7 +791,7 @@ namespace deren::engine {
             return error;
         // THE TAA HISTORY'S HAND-BACK (adoption stage 2I): the graph's copy leaves the history image in
         // transfer-destination, and the invariant every frame's import relies on is "the history is sampled outside
-        // the graph" - so the frame that wrote it hands it back, exactly as the legacy TAA record does for its own
+        // the graph" - so the frame that wrote it hands it back, as the removed legacy TAA record did for its own
         // frame. The graph cannot own a state that outlives its plan, which is why this stays the runtime's.
         if (this->graph_taa_frame && taa_history_image != nullptr) {
             auto const hand_back = commands->barrier(rhi::image_barrier{.resource = taa_history_image,
@@ -802,7 +801,7 @@ namespace deren::engine {
             if (hand_back != rhi::error::ok)
                 return hand_back;
         }
-        // THE TAA STAGE'S COLLECTED RESULT: the legacy tail collects it after its own TAA stage, and a written history
+        // THE TAA STAGE'S COLLECTED RESULT: the legacy tail collected it after its own TAA stage, and a written history
         // is what publishes this frame's UNJITTERED view-projection for the NEXT frame's reprojection. Measured:
         // without this the graph-recorded TAA frame differs (the resolve reprojects against a stale matrix).
         if (this->graph_taa_frame)

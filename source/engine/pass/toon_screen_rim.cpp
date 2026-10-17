@@ -43,7 +43,7 @@ namespace deren::engine::pass {
     std::string_view toon_screen_rim_pass::feature() const noexcept {
         // THE CHARACTER-FORWARD FEATURE, not one of its own: the contour belongs to the toon character stage
         // and means nothing without it, so one switch turns both on. Gating it here is also what keeps every
-        // capture scenario byte-identical while that feature is off - the runner asks this before it resolves
+        // capture scenario byte-identical while that feature is off - the record step asks this before it resolves
         // the declaration, so a frame with no character never even transitions an image for this pass.
         //
         // ... AND IT IS ITS OWN NAME RATHER THAN `character_forward`, WHICH IT USED TO SHARE, because the
@@ -101,7 +101,7 @@ namespace deren::engine::pass {
             this->release_owned();
             return;
         }
-        built->viewport = rhi::viewport{.x = 0.0f, .y = 0.0f, .width = 1.0f, .height = 1.0f, .min_depth = 0.0f, .max_depth = 1.0f}; // the runner resyncs it from io.extent
+        built->viewport = rhi::viewport{.x = 0.0f, .y = 0.0f, .width = 1.0f, .height = 1.0f, .min_depth = 0.0f, .max_depth = 1.0f}; // the record step resyncs it from io.extent
         built->scissor = rhi::rect{.offset_x = 0, .offset_y = 0, .width = 1u, .height = 1u};
         this->pass_pipeline = std::move(*built);
         deren::utility::log("SUCCESS: toon screen rim pipeline created (a fullscreen additive contour from the depth)");
@@ -109,7 +109,7 @@ namespace deren::engine::pass {
 
     void toon_screen_rim_pass::on_swapchain_recreated(pass_host const&) {
         // Nothing to reset: the pipeline depends on the HDR target's format and on nothing whose size changes,
-        // and the viewport/scissor are resynced by the runner (see pass_behaviour::resync_viewport).
+        // and the viewport/scissor are resynced by the record step (see pass_behaviour::resync_viewport).
     }
 
     void toon_screen_rim_pass::release_owned() noexcept {
@@ -142,7 +142,7 @@ namespace deren::engine::pass {
 
     void toon_screen_rim_pass::record_impl(resolved_io const& io) {
         if (!this->pipeline_ready() || io.targets.empty() || io.extent.width == 0 || io.extent.height == 0) {
-            return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
+            return; // the record step resolves all of this or skips the pass (see frame_pass::resolve)
         }
         // THE CONTRACT VIEW IS THE GUARD (plan X5 B2): the raw lane is gone, and a null handle is exactly the
         // "this frame has no target" this refusal is about.
@@ -189,8 +189,8 @@ namespace deren::engine::pass {
     }
 
     rhi::error toon_screen_rim_pass::record_content(resolved_io const& io) noexcept {
-        // THIS PASS OWNS NO BARRIERS: the legacy record body IS the content (its sampled inputs are heap slots the
-        // graph declares on its behalf), so the graph entry only refuses what the runner would have refused.
+        // THIS PASS OWNS NO BARRIERS: the removed legacy record body WAS the content (its sampled inputs are heap slots the
+        // graph declares on its behalf), so the graph entry only refuses what the record step would have refused.
         if (!this->pipeline_ready() || io.targets.empty() || io.targets[0].view_handle == nullptr || io.extent.width == 0 ||
             io.extent.height == 0 || io.list == nullptr)
             return rhi::error::invalid_argument;

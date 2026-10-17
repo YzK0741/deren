@@ -8,7 +8,7 @@ export namespace deren::engine::render_graph::transparent {
     ///
     /// The pass LOADs the scene target (the lit image, or the TAA working image on a TAA frame) and the opaque
     /// depth, and blends its leaves over both - so the target is a PRESERVE write (its contents are read and
-    /// kept) and the depth is read through the depth test. The legacy path publishes the two hand-off transitions
+    /// kept) and the depth is read through the depth test. The removed legacy path published the two hand-off transitions
     /// itself; declaring them here is what lets the graph order lighting -> transparent -> TAA by resource.
     struct inputs {
         texture_ref target;

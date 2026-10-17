@@ -74,7 +74,7 @@ namespace deren::engine::pass {
         bake.material_index = request.material_index;
         // THE BIND RIDES THE CONTRACT (abi 21): the pipeline this JOB owns IS a contract pipeline (the builders
         // create through `api_core::create_pipeline`), so `bind_pipeline` carries the compute bind point the
-        // backend decided. NO RUNNER BINDS FOR THIS JOB - it is not a frame pass, the acceleration-structure set
+        // backend decided. NO RECORD STEP BINDS FOR THIS JOB - it is not a frame pass, the acceleration-structure set
         // drives it - so this is the one place its pipeline is bound, and a job whose pipeline has no contract
         // handle is a wiring bug that is REPORTED rather than recorded into the void.
         if (!this->pass_pipeline.has_value() || this->pass_pipeline->contract == nullptr) {

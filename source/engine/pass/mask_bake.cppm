@@ -7,7 +7,7 @@
  * @defgroup engine_pass_mask_bake AlphaMode MASK Bake
  *
  * WHY THIS IS NOT A `frame_pass`, and the distinction is the point rather than a shortcut: the framework's pass
- * contract is PER FRAME (a declaration, a `resolved_io` built from it, a stage the runner walks every frame,
+ * contract is PER FRAME (a declaration, a `resolved_io` built from it, a stage the record step walks every frame,
  * `on_swapchain_recreated` for its generation state). This work is the opposite: it runs ONCE, inside the
  * command buffer that builds the bottom level structures, and its input is the caster list the runtime is
  * walking at that moment. Pretending it were a frame pass would mean a feature gate that is true on exactly one

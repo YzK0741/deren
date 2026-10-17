@@ -7,7 +7,7 @@ export module deren.engine.render_graph.gbuffer_debug;
 export import deren.engine.render_graph;
 export namespace deren::engine::render_graph::gbuffer_debug {
     /// The G-buffer debug view: it samples the three stored targets and the motion-vector target and CLEARS the
-    /// HDR target into one visible channel. Its input transitions are the pass's own in the legacy path; declaring
+    /// HDR target into one visible channel. Its input transitions belonged to the pass in the removed legacy path; declaring
     /// them here is what lets the graph emit them (and the HDR write) instead.
     struct inputs {
         std::array<texture_ref, 3> surface;

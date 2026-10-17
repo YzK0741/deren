@@ -831,7 +831,7 @@ namespace deren::engine {
         }
         uint32_t const frame_slot = this->frame_ring().position();
         // FREEZE THE GRAPH FRAME'S ELIGIBILITY HERE, before the first recording decision that depends on it: the
-        // cluster sort is recorded by the composed graph on an eligible frame and by the legacy stage otherwise,
+        // cluster sort is recorded by the composed graph on every frame;
         // and that decision comes before record_scene() (which used to be the only place the predicate ran).
         // Every later reader - record_scene(), the fallback log - uses this frozen value.
         this->main_graph_frame = this->main_graph_candidate();
@@ -858,8 +858,8 @@ namespace deren::engine {
                                   this->gbuffer_debug_stage[0] != nullptr;
         // THE RAY-TRACED SHADOW LANE (RT stage 2b): the lane declares the visibility image's storage write from the
         // ray-tracing stage and the lighting lane declares the sampled read, so the graph owns the write -> hand-off
-        // pair the pass's legacy record issues itself. The pass records only when its feature is on and its pipeline
-        // exists - the same answer the legacy stage is gated on.
+        // pair the removed legacy record issued. The pass records only when its feature is on and its pipeline
+        // exists.
         this->graph_rt_frame = this->main_graph_frame && this->active_features().rt_shadow && this->rt_shadow_pass[0] != nullptr;
         // THE GRAPH IS THE ONLY RECORDER NOW (cleanup after the flip): an ineligible frame records NOTHING
         // here - no legacy cluster sort, no legacy shadow pass, no legacy scene - and record_post_process
@@ -875,7 +875,7 @@ namespace deren::engine {
         //      is as early as possible; nothing before it reads the lists.
         // ON A GRAPH FRAME THE COMPOSED GRAPH OWNS IT (adoption stage 2G): its buffers are imported and
         // declared there, the graph orders the sort against the lighting pass that reads the bins, and its
-        // recorder uses the pass's barrier-free entry - so this legacy stage must not also record it. A frame
+        // recorder uses the pass's barrier-free entry, and this is the only site that records the sort.
         // whose cluster buffers did not resolve keeps the pre-migration split (this stage records it).
 
         // ---- Ray-traced shadows: build the acceleration structures once, before the passes that will
@@ -1221,10 +1221,10 @@ namespace deren::engine {
         // gbuffer_debug), which declares resync_viewport like every other fullscreen pass in this chain.
         // ... and the deferred lighting stage's is not here either, for a stronger reason than the TAA
         // resolve's below: it is a PASS (deren.engine.pass.deferred), it declares `resync_viewport = true`, so the
-        // runner sets the viewport and scissor from the extent its own declaration produced. The old
+        // record step sets the viewport and scissor from the extent its own declaration produced. The old
         // `deferred_pipeline->viewport = ...` line existed because a pipeline object caches what
-        // begin_pipeline() applies; the pass never calls begin_pipeline, the runner binds the pipeline.
-        // The TAA resolve's pipeline and viewport are NOT resynced here: the runner sets a fullscreen pass's
+        // begin_pipeline() applies; the pass never calls begin_pipeline, the record step binds the pipeline.
+        // The TAA resolve's pipeline and viewport are NOT resynced here: the record step sets a fullscreen pass's
         // viewport and scissor from the extent its declaration produced, which is what `resync_viewport`
         // means once a pass states it (see deren.engine.pass's behaviour). The hazard this list used to guard - a
         // fullscreen pass setting a zero-width viewport because it was left out - is gone by construction.
@@ -1556,7 +1556,7 @@ namespace deren::engine {
     }
 
     void runtime::create_passes() {
-        // The runner's create step for every stage this runtime wires. A pass builds what it owns from its own
+        // The record step's create step for every stage this runtime wires. A pass builds what it owns from its own
         // declaration and its own shader, so this is also where a pass that could not build itself says so -
         // and a pass that says so stays INACTIVE (its feature predicate is false), which is what makes a
         // startup failure here a log line rather than a broken frame.
@@ -1702,7 +1702,6 @@ namespace deren::engine {
             // reaches a native device through the escape when it needs an allocated entry point (pass::native_device).
             .face = &this->rhi_face(),
             .swap_chain_format = this->swap_chain_image_format,
-            .samplers = this->shared_samplers(),
             .shader = [](void* owner, std::string_view const name) { return static_cast<runtime*>(owner)->registered_shader(name); },
             // The SBT numbers a tracing pass builds its table against, straight from the capability query (see
             // device_capabilities): zeroed here on a device that has no ray-tracing pipeline.
@@ -2575,18 +2574,12 @@ namespace deren::engine {
         };
     }
 
-    runtime::frame_services runtime::make_frame_services(std::shared_ptr<rhi::command_buffer> command_buffer) noexcept {
+    runtime::frame_services runtime::make_frame_services() noexcept {
         // Capture-less lambdas: each one casts the owner back and calls the builder it names, so the owner never
         // sees a member function of this class - it sees the frame. THREE builders, not eleven: the rest of the
         // frames are composed by their own passes from the published facts (see frame_pass::prepare_frame).
         return frame_services{
             .owner = this,
-            .cmd = std::move(command_buffer),
-            .image_index = static_cast<uint32_t>(this->current_image_index),
-            .samplers = this->shared_samplers(),
-            .table = &this->frame_resources,
-            .frame = this->pass_frame(),
-            .constants = &this->frame_facts,
             .make_shadow_frame = [](void* owner) { return static_cast<runtime*>(owner)->make_shadow_frame(); },
             .make_scene_frame = [](void* owner) { return static_cast<runtime*>(owner)->make_scene_frame(); },
             .make_transparent_frame = [](void* owner) { return static_cast<runtime*>(owner)->make_transparent_frame(); },
@@ -2597,7 +2590,6 @@ namespace deren::engine {
                                                                                                  if (phase < 3u)
                                                                                                      static_cast<runtime*>(context)->gpu_mark(static_cast<gpu_mark_id>(static_cast<std::uint32_t>(gpu_mark_id::gaussian_prepare_end) + phase));
                                                                                              }}; },
-            .feature_active = [](void* owner, std::string_view name) { return static_cast<runtime const*>(owner)->feature_active(name); },
         };
     }
 
@@ -2606,7 +2598,7 @@ namespace deren::engine {
         // holds which pass IS the frame loop's order (it is what the marks, the per-stage preambles and the
         // renderer's own work between the stages are written against), so it is filled here BY DECLARATION NAME out
         // of whichever chain the application handed over. A name the chain does not declare leaves that stage empty,
-        // which the runner treats as "no pass here" rather than as an error.
+        // which the record step treats as "no pass here" rather than as an error.
         this->frame_chain = &chain;
         auto const at = [&chain](std::string_view const name) -> pass::frame_pass* { return chain.find(name); };
         this->cluster_pass = {at("cluster")};
@@ -2657,7 +2649,7 @@ namespace deren::engine {
         if (this->frame_wiring.prepare == nullptr) {
             return; // no owner: the passes keep the frames they just built and record with them
         }
-        this->frame_wiring.prepare(this->frame_wiring.owner, this->make_frame_services(this->frame_command_buffer()), stage.name);
+        this->frame_wiring.prepare(this->frame_wiring.owner, this->make_frame_services(), stage.name);
     }
 
     void runtime::collect_stage(std::string_view const stage) {
@@ -2725,7 +2717,7 @@ namespace deren::engine {
             // ONE LANE, THE CONTRACT'S (abi 21): `pipeline_handle::contract` is set for EVERY pipeline this
             // renderer builds - the graphics recipes, the compute assemblies and the ray-tracing one all come
             // from `api_core::create_pipeline` - and a null contract here is a wiring bug, not a backend without
-            // the ability (the runner's raw fallback is gone with the raw lane itself).
+            // the ability (the record step's raw fallback is gone with the raw lane itself).
             return pass::owned_pipeline{.contract = pipeline->contract};
         }
         // ... AND THEN THE CHAIN'S OWN PASSES, because a chain's stages may SHARE one pipeline: the post chain's
@@ -2748,6 +2740,9 @@ namespace deren::engine {
     pass::resolve_context runtime::make_resolve_context() noexcept {
         return pass::resolve_context{
             .resources = &this->frame_resources,
+            // THE FRAME'S IDENTITY: the resolve step needs each pass's extent rule applied to THIS frame
+            // (the image index, the slot, the image count and the render extent), and a pass's own override reads
+            // it too. Removing this line left the extent rule resolving against a zero extent.
             .frame = this->pass_frame(),
             // THE FRAME'S OWN BUFFER IN THE CONTRACT'S SPELLING (abi 21): the framework copies this value
             // into `resolved_io::cmd` for every pass it resolves (see resolve_declaration), so the two
@@ -2786,10 +2781,10 @@ namespace deren::engine {
         };
     }
 
-    // ---- the pass host: the runner's callbacks, answered by the renderer ---------------------------------
+    // ---- the pass host: the record step's callbacks, answered by the renderer ---------------------------------
     //
     // It is rebuilt per call because it is a struct of function pointers (it holds no state of its own); the
-    // context is this runtime, which is what each callback casts back to. This is the RUNNER's half of the
+    // context is this runtime, which is what each callback casts back to. This is the RECORD STEP's half of the
     // interface and a pass never sees it: at create time a pass is given a `pass_context`, and while recording
     // it is handed `resolved_io`, so it cannot reach a resource its declaration did not name.
     pass::pass_host runtime::make_pass_host() noexcept {
@@ -2798,13 +2793,8 @@ namespace deren::engine {
             // vkCmdPushDataEXT, because no heap pipeline has a layout to hold push constants.
             .push_block = {.owner = this, .push = &runtime::push_stage_block},
             .context = this,
-            .frame = [](void* context) { return static_cast<runtime*>(context)->pass_frame(); },
-            .feature_active = [](void* context, std::string_view const feature) { return static_cast<runtime*>(context)->feature_active(feature); },
             .resolve = [](void* context, pass::frame_pass const& pass, pass::resolved_io& out) { return static_cast<runtime*>(context)->resolve_pass(pass, out); },
             .apply_behaviour = [](void* context, pass::frame_pass const& pass, pass::resolved_io const& io) { static_cast<runtime*>(context)->apply_pass_behaviour(pass, io); },
-            // No mark pair for this stage, and deliberately: its cost is already accounted for by the marks around
-            // the passes it records, so adding a query pair here would only change the report. The runtime keeps writing
-            // the end mark itself, right after the stage.
         };
     }
 
@@ -2877,7 +2867,7 @@ namespace deren::engine {
     // the table (the images), the pass's own pipeline (a null one fails the resolution) and the feature "taa".
 
     void runtime::apply_pass_behaviour(pass::frame_pass const& pass, pass::resolved_io const& io) {
-        // The mechanical part of "how this pass is called", done by the runner so that a pass cannot forget
+        // The mechanical part of "how this pass is called", done by the record step so that a pass cannot forget
         // it: the pipeline is bound HERE, and the viewport/scissor are set HERE for a pass that asked for them
         // (which is what replaces the hand-kept pipeline list in update_pass_geometry - a pass cannot drop
         // itself from a list it does not maintain).
@@ -2887,7 +2877,7 @@ namespace deren::engine {
         // this function no longer has a "not a compute pass" branch: the three graphics kinds differ in how
         // many draws they issue, and only the pass knows that.
         pass::behaviour const& behaviour = pass.behaviour();
-        // THE RUNNER'S LAST RAW STEP IS GONE (this batch): the viewport/scissor resync below is the record
+        // THE RECORD STEP'S LAST RAW STEP IS GONE (this batch): the viewport/scissor resync below is the record
         // series' own verbs on `io.cmd`, which is the frame's contract buffer - so this function derives no
         // native handle at all any more, and the three `vkCmd*` calls it used to make are two contract verbs.
         if (behaviour.resync_viewport) {
@@ -2902,7 +2892,7 @@ namespace deren::engine {
         }
         // THE CONTRACT, ONE LANE (abi 21): every pipeline a pass resolves is the contract object
         // `command_buffer::bind_pipeline` takes - the graphics recipes, the compute assemblies and the
-        // ray-tracing pipeline alike - and the runner has NO raw fallback any more. A declared pipeline that
+        // ray-tracing pipeline alike - and the record step has NO raw fallback any more. A declared pipeline that
         // resolved to a null handle is a wiring bug, and it is REPORTED rather than silently recorded without
         // its pipeline (the frame's bind is what makes a pass's draws legal).
         for (deren::promise::rhi::pipeline* const contract : io.pipelines) {
@@ -3022,7 +3012,7 @@ namespace deren::engine {
         // predicate is not just `pass_ready`: the render extent returns the swapchain's extent at 1.0, so
         // the resolve would read an image at the output size and write an image at the output size - a
         // same-size resample that costs a pass and changes no pixel. This is also what keeps every scale-1.0
-        // capture byte-identical: the runner never resolves or records the stage, the composite never writes
+        // capture byte-identical: the record step never resolves or records the stage, the composite never writes
         // the LDR image for it, and the frame is the frame it always was. The scale is the ENGINE's own
         // number now (abi 14, copied from the creation option the context was built with), not a field
         // read out of the context.

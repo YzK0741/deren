@@ -121,7 +121,7 @@ namespace deren::engine::pass {
     }
 
     namespace {
-        /// The guards every TAA entry shares: the runner resolved the handles, this image slot has a history
+        /// The guards every TAA entry shares: the record step resolved the handles, this image slot has a history
         /// record, and the frame is current. `history_valid` comes out of the pass's per-image bookkeeping.
         bool taa_frame_ready(resolved_io const& io, deren::utility::vessel::vector<bool>& valid_history, bool& history_valid) {
             if (io.own.size() < 3u || io.targets.empty() || io.extent.width == 0 || io.extent.height == 0)
@@ -156,7 +156,7 @@ namespace deren::engine::pass {
         this->history_written = false;
         bool history_valid = false;
         if (!taa_frame_ready(io, this->valid_history, history_valid))
-            return rhi::error::invalid_argument; // the runner resolves this or does not record the pass at all
+            return rhi::error::invalid_argument; // the record step resolves this or does not record the pass at all
         if (!this->record_resolve(io, history_valid, false))
             return rhi::error::invalid_argument;
         return rhi::error::ok;
@@ -218,7 +218,7 @@ namespace deren::engine::pass {
             }
         }
 
-        // The runner has bound the pipeline and set the viewport and scissor from io.extent (this pass
+        // The record step has bound the pipeline and set the viewport and scissor from io.extent (this pass
         // declared resync_viewport); what a fullscreen pass still owns is its instance - the load op is its
         // knowledge - and the state the viewport fields do not cover.
         // THE RENDERING SCOPE RIDES THE CONTRACT NOW (abi 20): one colour attachment, CLEAR + STORE (what

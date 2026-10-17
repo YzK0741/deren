@@ -154,12 +154,12 @@ namespace deren::engine::pass {
     rhi::error shadow_pass::record_content(resolved_io const& io) noexcept {
         if (!this->pipeline_ready() || io.targets.empty() || io.list == nullptr || this->pass_frame.record_cascade == nullptr ||
             this->pass_frame.run_tasks == nullptr || this->pass_frame.map_size == 0u)
-            return rhi::error::invalid_argument; // the runner resolves this or does not record the pass at all
-        this->record_impl(io, false);
+            return rhi::error::invalid_argument; // the record step resolves this or does not record the pass at all
+        this->record_impl(io);
         return rhi::error::ok;
     }
 
-    void shadow_pass::record_impl(resolved_io const& io, bool const own_layer_transitions) {
+    void shadow_pass::record_impl(resolved_io const& io) {
         if (!this->pipeline_ready() || io.targets.empty() || io.list == nullptr) {
             return;
         }
@@ -227,14 +227,6 @@ namespace deren::engine::pass {
             // THE PAIR RIDES THE CONTRACT (abi 20): undefined -> depth_attachment is the shipped
             // `depth_attachment_transition`, and the layer it covers is the contract range's base_layer - the raw
             // constant's single-mip, single-layer range retargeted at `cascade`, field for field.
-            // A GRAPH-RECORDED FRAME SKIPS THIS: its declarations make the graph own the transition (record_content
-            // passes own_layer_transitions = false), so one submission never runs both barrier paths.
-            if (own_layer_transitions && io.list->barrier(rhi::image_barrier{.resource = layer_image,
-                                                                             .from = rhi::image_use::undefined,
-                                                                             .to = rhi::image_use::depth_attachment,
-                                                                             .range = {.base_mip = 0, .mip_count = 1, .base_layer = cascade, .layer_count = 1}}) != rhi::error::ok) {
-                return; // a refused barrier would leave the layer in a state nobody declared
-            }
             // Depth-only rendering into this cascade (no colour attachment), with loadOp CLEAR (the far plane) and
             // storeOp STORE - the map has to survive for the shading stages that sample it.
             // THE SCOPE RIDES THE CONTRACT TOO (abi 20): one depth attachment, no colour one, and the raw call's

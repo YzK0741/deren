@@ -244,11 +244,11 @@ namespace deren::engine {
         if (this->frame_wiring.recreated != nullptr) {
             this->frame_wiring.recreated(this->frame_wiring.owner);
         }
-        // AND THE PASSES ARE TOLD, by the runner rather than by a hand-kept list. That is the hazard this layer was
+        // AND THE PASSES ARE TOLD, by the record step rather than by a hand-kept list. That is the hazard this layer was
         // built to remove: a pass that keeps per-generation state cannot be missed, because it is not this function
         // that remembers - `recreate_stage` calls every pass in the stage, and a pass added to one is covered.
         {
-            pass::stage const taa_stage = {.name = "taa", .passes = this->taa_pass, .marks = false};
+            pass::stage const taa_stage = {.name = "taa", .passes = this->taa_pass};
             [[maybe_unused]] pass::run_report const taa_recreated = pass::recreate_stage(taa_stage, this->make_pass_host());
             // THE STAGES ADDED SINCE THIS LIST WAS WRITTEN, and now one call per chain: a pass whose per-image
             // first-use state describes a GENERATION is owed another first-use batch by a swapchain recreation.
@@ -849,7 +849,7 @@ namespace deren::engine {
             // THE TOON STAGE'S GATE, and it is the knob AND the frame's content for the same reason `.shadow`
             // is the checkbox and `enable_shadows()`: a frame with no opaque geometry has no surface for the
             // pass to re-shade, and a scene with no toon character must not pay for the stage at all. When it
-            // is false the pass's `feature()` answers inactive and the runner never resolves its declaration -
+            // is false the pass's `feature()` answers inactive and the record step never resolves its declaration -
             // which is exactly what keeps the fourteen capture-gate scenarios byte-identical while it is off.
             //
             // EITHER LEAF LIST KEEPS IT ALIVE, and the overlay half is not a formality: a character whose only

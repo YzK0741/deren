@@ -114,10 +114,10 @@ export namespace deren::engine::pass {
 
         /// @brief the cascade rendering alone, with none of this pass's own ordering
         ///
-        /// The legacy `record()` transitions each cascade layer to a renderable depth attachment right before
+        /// The removed legacy `record()` transitioned each cascade layer to a renderable depth attachment right before
         /// rendering it (see its comment). A graph-recorded frame declares the shadow map as a written graph
         /// resource instead, and the graph emits the transitions AND the hand-back that the runtime issues for
-        /// legacy frames - so its recorder calls THIS entry: the two barrier paths must never both run.
+        /// of the removed legacy path - so its recorder calls THIS entry: the two barrier paths must never both run.
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
 
         /// @brief whether the pass built the pipeline it records with (the renderer gates its feature on this)
@@ -127,7 +127,7 @@ export namespace deren::engine::pass {
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
-        /// @brief the pipeline the runner binds before this pass records: the MESHLET form when it exists, the
+        /// @brief the pipeline the record step binds before this pass records: the MESHLET form when it exists, the
         ///        MESH form otherwise (the contract handle - see `frame_pass::pipeline_handle`)
         [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
@@ -135,9 +135,8 @@ export namespace deren::engine::pass {
 
     private:
         /// @brief the one cascade-recording body, parameterised by who owns the per-layer transitions
-        /// @param own_layer_transitions true for the legacy path (each layer transitions right before it renders),
         ///        false for a graph-recorded frame (the graph declares the writes and emits them)
-        void record_impl(resolved_io const& io, bool own_layer_transitions);
+        void record_impl(resolved_io const& io);
         static constexpr std::string_view vertex_shader_name = "shadow.vert.spv";
         static constexpr std::string_view fragment_shader_name = "shadow.frag.spv";
         /// THE MESH STAGE'S OWN MODULE, from the same shader file's `mesh_main` entry (docs/mesh_shaders.md step
@@ -163,7 +162,7 @@ export namespace deren::engine::pass {
             .extent_of = resource_id::none,
             .pipelines = pipeline_names,
             // The viewport is the MAP's edge and it belongs to the secondary the content is recorded into (the
-            // renderer's callback sets it), so the runner must not overwrite it with io.extent - which `none` leaves
+            // renderer's callback sets it), so the record step must not overwrite it with io.extent - which `none` leaves
             // empty anyway.
             .resync_viewport = false,
         };

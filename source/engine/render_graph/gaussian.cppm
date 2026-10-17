@@ -7,7 +7,7 @@ export namespace deren::engine::render_graph::gaussian {
     /// The Gaussian splat raster: it alpha-blends the cloud over the shaded frame and depth-tests against the
     /// opaque depth. Its GPU compute chain runs inside the same record entry and keeps its own buffer barriers
     /// (the snapshot's private buffers - no other pass touches them), so the pass-level boundary the graph owns is
-    /// exactly this: a preserve-write colour attachment and a depth read. In the legacy tail it records BEFORE the
+    /// exactly this: a preserve-write colour attachment and a depth read. In the removed legacy tail it recorded BEFORE the
     /// transparent pass, and the graph keeps that order by appending it there too.
     struct inputs {
         texture_ref target;

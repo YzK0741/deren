@@ -177,7 +177,7 @@ namespace deren::engine::pass {
 
     rhi::error rt_shadow_pass::record_content(resolved_io const& io) noexcept {
         if (!this->record_ready(io))
-            return rhi::error::invalid_argument; // the runner resolves all of this or does not record the pass at all
+            return rhi::error::invalid_argument; // the record step resolves all of this or does not record the pass at all
         // No sets to bind (see the heap bind in begin_recording): the tracer's scene buffers, its G-buffer images
         // and the acceleration structure are heap slots the shader names, and the frame's indices arrive in its
         // push block.

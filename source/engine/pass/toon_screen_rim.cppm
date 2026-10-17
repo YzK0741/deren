@@ -29,7 +29,7 @@
  *
  * IT IS GATED BY THE `character_forward` FEATURE, not by one of its own: the contour belongs to the toon
  * character stage and means nothing without it, so the two are one feature with one switch. That is also what
- * makes every capture scenario byte-identical while the feature is off - the runner asks this pass's
+ * makes every capture scenario byte-identical while the feature is off - the record step asks this pass's
  * `feature()` before it resolves anything.
  */
 
@@ -87,7 +87,7 @@ export namespace deren::engine::pass {
         /// \brief the record body alone - none of this pass's own ordering
         ///
         /// The graph recorder calls THIS entry and the graph emits the input transitions and the target write the
-        /// legacy path owns; one submission therefore never runs both barrier paths. character_forward's legacy
+        /// removed legacy path owned; one submission therefore never runs both barrier paths. character_forward's removed legacy
         /// record keeps its two hand-offs and its depth hand-back; the two rim passes own no barriers at all (their
         /// sampled inputs are declared here, because the graph orders and transitions what the record only indexes).
         void record_impl(resolved_io const& io);
@@ -123,7 +123,7 @@ export namespace deren::engine::pass {
             .extent = extent_rule::full, // the contour is drawn at the frame's resolution
             .extent_of = resource_id::none,
             .pipelines = pipeline_names,
-            .resync_viewport = true, // the runner sets the viewport and scissor from io.extent
+            .resync_viewport = true, // the record step sets the viewport and scissor from io.extent
         };
         void release_owned() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;

@@ -6,7 +6,7 @@
 // pass may read while it records.
 //
 // WHY A VALUE RATHER THAN A CALLBACK, and the reason is the framework's own rule
-// (see vulkan.pass: `pass_host` is the RUNNER's interface and a pass never sees it,
+// (see vulkan.pass: `pass_host` is the RECORD STEP's interface and a pass never sees it,
 // because a context object that answers whatever the newest pass asks for is what
 // that rule exists to prevent). These are not answers to questions - they are the
 // frame's data, produced once by the frame loop whether or not any pass wants it,

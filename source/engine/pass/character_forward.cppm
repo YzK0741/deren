@@ -162,7 +162,7 @@ export namespace deren::engine::pass {
         /// \brief the record body alone - none of this pass's own ordering
         ///
         /// The graph recorder calls THIS entry and the graph emits the input transitions and the target write the
-        /// legacy path owns; one submission therefore never runs both barrier paths. character_forward's legacy
+        /// removed legacy path owned; one submission therefore never runs both barrier paths. character_forward's removed legacy
         /// record keeps its two hand-offs and its depth hand-back; the two rim passes own no barriers at all (their
         /// sampled inputs are declared here, because the graph orders and transitions what the record only indexes).
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;

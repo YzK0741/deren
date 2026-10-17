@@ -27,7 +27,7 @@
  * IT IS GATED BY THE REWRITTEN CHAIN, NOT BY ITS OWN FEATURE NAME, and it is the one pass in this renderer whose
  * `feature()` names a flag the owner composes out of `runtime::goo_toon_active()`: with `[render] goo_toon` false
  * the pass is never resolved and never recorded, which is what keeps every existing capture scenario byte-identical
- * (the runner asks `feature()` before it resolves the declaration, so the skip costs no barrier and no resolve).
+ * (the record step asks `feature()` before it resolves the declaration, so the skip costs no barrier and no resolve).
  * The owner's table owns that answer because the same predicate picks the character stage's pipeline, and a gate
  * that could disagree with the pipeline choice would either draw a Goo rim over the OLD chain's frame or draw none
  * over the new one.
@@ -83,7 +83,7 @@ export namespace deren::engine::pass {
         /// \brief the record body alone - none of this pass's own ordering
         ///
         /// The graph recorder calls THIS entry and the graph emits the input transitions and the target write the
-        /// legacy path owns; one submission therefore never runs both barrier paths. character_forward's legacy
+        /// removed legacy path owned; one submission therefore never runs both barrier paths. character_forward's removed legacy
         /// record keeps its two hand-offs and its depth hand-back; the two rim passes own no barriers at all (their
         /// sampled inputs are declared here, because the graph orders and transitions what the record only indexes).
         void record_impl(resolved_io const& io);
@@ -109,7 +109,7 @@ export namespace deren::engine::pass {
             .extent = extent_rule::full, // the rim is drawn at the frame's resolution
             .extent_of = resource_id::none,
             .pipelines = pipeline_names,
-            .resync_viewport = true, // the runner sets the viewport and scissor from io.extent
+            .resync_viewport = true, // the record step sets the viewport and scissor from io.extent
         };
         void release_owned() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;
