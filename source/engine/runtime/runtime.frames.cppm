@@ -1121,14 +1121,23 @@ namespace deren::engine {
         // alive by exporting the history image - without that export the value-root culling dropped the copy and the
         // history was never written (that was the flip's whole defect).
         // THE G-BUFFER DEBUG VIEW is no exclusion either (stage 2J): it needs the G-BUFFER pass, not the lighting
-        // stage, because on a debug frame it records INSTEAD of lighting. THE TRANSPARENT PASS is no exclusion
-        // (stage 2K): it records as a lane after the lighting/debug producer, ordered by the working image and the
-        // depth. The exclusions that remain are the paths whose PASSES are still outside the graph.
+        // stage, because on a debug frame it records INSTEAD of lighting. THE TRANSPARENT PASS (stage 2K) and THE
+        // THREE CHARACTER PASSES (stage 2L) record as lanes over the working image in the legacy order. What remains
+        // excluded are the paths whose PASSES are still outside the graph: the ray-traced shadows and MegaLights
+        // (their traces read the TLAS, which the graph has no resource kind for) and the Gaussian splats.
         auto const features = this->active_features();
-        return this->main_graph_enabled && this->gbuffer_pass_active() &&
-               !features.rt_shadow && !this->megalights_active() &&
-               !this->gaussian_active() && !this->feature_active("character_forward") &&
-               !this->feature_active("toon_screen_rim") && !this->feature_active("goo_rim");
+        if (!this->main_graph_enabled || !this->gbuffer_pass_active() || features.rt_shadow || this->megalights_active() || this->gaussian_active())
+            return false;
+        // EVERY ACTIVE OVERLAY'S PASS MUST BE IN THE CHAIN: a graph frame records the overlay lanes, so a frame whose
+        // active feature has no pass could only be "recorded" by silently dropping the effect. Such a frame takes the
+        // legacy path instead, which gates the same features on their passes (measured by test_render_graph_post).
+        if (this->feature_active("character_forward") && this->character_forward_pass[0] == nullptr)
+            return false;
+        if (this->feature_active("toon_screen_rim") && this->toon_screen_rim_pass[0] == nullptr)
+            return false;
+        if (this->feature_active("goo_rim") && this->goo_rim_pass[0] == nullptr)
+            return false;
+        return true;
     }
     bool runtime::cluster_resources_available() noexcept {
         if (this->cluster_pass[0] == nullptr)

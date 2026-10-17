@@ -574,6 +574,25 @@ plus the depth read for character_forward and the declared sampled reads of dept
 runtime lanes in the legacy order (transparent -> character_forward -> toon rim -> goo rim -> TAA), and removing
 the three feature exclusions.
 
+The three passes are now MIGRATED as one module (`graph::character_forward`, `graph::toon_screen_rim`,
+`graph::goo_rim`): all three declare the scene target as a preserve-write colour attachment; the forward pass
+declares the depth as a depth-stencil read (the depth test), and the two rims declare the depth and albedo reads
+their shaders take through per-image heap slots - the reads are real, only the binding is out of the model, and
+declaring them is what makes the graph transition and order them. `record_post_graph` records them as lanes
+14/15/16 in the legacy order (transparent -> character forward -> toon rim -> goo rim -> TAA), gated on the same
+feature answers the legacy stages use.
+
+One thing the enabling of the lanes needed and the test found: THE CANDIDATE MUST REQUIRE THE OVERLAY'S PASS.
+`test_render_graph_post`'s modes 1/2 wire a rim feature active WITHOUT the pass in the chain, and the graph then
+refused at build time and failed the frame instead of falling back. The predicate now asks the same question the
+legacy stages ask - an active overlay with no pass in the chain is not a graph candidate, so the frame takes the
+legacy path (which gates that feature on its pass).
+
+Evidence: CTest 44/44 (test_render_graph_post included - its fallback modes are what caught the missing guard);
+the gate round is byte-identical for all fourteen scenarios (matched 14, mismatched 0) with zero validation
+findings, and ALL FOURTEEN scenarios now record through the graph - the four laevatain scenarios are the ones
+this stage moved, and the pure-graph count is 14 of 14.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the

@@ -14,6 +14,7 @@ import deren.engine.render_graph.shadow;
 import deren.engine.render_graph.taa;
 import deren.engine.render_graph.gbuffer_debug;
 import deren.engine.render_graph.transparent;
+import deren.engine.render_graph.character;
 import deren.engine.pass.transparent;
 import deren.engine.pass.taa;
 import deren.engine.pass;
@@ -25,8 +26,8 @@ namespace deren::engine {
     namespace {
         struct post_recording_payload {
             pass::pass_host host{};
-            std::array<pass::resolved_io, 14> ios;
-            std::array<pass::frame_pass*, 14> passes{};
+            std::array<pass::resolved_io, 17> ios;
+            std::array<pass::frame_pass*, 17> passes{};
             rhi::error record(unsigned lane) const noexcept {
                 if (host.apply_behaviour)
                     host.apply_behaviour(host.context, *passes[lane], ios[lane]);
@@ -549,6 +550,64 @@ namespace deren::engine {
                     transparent_added->pass, [payload](graph::transparent::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(13); });
                 if (!transparent_bound)
                     return post_build_error(transparent_bound.error());
+            }
+            // THE CHARACTER CHAIN (adoption stage 2L): the character-forward pass and the two screen rims compose over
+            // the shaded frame in the legacy order (transparent -> character forward -> toon rim -> goo rim -> TAA).
+            // All three keep the scene target as a PRESERVE write; the forward pass reads the depth as a depth test,
+            // the rims declare the depth/albedo reads their shaders take through per-image heap slots.
+            if (this->feature_active("character_forward")) {
+                pass::stage character_stage{.name = "character_forward", .passes = this->character_forward_pass, .marks = false};
+                this->prepare_stage(character_stage, true);
+                passes[14] = this->character_forward_pass[0];
+                ios[14].push_block = host.push_block;
+                if (!passes[14] || !host.resolve || !host.resolve(host.context, *passes[14], ios[14]) || ios[14].list != commands.get() ||
+                    ios[14].targets.size() < 2 || ios[14].targets[0].image_handle != scene_target_image || ios[14].targets[1].image_handle != depth.get())
+                    return rhi::error::not_ready;
+                auto character_added = build.append([&](graph::builder& description) noexcept {
+                    return graph::character_forward::append(description, {scene_target, *depth_ref});
+                });
+                if (!character_added)
+                    return post_build_error(character_added.error());
+                auto character_bound = build.bind_pass<graph::character_forward::parameters>(
+                    character_added->pass, [payload](graph::character_forward::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(14); });
+                if (!character_bound)
+                    return post_build_error(character_bound.error());
+            }
+            if (this->feature_active("toon_screen_rim")) {
+                pass::stage toon_stage{.name = "toon_screen_rim", .passes = this->toon_screen_rim_pass, .marks = false};
+                this->prepare_stage(toon_stage, true);
+                passes[15] = this->toon_screen_rim_pass[0];
+                ios[15].push_block = host.push_block;
+                if (!passes[15] || !host.resolve || !host.resolve(host.context, *passes[15], ios[15]) || ios[15].list != commands.get() ||
+                    ios[15].targets.size() != 1 || ios[15].targets[0].image_handle != scene_target_image)
+                    return rhi::error::not_ready;
+                auto toon_added = build.append([&](graph::builder& description) noexcept {
+                    return graph::toon_screen_rim::append(description, {scene_target, *depth_ref, lighting_inputs.surface[0]});
+                });
+                if (!toon_added)
+                    return post_build_error(toon_added.error());
+                auto toon_bound = build.bind_pass<graph::toon_screen_rim::parameters>(
+                    toon_added->pass, [payload](graph::toon_screen_rim::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(15); });
+                if (!toon_bound)
+                    return post_build_error(toon_bound.error());
+            }
+            if (this->feature_active("goo_rim")) {
+                pass::stage goo_stage{.name = "goo_rim", .passes = this->goo_rim_pass, .marks = false};
+                this->prepare_stage(goo_stage, true);
+                passes[16] = this->goo_rim_pass[0];
+                ios[16].push_block = host.push_block;
+                if (!passes[16] || !host.resolve || !host.resolve(host.context, *passes[16], ios[16]) || ios[16].list != commands.get() ||
+                    ios[16].targets.size() != 1 || ios[16].targets[0].image_handle != scene_target_image)
+                    return rhi::error::not_ready;
+                auto goo_added = build.append([&](graph::builder& description) noexcept {
+                    return graph::goo_rim::append(description, {scene_target, *depth_ref, lighting_inputs.surface[0]});
+                });
+                if (!goo_added)
+                    return post_build_error(goo_added.error());
+                auto goo_bound = build.bind_pass<graph::goo_rim::parameters>(
+                    goo_added->pass, [payload](graph::goo_rim::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(16); });
+                if (!goo_bound)
+                    return post_build_error(goo_bound.error());
             }
             // THE TAA RESOLVE AND ITS HISTORY COPY (adoption stage 2I): TWO graph passes from the one pass object.
             // The resolve turns the working image (which geometry and lighting just wrote) into this HDR image;
