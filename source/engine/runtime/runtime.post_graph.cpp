@@ -221,14 +221,22 @@ namespace deren::engine {
         auto& passes = payload->passes;
         std::optional<graph::lighting::outputs> lit;
         if (this->main_graph_frame) {
-            // Inactive statically bound descriptors retain their existing external layout protocol.
-            std::array<rhi::image*, 2> inactive{this->rt_shadow_images[this->frame_ring().position()].get(), this->ml_resolve_images[index].get()};
-            for (auto* image : inactive)
-                if (image) {
-                    auto error = commands->barrier(rhi::image_barrier{.resource = image, .from = rhi::image_use::undefined, .to = rhi::image_use::shader_read, .range = {}});
-                    if (error != rhi::error::ok)
-                        return error;
-                }
+            // THE TWO STATICALLY BOUND IMAGES' LAYOUT PROTOCOL (stage 2B): the deferred lighting descriptor keeps the
+            // RT visibility and MegaLights resolve images bound even when their producers are predicated out, and the
+            // graph cannot declare a read of contents that are undefined by design. The runtime owns that ONE
+            // initialization transition - but only once per GENERATION (the same boundary rule the TAA history's
+            // first use follows): no eligible graph frame runs those producers, so after the seed the images stay
+            // sampled and every later frame is barrier-free from the runtime's side.
+            if (!this->inactive_descriptor_images_seeded) {
+                std::array<rhi::image*, 2> inactive{this->rt_shadow_images[this->frame_ring().position()].get(), this->ml_resolve_images[index].get()};
+                for (auto* image : inactive)
+                    if (image) {
+                        auto error = commands->barrier(rhi::image_barrier{.resource = image, .from = rhi::image_use::undefined, .to = rhi::image_use::shader_read, .range = {}});
+                        if (error != rhi::error::ok)
+                            return error;
+                    }
+                this->inactive_descriptor_images_seeded = true;
+            }
             graph::lighting::inputs lighting_inputs{};
             lighting_inputs.color = scene_target;
             for (unsigned i = 0; i < 3; ++i) {

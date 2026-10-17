@@ -1543,6 +1543,13 @@ namespace deren::engine {
         // history image needs the one transition the legacy pass issues for itself - and the invariant every frame
         // relies on is that the history is sampled whenever the graph starts.
         deren::utility::vessel::vector<bool> taa_history_initialized = {};
+        // Whether the two STATICALLY BOUND descriptor images (the ray-traced visibility image and the MegaLights
+        // resolve image) have had their one layout initialization this GENERATION. The deferred lighting descriptor
+        // set keeps them bound even when the eligibility predicated their producers out, and the graph cannot
+        // declare a read of contents that are undefined by design - so the runtime performs that single transition
+        // once per generation (the same boundary rule the TAA history's first use follows) instead of once per
+        // frame, which is what the migration rule's "no second barrier owner" is about.
+        bool inactive_descriptor_images_seeded = false;
         bool main_graph_reported = false, main_graph_fallback_reported = false;
         resource_lease<rhi::image> post_graph_output;
         bool bloom_graph_pending = false;

@@ -660,6 +660,29 @@ producer-before-raster ordering and the depth transition); the gate round is byt
 scenarios (matched 15, mismatched 0) with zero validation findings, and all fifteen record through the graph.
 The gaussian scenario's hash is the same `8555C8295938D118` the legacy capture seeded.
 
+## Stage 2B revisited: the two transient barriers become a once-per-generation seed
+
+Stage 2B left two hand-issued barriers in the graph frame - an `undefined -> shader_read` transition for the
+ray-traced visibility image and the MegaLights resolve image, both statically bound in the deferred lighting
+descriptor set even when their producers are predicated out - and recorded three failed attempts to express them
+in the graph (an active read cannot have undefined contents; "defined contents" cannot be imported with an empty
+state; deleting the barriers was not evidence on a heap-bound blind spot).
+
+The migration rule's actual complaint was that the runtime is a SECOND BARRIER OWNER in EVERY graph frame. That
+is now reduced to a boundary event: the transition runs once per GENERATION (first graph frame after the images
+are created), not once per frame - the same shape stage 2I's TAA-history first use established, with the same
+justification: the state is descriptor-layout initialization for contents that are undefined by design, no
+eligible graph frame runs those producers, and after the seed the images stay sampled. The flag resets with the
+generation.
+
+Evidence: CTest 44/44; the gate round is byte-identical for all fifteen scenarios (matched 15, mismatched 0) with
+zero validation findings across the fifteen logs - which is also the check that the later frames' descriptors are
+valid against the seeded layout (the layers validate heap-bound image layouts at submit).
+
+Still out of the model, and unchanged by this: a graph-CORE way to declare that initialization (a "read of
+deliberately undefined contents"), which is the real long-term fix; the seed merely stops paying its cost every
+frame.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the

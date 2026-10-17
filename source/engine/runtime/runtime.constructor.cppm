@@ -1170,6 +1170,7 @@ namespace deren::engine {
         this->rt_binding_written.assign(image_count, nullptr);
         this->gbuffer_targets_written.assign(image_count, false);
         this->taa_history_initialized.assign(image_count, false);
+        this->inactive_descriptor_images_seeded = false;
         // a generation has nothing to blend with, and it is reset HERE rather than only on the off -> on
         // vector reads as "no history" for every frame, which silently turns the temporal resolve into a
         // pass-through of the raw trace).
