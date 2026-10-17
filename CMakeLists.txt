@@ -688,6 +688,7 @@ target_sources(deren_engine
         source/engine/pass/upscale.cppm
         source/engine/pass/geometry_buffer_debug.cppm
         source/engine/pass/shadow.cppm
+        source/engine/pass/visibility_raster.cppm
         source/engine/pass/chain.cppm
         ${VR_FULL_API_MODULES}
         source/engine/profiling/profiling.cppm
@@ -733,6 +734,7 @@ target_sources(deren_engine
         source/engine/pass/upscale.cpp
         source/engine/pass/geometry_buffer_debug.cpp
         source/engine/pass/shadow.cpp
+        source/engine/pass/visibility_raster.cpp
         ${VR_FULL_API_SOURCES}
         source/engine/shadow_fit/shadow_fit.cpp
         source/engine/acceleration_structure/acceleration_structure.cpp
@@ -1314,7 +1316,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_app_config test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility)
+    set(VR_TEST_TARGETS test_app_config test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1424,6 +1426,10 @@ if(VR_BUILD_TESTS)
             vstd_lib
     )
     target_link_libraries(test_render_graph_visibility render_graph_visibility)
+    target_link_libraries(test_visibility_raster_pass
+            deren_engine
+            vstd_lib
+    )
     # deren.engine.animation is format-neutral / runtime-agnostic; the sampling tests only touch the
     # pure functions, so nothing Vulkan is pulled in.
     add_library(vessel_probe SHARED source/tests/vessel_probe.cpp)
