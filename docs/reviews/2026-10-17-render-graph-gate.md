@@ -721,3 +721,50 @@ the honest close is to say why rather than build a node for them.
    stages can diff against: a stage is done when its scenario moves to "graph only" for the whole
    run AND stays byte-identical - and the inventory, not the hash file, is what says whether the
    graph was on the path at all.
+
+## Closure: what the composed graph covers now, and what it deliberately does not
+
+The adoption is complete for the rendering content the checklist named. The numbers in one place (measured at
+this commit):
+
+- **15 of 15 gate scenarios record the WHOLE frame through one composed graph** - no fallback, no legacy tail
+  in any of them - and every one is byte-identical to its legacy reference round (`matched 15, mismatched 0`,
+  the references having been captured from the LEGACY path in this same session) with zero validation findings
+  across the fifteen logs. Two independent full rounds reproduce that.
+- **The default is flipped**: `[render] main_render_graph` defaults to true, and the gate round that injects
+  nothing is what proves the flip.
+- **CTest 44/44**, with the graph test suite grown along the way (the lighting/composition test alone is 59
+  checks, and it composes every migrated pass's adapter: meshes, cluster, shadow, TAA resolve+copy, transparent,
+  gaussian, the character chain).
+- **18 graph adapter modules** under `source/engine/render_graph/` now declare the frame's passes.
+
+What one frame's graph records: the cluster sort, the shadow producer and consumer, scene geometry -> GBuffer
+handoff, the deferred lighting pass (or the G-buffer debug view INSTEAD of it), the gaussian splat raster, the
+transparent pass, the character-forward pass and its two screen rims, the TAA resolve plus its history copy,
+then the post chain - ordered by resource declarations, with the graph owning the attachment and transfer
+transitions those passes used to hand-issue.
+
+What is still OUT of the model, with the reason each stays out:
+
+1. **Ray-traced shadows and MegaLights** need an acceleration-structure resource kind, which the graph does not
+   have: their traces read the TLAS, and a graph resource is a texture or a buffer. This is the one blocking
+   item for retiring the legacy tail, because those two features select it per frame (their consumers'
+   descriptor sets keep the inactive images statically bound - see the 2B note) and the retirement needs the
+   exclusion set empty.
+2. **Binding mechanisms, not accesses**: per-mesh vertex addresses (per-draw push-constant BDAs over
+   primitive-owned buffers), the material texture set (128-slot heap descriptors), the two rim passes' heap-slot
+   sampled reads, and the gaussian compute chain's private buffers. The accesses are declared where the graph can
+   order and transition them; the BINDING is outside the model by design.
+3. **Cross-frame state that outlives a plan** stays the runtime's, each with its boundary rule written next to
+   it: the TAA history's first-use transition and post-record hand-back, the inactive-descriptor seed (2B), and
+   the bloom/GBuffer publish flags the graph's imports read as prior states.
+4. **The frame's present handoff** (screenshot readback, present-barrier) and **asset uploads** - the 2P note
+   records why neither is a rendering-graph node.
+
+How to resume the retirement: give the graph core an acceleration-structure resource kind (a `resource_kind`,
+an acceleration-structure usage, and the rhi/backend barrier lowering behind it), declare the RT shadow
+producer's TLAS read and its visibility-image write and the MegaLights trace/resolve/history accesses, add their
+lanes (the trace/resolve/history stages are compute work with image outputs - the same shape the cluster sort and
+the gaussian compute chain already demonstrated), remove the two exclusions, and only then delete the legacy
+tail segment by segment: the legacy stages are reachable only on frames whose exclusion fires, so each deletion
+becomes provable by a build in which no gate scenario can reach it.
