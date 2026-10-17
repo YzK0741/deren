@@ -345,6 +345,31 @@ cannot record the lane keeps the PRE-MIGRATION split (legacy stage records outsi
 does not declare the reads), which is exactly the behaviour a frame without the managed cluster resources
 needs - the same graceful-degradation rule the fallback log documents.
 
+## Stage 2H: the cascaded shadow map is declared (consumer half); acceleration structures are not a graph kind
+
+The lighting pass's shadow reads were invisible to the graph. They are declared now: `lighting::shadow_cascades`
+is a layered depth array (one image per frame slot, one layer per active cascade) imported from the
+`shadow_map` snapshot with the SAMPLED prior state - the renderer's hand-back barrier already makes every
+allocated layer sampled before the graph records, so this is knowledge, not a barrier. A frame without an
+allocated shadow map keeps the pre-migration split (nothing declared).
+
+Evidence: `test_render_graph_lighting` now asserts the light pass's 11 accesses (five stage + two shared
+uniforms + three IBL images + the cascades) and the declared texture in the compiled parameters - 37
+checks, 0 failed. CTest 44/44. The gate round is byte-identical for all fourteen scenarios (matched 14,
+mismatched 0) with zero validation findings.
+
+Two follow-ups are recorded rather than implemented:
+
+- the shadow pass's PRODUCER migration needs the same split the cluster sort got: the pass owns its
+  per-layer depth-attachment transitions, but the runtime owns the hand-back barrier over every allocated
+  layer, so moving the pass in means the graph owns both - a `record_content`-style refactor plus a lane
+  and the hand-back's replacement by declarations;
+- **acceleration structures are not a graph resource kind at all**: `resource_kind` is `{texture, buffer}`,
+  so a TLAS cannot be declared today. The lighting pass does not read the TLAS directly (it reads the RT
+  visibility image, which is the Stage 2B item); the TLAS consumers are the ray passes, none of which are
+  in the graph yet. Taking it in needs a new core resource kind plus usage/barrier lowering for
+  acceleration-structure reads at ray-tracing stages - a core feature, not a declaration.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the

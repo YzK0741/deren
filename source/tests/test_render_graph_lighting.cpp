@@ -91,6 +91,12 @@ int main() {
         auto lut = *graph.import_texture({1, 24}, rg::initial_contents::defined, "IBL LUT", {}, ibl_state);
         lighting::shared_inputs shared{camera, light};
         shared.ibl = lighting::ibl_inputs{env, irr, lut};
+        // THE CASCADED SHADOW MAP (adoption stage 2H, consumer half): a layered depth array sampled by the shading
+        // path. Its producer still records outside the graph, so the import's prior state is the sampled one.
+        auto shadow_cascades = *graph.import_texture({1, 25}, rg::initial_contents::defined, "shadow cascades", {1, 4, rg::texture_aspect::depth},
+                                                     rg::resource_state{rg::resource_layout::shader_read_only, rg::pipeline_stage::fragment_shader,
+                                                                        rg::memory_access::read});
+        shared.shadow_cascades = shadow_cascades;
         inputs.shared = shared;
         auto lit = lighting::append(graph, inputs);
         CHECK(lit);
@@ -108,9 +114,10 @@ int main() {
         if (plan) {
             CHECK(plan->execution_order.size() == 6 && plan->outputs.size() == 1);
             auto params = plan->passes[lit->pass.index()].parameters.get<lighting::parameters>();
-            // five stage accesses + two shared uniforms + three IBL images
-            CHECK(params && plan->passes[lit->pass.index()].accesses.size() == 10);
+            // five stage accesses + two shared uniforms + three IBL images + the shadow cascades
+            CHECK(params && plan->passes[lit->pass.index()].accesses.size() == 11);
             CHECK(params && params->shared && params->shared->ibl && params->shared->ibl->environment.resource == env);
+            CHECK(params && params->shared->shadow_cascades && params->shared->shadow_cascades->resource == shadow_cascades);
             bool load = false, sampled = false;
             for (auto const& barrier : plan->barriers) {
                 if (barrier.resource == inputs.color.index() && barrier.before_pass == lit->pass.index())

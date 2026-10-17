@@ -35,13 +35,19 @@ export namespace deren::engine::render_graph::lighting {
         buffer_ref camera, light;
         std::optional<ibl_inputs> ibl = {};
         std::optional<cluster_inputs> cluster = {};
+        /// The cascaded shadow map (a layered depth array, one image per frame slot), sampled by the shading
+        /// path. The shadow pass renders it OUTSIDE the graph today and the renderer's hand-back barrier makes
+        /// every allocated layer sampled before the graph records - so declaring it here is the consumer half:
+        /// the graph knows the reads and emits no barrier, and migrating the producer is a separate step.
+        std::optional<texture_ref> shadow_cascades = {};
     };
     struct shared_parameters {
         buffer_read camera, light;
         std::optional<ibl_parameters> ibl = {};
         std::optional<cluster_parameters> cluster = {};
+        std::optional<texture_read> shadow_cascades = {};
         void visit_resources(parameter_visitor& visit) const noexcept {
-            visit(camera, light, ibl, cluster);
+            visit(camera, light, ibl, cluster, shadow_cascades);
         }
     };
     struct inputs {
@@ -89,6 +95,8 @@ export namespace deren::engine::render_graph::lighting {
                 params.shared->cluster = cluster_parameters{{in.shared->cluster->counts, {}, storage},
                                                             {in.shared->cluster->indices, {}, storage}};
             }
+            if (in.shared->shadow_cascades)
+                params.shared->shadow_cascades = texture_read{*in.shared->shadow_cascades, {}, sampled};
         }
         auto added = graph.add_pass("deferred lighting", std::move(params));
         if (!added)

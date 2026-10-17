@@ -251,6 +251,29 @@ namespace deren::engine {
                 cluster_counts_ref = *counts_import;
                 cluster_indices_ref = *indices_import;
             }
+            // THE CASCADED SHADOW MAP (adoption stage 2H, consumer half): the shadow pass renders it outside the graph
+            // and the renderer's hand-back barrier makes every allocated layer sampled before the graph records, so
+            // the import's prior state already matches - declaring the lighting reads here is knowledge, not a
+            // barrier. Migrating the producer is the next step; a frame without an allocated shadow map keeps the
+            // pre-migration split (nothing declared).
+            std::optional<graph::texture_ref> shadow_cascades{};
+            if (this->shadow_allocated_layers != 0) {
+                auto shadow_generation = this->shadow_resource_view.find(render_resource::resource_id::shadow_map);
+                if (shadow_generation && shadow_generation->device.get() == this->core_owner.get() && slot < shadow_generation->objects.size()) {
+                    auto* shadow_image = shadow_generation->objects[slot].image.get();
+                    if (shadow_image) {
+                        auto shadow_lease = lease::from_shared(this->core_owner, std::shared_ptr<rhi::image>{std::move(shadow_generation), shadow_image});
+                        auto shadow_ref =
+                            build.import_texture(shadow_lease,
+                                                 {graph::initial_contents::defined,
+                                                  {graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read}},
+                                                 "shadow cascades");
+                        if (!shadow_ref)
+                            return post_build_error(shadow_ref.error());
+                        shadow_cascades = *shadow_ref;
+                    }
+                }
+            }
             using id = render_resource::resource_id;
             using snapshot = render_resource::instances::resource_snapshot;
             constexpr auto mesh = graph::pipeline_stage::mesh_shader;
@@ -309,6 +332,8 @@ namespace deren::engine {
                 lighting_shared.ibl = graph::lighting::ibl_inputs{*ibl_environment, *ibl_irradiance, *ibl_lut};
             if (cluster_counts_ref && cluster_indices_ref)
                 lighting_shared.cluster = graph::lighting::cluster_inputs{*cluster_counts_ref, *cluster_indices_ref};
+            if (shadow_cascades)
+                lighting_shared.shadow_cascades = *shadow_cascades;
             lighting_inputs.shared = lighting_shared;
             // THE CLUSTERED-LIGHT SORT AS A GRAPH PASS (adoption stage 2G): its two per-slot buffers are imported
             // above and declared by the adapter, the lighting pass declares the same buffers as reads, and the
