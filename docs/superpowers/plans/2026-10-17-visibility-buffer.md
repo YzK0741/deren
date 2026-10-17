@@ -138,6 +138,9 @@ model[16]                                           // row-major，与 push bloc
   与 pass 的第一 writer 声明冲突）。结论：不再用 export 强推"无消费者的 lane"执行——正确的消费者是 V0.4 的
   resolve pass；它一出现图就不会裁剪，且首次转换也会由图按常规 import 生成。这条尝试已回退。
 - [ ] V0.3b-3c capture 正确性证据（正式）：lane 目前只有"写 id 和 capture depth"两个没有消费者的输出，graph 的裁剪会让它可能根本不执行（日志里没有 recorder 的 item 计数行，说明这一点很可能成立）。证据路线：把 vis id target `export_resource`（或直接等 V0.4 resolve 消费它），再确认 `recorded N items` 日志与读回样例 id。不要在没有这条证据前声称 capture 已工作。
+- [x] V0.4a 的 CPU 参考（三小步，全部有单测，shader 将镜像）：`9f359039` 重心/透视校正/插值；`4a5a45bc` clip->屏幕（Vulkan y 向下、w<=0 → nullopt）；`4c5779bf` id->表查询（meshlet_table_index = item.meshlet_base + 顺序；first_index = record 窗口基址 + 3*triangle）。
+- [ ] V0.4b resolve 的共享 body + `visibility_resolve.comp`：把 `gbuffer.slang` 的材质解码/五输出抽成 compute 可复用代码；compute 侧（读 id + capture depth + item/meshlet 表 + 三个顶点、用 V0.4a 的数学、写 G-buffer）。
+- [ ] V0.4c resolve pass 对象 + 接图：`pass::visibility_resolve_pass`（compute、group 8x8、自建 pipeline）+ `record_post_graph` 里把 `graph::visibility::append_resolve` 绑定到它；capture lane 从此有真实消费者（图的裁剪/首次转换问题一并消失，capture 执行证据随之成立）。
 - [ ] V0.4 resolve lane：compute shader + 共享 gbuffer body 抽取 + 写回 5 个目标；CPU 参考单测（重心/插值/clear 语义）。
 - [ ] V0.5 接入帧：runtime pass 注册、lane 选择/回退、配置开关、config/docs 同步；`test_runtime_injection` 类覆盖"开关开→新 lane，开关关→旧 lane，不可用→回退"。
 - [ ] V0.6 A/B 验证：同一场景开关对比（图像 diff 统计、记录在 docs/reviews）；越界/validation 零发现；旧路径参考保持 15/15。
