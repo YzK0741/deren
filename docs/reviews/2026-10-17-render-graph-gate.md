@@ -246,6 +246,30 @@ What this deliberately does not cover (the remaining declaration items):
   a byte-range declaration of just this slot's counters would be more precise and is a possible
   follow-up (the whole-buffer read-write is conservative and correct, not minimal).
 
+## Stage 2D: per-mesh addresses are not a resource the graph can own
+
+The review listed "per-mesh addresses" among the undeclared items. Measured, they are not a resource:
+they are four 32-bit PUSH-CONSTANT lanes carrying two 64-bit device addresses for the draw's own vertex
+and index buffer (`source/shaders/geometry/mesh_geometry.slang`, struct `MeshGeometryLanes`), filled per
+draw from the primitive's buffers right before its dispatch
+(`source/engine/primitive/primitive.cpp:133-134`: `lanes.vertex_address = env.buffer_address(...)`). The
+buffers themselves are owned by the primitive, not the frame: `static_draw_primitive` holds them as
+`object_manager<rhi::buffer> vertex_buffer/index_buffer`
+(`source/engine/primitive/primitive.cppm:2213-2214`), established at asset load and read-only afterwards.
+
+So there is nothing for the graph to order: the addresses are push-constant values (the graph declares
+resources, not draw data), the buffers have no frame-level producer, and the shader's fetches through
+them are plain reads. Declaring them would mean enumerating every drawn primitive's two buffers at graph
+construction time - hundreds of imports that would produce zero barriers - so the item is recorded as
+out of the graph's model rather than implemented.
+
+The enabler that WOULD make it declarable is a storage decision, not a graph feature: if static geometry
+lived in one pooled vertex/index buffer (or a small fixed set), the pool could be imported once as a
+read-only input and the per-draw lanes would become offsets into a declared resource. That is
+`docs/mesh_shaders.md`-territory (the pooling step), and it is the same shape as the two
+transient-descriptor barriers in Stage 2B: **what keeps an item out is a data-layout fact, not a missing
+declaration**.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the
