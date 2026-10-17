@@ -1246,6 +1246,9 @@ target_link_libraries(render_graph_post PUBLIC render_graph_execute)
 add_library(render_graph_geometry STATIC)
 target_sources(render_graph_geometry PUBLIC FILE_SET CXX_MODULES FILES source/engine/render_graph/geometry.cppm)
 target_link_libraries(render_graph_geometry PUBLIC render_graph_core)
+add_library(render_graph_visibility STATIC)
+target_sources(render_graph_visibility PUBLIC FILE_SET CXX_MODULES FILES source/engine/render_graph/visibility.cppm)
+target_link_libraries(render_graph_visibility PUBLIC render_graph_core)
 add_library(render_graph_cluster STATIC)
 target_sources(render_graph_cluster PUBLIC FILE_SET CXX_MODULES FILES source/engine/render_graph/cluster.cppm)
 target_link_libraries(render_graph_cluster PUBLIC render_graph_core)
@@ -1271,7 +1274,7 @@ add_library(render_graph_rt_shadow STATIC)
 target_sources(render_graph_rt_shadow PUBLIC FILE_SET CXX_MODULES FILES source/engine/render_graph/rt_shadow.cppm)
 target_link_libraries(render_graph_rt_shadow PUBLIC render_graph_core)
 target_link_libraries(deren_engine PUBLIC render_graph_bloom render_graph_post render_graph_compose render_graph_lighting render_graph_geometry
-                                  render_graph_cluster render_graph_shadow render_graph_taa render_graph_gbuffer_debug render_graph_transparent render_graph_character render_graph_gaussian render_graph_rt_shadow)
+                                  render_graph_cluster render_graph_shadow render_graph_taa render_graph_gbuffer_debug render_graph_transparent render_graph_character render_graph_gaussian render_graph_rt_shadow render_graph_visibility)
 
 if(VR_BUILD_TESTS)
     enable_testing()
@@ -1311,7 +1314,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_app_config test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer)
+    set(VR_TEST_TARGETS test_app_config test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1420,6 +1423,7 @@ if(VR_BUILD_TESTS)
             deren_engine
             vstd_lib
     )
+    target_link_libraries(test_render_graph_visibility render_graph_visibility)
     # deren.engine.animation is format-neutral / runtime-agnostic; the sampling tests only touch the
     # pure functions, so nothing Vulkan is pulled in.
     add_library(vessel_probe SHARED source/tests/vessel_probe.cpp)
