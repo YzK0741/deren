@@ -1121,12 +1121,13 @@ namespace deren::engine {
         // alive by exporting the history image - without that export the value-root culling dropped the copy and the
         // history was never written (that was the flip's whole defect).
         // THE G-BUFFER DEBUG VIEW is no exclusion either (stage 2J): it needs the G-BUFFER pass, not the lighting
-        // stage, because on a debug frame it records INSTEAD of lighting. The exclusions that remain are the paths
-        // whose PASSES are still outside the graph.
+        // stage, because on a debug frame it records INSTEAD of lighting. THE TRANSPARENT PASS is no exclusion
+        // (stage 2K): it records as a lane after the lighting/debug producer, ordered by the working image and the
+        // depth. The exclusions that remain are the paths whose PASSES are still outside the graph.
         auto const features = this->active_features();
         return this->main_graph_enabled && this->gbuffer_pass_active() &&
                !features.rt_shadow && !this->megalights_active() &&
-               !this->gaussian_active() && !features.transparent && !this->feature_active("character_forward") &&
+               !this->gaussian_active() && !this->feature_active("character_forward") &&
                !this->feature_active("toon_screen_rim") && !this->feature_active("goo_rim");
     }
     bool runtime::cluster_resources_available() noexcept {

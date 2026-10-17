@@ -13,6 +13,8 @@ import deren.engine.render_graph.cluster;
 import deren.engine.render_graph.shadow;
 import deren.engine.render_graph.taa;
 import deren.engine.render_graph.gbuffer_debug;
+import deren.engine.render_graph.transparent;
+import deren.engine.pass.transparent;
 import deren.engine.pass.taa;
 import deren.engine.pass;
 import deren.engine.pass.output_targets;
@@ -23,8 +25,8 @@ namespace deren::engine {
     namespace {
         struct post_recording_payload {
             pass::pass_host host{};
-            std::array<pass::resolved_io, 13> ios;
-            std::array<pass::frame_pass*, 13> passes{};
+            std::array<pass::resolved_io, 14> ios;
+            std::array<pass::frame_pass*, 14> passes{};
             rhi::error record(unsigned lane) const noexcept {
                 if (host.apply_behaviour)
                     host.apply_behaviour(host.context, *passes[lane], ios[lane]);
@@ -526,6 +528,27 @@ namespace deren::engine {
                     debug_added->pass, [payload](graph::gbuffer_debug::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(12); });
                 if (!debug_bound)
                     return post_build_error(debug_bound.error());
+            }
+            // THE TRANSPARENT PASS AS A GRAPH PASS (adoption stage 2K): it blends the alpha geometry over the lit
+            // working image and reads the opaque depth. The graph owns the two hand-off transitions the pass's
+            // legacy record issues itself, and this declaration is what orders lighting -> transparent -> TAA.
+            if (this->active_features().transparent) {
+                pass::stage transparent_stage{.name = "transparent", .passes = this->transparent_pass, .marks = false};
+                this->prepare_stage(transparent_stage, true);
+                passes[13] = this->transparent_pass[0];
+                ios[13].push_block = host.push_block;
+                if (!passes[13] || !host.resolve || !host.resolve(host.context, *passes[13], ios[13]) || ios[13].list != commands.get() ||
+                    ios[13].targets.size() < 2 || ios[13].targets[0].image_handle != scene_target_image || ios[13].targets[1].image_handle != depth.get())
+                    return rhi::error::not_ready;
+                auto transparent_added = build.append([&](graph::builder& description) noexcept {
+                    return graph::transparent::append(description, {scene_target, *depth_ref});
+                });
+                if (!transparent_added)
+                    return post_build_error(transparent_added.error());
+                auto transparent_bound = build.bind_pass<graph::transparent::parameters>(
+                    transparent_added->pass, [payload](graph::transparent::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(13); });
+                if (!transparent_bound)
+                    return post_build_error(transparent_bound.error());
             }
             // THE TAA RESOLVE AND ITS HISTORY COPY (adoption stage 2I): TWO graph passes from the one pass object.
             // The resolve turns the working image (which geometry and lighting just wrote) into this HDR image;

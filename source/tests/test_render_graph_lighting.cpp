@@ -5,6 +5,7 @@ import deren.engine.render_graph.lighting;
 import deren.engine.render_graph.cluster;
 import deren.engine.render_graph.shadow;
 import deren.engine.render_graph.taa;
+import deren.engine.render_graph.transparent;
 import deren.engine.render_graph.post;
 import deren.engine.render_graph.geometry;
 import deren.engine.pass.deferred;
@@ -13,6 +14,7 @@ namespace lighting = rg::lighting;
 namespace cluster = rg::cluster;
 namespace shadow = rg::shadow;
 namespace taa = rg::taa;
+namespace transparent = rg::transparent;
 namespace post = rg::post;
 namespace rhi = deren::promise::rhi;
 int main() {
@@ -315,6 +317,43 @@ int main() {
                         copy_position = i;
                 }
                 CHECK(resolve_position < copy_position);
+            }
+        }
+    }
+    // THE TRANSPARENT PASS (adoption stage 2K): it composes AFTER the producer that wrote the working image (both
+    // write the same target, so the graph orders them) and it reads the opaque depth through the depth test - the
+    // read-only depth-stencil usage, which is what the pass's legacy hand-off transition means in graph terms.
+    {
+        rg::builder graph;
+        rg::resource_state const sampled{rg::resource_layout::shader_read_only, rg::pipeline_stage::fragment_shader, rg::memory_access::read};
+        auto scene_color = *graph.import_texture({82, 1}, rg::initial_contents::defined, "scene colour", {}, sampled);
+        auto velocity = *graph.import_texture({82, 2}, rg::initial_contents::defined, "velocity", {}, sampled);
+        auto depth = *graph.import_texture({82, 3}, rg::initial_contents::defined, "depth", {1, 1, rg::texture_aspect::depth}, sampled);
+        auto history = *graph.import_texture({82, 4}, rg::initial_contents::defined, "TAA history", {}, sampled);
+        auto hdr = *graph.import_texture({82, 5}, rg::initial_contents::undefined, "HDR", {}, rg::resource_state{});
+        auto resolve = taa::append_resolve(graph, {scene_color, velocity, depth, history, hdr});
+        CHECK(resolve);
+        if (resolve) {
+            auto transparent = rg::transparent::append(graph, {resolve->target, depth});
+            CHECK(transparent);
+            CHECK(graph.export_resource(hdr) && graph.export_resource(history));
+            auto plan = graph.compile({true});
+            CHECK(plan);
+            if (plan && transparent) {
+                CHECK(plan->passes[transparent->pass.index()].accesses.size() == 2); // the preserve-write target + the depth read
+                std::size_t resolve_position = plan->execution_order.size(), transparent_position = plan->execution_order.size();
+                for (std::size_t i = 0; i < plan->execution_order.size(); ++i) {
+                    if (plan->execution_order[i] == resolve->pass.index())
+                        resolve_position = i;
+                    if (plan->execution_order[i] == transparent->pass.index())
+                        transparent_position = i;
+                }
+                CHECK(resolve_position < transparent_position);
+                bool depth_transitioned = false;
+                for (auto const& barrier : plan->barriers)
+                    if (barrier.resource == depth.index() && barrier.before_pass == transparent->pass.index())
+                        depth_transitioned = true;
+                CHECK(depth_transitioned);
             }
         }
     }

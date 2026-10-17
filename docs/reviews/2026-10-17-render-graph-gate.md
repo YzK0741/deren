@@ -532,6 +532,21 @@ the depth as a depth-attachment read), the runtime lane, and removing `features.
 eligibility - the graph then orders lighting -> transparent -> TAA by the same resource declarations the
 hand-off barriers used to publish.
 
+The transparent pass is now MIGRATED, and the depth's graph access turned out to be the one non-obvious choice:
+the pass DEPTH-TESTS against the opaque depth, so the graph must see a READ - and `valid_scope` accepts
+`depth_stencil_attachment` only for writes, so the honest declaration is `depth_stencil_read` (a read-only depth
+attachment - natively GENERAL under the same unified policy the legacy hand-off uses, so the barrier is
+equivalent). `graph::transparent` declares exactly that plus the working image as a preserve-write colour
+attachment; `record_post_graph` records it as lane 13 after the lighting (or debug) producer; and the
+eligibility no longer excludes `features.transparent`.
+
+Evidence: CTest 44/44 (the lighting graph test now also covers the transparent adapter: two accesses, the
+producer-before-transparent ordering and the depth transition ahead of the pass); the gate round is
+byte-identical for all fourteen scenarios (matched 14, mismatched 0) with zero validation findings; the
+`transparent_blend` scenario records through the graph with its hash unchanged (`4D3FD6ACB2953BE4`), and the
+pure-graph scenario count is now 10. The only fallback group left is the four laevatain (character/rim) scenarios
+- the three character passes.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the
