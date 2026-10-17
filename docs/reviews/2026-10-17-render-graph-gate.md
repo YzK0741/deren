@@ -313,6 +313,15 @@ The second step's prerequisites, measured rather than assumed:
 The second step is the next increment: a graph adapter declaring the two per-slot buffers (the producer as
 a discard write, the lighting pass as a read), the earlier eligibility freeze, and the runtime wiring.
 
+The graph-side half of that step is now in: a new `graph::cluster` adapter declares the producer's two
+buffers - `counts` as a read-write access because the dispatch atomically increments it over the table the
+frame-slot reset host-zeroes, `indices` as a discard write because it is written wholesale - and
+`lighting::cluster_inputs` declares the consumer reads. `test_render_graph_lighting` composes the producer
+and the consumer and asserts what the migration is FOR: a memory dependency on both buffers before the
+lighting pass, and the sort earlier in the execution order (36 checks, 0 failed). Nothing calls the
+adapter from the runtime yet, so no rendering behaviour changed (deferred and sponza keep their hashes);
+the runtime wiring is the next increment.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the

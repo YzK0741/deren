@@ -2,11 +2,13 @@
 
 #include <array>
 import deren.engine.render_graph.lighting;
+import deren.engine.render_graph.cluster;
 import deren.engine.render_graph.post;
 import deren.engine.render_graph.geometry;
 import deren.engine.pass.deferred;
 namespace rg = deren::engine::render_graph;
 namespace lighting = rg::lighting;
+namespace cluster = rg::cluster;
 namespace post = rg::post;
 namespace rhi = deren::promise::rhi;
 int main() {
@@ -164,6 +166,60 @@ int main() {
                     indirect_draw_stage = true;
             }
             CHECK(statistics_read_write && table_read && indirect_draw_stage);
+        }
+    }
+    {
+        // THE CLUSTERED-LIGHT SORT AS A GRAPH PASS (adoption stage 2F): the producer declares the two per-slot
+        // buffers (atomically incremented bins over a host-zeroed table, and the wholesale light lists) and the
+        // lighting stage declares their reads - so the graph, not the pass's two hand-issued barriers, owns the
+        // producer -> consumer dependency.
+        rg::builder graph;
+        auto counts = *graph.import_buffer({61, 1}, rg::initial_contents::defined, "cluster counts", {64},
+                                           rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader,
+                                                              rg::memory_access::read | rg::memory_access::write});
+        auto indices = *graph.import_buffer({61, 2}, rg::initial_contents::undefined, "cluster indices", {64}, rg::resource_state{});
+        auto sort = cluster::append(graph, {counts, indices});
+        CHECK(sort);
+        if (sort) {
+            rg::resource_state const attached{rg::resource_layout::color_attachment, rg::pipeline_stage::color_output, rg::memory_access::write};
+            lighting::inputs inputs{};
+            inputs.color = *graph.import_texture({61, 3}, rg::initial_contents::defined, "emissive", {}, attached);
+            for (unsigned i = 0; i < 3; ++i)
+                inputs.surface[i] = *graph.import_texture({61, 4 + i}, rg::initial_contents::defined, "surface", {}, attached);
+            inputs.depth = *graph.import_texture({61, 7}, rg::initial_contents::defined, "depth", {1, 1, rg::texture_aspect::depth},
+                                                 rg::resource_state{rg::resource_layout::depth_stencil_attachment, rg::pipeline_stage::depth_stencil,
+                                                                    rg::memory_access::write});
+            auto camera = *graph.import_buffer({61, 8}, rg::initial_contents::defined, "camera", {64},
+                                               rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::fragment_shader, rg::memory_access::read});
+            auto light = *graph.import_buffer({61, 9}, rg::initial_contents::defined, "light", {64},
+                                              rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::fragment_shader, rg::memory_access::read});
+            lighting::shared_inputs shared{camera, light};
+            shared.cluster = lighting::cluster_inputs{counts, indices};
+            inputs.shared = shared;
+            auto lit = lighting::append(graph, inputs);
+            CHECK(lit && graph.export_resource(inputs.color));
+            auto plan = graph.compile({true});
+            CHECK(plan);
+            if (plan && lit) {
+                bool counts_ordered = false, indices_ordered = false;
+                for (auto const& barrier : plan->barriers) {
+                    if (barrier.before_pass != lit->pass.index() || !barrier.memory_dependency)
+                        continue;
+                    if (barrier.resource == counts.index())
+                        counts_ordered = true;
+                    if (barrier.resource == indices.index())
+                        indices_ordered = true;
+                }
+                CHECK(counts_ordered && indices_ordered);
+                std::size_t sort_position = plan->execution_order.size(), lit_position = plan->execution_order.size();
+                for (std::size_t i = 0; i < plan->execution_order.size(); ++i) {
+                    if (plan->execution_order[i] == sort->pass.index())
+                        sort_position = i;
+                    if (plan->execution_order[i] == lit->pass.index())
+                        lit_position = i;
+                }
+                CHECK(sort_position < lit_position);
+            }
         }
     }
     rg::builder aliases;

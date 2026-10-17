@@ -19,15 +19,29 @@ export namespace deren::engine::render_graph::lighting {
             visit(environment, irradiance, lut);
         }
     };
+    /// The clustered-light sort's per-slot output, which the lighting stage reads as storage buffers (the
+    /// heap bindings the sort's legacy path publishes with its own two barriers). Declared here, the graph
+    /// owns the producer -> consumer dependency instead of the pass.
+    struct cluster_inputs {
+        buffer_ref counts, indices;
+    };
+    struct cluster_parameters {
+        buffer_read counts, indices;
+        void visit_resources(parameter_visitor& visit) const noexcept {
+            visit(counts, indices);
+        }
+    };
     struct shared_inputs {
         buffer_ref camera, light;
         std::optional<ibl_inputs> ibl = {};
+        std::optional<cluster_inputs> cluster = {};
     };
     struct shared_parameters {
         buffer_read camera, light;
         std::optional<ibl_parameters> ibl = {};
+        std::optional<cluster_parameters> cluster = {};
         void visit_resources(parameter_visitor& visit) const noexcept {
-            visit(camera, light, ibl);
+            visit(camera, light, ibl, cluster);
         }
     };
     struct inputs {
@@ -70,6 +84,11 @@ export namespace deren::engine::render_graph::lighting {
                 params.shared->ibl = ibl_parameters{{in.shared->ibl->environment, {}, sampled},
                                                     {in.shared->ibl->irradiance, {}, sampled},
                                                     {in.shared->ibl->lut, {}, sampled}};
+            if (in.shared->cluster) {
+                constexpr access_scope storage{resource_usage::storage, pipeline_stage::fragment_shader};
+                params.shared->cluster = cluster_parameters{{in.shared->cluster->counts, {}, storage},
+                                                            {in.shared->cluster->indices, {}, storage}};
+            }
         }
         auto added = graph.add_pass("deferred lighting", std::move(params));
         if (!added)
