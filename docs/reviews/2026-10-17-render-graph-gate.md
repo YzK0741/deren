@@ -683,6 +683,29 @@ Still out of the model, and unchanged by this: a graph-CORE way to declare that 
 deliberately undefined contents"), which is the real long-term fix; the seed merely stops paying its cost every
 frame.
 
+## Stage 2P: the two remaining checklist items resolve as scope decisions, with evidence
+
+The checklist's last two entries are "upload/screenshot readback" and "secondary command buffer recording
+declarations". Measured, neither is a migration - both are already outside the frame graph BY CONSTRUCTION, and
+the honest close is to say why rather than build a node for them.
+
+- UPLOADS are asset-load work: the glTF and Gaussian loaders create and fill buffers during `main`'s startup
+  path, not inside a frame, and the per-frame host data the graph's passes read is host-WRITTEN (UBO/instance
+  buffers), not a transfer. There is no per-frame upload pass to declare.
+- The SCREENSHOT READBACK is the frame's PRESENT HANDOFF, not a rendering pass: the copy is recorded in
+  `end_recording`, right before the present transition, on the swapchain image whose ownership and layout the
+  frame loop owns (the post graph exports its output image and the present handoff takes it from there). A graph
+  node for it would model the handoff, which is deliberately outside the rendering graph - and the same file
+  records why the copy moved there (transitioning after `vkQueuePresentKHR` is a spec violation).
+- SECONDARY COMMAND BUFFERS are CONTAINED in the pass that uses them: the transparent pass records its
+  per-slot secondary and executes it inside one `record_content` call, the shadow pass does the same, and the
+  scene pass records its segments the same way. The graph orders the PASS, and the pass's own recorder
+  guarantees its children are recorded before its execute - a parent/child declaration would be describing the
+  same containment twice.
+- The one readback that DOES live in a rendered frame is the Gaussian HDR debug capture
+  (`DEREN_GAUSSIAN_HDR_CAPTURE` + F12), and it sits in the LEGACY tail - so it is unreachable on graph-recorded
+  frames by construction. That is recorded here as a limitation of a debug path rather than a graph concern.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the
