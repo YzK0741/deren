@@ -224,6 +224,21 @@ namespace {
         CHECK(close(mid[1], 6.0f));
     }
 
+    void test_resolve_indices() {
+        draw_item const item{.meshlet_base = 100u};
+        auto const packed = pack_id(3u, 5u, 7u);
+        CHECK(packed.has_value());
+        auto const resolved = resolve_indices(item, packed->value, 400u);
+        CHECK(resolved.meshlet_table_index == 105u);
+        CHECK(resolved.first_index == 400u + 21u);
+        // the meshlet order's field width is the id's own; a maximum-order id stays inside meshlet_base's run
+        auto const maximum = pack_id(1023u, 16383u, 85u);
+        CHECK(maximum.has_value());
+        auto const far = resolve_indices(item, maximum->value, 0u);
+        CHECK(far.meshlet_table_index == 100u + 16383u);
+        CHECK(far.first_index == 85u * 3u);
+    }
+
     void test_clip_to_screen() {
         auto const close = [](float const a, float const b) { return std::abs(a - b) < 1e-5f; };
         // the clip-space centre lands at the framebuffer centre
@@ -253,5 +268,6 @@ int main() {
     test_resolve_barycentrics();
     test_resolve_perspective_and_interpolation();
     test_clip_to_screen();
+    test_resolve_indices();
     return deren::vk_test::finish("test_visibility_buffer");
 }

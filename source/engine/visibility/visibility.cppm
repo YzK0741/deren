@@ -255,6 +255,31 @@ export namespace deren::engine::visibility {
     };
 
     /**
+     * @brief what a pixel's id resolves to inside the per-item tables: the meshlet RECORD and the triangle's
+     *        first index inside that meshlet's index window
+     *
+     * @param item the per-frame draw-item row the id's item index selected
+     * @param packed the raw id word (valid bit included; the caller has already checked `id{packed}.valid()`)
+     * @param meshlet_first_index the selected meshlet record's own `first_index` (its window in the index buffer)
+     * @return the GLOBAL meshlet-table index (item.meshlet_base + the id's meshlet order) and the triangle's
+     *         absolute index into the item's index buffer (the record's window base + 3 per triangle)
+     * @note the resolve then fetches the three indices at (index_offset + 0/1/2) and adds the record's
+     *       `base_vertex`; both halves must be read from the SAME record the raster lane dispatched, which is
+     *       what the id's meshlet order guarantees by construction
+     */
+    struct resolved_index {
+        std::uint32_t meshlet_table_index = 0;
+        std::uint32_t first_index = 0;
+    };
+
+    [[nodiscard]] constexpr resolved_index resolve_indices(draw_item const& item,
+                                                           std::uint32_t const packed,
+                                                           std::uint32_t const meshlet_first_index) noexcept {
+        id const record{packed};
+        return resolved_index{item.meshlet_base + record.meshlet_in_item(), meshlet_first_index + record.triangle() * 3u};
+    }
+
+    /**
      * @brief the framebuffer-space pixel position of a clip-space position, for the rasterizer's viewport rule
      * @return the pixel position, or nullopt when the position is behind the eye (w <= 0) - a triangle with such
      *         a vertex is clipped by the rasterizer and can never win a pixel, so the resolve treats it as
