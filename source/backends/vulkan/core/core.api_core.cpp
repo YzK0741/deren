@@ -2801,10 +2801,6 @@ namespace deren::vulkan {
                 stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
                 access = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
                 return true;
-            case rhi::acceleration_structure_use::build_read:
-                stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-                access = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
-                return true;
             case rhi::acceleration_structure_use::shader_read:
                 stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
@@ -2827,14 +2823,6 @@ namespace deren::vulkan {
                    access == VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
         }(),
                       "build_write is the AS build stage with the extension's WRITE access");
-        static_assert([] {
-            VkPipelineStageFlags2 stage = 0;
-            VkAccessFlags2 access = 0;
-            return acceleration_structure_masks_for(rhi::acceleration_structure_use::build_read, stage, access) &&
-                   stage == VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR &&
-                   access == VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
-        }(),
-                      "build_read is the AS build stage with the extension's READ access");
         static_assert([] {
             VkPipelineStageFlags2 stage = 0;
             VkAccessFlags2 access = 0;

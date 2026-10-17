@@ -124,14 +124,22 @@ def main() -> int:
     matched = mismatched = 0
     if not args.quiet:
         print(f"{'scenario':24} {'actual':18} {'reference':18} verdict")
-    for name in sorted(set(reference) | set(actual)):
+    # THE ROUND'S SCENARIOS ARE THE COMPARISON, not the union with the reference: a `-Only` selection is a
+    # legitimate round (its extent is what `--expect` states), and counting the scenarios it did NOT render as
+    # mismatches made every partial round fail on a perfect tree. A rendered scenario with no reference is still
+    # a mismatch, and `--expect` is what refuses a round that rendered fewer scenarios than it should have.
+    for name in sorted(actual):
         want = reference.get(name, "(absent)")
-        got = actual.get(name, "(absent)")
+        got = actual[name]
         ok = got == want
         matched += 1 if ok else 0
         mismatched += 0 if ok else 1
         if not args.quiet:
             print(f"{name:24} {got:18} {want:18} {'matched' if ok else 'MISMATCHED'}")
+
+    unrun = sorted(set(reference) - set(actual))
+    if unrun and not args.quiet:
+        print(f"\nnot rendered by this round: {len(unrun)} scenario(s) - {', '.join(unrun)}")
 
     print(f"\n{label}: matched {matched}, mismatched {mismatched}, total {matched + mismatched}")
     # `--expect` IS THE CONTRACT OF THE ROUND: a selection that rendered fewer scenarios than it should

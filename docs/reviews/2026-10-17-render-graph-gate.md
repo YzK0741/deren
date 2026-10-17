@@ -933,3 +933,35 @@ here so no future reader re-litigates it:
 Everything else on the checklist is in or closed by a measured scope decision (the 2P note), and the machinery
 the next session needs is in place: the stage vocabulary, the barrier semantics, the lane pattern, the gate and
 the RT acceptance instrument.
+
+## Cleanup after the flip: what was removed, and what was deliberately kept
+
+Three things came out once the composed graph became the default path:
+
+1. **The gate's obsolete graph-injection switch.** `check_render.ps1`'s `-MainGraph` existed to inject
+   `[render] main_render_graph = true` into every generated scenario config; with the default flipped it changed
+   nothing. It is REPLACED by `-Legacy` (inject `main_render_graph = false`), which is strictly more useful: the
+   legacy tail that the experimental MegaLights feature still selects is now verifiable against the same frozen
+   references (they were captured from that path) - `-Only deferred,sponza,transparent_blend -Legacy` reproduces
+   `FAE60C0B...`/`24D55DE5...`/`4D3FD6AC...`.
+2. **`rhi::acceleration_structure_use::build_read`.** It was appended in RT stage 1 in anticipation of migrating
+   the top-level build-ordering barrier (the AS-build write -> read edge), but it ended up with ZERO call sites -
+   the site still uses the measured role pair on the global memory barrier. The project's rule is a value per
+   measured site, so the value, its backend case and its compile-time witness are gone; the mapping arrives again
+   with the migration that needs it.
+3. **The compare tool's partial-selection verdict.** `scripts/compare_render_hashes.py` iterated the UNION of the
+   reference and the round's scenarios, so any `-Only` round counted the scenarios it did not render as
+   mismatches and failed on a perfect tree (measured: `-Only a,b,c -Compare` reported "expected 3 matched, got 3"
+   and exited 1). It now compares the round's own scenarios, reports the reference entries the round did not
+   render, and keeps `--expect` as the guard against a round that silently rendered fewer.
+
+Deliberately NOT removed: the `DEREN_GAUSSIAN_HDR_CAPTURE` path (~24 lines) and its readback members. It is a
+measurement instrument used by six scripts (`check-gaussian.ps1`, `check-captures.ps1`, `measure-*.ps1`,
+`windowed-reference.ps1`), not dead code - but it sits in the LEGACY tail, so on a graph-recorded frame it never
+runs. That is a real regression of the instrument, and the fix is to record the capture from the gaussian GRAPH
+lane (same copy, same readback, one helper shared with the tail); it is recorded here as the follow-up rather than
+deleted. The whole legacy tail likewise stays: it is the experimental MegaLights feature's fallback.
+
+Evidence after the cleanup: CTest 44/44; the default gate round 15/15 byte-identical with zero validation
+findings; the `-Legacy` partial round PASS (3 of 3); RT A/B still `F0B480ECB33C8091` on both paths; `check_rt.ps1`
+PASS.

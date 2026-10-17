@@ -412,10 +412,6 @@ export namespace deren::promise::rhi {
         /// compute/fragment shader. The access is ACCELERATION_STRUCTURE_READ_KHR; the STAGE comes from the
         /// batch's `stage_hint` (`none` = every shader stage, which is correct and conservative).
         shader_read,
-        /// THE BUILD READS IT: a top-level build traverses the bottom levels it instances. APPENDED for the
-        /// object-level spelling of the build-ordering edge whose current site uses the role pair
-        /// `acceleration_structure_write -> acceleration_structure_read` on the global memory barrier.
-        build_read,
     };
 
     /// One acceleration structure's transition in a batch. NO layout and NO subresource range: a structure has
