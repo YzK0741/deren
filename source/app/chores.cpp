@@ -445,23 +445,6 @@ namespace deren::chores {
         }
 
         {
-            // Stochastic punctual lighting (docs/megalights.md): sample a few of each pixel's clustered lights
-            // and trace one visibility ray per sample. OPTIONAL - without it the lighting stage's raster
-            // punctual loop stands, which is the unshadowed path every frame before this feature existed had,
-            // and `runtime::megalights_active()` then keeps the frame from recording the pass (so the knob-off
-            // frame is byte-identical by construction: the gate's scenarios were verified to that).
-            //
-            // IT IS A PASS: the app registers the shader and the pass builds its own compute pipeline
-            // from it (see deren.engine.pass.megalights_trace) - `create_passes()` below runs that step.
-            deren::utility::vessel::vector<uint8_t> megalights_code;
-            load_shader(shaders_dir, "megalights_trace.comp.spv", megalights_code);
-            runtime.register_shader("megalights_trace.comp.spv", megalights_code);
-            // ... and the chain's temporal resolve, required for the reason any two-pass chain requires its
-            // second: what the lighting stage adds is the ACCUMULATION, so a chain whose resolve is missing has
-            // nothing to add and runtime::megalights_active() stays false.
-            deren::utility::vessel::vector<uint8_t> megalights_temporal_code;
-            load_shader(shaders_dir, "megalights_temporal.comp.spv", megalights_temporal_code);
-            runtime.register_shader("megalights_temporal.comp.spv", megalights_temporal_code);
 
             // Ray-traced sun shadows: one ray per pixel against the scene's acceleration structures. IT IS A
             // PASS, so its shaders have to be registered BEFORE create_passes() below - the pass builds its own
@@ -645,25 +628,6 @@ namespace deren::chores {
             make_ssao_slider("ssao radius", &bindings.ssao_radius, 0.05f, 3.0f);
             make_ssao_slider("ssao intensity", &bindings.ssao_intensity, 0.0f, 1.0f);
             make_ssao_slider("ssao samples", &bindings.ssao_samples, 1.0f, 16.0f);
-        }
-        // stochastic punctual lighting: the shadows the point and spot lights never had (docs/megalights.md).
-        // The SWITCH is offered whenever the chain exists this session (an availability fact, and NOT the
-        // switch's own value - see the note below); the knobs follow the switch. Mirrored into the runtime
-        // every frame by main like the rest.
-        // The SAMPLE COUNT is the estimator's ray budget per half-resolution pixel: cost and noise both scale
-        // with it, which is why it sits next to the switch rather than in the config alone.
-        {
-            // the SWITCH is gated on AVAILABILITY, never on its own value: the checkbox writes the field its
-            // predicate reads, so gating it on bindings.megalights_enabled hides the only way back - the
-            // feature defaults off (app_config's render_settings::megalights, and the panel is the only UI
-            // that sets it), so the panel would offer megalights exactly never.
-            panel.add_checkbox("megalights", &bindings.megalights_enabled).set_visible_when([&runtime] { return runtime.feature_available("megalights"); });
-            panel.add_slider("ml emitter", &bindings.megalights_light_angle, 0.0f, 0.1f).set_visible_when([&bindings] { return bindings.megalights_enabled; });
-            panel.add_slider("ml bias", &bindings.megalights_bias, 0.0f, 16.0f).set_visible_when([&bindings] { return bindings.megalights_enabled; });
-            panel.add_slider("ml tol", &bindings.megalights_history_tolerance, 0.0f, 0.5f).set_visible_when([&bindings] { return bindings.megalights_enabled; });
-            panel.add_slider("ml history", &bindings.megalights_frames, 1.0f, 12.0f).set_visible_when([&bindings] { return bindings.megalights_enabled; });
-            panel.add_slider("ml sigma", &bindings.megalights_spatial_sigma, 0.0f, 4.0f).set_visible_when([&bindings] { return bindings.megalights_enabled; });
-            panel.add_slider("ml samples", &bindings.megalights_samples, 1.0f, 4.0f).set_visible_when([&bindings] { return bindings.megalights_enabled; });
         }
         // render mode: pbr (lit) vs unlit (flat base color, no shading). Default-semantics leaves
         // draw with the runtime's default pipeline, so this only records a combo selection here;

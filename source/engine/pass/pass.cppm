@@ -647,7 +647,6 @@ export namespace deren::engine::pass {
          * the lighting stage must not add them again (see its `punctual_replaced` lane) - the same
          * one-predicate-two-readers arrangement `gi_traced` has with the ambient.
          */
-        bool megalights = false;
         /**
          * Whether the stochastic lighting image holds THIS frame's estimate, which is a DIFFERENT fact from the
          * one above and has to be: the lighting stage acts on it by NOT adding the punctual lights itself, and
@@ -656,14 +655,12 @@ export namespace deren::engine::pass {
          * the stage's own `run_report` after it records, so a frame either has the estimate or keeps the raster
          * loop - never neither.
          */
-        bool megalights_resolved = false;
         /**
          * Whether this IMAGE's stochastic accumulation may be read at all, which is the renderer's per-image
          * bookkeeping: false on the first frame of a generation (a resize destroys the histories) and false for
          * a frame the resolve did not record. The resolve then writes this frame's estimate with a frame count
          * of 1 instead of averaging in whatever the allocation held.
          */
-        bool megalights_history_valid = false;
         /// whether the accumulation the temporal resolve blends into exists FOR THIS IMAGE
         /**
          * How much the diffuse accumulation is still COLD: 1 = it restarted this frame, 0 = converged

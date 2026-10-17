@@ -164,28 +164,6 @@ namespace deren::chores {
         // questions - whether the stage runs, and which model it runs - and the rewrite is verified by holding the
         // first fixed and moving the second. Mirrored into the runtime every frame like the other render toggles.
         bool goo_toon = false;
-        // Stochastic PUNCTUAL lighting (docs/megalights.md): the switch and the estimator's sample count. The
-        // switch is the A/B a user actually wants - the shadows the punctual lights never had, against the
-        // unshadowed path - and the sample count is the one knob cost and noise both scale with.
-        bool megalights_enabled = false;
-        float megalights_samples = 4.0f;
-        // The chain's spatial pre-filter width in half-resolution texels: the dial between grain and detail,
-        // and 0 makes the chain temporal-only. A slider rather than a constant, because a filter that removes
-        // signal and noise at the same rate is worse than none - so it is moved and measured.
-        float megalights_spatial_sigma = 1.5f;
-        // How many frames the running mean may average: 1 turns the ACCUMULATION off (the resolve writes this
-        // frame's estimate straight through), 12 is the shipped policy. It exists because the comparison a user
-        // actually wants is "what does each half of the denoise do", and both halves are now one slider each.
-        float megalights_frames = 12.0f;
-        // The history's relative depth tolerance: the dial between ghosting (too loose) and losing the
-        // accumulation at every depth edge TAA's jitter reprojects onto the wrong side of (too tight).
-        float megalights_history_tolerance = 0.03f;
-        // The visibility ray's normal-offset scale: the self-intersection guard, and the dial between
-        // "shadow acne / a flickering terminator" (too small) and "a shadow detached from its caster" (too big).
-        float megalights_bias = 1.0f;
-        // The emitter's angular radius (radians): the soft-shadow dial, 0 = hard. It is what moves a flickering
-        // terminator, so it is a slider rather than a constant.
-        float megalights_light_angle = 0.0f;
         // demo punctual lights (count matches deren::engine::max_punctual_lights): the gui rows below
         // edit these fields live (no per-widget callbacks), and main() pushes the enabled set to
         // the runtime once per frame via deren::chores::apply_point_lights(). Each slot is a point light

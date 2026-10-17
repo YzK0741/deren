@@ -41,24 +41,6 @@ export namespace deren::engine::pass {
 
     /// @brief what the renderer hands the lighting stage: the frame's answer to what the lighting chain is doing
     struct deferred_frame {
-        /**
-         * Whether the lighting chain is answering for the ambient this frame, which the lighting stage needs for two
-         * things and both of them belong to the same answer: it must not ADD the diffuse ambient, because the chain
-         * estimates that whole term (including the off-screen half), and it must not scale the ambient it does add
-         * by SSAO, because the chain answers un-occluded (see the push block's `gi_replaces_ambient`).
-         *
-         * THE HOST'S ANSWER, like the composite's `write_ldr`: it is the renderer's feature state rather than this
-         * pass's parameter, and it is decided per frame. The two per-image transitions this frame used to carry
-         * (`ensure_inputs`) are gone: they are the frame's ORDERING rule about images the G-buffer pass wrote, and
-         * they now run in the stage's preamble in the renderer, like the ray-traced shadow stage's identical pair.
-         */
-        /**
-         * Whether the stochastic punctual lighting pass ANSWERED this frame, in which case this stage must not add
-         * the punctual lights itself - it adds that pass's shadowed estimate instead (docs/megalights.md, and the
-         * shader's `ml_lighting` binding). Fed from `frame_facts::megalights_resolved`, which is a RECORDED fact
-         * rather than the knob, so a frame whose pass was gated off keeps the raster loop.
-         */
-        bool punctual_replaced = false;
     };
 
     /**
@@ -74,17 +56,6 @@ export namespace deren::engine::pass {
             glm::mat4 inv_view_proj = glm::mat4(1.0f);           // clip -> world, reconstructed per pixel
             glm::vec4 ssao = glm::vec4(0.5f, 0.0f, 8.0f, 0.02f); // radius, intensity (0 = off), samples, bias
             float unlit = 0.0f;                                  // 1.0 = write the stored albedo, unshaded
-            /// 1.0 = the lighting chain answers for the ambient this frame, so the diffuse one is not added at
-            /// all (`shade_input::diffuse_ambient_scale`) and SSAO must not scale the one that IS added - the
-            /// specular term, which the chain's own subtraction takes back out un-occluded. An SSAO-darkened ambient left an
-            /// `ambient * (ssao - 1)` term behind: measured on the reference scene, -1.90 of mean green with 37.6%
-            /// of pixels differing and 13.7% off by more than 4/255, on a frame where SSAO is supposed to do NOTHING
-            /// because the rays ARE the occlusion (see source/shaders/lighting/deferred.slang and source/shaders/shading.glsl). 0.0
-            /// everywhere else, which is what keeps the marched and the GI-off frames byte-identical.
-            /// 1.0 = the stochastic punctual lighting pass answered this frame, so this stage does not add the
-            /// punctual lights itself (see `deferred_frame::punctual_replaced`) and adds `ml_lighting` instead.
-            /// 0.0 on every frame the pass did not record, which is what keeps the unshadowed path unchanged.
-            float punctual_replaced = 0.0f;
         };
 
         deferred_pass() = default;

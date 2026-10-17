@@ -1551,15 +1551,7 @@ namespace deren::engine {
             adopt(8, this->ldr_images, this->ldr_image_views);
             for (size_t level = 0; level < this->bloom_images.size(); ++level)
                 adopt(9 + level, this->bloom_images[level], this->bloom_image_views[level]);
-            adopt(13, this->ml_images, this->ml_image_views);
-            adopt(14, this->ml_resolve_images, this->ml_resolve_image_views);
-            adopt(15, this->ml_history_images, this->ml_history_image_views);
-            adopt(16, this->rt_shadow_images, this->rt_shadow_image_views);
-            bool ml_changed = false;
-            for (size_t family = 13; family <= 15; ++family)
-                ml_changed |= this->output_resource_views[family].find(pass::output_targets_pass::ids[family]) != outputs[family];
-            if (ml_changed)
-                this->megalights_history_valid.assign(context.output_images, false);
+            adopt(13, this->rt_shadow_images, this->rt_shadow_image_views);
             this->reset_image_generation_state();
         }
         this->output_resource_views = output_views;

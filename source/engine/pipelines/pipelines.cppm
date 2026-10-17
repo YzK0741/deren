@@ -165,12 +165,6 @@ namespace deren::engine::pipelines {
 
     /// the ray-traced sun shadow: a compute pipeline over the descriptors the frame's heap carries
     export std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_two_set_compute(rhi::api_core& face, std::span<uint8_t const> compute_shader_code);
-    /// the stochastic punctual lighting trace (source/shaders/lighting/megalights_trace.slang)
-    export std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_megalights_trace(rhi::api_core& face,
-                                                                                                        std::span<uint8_t const> compute_shader_code);
-    /// the stochastic chain's temporal resolve (source/shaders/lighting/megalights_temporal.slang)
-    export std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_megalights_temporal(rhi::api_core& face,
-                                                                                                           std::span<uint8_t const> compute_shader_code);
     /// the mask bake: a compute pass over the material table and the texture array
     /// array), which collapses the triangles a material's alphaMode MASK cuts out and writes the expanded
     /// vertices a bottom level structure is then built from - see source/shaders/geometry/mask_bake.slang
@@ -550,21 +544,6 @@ namespace deren::engine::pipelines {
         out.pipeline = pipeline_handle(built);
         out.group_count = static_cast<uint32_t>(groups.size());
         return out;
-    }
-
-    // The stochastic punctual lighting trace (source/shaders/lighting/megalights_trace.slang): the same compute-pipeline shape as
-    // the passes above, with a push block of its own. It FORWARDS to the builder above rather than repeating
-    // twenty lines of Vulkan, and it exists as its own name because a caller reading `build_two_set_compute`
-    // inside this pass's create() would have to check that the two are still the same shape - which is exactly
-    // the kind of coupling a name is for.
-    std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_megalights_trace(rhi::api_core& face,
-                                                                                                 std::span<uint8_t const> const compute_shader_code) {
-        return build_two_set_compute(face, compute_shader_code);
-    }
-    // ... and the chain's temporal resolve: the same shape, with the accumulation's own push block.
-    std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_megalights_temporal(rhi::api_core& face,
-                                                                                                    std::span<uint8_t const> const compute_shader_code) {
-        return build_two_set_compute(face, compute_shader_code);
     }
 
     // The temporal resolve: its own pipeline, over the images the frame's heap carries. It reads no scene

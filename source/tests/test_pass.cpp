@@ -37,7 +37,7 @@ namespace {
     deren::utility::vessel::array<rr::pass_binding, 1> const fake_own_bindings = {{{.binding = 0,
                                                                                     .owner = rr::binding_owner::own,
                                                                                     .kind = rr::binding_kind::sampled_image,
-                                                                                    .resource = rr::resource_id::ml_trace,
+                                                                                    .resource = rr::resource_id::hdr,
                                                                                     .access = rr::binding_access::read,
                                                                                     .sampler = rr::sampler_hint::gbuffer}}};
 
@@ -430,7 +430,7 @@ namespace {
     };
 
     // the names are `deren.engine.runtime`'s own pipeline keys, which is what makes this cost nothing new
-    constexpr deren::utility::vessel::array<std::string_view, 1> compute_pipeline_names = {"megalights_trace"};
+    constexpr deren::utility::vessel::array<std::string_view, 1> compute_pipeline_names = {"compute_skin"};
     constexpr deren::utility::vessel::array<std::string_view, 2> fullscreen_pipeline_names = {"post_composite", "fxaa"};
     /// the fullscreen fake pass also declares one render TARGET: an attachment is a use that cannot be a
     /// descriptor, so it is declared in its own list (see vulkan.render_resource::render_target)
@@ -773,13 +773,13 @@ int32_t main() {
         // stochastic punctual lighting chain's temporal resolve, which is the shape the pipeline builder this
         // test covers still builds from (that declaration went with the removed chain)
         uint32_t own = 0;
-        for (rr::pass_binding const& b : rr::megalights_temporal_io.bindings) {
+        for (rr::pass_binding const& b : rr::taa_io.bindings) {
             if (b.owner == rr::binding_owner::own) {
                 CHECK(b.binding == own); // contiguous from zero: the index IS the binding number
                 ++own;
             }
         }
-        CHECK(own == 5);
+        CHECK(own == 4);
     }
 
     // ---- THE CHAIN: a value that holds a run of passes and its ORDER, and nothing else - it must behave

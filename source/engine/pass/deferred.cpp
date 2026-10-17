@@ -57,11 +57,10 @@ namespace deren::engine::pass {
         this->pass_frame = frame;
     }
 
-    void deferred_pass::prepare_frame(frame_facts const& facts) noexcept {
-        // ONE flag, and it is the composed predicate (the knob AND ray queries AND this frame's structures), not
-        // the similarly named feature fact - see frame_facts' own note. The punctual lane is the OTHER kind of fact:
-        // whether the stochastic pass recorded this frame, which is what makes the two paths exclusive.
-        this->set_frame(deferred_frame{.punctual_replaced = facts.megalights_resolved});
+    void deferred_pass::prepare_frame(frame_facts const&) noexcept {
+        // NOTHING IS PER-FRAME ANY MORE: the stochastic punctual lane that used to arrive here was removed with the
+        // chain, so the frame data is the pass's defaults every frame.
+        this->set_frame(deferred_frame{});
     }
 
     void deferred_pass::create(pass_context const& context) {
@@ -184,7 +183,7 @@ namespace deren::engine::pass {
         push.inv_view_proj = io.constants.inv_view_proj;
         push.ssao = glm::vec4(this->ssao_radius, this->ssao_active ? this->ssao_intensity : 0.0f, static_cast<float>(this->ssao_samples), this->ssao_bias);
         push.unlit = this->unlit_shading ? 1.0f : 0.0f;
-        push.punctual_replaced = this->pass_frame.punctual_replaced ? 1.0f : 0.0f;
+
         if (!io.push_block(*io.cmd, pass::push_bytes(push))) {
             io.list->end_rendering();
             return rhi::error::operation_failed;

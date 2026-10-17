@@ -88,10 +88,6 @@ export namespace deren::engine::render_resource {
         velocity,
         scene_color,
         taa_history,
-        // ---- the stochastic punctual lighting chain (one per swapchain image) ----
-        ml_trace,
-        ml_resolve,
-        ml_history,
         // ---- one per frame slot ----
         shadow_map,
         rt_shadow_visibility,
@@ -243,13 +239,6 @@ export namespace deren::engine::render_resource {
         {.id = resource_id::velocity, .name = "velocity", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::scene_color, .name = "scene_color", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::taa_history, .name = "taa_history", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::persistent},
-        {.id = resource_id::ml_trace, .name = "ml_trace", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
-        // The temporal resolve's output - what the lighting stage actually samples - and the accumulation it
-        // reads back next frame. The history holds the radiance in rgb and the FRAME COUNT in alpha (an
-        // integer up to 12 fits exactly in a float16), which is the per-pixel "how many frames of samples is
-        // this": UE keeps it in an R8_UINT image of its own, and the alpha lane is the free one here.
-        {.id = resource_id::ml_resolve, .name = "ml_resolve", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
-        {.id = resource_id::ml_history, .name = "ml_history", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::persistent},
         // FOUR LAYERS, not one: the runtime creates the shadow map as ONE layered image (`max_shadow_cascades` layers, one per cascade, plus the spare layers a shrank count leaves behind - see create_shadow_resources), and the shadow pass renders into them one at a time. The count was 1 (the default) until that pass was declared, which made `element = cascade` illegal for every cascade but the first - the same correction the bloom family needed, and the validator`s element check is what says so.
         {.id = resource_id::shadow_map, .name = "shadow_map", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame, .count = 4},
         {.id = resource_id::rt_shadow_visibility, .name = "rt_shadow_visibility", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
@@ -1025,86 +1014,6 @@ export namespace deren::engine::render_resource {
     // =============================================================================================
 
     /**
-     * @brief the image the stochastic punctual lighting pass rewrites, and the only resource it names
-     *
-     * It reaches the image through the heap (the raw estimate the trace writes and the resolved image the
-     * lighting stage adds are grid slots the shaders name), so this pass owns no
-     * descriptor of its own and declares no binding: what it has to say is which image it moves, because only
-     * the writer can place the transitions (UNDEFINED -> GENERAL to write it as a storage image, GENERAL ->
-     * SHADER_READ to hand it to the lighting stage that adds it, both recorded by this pass).
-     */
-    inline constexpr deren::utility::vessel::array<barrier_image, 1> megalights_trace_barriers = {{
-        {.resource = resource_id::ml_trace, .element = 0},
-    }};
-
-    /**
-     * @brief the stochastic punctual lighting pass's declaration: a half-resolution compute dispatch
-     *
-     * No own binding, one image named through `barrier_images` - because its inputs (the camera, the light UBO,
-     * the cluster lists, the G-buffer surface) and its output (a half-resolution storage image) all reach its
-     * shaders through the frame's heap.
-     *
-     * The push block is 96 bytes: the camera's inverse view-projection, the estimator's parameters (samples
-     * per pixel, the minimum sample weight, the ray tmin, the frame counter) and the two origin-bias terms.
-     */
-    inline constexpr pass_io megalights_trace_io = {
-        .name = "megalights_trace",
-        .bindings = {},
-        .targets = {},
-        .barrier_images = megalights_trace_barriers,
-        .push = push_block{.offset = 0, .size = 96, .stages = stage_flag::compute},
-    };
-
-    /**
-     * @brief the temporal resolve's own bindings, in the order its shader declares them
-     *
-     * FIVE: the three images of the stochastic chain plus the two G-buffer targets the resolve needs - the
-     * velocity it reprojects with and the depth it rejects the history against. Those two are sampled as
-     * per-image views like the chain's own, so they are OWN bindings of this pass rather than shared heap
-     * resources, and their transitions are this pass's to publish (`megalights_temporal_barriers` carries all
-     * five resources for that reason).
-     *
-     *   0: `ml_trace`   this frame's raw estimate (the temporal pass's input)
-     *   1: `ml_history` last frame's accumulation, radiance in rgb and the frame count in alpha
-     *   2: `velocity`   the G-buffer's motion vectors (the reprojection source)
-     *   3: `gbuffer_depth` the G-buffer's depth (what the history is rejected against)
-     *   4: `ml_resolve` the accumulation this dispatch WRITES (a storage image)
-     */
-    inline constexpr deren::utility::vessel::array<pass_binding, 5> megalights_temporal_bindings = {{
-        {.binding = 0, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::ml_trace, .access = binding_access::read, .sampler = sampler_hint::gbuffer},
-        {.binding = 1, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::ml_history, .access = binding_access::read, .sampler = sampler_hint::gbuffer},
-        {.binding = 2, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::velocity, .access = binding_access::read, .sampler = sampler_hint::gbuffer},
-        {.binding = 3, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::gbuffer_depth, .access = binding_access::read, .sampler = sampler_hint::gbuffer},
-        {.binding = 4, .owner = binding_owner::own, .kind = binding_kind::storage_image, .resource = resource_id::ml_resolve, .access = binding_access::write},
-    }};
-
-    /// @brief the images the temporal resolve moves, in the order its record() indexes them
-    ///
-    /// Its five OWN bindings include the two G-buffer targets it reads, so those are its transitions too: the
-    /// pass is the first sampler of this image's depth and velocity this frame (see the stage's prepare).
-    inline constexpr deren::utility::vessel::array<barrier_image, 4> megalights_temporal_barriers = {{
-        {.resource = resource_id::ml_resolve, .element = 0},
-        {.resource = resource_id::ml_history, .element = 0},
-        {.resource = resource_id::gbuffer_depth, .element = 0},
-        {.resource = resource_id::velocity, .element = 0},
-    }};
-
-    /**
-     * @brief the temporal resolve's declaration: a half-resolution compute dispatch over its own bindings
-     *
-     * The five bindings above are everything its shader declares, so it declares nothing shared and has
-     * nothing for the frame to publish on its behalf. Its push block is the projection's linearization pair,
-     * the three accumulation bounds and the extents.
-     */
-    inline constexpr pass_io megalights_temporal_io = {
-        .name = "megalights_temporal",
-        .bindings = megalights_temporal_bindings,
-        .targets = {},
-        .barrier_images = megalights_temporal_barriers,
-        .push = push_block{.offset = 0, .size = 32, .stages = stage_flag::compute},
-    };
-
-    /**
      * @brief the image the ray-traced shadow pass rewrites, and the only resource it has to name
      *
      * `rt_shadow` is per FRAME SLOT rather than per swapchain image (the rays are traced once per frame, not once
@@ -1200,7 +1109,7 @@ export namespace deren::engine::render_resource {
         .targets = deferred_targets,
         .barrier_images = {},
         .barrier_buffers = {},
-        .push = push_block{.offset = 0, .size = 88, .stages = stage_flag::fragment},
+        .push = push_block{.offset = 0, .size = 84, .stages = stage_flag::fragment},
     };
 
     // =============================================================================================

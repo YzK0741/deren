@@ -177,37 +177,6 @@ namespace deren::app_config {
         // shadow_map_size^2 x 4 layers x 4 bytes per cascade set, per frame slot). Applied before the
         // scene import; the runtime clamps it to 256..8192 and rounds to a power of two.
         int32_t shadow_map_size = 2048;
-        // Stochastic PUNCTUAL lighting (docs/megalights.md): sample a few of each pixel's clustered lights, trace
-        // one visibility ray per sample and add the shadowed estimate where the raster loop would have added an
-        // unshadowed one. OFF by default, and deliberately: the estimator is the first stage of a chain whose
-        // denoiser is not built yet, so a stock config must not inherit its raw noise.
-        bool megalights = false;
-        // How many samples per HALF-RESOLUTION pixel (1..4, the shader's compile-time bound). This is the knob the
-        // cost and the noise both scale with, and it is the one the overlay exposes next to the switch.
-        int32_t megalights_samples = 4;
-        // The chain's SPATIAL pre-filter width in half-resolution texels (0 = off, which is the temporal-only
-        // chain). It is the "detail versus grain" dial: a filter that removes signal and noise at the same rate is
-        // worse than none, so this one is configurable and its own measurement is in docs/megalights.md.
-        float megalights_spatial_sigma = 1.5f;
-        // The temporal resolve's history depth tolerance, RELATIVE to the pixel's view depth: the reject
-        // threshold for "the history I reprojected belongs to this surface". UE's value is 0.03, widened at
-        // grazing angles by 1/lerp(0.1, 1, N dot V) - see docs/reference/megalights_stochastic_lighting.md.
-        // It is a knob because it is the balance between a stale history (ghosting) and a lost one (flicker at
-        // every depth discontinuity TAA's jitter lands on the wrong side of), and the flicker measurement needs
-        // to move it to attribute one to the other.
-        float megalights_history_tolerance = 0.03f;
-        // A scale on the ray origin's NORMAL OFFSET, which is the self-intersection guard for the visibility
-        // rays (UE's mix(0.1, 0.01, N dot L) shape, in world units). 1 is the shipped pair; raising it is the
-        // experiment that says whether a flickering terminator is the ray re-hitting its own surface.
-        float megalights_bias = 1.0f;
-        // The emitter's ANGULAR radius in radians: the soft-shadow knob, and this feature's cure for a flickering
-        // hard shadow edge (see source/shaders/lighting/megalights_trace.slang's soft-shadow block). A point light's visibility is
-        // binary, so a shadow boundary crossing the pixel flips it; an emitter with size makes the answer the
-        // fraction of the emitter the pixel sees, which moves gradually. DEFAULT 0 - hard shadows, the behaviour
-        // this feature shipped with - because the soft look is a choice, not a fix: measured, it does NOT reduce
-        // the edge flicker this session chased (that flicker is the renderer's, and it survives every shadow
-        // algorithm being off), so it stays an opt-in quality dial rather than a new default.
-        float megalights_light_angle = 0.0f;
         // Ray-traced sun shadows ([render] rt_shadows): one ray per pixel against the scene's
         // acceleration structures instead of a sample of the cascaded shadow maps. Off by default, and
         // granted only on a device with ray queries - a device without them keeps running the cascaded
@@ -286,7 +255,7 @@ namespace deren::app_config {
         bool bloom_render_graph = false; // opt-in Bloom graph; selected before the first frame
         bool post_render_graph = false;  // complete post chain; includes frame snapshot/final handoff
         bool main_render_graph = true;   // the composed frame: GBuffer handoff + deferred + the whole scene tail + post;
-                                         // the paths the graph cannot record yet (ray-traced shadows, MegaLights,
+                                         // the paths the graph cannot record yet (ray-traced shadows, gaussian splats,
                                          // Gaussian splats) fall back to the legacy tail per frame, with the reason logged
         bool offscreen = false;
         // G-buffer debug view ([render] gbuffer_debug / gbuffer_channel): draws the opaque scene

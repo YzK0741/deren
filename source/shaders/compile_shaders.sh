@@ -93,8 +93,6 @@ lighting/rt_shadow.slang:rgen_main:raygeneration:rt_shadow.rgen.spv
 lighting/rt_shadow.slang:ahit_main:anyhit:rt_shadow.rahit.spv
 geometry/compute_skin.slang:comp_main:compute:compute_skin.comp.spv
 geometry/mask_bake.slang:comp_main:compute:mask_bake.comp.spv
-lighting/megalights_temporal.slang:comp_main:compute:megalights_temporal.comp.spv
-lighting/megalights_trace.slang:comp_main:compute:megalights_trace.comp.spv
 lighting/deferred.slang:main:fragment:deferred.frag.spv
 SLANG_SOURCES
 

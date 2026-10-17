@@ -114,36 +114,6 @@ namespace deren::app_config {
                     settings.render.sun_intensity = static_cast<float>(std::clamp(*value, 0.0, 3.0));
                 }
             }
-            if (toml::node const* node = render->get("megalights")) {
-                if (std::optional<bool> const value = node->value<bool>()) {
-                    settings.render.megalights = *value;
-                }
-            }
-            if (toml::node const* node = render->get("megalights_samples")) {
-                if (std::optional<int64_t> const value = node->value<int64_t>()) {
-                    settings.render.megalights_samples = static_cast<int32_t>(*value);
-                }
-            }
-            if (toml::node const* node = render->get("megalights_spatial_sigma")) {
-                if (std::optional<double> const value = node->value<double>()) {
-                    settings.render.megalights_spatial_sigma = static_cast<float>(*value);
-                }
-            }
-            if (toml::node const* node = render->get("megalights_history_tolerance")) {
-                if (std::optional<double> const value = node->value<double>()) {
-                    settings.render.megalights_history_tolerance = static_cast<float>(*value);
-                }
-            }
-            if (toml::node const* node = render->get("megalights_light_angle")) {
-                if (std::optional<double> const value = node->value<double>()) {
-                    settings.render.megalights_light_angle = static_cast<float>(*value);
-                }
-            }
-            if (toml::node const* node = render->get("megalights_bias")) {
-                if (std::optional<double> const value = node->value<double>()) {
-                    settings.render.megalights_bias = static_cast<float>(*value);
-                }
-            }
             if (toml::node const* node = render->get("furnace")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
                     settings.render.furnace = *value;
@@ -652,15 +622,9 @@ namespace deren::app_config {
             settings.lighting.demo_lights = std::clamp(settings.lighting.demo_lights, 0, static_cast<int32_t>(max_demo_lights));
         }
         // The stochastic punctual lighting's sample count, clamped to the shader's own compile-time bound (see
-        // vulkan.pass.megalights_trace::max_samples): the shader's loop is bounded by that constant, so a larger
         // value here would silently do nothing rather than cost more.
-        settings.render.megalights_samples = std::clamp(settings.render.megalights_samples, 1, 4);
         // 0..4: the same bound the pass clamps to, and for the same reason (past a few texels it is wider than
         // the neighbourhood it can read).
-        settings.render.megalights_spatial_sigma = std::clamp(settings.render.megalights_spatial_sigma, 0.0f, 4.0f);
-        settings.render.megalights_history_tolerance = std::clamp(settings.render.megalights_history_tolerance, 0.0f, 1.0f);
-        settings.render.megalights_bias = std::clamp(settings.render.megalights_bias, 0.0f, 32.0f);
-        settings.render.megalights_light_angle = std::clamp(settings.render.megalights_light_angle, 0.0f, 0.1f);
         if (settings.render.camera_fit != "exterior" && settings.render.camera_fit != "interior") {
             deren::utility::log("app_config: invalid camera_fit '{}' (use exterior/interior), falling back to exterior", settings.render.camera_fit);
             settings.render.camera_fit = "exterior";

@@ -614,19 +614,7 @@ int main(int argc, char** argv) {
     // ... and the CREATE step runs over that chain (the shaders above are registered by now): every pass builds what
     // it owns, and the renderer's two jobs - which are not passes - are created with them.
     runtime.create_passes();
-    // Stochastic punctual lighting (docs/megalights.md): the switch and the sample count, with the two bias
-    // terms left at the pass's own defaults (they are self-intersection guards rather than look knobs, and the
     // pass clamps them). OFF by default, so a stock config is the unshadowed path it always was.
-    // The two bias radii are UE's pair scaled by the config's dial (see app_config's note): the floor at
-    // normal incidence and the larger offset at grazing incidence, where the ray leaves nearly parallel to the
-    // surface and a small offset would let it re-hit the surface it started from.
-    float const ml_bias_floor = 0.01f * settings.render.megalights_bias;
-    float const ml_bias_grazing = 0.1f * settings.render.megalights_bias;
-    start_demo.set_megalights(settings.render.megalights, static_cast<uint32_t>(settings.render.megalights_samples), 0.001f, ml_bias_floor, ml_bias_grazing);
-    // ... and the chain's policy: UE's relative depth tolerance (0.03) and frame-count cap (12) for the temporal
-    // running mean, plus this chain's own spatial pre-filter width, which is the config's because it is the dial
-    // between grain and detail (see app_config's note and docs/megalights.md's measurement).
-    start_demo.set_megalights_accumulation(settings.render.megalights_history_tolerance, 12.0f, settings.render.megalights_spatial_sigma);
     // Same bargain as the ray-traced shadows: a request the runtime grants only on a device with ray
     // queries and a built top level structure - otherwise the GI rays keep marching the depth buffer.
     // The furnace verification mode: an analytic reference rather than another estimator of ours.
@@ -2532,14 +2520,7 @@ int main(int argc, char** argv) {
     // reason: the frame loop mirrors the binding into the runtime, so a config value that never reached the
     // binding would be overwritten by its default on the first frame.
     gui.goo_toon = settings.render.goo_toon;
-    gui.megalights_enabled = settings.render.megalights;
-    gui.megalights_samples = static_cast<float>(settings.render.megalights_samples);
-    gui.megalights_spatial_sigma = settings.render.megalights_spatial_sigma;
-    gui.megalights_history_tolerance = settings.render.megalights_history_tolerance;
     gui.sun_intensity = settings.render.sun_intensity; // a scale on the sun (see [render] sun_intensity)
-    gui.megalights_bias = settings.render.megalights_bias;
-    gui.megalights_light_angle = settings.render.megalights_light_angle;
-    start_demo.set_megalights_light_angle(settings.render.megalights_light_angle);
     // WHICH FILTER RESOLVES A SCALED RENDER CHAIN ([render] upscale), applied ONCE here and deliberately NOT
     // mirrored into `gui` like the toggles above: it selects a shader path rather than a per-frame quantity, so
     // there is nothing to change between frames - and the render scale it works with is a creation option, so
@@ -2838,14 +2819,6 @@ int main(int argc, char** argv) {
         // TAA (the engine's anti-aliasing): mirrored like the other render toggles. The jitter
         // follows automatically - it is applied to the projection when TAA is active.
         start_demo.set_taa(gui.taa_enabled, gui.taa_blend_static, gui.taa_blend_min);
-        // Stochastic punctual lighting: the overlay's switch and sample count, mirrored like the GI's - the two
-        // bias terms are the pass's constants and are passed through at their shipped values.
-        start_demo.set_megalights(gui.megalights_enabled, static_cast<uint32_t>(std::max(gui.megalights_samples, 1.0f) + 0.5f), 0.001f, 0.01f * gui.megalights_bias,
-                                  0.1f * gui.megalights_bias);
-        start_demo.set_megalights_light_angle(gui.megalights_light_angle);
-        // ... and the chain's policy, so the overlay's own slider moves the spatial pre-filter live (0 = the
-        // temporal-only chain, which is also the A/B the measurement uses).
-        start_demo.set_megalights_accumulation(gui.megalights_history_tolerance, gui.megalights_frames, gui.megalights_spatial_sigma);
 
         // Order matters for the M5/M6 mirrors: their availability checks read the state the lines
         // above just set (the debug view replaces the lighting stage, clustered lighting only exists

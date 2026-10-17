@@ -825,19 +825,6 @@ struct shade_input {
     float metallic; // 0 = dielectric, 1 = metal
     float roughness; // perceptual roughness
     float ao;       // ambient occlusion: scales the IBL ambient only, never the direct light
-    /**
-     * 1 = the PUNCTUAL lights are somebody else's business this frame, so this stage must not add them.
-     *
-     * The somebody is `shaders/megalights_trace.slang` (docs/megalights.md): it samples a few of the pixel's
-     * lights, traces one visibility ray per sample and produces the shadowed estimate that the deferred
-     * lighting stage then adds back - so this loop, which knows nothing about occlusion, would double every
-     * punctual light in the frame.
-     *
-     * IT IS A RECORDED FACT RATHER THAN THE KNOB, and the difference matters: the renderer sets it from
-     * whether the stochastic pass actually recorded this frame, so a frame whose pass was gated off keeps
-     * this loop instead of losing its punctual lights entirely.
-     */
-    float punctual_replaced;
     // < 0 = no override: the shadow comes from calc_shadow() as it always did. >= 0 = use this factor
     // instead, which is how the deferred path hands in the RAY-TRACED visibility (it is a screen-space
     // lookup, so it cannot be recomputed from world_pos inside the shared lighting code). The forward
@@ -884,7 +871,7 @@ float3 shade_surface(shade_input s) {
     // clustering off (cluster_grid.w == 0) the loop walks every active light instead, the
     // brute-force reference the clustered path is verified against.
     const int frag_cluster = cluster_index_at(s.pixel, s.world_pos);
-    const int punctual_count = s.punctual_replaced != 0.0 ? 0 : cluster_light_count_for(frag_cluster);
+    const int punctual_count = cluster_light_count_for(frag_cluster);
     for (int i = 0; i < MAX_PUNCTUAL_LIGHTS; ++i) {
         if (i >= punctual_count) {
             break;

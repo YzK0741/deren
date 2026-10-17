@@ -67,7 +67,6 @@ float4 main(
     si.roughness = s.roughness;
     si.ao = s.ao;
     si.shadow_override = -1.0;
-    si.punctual_replaced = 0.0;
     // The forward path adds the diffuse ambient itself; the deferred path leaves it to the resolve.
 
     const float out_alpha = ((s.flags & 32u) != 0u) ? s.alpha : 1.0;

@@ -229,7 +229,7 @@ namespace deren::engine {
             // first use follows): no eligible graph frame runs those producers, so after the seed the images stay
             // sampled and every later frame is barrier-free from the runtime's side.
             if (!this->inactive_descriptor_images_seeded) {
-                std::array<rhi::image*, 2> inactive{this->rt_shadow_images[this->frame_ring().position()].get(), this->ml_resolve_images[index].get()};
+                std::array<rhi::image*, 1> inactive{this->rt_shadow_images[this->frame_ring().position()].get()};
                 for (auto* image : inactive)
                     if (image) {
                         auto error = commands->barrier(rhi::image_barrier{.resource = image, .from = rhi::image_use::undefined, .to = rhi::image_use::shader_read, .range = {}});
@@ -415,7 +415,7 @@ namespace deren::engine {
                 // this is the shadow map's shape rather than `retain`'s: the lease comes from the generation's object at
                 // the slot, and it is checked against the borrowed array the pass's descriptor sees.
                 auto const rt_slot = this->frame_ring().position();
-                auto rt_generation = this->output_resource_views[16].find(pass::output_targets_pass::ids[16]);
+                auto rt_generation = this->output_resource_views[13].find(pass::output_targets_pass::ids[13]);
                 if (!rt_generation || rt_generation->device.get() != this->core_owner.get() || rt_slot >= rt_generation->objects.size())
                     return rhi::error::not_ready;
                 auto* rt_image = rt_generation->objects[rt_slot].image.get();

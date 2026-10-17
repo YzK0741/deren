@@ -863,12 +863,6 @@ namespace deren::engine {
         // exists - the same answer the legacy stage is gated on.
         this->graph_rt_frame = this->main_graph_frame && this->active_features().rt_shadow && this->rt_shadow_pass[0] != nullptr;
 
-        // Debug and unlit frames can skip the entire deferred stage; they must not retain its history.
-        this->megalights_resolved = false;
-        if (!this->megalights_active()) {
-            this->discard_megalights_frame();
-        }
-
         // ---- Clustered light culling (M5): one compute dispatch before anything renders. It sorts
         //      the punctual lights into the frame's cluster grid, and the shading stages (forward
         //      inside the main instance, deferred later in the frame) then loop only their own
@@ -939,9 +933,9 @@ namespace deren::engine {
             // THE BUILD -> TRAVERSAL EDGE (RT stage 1): a structure the BUILD wrote must be visible to the shaders
             // that traverse it. Everything the structures' own recorders emit is a BUILD -> BUILD ordering (see
             // ray_tracing.cpp's `bake_order` / `build_order`); neither edge orders the build against the RT shadow
-            // pass's traceRays launch or the MegaLights trace's ray query, and both read THIS frame's top-level
-            // structure. The hint is left `none` on purpose - the conservative shader mask covers both readers, and
-            // a batch that names no reader costs one no-op memory dependency.
+            // pass's traceRays launch, which reads THIS frame's top-level structure. The hint is left `none` on
+            // purpose - the conservative shader mask covers the ray-tracing stage, and a batch that names no
+            // reader costs one no-op memory dependency.
             deren::promise::rhi::acceleration_structure_barrier const traversable{
                 .resource = tlas,
                 .from = deren::promise::rhi::acceleration_structure_use::build_write,
@@ -1153,10 +1147,10 @@ namespace deren::engine {
         // THREE CHARACTER PASSES (stage 2L) record as lanes over the working image in the legacy order, THE
         // GAUSSIAN RASTER (stage 2O) records between lighting and transparency, and THE RAY-TRACED SHADOW PASS
         // (RT stage 2b) records between geometry and lighting - the write/read pair on its visibility image is
-        // what orders it. What remains excluded is MegaLights (its trace reads the TLAS, which the graph has no
-        // resource kind for yet).
+        // what orders it. NOTHING is excluded by FEATURE any more: the stochastic punctual lighting chain was
+        // removed, so every feature this renderer still has is recorded by the graph.
         auto const features = this->active_features();
-        if (!this->main_graph_enabled || !this->gbuffer_pass_active() || this->megalights_active())
+        if (!this->main_graph_enabled || !this->gbuffer_pass_active())
             return false;
         // AN ACTIVE RAY-TRACED SHADOW PASS WITH NO PIPELINE IS NOT A GRAPH CANDIDATE (RT stage 2b): the lane records
         // it, so a frame that cannot would only be "recorded" by dropping the effect - it takes the legacy path
@@ -1800,34 +1794,6 @@ namespace deren::engine {
     // parameters. A frame fact is likewise the frame's (`make_frame_facts`) rather than the renderer's copy of a
     // pass's state.
 
-    bool runtime::megalights_active() const noexcept {
-        // deferred lighting stage has to know whether to skip its raster punctual loop, and it has to give the
-        // same answer the runner gives when it decides whether to record the pass - one predicate, one answer.
-        // The flat render mode is excluded because this pass EVALUATES THE BRDF from the G-buffer and the flat
-        return this->megalights_on && this->pass_ready("megalights_trace") && this->deferred_lit_active() && !this->scene_unlit;
-    }
-
-    bool runtime::set_megalights_enabled(bool const enabled) noexcept {
-        // adds the punctual lights itself, so it is a frame fact this renderer publishes), the sample count and
-        // the bias are the PASS's and the demo sets them. A toggle invalidates every output's history.
-        bool const was_on = this->megalights_on;
-        this->megalights_on = enabled;
-        if (enabled != was_on) {
-            std::fill(this->megalights_history_valid.begin(), this->megalights_history_valid.end(), false);
-            this->megalights_resolved = false;
-        }
-        if (enabled && !this->pass_ready("megalights_trace")) {
-            this->warn_missing_feature("megalights", "stochastic punctual lighting has no effect: its compute pipeline was not created (see the startup log)");
-        } else if (enabled && !this->clustered_lights) {
-            // Not a failure: the shader falls back to the brute-force list (cluster_index_at returns -1 and the
-            // loop walks every active light), which is the same reference path the raster shading has. Worth
-            // saying once because it is the difference between "a few samples over the pixel's lights" and "a
-            // few samples over ALL of them" in cost, not in correctness.
-            deren::utility::log("stochastic punctual lighting: clustered culling is off, so every light is a candidate for every pixel");
-        }
-        return enabled && !was_on;
-    }
-
     void runtime::set_furnace(bool const enabled) noexcept {
         this->furnace = enabled;
     }
@@ -2181,9 +2147,6 @@ namespace deren::engine {
         // same way and for the same reason as the groups above: NO FAMILY-SPAN READER. None of the seven is an
         // `own` per-image binding, so `resolve_declaration` never even fills `own_per_image` for them - each pass
         // names the image it reads through `find`.
-        owned_family(render_resource::resource_id::ml_trace, 0, this->ml_images, this->ml_image_views);
-        owned_family(render_resource::resource_id::ml_resolve, 0, this->ml_resolve_images, this->ml_resolve_image_views);
-        owned_family(render_resource::resource_id::ml_history, 0, this->ml_history_images, this->ml_history_image_views);
         // The three stored surface targets are a RUN of targets (`count = 3`), never an `own` binding: no
         // `own_per_image` is filled for them, so the instance-by-instance form is exact here too.
         for (std::size_t target = 0; target < this->gbuffer_images.size(); ++target) {
@@ -2859,11 +2822,7 @@ namespace deren::engine {
         // EVERY FIELD IS THE EXPRESSION THE BUILDER IT REPLACED USED - see frame_facts' own note, which names the
         // two where a similarly named feature fact would be a DIFFERENT value (`gi_specular` and `debug_view` are
         // composed, the feature facts of those names are the raw knobs).
-        std::size_t const index = this->current_image_index;
         return pass::frame_facts{
-            .megalights = this->megalights_active(),
-            .megalights_resolved = this->megalights_resolved,
-            .megalights_history_valid = index < this->megalights_history_valid.size() && this->megalights_history_valid[index],
             .fxaa_resolves = this->post_fxaa_active(),
             .upscale_resolves = this->post_upscale_active(),
             .debug_view = this->active_features().gbuffer_debug,
@@ -2922,7 +2881,6 @@ namespace deren::engine {
         this->goo_rim_pass = {at("goo_rim")};
         this->gbuffer_debug_stage = {at("gbuffer-debug")};
         this->rt_shadow_pass = {at("rt_shadow")};
-        this->megalights_pass = {at("megalights_trace"), at("megalights_temporal")};
         this->deferred_pass = {at("deferred")};
         this->taa_pass = {at("taa")};
         this->post_composite_stage = {at("post_composite")};
@@ -2977,23 +2935,10 @@ namespace deren::engine {
         this->frame_wiring.prepare(this->frame_wiring.owner, services, stage.name);
     }
 
-    void runtime::discard_megalights_frame() noexcept {
-        this->megalights_resolved = false;
-        if (this->current_image_index < this->megalights_history_valid.size())
-            this->megalights_history_valid[this->current_image_index] = false;
-    }
-
     void runtime::collect_stage(std::string_view const stage) {
         frame_results results = {};
         if (this->frame_wiring.collect != nullptr)
             this->frame_wiring.collect(this->frame_wiring.owner, stage, results);
-        if (stage == "megalights") {
-            // A recorded trace is insufficient: only a successful temporal copy provides history
-            // and a resolved punctual term for the lighting stage.
-            this->megalights_resolved = results.megalights_temporal_resolved;
-            if (this->current_image_index < this->megalights_history_valid.size())
-                this->megalights_history_valid[this->current_image_index] = results.megalights_temporal_resolved;
-        }
         if (results.gaussian_record_error != rhi::error::ok) {
             deren::utility::log("gaussian recording: FAIL error {}; this frame's splats were skipped", static_cast<std::uint32_t>(results.gaussian_record_error));
         }
@@ -3032,15 +2977,6 @@ namespace deren::engine {
 
     rhi::image_extent runtime::resolve_resource_extent(render_resource::resource_id const id, uint32_t const element) const noexcept {
         switch (id) {
-        case pass::resource_id::ml_trace:
-            // THE HALF-RESOLUTION CHAIN ANSWERS FROM ITS OWN IMAGES (③-D/E A1.7): the three ml images are
-            // created at the same extent, so the first one is the whole answer - and the formula that used to
-            // be repeated here (and, before A1.5, in the backend's creation loop) is gone.
-            return this->render_target_extent(this->ml_images[0].get());
-        case pass::resource_id::ml_resolve:
-            return this->render_target_extent(this->ml_resolve_images[0].get());
-        case pass::resource_id::ml_history:
-            return this->render_target_extent(this->ml_history_images[0].get());
         case pass::resource_id::bloom: {
             // A bloom level is HALF the previous one, created at `max(1, render >> (level + 1))` - and this
             // answers the level's OWN created image rather than computing that formula a second time. The
@@ -3196,16 +3132,6 @@ namespace deren::engine {
             write_sampled_target(deren::engine::render_layout::heap_slots::taa_current + image_slot, target_image(this->scene_color_images[heap_image]));
             write_sampled_target(deren::engine::render_layout::heap_slots::post_color + image_slot, target_image(this->hdr_images[heap_image]));
             write_sampled_target(deren::engine::render_layout::heap_slots::display_color + image_slot, target_image(this->ldr_images[heap_image]));
-            // ... and the same for every OTHER per-image target a shader samples or writes: the temporal
-            // history, the megalights chain (sampled AND its storage twin), and the four bloom levels, which
-            // the grid packs `heap_image_capacity` apart.
-            auto const write_storage_target = [this](uint32_t const slot, rhi::image const* const image) {
-                if (image == nullptr) {
-                    return;
-                }
-                [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(slot),
-                                                                                *image, rhi::image_view_desc{.layer_count = 0, .mip_count = 0, .role = rhi::view_role::storage}, rhi::descriptor_type::storage_image);
-            };
             // THE TAA HISTORY IMAGE IS THE ENGINE'S OWN (③-D/E A1.1): the raw handle comes through the
             // contract's escape, and the guard is the fixed-size array's own VALIDITY rather than a vector's
             // length - `heap_image` is the acquired image index, already inside the rhi::max_swapchain_images
@@ -3213,14 +3139,6 @@ namespace deren::engine {
             if (heap_image < rhi::max_swapchain_images && static_cast<bool>(this->taa_history_images[heap_image])) {
                 write_sampled_target(deren::engine::render_layout::heap_slots::taa_history + image_slot, this->taa_history_images[heap_image].get());
             }
-            // THE HALF-RESOLUTION CHAIN IS THE ENGINE'S OWN TOO (③-D/E A1.5): the same escape, and the same
-            // "an empty manager writes nothing" shape - the fixed-size arrays make a length guard meaningless,
-            // and `native_target` answers VK_NULL_HANDLE for a slot the creation refused.
-            write_sampled_target(deren::engine::render_layout::heap_slots::ml_trace + image_slot, target_image(this->ml_images[heap_image]));
-            write_storage_target(deren::engine::render_layout::heap_slots::ml_trace_storage + image_slot, target_image(this->ml_images[heap_image]));
-            write_sampled_target(deren::engine::render_layout::heap_slots::ml_resolved + image_slot, target_image(this->ml_resolve_images[heap_image]));
-            write_storage_target(deren::engine::render_layout::heap_slots::ml_resolved_storage + image_slot, target_image(this->ml_resolve_images[heap_image]));
-            write_sampled_target(deren::engine::render_layout::heap_slots::ml_history + image_slot, target_image(this->ml_history_images[heap_image]));
             for (uint32_t level = 0; level < deren::engine::render_layout::bloom_level_count; ++level) {
                 write_sampled_target(deren::engine::render_layout::heap_slots::bloom_l0 + level * deren::engine::render_layout::heap_image_capacity + image_slot, target_image(this->bloom_images[level][heap_image]));
             }
@@ -3386,43 +3304,6 @@ namespace deren::engine {
             // lighting interval look four times more expensive with rays on (measured 0.32 -> 1.18 ms
             // while the rays themselves were ~0.85 of that).
             this->gpu_mark(gpu_mark_id::rt_shadow_end);
-            // ---- the stochastic punctual lighting stage ----
-            // ITS POSITION IS THE WHOLE OF ITS CONTRACT, and it is the same constraint the ray-traced shadow
-            // stage above states: AFTER the G-buffer pass, whose stored surface is what the estimator evaluates
-            // its sampled lights against and which it traces its rays from, and BEFORE the lighting stage, which
-            // is what ADDS the result to the frame (the stochastic estimate is a lighting term, not a screen
-            // effect, so it belongs in the lit scene target with the rest of the lighting).
-            //
-            // THE LIGHTING STAGE ACTS ON WHETHER THIS RECORDED, not on whether the feature is on: the run
-            // report is the answer pushed into the frame facts the lighting stage then reads, so a frame whose
-            // pass was gated off keeps the raster punctual loop instead of losing its lights. That is the same
-            // "one predicate, two readers" arrangement, with the difference that here the predicate is a
-            // RECORDED FACT rather than a knob.
-            if (this->megalights_active()) {
-                pass::stage const megalights_stage = {.name = "megalights", .passes = this->megalights_pass, .marks = false};
-                this->prepare_stage(megalights_stage);
-                pass::run_report const megalights_report = pass::record_stage(megalights_stage, this->make_pass_host());
-                this->megalights_resolved = megalights_report.recorded > 0;
-
-                // The temporal pass reports whether it copied a new history for this output image.
-                this->collect_stage("megalights");
-            }
-            if (!this->megalights_resolved && static_cast<std::size_t>(this->current_image_index) < rhi::max_swapchain_images &&
-                static_cast<bool>(this->ml_images[this->current_image_index]) && static_cast<bool>(this->ml_resolve_images[this->current_image_index])) {
-                // Nothing wrote the stochastic lighting image this frame, but the lighting stage's descriptor set
-                // still declares it as a shader input (binding 17) and its shader uses that binding - under a flag,
-                // but Vulkan requires a statically-used binding's descriptor to be in the layout the write declared
-                // whether or not the value ends up mattering. Nothing else touches the image here, so it would sit
-                // in UNDEFINED and every frame would be a layout error (measured: the gate's FIRST run of this
-                // change failed exactly so). UNDEFINED as the old layout asserts nothing - it discards contents
-                // rather than claiming a layout - so the transition is valid whether the image is untouched or
-                // already readable. The same answer the GI image's and the shadow map's spare layers' off paths give.
-                // undefined -> shader_read (the recipe the raw transition copied), over the whole image.
-                (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->ml_resolve_images[this->current_image_index].get(),
-                                                                               .from = rhi::image_use::undefined,
-                                                                               .to = rhi::image_use::shader_read,
-                                                                               .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
-            }
             // THE LIGHTING STAGE IS A PASS (deren.engine.pass.deferred), and what the frame still owes it is one answer
             // plus the stage's own frame-order duty: it is a
             // sampler of the stored surface, and whoever samples it FIRST publishes the G-buffer instance's
@@ -3830,7 +3711,6 @@ namespace deren::engine {
             char const* const reason = !this->deferred_lit_active()                ? "deferred lighting inactive"
                                        : this->taa_active()                        ? "TAA active"
                                        : features.rt_shadow                        ? "ray-traced shadow"
-                                       : this->megalights_active()                 ? "MegaLights active"
                                        : this->gaussian_active()                   ? "Gaussian active"
                                        : features.transparent                      ? "transparency"
                                        : this->feature_active("character_forward") ? "character forward"
@@ -3991,7 +3871,6 @@ namespace deren::engine {
         deren::engine::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::post};
         rhi::api_core& vk = this->vulkan_core;
         if (!this->frame_command_buffer()) {
-            this->discard_megalights_frame();
             return frame_status::end_recording_failed; // no frame is open: there is nothing to close
         }
 
@@ -4000,7 +3879,6 @@ namespace deren::engine {
         // then is it in GENERAL and only then does it hold this frame's result.
         bool const post_wrote_swapchain = this->record_post_process();
         if (this->bloom_graph_error != rhi::error::ok) {
-            this->discard_megalights_frame();
             return frame_status::end_recording_failed;
         }
         // Screenshot: while the post pass wrote the swapchain image it is still in GENERAL and still owned
@@ -4087,7 +3965,6 @@ namespace deren::engine {
         if (this->post_graph_drew_frame) {
             this->bloom_graph_error = this->finish_post_graph();
             if (this->bloom_graph_error != rhi::error::ok) {
-                this->discard_megalights_frame();
                 return frame_status::end_recording_failed;
             }
         } else
@@ -4102,7 +3979,6 @@ namespace deren::engine {
         // and the backend performs `vkEndCommandBuffer` - so no `VK_SUCCESS` stands between the frame's last
         // mark and the present transition any more.
         if (auto const frame_commands = this->frame_command_buffer(); !frame_commands || frame_commands->end_recording() != rhi::error::ok) {
-            this->discard_megalights_frame();
             return frame_status::end_recording_failed;
         }
         return frame_status::proceed;
@@ -4111,7 +3987,6 @@ namespace deren::engine {
     frame_status runtime::submit_and_present() {
         this->cluster_retention_open = false;
         if (this->bloom_graph_error != rhi::error::ok) {
-            this->discard_megalights_frame();
             return frame_status::submit_failed;
         }
         // The resource table's differential check reports itself HERE, once, at the end of the frame that closes
@@ -4148,7 +4023,6 @@ namespace deren::engine {
             this->pending_present = {};
             this->cpu_timings.add(deren::engine::profiling::cpu_phase::present, std::chrono::steady_clock::now() - waiting);
             if (preceding_present != rhi::error::ok && preceding_present != rhi::error::out_of_date) {
-                this->discard_megalights_frame();
                 return frame_status::present_failed;
             }
         }
@@ -4161,7 +4035,6 @@ namespace deren::engine {
             // same answer `submit()` itself would give (`not_ready`), and it never appears as a
             // successful frame.
             deren::utility::log("runtime: submit called with no frame in flight");
-            this->discard_megalights_frame();
             return frame_status::submit_failed;
         }
         rhi::error const submitted = this->rhi_face().submit(*commands);
@@ -4169,7 +4042,6 @@ namespace deren::engine {
             // The contract's answer names WHAT failed (device_lost, out_of_*_memory, ...) - the
             // information the old `!= VK_SUCCESS` test threw away.
             deren::utility::log("runtime: frame submit was refused ({})", static_cast<std::uint32_t>(submitted));
-            this->discard_megalights_frame();
             return frame_status::submit_failed;
         }
         if (this->frame_chain != nullptr)

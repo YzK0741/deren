@@ -50,8 +50,6 @@ import deren.engine.pass.post;
 import deren.engine.pass.ray_traced_shadow;
 import deren.engine.pass.scene;
 import deren.engine.pass.shadow;
-import deren.engine.pass.megalights_trace;
-import deren.engine.pass.megalights_temporal;
 import deren.engine.pass.taa;
 import deren.engine.pass.transparent;
 import deren.engine.pass.character_forward; // the toon character stage: the OPAQUE leaves re-shaded over the lit frame
@@ -96,24 +94,6 @@ export namespace deren::engine {
         // =============================================================================================
         /// @brief TAA on/off (`runtime::set_taa_enabled`) + the resolve's two blend weights (the pass's)
         void set_taa(bool enabled, float blend_static, float blend_min) noexcept;
-        /// @brief GI on/off + the tracer's ray budget (intensity, reach as a fraction of the scene radius, rays, steps)
-        /**
-         * @brief stochastic punctual lighting: the flag goes to the runtime, the estimator's parameters to the pass
-         * @param enabled true = the punctual lights are sampled and ray-traced instead of added unshadowed
-         * @param samples samples per half-resolution pixel (the pass clamps to 1..4, its shader's bound)
-         * @param min_weight the minimum sample weight below which a light's sampling weight rolls to zero
-         * @param bias_floor / @param bias_grazing the ray origin's self-intersection offset at normal and at
-         *        grazing incidence (a world-space length, like every other bias in this engine)
-         * @note the split is the runtime-flag one: the FLAG is the runtime's policy (it is what tells the deferred
-         *       lighting stage whether the punctual lights were already handled), the numbers are the pass's.
-         */
-        void set_megalights(bool enabled, uint32_t samples, float min_weight, float bias_floor, float bias_grazing) noexcept;
-        /// @brief the emitter's angular radius (radians): 0 keeps the shadows hard
-        void set_megalights_light_angle(float radians) noexcept;
-        /// @brief the resolve's accumulation policy: the history's relative depth tolerance and the frame-count cap
-        void set_megalights_accumulation(float depth_tolerance, float max_frames, float spatial_sigma) noexcept;
-        /// @brief the same policy's history depth tolerance, moved on its own so a frame can A/B it
-        void set_megalights_history_tolerance(float depth_tolerance) noexcept;
         /// @brief the spatial filter's width in GI texels (0 = a pass-through); the pass clamps it
         /// @brief the composite's joint-bilateral GI upsample switch
         /// @brief the multi-bounce gain the tracer re-emits at a hit (the pass clamps it to [0, 1])
@@ -219,11 +199,6 @@ export namespace deren::engine {
         /// named `gbuffer_debug_pass` rather than `gbuffer_debug`: `feature_active` keeps a local
         /// `gbuffer_debug`, and a member of that name would be hidden by it - MSVC /W4 reports C4458, which /WX makes an error
         pass::gbuffer_debug_pass* gbuffer_debug_pass = nullptr;
-        /// the stochastic punctual lighting pass (docs/megalights.md): the estimator's parameters live on the
-        /// pass, and this owner is what forwards them
-        pass::megalights_trace_pass* megalights_trace = nullptr;
-        /// the chain's temporal resolve (docs/megalights.md): the accumulation policy is the pass's
-        pass::megalights_temporal_pass* megalights_temporal = nullptr;
         pass::post_composite_pass* composite = nullptr;
         pass::fxaa_pass* fxaa = nullptr;
         /// THE RESOLVE (deren.engine.pass.upscale): the render chain's LDR image -> the presented swapchain, the

@@ -65,8 +65,6 @@ import deren.engine.pass.scene_deformation;
 import deren.engine.pass.scene_tables;
 import deren.engine.pass.output_targets;
 import deren.engine.pass.taa;
-import deren.engine.pass.megalights_trace;
-import deren.engine.pass.megalights_temporal;
 import deren.engine.pass.ray_traced_shadow;
 import deren.engine.primitive;
 import deren.engine.render_resource;
@@ -247,186 +245,6 @@ namespace {
 int main(int const argc, char** const argv) {
     rhi::create_info const creation{};
 
-    if (has_flag(argc, argv, "--child-ml-history")) {
-        rhi::create_info options{};
-        options.window_width = options.window_height = 4;
-        auto device = deren::vk_test::probe_make_core(options, rhi::abi_version, true);
-        deren::engine::scene_tree::scene scene;
-        deren::engine::runtime engine{device, options};
-        engine.set_scene(scene);
-        bool copied = true;
-        pass::pass_chain chain;
-        chain.emplace<pass::output_targets_pass>();
-        deren::engine::runtime::chain_wiring wiring{};
-        wiring.owner = &copied;
-        wiring.collect = [](void* owner, std::string_view, deren::engine::runtime::frame_results& results) {
-            results.megalights_temporal_resolved = *static_cast<bool*>(owner);
-        };
-        engine.set_pass_chain(chain, wiring);
-        auto finish = [&] {
-            CHECK(engine.begin_recording() == deren::engine::frame_status::proceed);
-            engine.set_gbuffer_debug(true);
-            engine.collect_stage("megalights");
-            engine.record_main_drawcalls();
-            CHECK(!engine.make_frame_facts().megalights_history_valid);
-            CHECK(!engine.make_frame_facts().megalights_resolved);
-            engine.set_gbuffer_debug(false);
-            CHECK(!engine.make_frame_facts().megalights_history_valid);
-            CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
-            CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
-        };
-        CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
-        CHECK(!engine.make_frame_facts().megalights_history_valid);
-        engine.collect_stage("taa");
-        CHECK(!engine.make_frame_facts().megalights_history_valid); // unrelated stage cannot promote it
-        engine.collect_stage("megalights");
-        CHECK(engine.make_frame_facts().megalights_history_valid);
-        CHECK(engine.make_frame_facts().megalights_resolved);
-        copied = false;
-        engine.collect_stage("megalights");
-        CHECK(!engine.make_frame_facts().megalights_history_valid);
-        CHECK(!engine.make_frame_facts().megalights_resolved);
-        copied = true;
-        engine.collect_stage("megalights");
-        CHECK(engine.make_frame_facts().megalights_history_valid);
-        CHECK(engine.set_megalights_enabled(true));
-        CHECK(!engine.make_frame_facts().megalights_history_valid);
-        engine.collect_stage("megalights");
-        CHECK(!engine.set_megalights_enabled(false));
-        CHECK(!engine.make_frame_facts().megalights_history_valid);
-        CHECK(engine.set_megalights_enabled(true));
-        CHECK(!engine.make_frame_facts().megalights_history_valid);
-        finish();
-        CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
-        CHECK(!engine.make_frame_facts().megalights_history_valid); // other output image has no history
-        engine.collect_stage("megalights");
-        finish();
-        pass::pass_chain replacement;
-        replacement.emplace<pass::output_targets_pass>();
-        engine.set_pass_chain(replacement, wiring);
-        CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
-        CHECK(!engine.make_frame_facts().megalights_history_valid);
-        engine.collect_stage("megalights");
-        CHECK(engine.make_frame_facts().megalights_history_valid);
-        finish();
-        engine.collect_stage("megalights");
-        CHECK(engine.make_frame_facts().megalights_history_valid);
-        CHECK(engine.submit_and_present() == deren::engine::frame_status::submit_failed); // no open frame
-        CHECK(!engine.make_frame_facts().megalights_history_valid);
-        return deren::vk_test::finish("ml_history");
-    }
-
-    if (has_flag(argc, argv, "--child-ray-resources")) {
-        namespace rr = deren::engine::render_resource;
-        namespace layout = deren::engine::render_layout;
-        rhi::create_info options{};
-        options.window_width = options.window_height = 4;
-        auto device = deren::vk_test::probe_make_core(options, rhi::abi_version, true);
-        deren::engine::scene_tree::scene scene;
-        deren::engine::runtime engine{device, options};
-        engine.set_scene(scene);
-        auto application = std::make_unique<pass::pass_chain>();
-        managed::request trace;
-        trace.id = rr::resource_id::ml_trace;
-        trace.life = managed::lifetime::output_size;
-        trace.scope = rr::resource_scope::per_swapchain_image;
-        trace.image.extent = {.width = 2, .height = 2, .depth = 1};
-        trace.image.format = layout::hdr_format;
-        trace.image.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::storage);
-        application->emplace<resource_provider>(trace);
-        auto visibility = trace;
-        visibility.id = rr::resource_id::rt_shadow_visibility;
-        visibility.scope = rr::resource_scope::per_frame_slot;
-        visibility.image.extent.width = visibility.image.extent.height = 4;
-        visibility.image.format = rhi::image_format::r16_sfloat;
-        application->emplace<resource_provider>(visibility);
-        application->emplace<pass::megalights_trace_pass>();
-        application->emplace<pass::megalights_temporal_pass>();
-        application->emplace<pass::rt_shadow_pass>();
-        engine.set_pass_chain(*application, {});
-        CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
-        auto snapshot = application->resources().snapshot();
-        CHECK(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::ml_trace)) == snapshot.find(trace.id)->objects[0].image.get());
-        CHECK(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::rt_visibility)) == snapshot.find(visibility.id)->objects[0].image.get());
-        for (size_t family = 13; family <= 16; ++family) {
-            auto value = snapshot.find(pass::output_targets_pass::ids[family]);
-            CHECK(value != nullptr);
-            bool const per_slot = family == 16;
-            CHECK(value->objects.size() == (per_slot ? rhi::max_frames_in_flight : rhi::max_swapchain_images));
-            CHECK(value->description.scope == (per_slot ? rr::resource_scope::per_frame_slot : rr::resource_scope::per_swapchain_image));
-            CHECK(value->description.image.extent.width == (per_slot ? 4u : 2u));
-            CHECK(value->description.life == (family == 15 ? managed::lifetime::history : managed::lifetime::output_size));
-            for (size_t i = 0; i < value->objects.size(); ++i) {
-                CHECK(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(pass::output_targets_pass::heap_slots[family] + i)) == value->objects[i].image.get());
-                if (auto storage = pass::output_targets_pass::storage_slots[family]; storage != 0)
-                    CHECK(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(storage + i)) == value->objects[i].image.get());
-            }
-        }
-        auto finish_frame = [&] {
-            CHECK(engine.begin_recording() == deren::engine::frame_status::proceed);
-            engine.record_main_drawcalls();
-            CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
-            CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
-        };
-        finish_frame();
-        CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
-        CHECK(application->resources().snapshot().same(snapshot));
-        finish_frame();
-        std::weak_ptr<managed::generation const> old_history = snapshot.find(rr::resource_id::ml_history);
-        std::weak_ptr<managed::generation const> old_visibility = snapshot.find(rr::resource_id::rt_shadow_visibility);
-        pass::pass_chain replacement;
-        auto& producer = replacement.emplace<pass::output_targets_pass>();
-        engine.set_pass_chain(replacement, {});
-        snapshot = {};
-        application.reset();
-        CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
-        CHECK(!old_history.expired() && !old_visibility.expired());
-        CHECK(producer.resources().find(rr::resource_id::rt_shadow_visibility)->objects.size() == rhi::max_frames_in_flight);
-        finish_frame();
-        CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
-        CHECK(old_history.expired() && old_visibility.expired());
-        finish_frame();
-        auto* before = deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::rt_visibility));
-        pass::pass_chain invalid;
-        visibility.scope = rr::resource_scope::per_swapchain_image;
-        invalid.emplace<resource_provider>(visibility);
-        engine.set_pass_chain(invalid, {});
-        CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
-        CHECK(device->begin_commands() == nullptr);
-        CHECK(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::rt_visibility)) == before);
-        engine.set_pass_chain(replacement, {});
-        CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
-        finish_frame();
-        managed::resource_context context{.frame_slots = 1, .output_images = 3, .render_extent = {.width = 9, .height = 7, .depth = 1}};
-        pass::pass_chain dynamic;
-        dynamic.emplace<pass::megalights_trace_pass>();
-        dynamic.emplace<pass::megalights_temporal_pass>();
-        dynamic.emplace<pass::rt_shadow_pass>();
-        CHECK(dynamic.prepare_resources(device, context) == rhi::error::ok);
-        auto prior = dynamic.resources().snapshot();
-        CHECK(prior.size() == 4);
-        CHECK(prior.find(rr::resource_id::rt_shadow_visibility)->objects.size() == 1);
-        for (auto id : {rr::resource_id::ml_trace, rr::resource_id::ml_resolve, rr::resource_id::ml_history}) {
-            auto value = prior.find(id);
-            CHECK(value->objects.size() == 3);
-            CHECK(value->description.image.extent.width == 4 && value->description.image.extent.height == 3);
-        }
-        CHECK(dynamic.begin_frame(0) == rhi::error::ok);
-        CHECK(dynamic.prepare_resources(device, context) == rhi::error::ok);
-        CHECK(dynamic.resources().snapshot().same(prior));
-        context.render_extent.width = 19;
-        deren::vk_test::probe_resource_failure(*device, 2);
-        CHECK(dynamic.prepare_resources(device, context) == rhi::error::initialization_failed);
-        CHECK(dynamic.resources().snapshot().same(prior));
-        deren::vk_test::probe_resource_failure(*device, -1);
-        CHECK(dynamic.prepare_resources(device, context) == rhi::error::ok);
-        CHECK(dynamic.resources().snapshot().find(rr::resource_id::ml_history) != prior.find(rr::resource_id::ml_history));
-        context.render_extent = {.width = 1, .height = 1, .depth = 1};
-        CHECK(dynamic.prepare_resources(device, context) == rhi::error::ok);
-        CHECK(dynamic.resources().snapshot().find(rr::resource_id::ml_trace)->description.image.extent.width == 1);
-        return deren::vk_test::finish("ray_resources");
-    }
-
     if (has_flag(argc, argv, "--child-post-resources")) {
         namespace rr = deren::engine::render_resource;
         namespace layout = deren::engine::render_layout;
@@ -600,7 +418,6 @@ int main(int const argc, char** const argv) {
         for (size_t family = 0; family < pass::output_targets_pass::ids.size(); ++family) {
             auto value = selected.find(pass::output_targets_pass::ids[family]);
             CHECK(value != nullptr);
-            CHECK(value->description.life == ((pass::output_targets_pass::ids[family] == rr::resource_id::taa_history || pass::output_targets_pass::ids[family] == rr::resource_id::ml_history) ? managed::lifetime::history : managed::lifetime::output_size));
             bool const per_slot = pass::output_targets_pass::ids[family] == rr::resource_id::rt_shadow_visibility;
             CHECK(value->description.scope == (per_slot ? rr::resource_scope::per_frame_slot : rr::resource_scope::per_swapchain_image));
             CHECK(value->objects.size() == (per_slot ? rhi::max_frames_in_flight : rhi::max_swapchain_images));
@@ -1787,10 +1604,6 @@ int main(int const argc, char** const argv) {
     CHECK(first_output_failure.ran && first_output_failure.status == 0u);
     child_outcome const post_resources = run_child(argv[0], "--child-post-resources");
     CHECK(post_resources.ran && post_resources.status == 0u);
-    child_outcome const ray_resources = run_child(argv[0], "--child-ray-resources");
-    CHECK(ray_resources.ran && ray_resources.status == 0u);
-    child_outcome const ml_history = run_child(argv[0], "--child-ml-history");
-    CHECK(ml_history.ran && ml_history.status == 0u);
     child_outcome const outputs = run_child(argv[0], "--child-output-resources");
     CHECK(outputs.ran && outputs.status == 0u);
     child_outcome const constants = run_child(argv[0], "--child-scene-constants");

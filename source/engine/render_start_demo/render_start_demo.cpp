@@ -54,8 +54,6 @@ namespace deren::engine {
         // it outlines, before the resolve) - the two are alternatives at run time, and their order only matters on
         // a frame neither records, where it does not.
         this->chain.emplace<pass::goo_rim_pass>();
-        this->chain.emplace<pass::megalights_trace_pass>();
-        this->chain.emplace<pass::megalights_temporal_pass>();
         this->chain.emplace<pass::taa_pass>();
         this->chain.emplace<pass::rt_shadow_pass>();
         this->chain.emplace<pass::cluster_pass>();
@@ -90,8 +88,6 @@ namespace deren::engine {
         this->deferred = this->find<pass::deferred_pass>("deferred");
         this->taa = this->find<pass::taa_pass>("taa");
         this->gbuffer_debug_pass = this->find<pass::gbuffer_debug_pass>("gbuffer-debug");
-        this->megalights_trace = this->find<pass::megalights_trace_pass>("megalights_trace");
-        this->megalights_temporal = this->find<pass::megalights_temporal_pass>("megalights_temporal");
         this->composite = this->find<pass::post_composite_pass>("post_composite");
         this->fxaa = this->find<pass::fxaa_pass>("fxaa");
         this->upscale = this->find<pass::upscale_pass>("upscale");
@@ -235,8 +231,6 @@ namespace deren::engine {
                 static_cast<void>(services.ensure_gbuffer_targets_sampled(services.owner, services.cmd, services.image_index));
                 static_cast<void>(services.ensure_gbuffer_depth_sampled(services.owner, services.cmd, services.image_index));
             }
-        } else if (stage == "megalights") {
-            // THE SAME FRAME-ORDER DUTY as the ray-traced shadow's above, and it is the same constraint: this stage
             // runs between the G-buffer pass and the lighting stage, so it may be the FIRST sampler of the stored
             // surface this frame - the estimator reads the albedo, the normal, the material and the depth to evaluate
             // its sampled lights, and the G-buffer instance's attachment writes have to be published before those
@@ -302,14 +296,6 @@ namespace deren::engine {
             out.gaussian_record_error = self.gaussian ? self.gaussian->last_error() : deren::promise::rhi::error::ok;
             return;
         }
-        if (stage == "megalights") {
-            // THE ONE ANSWER THIS STAGE GIVES THE FRAME LOOP: whether the temporal resolve wrote its accumulation,
-            // which is what sets this IMAGE's history flag for the next frame. The chain's other answer
-            // (`megalights_resolved`) is the run report's, because the lighting stage has to act on it in the SAME
-            // frame - a distinction the two names keep: this one is about the next frame, that one about this one.
-            out.megalights_temporal_resolved = self.megalights_temporal != nullptr && self.megalights_temporal->resolved();
-            return;
-        }
         if (stage == "taa") {
             // The camera UBO's `prev_view_proj` is only advanced when the resolve actually wrote a history: a
             // resolve that bailed out (no descriptor set) must not claim one.
@@ -333,43 +319,6 @@ namespace deren::engine {
             // THE PASS's HALF OF THE OFF -> ON EDGE: whether each image's history holds anything is the pass's own
             // state, and the renderer's half (the matrix history and the jitter index) is what its setter just reset.
             this->taa->reset_history();
-        }
-    }
-
-    void render_start_demo::set_megalights(bool const enabled, uint32_t const samples, float const min_weight, float const bias_floor, float const bias_grazing) noexcept {
-        // The same split every knob with a runtime-side flag makes: the FLAG is the runtime's (it decides whether the deferred lighting
-        // stage adds the punctual lights itself, so it is frame state the renderer publishes), the estimator's
-        // NUMBERS are the pass's and are clamped there. The return value (the off -> on edge) is ignored: there is
-        // no accumulation to restart until the temporal resolve lands.
-        if (this->runtime_owner != nullptr) {
-            static_cast<void>(this->runtime_owner->set_megalights_enabled(enabled));
-        }
-        if (this->megalights_trace != nullptr) {
-            this->megalights_trace->set_estimator(samples, min_weight, bias_floor, bias_grazing);
-        }
-    }
-
-    void render_start_demo::set_megalights_light_angle(float const radians) noexcept {
-        // The estimator owns the angle, so this forwards like the other two setters do.
-        if (this->megalights_trace != nullptr) {
-            this->megalights_trace->set_light_angle(radians);
-        }
-    }
-
-    void render_start_demo::set_megalights_accumulation(float const depth_tolerance, float const max_frames, float const spatial_sigma) noexcept {
-        // The policy is the PASS's (see megalights_temporal_pass::set_accumulation), so this forwards the way the
-        // estimator's own setter does.
-        if (this->megalights_temporal != nullptr) {
-            this->megalights_temporal->set_accumulation(depth_tolerance, max_frames);
-            this->megalights_temporal->set_spatial(spatial_sigma);
-        }
-    }
-
-    void render_start_demo::set_megalights_history_tolerance(float const depth_tolerance) noexcept {
-        // The pass owns the accumulated value, so the tolerance moves by re-stating the policy it is part of:
-        // the two other lanes keep what the pass already holds (see megalights_temporal_pass).
-        if (this->megalights_temporal != nullptr) {
-            this->megalights_temporal->set_accumulation(depth_tolerance, this->megalights_temporal->max_frames());
         }
     }
 
@@ -496,14 +445,6 @@ namespace deren::engine {
         if (name == "gbuffer-debug") {
             return gbuffer_debug;
         }
-        if (name == "megalights") {
-            // THE STOCHASTIC PUNCTUAL LIGHTING PASS'S OWN GATE: the runtime's composed predicate (the knob, the
-            // deferred shading path, and the flat-render-mode exclusion - the pass evaluates the BRDF from the
-            // G-buffer, and the flat mode's lighting stage returns the stored albedo instead) AND the pass having
-            // built its pipeline. The same predicate is what the frame loop asks before recording the stage, so
-            // the runner and the loop cannot disagree about whether the punctual lights were handled this frame.
-            return facts.megalights && self.megalights_trace != nullptr && self.megalights_trace->ready();
-        }
         if (name == "taa") {
             return facts.taa && self.taa != nullptr && self.taa->ready() && shaded_scene;
         }
@@ -582,14 +523,6 @@ namespace deren::engine {
         }
         if (name == "clustered") {
             return self.cluster != nullptr && self.cluster->ready();
-        }
-        if (name == "megalights") {
-            // BOTH passes, and not just the tracer: what the lighting stage adds is the temporal resolve's
-            // ACCUMULATION, so a chain whose
-            // resolve did not build has nothing to show and the overlay must not offer a switch that would do
-            // nothing. (This branch was MISSING when the widgets were added, which is why they were invisible:
-            // every `visible_when` on them was false.)
-            return self.megalights_trace != nullptr && self.megalights_trace->ready() && self.megalights_temporal != nullptr && self.megalights_temporal->ready();
         }
         return false;
     }

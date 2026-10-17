@@ -2,6 +2,11 @@
  * @brief Output-sized G-buffer and HDR resources shared by the scene and post passes.
  * This producer owns no recording stage. The chain owns the generations; host routing and barriers
  * retain their existing behavior. scene_color is an alias, not an allocation request.
+ *
+ * THE STOCHASTIC PUNCTUAL LIGHTING CHAIN (ml_trace / ml_resolve / ml_history) IS NOT HERE ANY MORE: the feature
+ * was removed temporarily, so its three per-swapchain-image targets, their heap slots and their half-resolution
+ * extents went with it. Family indices below are therefore the ones the runtime's arrays use, and they shifted
+ * (rt_shadow_visibility is 13 now).
  */
 module;
 #include <algorithm>
@@ -18,7 +23,7 @@ import deren.promise.rhi;
 export namespace deren::engine::pass {
     class output_targets_pass final : public frame_pass {
     public:
-        static constexpr size_t resource_count = 17;
+        static constexpr size_t resource_count = 14;
 
     private:
         deren::utility::vessel::array<bool, resource_count> required = [] { deren::utility::vessel::array<bool, resource_count> values; values.fill(true); return values; }();
@@ -32,8 +37,7 @@ export namespace deren::engine::pass {
             render_resource::resource_id::gbuffer_depth, render_resource::resource_id::taa_history, render_resource::resource_id::ldr,
             render_resource::resource_id::bloom_level0, render_resource::resource_id::bloom_level1,
             render_resource::resource_id::bloom_level2, render_resource::resource_id::bloom_level3,
-            render_resource::resource_id::ml_trace, render_resource::resource_id::ml_resolve,
-            render_resource::resource_id::ml_history, render_resource::resource_id::rt_shadow_visibility};
+            render_resource::resource_id::rt_shadow_visibility};
         static constexpr deren::utility::vessel::array heap_slots{
             render_layout::heap_slots::post_color, render_layout::heap_slots::gbuffer_albedo,
             render_layout::heap_slots::gbuffer_normal, render_layout::heap_slots::gbuffer_material,
@@ -43,13 +47,10 @@ export namespace deren::engine::pass {
             render_layout::heap_slots::bloom_l0 + render_layout::heap_image_capacity,
             render_layout::heap_slots::bloom_l0 + 2u * render_layout::heap_image_capacity,
             render_layout::heap_slots::bloom_l0 + 3u * render_layout::heap_image_capacity,
-            render_layout::heap_slots::ml_trace, render_layout::heap_slots::ml_resolved,
-            render_layout::heap_slots::ml_history, render_layout::heap_slots::rt_visibility};
+            render_layout::heap_slots::rt_visibility};
         static constexpr deren::utility::vessel::array<uint32_t, resource_count> storage_slots = [] {
             deren::utility::vessel::array<uint32_t, resource_count> slots{};
-            slots[13] = render_layout::heap_slots::ml_trace_storage;
-            slots[14] = render_layout::heap_slots::ml_resolved_storage;
-            slots[16] = render_layout::heap_slots::rt_visibility_storage;
+            slots[13] = render_layout::heap_slots::rt_visibility_storage;
             return slots;
         }();
         static deren::utility::vessel::array<render_resource::instances::request, resource_count> descriptions(render_resource::instances::resource_context const& context) {
@@ -61,29 +62,25 @@ export namespace deren::engine::pass {
                                                             render_layout::gbuffer_velocity_format, render_layout::hdr_format, rhi::image_format::depth,
                                                             render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format,
                                                             render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format,
-                                                            render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format, rhi::image_format::r16_sfloat};
+                                                            rhi::image_format::r16_sfloat};
             for (size_t i = 0; i < values.size(); ++i) {
                 auto& value = values[i];
                 value.id = ids[i];
-                value.life = (i == 7 || i == 15) ? managed::lifetime::history : managed::lifetime::output_size;
-                value.scope = i == 16 ? render_resource::resource_scope::per_frame_slot : render_resource::resource_scope::per_swapchain_image;
+                value.life = i == 7 ? managed::lifetime::history : managed::lifetime::output_size;
+                value.scope = i == 13 ? render_resource::resource_scope::per_frame_slot : render_resource::resource_scope::per_swapchain_image;
                 value.image.extent = context.render_extent;
                 if (i >= 9 && i <= 12) {
                     value.image.extent.width = std::max(1u, context.render_extent.width >> (i - 8));
                     value.image.extent.height = std::max(1u, context.render_extent.height >> (i - 8));
                 }
-                if (i >= 13 && i <= 15) {
-                    value.image.extent.width = std::max(1u, context.render_extent.width / 2u);
-                    value.image.extent.height = std::max(1u, context.render_extent.height / 2u);
-                }
                 value.image.format = formats[i];
                 value.image.flags = rhi::to_bits(rhi::image_flag::sampled) |
                                     rhi::to_bits(i == 6 ? rhi::image_flag::depth_attachment : rhi::image_flag::color_attachment);
-                if (i == 7 || i == 15)
+                if (i == 7)
                     value.image.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination);
-                if (i == 13 || i == 14 || i == 16)
+                if (i == 13)
                     value.image.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::storage);
-                if (i == 0 || i == 14)
+                if (i == 0)
                     value.image.flags |= rhi::to_bits(rhi::image_flag::transfer_source);
                 value.image.debug_name = "managed output target";
             }

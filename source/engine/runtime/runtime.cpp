@@ -935,7 +935,6 @@ namespace deren::engine {
         return feature_facts{
             .gbuffer_pass = this->gbuffer_pass_active(),
             .deferred_lit = this->deferred_lit_active(),
-            .megalights = this->megalights_active(),
             .rt_shadow = this->rt_shadows_active(),
             .fxaa = this->post_fxaa_active(),
             // THE RESOLVE'S OWN ATOM (see `post_upscale_active`): below render_scale 1.0 and with its pipeline
@@ -1042,9 +1041,8 @@ namespace deren::engine {
         // One line naming every optional feature, so "why does this switch do nothing?" is answerable
         // from the log alone. `on` means the pipeline exists and the feature CAN run; whether it is
         // currently switched on is the overlay's and the config's business.
-        deren::utility::log("features: gbuffer-debug={} megalights={} taa={} fxaa={} shadow={} clustered-lights={}",
+        deren::utility::log("features: gbuffer-debug={} taa={} fxaa={} shadow={} clustered-lights={}",
                             this->feature_available("gbuffer-debug") ? "on" : "UNAVAILABLE",
-                            this->feature_available("megalights") ? "on" : "UNAVAILABLE",
                             this->feature_available("taa") ? "on" : "UNAVAILABLE",
                             this->feature_available("fxaa") ? "on" : "UNAVAILABLE",
                             this->feature_available("shadow") ? "on" : "UNAVAILABLE",

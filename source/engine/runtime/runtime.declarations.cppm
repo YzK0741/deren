@@ -913,26 +913,6 @@ namespace deren::engine {
         // called deferred_pass, not deferred_stage: the local of that name in
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         deren::utility::vessel::array<pass::frame_pass*, 1> deferred_pass = {};
-        // The stochastic PUNCTUAL LIGHTING chain ([render] megalights, docs/megalights.md): the pass's own
-        // stage, which runs between the G-buffer and the deferred lighting stage - the lighting stage is what
-        // ADDS its result, so it has to have it, and the G-buffer is what it evaluates its lights against.
-        /// TWO passes, a tracer then its temporal resolve - a two-half split without a second
-        /// second STAGE, because the ordering rule the resolve needs (the G-buffer's depth and the motion-vector
-        /// target have to be published for it) runs in this stage's own prepare before either pass records.
-        // called megalights_pass, not megalights_stage: the local of that name in
-        // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
-        deren::utility::vessel::array<pass::frame_pass*, 2> megalights_pass = {};
-        // Whether the punctual lights are the stochastic pass's business this frame. When it is, the deferred
-        // lighting stage skips its own raster punctual loop (the `punctual_replaced` lane) rather than adding
-        // the same lights twice - a REPLACE rather than an addition.
-        bool megalights_on = false;
-        /// Whether the stochastic pass RECORDED this frame (see `frame_facts::megalights_resolved`): cleared
-        /// immediately before the stage is recorded and set from its report, so the lighting stage's lane can
-        /// never disagree with what actually ran.
-        bool megalights_resolved = false;
-        /// Per swapchain image: whether that image's stochastic accumulation holds a frame yet. The counterpart
-        /// feature's off -> on edge).
-        deren::utility::vessel::vector<bool> megalights_history_valid = {};
         // The furnace verification mode ([render] furnace, not wired to the config yet): the sun is turned
         // off and the environment becomes a constant level, so the correct frame is computable by hand.
         bool furnace = false;
@@ -1442,12 +1422,6 @@ namespace deren::engine {
         // that copy) - all at `max(1, render/2)`; and the four-level bloom chain, each level at
         // `max(1, render >> (level + 1))`, the levels packed in the grid `heap_image_capacity` apart. The level
         // count comes from the shared module now, for the reason `deren::engine::render_layout::hdr_format` lives there (A1.0/A1.5).
-        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> ml_images = {};
-        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> ml_image_views = {};
-        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> ml_resolve_images = {};
-        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> ml_resolve_image_views = {};
-        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> ml_history_images = {};
-        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> ml_history_image_views = {};
         deren::utility::vessel::array<deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images>, deren::engine::render_layout::bloom_level_count> bloom_images = {};
         deren::utility::vessel::array<deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images>, deren::engine::render_layout::bloom_level_count> bloom_image_views = {};
         // THE FURNACE MODE'S CONSTANT ENVIRONMENT (③-D/E A1.6): ONE 1x1x6 cube, device-wide rather than
@@ -2412,7 +2386,6 @@ namespace deren::engine {
          *       they stay with the two call sites that do
          */
         void reset_image_generation_state();
-        void discard_megalights_frame() noexcept;
         rhi::error prepare_managed_resources(bool output_only = false);
         void create_shadow_resources(); // collect managed scene resources
         rhi::error upload_scene_constant(uint32_t completed_slot, render_resource::resource_id id, std::span<std::byte const> bytes);
@@ -2443,7 +2416,6 @@ namespace deren::engine {
         struct frame_results {
             /// the stochastic punctual lighting chain's resolve wrote its accumulation this frame: the next
             /// frame's history flag for THIS image is set from it
-            bool megalights_temporal_resolved = false;
             bool taa_wrote_history = false;
             rhi::error gaussian_record_error = rhi::error::ok;
         };
@@ -2467,7 +2439,6 @@ namespace deren::engine {
             /// the runtime's own predicates, each of which the renderer also acts on (see the list above)
             bool gbuffer_pass = false; // gbuffer_pass_active(): the surface pipeline exists and this frame shades
             bool deferred_lit = false; // deferred_lit_active(): the lighting stage is this frame's shading path
-            bool megalights = false;   // megalights_active(): the knob, the pass, and the deferred shading path
             bool rt_shadow = false;    // rt_shadows_active(): the knob and the device
             bool fxaa = false;         // post_fxaa_active(): the knob and the FXAA pass
             /**
@@ -3714,12 +3685,10 @@ namespace deren::engine {
          *        stage stops adding them raster-style), false = the engine's historic unshadowed loop
          * @return whether this call turned the feature ON (the off -> on edge)
          * @note the SAMPLE COUNT, the minimum sample weight and the origin bias are the PASS's parameters and
-         *       are set by whoever owns that pass (`vulkan.render_start_demo::set_megalights`), by the same
+         *       are set by whoever owns that pass (`vulkan.render_start_demo::`set_*_enabled`), by the same
          */
-        [[nodiscard]] bool set_megalights_enabled(bool enabled) noexcept;
 
         /// @brief whether the stochastic punctual lighting chain runs this frame (its own composed predicate)
-        [[nodiscard]] bool megalights_active() const noexcept;
 
         /**
          * @ingroup runtime

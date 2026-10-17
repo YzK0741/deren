@@ -48,7 +48,7 @@ namespace {
         .binding = 0,
         .owner = rr::binding_owner::own,
         .kind = rr::binding_kind::sampled_image,
-        .resource = rr::resource_id::ml_history,
+        .resource = rr::resource_id::taa_history,
         .element = 0,
         .descriptor_count = 1,
         .access = rr::binding_access::read,
@@ -61,8 +61,8 @@ int32_t main() {
     // ---- the schema describes itself, completely ----
     auto const schema = rr::validate_schema();
     CHECK_MSG(schema.has_value(), schema.has_value() ? "" : schema.error().c_str());
-    CHECK(rr::resource_schema.size() == 76);
-    CHECK(static_cast<uint32_t>(rr::resource_id::count) == 77); // 76 families plus `none`
+    CHECK(rr::resource_schema.size() == 73);
+    CHECK(static_cast<uint32_t>(rr::resource_id::count) == 74); // 76 families plus `none`
     CHECK(rr::find(rr::resource_id::material_table)->scope == rr::resource_scope::device_wide);
     CHECK(rr::find(rr::resource_id::instance_table)->scope == rr::resource_scope::device_wide);
     CHECK(rr::find(rr::resource_id::skin_matrices_previous)->scope == rr::resource_scope::per_frame_slot);
@@ -88,7 +88,7 @@ int32_t main() {
     CHECK(rr::find(rr::resource_id::swapchain_image)->lifetime == rr::resource_lifetime::imported);
     // the two scopes this project has been bitten by, asserted where they live
     CHECK(rr::find(rr::resource_id::shadow_map)->scope == rr::resource_scope::per_frame_slot);
-    CHECK(rr::find(rr::resource_id::ml_history)->scope == rr::resource_scope::per_swapchain_image);
+    CHECK(rr::find(rr::resource_id::taa_history)->scope == rr::resource_scope::per_swapchain_image);
     CHECK(rr::find(rr::resource_id::furnace_cube)->scope == rr::resource_scope::device_wide);
 
     // The binding owner decides which rules apply: the pass's OWN bindings must be numbered contiguously from
@@ -159,7 +159,7 @@ int32_t main() {
     {
         rr::pass_binding b = good_binding;
         b.kind = rr::binding_kind::storage_image;
-        b.resource = rr::resource_id::ml_history;
+        b.resource = rr::resource_id::taa_history;
         b.access = rr::binding_access::write;
         CHECK(!validate_one(b).has_value()); // ... and a storage image must not
     }
@@ -169,7 +169,7 @@ int32_t main() {
         // the opposite - that such a declaration FAILED because it did not name GENERAL).
         rr::pass_binding b = good_binding;
         b.kind = rr::binding_kind::storage_image;
-        b.resource = rr::resource_id::ml_history;
+        b.resource = rr::resource_id::taa_history;
         b.access = rr::binding_access::write;
         b.sampler = rr::sampler_hint::none;
         CHECK(validate_one(b).has_value());
@@ -321,8 +321,8 @@ int32_t main() {
         deren::utility::vessel::array<rr::barrier_image, 1> const barrier_not_an_image = {rr::barrier_image{.resource = rr::resource_id::camera_ubo, .element = 0}};
         rr::pass_io const io = {.name = "barrier-like", .bindings = {}, .targets = {}, .barrier_images = barrier_not_an_image, .push = std::nullopt};
         CHECK(!rr::validate(io).has_value());
-        deren::utility::vessel::array<rr::barrier_image, 2> const twice = {rr::barrier_image{.resource = rr::resource_id::ml_trace, .element = 0},
-                                                                           rr::barrier_image{.resource = rr::resource_id::ml_trace, .element = 0}};
+        deren::utility::vessel::array<rr::barrier_image, 2> const twice = {rr::barrier_image{.resource = rr::resource_id::hdr, .element = 0},
+                                                                           rr::barrier_image{.resource = rr::resource_id::hdr, .element = 0}};
         rr::pass_io const dup = {.name = "barrier-like", .bindings = {}, .targets = {}, .barrier_images = twice, .push = std::nullopt};
         CHECK(!rr::validate(dup).has_value());
     }
@@ -373,7 +373,7 @@ int32_t main() {
     {
         // the barrier-BUFFER rule, the same three checks one resource class over: it must be a buffer the
         // schema declares, and a pass indexes these by position so the same one twice cannot be read
-        deren::utility::vessel::array<rr::barrier_buffer, 1> const not_a_buffer = {rr::barrier_buffer{.resource = rr::resource_id::ml_trace, .element = 0}};
+        deren::utility::vessel::array<rr::barrier_buffer, 1> const not_a_buffer = {rr::barrier_buffer{.resource = rr::resource_id::hdr, .element = 0}};
         rr::pass_io const io = {.name = "cluster", .bindings = {}, .targets = {}, .barrier_buffers = not_a_buffer, .push = std::nullopt};
         CHECK(!rr::validate(io).has_value());
         deren::utility::vessel::array<rr::barrier_buffer, 2> const twice = {rr::barrier_buffer{.resource = rr::resource_id::cluster_counts, .element = 0},
@@ -397,7 +397,7 @@ int32_t main() {
         CHECK(rr::deferred_io.targets[0].kind == rr::target_kind::color);
         CHECK(rr::deferred_io.barrier_images.empty()); // it moves no image of its own
         CHECK(rr::deferred_io.push.has_value());
-        CHECK(rr::deferred_io.push->size == 88);                         // mat4 + vec4 + one float
+        CHECK(rr::deferred_io.push->size == 84);                         // mat4 + vec4 + one float
         CHECK(rr::deferred_io.push->stages == rr::stage_flag::fragment); // the vertex stage pushes nothing
     }
 

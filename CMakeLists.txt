@@ -673,8 +673,6 @@ target_sources(deren_engine
         source/engine/pass/character_forward.cppm
         source/engine/pass/toon_screen_rim.cppm
         source/engine/pass/goo_rim.cppm
-        source/engine/pass/megalights_trace.cppm
-        source/engine/pass/megalights_temporal.cppm
         source/engine/pass/ray_traced_shadow.cppm
         source/engine/pass/mask_bake.cppm
         source/engine/pass/compute_skin.cppm
@@ -723,8 +721,6 @@ target_sources(deren_engine
         source/engine/pass/character_forward.cpp
         source/engine/pass/toon_screen_rim.cpp
         source/engine/pass/goo_rim.cpp
-        source/engine/pass/megalights_trace.cpp
-        source/engine/pass/megalights_temporal.cpp
         source/engine/pass/ray_traced_shadow.cpp
         source/engine/pass/mask_bake.cpp
         source/engine/pass/compute_skin.cpp
@@ -2188,11 +2184,6 @@ set(VR_SLANG_SOURCES
     # mask_bake.slang is the alphaMode MASK bake (off by default; [render] rt_mask_bake turns it on, which is
     # also how its A/B is run).
     geometry/mask_bake.slang:comp_main:compute:mask_bake.comp.spv
-    # megalights_temporal.slang is the stochastic lighting's denoise (off by default; [render] megalights = true
-    # turns the path on, which is also how its A/B is run).
-    lighting/megalights_temporal.slang:comp_main:compute:megalights_temporal.comp.spv
-    # megalights_trace.slang is the stochastic punctual lighting tracer the temporal pass denoises.
-    lighting/megalights_trace.slang:comp_main:compute:megalights_trace.comp.spv
     # rt_shadow.slang is the ray-traced shadow's shader file, growing one stage at a time; it starts with the
     # closest-hit stage, whose whole job is the payload contract (see the file). No gate scenario enables
     # rt_shadows, so this port is shape-verified and belongs to the A/B capture route in docs/slang_migration.md.

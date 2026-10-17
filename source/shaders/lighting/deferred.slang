@@ -38,11 +38,7 @@ struct DeferredPush
     float4 ssao;
     // 1.0 = "unlit" render mode: write the stored albedo, unshaded (see runtime::set_unlit)
     float unlit;
-    // 1.0 = the stochastic punctual lighting pass ANSWERED this frame, so the cluster loop inside
-    // shade_surface must not add the punctual lights a second time (this stage adds `ml_lighting` instead).
-    // It is set from whether that pass actually recorded, not from its knob - a frame whose pass was gated
     // off keeps the raster loop, which is what makes the two paths exclusive rather than complementary.
-    float punctual_replaced;
     // THE HEAP INDICES, LAST on purpose so every field above keeps its offset.
     uint frame_slot;
     uint image_index;
@@ -199,8 +195,6 @@ float4 main([[vk::location(0)]] float2 v_uv : TEXCOORD0, float4 sv_position : SV
     // off samples nothing that does not exist and shades exactly as it did before.
     si.shadow_override = (light_at(heap_light_slot).rt_shadows > 0.5) ? heap_texel(heap_at<Texture2D<float4>>(heap_slots_rt_visibility + heap_frame_slot), heap_sampler_gbuffer, v_uv).r : -1.0;
     // ... and the punctual lights' own switch: with the stochastic pass having answered this frame, the
-    // cluster loop inside shade_surface adds nothing and `ml_lighting` is added instead, right below.
-    si.punctual_replaced = pc.punctual_replaced;
 
     float3 color = shade_surface(si);
 
@@ -213,42 +207,6 @@ float4 main([[vk::location(0)]] float2 v_uv : TEXCOORD0, float4 sv_position : SV
     // tolerance and the normal exponent are literals here rather than push lanes - unlike the composite's,
     // this gather has no A/B measurement behind it yet, and inventing knobs before the measurement is how a
     // knob ends up with a value nobody can justify.
-    if (pc.punctual_replaced > 0.5)
-    {
-        const DescriptorHandle<Texture2D<float4>> ml_lighting = heap_at<Texture2D<float4>>(heap_slots_ml_resolved + heap_image_index);
-        const float2 ml_extent = heap_size(ml_lighting, 0u);
-        const float2 ml_texel = 1.0 / ml_extent;
-        const float2 base = floor(v_uv * ml_extent - 0.5);
-        const float view_here = -length(si.world_pos - camera_at(heap_camera_slot).camera_pos.xyz);
-        // The tolerance is relative to the pixel's own view distance: the same absolute depth error means
-        // far less at 5 units than at 50 (the argument the chain's filters make).
-        const float depth_tolerance = max(0.02 * abs(view_here), 1e-5);
-        float3 ml_sum = float3(0.0);
-        float ml_weight_sum = 0.0;
-        for (int y = 0; y <= 1; ++y)
-        {
-            for (int x = 0; x <= 1; ++x)
-            {
-                const float2 tap_uv = (clamp(base + float2(float(x), float(y)), float2(0.0, 0.0), ml_extent - 1.0) + 0.5) * ml_texel;
-                const float tap_depth = gbuffer_texel(heap_at<Texture2D<float4>>(heap_slots_gbuffer_depth + heap_image_index), tap_uv).r;
-                if (tap_depth >= 1.0)
-                {
-                    continue; // a background tap holds no lighting and has no view depth to compare
-                }
-                const float3 tap_world = world_position_from_depth(tap_uv, tap_depth);
-                const float tap_view = -length(tap_world - camera_at(heap_camera_slot).camera_pos.xyz);
-                const float depth_weight = exp(-abs(tap_view - view_here) / depth_tolerance);
-                const float3 tap_normal = gbuffer_texel(heap_at<Texture2D<float4>>(heap_slots_gbuffer_normal + heap_image_index), tap_uv).xyz;
-                const float normal_weight = pow(max(dot(si.normal, tap_normal), 0.0), 16.0);
-                const float weight = depth_weight * normal_weight;
-                ml_sum += heap_texel(ml_lighting, heap_sampler_gbuffer, tap_uv).rgb * weight;
-                ml_weight_sum += weight;
-            }
-        }
-        // The fallback is the filtered fetch at the pixel's own uv, which is what a sliver of geometry whose
-        // whole 2x2 block belongs to somebody else gets - the same answer the composite's upsample gives.
-        color += ml_weight_sum > 1e-5 ? ml_sum / ml_weight_sum : heap_texel(ml_lighting, heap_sampler_gbuffer, v_uv).rgb;
-    }
 
     return float4(color, 1.0);
 }
