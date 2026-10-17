@@ -79,6 +79,11 @@ namespace deren::vulkan {
             result |= 128U;
         if (flags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT))
             result |= 32U;
+        // RT stage 1: the ray-tracing PIPELINE stages, reported only when the device can run them. A ray query inside
+        // a compute shader needs none of this bit (it is a COMPUTE_SHADER site, and 4U already says so); this is the
+        // traceRays launch's stage, which the RT shadow pass's visibility write names.
+        if ((owner->ray_query_available || owner->ray_tracing_pipeline_available) && (flags & VK_QUEUE_GRAPHICS_BIT))
+            result |= 1024U;
         return static_cast<scopes::stage>(result);
     }
 

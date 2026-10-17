@@ -11,7 +11,9 @@ namespace deren::engine::render_graph::detail {
         return (bits(access) & bits(memory_access::write)) != 0;
     }
     inline bool shader_stages(pipeline_stage stages) noexcept {
-        return bits(stages) && !(bits(stages) & ~(7U | 256U | 512U));
+        // RT stage 1: the ray-tracing pipeline stages are a shader stage class like every other one, so a sampled or
+        // storage access declared from a traceRays LAUNCH validates here (the RT shadow pass's visibility write).
+        return bits(stages) && !(bits(stages) & ~(7U | 256U | 512U | 1024U));
     }
     inline memory_access access_for(content_access mode) noexcept {
         if (mode == content_access::read)
@@ -80,7 +82,7 @@ namespace deren::engine::render_graph::detail {
         }
     }
     inline bool valid_initial_state(resource_kind kind, resource_shape const& shape, initial_contents contents, resource_state state) noexcept {
-        if (bits(state.access) > 3 || (bits(state.stages) & ~1023U))
+        if (bits(state.access) > 3 || (bits(state.stages) & ~2047U))
             return false;
         if (state.layout == resource_layout::undefined)
             return contents == initial_contents::undefined && state.access == memory_access::none && state.stages == pipeline_stage::none;
@@ -89,8 +91,8 @@ namespace deren::engine::render_graph::detail {
         if (state.access == memory_access::none || state.stages == pipeline_stage::none)
             return false;
         if (kind == resource_kind::buffer)
-            return state.layout == resource_layout::general && !(bits(state.stages) & ~(7U | 32U | 64U | 128U | 256U | 512U));
-        if (bits(state.stages) & ~(63U | 256U | 512U))
+            return state.layout == resource_layout::general && !(bits(state.stages) & ~(7U | 32U | 64U | 128U | 256U | 512U | 1024U));
+        if (bits(state.stages) & ~(63U | 256U | 512U | 1024U))
             return false;
         auto aspects = bits(std::get<texture_shape>(shape).aspects);
         switch (state.layout) {

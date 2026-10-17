@@ -208,7 +208,8 @@ namespace {
         rg::builder graph;
         CHECK(!graph.import_texture({7, 1}, rg::initial_contents::defined, "undefined state", {}, undefined));
         CHECK(!graph.import_buffer({7, 2}, rg::initial_contents::defined, "bad layout", {}, shader_read));
-        CHECK(!graph.import_texture({7, 3}, rg::initial_contents::defined, "bad stage", {}, rg::resource_state{rg::resource_layout::general, static_cast<rg::pipeline_stage>(1024), rg::memory_access::read}));
+        // RT stage 1 moved the boundary: 1024 is `pipeline_stage::ray_tracing` now, so the invalid bit is 2048.
+        CHECK(!graph.import_texture({7, 3}, rg::initial_contents::defined, "bad stage", {}, rg::resource_state{rg::resource_layout::general, static_cast<rg::pipeline_stage>(2048), rg::memory_access::read}));
         auto first = graph.import_texture({7, 1}, rg::initial_contents::defined, "input", {}, shader_read);
         CHECK(first && first->index() == 0);
         auto alias = graph.import_texture({7, 1}, rg::initial_contents::defined, "alias", {}, shader_read);

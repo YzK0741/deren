@@ -91,7 +91,12 @@ export namespace deren::engine::render_graph {
                                            vertex_input = 64,
                                            draw_indirect = 128,
                                            task_shader = 256,
-                                           mesh_shader = 512 };
+                                           mesh_shader = 512,
+                                           /// RT stage 1: a traceRays LAUNCH's stages. A ray query inside a compute
+                                           /// shader names `compute_shader`; this value names the ray-tracing
+                                           /// pipeline stages, which is what the RT shadow pass writes its
+                                           /// visibility image from.
+                                           ray_tracing = 1024 };
     constexpr pipeline_stage operator|(pipeline_stage a, pipeline_stage b) noexcept {
         return static_cast<pipeline_stage>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
     }

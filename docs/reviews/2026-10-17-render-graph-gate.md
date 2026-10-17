@@ -836,3 +836,31 @@ vocabulary, and that first slice is now shipped:
 Next stages, in this order: the graph's own vocabulary (`pipeline_stage::ray_tracing` + an
 acceleration-structure resource kind and usage, lowering to this barrier), then the RT shadow and MegaLights
 lanes, then the legacy tail's per-segment deletion.
+
+## RT stage 2a: the graph can name a traceRays launch
+
+The graph's stage vocabulary grows its next measured value: `pipeline_stage::ray_tracing = 1024` (and the sync
+layer's `stage::ray_tracing`, so the lowering bridge can carry it). The masks that used to stop at 1023 moved to
+2047, `shader_stages()` now counts the ray-tracing pipeline stages as a shader stage class (so a `storage` write
+or `sampled` read declared from a traceRays launch validates), and the backend's `supported_stages()` reports
+1024 only when the device can actually run those stages (ray query or a ray-tracing pipeline, on a graphics
+queue). A ray query inside a compute shader needs none of this - it is a `compute_shader` site.
+
+With the vocabulary in place, the RAY-TRACED SHADOW PASS got its barrier-free record entry: `record_content()`
+is the push plus the `traceRays` launch and the one-shot log, while the legacy `record()` keeps the visibility
+image's two transitions (undefined -> shader_write around the launch, shader_write -> shader_read as the hand-off
+to the lighting stage), both with the measured RAY-TRACING stage hint. The same split every migrated pass has,
+so the graph can declare the pass's only in-model access (the visibility write as storage at
+`pipeline_stage::ray_tracing`) and emit it.
+
+Evidence: CTest 44/44 - including a graph-level unit case that composes a traceRays-style storage write at the
+ray-tracing stage plus a sampled reader and asserts the lowered barrier NAMES the ray-tracing stage, and the
+sync test's invalid-stage boundary moved from 1024 to 2048 with the vocabulary; the gate round is byte-identical
+for all fifteen scenarios (matched 15, mismatched 0); and `check_rt.ps1` is PASS, which is the check that the
+split preserves the legacy RT path (GPU probe, forty frames, clean validation, screenshot).
+
+What remains for the RT shadow item: the graph adapter (`graph::rt_shadow`) and its lane, the eligibility
+change, and the A/B verification of an RT frame with the graph on. The TLAS itself stays out of the graph's
+model for now - its build is a pre-graph border step in the same command buffer (submission order), and RT stage
+1's `build_write -> shader_read` barrier publishes it; the acceleration-structure RESOURCE KIND (the full B
+model, with the TLAS as a graph resource) is the later slice.

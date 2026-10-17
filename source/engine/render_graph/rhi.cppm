@@ -9,7 +9,7 @@ namespace deren::engine::render_graph::rhi_bridge::detail {
     namespace sync = deren::promise::rhi::synchronization;
     std::expected<sync::scope, sync::error> scope(resource_state value) noexcept {
         auto stages = static_cast<uint32_t>(value.stages), access = static_cast<uint32_t>(value.access);
-        if ((stages & ~1023U) || (access & ~3U))
+        if ((stages & ~2047U) || (access & ~3U))
             return std::unexpected(sync::error::unsupported);
         if (access && !stages)
             return std::unexpected(sync::error::invalid_argument);
@@ -25,6 +25,7 @@ namespace deren::engine::render_graph::rhi_bridge::detail {
         include(pipeline_stage::draw_indirect, sync::stage::draw_indirect);
         include(pipeline_stage::task_shader, sync::stage::task_shader);
         include(pipeline_stage::mesh_shader, sync::stage::mesh_shader);
+        include(pipeline_stage::ray_tracing, sync::stage::ray_tracing);
         if (access & 1)
             result.accesses = result.accesses | sync::access::read;
         if (access & 2)

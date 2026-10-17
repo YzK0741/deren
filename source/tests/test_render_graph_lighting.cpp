@@ -395,6 +395,44 @@ int main() {
             }
         }
     }
+    // THE RAY-TRACED SHADOW PASS'S STAGE (RT stage 1): its visibility image is written from a traceRays LAUNCH, so
+    // the graph's stage vocabulary must name the ray-tracing stages - a scope it could not express before. The
+    // lowering is what proves the vocabulary is real: the barrier that carries the write names that stage.
+    {
+        rg::builder graph;
+        auto visibility = *graph.import_texture({84, 1}, rg::initial_contents::undefined, "RT visibility", {}, rg::resource_state{});
+        std::array<rg::resource_access, 1> const producer_access{
+            rg::resource_access{visibility, rg::content_access::discard_write, rg::texture_range{}, {rg::resource_usage::storage, rg::pipeline_stage::ray_tracing}},
+        };
+        auto producer = graph.add_pass("ray-traced shadow", producer_access);
+        CHECK(producer);
+        std::array<rg::resource_access, 1> const consumer_access{
+            rg::resource_access{visibility, rg::content_access::read, rg::texture_range{}, {rg::resource_usage::sampled, rg::pipeline_stage::fragment_shader}},
+        };
+        auto consumer = graph.add_pass("lighting", consumer_access);
+        CHECK(consumer);
+        CHECK(graph.export_resource(visibility));
+        auto plan = graph.compile({true});
+        CHECK(plan);
+        if (plan) {
+            // The claim is that the vocabulary reaches the LOWERING: at least one barrier for the visibility image
+            // names the ray-tracing stage on one of its sides, and the sampler's pass is ordered after the trace.
+            bool trace_stage_named = false;
+            for (auto const& barrier : plan->barriers)
+                if (barrier.resource == visibility.index() &&
+                    (((barrier.before.stages | barrier.after.stages) & rg::pipeline_stage::ray_tracing) == rg::pipeline_stage::ray_tracing))
+                    trace_stage_named = true;
+            CHECK(trace_stage_named);
+            std::size_t producer_position = plan->execution_order.size(), consumer_position = plan->execution_order.size();
+            for (std::size_t i = 0; i < plan->execution_order.size(); ++i) {
+                if (plan->execution_order[i] == producer->index())
+                    producer_position = i;
+                if (plan->execution_order[i] == consumer->index())
+                    consumer_position = i;
+            }
+            CHECK(producer_position < consumer_position);
+        }
+    }
     rg::builder aliases;
     auto ref = *aliases.import_texture({2, 1}, rg::initial_contents::defined, "alias", {}, rg::resource_state{rg::resource_layout::shader_read_only, rg::pipeline_stage::fragment_shader, rg::memory_access::read});
     CHECK(!lighting::append(aliases, {ref, {ref, ref, ref}, ref}));

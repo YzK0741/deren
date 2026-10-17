@@ -169,13 +169,8 @@ namespace deren::engine::pass {
     }
 
     void rt_shadow_pass::record(resolved_io const& io) {
-        if (!this->pass_pipeline.has_value() || io.barrier_images.size() < render_resource::rt_shadow_barriers.size() ||
-            io.pipelines.empty() || io.pipelines[0] == nullptr || io.list == nullptr ||
-            io.barrier_images[barrier_visibility].image_handle == nullptr ||
-            this->hit_region.address == 0 ||
-            io.extent.width == 0 || io.extent.height == 0) {
-            return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
-        }
+        if (!this->record_ready(io))
+            return;
         rhi::image* const visibility = io.barrier_images[barrier_visibility].image_handle;
 
         // The image is written as a storage image (GENERAL) and read by the lighting stage as a sampler
@@ -195,24 +190,8 @@ namespace deren::engine::pass {
         if (io.list->barrier(rhi::barrier_group{.images = to_general, .stage = rhi::stage_hint::ray_tracing}) != rhi::error::ok) {
             return; // a refused barrier would leave the visibility image in a state nobody declared
         }
-
-        // No sets to bind (see the heap bind in begin_recording): the tracer's scene buffers, its G-buffer images
-        // and the acceleration structure are heap slots the shader names, and the frame's indices arrive in its
-        // push block.
-
-        // THE PUSH BLOCK IS THE PASS'S OWN NOW (S3): the renderer used to compose it and hand it over as raw
-        // bytes, which was the last thing it knew about this pass's frame. What it carries is this frame's
-        // inverse view-projection - a frame CONSTANT, so it arrives through `resolved_io::constants`, the channel
-        // that exists for exactly this - and the three ray-offset terms, which are this shader's own constants and
-        // therefore the struct's defaults rather than values anybody has to pass in.
-        push_constants push = {};
-        push.inv_view_proj = io.constants.inv_view_proj;
-        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
-        // THE LAUNCH DIMS ARE THE EXTENT: one invocation per pixel of the visibility image, which is what the
-        // compute form got from its dispatch and its bounds check. The launch itself is the pass's wrapper: the
-        // contract buffer in, the native entry point out of the escape (see `trace_rays` above), and the REGIONS
-        // are the contract's own type now (see the members).
-        io.list->trace_rays(this->raygen_region, this->miss_region, this->hit_region, this->callable_region, io.extent.width, io.extent.height, 1);
+        if (this->record_content(io) != rhi::error::ok)
+            return;
 
         // ... and the hand-off to the lighting stage, with the SAME hint and for the SAME reason: the recipe
         // (shader_write, shader_read) is `general_to_sampling_transition`, and its SOURCE stage is the
@@ -223,11 +202,38 @@ namespace deren::engine::pass {
         if (io.list->barrier(rhi::barrier_group{.images = to_sampling, .stage = rhi::stage_hint::ray_tracing}) != rhi::error::ok) {
             return; // a refused hand-off would leave the visibility image in a state nobody declared
         }
+    }
 
+    bool rt_shadow_pass::record_ready(resolved_io const& io) const noexcept {
+        return this->pass_pipeline.has_value() && io.barrier_images.size() >= render_resource::rt_shadow_barriers.size() &&
+               !io.pipelines.empty() && io.pipelines[0] != nullptr && io.list != nullptr &&
+               io.barrier_images[barrier_visibility].image_handle != nullptr && this->hit_region.address != 0 &&
+               io.extent.width != 0 && io.extent.height != 0;
+    }
+
+    rhi::error rt_shadow_pass::record_content(resolved_io const& io) noexcept {
+        if (!this->record_ready(io))
+            return rhi::error::invalid_argument; // the runner resolves all of this or does not record the pass at all
+        // No sets to bind (see the heap bind in begin_recording): the tracer's scene buffers, its G-buffer images
+        // and the acceleration structure are heap slots the shader names, and the frame's indices arrive in its
+        // push block.
+        //
+        // A GRAPH-RECORDED FRAME CALLS THIS ENTRY: the visibility image's two transitions are declared to the graph
+        // (the pass writes it as storage from the RAY-TRACING stage, the lighting stage samples it), so the graph
+        // emits them and this recorder must not.
+        push_constants push = {};
+        push.inv_view_proj = io.constants.inv_view_proj;
+        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
+        // THE LAUNCH DIMS ARE THE EXTENT: one invocation per pixel of the visibility image, which is what the
+        // compute form got from its dispatch and its bounds check. The launch itself is the pass's wrapper: the
+        // contract buffer in, the native entry point out of the escape (see `trace_rays` above), and the REGIONS
+        // are the contract's own type now (see the members).
+        io.list->trace_rays(this->raygen_region, this->miss_region, this->hit_region, this->callable_region, io.extent.width, io.extent.height, 1);
         if (!this->logged) {
             this->logged = true;
             deren::utility::log("ray-traced shadows: tracing {}x{} rays per frame through the ray-tracing pipeline (one per pixel, terminated on the first hit)", io.extent.width, io.extent.height);
         }
+        return rhi::error::ok;
     }
 
 } // namespace deren::engine::pass

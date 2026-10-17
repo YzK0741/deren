@@ -149,6 +149,15 @@ export namespace deren::engine::pass {
         void on_swapchain_recreated(pass_host const& host) override;
         void record(resolved_io const& io) override;
 
+        /// \brief the push and the traceRays launch alone - none of this pass's own ordering
+        ///
+        /// The legacy record owns the visibility image's two transitions (undefined -> shader_write around the
+        /// launch, shader_write -> shader_read as the hand-off to the lighting stage), both with the RAY-TRACING
+        /// stage hint because the writer is a traceRays LAUNCH rather than a dispatch. A graph-recorded frame
+        /// declares those accesses (the pass writes the image as storage at pipeline_stage::ray_tracing, the
+        /// lighting stage samples it), so the graph emits them and its recorder calls THIS entry.
+        deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
+
         /// @brief whether the pass built what it records with (the renderer gates the ray-traced path on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
         /// @brief the framework's generic form of the same question, so an owner holding only a chain can ask it
@@ -159,6 +168,8 @@ export namespace deren::engine::pass {
         [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
     private:
+        /// \brief the shared guard both entries use (a pipeline, the visibility slot, the hit region, an extent)
+        [[nodiscard]] bool record_ready(resolved_io const& io) const noexcept;
         render_resource::instances::resource_snapshot resource_view;
         // THREE GROUPS but FOUR stages: the shader binding table's order is raygen, miss, hit - the any-hit
         // shader is a SECOND STAGE of the hit group rather than a group of its own, so the regions below and the
