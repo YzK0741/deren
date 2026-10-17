@@ -1527,6 +1527,9 @@ namespace deren::engine {
         bool bloom_graph_enabled = false, bloom_graph_locked = false;
         bool post_graph_enabled = false, post_graph_drew_frame = false;
         bool main_graph_enabled = false, main_graph_frame = false;
+        // Whether THIS frame's cluster sort is recorded by the composed graph (frozen with main_graph_frame):
+        // true only when the frame is graph-eligible AND its two managed cluster buffers resolved.
+        bool graph_cluster_frame = false;
         bool main_graph_reported = false, main_graph_fallback_reported = false;
         resource_lease<rhi::image> post_graph_output;
         bool bloom_graph_pending = false;
@@ -2921,6 +2924,16 @@ namespace deren::engine {
          *       features cannot change mid-recording.
          */
         [[nodiscard]] bool main_graph_candidate() const noexcept;
+
+        /**
+         * @brief whether this frame's cluster sort has the managed buffers the graph lane imports
+         * @note The graph records the sort inside the frame only when its two per-slot buffers are resolvable
+         *       AND hold an object for this frame slot (they do on every real frame; a stub chain that resolved
+         *       the declarations but never created the buffers has none). A frame that lacks them keeps the
+         *       PRE-MIGRATION behaviour instead of failing: the legacy stage records the sort outside the graph
+         *       and the graph does not declare its reads.
+         */
+        [[nodiscard]] bool cluster_resources_available() noexcept;
 
         /**
          * @ingroup runtime

@@ -836,6 +836,7 @@ namespace deren::engine {
         // and that decision comes before record_scene() (which used to be the only place the predicate ran).
         // Every later reader - record_scene(), the fallback log - uses this frozen value.
         this->main_graph_frame = this->main_graph_candidate();
+        this->graph_cluster_frame = this->main_graph_frame && this->cluster_resources_available();
 
         // Debug and unlit frames can skip the entire deferred stage; they must not retain its history.
         this->megalights_resolved = false;
@@ -848,7 +849,11 @@ namespace deren::engine {
         //      inside the main instance, deferred later in the frame) then loop only their own
         //      cluster's list. Runs before the shadow pass so the barrier that publishes its buffers
         //      is as early as possible; nothing before it reads the lists.
-        {
+        // ON A GRAPH FRAME THE COMPOSED GRAPH OWNS IT (adoption stage 2G): its buffers are imported and
+        // declared there, the graph orders the sort against the lighting pass that reads the bins, and its
+        // recorder uses the pass's barrier-free entry - so this legacy stage must not also record it. A frame
+        // whose cluster buffers did not resolve keeps the pre-migration split (this stage records it).
+        if (!this->graph_cluster_frame) {
             deren::engine::profiling::cpu_phase_timer const cluster_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::cluster};
             // THE CLUSTER SORT records its own dispatch and its own two buffer barriers now
             // (deren.engine.pass.cluster); what is this loop's is WHERE it runs - before the passes that read the
@@ -1092,6 +1097,15 @@ namespace deren::engine {
                !this->taa_active() && !features.rt_shadow && !this->megalights_active() &&
                !this->gaussian_active() && !features.transparent && !this->feature_active("character_forward") &&
                !this->feature_active("toon_screen_rim") && !this->feature_active("goo_rim");
+    }
+    bool runtime::cluster_resources_available() noexcept {
+        if (this->cluster_pass[0] == nullptr)
+            return false; // the active chain has no cluster pass (a stub chain, or the pass was not resolved)
+        auto const counts = this->cluster_resource_view.find(render_resource::resource_id::cluster_counts);
+        auto const indices = this->cluster_resource_view.find(render_resource::resource_id::cluster_indices);
+        auto const slot = this->frame_ring().position();
+        return counts && indices && counts->device.get() == this->core_owner.get() && indices->device.get() == this->core_owner.get() &&
+               slot < counts->objects.size() && slot < indices->objects.size() && counts->objects[slot].buffer && indices->objects[slot].buffer;
     }
     void runtime::record_scene() {
         // Eligibility was frozen at the top of record_main_drawcalls() - see main_graph_candidate()'s note.

@@ -9,6 +9,7 @@ import deren.engine.render_graph.post;
 import deren.engine.render_graph.compose;
 import deren.engine.render_graph.lighting;
 import deren.engine.render_graph.geometry;
+import deren.engine.render_graph.cluster;
 import deren.engine.pass;
 import deren.engine.pass.output_targets;
 import deren.promise.rhi;
@@ -18,8 +19,8 @@ namespace deren::engine {
     namespace {
         struct post_recording_payload {
             pass::pass_host host{};
-            std::array<pass::resolved_io, 8> ios;
-            std::array<pass::frame_pass*, 8> passes{};
+            std::array<pass::resolved_io, 9> ios;
+            std::array<pass::frame_pass*, 9> passes{};
             rhi::error record(unsigned lane) const noexcept {
                 if (host.apply_behaviour)
                     host.apply_behaviour(host.context, *passes[lane], ios[lane]);
@@ -218,6 +219,38 @@ namespace deren::engine {
                 slot >= this->motion_buffers.size() || slot >= this->skin_buffers.size() ||
                 slot >= this->skin_buffers_previous.size() || slot >= this->morph_buffers.size())
                 return rhi::error::not_ready;
+            // THE CLUSTERED-LIGHT SORT'S OWN OUTPUT (adoption stage 2G): the graph records the sort as a pass on
+            // an eligible frame, so its two per-slot buffers are imported and declared here. `counts` keeps the
+            // contents: the frame-slot reset host-zeroes the table and the dispatch ATOMICALLY increments it, so
+            // its prior state is the compute read-write the last frame left. `indices` starts undefined because
+            // the sort writes the light lists wholesale.
+            std::optional<graph::buffer_ref> cluster_counts_ref{}, cluster_indices_ref{};
+            if (this->graph_cluster_frame) {
+                auto counts_generation = this->cluster_resource_view.find(render_resource::resource_id::cluster_counts);
+                auto indices_generation = this->cluster_resource_view.find(render_resource::resource_id::cluster_indices);
+                if (!counts_generation || !indices_generation || counts_generation->device.get() != this->core_owner.get() ||
+                    indices_generation->device.get() != this->core_owner.get() || slot >= counts_generation->objects.size() ||
+                    slot >= indices_generation->objects.size())
+                    return rhi::error::not_ready;
+                auto* counts = counts_generation->objects[slot].buffer.get();
+                auto* indices = indices_generation->objects[slot].buffer.get();
+                if (!counts || !indices)
+                    return rhi::error::not_ready;
+                auto counts_lease = resource_lease<rhi::buffer>::from_shared(this->core_owner, std::shared_ptr<rhi::buffer>{std::move(counts_generation), counts});
+                auto counts_import =
+                    build.import_buffer(counts_lease,
+                                        {graph::initial_contents::defined,
+                                         {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read | graph::memory_access::write}},
+                                        "cluster counts");
+                if (!counts_import)
+                    return post_build_error(counts_import.error());
+                auto indices_lease = resource_lease<rhi::buffer>::from_shared(this->core_owner, std::shared_ptr<rhi::buffer>{std::move(indices_generation), indices});
+                auto indices_import = build.import_buffer(indices_lease, {}, "cluster indices");
+                if (!indices_import)
+                    return post_build_error(indices_import.error());
+                cluster_counts_ref = *counts_import;
+                cluster_indices_ref = *indices_import;
+            }
             using id = render_resource::resource_id;
             using snapshot = render_resource::instances::resource_snapshot;
             constexpr auto mesh = graph::pipeline_stage::mesh_shader;
@@ -274,7 +307,30 @@ namespace deren::engine {
             graph::lighting::shared_inputs lighting_shared{shared_refs[0], shared_refs[7]};
             if (ibl_environment && ibl_irradiance && ibl_lut)
                 lighting_shared.ibl = graph::lighting::ibl_inputs{*ibl_environment, *ibl_irradiance, *ibl_lut};
+            if (cluster_counts_ref && cluster_indices_ref)
+                lighting_shared.cluster = graph::lighting::cluster_inputs{*cluster_counts_ref, *cluster_indices_ref};
             lighting_inputs.shared = lighting_shared;
+            // THE CLUSTERED-LIGHT SORT AS A GRAPH PASS (adoption stage 2G): its two per-slot buffers are imported
+            // above and declared by the adapter, the lighting pass declares the same buffers as reads, and the
+            // graph owns the producer -> consumer dependency - the pass's legacy path keeps its own two barriers
+            // for legacy frames only, and its recorder here uses the barrier-free record_content entry.
+            if (this->graph_cluster_frame) {
+                auto cluster_added = build.append([&](graph::builder& description) noexcept {
+                    return graph::cluster::append(description, {*cluster_counts_ref, *cluster_indices_ref});
+                });
+                if (!cluster_added)
+                    return post_build_error(cluster_added.error());
+                pass::stage cluster_stage{.name = "cluster", .passes = this->cluster_pass, .marks = false};
+                this->prepare_stage(cluster_stage, true);
+                passes[8] = this->cluster_pass[0];
+                ios[8].push_block = host.push_block;
+                if (!passes[8] || !host.resolve || !host.resolve(host.context, *passes[8], ios[8]) || ios[8].list != commands.get())
+                    return rhi::error::not_ready;
+                auto cluster_bound = build.bind_pass<graph::cluster::parameters>(
+                    cluster_added->pass, [payload](graph::cluster::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(8); });
+                if (!cluster_bound)
+                    return post_build_error(cluster_bound.error());
+            }
             auto geometry = build.append([&](graph::builder& description) noexcept {
                 return graph::geometry::append(description, {inputs.hdr, lighting_inputs.surface, *velocity_ref, *depth_ref, shared_geometry});
             });

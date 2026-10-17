@@ -327,8 +327,23 @@ frozen at the TOP of `record_main_drawcalls()`, before the cluster sort's owner 
 and the fallback log read the frozen value instead of recomputing it. The gate round after the move is
 byte-identical for all fourteen scenarios (matched 14, mismatched 0), validation-clean, and the
 per-scenario graph/legacy inventory is unchanged - so the earlier freeze changed the ordering of the
-decision, not its value. What remains for the cluster producer is the wiring itself: import the two
-per-slot snapshots, append the sort as graph lane 8, and bind its recorder.
+decision, not its value.
+
+The cluster producer is now MIGRATED on graph frames. `record_post_graph` imports the two per-slot buffers
+(`counts` with the compute read-write prior state the last frame left, `indices` undefined), appends the
+sort as graph lane 8 through the `graph::cluster` adapter, and records it with the barrier-free
+`record_content` entry; the legacy stage is skipped on those frames (`graph_cluster_frame`). The gate round
+after the wiring is byte-identical for all fourteen scenarios with zero validation findings - so the graph
+owns the sort's ordering against the lighting pass that reads the bins, and the pass's two hand-issued
+barriers now belong to legacy frames only.
+
+One thing the suite taught while wiring it: `cluster_resources_available()` must require the ACTIVE chain's
+cluster pass and this slot's buffer objects, not merely a non-null snapshot entry - the first version
+looked up the ids only, and `test_render_graph_post` (whose stub chain has a cluster-ish snapshot but no
+active cluster stage) failed the frame instead of falling back. With the stricter check a frame that
+cannot record the lane keeps the PRE-MIGRATION split (legacy stage records outside the graph, the graph
+does not declare the reads), which is exactly the behaviour a frame without the managed cluster resources
+needs - the same graceful-degradation rule the fallback log documents.
 
 ## What stage 1 changes about the plan
 
