@@ -183,6 +183,23 @@ namespace deren::chores {
         // stage, so it gets a mesh form of its own from the same file.
         load_and_create_pipeline(runtime, shaders_dir, "unlit", "unlit.frag.spv", "pbr.mesh.spv", "pbr.meshlet.spv");
 
+        // ---- THE VISIBILITY BUFFER'S RASTER PIPELINE (visibility-buffer v0.3b scaffolding) ----
+        // The two modules from scene/visibility.slang: a mesh stage and the id-only fragment over ONE R32_UINT
+        // target. NOTHING BINDS IT YET (the raster lane that dispatches through it is the next step), so this
+        // changes no picture by construction; what it buys today is that the pipeline is CREATED, and a refusal
+        // is a startup panic with the reason - where every other pipeline's failure is reported - instead of
+        // surfacing in the middle of a frame.
+        {
+            deren::utility::vessel::vector<uint8_t> visibility_mesh_code;
+            deren::utility::vessel::vector<uint8_t> visibility_fragment_code;
+            load_shader(shaders_dir, "visibility.mesh.spv", visibility_mesh_code);
+            load_shader(shaders_dir, "visibility.frag.spv", visibility_fragment_code);
+            std::expected<void, deren::utility::vessel::string> const built = runtime.make_visibility_pipeline(visibility_mesh_code, visibility_fragment_code);
+            if (!built) {
+                deren::utility::panic(std::source_location::current(), "failed to create the visibility pipeline: {}", built.error());
+            }
+        }
+
         {
             // THE TOON CHARACTER STAGE'S PIPELINE, and it is registered through a DIFFERENT entry point on
             // purpose: `runtime::make_pipeline` above builds the forward family's pipeline (swapchain format,

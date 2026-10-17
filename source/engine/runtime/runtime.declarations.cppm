@@ -783,6 +783,9 @@ namespace deren::engine {
         // The G-buffer pipeline shades nothing: albedo/metallic, normal/roughness and material
         // id/AO/flags go into core::gbuffer_* (1x targets + the pass's own 1x depth), so the opaque
         // pass runs at 1x.
+        /// the visibility raster pipeline (v0.3b): built by `make_visibility_pipeline`, bound by the raster lane
+        /// when it lands - an empty optional is "the app did not load the visibility shaders"
+        std::optional<pipelines::pipeline_handle> visibility_pipeline = std::nullopt;
         std::optional<pipelines::pipeline_handle> gbuffer_pipeline = std::nullopt;
         /// ... and the MESH form of the same pass (docs/mesh_shaders.md step 2), when the device can run one and the
         /// app handed the mesh stage's SPIR-V over: the scene session prefers it the way the shadow pass prefers
@@ -2911,6 +2914,20 @@ namespace deren::engine {
             // workgroup per meshlet, culled against the camera, stored in `meshlet_pipelines` under the same name
             // and preferred by the named sessions over the mesh form.
             std::span<uint8_t const> meshlet_shader_code = {});
+
+        /**
+         * @brief build the VISIBILITY RASTER PIPELINE (visibility-buffer v0.3b scaffolding): a mesh stage + the
+         *        id-only fragment over ONE `r32_uint` target with the depth test on
+         *
+         * @note IT IS NOT BOUND YET - the raster lane that records the dispatch is the next step. Building it here
+         *       keeps a pipeline-creation failure at startup (where every other pipeline's failure is reported)
+         *       instead of in the middle of a frame, and it proves the mesh-stage/mesh-fragment pair over an
+         *       INTEGER target is creatable with the heap-native push block the stage declares.
+         * @param mesh_code the mesh module's SPIR-V (visibility.mesh.spv)
+         * @param fragment_code the fragment module's SPIR-V (visibility.frag.spv)
+         * @return nothing, or the reason the pipeline could not be created
+         */
+        [[nodiscard]] std::expected<void, deren::utility::vessel::string> make_visibility_pipeline(std::span<std::uint8_t const> mesh_code, std::span<std::uint8_t const> fragment_code);
 
         /**
          * @ingroup runtime

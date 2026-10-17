@@ -579,6 +579,42 @@ namespace deren::engine {
         return {};
     }
 
+    // ---- THE VISIBILITY RASTER PIPELINE (visibility-buffer v0.3b scaffolding) -------------------------
+    std::expected<void, deren::utility::vessel::string> runtime::make_visibility_pipeline(std::span<std::uint8_t const> const mesh_code,
+                                                                                          std::span<std::uint8_t const> const fragment_code) {
+        if (this->visibility_pipeline.has_value()) {
+            return {}; // already built for this device
+        }
+        if (mesh_code.empty() || fragment_code.empty()) {
+            return std::unexpected(deren::utility::vessel::string("visibility pipeline: the app supplied no mesh or fragment module"));
+        }
+        // THE TARGET SHAPE IS THE DECLARATION'S, not the forward family's: one R32_UINT colour target (the
+        // visibility buffer itself), the shared depth image, NO blending (integer targets cannot blend), the
+        // depth test ON, and LESS_OR_EQUAL - the comparison the G-buffer pass uses, so an equal-depth tie
+        // resolves to the same triangle the old path would have kept.
+        deren::utility::vessel::array<rhi::image_format, 1> const color_formats = {deren::engine::render_layout::visibility_format};
+        auto built = pipelines::make_graphics_pipeline(this->rhi_face(),
+                                                       std::span<rhi::image_format const>(color_formats),
+                                                       rhi::image_format::depth,
+                                                       mesh_code,
+                                                       fragment_code,
+                                                       1u,
+                                                       /*depth_test_enabled=*/true,
+                                                       0.0f,
+                                                       0.0f,
+                                                       0.0f,
+                                                       std::span<rhi::blend_mode const>{},
+                                                       rhi::shader_stage::mesh,
+                                                       rhi::depth_compare::less_or_equal,
+                                                       "visibility");
+        if (!built) {
+            return std::unexpected(built.error());
+        }
+        this->visibility_pipeline = std::move(*built);
+        deren::utility::log("SUCCESS: visibility pipeline created (mesh stage, one r32_uint target, depth-tested, no blending)");
+        return {};
+    }
+
     std::expected<pipelines::pipeline_handle, deren::utility::vessel::string> runtime::build_toon_family_pipeline(
         std::span<uint8_t const> const first_stage_code, std::span<uint8_t const> const fragment_code,
         rhi::blend_mode const mode, rhi::depth_compare const compare, char const* const what) {
