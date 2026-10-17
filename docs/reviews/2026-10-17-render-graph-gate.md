@@ -452,7 +452,8 @@ Nothing changed behaviourally: CTest 44/44, and `deferred`/`deferred_taa_fxaa` k
 The next step - the one that makes it live - is removing `taa_active()` from `main_graph_candidate()` and
 gating on the real thing.
 
-That flip was attempted and REVERTED, with a precise bisection that is the whole answer to "how far it got":
+That flip was attempted, bisected, and then COMPLETED - the bisection is the whole answer to "how far it got",
+and the two defects it isolated are fixed:
 
 - 1 frame: byte-identical between the paths;
 - 2 frames: byte-identical;
@@ -461,15 +462,24 @@ That flip was attempted and REVERTED, with a precise bisection that is the whole
   image 0).
 
 So the resolve, the working-image switch, the history copy, the runtime hand-back and the collected result
-are all correct WITHIN a frame; the defect is in the CROSS-FRAME history/reprojection chain - either the
-history contents a frame writes, or the previous-view-projection publication that feeds the next reprojection
-of that image. The `collect_stage("taa")` call the legacy tail makes for exactly that publication is now wired
-into the graph path as well (it publishes `view_proj_unjittered` into `image_view_proj` when the history was
-written), and it was measured NOT to change the divergence - so the next measurement is a direct comparison of
-the history image's contents after one frame in both paths, and of the per-image `image_view_proj` values.
+were all correct WITHIN a frame, and the defect was in the cross-frame history chain. Two causes, each fixed:
 
-The predicate keeps `!taa_active()` until that is explained. Everything else of the wiring stays in place and
-dormant (the collection call included - it is what the live path will need).
+1. **The history copy was CULLED.** The copy pass's only output is the history image, which no pass in the same
+   frame reads, so the value-root culling dropped the pass - the history was never written and the resolve
+   behaved as if every frame were a first frame. Evidence: ignoring the history on both paths made them
+   identical; the copy's recorder diagnostic never printed. Fix: the history image is exported, so the copy
+   pass stays in the plan (next frame's resolve is its consumer).
+2. **The history's first use has no layout.** The graph can only import "defined contents in a KNOWN layout",
+   and an image no path has transitioned is still UNDEFINED - sampling it was a validation error (measured:
+   `expects VK_IMAGE_LAYOUT_GENERAL ... current layout is VK_IMAGE_LAYOUT_UNDEFINED`). Fix: the runtime issues
+   that one transition on the history's first use, remembers it per image (reset with the generation), and a
+   legacy TAA frame records the same fact - keeping the "history is SAMPLED whenever the graph starts"
+   invariant the hand-back states.
+
+With both fixed the flip is IN: the gate round is byte-identical for all fourteen scenarios with zero
+validation findings, and `deferred_taa_fxaa` records through the graph instead of falling back. The TAA item is
+complete: its pass is recorded by the graph, its two accesses are two graph passes, and the only runtime-owned
+pieces left are the frame-boundary states that outlive the graph's plan.
 
 ## What stage 1 changes about the plan
 
