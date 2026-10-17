@@ -1,6 +1,9 @@
 # Current pass resource inventory
 
-Source-backed inventory, 2026-10-12; ownership update, 2026-10-14. This describes production frame passes and their related compute
+Source-backed inventory, 2026-10-12; ownership update, 2026-10-14.
+
+> **NOTE 2026-10-17:** the MegaLights trace/temporal rows and the ml_trace/ml_resolve/ml_history images are
+> historical - the chain was removed temporarily on 2026-10-17 (the render graph gate review records it). This describes production frame passes and their related compute
 jobs, not a proposed resource system. Debug validation probes and offline asset/IBL preparation are
 outside the pass table. Conditional resources are needed only when the corresponding feature runs.
 

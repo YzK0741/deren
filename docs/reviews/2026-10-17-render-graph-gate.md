@@ -965,3 +965,31 @@ deleted. The whole legacy tail likewise stays: it is the experimental MegaLights
 Evidence after the cleanup: CTest 44/44; the default gate round 15/15 byte-identical with zero validation
 findings; the `-Legacy` partial round PASS (3 of 3); RT A/B still `F0B480ECB33C8091` on both paths; `check_rt.ps1`
 PASS.
+
+## MegaLights removed (temporarily): the last feature exclusion is gone
+
+The owner's decision after the RT slices: take the stochastic punctual lighting chain (MegaLights) out of the
+tree for now. It was kept as an experimental feature OUTSIDE the graph by the earlier decision, for one reason -
+its trace reads the TLAS, and the graph has no resource kind for an acceleration structure - and that made it the
+only feature whose frames still selected the legacy scene tail before graph recording.
+
+THE REMOVAL (commit `bc2d22c1`, 880 lines across 36 files): the two passes and their shaders, the pipeline
+builders and shader build entries, the ml_trace/ml_resolve/ml_history resource families and heap slots (the output
+target array is 14 families now; rt_shadow_visibility moved 16 -> 13 and its `adopt`/post-graph indices with it),
+the half-resolution extent rule, the deferred stage's sampled-lights lane (`punctual_replaced` in the push block
+and in `shading.slang`'s `shade_input`, and the 2x2 joint-bilateral upsample in `deferred.slang` - the deferred
+push is 84 bytes), the runtime's chain state/wiring/collect-stage branch/legacy stage block/2B seed entry, the
+demo API, the config keys and GUI widgets, and the injection test's two child modes built around the chain.
+
+WHY THIS IS SAFE TO VERIFY: the feature was off by default, so removal must not move a pixel. It does not:
+CTest 44/44, the 15-scenario gate matches every frozen reference byte for byte with a clean validation log, the
+legacy tail (graph disabled) reproduces its references too, and `check_rt.ps1` passes (the RT chain never touched
+the removed code).
+
+WHAT IT UNBLOCKS - THE LEGACY TAIL IS NOW UNREACHABLE: with no feature-level exclusion and no capture instrument
+needing the tail, the remaining selection path is the `[render] main_render_graph = false` startup switch alone.
+That switch, the per-pass legacy `record()` implementations, the scene-tail recorders and the per-image publish
+flags are the next removal; until that commit lands the switch is the only way to reach code the feature removal
+has already emptied of purpose. The Gaussian HDR capture instrument still lives in the legacy tail and must move
+to the gaussian GRAPH lane in the same pass (see the cleanup section above - it is the one caller the tail
+deletion cannot simply drop).

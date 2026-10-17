@@ -1,5 +1,8 @@
 # MegaLights: how UE 5.8.2 lights many shadowed punctual lights, and what this renderer would take from it
 
+> **REMOVED 2026-10-17 (temporarily):** this study is kept for a future re-add; the feature it
+describes was removed from the tree (see the render graph gate review).
+
 A study of the UE 5.8.2 source (available at `C:\UnrealEngine-5.8.2-release`), read for the capability this
 renderer does not have at all: **its punctual lights cast no shadows**. `source/shaders/shading.glsl:923` says so in
 as many words ("punctual lights (point/spot, no shadow casting in this version)"), and the clustered loop

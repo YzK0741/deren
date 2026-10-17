@@ -1,5 +1,11 @@
 # Stochastic punctual lighting (MegaLights-style): shadowed point and spot lights at a fixed ray budget
 
+> **REMOVED 2026-10-17 (temporarily):** the owner took the feature out to unblock the legacy-tail deletion, which
+> its TLAS-reading trace was the only thing keeping alive. This document is kept as the ALGORITHM reference for
+> re-adding the chain; nothing it describes is wired in the tree today (the passes, their two shaders, the
+> ml_trace/ml_resolve/ml_history resource families and the deferred shader's sampled-lights lane are gone). The
+> cleanup is recorded in the [render graph gate review](reviews/2026-10-17-render-graph-gate.md).
+
 Current status (2026-10-14): trace and temporal resolve are both wired into the MegaLights stage.
 The passchain manages trace, resolve and history images. Temporal feedback marks an output image's
 history valid only after a successful copy; shader sampling checks that bit in `extents.w`.

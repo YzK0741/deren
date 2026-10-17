@@ -14,7 +14,7 @@
  * - `common/`: heap access, material records, surface gathering and texture groups.
  * - `geometry/`: shared mesh geometry, skinning and alpha-mask baking.
  * - `scene/`: PBR geometry, G-buffer and unlit stages.
- * - `lighting/`: shared shading, IBL, sky, clustered lights, shadows and Megalights.
+ * - `lighting/`: shared shading, IBL, sky, clustered lights and shadows.
  * - `toon/`: character shading, outlines, overlays and toon parameters.
  * - `gaussian/`: Gaussian preparation, projection cache and rasterization.
  * - `post/`: composition, TAA, FXAA and upscaling.
