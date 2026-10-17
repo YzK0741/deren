@@ -4,6 +4,7 @@
 import deren.engine.render_graph.lighting;
 import deren.engine.render_graph.cluster;
 import deren.engine.render_graph.shadow;
+import deren.engine.render_graph.taa;
 import deren.engine.render_graph.post;
 import deren.engine.render_graph.geometry;
 import deren.engine.pass.deferred;
@@ -11,6 +12,7 @@ namespace rg = deren::engine::render_graph;
 namespace lighting = rg::lighting;
 namespace cluster = rg::cluster;
 namespace shadow = rg::shadow;
+namespace taa = rg::taa;
 namespace post = rg::post;
 namespace rhi = deren::promise::rhi;
 int main() {
@@ -274,6 +276,45 @@ int main() {
                         consumer_position = i;
                 }
                 CHECK(producer_position < consumer_position);
+            }
+        }
+    }
+    {
+        // THE TAA RESOLVE AND ITS HISTORY COPY (adoption stage 2I): TWO graph passes, because one pass cannot
+        // both write the HDR target as a colour attachment and read it as a transfer source - the model holds one
+        // access per resource per pass. The graph owns both the attachment transition and the transfer round trip
+        // the pass's legacy record issues itself.
+        rg::builder graph;
+        rg::resource_state const sampled{rg::resource_layout::shader_read_only, rg::pipeline_stage::fragment_shader, rg::memory_access::read};
+        auto scene_color = *graph.import_texture({81, 1}, rg::initial_contents::defined, "scene colour", {}, sampled);
+        auto velocity = *graph.import_texture({81, 2}, rg::initial_contents::defined, "velocity", {}, sampled);
+        auto depth = *graph.import_texture({81, 3}, rg::initial_contents::defined, "depth", {1, 1, rg::texture_aspect::depth}, sampled);
+        auto history = *graph.import_texture({81, 4}, rg::initial_contents::defined, "TAA history", {}, sampled);
+        auto hdr = *graph.import_texture({81, 5}, rg::initial_contents::undefined, "HDR", {}, rg::resource_state{});
+        auto resolve = taa::append_resolve(graph, {scene_color, velocity, depth, history, hdr});
+        CHECK(resolve);
+        if (resolve) {
+            auto copy = taa::append_history_copy(graph, {resolve->target, history});
+            CHECK(copy);
+            CHECK(graph.export_resource(resolve->target) && graph.export_resource(history));
+            auto plan = graph.compile({true});
+            CHECK(plan);
+            if (plan && copy) {
+                CHECK(plan->passes[resolve->pass.index()].accesses.size() == 5); // four sampled reads + the target write
+                CHECK(plan->passes[copy->pass.index()].accesses.size() == 2);    // the transfer read + the transfer write
+                bool target_ordered = false;
+                for (auto const& barrier : plan->barriers)
+                    if (barrier.resource == hdr.index() && barrier.before_pass == copy->pass.index() && barrier.memory_dependency)
+                        target_ordered = true;
+                CHECK(target_ordered);
+                std::size_t resolve_position = plan->execution_order.size(), copy_position = plan->execution_order.size();
+                for (std::size_t i = 0; i < plan->execution_order.size(); ++i) {
+                    if (plan->execution_order[i] == resolve->pass.index())
+                        resolve_position = i;
+                    if (plan->execution_order[i] == copy->pass.index())
+                        copy_position = i;
+                }
+                CHECK(resolve_position < copy_position);
             }
         }
     }

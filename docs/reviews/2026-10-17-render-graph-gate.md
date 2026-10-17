@@ -422,10 +422,18 @@ chain use, so one submission never runs both barrier paths. The legacy path is u
 both the plain `deferred` scenario and the TAA scenario (`deferred_taa_fxaa`) keep their gate hashes.
 
 Remaining for the item: the two graph adapters, the wiring (lanes, plus the scene-colour/history/velocity
-declarations), and removing `taa_active()` from the eligibility predicate. The history image is the part
-that needs its own rule: its prior contents are the PREVIOUS frame's resolve, so unlike the transient
-images its import state is "defined, sampled, written by the TAA copy last frame", and the graph only
-transitions it - it must never discard it.
+declarations), and removing `taa_active()` from the eligibility predicate.
+
+The graph side of that is now in: `graph::taa` exposes `append_resolve` (scene colour, velocity, depth and
+history as sampled reads, the HDR target as the attachment write) and `append_history_copy` (the HDR target
+as a transfer read, the history image as a transfer write), and `test_render_graph_lighting` composes the
+two: 5 and 2 accesses, a memory dependency on the HDR target before the copy, and the resolve earlier than
+the copy in the execution order (50 checks, 0 failed; CTest 44/44). Nothing calls the adapters from the
+runtime yet, so no rendering behaviour changed.
+
+Remaining after that: the runtime wiring (the scene-colour target switch when TAA is on, the history and
+velocity declarations, the two lanes) and removing `taa_active()` from the eligibility predicate. The
+history image's rule stands: its import is defined and sampled, and the graph must only transition it.
 
 ## What stage 1 changes about the plan
 
