@@ -481,6 +481,26 @@ validation findings, and `deferred_taa_fxaa` records through the graph instead o
 complete: its pass is recorded by the graph, its two accesses are two graph passes, and the only runtime-owned
 pieces left are the frame-boundary states that outlive the graph's plan.
 
+## Stage 2J: the G-buffer debug view - enabling split in
+
+The debug view is the next pass to migrate (it is also what makes the `deformation` scenario fall back with
+"deferred lighting inactive": the debug view wins over the lighting stage, and the eligibility predicate
+requires the lighting stage). Measured shape: the pass reads the three stored G-buffer targets plus the motion
+vectors as four sampled inputs, opens ONE CLEAR+STORE instance over the HDR target, binds the channel's
+pipeline, pushes the channel/projection/motion lanes and draws the fullscreen triangle. The HDR target's
+transition is the FRAME LOOP's, not the pass's.
+
+The enabling split is in: `gbuffer_debug_pass::record_content()` records the instance, push and draw alone,
+while the legacy `record()` keeps its four `color_attachment -> shader_read` input barriers and then calls the
+content entry - the same split the cluster sort, the shadow pass, the TAA resolve (and its copy), the deferred
+pass and the bloom chain use. The legacy path is unchanged: CTest 44/44 and the `deformation` scenario keeps
+its gate hash.
+
+Remaining for the item: a `graph::gbuffer_debug` adapter (the four sampled reads + the HDR write), the runtime
+lane and the eligibility change (the graph must accept a debug frame by requiring the G-BUFFER pass instead of
+the lighting stage, and record the debug view INSTEAD of the lighting lane), plus the graph ownership of the
+HDR target transition the frame loop issues today.
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the

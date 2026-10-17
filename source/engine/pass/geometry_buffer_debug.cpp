@@ -99,18 +99,11 @@ namespace deren::engine::pass {
 
     void gbuffer_debug_pass::record(resolved_io const& io) {
         if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
-            io.extent.width == 0 || io.extent.height == 0) {
+            io.extent.width == 0 || io.extent.height == 0 || io.list == nullptr || io.targets[0].view_handle == nullptr)
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
-        }
-        // THE CONTRACT VIEW IS THE GUARD (plan X5 B2): the raw lane is gone, and a null handle is exactly the
-        // "this frame has no target" this refusal is about.
-        deren::promise::rhi::image_view* const target_view = io.targets[0].view_handle;
-        if (target_view == nullptr) {
-            return;
-        }
         // THE FOUR IMAGES THIS PASS READS BECOME SAMPLES, in ONE dependency info and in the declaration's order -
         // the three stored targets, then the motion-vector target. A pipeline barrier may not be recorded inside a
-        // rendering instance, which is why this is here and not after the scope below.
+        // rendering instance, which is why this is here and not after the scope.
         deren::utility::vessel::array<rhi::image_barrier, render_resource::gbuffer_debug_barriers.size()> barriers = {};
         for (std::size_t b = 0; b < barriers.size(); ++b) {
             // COLOR_ATTACHMENT -> SHADER_READ, the shipped `hdr_sampling_transition` pair: the backend derives
@@ -123,6 +116,13 @@ namespace deren::engine::pass {
         if (io.list->barrier(rhi::barrier_group{.images = barriers}) != rhi::error::ok) {
             return; // a refused barrier would leave the inputs in a state nobody declared
         }
+        static_cast<void>(this->record_content(io));
+    }
+
+    rhi::error gbuffer_debug_pass::record_content(resolved_io const& io) noexcept {
+        if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
+            io.extent.width == 0 || io.extent.height == 0 || io.list == nullptr || io.targets[0].view_handle == nullptr)
+            return rhi::error::invalid_argument; // the runner resolves this or does not record the pass at all
         // ... and the two pieces of per-image bookkeeping the frame USED to carry are now the renderer's stage
         // preamble (see gbuffer_debug_frame's replacement note): the depth's hand-back and the motion-vector flag's
         // clearing are the frame's ordering rules about images the G-buffer pass wrote.
@@ -141,7 +141,7 @@ namespace deren::engine::pass {
             .secondary_contents = false, // nothing here executes a secondary command buffer
         };
         if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
-            return;
+            return rhi::error::invalid_argument;
         }
         io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
         // No set to bind: the G-buffer images are per-swapchain-image heap slots the shader indexes itself with
@@ -158,6 +158,7 @@ namespace deren::engine::pass {
         [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
         io.list->draw(3, 1, 0, 0);
         io.list->end_rendering();
+        return rhi::error::ok;
     }
 
 } // namespace deren::engine::pass

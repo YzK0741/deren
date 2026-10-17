@@ -87,6 +87,13 @@ export namespace deren::engine::pass {
         void on_swapchain_recreated(pass_host const& host) override;
         void record(resolved_io const& io) override;
 
+        /// @brief the CLEAR instance, the push and the fullscreen draw alone - none of this pass's own ordering
+        ///
+        /// The legacy path's `record()` transitions the four sampled G-buffer images itself (see its comment). A
+        /// graph-recorded frame declares those reads and the HDR target write instead, and the graph emits both -
+        /// so its recorder calls THIS entry and one submission never runs both barrier paths.
+        deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
+
         /// @brief whether the pass built everything it records with (the renderer gates the feature on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
         /// @brief the framework's generic form of the same question, so an owner holding only a chain can ask it
