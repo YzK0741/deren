@@ -32,25 +32,30 @@ v0：    mesh shader (meshlet cull) ──fragment──> vis id (R32_UINT)  + d
 - 生命周期：per swapchain image（与 `gbuffer_*` 相同），由 render graph 声明为 `texture_discard_write`（光栅 lane）和 `texture_read`（resolve lane）。
 - heap slot：新增一个 per-image 纹理槽（`render_layout::heap_slots::vis_buffer`，紧接现有 per-image 纹理族；`render_layout` 的 family 计数 +1，`render_graph` 的 `output_targets_pass::ids` 与新 views 数组同步）。shader 侧靠 `heap_slots.glsl` 镜像，需同步 shader 常量文件。
 
-### 2. vis ID（32 位打包）
+### 2. vis ID（32 位打包，`deren.engine.visibility`）
 ```
-bits [31:22] item           10 bits  (<= 1023 个可见 item/视图；溢出 = 整帧回退旧路径)
-bits [21:8]  meshlet_in_run 14 bits  (<= 16383 meshlet/item；溢出 = 整帧回退)
-bits [7:0]   triangle        8 bits  (<= 255；meshlet 上限 85，足够)
+bit  31      valid          1 bit   (写入的 id 恒为 1；0 = 该像素没有几何)
+bits 30:21   item          10 bits  (<= 1023 个可见 item/视图；溢出 = 整帧回退旧路径)
+bits 20:7    meshlet_in_run 14 bits (<= 16383 meshlet/item；溢出 = 整帧回退)
+bits  6:0    triangle       7 bits  (<= 127；meshlet 上限 85，足够)
 ```
+- 空像素 = `id{}.value == 0`（buffer 的 clear 值）；有效 id 恒带 valid 位，所以 item/meshlet/triangle 全 0
+  的三角形不会被误读成空像素。`pack_id` 越界返回 `nullopt`，调用方整帧回退而不是截断 id。
+- C++ 侧在 `source/engine/visibility/visibility.cppm`，shader 侧将按同一算术镜像（见 V0.3）。
 - item = 本帧主视图的一个 (primitive, instance) 绘制项，静态、非实例化、不蒙皮、不 morph。v0 只接纳满足条件的 leaf。
 - `meshlet_in_run` = 该项内 meshlet 的顺序号（host-culled 表里的 survivorship 序号或原始表内的序号，由 item 的 flag 决定用哪张表）。
 - ID 由 mesh shader 在发射三角形时算好，作为 `nointerpolation` 顶点输出传给 fragment，fragment 原样写 `SV_Target0`。光栅阶段不需要读任何材质/属性表。
 
 ### 3. vis item 表（新增，per frame slot，host-visible）
-每条 item 记录 resolve 需要的全部"绘制项"事实（v0 静态路径）：
+每条 item 是一条 112 字节的记录（`deren::engine::visibility::draw_item`，12 个 32 位 lane + 64 字节
+row-major model；112 是 16 的倍数，正好是 std430 struct 的对齐倍数，无需尾部 padding）：
 ```
-vertex_address (u64)        index_address (u64)
-first_index (u32)           base_vertex (i32)
-index_width (u32)           meshlet_base (u32)   // 该 item 的 meshlet run 在表/剔除表里的起点
-meshlet_source (u32)        // 0=全局 meshlet 表 1=本帧 host-culled 表
-model (mat4, 64B)           motion_index (u32)  // previous_transform 的索引（静态项也可为 push.motion_base）
-material_index (u32)        flags (u32)
+vertex_address{low,high}  index_address{low,high}   // 设备地址，按 32 位两半写
+first_index               base_vertex               // 该 item 的索引窗口
+index_width               meshlet_base              // 该 item 的 meshlet run 在来源表里的起点
+meshlet_table             material_index            // 0=全局 meshlet 表 1=本帧 host-culled 表
+motion_index              flags                     // flags v0 保留为 0
+model[16]                                           // row-major，与 push block 的模型矩阵一致
 ```
 - 由 runtime 在现有"host 剔除 + 建 indirect 参数"的同一遍里写入（那一遍已经知道每个 leaf 的几何地址与 run 起点）。
 - 容量：按 item 数量分配（建议 1024 起步，溢出整帧回退旧路径并记录计数）。写入是 host-visible，随帧 slot 轮转。
@@ -77,7 +82,7 @@ material_index (u32)        flags (u32)
 
 ## Resolve 数学与材质
 
-1. 读 vis id：若 `id == 0`（无几何）→ 按 G-buffer 清屏语义写 0/清值并返回（depth 已是清值）。注意 v0 要显式复现现 render pass `load=clear` 的每个 target 初值。
+1. 读 vis id：若 `!id.valid()`（无几何）→ 按 G-buffer 清屏语义写 0/清值并返回（depth 已是清值）。注意 v0 要显式复现现 render pass `load=clear` 的每个 target 初值。
 2. 解 item + meshlet：读 item 记录、meshlet 记录；`first_index/base_vertex/index_width` 来自 meshlet 记录（culled 表同样布局）。
 3. 取三顶点：`mesh_index_at` 同款索引解码 → `mesh_vertex_at`（64 字节交错），得到 object-space position/normal/uv/joints/weights。
 4. 透视校正重心：用 item 的 model 矩阵与 camera 的 `view*proj`（**必须和光栅用的同一对矩阵，含 TAA jitter 的 proj**）把三顶点投到 clip，做屏幕空间边函数求重心；再用 w 做透视校正。深度核对：resolved 的 z 与 depth 附件在容差内一致（v0 断言/调试视图，不依赖它做剔除）。
@@ -114,8 +119,10 @@ material_index (u32)        flags (u32)
 
 ## 分步任务
 
-- [ ] V0.1 资源与格式：`R32_UINT` 在目标设备上作为 color attachment + sampled image 的验证（格式属性、validation、clear/store）；加到 `render_layout`/heap 槽与镜像 shader 常量；CPU 单测（格式/槽位一致性）。
-- [ ] V0.2 ID 与 item 表：ID 打包/解包 helpers + item 结构体 + host 写入路径（复用现有 cull 遍）+ 溢出回退；CPU 单测（往返、边界、溢出）。
+- [x] V0.1a 格式：contract 追加 `image_format::r32_uint`（appended 0x80000001u，无 ABI bump）+ backend `VK_FORMAT_R32_UINT` 映射 + `bytes_per_pixel`；`test_image_formats` pin 住枚举号与字节数。提交 `2642ec50`。
+- [x] V0.2 ID 与 item 记录：`deren.engine.visibility`（`pack_id`/`id` 的 valid+10+14+7 布局、`draw_item` 112 字节记录及其字段偏移）+ `test_visibility_buffer` 单测（往返、越界拒绝、布局 pin）。
+- [ ] V0.1b 资源：`render_layout` 的 vis buffer family + heap 槽 + 镜像 shader 常量；格式属性/创建失败的回退检查（`R32_UINT` 作为 color attachment 的设备支持不在 contract 里，V0.3 的探针负责验证并给出干净回退）。
+- [ ] V0.2b host 写入：在现有 host 剔除/indirect 构建的同一遍里填 item 表（溢出 → 整帧回退），按帧 slot 轮转；构建图外的 item buffer 资源。
 - [ ] V0.3 光栅 lane：新 mesh/fragment shader + pipeline 注册 + raster adapter + 图内记录；先不 resolve，用 debug 读回/可视化验证 ID 与深度（GPU readback probe 或 gate debug view）。
 - [ ] V0.4 resolve lane：compute shader + 共享 gbuffer body 抽取 + 写回 5 个目标；CPU 参考单测（重心/插值/clear 语义）。
 - [ ] V0.5 接入帧：runtime pass 注册、lane 选择/回退、配置开关、config/docs 同步；`test_runtime_injection` 类覆盖"开关开→新 lane，开关关→旧 lane，不可用→回退"。
