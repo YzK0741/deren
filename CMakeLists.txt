@@ -1425,6 +1425,7 @@ if(VR_BUILD_TESTS)
             deren_engine
             vstd_lib
     )
+    target_compile_definitions(test_visibility_buffer PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(test_render_graph_visibility render_graph_visibility)
     target_link_libraries(test_visibility_raster_pass
             deren_engine

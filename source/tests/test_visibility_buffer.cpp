@@ -4,8 +4,12 @@
 // that mirror: the bit arithmetic, the capacities, the exact record size and the field offsets.
 #include "vk_test.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <fstream>
+#include <string>
+#include <vector>
 
 import deren.engine.visibility;
 
@@ -77,10 +81,104 @@ namespace {
     }
 } // namespace
 
+namespace {
+    void test_push_block_layout() {
+        static_assert(push_block_bytes == 104u);
+        static_assert(sizeof(push_block) == push_block_bytes);
+        static_assert(offsetof(push_block, model) == 0u);
+        static_assert(offsetof(push_block, item_index) == 64u);
+        static_assert(offsetof(push_block, frame_slot) == 68u);
+        static_assert(offsetof(push_block, geometry) == 72u);
+        static_assert(sizeof(geometry_lanes) == 32u);
+        static_assert(offsetof(geometry_lanes, first_index) == 16u);
+        push_block const defaults{};
+        CHECK(defaults.geometry.index_width == 4u);
+        CHECK(defaults.item_index == 0u);
+    }
+
+    void test_draw_item_builder() {
+        std::array<float, 16> const model{1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 4.0f, 5.0f, 6.0f, 1.0f};
+        draw_item const item = make_draw_item(0x1122334455667788ull, 0x99AABBCCDDEEFF00ull, 17u, -3, 2u, 4096u, 7u, 11u, model);
+        // the 64-bit addresses are split little-endian: low half first, high half second
+        CHECK(item.vertex_address_low == 0x55667788u);
+        CHECK(item.vertex_address_high == 0x11223344u);
+        CHECK(item.index_address_low == 0xDDEEFF00u);
+        CHECK(item.index_address_high == 0x99AABBCCu);
+        CHECK(item.first_index == 17u);
+        CHECK(item.base_vertex == -3);
+        CHECK(item.index_width == 2u);
+        CHECK(item.meshlet_base == 4096u);
+        CHECK(item.meshlet_table == static_cast<std::uint32_t>(meshlet_source::table));
+        CHECK(item.material_index == 7u);
+        CHECK(item.motion_index == 11u);
+        CHECK(item.flags == 0u);
+        CHECK(item.model == model);
+    }
+
+    /// the shader mirrors the C++ layout BY HAND, so the test reads the shader and pins what it says - the
+    /// same two-sided rule the heap-slot grid's test follows (a drift is a wrong picture, not a build error).
+    void test_shader_mirror() {
+        std::ifstream file(VR_TEST_SOURCE_DIR "/source/shaders/scene/visibility.slang");
+        CHECK_MSG(file.is_open(), "visibility.slang must exist");
+        std::vector<std::string> lines;
+        std::string line;
+        while (std::getline(file, line)) {
+            lines.push_back(line);
+        }
+        bool saw_push_struct = false;
+        std::vector<std::string> fields;
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            if (lines[i].find("struct VisibilityPush") != std::string::npos) {
+                saw_push_struct = true;
+                for (std::size_t k = i + 1; k < lines.size() && lines[k].find('}') == std::string::npos; ++k) {
+                    // the DECLARATION only: strip the line's comment, then look for a declaration spelling
+                    std::string declaration = lines[k];
+                    if (std::size_t const comment_at = declaration.find("//"); comment_at != std::string::npos) {
+                        declaration.erase(comment_at);
+                    }
+                    for (char const* const field : {"model;", "item_index;", "frame_slot;", "geometry;"}) {
+                        if (declaration.find(field) != std::string::npos) {
+                            fields.emplace_back(std::string(field, std::string(field).size() - 1u));
+                        }
+                    }
+                }
+                break;
+            }
+        }
+        CHECK_MSG(saw_push_struct, "the shader must declare struct VisibilityPush");
+        CHECK(fields.size() == 4u);
+        if (fields.size() == 4u) {
+            CHECK(fields[0] == "model");
+            CHECK(fields[1] == "item_index");
+            CHECK(fields[2] == "frame_slot");
+            CHECK(fields[3] == "geometry");
+        }
+        // and the id's packing constants, on both sides: the C++ side is static_asserted below
+        static_assert(id_meshlet_shift == 7u);
+        static_assert(id_meshlet_bits == 14u);
+        static_assert(id_item_shift == 21u);
+        static_assert(id_valid_shift == 31u);
+        auto const contains = [&lines](char const* const needle) {
+            for (auto const& text : lines) {
+                if (text.find(needle) != std::string::npos) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        CHECK_MSG(contains("visibility_id_meshlet_shift = 7u"), "the shader's meshlet shift must stay 7");
+        CHECK_MSG(contains("visibility_id_item_shift = visibility_id_meshlet_shift + 14u"), "the shader's item shift must stay meshlet_shift + 14");
+        CHECK_MSG(contains("visibility_id_valid = 1u << 31u"), "the shader's valid bit must stay bit 31");
+    }
+} // namespace
+
 int main() {
     test_id_layout();
     test_id_round_trip();
     test_id_bounds_refuse();
     test_draw_item_layout();
+    test_push_block_layout();
+    test_draw_item_builder();
+    test_shader_mirror();
     return deren::vk_test::finish("test_visibility_buffer");
 }
