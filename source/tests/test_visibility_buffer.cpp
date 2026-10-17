@@ -223,6 +223,23 @@ namespace {
         CHECK(close(mid[0], 4.0f));
         CHECK(close(mid[1], 6.0f));
     }
+
+    void test_clip_to_screen() {
+        auto const close = [](float const a, float const b) { return std::abs(a - b) < 1e-5f; };
+        // the clip-space centre lands at the framebuffer centre
+        auto const centre = clip_to_screen({0.0f, 0.0f, 0.5f, 1.0f}, 100.0f, 50.0f);
+        CHECK(centre.has_value());
+        CHECK(close((*centre)[0], 50.0f));
+        CHECK(close((*centre)[1], 25.0f));
+        // the +x/+y corner at w = 2 is the 3/4 point (y grows DOWN, Vulkan's convention)
+        auto const corner = clip_to_screen({1.0f, 1.0f, 0.5f, 2.0f}, 100.0f, 50.0f);
+        CHECK(corner.has_value());
+        CHECK(close((*corner)[0], 75.0f));
+        CHECK(close((*corner)[1], 37.5f));
+        // behind the eye: no pixel, no mirrored point
+        CHECK(!clip_to_screen({0.0f, 0.0f, 0.5f, 0.0f}, 100.0f, 50.0f).has_value());
+        CHECK(!clip_to_screen({1.0f, 2.0f, 0.5f, -1.0f}, 100.0f, 50.0f).has_value());
+    }
 } // namespace
 
 int main() {
@@ -235,5 +252,6 @@ int main() {
     test_shader_mirror();
     test_resolve_barycentrics();
     test_resolve_perspective_and_interpolation();
+    test_clip_to_screen();
     return deren::vk_test::finish("test_visibility_buffer");
 }

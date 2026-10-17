@@ -255,6 +255,26 @@ export namespace deren::engine::visibility {
     };
 
     /**
+     * @brief the framebuffer-space pixel position of a clip-space position, for the rasterizer's viewport rule
+     * @return the pixel position, or nullopt when the position is behind the eye (w <= 0) - a triangle with such
+     *         a vertex is clipped by the rasterizer and can never win a pixel, so the resolve treats it as
+     *         "no triangle" rather than projecting a mirrored point
+     * @note THE Y SIGN IS THE CONVENTION, not a choice: Vulkan's framebuffer y grows DOWN and its clip-space y
+     *       grows down as well, so the transform is (+0.5*y_ndc + 0.5)*height - the mirror GL would need is
+     *       already in this renderer's projection (its proj[1][1] is negative), exactly as the outline stage's
+     *       note records. Getting this sign wrong mirrors every reconstructed triangle about the screen centre.
+     */
+    [[nodiscard]] constexpr std::optional<std::array<float, 2>> clip_to_screen(std::array<float, 4> const& clip,
+                                                                               float const width,
+                                                                               float const height) noexcept {
+        if (clip[3] <= 0.0f) {
+            return std::nullopt;
+        }
+        float const inv_w = 1.0f / clip[3];
+        return std::array<float, 2>{(clip[0] * inv_w * 0.5f + 0.5f) * width, (clip[1] * inv_w * 0.5f + 0.5f) * height};
+    }
+
+    /**
      * @brief the screen-space barycentrics of @p p inside the triangle (@p pa, @p pb, @p pc)
      * @return the weights; all zero for a degenerate triangle (the caller must treat that as "no triangle"),
      *         which is a defined answer rather than a division by zero
