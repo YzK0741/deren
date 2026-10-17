@@ -2786,6 +2786,71 @@ namespace deren::vulkan {
             return false;
         }
 
+        /// THE ACCELERATION-STRUCTURE ROLE PAIR (RT stage 1): the structure ITSELF, as the build wrote it, as the
+        /// build reads it (a top-level build traversing the bottom levels it instances), or as a SHADER traverses
+        /// it. Structures have no layout, so a row is a stage/access pair for the memory barrier the batch emits.
+        ///
+        /// THE SHADER SIDE IS EVERY SHADER STAGE OF THE DEVICE'S RT FLAVOURS: an RT pipeline's raygen/miss/hit
+        /// stages and a ray query inside a compute/fragment shader are the two measured readers, and the batch's
+        /// `stage_hint` narrows the mask when the caller knows which one ran (`with_stage_hint` below does it).
+        [[nodiscard]] constexpr bool acceleration_structure_masks_for(rhi::acceleration_structure_use const use,
+                                                                      VkPipelineStageFlags2& stage,
+                                                                      VkAccessFlags2& access) noexcept {
+            switch (use) {
+            case rhi::acceleration_structure_use::build_write:
+                stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+                access = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+                return true;
+            case rhi::acceleration_structure_use::build_read:
+                stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+                access = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+                return true;
+            case rhi::acceleration_structure_use::shader_read:
+                stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+                access = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+                return true;
+            case rhi::acceleration_structure_use::undefined:
+                return false;
+            }
+            return false;
+        }
+
+        // THE ACCELERATION-STRUCTURE TABLE'S COMPILE-TIME WITNESS (RT stage 1): pinned entry by entry, the same
+        // rule the image declaration table's static_asserts follow - a value that changes its masks must change
+        // this witness in the same commit.
+        static_assert([] {
+            VkPipelineStageFlags2 stage = 0;
+            VkAccessFlags2 access = 0;
+            return acceleration_structure_masks_for(rhi::acceleration_structure_use::build_write, stage, access) &&
+                   stage == VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR &&
+                   access == VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+        }(),
+                      "build_write is the AS build stage with the extension's WRITE access");
+        static_assert([] {
+            VkPipelineStageFlags2 stage = 0;
+            VkAccessFlags2 access = 0;
+            return acceleration_structure_masks_for(rhi::acceleration_structure_use::build_read, stage, access) &&
+                   stage == VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR &&
+                   access == VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+        }(),
+                      "build_read is the AS build stage with the extension's READ access");
+        static_assert([] {
+            VkPipelineStageFlags2 stage = 0;
+            VkAccessFlags2 access = 0;
+            return acceleration_structure_masks_for(rhi::acceleration_structure_use::shader_read, stage, access) &&
+                   (stage & VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR) != 0 &&
+                   (stage & VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT) != 0 &&
+                   access == VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+        }(),
+                      "shader_read covers the ray-tracing and compute stages with the extension's READ access");
+        static_assert([] {
+            VkPipelineStageFlags2 stage = 0;
+            VkAccessFlags2 access = 0;
+            return !acceleration_structure_masks_for(rhi::acceleration_structure_use::undefined, stage, access);
+        }(),
+                      "undefined is refused, never silently mapped");
+
         /// THE STAGE HINT, in one place (abi 21): the recipes name the stage their SHADER side runs at (the
         /// storage-image recipes say COMPUTE_SHADER), and a site whose producer or consumer is another shader
         /// stage replaces exactly those bits. THE NON-SHADER BITS AND THE ACCESS HALF ARE THE PAIR'S and stay:
@@ -2963,21 +3028,62 @@ namespace deren::vulkan {
         // THE GLOBAL MEMORY BARRIER OF THE BATCH (abi 21), if the caller declared one: the same role-pair
         // derivation the buffer loop uses, with NO operand - which is the whole reason the field exists. A
         // pair the roles cannot spell is refused by name, exactly as a buffer pair is.
+        //
+        // THE ACCELERATION-STRUCTURE BARRIERS OF THE SAME BATCH (RT stage 1) FOLD INTO THE SAME VkMemoryBarrier2:
+        // a structure has no layout and the extension synchronizes it with ACCELERATION_STRUCTURE_READ/WRITE
+        // accesses, so an object-level transition is exactly a memory dependency. One memory barrier can carry
+        // every source and destination mask in the batch (masks are ORed), which keeps the dependency's memory
+        // barrier count at one however many structures a batch names.
+        VkPipelineStageFlags2 memory_source_stage = 0;
+        VkAccessFlags2 memory_source_access = 0;
+        VkPipelineStageFlags2 memory_destination_stage = 0;
+        VkAccessFlags2 memory_destination_access = 0;
+        bool memory_any = false;
         if (memory_used) {
-            VkPipelineStageFlags2 source_stage = 0;
-            VkAccessFlags2 source_access = 0;
-            VkPipelineStageFlags2 destination_stage = 0;
-            VkAccessFlags2 destination_access = 0;
-            if (!buffer_masks_for(memory.from, source_stage, source_access) || !buffer_masks_for(memory.to, destination_stage, destination_access)) {
+            if (!buffer_masks_for(memory.from, memory_source_stage, memory_source_access) ||
+                !buffer_masks_for(memory.to, memory_destination_stage, memory_destination_access)) {
                 return rhi::error::unsupported;
             }
+            memory_any = true;
+        }
+        // THE APPENDED SPAN IS READ ONLY AS FAR AS THE CALLER DECLARED (the same `struct_size` rule as the two
+        // fields above): an older caller's bytes decode to "no acceleration-structure barriers".
+        if (covered_by(group.struct_size, offsetof(rhi::barrier_group, acceleration_structures), sizeof(rhi::barrier_group::acceleration_structures))) {
+            for (rhi::acceleration_structure_barrier const& one : group.acceleration_structures) {
+                if (one.resource == nullptr || one.resource->type != "deren_acceleration_structure_vulkan") {
+                    return rhi::error::invalid_argument;
+                }
+                auto const& structure = static_cast<owned_acceleration_structure const&>(*one.resource);
+                if (structure.native == VK_NULL_HANDLE || structure.owner != self) {
+                    return rhi::error::invalid_argument;
+                }
+                VkPipelineStageFlags2 source_stage = 0;
+                VkAccessFlags2 source_access = 0;
+                VkPipelineStageFlags2 destination_stage = 0;
+                VkAccessFlags2 destination_access = 0;
+                if (!acceleration_structure_masks_for(one.from, source_stage, source_access) ||
+                    !acceleration_structure_masks_for(one.to, destination_stage, destination_access)) {
+                    return rhi::error::unsupported; // a use nobody has defined - the honest answer, as for a buffer pair
+                }
+                // THE STAGE HINT NARROWS THE SHADER SIDE (the reason it rides the batch): the write side names the
+                // build stage and is untouched; `shader_read`'s mask is narrowed to the stage the caller ran.
+                source_stage = with_stage_hint(source_stage, hint);
+                destination_stage = with_stage_hint(destination_stage, hint);
+                memory_source_stage |= source_stage;
+                memory_source_access |= source_access;
+                memory_destination_stage |= destination_stage;
+                memory_destination_access |= destination_access;
+                memory_any = true;
+            }
+        }
+        if (memory_any) {
             memory_barriers[memory_count++] = VkMemoryBarrier2{
                 .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
                 .pNext = nullptr,
-                .srcStageMask = source_stage,
-                .srcAccessMask = source_access,
-                .dstStageMask = destination_stage,
-                .dstAccessMask = destination_access,
+                .srcStageMask = memory_source_stage,
+                .srcAccessMask = memory_source_access,
+                .dstStageMask = memory_destination_stage,
+                .dstAccessMask = memory_destination_access,
             };
         }
         VkDependencyInfo const dependency = {

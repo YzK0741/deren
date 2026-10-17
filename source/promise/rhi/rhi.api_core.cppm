@@ -390,25 +390,69 @@ export namespace deren::promise::rhi {
         ray_tracing,
     };
 
-    /// A batch of transitions recorded together - what `vkCmdPipelineBarrier2` receives as three arrays.
+    /// THE FORWARD DECLARATION THE BARRIER BATCH NEEDS: `acceleration_structure` is tier-1 and declared further
+    /// down (where its build/address surface lives), but a barrier names it by POINTER only, which is all an
+    /// incomplete type must support - the same shape `:extension`'s `image`/`buffer` forward declarations have.
+    struct acceleration_structure;
+
+    /// THE ACCELERATION-STRUCTURE SIDE OF THE BARRIER MODEL (RT stage 1): what a structure is being used AS.
+    ///
+    /// ADDED WITH ITS MEASUREMENT SITE: the ray-traced shadow and MegaLights traces read the top-level structure
+    /// their BUILD wrote, and the contract had no object-level use pair for that edge - the existing
+    /// `buffer_use::acceleration_structure_*` roles name the build's reads and writes of the GEOMETRY BUFFERS
+    /// (`source/engine/ray_tracing/ray_tracing.cpp`'s ordering barriers), which is a different resource. This
+    /// vocabulary is the object-level one: the structure itself, between the build that wrote it and the shaders
+    /// that traverse it.
+    enum class acceleration_structure_use : std::uint32_t {
+        undefined = 0,
+        /// THE BUILD WROTE IT: the acceleration-structure build stage, with the extension's
+        /// ACCELERATION_STRUCTURE_WRITE_KHR access.
+        build_write,
+        /// A SHADER TRAVERSES IT: an RT pipeline's raygen/miss/hit stages, or a ray query inside a
+        /// compute/fragment shader. The access is ACCELERATION_STRUCTURE_READ_KHR; the STAGE comes from the
+        /// batch's `stage_hint` (`none` = every shader stage, which is correct and conservative).
+        shader_read,
+        /// THE BUILD READS IT: a top-level build traverses the bottom levels it instances. APPENDED for the
+        /// object-level spelling of the build-ordering edge whose current site uses the role pair
+        /// `acceleration_structure_write -> acceleration_structure_read` on the global memory barrier.
+        build_read,
+    };
+
+    /// One acceleration structure's transition in a batch. NO layout and NO subresource range: a structure has
+    /// neither, which is why the batch carries it in its own span (below) and why the backend records it as a
+    /// memory barrier rather than an image/buffer barrier.
+    struct acceleration_structure_barrier {
+        acceleration_structure* resource = nullptr;
+        acceleration_structure_use from = acceleration_structure_use::undefined;
+        acceleration_structure_use to = acceleration_structure_use::undefined;
+    };
+
+    /// A batch of transitions recorded together - what `vkCmdPipelineBarrier2` receives as the arrays.
     ///
     /// GROWS BY `struct_size` (plan §6): it is its FIRST member, and the backend reads a field only when
     /// the caller's declared size covers it (the `covered_by` rule `sanitize_sampler_desc` already uses),
-    /// so a later addition is additive rather than an abi break. The two spans are BORROWED for the call
+    /// so a later addition is additive rather than an abi break. The spans are BORROWED for the call
     /// only, the same rule every other array in this contract follows.
     struct barrier_group {
         std::uint32_t struct_size = sizeof(barrier_group);
         std::span<image_barrier const> images = {};
         std::span<buffer_barrier const> buffers = {};
-        /// WHICH STAGE the images' shader side is (see `stage_hint`); `none` = the recipes' own stages.
+        /// WHICH STAGE the images' shader side is (see `stage_hint`); `none` = the recipes' own stages. IT
+        /// APPLIES TO THE ACCELERATION-STRUCTURE BARRIERS' SHADER SIDE TOO (below), which is how an RT-pipeline
+        /// traversal and a ray query in a compute shader are told apart.
         /// APPENDED, so a caller that declares the older prefix keeps `none` and the shipped behaviour.
         stage_hint stage = stage_hint::none;
         /// THE GLOBAL MEMORY BARRIER of this batch, recorded WITH the resource barriers above and in the same
-        /// `vkCmdPipelineBarrier2` (the call takes the three arrays at once). `has_memory` is the "present"
-        /// flag, because an all-`undefined` pair is a legal refusal rather than "no barrier": a batch with
-        /// neither images, buffers nor memory is a no-op the backend answers `ok` for.
+        /// `vkCmdPipelineBarrier2` (the call takes the arrays at once). `has_memory` is the "present" flag,
+        /// because an all-`undefined` pair is a legal refusal rather than "no barrier": a batch with neither
+        /// images, buffers nor memory is a no-op the backend answers `ok` for.
         bool has_memory = false;
         memory_barrier memory = {};
+        /// THE ACCELERATION-STRUCTURE BARRIERS OF THE SAME BATCH (RT stage 1), appended AFTER `memory` so an
+        /// older caller's bytes decode to an empty span. The backend folds them into the same
+        /// `vkCmdPipelineBarrier2` as a memory barrier: a structure has no layout, and the extension synchronizes
+        /// it through ACCELERATION_STRUCTURE_READ/WRITE accesses.
+        std::span<acceleration_structure_barrier const> acceleration_structures = {};
     };
 
     /// What a rendering scope does with an attachment it does not need to keep.

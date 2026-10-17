@@ -931,6 +931,29 @@ namespace deren::engine {
                 this->write_rt_structure_binding(tlas, structures_frame_slot);
                 this->rt_binding_written[structures_frame_slot] = tlas;
             }
+            // THE BUILD -> TRAVERSAL EDGE (RT stage 1): a structure the BUILD wrote must be visible to the shaders
+            // that traverse it. Everything the structures' own recorders emit is a BUILD -> BUILD ordering (see
+            // ray_tracing.cpp's `bake_order` / `build_order`); neither edge orders the build against the RT shadow
+            // pass's traceRays launch or the MegaLights trace's ray query, and both read THIS frame's top-level
+            // structure. The hint is left `none` on purpose - the conservative shader mask covers both readers, and
+            // a batch that names no reader costs one no-op memory dependency.
+            deren::promise::rhi::acceleration_structure_barrier const traversable{
+                .resource = tlas,
+                .from = deren::promise::rhi::acceleration_structure_use::build_write,
+                .to = deren::promise::rhi::acceleration_structure_use::shader_read,
+            };
+            deren::promise::rhi::barrier_group const traversable_group{
+                .struct_size = sizeof(deren::promise::rhi::barrier_group),
+                .images = {},
+                .buffers = {},
+                .stage = deren::promise::rhi::stage_hint::none,
+                .has_memory = false,
+                .memory = {},
+                .acceleration_structures = std::span<deren::promise::rhi::acceleration_structure_barrier const>{&traversable, 1},
+            };
+            if (this->frame_command_buffer()->barrier(traversable_group) != deren::promise::rhi::error::ok) {
+                deren::utility::log("ray-traced shadows: the build-to-traversal barrier was refused; shaders may read an unpublished structure");
+            }
         }
         // GPU timing: the structures' builds end here. Written UNCONDITIONALLY, like every other mark -
         // a frame that skips a pass still writes its mark next to the previous one (0 ms interval), and

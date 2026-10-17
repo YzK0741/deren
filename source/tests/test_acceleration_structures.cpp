@@ -748,6 +748,38 @@ int main(int const argc, char** const argv) {
     CHECK(commands->refit_acceleration_structure(*blas) == rhi::error::ok);                 // created with allow_update
     CHECK(commands->refit_acceleration_structure(*static_blas) == rhi::error::unsupported); // ... and this one was not
 
+    // ---- 5a. THE ACCELERATION-STRUCTURE BARRIER EDGE (RT stage 1): the OBJECT-level pair the RT consumers need -
+    //          the build that wrote a structure against the shaders that traverse it - plus the two refusals that
+    //          keep the vocabulary honest (no resource / a use nobody defined). It is recorded through the same
+    //          batch the images and buffers use, which is the point: one dependency info carries all three.
+    rhi::acceleration_structure_barrier const traversable{
+        .resource = tlas,
+        .from = rhi::acceleration_structure_use::build_write,
+        .to = rhi::acceleration_structure_use::shader_read,
+    };
+    CHECK(commands->barrier(rhi::barrier_group{
+              .struct_size = sizeof(rhi::barrier_group),
+              .acceleration_structures = std::span<rhi::acceleration_structure_barrier const>(&traversable, 1u),
+          }) == rhi::error::ok);
+    rhi::acceleration_structure_barrier const without_resource{
+        .resource = nullptr,
+        .from = rhi::acceleration_structure_use::build_write,
+        .to = rhi::acceleration_structure_use::shader_read,
+    };
+    CHECK(commands->barrier(rhi::barrier_group{
+              .struct_size = sizeof(rhi::barrier_group),
+              .acceleration_structures = std::span<rhi::acceleration_structure_barrier const>(&without_resource, 1u),
+          }) == rhi::error::invalid_argument);
+    rhi::acceleration_structure_barrier const undefined_use{
+        .resource = tlas,
+        .from = rhi::acceleration_structure_use::undefined,
+        .to = rhi::acceleration_structure_use::shader_read,
+    };
+    CHECK(commands->barrier(rhi::barrier_group{
+              .struct_size = sizeof(rhi::barrier_group),
+              .acceleration_structures = std::span<rhi::acceleration_structure_barrier const>(&undefined_use, 1u),
+          }) == rhi::error::unsupported);
+
     // ---- 5b. THE ENGINE MODULE ON TOP OF IT (plan S1's P1b-2): `bottom_level_structures` is a thin front end
     //          over the same interface now, and this is what says so on a real device - it adds the same
     //          geometry, records its build and a refit, and hands back the object the runtime binds.

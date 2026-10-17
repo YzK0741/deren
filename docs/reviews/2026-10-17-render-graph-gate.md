@@ -799,3 +799,40 @@ current code, so the next session starts from the real seam instead of rediscove
 The alternative decision, if the graph is not the place for those two features: keep them as the documented
 legacy-tail exception and delete only the segments nothing else can reach. That choice belongs to the owner of
 the roadmap, not to this record - both are honest endings, and the difference is the four steps above.
+
+## RT stage 1: the acceleration-structure barrier semantics are in
+
+The decision for B (RT as a feature the frame graph models, not an experimental tail) starts with the rhi
+vocabulary, and that first slice is now shipped:
+
+- **The contract** (`source/promise/rhi/rhi.api_core.cppm`) grows an object-level use vocabulary -
+  `acceleration_structure_use { undefined, build_write, shader_read, build_read }` - a
+  `acceleration_structure_barrier { resource, from, to }` (no layout and no subresource: a structure has
+  neither), and `barrier_group::acceleration_structures`, appended AFTER `memory` so an older caller's bytes
+  decode to an empty span. The batch's `stage_hint` now applies to those barriers' shader side as well, which
+  is how an RT-pipeline traversal (`ray_tracing`) and a ray query in a compute shader (`compute`) are told
+  apart.
+- **The backend** (`source/backends/vulkan/core/core.api_core.cpp`) maps the uses to the extension's
+  stage/access pairs (build stage + ACCELERATION_STRUCTURE_WRITE/READ; shader stages + READ) and pins the
+  table with compile-time witnesses, then folds every acceleration-structure barrier of a batch into the SAME
+  `VkMemoryBarrier2` as the batch's global memory barrier - structures have no layout, so an object-level
+  transition IS a memory dependency, and one memory barrier carries every mask (ORed). Null/foreign resources
+  are `invalid_argument`; an undefined use is `unsupported` - the same refuse-by-name rule the buffer roles
+  follow.
+- **The first measured site** is a specification-required edge that did not exist: the per-frame top-level
+  build happens inside the frame's command buffer, and neither edge the structure set records
+  (`bake_order`, `build_order`) orders it against the shaders that traverse it - the RT shadow pass's
+  traceRays launch and the MegaLights trace's ray query. `runtime.frames.cppm` now emits the
+  `build_write -> shader_read` barrier right after the top-level update, with NO stage hint on purpose: the
+  conservative shader mask covers both measured readers. (Honest note: this site is spec-derived, not
+  symptom-derived - the RT smoke was green before it too. It is recorded as such, and the barrier is what the
+  graph side will lower to.)
+- **Evidence**: the device probe (`test_acceleration_structures --with-device`, the RT acceptance's first
+  step) now records the legal barrier and both refusals: 504 checks, 0 failed, validation ON. CTest 44/44.
+  The gate round is byte-identical for all fifteen scenarios (matched 15, mismatched 0) - RT is off there, so
+  the barrier is not on that path. `check_rt.ps1` is PASS: GPU hit/miss/mask and both TLAS slots verified,
+  forty frames, clean validation, screenshot produced.
+
+Next stages, in this order: the graph's own vocabulary (`pipeline_stage::ray_tracing` + an
+acceleration-structure resource kind and usage, lowering to this barrier), then the RT shadow and MegaLights
+lanes, then the legacy tail's per-segment deletion.
