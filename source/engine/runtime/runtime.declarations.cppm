@@ -1324,6 +1324,9 @@ namespace deren::engine {
         deren::utility::vessel::array<deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images>, deren::engine::render_layout::gbuffer_target_count> gbuffer_image_views = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> velocity_images = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> velocity_image_views = {};
+        /// the visibility buffer (V0.1b): per swapchain image, the id the raster wrote and the resolve samples
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> visibility_images = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> visibility_image_views = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> scene_color_images = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> scene_color_image_views = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> gbuffer_depth_images = {};

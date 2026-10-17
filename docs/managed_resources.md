@@ -113,7 +113,10 @@ Arbitrary-time setters modify CPU state only; they cannot overwrite a constant b
 ## Output target migration
 
 `output_targets_pass` declares the base output image families at `resource_context::render_extent`: HDR,
-G-buffer albedo/normal/material, velocity, physical scene input for TAA, and depth. These requests have
+G-buffer albedo/normal/material, velocity, physical scene input for TAA, and depth - plus the renderer's
+later additions (TAA history, LDR, the four bloom levels, the ray-traced visibility and, from the
+visibility-buffer work, the R32_UINT visibility buffer as family 14: sampled + color attachment, one per
+swapchain image). These requests have
 `output_size` lifetime and `per_swapchain_image` scope, with one instance per host-supplied output count.
 The existing runtime still supplies the RHI output-image bound. Formats and attachment/sampled/copy
 usage match the former allocation path; HDR retains transfer-source usage for history and readback.

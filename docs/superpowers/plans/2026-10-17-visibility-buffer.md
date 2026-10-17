@@ -121,7 +121,7 @@ model[16]                                           // row-major，与 push bloc
 
 - [x] V0.1a 格式：contract 追加 `image_format::r32_uint`（appended 0x80000001u，无 ABI bump）+ backend `VK_FORMAT_R32_UINT` 映射 + `bytes_per_pixel`；`test_image_formats` pin 住枚举号与字节数。提交 `2642ec50`。
 - [x] V0.2 ID 与 item 记录：`deren.engine.visibility`（`pack_id`/`id` 的 valid+10+14+7 布局、`draw_item` 112 字节记录及其字段偏移）+ `test_visibility_buffer` 单测（往返、越界拒绝、布局 pin）。
-- [ ] V0.1b 资源：`render_layout` 的 vis buffer family + heap 槽 + 镜像 shader 常量；格式属性/创建失败的回退检查（`R32_UINT` 作为 color attachment 的设备支持不在 contract 里，V0.3 的探针负责验证并给出干净回退）。
+- [x] V0.1b 资源：`render_resource` 新 family `visibility_buffer`（schema 74 项）+ `output_targets_pass` 第 15 个 family（R32_UINT，sampled + color attachment，per swapchain image）+ `render_layout` 的 `visibility_format` 与 heap 槽 719..726（MegaLights 移除后留下的空档）+ shader 镜像 + runtime 的 borrowed handles/adopt/heap rewrite。设备格式支持与创建失败回退留 V0.3 探针。
 - [ ] V0.2b host 写入：在现有 host 剔除/indirect 构建的同一遍里填 item 表（溢出 → 整帧回退），按帧 slot 轮转；构建图外的 item buffer 资源。
 - [ ] V0.3 光栅 lane：新 mesh/fragment shader + pipeline 注册 + raster adapter + 图内记录；先不 resolve，用 debug 读回/可视化验证 ID 与深度（GPU readback probe 或 gate debug view）。
 - [ ] V0.4 resolve lane：compute shader + 共享 gbuffer body 抽取 + 写回 5 个目标；CPU 参考单测（重心/插值/clear 语义）。

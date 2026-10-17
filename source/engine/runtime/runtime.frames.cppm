@@ -2836,6 +2836,7 @@ namespace deren::engine {
             write_sampled_target(deren::engine::render_layout::heap_slots::gbuffer_material + image_slot, target_image(this->gbuffer_images[2][heap_image]));
             write_sampled_target(deren::engine::render_layout::heap_slots::gbuffer_depth + image_slot, target_image(this->gbuffer_depth_images[heap_image]));
             write_sampled_target(deren::engine::render_layout::heap_slots::gbuffer_velocity + image_slot, target_image(this->velocity_images[heap_image]));
+            write_sampled_target(deren::engine::render_layout::heap_slots::visibility + image_slot, target_image(this->visibility_images[heap_image]));
             write_sampled_target(deren::engine::render_layout::heap_slots::taa_current + image_slot, target_image(this->scene_color_images[heap_image]));
             write_sampled_target(deren::engine::render_layout::heap_slots::post_color + image_slot, target_image(this->hdr_images[heap_image]));
             write_sampled_target(deren::engine::render_layout::heap_slots::display_color + image_slot, target_image(this->ldr_images[heap_image]));

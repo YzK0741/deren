@@ -134,6 +134,9 @@ static const uint heap_slots_rt_visibility = heap_slot_base + 543u;
 // the SAME image as a STORAGE descriptor (the visibility pass writes it, the lighting stage samples it, and no
 // single heap descriptor is both): see core.cppm's heap_slots
 static const uint heap_slots_rt_visibility_storage = heap_slot_base + 711u;
+// the visibility buffer (V0.1b): one R32_UINT id per render pixel, per swapchain image. 719..726 is the range the
+// removed MegaLights storage twins left free, which is what keeps every existing per-image array's number.
+static const uint heap_slots_visibility = heap_slot_base + 719u;
 static const uint heap_slots_gbuffer_albedo = heap_slot_base + 551u;
 static const uint heap_slots_gbuffer_normal = heap_slot_base + 559u;
 static const uint heap_slots_gbuffer_material = heap_slot_base + 567u;

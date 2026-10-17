@@ -73,6 +73,17 @@ export namespace deren::engine::render_layout {
     inline constexpr deren::promise::rhi::image_format gbuffer_velocity_format = deren::promise::rhi::image_format::r16g16_sfloat;
 
     /**
+     * @brief format of the VISIBILITY BUFFER: one 32-bit unsigned word per pixel, the packed id of the
+     *        triangle that won the depth test (see deren.engine.visibility for the bit layout)
+     *
+     * @note an UNSIGNED format rather than a float one on purpose: the payload is an integer id, and a
+     *       float target would make the rasterization path re-interpret bits for no benefit. It is a color
+     *       ATTACHMENT (the raster writes it) and a SAMPLED image (the resolve pass reads it), which is the
+     *       reason the family's flags are `sampled | color_attachment` rather than one of them.
+     */
+    inline constexpr deren::promise::rhi::image_format visibility_format = deren::promise::rhi::image_format::r32_uint;
+
+    /**
      * @brief how many levels the bloom chain has (③-D/E item A1.5): each level is
      *        `max(1, render >> (level + 1))`, rendered into and sampled by the next one, and the grid packs
      *        them `heap_image_capacity` apart.
@@ -312,6 +323,16 @@ export namespace deren::engine::render_layout {
         static constexpr uint32_t bloom_l2 = heap_slot_base + 663u;
         static constexpr uint32_t bloom_l3 = heap_slot_base + 671u;
         static constexpr uint32_t display_color = heap_slot_base + 695u;
+        /**
+         * @brief the visibility buffer, per swapchain image: the resolve pass samples the id the raster wrote
+         *
+         * @note THE SLOT RANGE IS 719..726, and it was chosen because it is FREE: it is the range the removed
+         *       MegaLights storage twins left behind (they lived at 719 and 735), which keeps every existing
+         *       per-image array's number unchanged. Adding this family at the end of the used region follows the
+         *       same rule the TLAS, the storage twins and `skin_matrices_previous` state: growing an array in
+         *       place would renumber every array after it.
+         */
+        static constexpr uint32_t visibility = heap_slot_base + 719u;
     };
 
     // ================================================================================================

@@ -186,7 +186,7 @@ The half that needs no push-block change, and it covers the assets that skin rat
   `write_heap_scene_buffer` call below is, and would not be if the family were addressed any other way.
   One recorded follow-up: the "703 slots are in use" comment in `source/shaders/common/heap_slots.slang:89` and
   `core.declarations.cppm:514` is stale - it stops at `display_color` + 8 and ignores `tlas` (703,704),
-  `rt_visibility_storage` (711..718), `ml_trace_storage` (719..726) and `ml_resolved_storage` (735..742).
+    `rt_visibility_storage` (711..718) and the visibility buffer (719..726, which replaced the removed MegaLights
 * **the buffers**: `skin_buffers_previous` + its mapped pointer, created beside
   `runtime.constructor.cppm:340-351` and published through `write_heap_scene_buffer` beside `:622`; plus a
   host `std::vector<glm::mat4> skin_previous` holding one frame of history, exactly as `motion_previous`
