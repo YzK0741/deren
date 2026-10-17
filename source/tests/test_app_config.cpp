@@ -28,9 +28,6 @@ namespace {
         CHECK(settings.model == "Models/tri.gltf");
         CHECK(settings.render.vsync);
         check_presentation_settings(settings, true);
-        CHECK(settings.render.bloom_render_graph);
-        CHECK(settings.render.post_render_graph);
-        CHECK(settings.render.main_render_graph);
         CHECK(!settings.render.shadow);
         CHECK(settings.render.shadow_cascades == 2);
         CHECK(settings.render.shadow_cascade_blend > 0.24f && settings.render.shadow_cascade_blend < 0.26f);
@@ -85,9 +82,6 @@ namespace {
     void test_load_settings_missing_file_keeps_defaults() {
         deren::app_config::app_settings const settings = deren::app_config::load_settings(VR_TEST_SOURCE_DIR "/source/tests/fixtures/does_not_exist.toml");
         check_presentation_settings(settings, false);
-        CHECK(!settings.render.bloom_render_graph);
-        CHECK(!settings.render.post_render_graph);
-        CHECK(settings.render.main_render_graph); // the composed frame is the DEFAULT now: the legacy tail is the fallback
         CHECK(settings.model.empty());
         CHECK(settings.render.shadow);
         CHECK(!settings.render.fxaa);

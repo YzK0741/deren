@@ -384,17 +384,17 @@ rules. Initial states remain the caller's handoff declaration, and exports do no
 request epilogue transitions. The API consumes compiler-produced graphs; editing
 compiled records does not recompile or repair their synchronization.
 
-This is an opt-in entry point. The post-processing chain has a graph path;
-scene rendering still uses the established path.
+The composed graph is not an opt-in entry point any more: it is the only recording path. The
+startup switches that selected it and the legacy scene tail it replaced were retired on 2026-10-17
+(see the gate review's cleanup section); every frame a build can render is graph-recorded.
 
 
 
-## Opt-in Bloom boundary
+## Bloom boundary
 
-Set `[render] bloom_render_graph = true` before startup, or call
-`runtime::set_bloom_render_graph(true)` before the first pace attempt. The default
-remains the existing path; changing the graph selection during a running session
-returns not_ready. The ordinary Bloom intensity/debug-view gates still apply.
+The Bloom chain is a lane group of the composed graph, recorded every frame; the old
+`[render] bloom_render_graph` selection and its legacy chain are gone (2026-10-17 cleanup). The
+ordinary Bloom intensity/debug-view gates still apply.
 
 `deren.engine.render_graph.bloom` compiles four graphics passes: HDR prefilter,
 then three downsamples. Each reads the previous image in the fragment shader and
@@ -423,16 +423,13 @@ not undo an already successful queue submission.
 
 When Bloom is disabled, a scoped boundary establishes sampled layouts for the
 statically used descriptors. It declares no graph read of undefined texels.
-Real-device captures and synchronization validation are required before changing
-the default or removing the legacy path.
 
-## Opt-in post-processing chain
+## Post-processing chain
 
-Set `[render] post_render_graph = true`, or call
-`runtime::set_post_render_graph(true)` before the first pace attempt. This selects
-the complete post chain instead of the narrower Bloom-only option. Both default
-to false. The graph contains four Bloom passes, composite and the selected FXAA
-or upscale resolve. Composite declares HDR, all four Bloom levels and the optional
+The complete post chain is recorded by the composed graph every frame. The old
+`[render] post_render_graph` selection (and the narrower Bloom-only option it overrode) is gone with
+the legacy paths (2026-10-17 cleanup). The graph contains four Bloom passes, composite and the
+selected FXAA or upscale resolve. Composite declares HDR, all four Bloom levels and the optional
 color LUT. Disabled Bloom clears its four attachments: the current shader samples
 them even at zero intensity, so their contents must be defined.
 
@@ -508,18 +505,16 @@ and [implementation acceptance](reviews/2026-10-16-render-graph-composition.md).
 
 ## First main-chain boundary
 
-`[render] main_render_graph` (or `set_main_render_graph(...)` before the first pace) enables scene
-geometry, GBuffer handoff, deferred lighting, the whole scene tail (shadow composition, cluster sort, the
-ray-traced shadow chain, TAA resolve + history copy, GBuffer debug view, gaussian splats, transparency, character
-forward and the two screen rims) and post in one graph, and also enables the post graph. **It DEFAULTS TO
-TRUE**, and after the MegaLights removal it is the only path a frame can take: the stochastic punctual lighting
-chain was that feature's, and it was the ONE feature the graph could not record (its trace reads the TLAS, which
-the graph has no resource kind for yet). Every gate scenario records through the graph and is byte-identical to
-the references, and a ray-traced frame has been A/B-verified byte-identical between the two paths (see the gate
-review's stages 2F-2O and the RT slices). The legacy scene tail is therefore UNREACHABLE and is being deleted; the
-startup switch below stays only until that deletion lands. Startup selection is locked like the existing graph
-options. Disabling post while main is selected is an invalid argument; disable main first if changing startup
-configuration.
+The composed graph records the WHOLE frame: scene geometry, GBuffer handoff, deferred lighting, the
+scene tail (shadow composition, cluster sort, the ray-traced shadow chain, TAA resolve + history copy,
+GBuffer debug view, gaussian splats, transparency, character forward and the two screen rims) and post - in one
+graph per frame. `[render] main_render_graph`, `set_main_render_graph(...)` and the whole startup-selection
+protocol were RETIRED on 2026-10-17: with MegaLights removed the graph could record every frame, so the legacy
+scene tail, the legacy post/bloom chains and the switches that could select them were deleted. Every gate
+scenario records through the graph and is byte-identical to the frozen references, and a ray-traced frame has
+been A/B-verified byte-identical between the two paths (see the gate review's stages 2F-2O, the RT slices and the
+cleanup section at its end). A frame that cannot be recorded (a missing pipeline or overlay pass) now FAILS with
+one log line instead of falling back: there is no second path to fall back to.
 
 `deren.engine.render_graph.lighting::append` accepts the three surface refs, depth
 and existing scene-color ref. It declares fragment sampling and a preserve-write

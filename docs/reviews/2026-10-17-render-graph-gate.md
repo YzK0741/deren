@@ -993,3 +993,38 @@ flags are the next removal; until that commit lands the switch is the only way t
 has already emptied of purpose. The Gaussian HDR capture instrument still lives in the legacy tail and must move
 to the gaussian GRAPH lane in the same pass (see the cleanup section above - it is the one caller the tail
 deletion cannot simply drop).
+
+## The legacy scene tail and the startup switches are gone (the graph is the only path)
+
+With MegaLights removed there was nothing left that could select the legacy path, so the tail went and the
+switches followed it (commit `bb1-legacy-tail`). This is the payload of the whole adoption: the frame recorder is
+one function again instead of two parallel ones.
+
+WHAT WAS DELETED:
+- `runtime.frames.cppm`: `record_scene_tail` (193 lines), `record_scene`, `record_scene_attachments`,
+  `record_transparent_pass`, `clear_scene_color_for_missing_gbuffer`, `barrier_image_to_sampling`,
+  `record_bloom_graph`; the legacy cluster-sort and shadow-pass branches inside `record_main_drawcalls` (the graph
+  owns those lanes); the legacy post half of `record_post_process` (the bloom stage runner, composite, FXAA and
+  upscale stage runners) and the fallback-reason log. `record_main_drawcalls` now only computes the frame's
+  eligibility flags and builds the acceleration structures; `record_post_process` is guard, pass-readiness check,
+  `record_post_graph()` - one recording path.
+- The startup selection protocol: `set_main_render_graph` / `set_post_render_graph` / `set_bloom_render_graph`,
+  their lock state and the `bloom_graph_locked` first-pace lock, the `[render] main_render_graph` /
+  `post_render_graph` / `bloom_render_graph` config keys (example + test fixture too) and the three calls in
+  `main.cpp`; the gate's `-Legacy` switch (the tail it selected does not exist).
+- The failure semantics changed with them: an ineligible frame (missing post pipeline, or an active overlay
+  feature without its pass) records NOTHING and FAILS with one log line instead of silently taking the tail.
+  That is what `record_post_process`'s guard says, and `test_render_graph_post`'s modes were updated to match
+  (its post-only-graph section, which could only exist with the switch, is gone; the always-on modes remain).
+
+WHAT STAYED (and why): the pass runner (`prepare_stage`, `record_stage`, `frame_services`/`ensure_*`) is still
+used by tests and by the graph builder's per-lane `prepare_stage`; the passes' per-pass legacy `record()`
+overrides remain for now and are the next, separate removal (they are dead once the runner is replaced by the
+graph's `record_content` calls, but `test_pass` exercises the runner and must be rewritten with it).
+
+VERIFICATION: CTest 44/44 (the source-pattern test that pinned the legacy stage's spelling now pins the graph
+lane's); the 15-scenario gate matches every frozen reference byte for byte with a clean validation log - which is
+also the proof that the ONE recording path produces the frames the TWO paths used to; `check_rt.ps1` passes. The
+RT A/B capture pair is retired with the second path: there is no "legacy" configuration to compare against, so the
+byte-identical gate against the frozen references (which were captured from that tail) plus the RT smoke test are
+the evidence now.

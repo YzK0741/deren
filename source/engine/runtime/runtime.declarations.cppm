@@ -947,7 +947,6 @@ namespace deren::engine {
         ///        the frame the post chain samples is defined instead of half-written
         /// @note this is the renderer's and not the pass's because its cause - no lighting pipeline this frame -
         ///       is a startup failure of a pipeline this class created; the pass never sees it
-        void clear_scene_color_for_missing_gbuffer();
 
         // ---- temporal anti-aliasing (M3, deferred path only) ----
         // TAA is the engine's anti-aliasing: the projection is jittered per frame (a Halton
@@ -1498,9 +1497,8 @@ namespace deren::engine {
         // the fraction of a cascade's range over which the shader blends into the next one.
         render_resource::instances::resource_snapshot shadow_resource_view;
         bool cluster_retention_open = false;
-        bool bloom_graph_enabled = false, bloom_graph_locked = false;
-        bool post_graph_enabled = false, post_graph_drew_frame = false;
-        bool main_graph_enabled = false, main_graph_frame = false;
+        bool post_graph_drew_frame = false;
+        bool main_graph_frame = false;
         // Whether THIS frame's cluster sort is recorded by the composed graph (frozen with main_graph_frame):
         // true only when the frame is graph-eligible AND its two managed cluster buffers resolved.
         bool graph_cluster_frame = false;
@@ -1528,7 +1526,7 @@ namespace deren::engine {
         // once per generation (the same boundary rule the TAA history's first use follows) instead of once per
         // frame, which is what the migration rule's "no second barrier owner" is about.
         bool inactive_descriptor_images_seeded = false;
-        bool main_graph_reported = false, main_graph_fallback_reported = false;
+        bool main_graph_reported = false, main_graph_not_ready_reported = false;
         resource_lease<rhi::image> post_graph_output;
         bool bloom_graph_pending = false;
         rhi::error bloom_graph_error = rhi::error::ok;
@@ -2907,7 +2905,6 @@ namespace deren::engine {
          * record_scene_tail() turns the G-buffer into the frame afterwards through the deferred
          * lighting PASS (deren.engine.pass.deferred, resolved by resolve_deferred_pass()).
          */
-        void record_scene();
 
         /**
          * @brief whether THIS frame's feature set lets the composed graph record the scene path
@@ -2949,7 +2946,6 @@ namespace deren::engine {
          *       surface behind them reported - good enough while the camera is the only thing moving,
          *       and the thing to revisit when object motion vectors land.
          */
-        void record_transparent_pass();
 
         /**
          * @ingroup runtime
@@ -2961,7 +2957,6 @@ namespace deren::engine {
          *       target and the scene color the emissive goes into, plus the pass's own 1x depth image;
          *       the main HDR target is not touched here
          */
-        void record_scene_attachments();
 
         /**
          * @ingroup runtime
@@ -3016,7 +3011,6 @@ namespace deren::engine {
          *        them. It used to be all of that in one 209-line body, whose real problem was not its length but
          *        that a change to any one of them had to be located inside the other two. */
         [[nodiscard]] bool record_post_process();
-        [[nodiscard]] rhi::error record_bloom_graph(bool active);
         [[nodiscard]] rhi::error record_post_graph();
         [[nodiscard]] rhi::error finish_post_graph();
         /**
@@ -3027,7 +3021,6 @@ namespace deren::engine {
          *       label-to-interval mapping is positional, so a skipped stage writes its mark
          *       immediately after the previous one and its interval reads 0
          */
-        void record_scene_tail();
         /**
          * @brief whether the FXAA pass is this frame's LAST writer (the frame's own question: the composite's
          *        target and pipeline variant, the overlay's owner, set_fxaa() and the feature registry all ask it)
@@ -3060,7 +3053,6 @@ namespace deren::engine {
          *  @note the only caller left is the HDR target's transition before the post chain - the one transition the
          *        chain's passes deliberately do NOT own (see render_resource::post_composite_io). The
          *        colour-attachment twin this pair used to have is gone with the recorders that used it. */
-        void barrier_image_to_sampling();
         /**
          * @brief record one segment of the main pass (see the doc block above record_opaque_scene)
          * @param gbuffer_pass true = the leaves bind the G-buffer pipeline (the opaque instance of
@@ -3575,51 +3567,19 @@ namespace deren::engine {
          * @note same timing rule as set_exposure: CPU-side, copied into the post push constants
          */
         void set_bloom(float intensity, float threshold) noexcept;
-        /// Select before the first pace attempt. Legacy remains the default until GPU acceptance.
-        [[nodiscard]] rhi::error set_bloom_render_graph(bool enabled) noexcept {
-            if (bloom_graph_locked)
-                return rhi::error::not_ready;
-            if (enabled && !rhi::has_ability(rhi_face().abilities(), rhi::extension_kind::scoped_synchronization))
-                return rhi::error::unsupported;
-            bloom_graph_enabled = enabled;
-            return rhi::error::ok;
-        }
-        [[nodiscard]] rhi::error set_post_render_graph(bool enabled) noexcept {
-            if (bloom_graph_locked)
-                return rhi::error::not_ready;
-            if (!enabled && main_graph_enabled)
-                return rhi::error::invalid_argument;
-            if (enabled && (!rhi::has_ability(rhi_face().abilities(), rhi::extension_kind::scoped_synchronization) ||
-                            !rhi::has_ability(rhi_face().abilities(), rhi::extension_kind::frame_resources)))
-                return rhi::error::unsupported;
-            post_graph_enabled = enabled;
-            return rhi::error::ok;
-        }
-        [[nodiscard]] rhi::error set_main_render_graph(bool enabled) noexcept {
-            if (bloom_graph_locked)
-                return rhi::error::not_ready;
-            if (enabled) {
-                auto error = set_post_render_graph(true);
-                if (error != rhi::error::ok)
-                    return error;
-            }
-            main_graph_enabled = enabled;
-            return rhi::error::ok;
-        }
-
         /**
          * @ingroup runtime
          * @brief enable/disable FXAA and set its two knobs
-         * @param enabled when true the composite renders into a display-referred (gamma-encoded)
-         *        LDR image and an extra fullscreen pass anti-aliases it into the swapchain; when
-         *        false the composite writes the swapchain directly (no extra pass, no LDR read)
-         * @param subpixel sub-pixel term strength, 0..1 (0 = pure directional blend; higher also
-         *        blends away the single-pixel aliasing FXAA leaves on near-axis-aligned edges)
-         * @param edge_threshold relative luma contrast below which a pixel counts as flat and is
-         *        left untouched (FXAA default 0.166; lower = more edges treated, softer image)
-         * @note requires the FXAA PASS's pipeline (deren.engine.pass.fxaa, created by create_passes()); without it the
-         *       flag has no effect. CPU-side, copied
-         *       into the post push constants every frame (same timing rule as set_exposure)
+         * @param enabled when true the composite renders into a display-referred (gamma-encoded) LDR image and an
+         *        extra fullscreen pass anti-aliases it into the swapchain; when false the composite writes the
+         *        swapchain directly (no extra pass, no LDR read)
+         * @param subpixel sub-pixel term strength, 0..1 (0 = pure directional blend; higher also blends away the
+         *        single-pixel aliasing FXAA leaves on near-axis-aligned edges)
+         * @param edge_threshold relative luma contrast below which a pixel counts as flat and is left untouched
+         *        (FXAA default 0.166; lower = more edges treated, softer image)
+         * @note requires the FXAA PASS's pipeline (deren.engine.pass.fxaa, created by create_passes()); without it
+         *       the flag has no effect. CPU-side, copied into the post push constants every frame (same timing
+         *       rule as set_exposure)
          */
         void set_fxaa(bool enabled, float subpixel = 0.75f, float edge_threshold = 0.166f) noexcept;
 

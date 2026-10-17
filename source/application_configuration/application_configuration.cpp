@@ -351,18 +351,6 @@ namespace deren::app_config {
                 if (auto value = node->value<bool>())
                     settings.render.async_present = *value;
             }
-            if (toml::node const* node = render->get("bloom_render_graph")) {
-                if (auto value = node->value<bool>())
-                    settings.render.bloom_render_graph = *value;
-            }
-            if (toml::node const* node = render->get("main_render_graph")) {
-                if (auto value = node->value<bool>())
-                    settings.render.main_render_graph = *value;
-            }
-            if (toml::node const* node = render->get("post_render_graph")) {
-                if (auto value = node->value<bool>())
-                    settings.render.post_render_graph = *value;
-            }
             if (toml::node const* node = render->get("offscreen")) {
                 if (auto value = node->value<bool>())
                     settings.render.offscreen = *value;

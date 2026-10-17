@@ -584,12 +584,6 @@ int main(int argc, char** argv) {
     // per-pass GPU timings (timestamp queries): on by default, reported in the log + overlay
     runtime.set_gpu_timings(settings.render.gpu_timings);
     runtime.set_async_present(settings.render.async_present);
-    if (auto error = runtime.set_bloom_render_graph(settings.render.bloom_render_graph); error != deren::promise::rhi::error::ok)
-        deren::utility::panic("Bloom render graph is not supported by the selected backend");
-    if (auto error = runtime.set_post_render_graph(settings.render.post_render_graph); error != deren::promise::rhi::error::ok)
-        deren::utility::panic("Post render graph is not supported by the selected backend");
-    if (auto error = runtime.set_main_render_graph(settings.render.main_render_graph); error != deren::promise::rhi::error::ok)
-        deren::utility::panic("Main render graph is not supported by the selected backend");
     // Shadow cascades: applied here (BEFORE the scene import) because the shadow map's layered image
     // is created when the first scene set binds it - see runtime::set_shadow_cascades.
     runtime.set_shadow_cascades(static_cast<uint32_t>(settings.render.shadow_cascades));

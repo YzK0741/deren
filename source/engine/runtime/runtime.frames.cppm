@@ -161,7 +161,6 @@ namespace deren::engine {
 
     frame_status runtime::pace_and_acquire() {
         this->cluster_retention_open = false;
-        this->bloom_graph_locked = true;
         this->bloom_graph_error = rhi::error::ok;
         this->bloom_graph_pending = false;
         this->bloom_graph_pending_generations.fill({});
@@ -862,6 +861,12 @@ namespace deren::engine {
         // pair the pass's legacy record issues itself. The pass records only when its feature is on and its pipeline
         // exists - the same answer the legacy stage is gated on.
         this->graph_rt_frame = this->main_graph_frame && this->active_features().rt_shadow && this->rt_shadow_pass[0] != nullptr;
+        // THE GRAPH IS THE ONLY RECORDER NOW (cleanup after the flip): an ineligible frame records NOTHING
+        // here - no legacy cluster sort, no legacy shadow pass, no legacy scene - and record_post_process
+        // reports the refusal once (see main_graph_candidate's readiness conditions).
+        if (!this->main_graph_frame) {
+            return;
+        }
 
         // ---- Clustered light culling (M5): one compute dispatch before anything renders. It sorts
         //      the punctual lights into the frame's cluster grid, and the shading stages (forward
@@ -872,15 +877,6 @@ namespace deren::engine {
         // declared there, the graph orders the sort against the lighting pass that reads the bins, and its
         // recorder uses the pass's barrier-free entry - so this legacy stage must not also record it. A frame
         // whose cluster buffers did not resolve keeps the pre-migration split (this stage records it).
-        if (!this->graph_cluster_frame) {
-            deren::engine::profiling::cpu_phase_timer const cluster_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::cluster};
-            // THE CLUSTER SORT records its own dispatch and its own two buffer barriers now
-            // (deren.engine.pass.cluster); what is this loop's is WHERE it runs - before the passes that read the
-            // bins - and the frame data it is handed, which the chain's owner supplies (see prepare_stage).
-            pass::stage const cluster_stage = {.name = "cluster", .passes = this->cluster_pass, .marks = false};
-            this->prepare_stage(cluster_stage);
-            [[maybe_unused]] pass::run_report const cluster_report = pass::record_stage(cluster_stage, this->make_pass_host());
-        }
 
         // ---- Ray-traced shadows: build the acceleration structures once, before the passes that will
         //      trace against them. It happens HERE (inside the frame's command buffer, before any
@@ -1003,26 +999,6 @@ namespace deren::engine {
                 // per-layer transitions AND the hand-back this block would issue - and one submission never runs
                 // both barrier paths. The bookkeeping below still runs: it is what makes the NEXT frame's reuse
                 // test true, graph-recorded or not.
-                if (!this->graph_shadow_frame) {
-                    pass::stage const shadow_stage = {.name = "shadow", .passes = this->shadow_pass, .marks = false};
-                    {
-                        this->prepare_stage(shadow_stage);
-                        [[maybe_unused]] pass::run_report const shadow_report = pass::record_stage(shadow_stage, this->make_pass_host());
-                    }
-                    // Hand the cascades back to the shading stages as a sampled array texture: the layers just rendered go
-                    // depth-attachment -> shader-read (the src masks publish the attachment write), and the SPARE layers a
-                    // shrank cascade count left behind are covered by the same range - the descriptor's array view spans
-                    // every allocated layer, so "one barrier, whole array" is the invariant. That count is the IMAGE's,
-                    // which is why this is the host's and not the pass's.
-                    if (rhi::command_buffer* const frame_commands = this->frame_command_buffer().get(); frame_commands != nullptr) {
-                        // depth_attachment -> depth_read, over every layer the image owns (the range the raw
-                        // barrier retargeted); what stays here is the host's count, not a mask pair.
-                        (void)frame_commands->barrier(rhi::image_barrier{.resource = this->shadow_images[static_cast<std::size_t>(frame_slot)].get(),
-                                                                         .from = rhi::image_use::depth_attachment,
-                                                                         .to = rhi::image_use::depth_read,
-                                                                         .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = this->shadow_allocated_layers}});
-                    }
-                }
                 this->shadow_rendered_version[frame_slot] = this->shadow_content_version;
                 this->shadow_rendered_models[frame_slot] = geometry_signature;
             }
@@ -1061,7 +1037,6 @@ namespace deren::engine {
 
         // The scene pass: the opaque leaves write the G-buffer, and everything else follows from it
         // in record_scene_tail (lighting, the transparent pass over the shaded image, TAA).
-        this->record_scene();
     }
 
     // =============================================================================================
@@ -1150,7 +1125,7 @@ namespace deren::engine {
         // what orders it. NOTHING is excluded by FEATURE any more: the stochastic punctual lighting chain was
         // removed, so every feature this renderer still has is recorded by the graph.
         auto const features = this->active_features();
-        if (!this->main_graph_enabled || !this->gbuffer_pass_active())
+        if (!this->gbuffer_pass_active())
             return false;
         // AN ACTIVE RAY-TRACED SHADOW PASS WITH NO PIPELINE IS NOT A GRAPH CANDIDATE (RT stage 2b): the lane records
         // it, so a frame that cannot would only be "recorded" by dropping the effect - it takes the legacy path
@@ -1177,111 +1152,9 @@ namespace deren::engine {
         return counts && indices && counts->device.get() == this->core_owner.get() && indices->device.get() == this->core_owner.get() &&
                slot < counts->objects.size() && slot < indices->objects.size() && counts->objects[slot].buffer && indices->objects[slot].buffer;
     }
-    void runtime::record_scene() {
-        // Eligibility was frozen at the top of record_main_drawcalls() - see main_graph_candidate()'s note.
-        if (this->main_graph_frame)
-            return; // The composed graph records the producer and its attachment barriers.
-        this->record_scene_attachments();
-        this->update_pass_geometry();
-        // THE SCENE PASS records the surface write: the instance over its six declared targets, the segmented
-        // draw of the visible leaves, and closing the instance - all inside one function now (see
-        // deren.engine.pass.scene for why that is the point of this extraction).
-        if (this->gbuffer_pass_active()) {
-            pass::stage const scene_stage = {.name = "scene", .passes = this->scene_pass, .marks = false};
-            this->prepare_stage(scene_stage);
-            [[maybe_unused]] pass::run_report const scene_report = pass::record_stage(scene_stage, this->make_pass_host());
-            return;
-        }
-        // THE DEGENERATE CASE, which is all the old begin_rendering() is still needed for: no surface pipeline,
-        // so there is no pass to run. An EMPTY instance is opened and closed anyway, so the frame keeps a
-        // matching pair and the scene target ends in a layout the post chain can sample. (The old code also
-        // recorded the scene segments here - with a pipeline that does not exist, which validation would have
-        // refused; drawing nothing is both shorter and true.)
-        this->begin_rendering(this->current_image_index);
-        if (rhi::command_buffer* const frame_commands = this->frame_command_buffer().get(); frame_commands != nullptr) {
-            frame_commands->end_rendering(); // the matching half of the empty instance above
-        }
-    }
 
     // Move the scene pass's attachments into their render layouts; see the declaration for why this
     // cannot be left to a render pass.
-    void runtime::record_scene_attachments() {
-        // (no `core&` alias here any more: every handle this function moves is an ENGINE-owned one now -
-        // ③-D/E A1.4 - and it is the CONTRACT image, so no native derivation happens here any more)
-        // Dynamic rendering has no automatic attachment transitions (a render pass would do them
-        // implicitly): move every attachment into its render layout before vkCmdBeginRendering. The
-        // set is the G-buffer mode's three single-sampled surface targets, the motion-vector target
-        // and the scene color the emissive goes into, plus the pass's own 1x depth image. The main
-        // HDR target is not touched by the opaque G-buffer pass at all (the debug view writes it
-        // afterwards), so it must not be transitioned here.
-        //
-        // room for every pass attachment plus the depth. Sizing this for the old three-target
-        // G-buffer was a stack overflow the moment the emissive attachment arrived - validation
-        // reported the fifth barrier as garbage.
-        //
-        // EVERY TRANSITION BELOW RIDES THE CONTRACT (the raw array and its one vkCmdPipelineBarrier2 are
-        // gone): each site's recipe is its (from, to) role pair, one batch carries them all, and a refused
-        // transition is named rather than dropped silently.
-        rhi::command_buffer* const frame_commands = this->frame_command_buffer().get();
-        if (frame_commands == nullptr) {
-            return; // no frame is in flight: there is no recording buffer to move the attachments on
-        }
-        deren::utility::vessel::array<rhi::image_barrier, deren::engine::gbuffer_pass_attachment_count + 1> attachment_barriers = {};
-        uint32_t barrier_count = 0;
-        auto const add_render_barrier = [&attachment_barriers, &barrier_count](rhi::image_use const from, rhi::image_use const to, rhi::image* const image) {
-            attachment_barriers[barrier_count] = rhi::image_barrier{.resource = image,
-                                                                    .from = from,
-                                                                    .to = to,
-                                                                    .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}};
-            ++barrier_count;
-        };
-
-        {
-            // THE G-BUFFER CLUSTER IS THE ENGINE'S OWN (③-D/E A1.4): every handle below is the CONTRACT image
-            // the escape used to derive a native one from, exactly like the scene-colour target's (which
-            // scene_target_image answers for both of its branches now).
-            for (uint32_t target = 0; target < deren::engine::render_layout::gbuffer_target_count; ++target) {
-                add_render_barrier(rhi::image_use::undefined, rhi::image_use::color_attachment, this->gbuffer_images[target][this->current_image_index].get());
-            }
-            add_render_barrier(rhi::image_use::undefined, rhi::image_use::color_attachment, this->velocity_images[this->current_image_index].get());
-            add_render_barrier(rhi::image_use::undefined, rhi::image_use::depth_attachment, this->gbuffer_depth_images[this->current_image_index].get());
-            // The scene-color target enters the pass as an attachment too (the emissive accumulation
-            // target) - the HDR image normally, scene_color when the TAA resolve owns the HDR target
-            // this frame (see scene_target_image). The CONTRACT handle is the same choice
-            // the scene target selection makes; it is cleared by the instance
-            // below, so UNDEFINED as the old layout is correct whatever it held before.
-            add_render_barrier(rhi::image_use::undefined,
-                               rhi::image_use::color_attachment,
-                               this->taa_active() ? this->scene_color_images[this->current_image_index].get() : this->hdr_images[this->current_image_index].get());
-            // this instance writes the G-buffer depth, so it is in the attachment layout from here on:
-            // the stage that samples it later calls ensure_gbuffer_depth_sampled() (see the accessor).
-            // The flag vector is per swapchain image and sized with the generation; the guard is a
-            // no-op outside that range, so a stale size can never set a flag for an image that does
-            // not exist (and on_swapchain_recreated re-sizes it on every generation change).
-            if (this->current_image_index < this->gbuffer_depth_written.size()) {
-                this->gbuffer_depth_written[this->current_image_index] = true;
-            }
-            // ... and the motion-vector target it just wrote as a color attachment. Two stages sample
-            // it (TAA's resolve and, since the GI denoiser, a compute resolve), so the "has this been
-            // handed to a sampler yet" question is asked through a flag rather than assumed - see
-            // ensure_velocity_sampled.
-            if (this->current_image_index < this->velocity_written.size()) {
-                this->velocity_written[this->current_image_index] = true;
-            }
-            // ... and the three stored surface targets, written as color attachments by the same
-            // instance: the ray-traced shadow pass samples them before the lighting stage does, so which
-            // stage publishes them is a question for a flag too (see ensure_gbuffer_targets_sampled).
-            if (this->current_image_index < this->gbuffer_targets_written.size()) {
-                this->gbuffer_targets_written[this->current_image_index] = true;
-            }
-        }
-
-        // ONE batch, the shape the raw vkCmdPipelineBarrier2 had: the raw code's single call carried the
-        // per-image barriers, so a refused batch leaves every attachment in the state the frame declared.
-        if (frame_commands->barrier(rhi::barrier_group{.images = std::span(attachment_barriers.data(), barrier_count)}) != rhi::error::ok) {
-            deren::utility::log("runtime: the scene attachment batch was refused through the contract; the scene pass may read an undeclared state");
-        }
-    }
 
     // Resync the cached viewport/scissor of every pipeline that draws this frame.
     void runtime::update_pass_geometry() {
@@ -1590,40 +1463,6 @@ namespace deren::engine {
     // images the G-buffer pass wrote, so they now run in the deferred STAGE's preamble in `record_main_drawcalls` -
     // the same move the ray-traced shadow stage's identical pair made, and the same command-stream position.
 
-    void runtime::clear_scene_color_for_missing_gbuffer() {
-        // The deferred lighting pass did not record - its pipeline is missing (a startup failure), or its target
-        // is not in this frame's resource table. The pass cannot do this itself, because a pass records nothing
-        // when its declaration does not resolve - so the frame's answer lives here: clear
-        // the target so the frame is DEFINED (the post chain samples it) instead of leaving whatever the
-        // background/emissive wrote mixed with garbage, and say so once per frame, because a silent black frame
-        // is worse than a log line. (The log line's wording is historical: the missing thing used to be a
-        // descriptor set, and the frame's answer to a missing one was this same clear.)
-        // THE SCENE-COLOUR TARGET IS THE ENGINE'S OWN (③-D/E A1.4): the guard is the CONTRACT's bound plus the
-        // manager's validity, and the handle the clear below takes is the CONTRACT image itself.
-        uint32_t const index = this->current_image_index;
-        if (index >= rhi::max_swapchain_images || !static_cast<bool>(this->scene_color_images[index])) {
-            return;
-        }
-        deren::utility::log("runtime: deferred lighting has no descriptor set - clearing the scene target");
-        rhi::command_buffer* const frame_commands = this->frame_command_buffer().get();
-        if (frame_commands == nullptr) {
-            return; // no frame is in flight: there is no recording buffer to clear through
-        }
-        // undefined -> color_attachment (the recipe the raw transition copied), then the clear itself: both
-        // go through the contract, the clear replacing the hand-built attachment + begin/end pair.
-        rhi::subresource_range const one_layer{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u};
-        if (frame_commands->barrier(rhi::image_barrier{.resource = this->scene_color_images[index].get(),
-                                                       .from = rhi::image_use::undefined,
-                                                       .to = rhi::image_use::color_attachment,
-                                                       .range = one_layer}) != rhi::error::ok) {
-            deren::utility::log("runtime: the fallback scene-target transition was refused through the contract");
-            return;
-        }
-        if (frame_commands->clear_color_image(*this->scene_color_images[index], deren::utility::vessel::array<float, 4>{}, one_layer) != rhi::error::ok) {
-            deren::utility::log("runtime: the fallback scene-target clear was refused through the contract");
-        }
-    }
-
     // The G-buffer declarations' SAMPLERS: what is left of make_gbuffer_debug_pipeline in the renderer, because the
     // view pipeline is the debug view's PASS's now. They have to exist
     // before create_passes(), since the pass context hands every pass the five a declaration may choose between.
@@ -1634,15 +1473,6 @@ namespace deren::engine {
     //    while this one needs the same image as its depth ATTACHMENT, and an image cannot be both in
     //    one instance;
     //  - before the TAA resolve, so the resolve sees the composited frame.
-    void runtime::record_transparent_pass() {
-        // THE TRANSPARENT PASS records the blended geometry: the two hand-off barriers, the LOAD instance over
-        // its two declared targets, one secondary and the depth hand-back - all in one function now (see
-        // deren.engine.pass.transparent). Like the scene pass it is SKIPPED without resolving anything on a frame
-        // whose culling left nothing blended, which is what keeps a frame with no blended leaves byte-exact.
-        pass::stage const transparent_stage = {.name = "transparent", .passes = this->transparent_pass, .marks = false};
-        this->prepare_stage(transparent_stage);
-        [[maybe_unused]] pass::run_report const transparent_report = pass::record_stage(transparent_stage, this->make_pass_host());
-    }
     // ---- temporal anti-aliasing (M3) ----
     glm::vec2 runtime::taa_jitter_offset(uint32_t const index) noexcept {
         // Halton(2,3): the two-radical sequence has the low-discrepancy property that matters here -
@@ -3257,216 +3087,6 @@ namespace deren::engine {
     // the command stream, because the stages carry no marks of their own (`make_pass_host` leaves the mark pair
     // null), so nothing is emitted between them.
 
-    void runtime::record_scene_tail() {
-        // NO vkCmdEndRendering HERE ANY MORE: the scene PASS owns its instance and closes it at the end of its
-        // own record (see deren.engine.pass.scene). That line used to be the far half of a pair whose near half was
-        // three functions away - the coupling this extraction removed.
-        // GPU timing: the geometry instance ended where the scene pass closed it (the surface write).
-        this->gpu_mark(gpu_mark_id::scene_end);
-        // (no `core&` alias here any more: the last backend-owned read in this function was the stochastic
-        // chain's off-path barrier, and that image is the engine's own from ③-D/E A1.5 on)
-
-        // Deferred mode: the surface is in the G-buffer and the sky + emissive are in the scene color
-        // target; this stage shades every pixel from the G-buffer and adds the result on top, and the
-        // alpha-blended leaves then composite over the shaded image (their own instance - see
-        // record_transparent_pass).
-        if (this->deferred_lit_active()) {
-            // Ray-traced sun shadows run HERE: after the G-buffer pass (whose depth and normal the rays
-            // start from) and before the lighting stage (which multiplies the sun term by the result).
-            // Running it before the G-buffer pass would mean starting rays from the PREVIOUS frame's
-            // surface, so the position is not a detail - it is the ordering constraint. The PASS owns the
-            // recording (deren.engine.pass.ray_traced_shadow); what is this loop's is the position and the off path below.
-            pass::stage const rt_shadow_stage = {.name = "rt_shadow", .passes = this->rt_shadow_pass, .marks = false};
-            // THIS STAGE'S ONE FRAME-ORDER DUTY, done by the chain's OWNER now that the passes are its: this stage
-            // may be the first sampler of the stored surface this frame, and whoever samples it FIRST publishes the
-            // G-buffer instance's attachment writes (the flags are the renderer's, and the idempotent `ensure_*`
-            // pair is what makes "first" a fact rather than a promise) - so the owner's `prepare` asks for exactly
-            // that, gated on the same feature the runner gates the stage on. Nothing is emitted between here and
-            // `record_stage` (the stages carry no marks), so the command stream is unchanged.
-            this->prepare_stage(rt_shadow_stage);
-            pass::run_report const rt_shadow_report = pass::record_stage(rt_shadow_stage, this->make_pass_host());
-            if (rt_shadow_report.recorded == 0 && this->frame_ring().position() < rhi::max_frames_in_flight &&
-                static_cast<bool>(this->rt_shadow_images[this->frame_ring().position()])) {
-                // The pass did not run, but the lighting stage's descriptor still declares the image as
-                // a shader input: its shader samples the binding only under a flag, and Vulkan requires
-                // a statically-used binding's image to be in the layout the descriptor declares whether
-                // or not the value is used. UNDEFINED as the old layout asserts nothing - the same
-                // answer the GI image's off path gives.
-                // undefined -> shader_read (the recipe the raw transition copied), over the whole image.
-                (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->rt_shadow_images[this->frame_ring().position()].get(),
-                                                                               .from = rhi::image_use::undefined,
-                                                                               .to = rhi::image_use::shader_read,
-                                                                               .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
-            }
-            // GPU timing: the ray-traced shadow pass ends here (before the lighting stage reads its
-            // output). It gets its own interval because it sits between the G-buffer pass and the
-            // lighting stage - without it the traversals were reported as lighting time, which made the
-            // lighting interval look four times more expensive with rays on (measured 0.32 -> 1.18 ms
-            // while the rays themselves were ~0.85 of that).
-            this->gpu_mark(gpu_mark_id::rt_shadow_end);
-            // THE LIGHTING STAGE IS A PASS (deren.engine.pass.deferred), and what the frame still owes it is one answer
-            // plus the stage's own frame-order duty: it is a
-            // sampler of the stored surface, and whoever samples it FIRST publishes the G-buffer instance's
-            // attachment writes. Both are the chain OWNER's now (see prepare_stage) - the runtime's `prepare` call
-            // sits exactly where the pass's frame used to be set, and nothing is emitted between it and
-            // `record_stage` (the stages carry no marks), so the command stream is unchanged.
-            pass::stage const deferred_stage = {.name = "deferred", .passes = this->deferred_pass, .marks = false};
-            this->prepare_stage(deferred_stage);
-            pass::run_report const deferred_report = pass::record_stage(deferred_stage, this->make_pass_host());
-            if (deferred_report.recorded == 0) {
-                // The pass could not resolve a frame. Inside this branch the only remaining cause is the G-buffer
-                // family having no set for this image (the pipeline and the target generation are what
-                // deferred_lit_active() just checked), and the frame then has to be cleared rather than left
-                // half-written - see the fallback's own comment.
-                this->clear_scene_color_for_missing_gbuffer();
-            }
-            // THE GAUSSIAN SPLAT CLOUD, in the one place the design fixes it (docs/gaussian_splatting.md): after
-            // the lighting stage - so there is a lit HDR image and an opaque depth to take - and before the
-            // blended geometry, whose composites have to see the splats under them. The runner asks the pass's
-            // own feature name before it resolves the declaration, and the pass records nothing at all without a
-            // frame, so a session with no cloud configured records exactly what it recorded before this stage
-            // existed (which is what keeps the frozen capture scenarios byte-identical).
-            pass::stage const gaussian_stage = {.name = "gaussian", .passes = this->gaussian_pass, .marks = false};
-            this->gpu_mark(gpu_mark_id::lighting_end);
-            this->prepare_stage(gaussian_stage);
-            [[maybe_unused]] pass::run_report const gaussian_report = pass::record_stage(gaussian_stage, this->make_pass_host());
-            if (gaussian_report.recorded != 0) {
-                this->collect_stage("gaussian");
-            }
-            if (gaussian_report.recorded == 0) {
-                this->gpu_mark(gpu_mark_id::gaussian_prepare_end);
-                this->gpu_mark(gpu_mark_id::gaussian_sort_end);
-                this->gpu_mark(gpu_mark_id::gaussian_finalize_end);
-            }
-            this->gpu_mark(gpu_mark_id::gaussian_raster_end);
-            this->record_transparent_pass();
-
-            // THE TOON CHARACTER STAGE, and its position here is the whole point of it: AFTER the lighting
-            // stage (so there is a lit pixel to overwrite) and after the transparent pass (so a blended
-            // surface in front of the character has already been composited and the depth test can reject the
-            // character fragment behind it - the reference draws its `CharacterForward` pass before the
-            // transparents, which is the same thing seen from the other side, and depth-EQUAL is what makes
-            // both orders correct). Before the resolve, so the anti-aliasing sees the re-shaded frame.
-            //
-            // NO MARK OF ITS OWN: the frame's mark sequence is a fixed positional contract with a 16-mark
-            // capacity, and a stage that carries none is what the other chain stages already do.
-            //
-            // IT IS SKIPPED WITHOUT RESOLVING ANYTHING when the feature table says the frame has no toon
-            // character (`character_forward_pending`), which is what keeps every frame of every capture-gate
-            // scenario byte-identical while the feature is off - the runner asks the pass's `feature()` before
-            // it resolves the declaration, so the skip costs no barrier and no resolve.
-            pass::stage const character_forward_stage = {.name = "character_forward", .passes = this->character_forward_pass, .marks = false};
-            this->prepare_stage(character_forward_stage);
-            [[maybe_unused]] pass::run_report const character_forward_report = pass::record_stage(character_forward_stage, this->make_pass_host());
-
-            // THE SCREEN-SPACE DEPTH RIM, immediately after the stage it outlines: it samples the depth (which
-            // the character-forward pass has just handed back to a sampled layout) and ADDS a contour to the
-            // scene colour that stage wrote. Still before the resolve, so the anti-aliasing sees the two
-            // together rather than a contour drawn over an already-resolved frame.
-            //
-            // IT IS GATED BY THE SAME FEATURE as the stage above (see its `feature()`), so a frame with no toon
-            // character records neither and the two cannot come apart.
-            pass::stage const toon_screen_rim_stage = {.name = "toon_screen_rim", .passes = this->toon_screen_rim_pass, .marks = false};
-            this->prepare_stage(toon_screen_rim_stage);
-            [[maybe_unused]] pass::run_report const toon_screen_rim_report = pass::record_stage(toon_screen_rim_stage, this->make_pass_host());
-
-            // THE REWRITTEN CHAIN'S RIM, in the SAME position and for the same reasons: it samples the depth the
-            // character stage has just handed back to a sampled layout and ADDs the Goo reference's rim - the
-            // object-space part AND the screen-space `DepthRim` the surface shader cannot compute - to the scene
-            // colour that stage wrote, before the resolve sees it.
-            //
-            // THE TWO RIM STAGES CANNOT BOTH RECORD, and that is one predicate rather than an ordering rule: the
-            // owner answers "toon_screen_rim" with `!goo_toon_active()` and "goo_rim" with `goo_toon_active()`, so
-            // the article's contour and the Goo rim are alternatives - which is what "the rewritten chain must not
-            // wear two rims" means here. It also means a frame with `[render] goo_toon = false` records neither
-            // this stage's pass nor its preamble, which is what keeps every capture scenario byte-identical.
-            pass::stage const goo_rim_stage = {.name = "goo_rim", .passes = this->goo_rim_pass, .marks = false};
-            this->prepare_stage(goo_rim_stage);
-            [[maybe_unused]] pass::run_report const goo_rim_report = pass::record_stage(goo_rim_stage, this->make_pass_host());
-        } else {
-            // The pass does not run (the debug view replaces the lighting stage, and a skipped lighting stage has
-            // no G-buffer to start rays from), but every mark is written in order on every frame - the
-            // report's labels are positional. Written next to scene_end, so the interval is 0 ms.
-            this->gpu_mark(gpu_mark_id::rt_shadow_end);
-            this->gpu_mark(gpu_mark_id::lighting_end);
-            this->gpu_mark(gpu_mark_id::gaussian_prepare_end);
-            this->gpu_mark(gpu_mark_id::gaussian_sort_end);
-            this->gpu_mark(gpu_mark_id::gaussian_finalize_end);
-            this->gpu_mark(gpu_mark_id::gaussian_raster_end);
-        }
-        this->gpu_mark(gpu_mark_id::transparent_end);
-
-        // TAA resolve: blend the scene color with the reprojected history into the HDR target the post
-        // chain reads, then copy the result into the history image for the next frame that renders this
-        // swapchain image. The PASS owns all of that now (deren.engine.pass.taa), and the two things below are the
-        // part it cannot own yet:
-        //
-        //  * the G-buffer depth's transition to a sampled layout, whose "was it written this frame" flag
-        //    belongs to the G-buffer pass, and
-        //  * clearing the motion-vector flag, which is what stops a later pass in the same frame from
-        //    transitioning the velocity image a second time.
-        //
-        // BOTH ARE THE CHAIN OWNER'S NOW, run from its `prepare` for this stage and gated on the same predicate the
-        // runner gates the stage on - so the frame never touches them on a frame the pass does not run (clearing the
-        // velocity flag for a frame with no resolve would make the GI tracer sample an image still in ATTACHMENT
-        // layout). The runtime's call sits exactly where those two lines were.
-        pass::stage const taa_stage = {.name = "taa", .passes = this->taa_pass, .marks = false};
-        {
-            this->prepare_stage(taa_stage);
-            [[maybe_unused]] pass::run_report const taa_report = pass::record_stage(taa_stage, this->make_pass_host());
-        }
-        // The matrix the NEXT frame's motion vectors are computed against is this frame's, and it is only
-        // recorded when the resolve actually wrote a history: a resolve that bailed out (no descriptor set) must
-        // not claim one. The pass answers that (`wrote_history`) and the owner reports it through `collect`; the
-        // array stays the renderer's because the camera UBO - not TAA - reads it as `prev_view_proj`.
-        this->collect_stage("taa");
-        this->gpu_mark(gpu_mark_id::taa_end);
-
-        // G-buffer debug mode (an inspection of the stored data, never combined with the lighting
-        // stage or TAA): turn one channel into a visible image in the HDR target. THE PASS owns the recording
-        // (deren.engine.pass.geometry_buffer_debug); what stays here is the frame - the target's own transition (which has to
-        // happen even when the pass cannot draw, because the post chain samples that image), the two per-image
-        // hand-backs its frame carries, and the fallback that clears the target when there is no set to draw with.
-        if (this->gbuffer_pass_active() && !this->deferred_lit_active()) {
-            // Debug mode disables TAA, so the G-buffer's scene-color attachment is HDR itself.
-            // Order its stored emissive writes before the debug pass clears and rewrites the attachment.
-            (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->hdr_images[this->current_image_index].get(),
-                                                                           .from = rhi::image_use::color_attachment,
-                                                                           .to = rhi::image_use::color_attachment,
-                                                                           .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
-            // THIS STAGE'S FRAME-ORDER DUTY, the same shape as the lighting stage's above and for the same reason:
-            // the debug view runs INSTEAD of the lighting stage, so it is the stage that hands the stored surface
-            // and the motion vectors to samplers this frame - and both halves are the chain OWNER's now (the
-            // depth's flag-based accessor and the velocity flag's clear, see prepare_stage).
-            pass::stage const debug_stage = {.name = "gbuffer_debug", .passes = this->gbuffer_debug_stage, .marks = false};
-            this->prepare_stage(debug_stage);
-            pass::run_report const debug_report = pass::record_stage(debug_stage, this->make_pass_host());
-            if (debug_report.recorded == 0) {
-                // Inside this branch the only remaining cause is the G-buffer family having no set for this image
-                // (the pipeline is what gbuffer_pass_active() just checked), and the frame then has to be cleared -
-                // see the fallback's own comment. Its own transition is part of it.
-                this->clear_hdr_for_missing_gbuffer_set();
-            }
-        }
-        this->gpu_mark(gpu_mark_id::main_end);
-    }
-
-    void runtime::barrier_image_to_sampling() {
-        // A pipeline barrier may not be recorded inside a dynamic rendering instance
-        // (VUID-vkCmdPipelineBarrier2-None-09553), which is why every caller of this runs BEFORE its
-        // vkCmdBeginRendering.
-        // THE TRANSITION RIDES THE CONTRACT, AND IT NEEDS NO ARGUMENT: the one image this function ever moves is
-        // the frame's HDR target for the acquired image (`hdr_images[current_image_index]`, the image both call
-        // sites passed), so the contract handle comes from that member and the recipe is the
-        // (color_attachment, shader_read) pair `hdr_sampling_transition` spells. The raw `VkCommandBuffer` and
-        // `VkImage` parameters this used to take are GONE rather than ignored: a signature that promises two
-        // arguments and reads neither is a lie the next reader has to check.
-        (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->hdr_images[this->current_image_index].get(),
-                                                                       .from = rhi::image_use::color_attachment,
-                                                                       .to = rhi::image_use::shader_read,
-                                                                       .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
-    }
-
     void runtime::record_overlay_if_enabled(rhi::command_buffer& commands) {
         if (this->debug_gui_shown && this->debug_overlay != nullptr && this->debug_overlay->is_active()) {
             this->debug_overlay->record(commands);
@@ -3579,272 +3199,29 @@ namespace deren::engine {
             deren::utility::log("runtime: the fallback HDR-target clear was refused through the contract");
         }
     }
-    rhi::error runtime::record_bloom_graph(bool active) {
-        namespace graph = deren::engine::render_graph;
-        namespace scoped = rhi::synchronization;
-        using lease = resource_lease<rhi::image>;
-        static_assert(graph::bloom::level_count == deren::engine::render_layout::bloom_level_count);
-        auto const index = this->current_image_index;
-        if (!this->cluster_retention_open || index >= rhi::max_swapchain_images)
-            return rhi::error::not_ready;
-        auto commands = this->frame_command_buffer();
-        if (!commands)
-            return rhi::error::not_ready;
-        auto retain = [&](size_t family) -> lease {
-            auto generation = this->output_resource_views[family].find(pass::output_targets_pass::ids[family]);
-            if (!generation || generation->device.get() != this->core_owner.get() || index >= generation->objects.size())
-                return {};
-            auto image = generation->objects[index].image.get();
-            if (!image)
-                return {};
-            // This alias pins the complete generation, including the views descriptors refer to.
-            return lease::from_shared(this->core_owner, std::shared_ptr<rhi::image>{std::move(generation), image});
-        };
-        std::array<lease, graph::bloom::level_count> levels;
-        std::array<bool, graph::bloom::level_count> initialized{};
-        for (auto it = this->bloom_graph_states.begin(); it != this->bloom_graph_states.end();) {
-            if (it->first.expired())
-                it = this->bloom_graph_states.erase(it);
-            else
-                ++it;
-        }
-        for (unsigned level = 0; level < levels.size(); ++level) {
-            levels[level] = retain(9 + level);
-            if (!levels[level] || levels[level].get() != this->bloom_images[level][index].get())
-                return rhi::error::not_ready;
-            auto generation = this->output_resource_views[9 + level].find(pass::output_targets_pass::ids[9 + level]);
-            auto state = this->bloom_graph_states.find(weak_bloom_generation{generation});
-            initialized[level] = state != this->bloom_graph_states.end() && state->second[index];
-            this->bloom_graph_pending_generations[level] = std::move(generation);
-        }
-        std::array<graph::resource_state, graph::bloom::level_count> incoming{};
-        for (unsigned i = 0; i < incoming.size(); ++i)
-            if (initialized[i])
-                incoming[i] = {graph::resource_layout::shader_read_only,
-                               graph::pipeline_stage::fragment_shader | graph::pipeline_stage::color_output,
-                               graph::memory_access::read | graph::memory_access::write};
-        auto& retained = this->frame_graph_retention[this->cluster_retention_slot];
-        if (!active) {
-            // Descriptors remain statically used when bloom's weight is zero. No graph content
-            // read is declared for undefined texels; this boundary only establishes their layout.
-            auto extension = rhi::query_extension<rhi::scoped_synchronization>(this->rhi_face());
-            if (!extension)
-                return rhi::error::unsupported;
-            std::array<rhi::scoped_image_barrier, graph::bloom::level_count> barriers;
-            auto pin = std::allocate_shared<decltype(levels)>(deren::utility::memory::allocator<decltype(levels)>{}, levels);
-            retained.push_back(pin);
-            for (unsigned i = 0; i < barriers.size(); ++i) {
-                scoped::image_state before{};
-                if (initialized[i])
-                    before = {scoped::image_layout::shader_read_only,
-                              {scoped::stage::fragment_shader | scoped::stage::color_output, scoped::access::read | scoped::access::write}};
-                barriers[i] = {levels[i].get(), {before, {scoped::image_layout::shader_read_only, {scoped::stage::fragment_shader, scoped::access::read}}, {}}};
-            }
-            auto error = extension->validate(barriers, {});
-            if (error == rhi::error::ok)
-                error = extension->record(*commands, barriers, {});
-            if (error == rhi::error::ok)
-                this->bloom_graph_pending = true;
-            return error;
-        }
-        auto input = retain(0);
-        if (!input || input.get() != this->hdr_images[index].get())
-            return rhi::error::not_ready;
-        auto host = this->make_pass_host();
-        std::array<pass::resolved_io, graph::bloom::level_count> ios;
-        for (unsigned i = 0; i < ios.size(); ++i) {
-            ios[i].push_block = host.push_block;
-            if (!this->bloom_pass[i] || !host.resolve || !host.resolve(host.context, *this->bloom_pass[i], ios[i]) ||
-                ios[i].targets.empty() || ios[i].targets[0].image_handle != levels[i].get() ||
-                ios[i].list != commands.get())
-                return rhi::error::not_ready;
-        }
-        // The legacy HDR owner already made it visible to fragment reads before this boundary.
-        auto prepared = graph::bloom::prepared_chain::prepare(this->core_owner, input, levels,
-                                                              {graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read}, incoming);
-        if (!prepared)
-            return prepared.error().code;
-        retained.push_back(prepared->retention());
-        auto error = prepared->record(*commands, [&](unsigned level, graph::execution::record_context const&) noexcept {
-            if (host.apply_behaviour)
-                host.apply_behaviour(host.context, *this->bloom_pass[level], ios[level]);
-            return this->bloom_pass[level]->record_content(ios[level]);
-        });
-        if (error == rhi::error::ok)
-            this->bloom_graph_pending = true;
-        return error;
-    }
 
     bool runtime::record_post_process() {
-        // (no `core&` alias here any more: the last backend-owned read in this function was the bloom chain's
-        // off path, and those images are the engine's own from ③-D/E A1.5 on)
-
-        // ---- the scene side: close the geometry instance, then the stages that consume the G-buffer
-        // Eligibility was frozen before recording the scene producer.
-        if (this->main_graph_enabled && !this->main_graph_frame && !this->main_graph_fallback_reported) {
-            // WHICH TERM REFUSED THE FRAME, in the order the eligibility predicate tests them: an
-            // adoption round reads this to tell "this branch is not migrated yet" from "the branch is
-            // migrated but a stage reported not-ready on the first frame" - the two need opposite work,
-            // and the log line alone could not say which one it was.
-            auto const features = this->active_features();
-            char const* const reason = !this->deferred_lit_active()                ? "deferred lighting inactive"
-                                       : this->taa_active()                        ? "TAA active"
-                                       : features.rt_shadow                        ? "ray-traced shadow"
-                                       : this->gaussian_active()                   ? "Gaussian active"
-                                       : features.transparent                      ? "transparency"
-                                       : this->feature_active("character_forward") ? "character forward"
-                                       : this->feature_active("toon_screen_rim")   ? "toon screen rim"
-                                       : this->feature_active("goo_rim")           ? "goo rim"
-                                                                                   : "unclassified";
-            deren::utility::log("main graph: unsupported tail combination ({}); using legacy scene tail and post graph", reason);
-            this->main_graph_fallback_reported = true;
+        // NO LEGACY HALF IS LEFT TO FALL BACK TO: eligibility is a READINESS question now (a missing pipeline
+        // or overlay pass), and a frame that fails it is reported once and failed rather than recorded by a
+        // path that no longer exists.
+        if (!this->main_graph_frame) {
+            if (!this->main_graph_not_ready_reported) {
+                deren::utility::log("main graph: the frame has no recordable scene (a pipeline or overlay pass is missing); frames are only graph-recorded now");
+                this->main_graph_not_ready_reported = true;
+            }
+            return false;
         }
-        if (!this->main_graph_frame)
-            this->record_scene_tail();
-
         if (!this->pass_ready("post_composite")) {
-            if (this->post_graph_enabled)
-                this->bloom_graph_error = rhi::error::not_ready;
+            this->bloom_graph_error = rhi::error::not_ready;
             return false; // no post pipeline (creation failed): the HDR frame cannot be presented correctly
         }
-
-        std::size_t const index = this->current_image_index;
-
-        // HDR scene target -> fragment-shader read (the prefilter and the composite both read it)
-        if (!this->main_graph_frame)
-            this->barrier_image_to_sampling();
-
-        // The composite's GI upsample also samples the G-buffer depth and normal, and the stage that
-        // normally publishes those two is the deferred lighting stage (or the debug view) - both part
-        // of the G-buffer path. A frame that never ran it (the deferred pipeline missing, so
-        // gbuffer_pass_active() is false and nothing wrote the targets) still reaches the composite,
-        // whose descriptor declares SHADER_READ for both bindings either way. UNDEFINED as the old
-        // layout is honest here - there is no content to preserve - and the GI weight is 0 on such a
-        // frame, so the taps' values cannot influence the image.
-        if (!this->gbuffer_pass_active()) {
-            // undefined -> depth_read for the depth, undefined -> shader_read for the world normal (the two
-            // recipes the raw barriers copied), in ONE contract batch on the frame's recording buffer.
-            deren::utility::vessel::array<rhi::image_barrier, 2> gbuffer_barriers = {};
-            gbuffer_barriers[0] = rhi::image_barrier{.resource = this->gbuffer_depth_images[index].get(),
-                                                     .from = rhi::image_use::undefined,
-                                                     .to = rhi::image_use::depth_read,
-                                                     .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}};
-            gbuffer_barriers[1] = rhi::image_barrier{.resource = this->gbuffer_images[1][index].get(), // the world normal
-                                                     .from = rhi::image_use::undefined,
-                                                     .to = rhi::image_use::shader_read,
-                                                     .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}};
-            (void)this->frame_command_buffer()->barrier(rhi::barrier_group{.images = gbuffer_barriers});
-        }
-
-        // Screen-space GI runs HERE, and the position is the whole reason it cannot feed back: `hdr`
-        // was rewritten earlier in this frame (by the TAA resolve, or by the G-buffer pass's clear
-        // when TAA is off) and the composite that ADDS this pass's output is downstream, so what the
-        // tracer samples at a hit is direct radiance and never its own previous result. Sampling an
-        // image that already contained GI would make the loop gain > 1 and accumulate energy.
-        //
-        // pass of the chain - the spatial filter - that sets it: the composite samples that filter's
-        // output, so a frame whose filter did not run (no descriptor set, no images) has nothing to add
-        // and must weigh 0 rather than show whatever that image happens to hold. The filter in turn
-        // only runs when the temporal resolve ran, because filtering a stale accumulation would just
-        // make the staleness smoother.
-        //
-        // through the temporal pass's callback, and a frame whose reflection did not run must not leave the
-        // previous frame's answer for the filter's `spec_weight` lane to read.
-
-        // GPU timing: the lighting chain ends here (its tracer and its temporal resolve). Written
-        // unconditionally like every mark, so a frame that skips it reports 0 ms and the labels stay aligned.
-
-        {
-        }
-
-        if (this->post_graph_enabled) {
-            this->bloom_graph_error = this->record_post_graph();
-            if (this->bloom_graph_error != rhi::error::ok)
-                deren::utility::log("post graph: recording refused ({})", static_cast<uint32_t>(this->bloom_graph_error));
-            return this->bloom_graph_error == rhi::error::ok;
-        }
-        // ---- THE BLOOM CHAIN, as a stage of FOUR passes (deren.engine.pass.post) ----
-        // The chain is four instances of one class; the level IS the pass boundary (each binds a different one of
-        // the post family's five sets), and what the host resolves for each is in resolve_post_bloom. The RUNNER
-        // gates them: the pass declares the feature `bloom`, which is `bloom_intensity > 0` and the chain's
-        // pipeline being there - the same predicate that decides whether the composite adds a bloom sum (see
-        // resolve_post_composite, where the weight is zeroed for the debug view - which is also what
-        // `active_features().gbuffer_debug` means).
-        pass::stage const bloom_stage = {.name = "bloom", .passes = this->bloom_pass, .marks = false};
-        pass::run_report bloom_report{};
-        if (this->bloom_graph_enabled) {
-            this->bloom_graph_error = this->record_bloom_graph(this->feature_active("bloom"));
-            if (this->bloom_graph_error != rhi::error::ok) {
-                deren::utility::log("bloom graph: recording refused ({})", static_cast<uint32_t>(this->bloom_graph_error));
-                return false;
-            }
-        } else
-            bloom_report = pass::record_stage(bloom_stage, this->make_pass_host());
-        if (!this->bloom_graph_enabled && bloom_report.recorded == 0) {
-            // THE OFF PATH, and it is the frame loop's because it is about the COMPOSITE's descriptor: its set
-            // declares all four bloom levels as inputs and multiplies them by the weight it pushed, and a
-            // statically-used binding's image has to be in the layout that descriptor declares whether or not the
-            // value is ever read. UNDEFINED as the old layout asserts nothing (their contents are dead on a frame
-            // nothing wrote), and this is the same answer the shadow map's spare layers and the GI image's off path
-            // give. It hangs on "the stage recorded nothing" rather than on the knob, so a frame whose levels had no
-            // descriptor set takes it too.
-            // the level count comes from the shared module now (③-D/E A1.5): the engine sizes its own bloom
-            // arrays by it, so the backend's alias is no longer the only spelling of it
-            // EVERY LEVEL IS ONE undefined -> shader_read TRANSITION (the recipe the raw barrier copied), on
-            // the frame's recording buffer.
-            for (uint32_t level = 0; level < deren::engine::render_layout::bloom_level_count; ++level) {
-                (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->bloom_images[level][index].get(),
-                                                                               .from = rhi::image_use::undefined,
-                                                                               .to = rhi::image_use::shader_read,
-                                                                               .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
-            }
-        }
-        // GPU timing: the bloom chain ends here (a disabled chain is just the layout fixups above, so its interval
-        // reads ~0).
-        this->gpu_mark(gpu_mark_id::bloom_end);
-
-        // ---- THE COMPOSITE, as a stage of one pass ----
-        // ITS FRAME CARRIES THE OVERLAY only when NEITHER resolve runs: the overlay has no load op of its own, so
-        // it has to be drawn inside whichever instance is the frame's LAST writer - and that is the FXAA pass on
-        // the frames it resolves and the upscale pass on the frames IT does. Which of the three that is, and
-        // whether this frame's bloom sum exists, are published as facts
-        // (`frame_facts::fxaa_resolves` / `frame_facts::upscale_resolves` / `debug_view`) and the PASS composes
-        // its frame from them, including the overlay hook it was handed once in the application's `attach` (see
-        // frame_pass::prepare_frame).
-        pass::stage const composite_stage = {.name = "post_composite", .passes = this->post_composite_stage, .marks = false};
-        this->prepare_stage(composite_stage);
-        [[maybe_unused]] pass::run_report const composite_report = pass::record_stage(composite_stage, this->make_pass_host());
-        // GPU timing: the composite (and the debug overlay, when it draws here) is done.
-        this->gpu_mark(gpu_mark_id::composite_end);
-
-        // ---- THE FXAA RESOLVE, as a stage of one pass (deren.engine.pass.fxaa) ----
-        // It is the frame's LAST writer whenever it runs, so it is the pass that carries the overlay - the other
-        // half of the split the composite's frame above states. The runner gates it on the feature `fxaa`, which is
-        // `post_fxaa_active()`: the same predicate that decided this frame's composite TARGET, so the pass runs
-        // exactly when the LDR image is what the composite wrote.
-        pass::stage const fxaa_stage = {.name = "fxaa", .passes = this->fxaa_pass, .marks = false};
-        this->prepare_stage(fxaa_stage);
-        [[maybe_unused]] pass::run_report const fxaa_report = pass::record_stage(fxaa_stage, this->make_pass_host());
-        // GPU timing: the FXAA pass (and the overlay it carries when it is the last writer) is done. Without FXAA
-        // the composite already ended the frame's display work, so this interval is ~0.
-        this->gpu_mark(gpu_mark_id::fxaa_end);
-
-        // ---- THE UPSCALE RESOLVE, as a stage of one pass (deren.engine.pass.upscale) ----
-        // It is the frame's LAST writer on the frames it runs (the render chain is smaller than the output), so
-        // it is the pass that carries the overlay there - the third and last case of the split the composite's
-        // frame states. The runner gates it on the feature `upscale`, which is `post_upscale_active()`: the same
-        // predicate that decided this frame's composite TARGET, so the pass runs exactly when the LDR image is
-        // what the composite wrote. It sits AFTER the FXAA stage because it is the later half of the exclusive
-        // pair (`post_fxaa_active` is false whenever this one is true), and it has no timing mark of its own: on
-        // the frames it runs its cost is reported in the interval after `fxaa_end`, which is where the frame's
-        // remaining commands already are.
-        pass::stage const upscale_stage = {.name = "upscale", .passes = this->upscale_pass, .marks = false};
-        this->prepare_stage(upscale_stage);
-        [[maybe_unused]] pass::run_report const upscale_report = pass::record_stage(upscale_stage, this->make_pass_host());
-
-        // true in all three paths: the composite (when neither resolve runs), the FXAA pass or the upscale pass
-        // wrote the swapchain
-        return true;
+        // THE ONE RECORDING PATH: the composed graph records the scene chain and the post chain
+        // (record_post_graph's own comment states the lanes). The legacy scene tail and the legacy post
+        // stages this function used to fall back to are gone.
+        this->bloom_graph_error = this->record_post_graph();
+        if (this->bloom_graph_error != rhi::error::ok)
+            deren::utility::log("post graph: recording refused ({})", static_cast<std::uint32_t>(this->bloom_graph_error));
+        return this->bloom_graph_error == rhi::error::ok;
     }
     frame_status runtime::end_recording() {
         deren::engine::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::post};
@@ -4025,7 +3402,7 @@ namespace deren::engine {
         }
         if (this->frame_chain != nullptr)
             this->submitted_resource_views[this->frame_ring().position()] = this->frame_chain->resources().snapshot();
-        if ((this->bloom_graph_enabled || this->post_graph_enabled) && this->bloom_graph_pending)
+        if (this->bloom_graph_pending)
             for (auto const& generation : this->bloom_graph_pending_generations)
                 if (generation)
                     this->bloom_graph_states[weak_bloom_generation{generation}][this->current_image_index] = true;

@@ -3573,9 +3573,9 @@ int32_t main() {
         CHECK_MSG(goo_rim_answer.find("self.runtime_owner->goo_toon_active()") != deren::utility::vessel::string::npos, "answered with the SAME predicate the pipeline choice uses");
         CHECK_MSG(goo_rim_answer.find("self.goo_rim->ready() && goo_toon_active") != deren::utility::vessel::string::npos, "and true only when the rewritten chain is the one drawing");
         // ... and the frame loop records the stage after the character stage, gated on that name
-        deren::utility::vessel::string const frames = slurp("source/engine/runtime/runtime.frames.cppm");
-        CHECK_MSG(frames.find("this->goo_rim_pass = {at(\"goo_rim\")};") != deren::utility::vessel::string::npos, "the stage is bound to the chain by name");
-        CHECK_MSG(frames.find("pass::stage const goo_rim_stage = {.name = \"goo_rim\"") != deren::utility::vessel::string::npos, "and recorded as its own stage");
+        deren::utility::vessel::string const graph_site = slurp("source/engine/runtime/runtime.post_graph.cpp");
+        CHECK_MSG(graph_site.find("graph::goo_rim::append(") != deren::utility::vessel::string::npos, "the rim is recorded as its own lane of the composed graph");
+        CHECK_MSG(graph_site.find("if (this->feature_active(\"goo_rim\"))") != deren::utility::vessel::string::npos, "and gated on the chain's own feature name");
         // ... and the G-buffer's publication is gated on the same feature name, or a frame with `goo_toon` off
         // would transition images for a pass that never draws
         CHECK_MSG(demo.find("services.feature_active(services.owner, \"goo_rim\")") != deren::utility::vessel::string::npos, "the stage preamble is gated on the same name");

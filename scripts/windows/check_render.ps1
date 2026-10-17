@@ -86,13 +86,6 @@ param(
     # prints is the one that means something; this script's own `changed`/exit 1 is about the stale local
     # reference set (see the note at the summary).
     [string]$Compare = "",
-    # THE FALLBACK-PATH GATE: run the whole round with the composed render graph DISABLED
-    # ([render] main_render_graph = false), i.e. through the legacy scene tail. The graph is the DEFAULT now -
-    # every scenario records through it unless something selects the tail, which today is only the
-    # experimental MegaLights feature - so this switch is how the tail that feature still uses stays verified
-    # against the same frozen references (the references were captured from the tail). Each scenario's own
-    # debug.log says which of the two ran.
-    [switch]$Legacy,
     [string]$Model = "C:\Users\23530\Desktop\yzk\glTF-Sample-Assets\Models\DamagedHelmet\glTF\DamagedHelmet.gltf",
     [int]$Frames = 40,
     [string]$Camera = "35,20,7,0,-1.6,0",
@@ -341,11 +334,6 @@ function Write-ScenarioConfig {
     foreach ($k in $defaults.Keys) {
         if ($Scenario.extra.ContainsKey($k)) { continue } # the scenario's value wins (see above)
         $lines += "$k = $($defaults[$k])"
-    }
-    # -Legacy turns the composed graph OFF for the whole round; a scenario that names the key itself wins,
-    # because TOML forbids a duplicate key and toml++ would reject the whole file (see the note above).
-    if ($Legacy -and -not $Scenario.extra.ContainsKey("main_render_graph")) {
-        $lines += "main_render_graph = false"
     }
     foreach ($k in $Scenario.extra.Keys) { $lines += "$k = $($Scenario.extra[$k])" }
     $lines += @(
