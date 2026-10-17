@@ -1258,8 +1258,11 @@ target_link_libraries(render_graph_shadow PUBLIC render_graph_core)
 add_library(render_graph_taa STATIC)
 target_sources(render_graph_taa PUBLIC FILE_SET CXX_MODULES FILES source/engine/render_graph/taa.cppm)
 target_link_libraries(render_graph_taa PUBLIC render_graph_core)
+add_library(render_graph_gbuffer_debug STATIC)
+target_sources(render_graph_gbuffer_debug PUBLIC FILE_SET CXX_MODULES FILES source/engine/render_graph/gbuffer_debug.cppm)
+target_link_libraries(render_graph_gbuffer_debug PUBLIC render_graph_core)
 target_link_libraries(deren_engine PUBLIC render_graph_bloom render_graph_post render_graph_compose render_graph_lighting render_graph_geometry
-                                  render_graph_cluster render_graph_shadow render_graph_taa)
+                                  render_graph_cluster render_graph_shadow render_graph_taa render_graph_gbuffer_debug)
 
 if(VR_BUILD_TESTS)
     enable_testing()

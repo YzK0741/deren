@@ -501,6 +501,18 @@ lane and the eligibility change (the graph must accept a debug frame by requirin
 the lighting stage, and record the debug view INSTEAD of the lighting lane), plus the graph ownership of the
 HDR target transition the frame loop issues today.
 
+The debug view is now MIGRATED. `graph::gbuffer_debug` declares the four sampled reads and the HDR-target
+CLEAR write; `record_post_graph` records it as lane 12 INSTEAD of the lighting lane when the frame's debug view
+is active; and `main_graph_candidate()` now asks for the G-BUFFER pass (`gbuffer_pass_active()`) instead of the
+deferred lighting stage, with `graph_debug_frame` deciding which producer the graph records. The HDR target
+transition the frame loop issues for the view belongs to legacy frames only now - on a graph frame the graph's
+own declaration emits it.
+
+Evidence: CTest 44/44; the gate round is byte-identical for all fourteen scenarios (matched 14, mismatched 0)
+with zero validation findings; the `deformation` scenario - the debug-view scenario - records through the graph
+with its hash unchanged (`723569BA0D03640C`), and the pure-graph scenario count is now 9 (the seven before plus
+the TAA scenario and `deformation`).
+
 ## What stage 1 changes about the plan
 
 1. Stage 2's first task was to explain the mid-run flip, and it is done: the term that refuses the

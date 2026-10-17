@@ -12,6 +12,7 @@ import deren.engine.render_graph.geometry;
 import deren.engine.render_graph.cluster;
 import deren.engine.render_graph.shadow;
 import deren.engine.render_graph.taa;
+import deren.engine.render_graph.gbuffer_debug;
 import deren.engine.pass.taa;
 import deren.engine.pass;
 import deren.engine.pass.output_targets;
@@ -22,8 +23,8 @@ namespace deren::engine {
     namespace {
         struct post_recording_payload {
             pass::pass_host host{};
-            std::array<pass::resolved_io, 12> ios;
-            std::array<pass::frame_pass*, 12> passes{};
+            std::array<pass::resolved_io, 13> ios;
+            std::array<pass::frame_pass*, 13> passes{};
             rhi::error record(unsigned lane) const noexcept {
                 if (host.apply_behaviour)
                     host.apply_behaviour(host.context, *passes[lane], ios[lane]);
@@ -473,36 +474,59 @@ namespace deren::engine {
                                                                                });
             if (!geometry_bound)
                 return post_build_error(geometry_bound.error());
-            auto appended = build.append([&](graph::builder& description) noexcept { return graph::lighting::append(description, lighting_inputs); });
-            if (!appended)
-                return post_build_error(appended.error());
-            lit = *appended;
-            pass::stage stage{.name = "deferred", .passes = this->deferred_pass, .marks = false};
-            this->prepare_stage(stage, true);
-            passes[6] = this->deferred_pass[0];
-            ios[6].push_block = host.push_block;
-            if (!passes[6] || !host.resolve || !host.resolve(host.context, *passes[6], ios[6]) ||
-                ios[6].list != commands.get() || ios[6].targets.size() != 1 || ios[6].targets[0].image_handle != scene_target_image)
-                return rhi::error::not_ready;
-            auto bound = build.bind_pass<graph::lighting::parameters>(lit->pass,
-                                                                      [this, payload, index](graph::lighting::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
-                                                                          auto error = payload->record(6);
-                                                                          if (error != rhi::error::ok)
-                                                                              return error;
-                                                                          this->gbuffer_depth_written[index] = false;
-                                                                          this->gbuffer_targets_written[index] = false;
-                                                                          this->gpu_mark(gpu_mark_id::lighting_end);
-                                                                          this->gpu_mark(gpu_mark_id::gaussian_prepare_end);
-                                                                          this->gpu_mark(gpu_mark_id::gaussian_sort_end);
-                                                                          this->gpu_mark(gpu_mark_id::gaussian_finalize_end);
-                                                                          this->gpu_mark(gpu_mark_id::gaussian_raster_end);
-                                                                          this->gpu_mark(gpu_mark_id::transparent_end);
-                                                                          this->gpu_mark(gpu_mark_id::taa_end);
-                                                                          this->gpu_mark(gpu_mark_id::main_end);
-                                                                          return rhi::error::ok;
-                                                                      });
-            if (!bound)
-                return post_build_error(bound.error());
+            if (!this->graph_debug_frame) {
+                auto appended = build.append([&](graph::builder& description) noexcept { return graph::lighting::append(description, lighting_inputs); });
+                if (!appended)
+                    return post_build_error(appended.error());
+                lit = *appended;
+                pass::stage stage{.name = "deferred", .passes = this->deferred_pass, .marks = false};
+                this->prepare_stage(stage, true);
+                passes[6] = this->deferred_pass[0];
+                ios[6].push_block = host.push_block;
+                if (!passes[6] || !host.resolve || !host.resolve(host.context, *passes[6], ios[6]) ||
+                    ios[6].list != commands.get() || ios[6].targets.size() != 1 || ios[6].targets[0].image_handle != scene_target_image)
+                    return rhi::error::not_ready;
+                auto bound = build.bind_pass<graph::lighting::parameters>(lit->pass,
+                                                                          [this, payload, index](graph::lighting::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                                                                              auto error = payload->record(6);
+                                                                              if (error != rhi::error::ok)
+                                                                                  return error;
+                                                                              this->gbuffer_depth_written[index] = false;
+                                                                              this->gbuffer_targets_written[index] = false;
+                                                                              this->gpu_mark(gpu_mark_id::lighting_end);
+                                                                              this->gpu_mark(gpu_mark_id::gaussian_prepare_end);
+                                                                              this->gpu_mark(gpu_mark_id::gaussian_sort_end);
+                                                                              this->gpu_mark(gpu_mark_id::gaussian_finalize_end);
+                                                                              this->gpu_mark(gpu_mark_id::gaussian_raster_end);
+                                                                              this->gpu_mark(gpu_mark_id::transparent_end);
+                                                                              this->gpu_mark(gpu_mark_id::taa_end);
+                                                                              this->gpu_mark(gpu_mark_id::main_end);
+                                                                              return rhi::error::ok;
+                                                                          });
+                if (!bound)
+                    return post_build_error(bound.error());
+            } else {
+                // THE G-BUFFER DEBUG VIEW AS A GRAPH PASS (adoption stage 2J): it samples the stored targets and the
+                // motion vectors and CLEARS the HDR target into one visible channel - the lane that runs INSTEAD of
+                // the lighting stage on a debug frame. Its four input transitions and the HDR write are the graph's
+                // now; the frame loop's own HDR transition for this view belongs to legacy frames only.
+                pass::stage debug_stage{.name = "gbuffer_debug", .passes = this->gbuffer_debug_stage, .marks = false};
+                this->prepare_stage(debug_stage, true);
+                passes[12] = this->gbuffer_debug_stage[0];
+                ios[12].push_block = host.push_block;
+                if (!passes[12] || !host.resolve || !host.resolve(host.context, *passes[12], ios[12]) || ios[12].list != commands.get() ||
+                    ios[12].targets.size() != 1 || ios[12].targets[0].image_handle != scene_target_image)
+                    return rhi::error::not_ready;
+                auto debug_added = build.append([&](graph::builder& description) noexcept {
+                    return graph::gbuffer_debug::append(description, {lighting_inputs.surface, *velocity_ref, scene_target});
+                });
+                if (!debug_added)
+                    return post_build_error(debug_added.error());
+                auto debug_bound = build.bind_pass<graph::gbuffer_debug::parameters>(
+                    debug_added->pass, [payload](graph::gbuffer_debug::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(12); });
+                if (!debug_bound)
+                    return post_build_error(debug_bound.error());
+            }
             // THE TAA RESOLVE AND ITS HISTORY COPY (adoption stage 2I): TWO graph passes from the one pass object.
             // The resolve turns the working image (which geometry and lighting just wrote) into this HDR image;
             // the copy moves that HDR image into the history. The graph owns the attachment transition, the

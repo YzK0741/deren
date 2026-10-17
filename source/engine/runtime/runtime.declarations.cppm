@@ -1535,6 +1535,9 @@ namespace deren::engine {
         bool graph_shadow_frame = false;
         // Whether THIS frame's TAA resolve (and its history copy) is recorded by the composed graph.
         bool graph_taa_frame = false;
+        // Whether THIS frame's G-buffer debug view is recorded by the composed graph (it REPLACES the lighting lane
+        // on such a frame, which is why the eligibility asks for the G-buffer pass rather than the lighting stage).
+        bool graph_debug_frame = false;
         // Per swapchain image: whether the TAA history image has been transitioned to sampled at least once (by
         // either path). The graph can only import "defined contents in a KNOWN layout", so its first use of a
         // history image needs the one transition the legacy pass issues for itself - and the invariant every frame

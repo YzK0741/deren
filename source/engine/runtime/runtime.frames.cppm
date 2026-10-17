@@ -852,6 +852,11 @@ namespace deren::engine {
         // the next step); the resolve and its history copy are two graph passes because the model allows one
         // access per resource per pass, and the history's cross-frame state rides taa_history_in_transfer_state.
         this->graph_taa_frame = this->main_graph_frame && this->taa_active() && this->taa_pass[0] != nullptr;
+        // THE G-BUFFER DEBUG VIEW'S LANE: a debug frame records through the graph with the debug view INSTEAD of the
+        // lighting stage (the view wins over lighting), so the eligibility asks for the G-buffer pass and this flag
+        // says which producer the graph records.
+        this->graph_debug_frame = this->main_graph_frame && !this->deferred_lit_active() && this->gbuffer_pass_active() &&
+                                  this->gbuffer_debug_stage[0] != nullptr;
 
         // Debug and unlit frames can skip the entire deferred stage; they must not retain its history.
         this->megalights_resolved = false;
@@ -1114,10 +1119,12 @@ namespace deren::engine {
         // TAA is no longer an exclusion (adoption stage 2I): the composed graph records its resolve and history copy
         // as two lanes, writes the resolve's WORKING image from geometry and lighting, and keeps the history copy
         // alive by exporting the history image - without that export the value-root culling dropped the copy and the
-        // history was never written (that was the flip's whole defect). The exclusions that remain are the paths
+        // history was never written (that was the flip's whole defect).
+        // THE G-BUFFER DEBUG VIEW is no exclusion either (stage 2J): it needs the G-BUFFER pass, not the lighting
+        // stage, because on a debug frame it records INSTEAD of lighting. The exclusions that remain are the paths
         // whose PASSES are still outside the graph.
         auto const features = this->active_features();
-        return this->main_graph_enabled && this->deferred_lit_active() &&
+        return this->main_graph_enabled && this->gbuffer_pass_active() &&
                !features.rt_shadow && !this->megalights_active() &&
                !this->gaussian_active() && !features.transparent && !this->feature_active("character_forward") &&
                !this->feature_active("toon_screen_rim") && !this->feature_active("goo_rim");
