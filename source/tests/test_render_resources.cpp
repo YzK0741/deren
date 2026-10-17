@@ -61,8 +61,8 @@ int32_t main() {
     // ---- the schema describes itself, completely ----
     auto const schema = rr::validate_schema();
     CHECK_MSG(schema.has_value(), schema.has_value() ? "" : schema.error().c_str());
-    CHECK(rr::resource_schema.size() == 74);
-    CHECK(static_cast<uint32_t>(rr::resource_id::count) == 75); // 76 families plus `none`
+    CHECK(rr::resource_schema.size() == 75);
+    CHECK(static_cast<uint32_t>(rr::resource_id::count) == 76); // 76 families plus `none`
     CHECK(rr::find(rr::resource_id::material_table)->scope == rr::resource_scope::device_wide);
     CHECK(rr::find(rr::resource_id::instance_table)->scope == rr::resource_scope::device_wide);
     CHECK(rr::find(rr::resource_id::skin_matrices_previous)->scope == rr::resource_scope::per_frame_slot);

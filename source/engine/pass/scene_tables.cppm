@@ -11,22 +11,25 @@ import deren.engine.pass;
 import deren.engine.render_resource;
 import deren.engine.primitive;
 import deren.engine.meshlet;
+import deren.engine.visibility;
 import deren.engine.render_layout;
 import deren.promise.rhi;
 export namespace deren::engine::pass {
     class scene_tables_pass final : public frame_pass {
-        deren::utility::vessel::array<bool, 9> required{true, true, true, true, true, true, true, true, true};
+        deren::utility::vessel::array<bool, 10> required{true, true, true, true, true, true, true, true, true, true};
         render_resource::instances::resource_snapshot resource_view;
 
     public:
-        static constexpr size_t resource_count = 9;
+        static constexpr size_t resource_count = 10;
         static constexpr deren::utility::vessel::array ids{render_resource::resource_id::material_table, render_resource::resource_id::instance_table,
                                                            render_resource::resource_id::toon_colour_table, render_resource::resource_id::toon_lane_table, render_resource::resource_id::toon_rig_table,
                                                            render_resource::resource_id::meshlet_table, render_resource::resource_id::mesh_indirect_commands,
-                                                           render_resource::resource_id::meshlet_statistics, render_resource::resource_id::meshlet_culled_table};
+                                                           render_resource::resource_id::meshlet_statistics, render_resource::resource_id::meshlet_culled_table,
+                                                           render_resource::resource_id::visibility_items};
         static constexpr deren::utility::vessel::array heap_slots{render_layout::heap_slots::materials, render_layout::heap_slots::instance_transforms,
                                                                   render_layout::heap_slots::toon_colours, render_layout::heap_slots::toon_lanes, render_layout::heap_slots::toon_rig,
-                                                                  render_layout::heap_slots::meshlets, 0u, render_layout::heap_slots::meshlet_stats, render_layout::heap_slots::meshlet_culled};
+                                                                  render_layout::heap_slots::meshlets, 0u, render_layout::heap_slots::meshlet_stats, render_layout::heap_slots::meshlet_culled,
+                                                                  render_layout::heap_slots::visibility_items};
         static deren::utility::vessel::array<render_resource::instances::request, resource_count> descriptions(render_resource::instances::resource_context const& context) {
             namespace managed = render_resource::instances;
             namespace rhi = deren::promise::rhi;
@@ -35,7 +38,8 @@ export namespace deren::engine::pass {
                 uint64_t(material_capacity) * uint64_t(toon_colour_lane::count) * sizeof(glm::vec4),
                 uint64_t(material_capacity) * toon_lane_blocks * sizeof(glm::uvec4), sizeof(toon_rig), uint64_t(meshlet_capacity) * sizeof(meshlet),
                 uint64_t(context.frame_slots) * 2u * meshlet_capacity * rhi::mesh_task_command_size,
-                uint64_t(context.frame_slots) * 8u * sizeof(uint32_t), uint64_t(context.frame_slots) * meshlet_capacity * sizeof(meshlet)};
+                uint64_t(context.frame_slots) * 8u * sizeof(uint32_t), uint64_t(context.frame_slots) * meshlet_capacity * sizeof(meshlet),
+                uint64_t(context.frame_slots) * deren::engine::visibility::id_item_capacity * sizeof(deren::engine::visibility::draw_item)};
             deren::utility::vessel::array<managed::request, resource_count> values;
             for (size_t i = 0; i < values.size(); ++i) {
                 auto& value = values[i];

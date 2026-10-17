@@ -61,6 +61,7 @@ import deren.engine.pass.compute_skin;          // ... and the compute-skinning 
 import deren.engine.pass.geometry_buffer_debug; // the fifteenth: the G-buffer debug view
 import deren.engine.pass.shadow;                // the sixteenth: the directional shadow map, one depth-only cascade per layer
 import deren.engine.pass.cluster;
+import deren.engine.visibility; // the visibility buffer's packed id and draw-item record
 import deren.engine.pass.scene_constants;
 import deren.engine.pass.scene_deformation;
 import deren.engine.pass.scene_tables;
@@ -868,7 +869,7 @@ namespace deren::engine {
         pass::scene_constants_pass* fallback_constants_provider = nullptr;
         pass::scene_deformation_pass* fallback_deformation_provider = nullptr;
         pass::scene_tables_pass* fallback_tables_provider = nullptr;
-        deren::utility::vessel::array<render_resource::instances::resource_snapshot, 9> scene_table_resource_views;
+        deren::utility::vessel::array<render_resource::instances::resource_snapshot, pass::scene_tables_pass::resource_count> scene_table_resource_views;
         pass::output_targets_pass* fallback_output_provider = nullptr;
 
         // THE PASSES ARE NOT CONSTRUCTED HERE ANY MORE, and the stage arrays below are what is left of this class's
@@ -1995,6 +1996,16 @@ namespace deren::engine {
         /// the two endpoints the recording path calls (see render_environment::meshlet_view_proj / _write)
         static bool meshlet_view_proj(void* owner, float* out16);
         static bool meshlet_culled_write(void* owner, uint32_t base, std::span<std::byte const> records);
+        /**
+         * THE VISIBILITY ITEM TABLE (visibility-buffer v0.2b, `deren.engine.visibility::draw_item`): a per-frame
+         * lane of id_item_capacity 112-byte records, host-visible because the recording path writes it while it
+         * builds the main view's draws and heap-bound because the resolve compute pass is its only reader.
+         * Empty until the raster lane exists (V0.3), which is why this slice changes no picture.
+         */
+        static constexpr uint32_t visibility_item_capacity = deren::engine::visibility::id_item_capacity;
+        render_resource::instances::borrowed<rhi::buffer> visibility_items_buffer = {};
+        void* visibility_items_mapped = nullptr;
+        static bool visibility_items_write(void* owner, uint32_t base, std::span<std::byte const> records);
         /**
          * THE STRUCTURE PHASE ITSELF, which is one value now (see `deren.engine.ray_tracing`): the bottom and top level
          * structures, the map from their indices back to the casters they were built from, and the MASK/skin

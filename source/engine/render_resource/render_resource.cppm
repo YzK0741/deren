@@ -129,6 +129,8 @@ export namespace deren::engine::render_resource {
         mesh_indirect_commands,
         meshlet_statistics,
         meshlet_culled_table,
+        // the per-frame visibility item table (v0.2b): one draw_item per visible item, read by the resolve
+        visibility_items,
         gaussian_instances,
         gaussian_ranges,
         gaussian_keys,
@@ -280,6 +282,7 @@ export namespace deren::engine::render_resource {
         {.id = resource_id::mesh_indirect_commands, .name = "mesh_indirect_commands", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::meshlet_statistics, .name = "meshlet_statistics", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
         {.id = resource_id::meshlet_culled_table, .name = "meshlet_culled_table", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::visibility_items, .name = "visibility_items", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::gaussian_instances, .name = "gaussian_instances", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::gaussian_ranges, .name = "gaussian_ranges", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::gaussian_keys, .name = "gaussian_keys", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},

@@ -1502,6 +1502,31 @@ namespace deren::engine {
 
     // THIS FRAME'S COMPACTED RUN of a primitive's surviving meshlets. The layout is the shared table's, one frame
     // lane apart, so a workgroup id selects the i-th SURVIVOR directly - and the entry point needs no second lookup.
+    bool runtime::visibility_items_write(void* const owner, uint32_t const base, std::span<std::byte const> const records) {
+        runtime* const self = static_cast<runtime*>(owner);
+        if (self->visibility_items_mapped == nullptr) {
+            return false;
+        }
+        using deren::engine::visibility::draw_item;
+        if (records.size_bytes() % sizeof(draw_item) != 0) {
+            return false;
+        }
+        uint32_t const count = static_cast<uint32_t>(records.size_bytes() / sizeof(draw_item));
+        uint32_t const capacity = runtime::visibility_item_capacity;
+        if (base > capacity || count > capacity - base) {
+            static bool logged = false;
+            if (!logged) {
+                logged = true;
+                deren::utility::log("visibility: a run of {} items at {} does not fit the item table ({} items) - the frame falls back to the old geometry path",
+                                    count, base, capacity);
+            }
+            return false;
+        }
+        auto* const table = static_cast<uint8_t*>(self->visibility_items_mapped);
+        std::memcpy(table + (static_cast<std::size_t>(self->frame_ring().position()) * capacity + base) * sizeof(draw_item), records.data(), records.size_bytes());
+        return true;
+    }
+
     bool runtime::meshlet_culled_write(void* const owner, uint32_t const base, std::span<std::byte const> const records) {
         runtime* const self = static_cast<runtime*>(owner);
         if (self->meshlet_culled_mapped == nullptr) {

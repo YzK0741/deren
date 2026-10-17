@@ -1010,6 +1010,25 @@ namespace deren::engine {
             }
         }
 
+        // ---- THE VISIBILITY ITEM TABLE (visibility-buffer v0.2b): one lane of id_item_capacity draw_item records
+        //      per frame in flight, host-visible and heap-bound for the same two reasons the culled table above is:
+        //      the host writes it while it records, and the resolve compute pass has no other route to it than the
+        //      heap. NOTHING WRITES IT YET (the raster lane is V0.3), which is why this changes no picture. ----
+        {
+
+            // Allocation and zero initialization are provided by scene_tables_pass.
+            if (contract_heap_ready(this->rhi_face())) {
+                bool const written = this->write_heap_buffer(*this->visibility_items_buffer,
+                                                             deren::engine::render_layout::heap_slots::visibility_items,
+                                                             static_cast<std::uint64_t>(this->frame_ring().slot_count()) *
+                                                                 static_cast<std::uint64_t>(runtime::visibility_item_capacity) * sizeof(deren::engine::visibility::draw_item),
+                                                             rhi::descriptor_type::storage_buffer);
+                if (!written) {
+                    deren::utility::log("descriptor heap: the visibility item table was NOT written - the visibility path cannot bind it");
+                }
+            }
+        }
+
         // Per-instance transform buffer (set 0 binding 6): one mat4 per instance, host-visible;
         // filled by set_instanced_draw() for instanced stress draws (see pbr.vert)
 
@@ -1413,10 +1432,12 @@ namespace deren::engine {
             this->rhi_face().wait_idle();
         }
         if (tables_changed) {
-            deren::utility::vessel::array<decltype(&this->material_buffer), 9> const handles{&this->material_buffer, &this->instance_buffer, &this->toon_colour_buffer, &this->toon_lane_buffer, &this->toon_rig_buffer,
-                                                                                             &this->meshlet_buffer, &this->mesh_indirect_buffer, &this->meshlet_stats_buffer, &this->meshlet_culled_buffer};
-            deren::utility::vessel::array<decltype(&this->material_mapped), 9> const mappings{&this->material_mapped, &this->instance_mapped, &this->toon_colour_mapped, &this->toon_lane_mapped, &this->toon_rig_mapped,
-                                                                                              &this->meshlet_mapped, &this->mesh_indirect_mapped, &this->meshlet_stats_mapped, &this->meshlet_culled_mapped};
+            deren::utility::vessel::array<decltype(&this->material_buffer), 10> const handles{&this->material_buffer, &this->instance_buffer, &this->toon_colour_buffer, &this->toon_lane_buffer, &this->toon_rig_buffer,
+                                                                                              &this->meshlet_buffer, &this->mesh_indirect_buffer, &this->meshlet_stats_buffer, &this->meshlet_culled_buffer,
+                                                                                              &this->visibility_items_buffer};
+            deren::utility::vessel::array<decltype(&this->material_mapped), 10> const mappings{&this->material_mapped, &this->instance_mapped, &this->toon_colour_mapped, &this->toon_lane_mapped, &this->toon_rig_mapped,
+                                                                                               &this->meshlet_mapped, &this->mesh_indirect_mapped, &this->meshlet_stats_mapped, &this->meshlet_culled_mapped,
+                                                                                               &this->visibility_items_mapped};
             for (size_t i = 0; i < tables.size(); ++i) {
                 if (this->scene_table_resource_views[i].find(required_tables[i].id) == tables[i])
                     continue;
@@ -1638,8 +1659,9 @@ namespace deren::engine {
     }
 
     void runtime::publish_scene_table_bindings() {
-        deren::utility::vessel::array<decltype(this->material_buffer), 9> const handles{this->material_buffer, this->instance_buffer, this->toon_colour_buffer, this->toon_lane_buffer, this->toon_rig_buffer,
-                                                                                        this->meshlet_buffer, this->mesh_indirect_buffer, this->meshlet_stats_buffer, this->meshlet_culled_buffer};
+        deren::utility::vessel::array<decltype(this->material_buffer), 10> const handles{this->material_buffer, this->instance_buffer, this->toon_colour_buffer, this->toon_lane_buffer, this->toon_rig_buffer,
+                                                                                         this->meshlet_buffer, this->mesh_indirect_buffer, this->meshlet_stats_buffer, this->meshlet_culled_buffer,
+                                                                                         this->visibility_items_buffer};
         auto const required = pass::scene_tables_pass::descriptions(render_resource::instances::resource_context{.frame_slots = this->frame_ring().slot_count()});
         if (!contract_heap_ready(this->rhi_face()))
             return;

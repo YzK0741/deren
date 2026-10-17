@@ -66,6 +66,9 @@ static const uint heap_slots_meshlet_stats = heap_slot_base + 746u;
 // group count IS the survivor count and a workgroup is never launched for a meshlet nobody will see. One descriptor
 // with a per-frame lane, like every other per-frame buffer (see core::heap_slots::meshlet_culled).
 static const uint heap_slots_meshlet_culled = heap_slot_base + 747u;
+// THE VISIBILITY ITEM TABLE (visibility-buffer v0.2b): a per-frame lane of draw_item records (112 B each), one
+// per visible draw item, written by the host and read by the resolve compute pass (one descriptor, per-frame lane).
+static const uint heap_slots_visibility_items = heap_slot_base + 755u;
 // THE TOON LANES BESIDE THE MATERIAL RECORD: one `uvec4` per material - x is that material's `_SDFLightmap`
 // texture-array index, y its `_MetallicGlossMap`'s, and z and w are reserved - where 0 in a component is "do not
 // read", the same contract `material_record::toon_indices` uses for its four. Lanes 0..3 of `deren::vulkan::toon_slot`

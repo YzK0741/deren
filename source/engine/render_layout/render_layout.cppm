@@ -212,6 +212,17 @@ export namespace deren::engine::render_layout {
          *       group count is the survivor count and no workgroup is launched for a culled meshlet.
          */
         static constexpr uint32_t meshlet_culled = heap_slot_base + 747u;
+        /**
+         * @brief THE VISIBILITY ITEM TABLE (visibility-buffer v0.2b): a per-frame lane of
+         *        `engine::visibility::id_item_capacity` draw_item records (112 B each), written by the host
+         *        while it builds the main view's draws and read by the resolve pass
+         *
+         * @note per frame rather than one slot, for the rule every per-frame buffer here follows: the frame
+         *       slot being recorded must not overwrite a lane the GPU is still reading. The resolve pass is a
+         *       COMPUTE stage, so its only route to the records is a heap descriptor, exactly as the mesh
+         *       stages reach the meshlet table.
+         */
+        static constexpr uint32_t visibility_items = heap_slot_base + 755u;
         // THE TOON LANES THAT DO NOT FIT THE MATERIAL RECORD: one `uvec4` per material, written once at
         // import. x is the face SDF map's texture-array index (`_SDFLightmap`), y the metallic/gloss map's
         // (`_MetallicGlossMap`), and z and w are reserved for the lanes the rest of the character work
