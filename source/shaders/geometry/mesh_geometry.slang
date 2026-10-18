@@ -181,6 +181,9 @@ static const uint mesh_stat_mesh_workgroups = 4u; // workgroups of the NON-meshl
 // the capture lane plus its consumer actually ran (the ids themselves cannot be seen in a shaded frame).
 static const uint mesh_stat_visibility_unresolved = 5u;
 static const uint mesh_stat_visibility_depth_mismatch = 6u;
+// the resolve's pixels whose triangle crossed the NEAR PLANE (item 3's size: every one of these is a
+// vertex behind the eye, which v0 cannot rebuild and the clip will recover)
+static const uint mesh_stat_visibility_clipped = 7u;
 
 /// @brief add @p value to one of this frame's mesh counters (see the block comment above)
 export void mesh_stat_add(const uint frame_slot, const uint counter, const uint value)

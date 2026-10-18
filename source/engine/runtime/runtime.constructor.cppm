@@ -526,9 +526,11 @@ namespace deren::engine {
         // had a resolve pass, and this is the only evidence that the ids/depth pair was actually consumed.
         uint64_t const visibility_unresolved = total[5];
         uint64_t const visibility_depth_mismatch = total[6];
-        if (visibility_unresolved != 0u || visibility_depth_mismatch != 0u) {
-            deren::utility::log("visibility resolve: {} pixel(s) could not rebuild their triangle (near-plane clip / degenerate, the known v0 limit), {} pixel(s) had an id/depth disagreement",
+        uint64_t const visibility_clipped = total[7];
+        if (visibility_unresolved != 0u || visibility_depth_mismatch != 0u || visibility_clipped != 0u) {
+            deren::utility::log("visibility resolve: {} pixel(s) could not rebuild their triangle (of which {} crossed the near plane - the clip item 3 lands recovers those), {} pixel(s) had an id/depth disagreement",
                                 visibility_unresolved,
+                                visibility_clipped,
                                 visibility_depth_mismatch);
         }
         if (workgroups == 0u && mesh_workgroups == 0u) {

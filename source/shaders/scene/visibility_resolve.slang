@@ -303,7 +303,10 @@ gbuffer_output resolve_pixel(const uint2 pixel,
     for (uint corner = 0u; corner < mesh_indices_per_triangle; ++corner) {
         if (!clip_to_screen_pixel(triangle.clip[corner], extent, screen[corner])) {
             // a vertex behind the eye: the rasterizer clipped this triangle, and v0 cannot rebuild the clipped
-            // triangle from three projected points (see the header). Counted, not silently wrong.
+            // triangle from three projected points (see the header). Counted, not silently wrong - and counted
+            // in its OWN lane too, so the near-plane share of the unresolved pixels is a measurement rather than
+            // an assumption (item 3 sizes itself with it).
+            mesh_stat_add(push.frame_slot, mesh_stat_visibility_clipped, 1u);
             unresolved = true;
             return gbuffer_empty_output();
         }

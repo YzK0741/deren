@@ -579,3 +579,20 @@ strong; the corrected reading, with the measurement that settles it:
 
 Item 2 is therefore complete on its stated goal (both MASK frames are carried); item 3 (near-plane clipping)
 is the next quality lever, with the counter above as its acceptance measurement.
+
+## The near-plane share is measured, and item 3 is sized (round 21)
+
+The resolve's unresolved pixels now have a second counter (`mesh_stat_visibility_clipped`, stat lane 7): the
+pixels whose triangle crossed the NEAR PLANE, counted where `clip_to_screen_pixel` fails. On sponza ON
+(62 items, the alpha-tested MASK frame admitted in item 2):
+
+  visibility resolve: 858,868 pixels could not rebuild their triangle,
+                      OF WHICH 852,390 (99.25%) CROSSED THE NEAR PLANE,
+                      0 had an id/depth disagreement
+
+So item 3's target is precise and nearly the whole residue: 852,390 session pixels (~10.6k per frame, ~1.03% of
+a 1080x960 frame) are triangles with a vertex behind the eye - exactly what a Sutherland-Hodgman clip against
+the near plane recovers; the remaining 6,478 are degenerate/id-corruption cases that a clip does not address.
+Deferred ON and the frozen OFF gate are unaffected (no OFF code changed; the deferred reference scene has no
+near-plane triangle in view), CTest 49/49. Item 2's own claim stands as corrected in the previous section; the
+`masked_material` clause is gone and the two MASK frames record the new path.
