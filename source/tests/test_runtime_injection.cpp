@@ -131,6 +131,11 @@ namespace {
     constexpr char const* skin_history_mode = "--child-skin-history";
     constexpr char const* async_present_mode = "--child-async-present";
 
+    /// The contract's concrete-identity mismatch: `rhi::do_concrete` TERMINATES on a name that does not
+    /// match the handle's own concrete name, so the diagnostic is read from a child process exactly
+    /// like the two contract-version refusals above.
+    constexpr char const* do_concrete_panic_mode = "--child-do-concrete-panic";
+
     [[nodiscard]] bool has_flag(int const argc, char** const argv, char const* const flag) {
         for (int i = 1; i < argc; ++i) {
             if (deren::utility::vessel::string{argv[i]} == flag) {
@@ -242,6 +247,21 @@ namespace {
 
 int main(int const argc, char** const argv) {
     rhi::create_info const creation{};
+
+    if (has_flag(argc, argv, do_concrete_panic_mode)) {
+        // THE PANIC BRANCH OF THE CONTRACT'S VALIDATE-AND-CAST PAIR: the name is the backend's, the operation
+        // is the contract's, and a mismatch is the caller's invariant being broken - so it terminates with a
+        // diagnostic instead of returning a value. The parent below reads that diagnostic.
+        struct concrete_name_probe final : rhi::object {
+            concrete_name_probe() noexcept
+                : rhi::object("deren_contract_do_concrete_probe") {
+            }
+        };
+        concrete_name_probe probe{};
+        auto const* const wrong = rhi::do_concrete<concrete_name_probe>(probe, "deren_contract_do_concrete_other");
+        (void)wrong;
+        return 0; // unreachable while the panic is the specified mismatch answer
+    }
 
     if (has_flag(argc, argv, "--child-post-resources")) {
         namespace rr = deren::engine::render_resource;
@@ -1631,6 +1651,23 @@ int main(int const argc, char** const argv) {
               "the abi refusal names both numbers");
     CHECK_MSG(mismatch_panic.find(deren::utility::vessel::to_string(rhi::abi_version)) != deren::utility::vessel::string::npos,
               "the abi refusal names the number this image compiled");
+
+    // ---- 2b. THE CONTRACT'S CONCRETE-IDENTITY PANIC, ALSO FROM A CHILD -------------------------
+    // `do_concrete` is the one contract helper whose mismatch answer TERMINATES, so its diagnostic needs
+    // the same child-process treatment as the abi refusals: status is read from the process, the message
+    // from the last panic the child left (run_child captures its output, last_panic finds the marker).
+    child_outcome const do_concrete_child = run_child(argv[0], do_concrete_panic_mode);
+    deren::utility::vessel::string const do_concrete_panic = last_panic();
+    CHECK_MSG(do_concrete_child.ran && do_concrete_child.status != 0,
+              "a mismatched concrete name must terminate, not return a value");
+    CHECK_MSG(do_concrete_panic.find("do_concrete") != deren::utility::vessel::string::npos,
+              "the panic names the operation that was asked to cast");
+    CHECK_MSG(do_concrete_panic.find("deren_contract_do_concrete_probe") != deren::utility::vessel::string::npos,
+              "the panic names the handle's actual concrete name");
+    CHECK_MSG(do_concrete_panic.find("deren_contract_do_concrete_other") != deren::utility::vessel::string::npos,
+              "the panic names the concrete name the cast required");
+    CHECK_MSG(do_concrete_panic.find("test_runtime_injection.cpp") != deren::utility::vessel::string::npos,
+              "the panic reports the caller's source location");
 
     // ---- 4. THE PROBE IS ACCEPTED FIRST (the accepting path, one step past the handshake) ---------
     child_outcome const probe_child = run_child(argv[0], accepted_probe_mode);

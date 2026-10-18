@@ -13,7 +13,7 @@ namespace deren::vulkan {
         class owned_radix_sorter final : public rhi::radix_sorter {
         public:
             owned_radix_sorter(core& owner, VrdxSorter native) noexcept
-                : rhi::radix_sorter("deren_radix_sorter_vulkan")
+                : rhi::radix_sorter(concrete::radix_sorter)
                 , owner_(&owner)
                 , native_(native) {
             }
@@ -35,7 +35,7 @@ namespace deren::vulkan {
                 return {.scratch_bytes = req.size, .buffer_alignment = std::max<std::uint64_t>(4u, owner_->device_properties.limits.minStorageBufferOffsetAlignment), .scratch_flags = rhi::to_bits(rhi::buffer_flag::storage) | rhi::to_bits(rhi::buffer_flag::transfer_destination)};
             }
             rhi::error record(rhi::command_buffer& commands, rhi::radix_sort_info const& info) override {
-                if (commands.type != "deren_command_buffer_vulkan" && commands.type != "deren_frame_commands_vulkan") {
+                if (!rhi::is_concrete(commands, concrete::command_buffer) && !rhi::is_concrete(commands, concrete::frame_commands)) {
                     return rhi::error::invalid_argument;
                 }
                 auto& list = static_cast<core::frame_commands&>(commands);
@@ -52,7 +52,7 @@ namespace deren::vulkan {
                 if (!req.scratch_bytes)
                     return rhi::error::unsupported;
                 auto operand = [&](rhi::buffer* buffer, std::uint64_t offset, std::uint64_t bytes, rhi::buffer_flags flags) -> core::owned_buffer* {
-                    if (!buffer || buffer->type != "deren_buffer_vulkan") {
+                    if (buffer == nullptr || !rhi::is_concrete(*buffer, concrete::buffer)) {
                         return nullptr;
                     }
                     auto* owned = static_cast<core::owned_buffer*>(buffer);

@@ -62,7 +62,7 @@ namespace deren::vulkan {
     void core::frame_snapshot::release() noexcept {
         if (!release_logged) {
             release_logged = true;
-            deren::utility::log("rhi: release() on deren_frame_snapshot_vulkan refused: shared-owner image; reset its shared_ptr instead");
+            deren::utility::log("rhi: release() on {} refused: shared-owner image; reset its shared_ptr instead", concrete::frame_snapshot);
         }
     }
 } // namespace deren::vulkan

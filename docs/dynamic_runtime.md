@@ -25,7 +25,39 @@ compilations from drifting.
 
 The contract is versioned by `rhi::abi_version`, and a change to it is one of two kinds: **appending a
 slot to an existing interface bumps the number**, while **adding a new ability or extension does not**
-- a new capability is a new query, and a backend that does not implement it says so.
+- a new capability is a new query, and a backend that does not implement it says so. A third kind is the
+same as the second: a NEW type or a free helper function (a `constexpr`/`inline`/template declaration)
+bumps nothing, because nothing already crossing the boundary changes shape.
+
+## Object identity: concrete names, and the validate-then-cast pair
+
+Every contract handle derives from `rhi::object`, which carries ONE public member: `type`, a
+`std::string_view` holding the CONCRETE implementation name the backend chose (`deren_image_vulkan`,
+`deren_frame_image_vulkan`, ...). The name lives in static storage, and it is the identity the backend
+validates before it casts a handle to its own concrete layout. The granularity is CONCRETE, not the
+interface, because one interface has several layouts behind it: an owned image and the borrowed
+swapchain image are both `rhi::image`, and the frame's recording list and a caller-owned command buffer
+are both `rhi::command_buffer`.
+
+The check-then-cast operation belongs to the contract, in `:contract`, so every backend shares one
+copy of the rule:
+
+| name | answer |
+| --- | --- |
+| `rhi::is_concrete(object const&, string_view name)` | false = a handle this backend did not hand out; the caller-facing answer is `error::invalid_argument` (a factory answers `nullptr`) |
+| `rhi::do_concrete<concrete_t>(object const& / object&, name, source_location = current())` | the handle as its concrete adapter type. A mismatch PANICS: by the time this is called the provenance (registry membership, an object-identity comparison) has already been established, so a mismatch is the backend's own bookkeeping being inconsistent - a bug in the code holding the invariant, not a caller condition |
+
+The names are the BACKEND's, not the contract's: the Vulkan backend keeps its 27 constants in
+`deren::vulkan::concrete` and passes them to both calls, which is what lets a second backend apply the
+same rule with its own names. Moving the two helpers into `:contract` moved no `abi_version` - they are
+inline and template free functions over the existing field (no vtable slot, no by-value POD, no
+entry-point signature) - and the only dependency they add to `:contract` is `deren.utility.shared`, the
+process-wide panic sink both halves already link.
+
+One deliberate exception: the raw-handle escape (`vulkan_escape::native_buffer` / `native_image` / ...)
+and `device_address::buffer_address` still `static_cast` on a DOCUMENTED PRECONDITION with no runtime
+check. Their operands are handles the contract says only the owning backend may be asked about, so an
+invalid one is a caller bug rather than data to validate; those functions' own notes state it.
 
 ## The C entry: one symbol, resolved by name
 

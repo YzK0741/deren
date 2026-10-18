@@ -95,6 +95,21 @@ namespace {
         return rhi::validate_structure(info.header, rhi::structure_type::heap_buffer_write, sizeof(info)) == rhi::error::ok;
     }());
 
+    // THE CONTRACT-LEVEL CONCRETE IDENTITY PAIR (`is_concrete` / `do_concrete`): the validate-then-cast
+    // operation lives in deren.promise.rhi:contract so every backend shares it, and the NAME is the
+    // implementation's to choose. The probe below is the minimal concrete `rhi::object` a handle is -
+    // a static name and nothing else - so both answers of `is_concrete` are pinned here at compile time.
+    struct concrete_identity_probe final : rhi::object {
+        constexpr concrete_identity_probe() noexcept
+            : object("deren_contract_identity_probe") {
+        }
+    };
+    concrete_identity_probe const contract_identity_probe{};
+    static_assert([] {
+        constexpr concrete_identity_probe probe{};
+        return rhi::is_concrete(probe, "deren_contract_identity_probe") && !rhi::is_concrete(probe, "deren_image_vulkan");
+    }());
+
     // From CMake ($<TARGET_FILE_NAME:probe_backend>): the DLL suffix is platform-dependent, so the
     // test does not hard-code it.
     constexpr std::string_view probe_file_name = VR_TEST_PROBE_BACKEND_FILE_NAME;
@@ -823,6 +838,12 @@ int main(int argc, char** argv) {
     fs::path const self = argc > 0 && argv != nullptr && argv[0] != nullptr ? fs::absolute(fs::path{argv[0]})
                                                                             : fs::current_path();
     fs::path const directory = self.parent_path();
+
+    // THE CONTRACT'S VALIDATE-AND-CAST PAIR, measured on the object above with no file or device
+    // involved: a matching concrete name answers the SAME object as its own type. (The MISMATCH branch
+    // of `do_concrete` is a named panic - an internal-invariant guard, never a caller path - so it is
+    // pinned by the static_assert above rather than by a test that would terminate the process.)
+    CHECK(rhi::do_concrete<concrete_identity_probe>(contract_identity_probe, "deren_contract_identity_probe") == &contract_identity_probe);
 
     test_a_missing_file_is_a_returned_error(directory);
     test_the_platform_suffix_is_completed(directory);

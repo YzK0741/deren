@@ -148,7 +148,7 @@ namespace deren::vulkan {
     // member initialiser rather than a delegating constructor because the two spellings collapsed
     // into one signature - `core(create_info const&)` is the only constructor left to delegate to.
     core::core(deren::promise::rhi::create_info const& desc)
-        : deren::promise::rhi::api_core("deren_api_core_vulkan")
+        : deren::promise::rhi::api_core(concrete::api_core)
         , create_options{sanitize_create_info(desc)} {
         // THE RENDER SCALE BEFORE ANYTHING IS CREATED: `init_swap_chain` below sets `swap_chain_extent`,
         // which `render_extent()` multiplies, and `create_depth_resources` is created with the result (the

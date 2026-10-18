@@ -975,7 +975,7 @@ namespace deren::vulkan {
                 if (!this->owner->contract_images.contains(info.resource))
                     return rhi::error::invalid_argument;
             }
-            auto const& image = *static_cast<owned_image const*>(info.resource);
+            auto const& image = *rhi::do_concrete<owned_image>(*info.resource, concrete::image);
             auto const& range = *info.view;
             if (range.base_layer >= image.array_layers || range.base_mip >= image.mip_levels)
                 return rhi::error::invalid_argument;
@@ -2319,7 +2319,7 @@ namespace deren::vulkan {
                 return rhi::error::invalid_argument;
             }
         }
-        auto& other = static_cast<core::owned_command_buffer&>(secondary);
+        auto& other = *rhi::do_concrete<core::owned_command_buffer>(secondary, concrete::command_buffer);
         if (!other.simultaneous_use && other.recording_users.load(std::memory_order_acquire))
             return rhi::error::not_ready;
         if (other.kind != rhi::command_buffer_kind::secondary)
@@ -2350,7 +2350,7 @@ namespace deren::vulkan {
                 return rhi::error::invalid_argument;
             }
         }
-        auto& other = static_cast<core::owned_command_buffer&>(secondary);
+        auto& other = *rhi::do_concrete<core::owned_command_buffer>(secondary, concrete::command_buffer);
         if (!other.simultaneous_use && other.recording_users.load(std::memory_order_acquire))
             return rhi::error::not_ready;
         if (other.kind != rhi::command_buffer_kind::secondary)
@@ -2614,17 +2614,17 @@ namespace deren::vulkan {
                                                           rhi::image const& source,
                                                           rhi::image_copy_region const& region) noexcept {
         core* const self = this->owner;
-        if (source.type == "deren_image_vulkan") {
+        if (rhi::is_concrete(source, concrete::image)) {
             if (!self || !this->recording || this->native() == VK_NULL_HANDLE)
                 return rhi::error::not_ready;
-            if (destination.type != "deren_buffer_vulkan")
+            if (!rhi::is_concrete(destination, concrete::buffer))
                 return rhi::error::invalid_argument;
             {
                 std::lock_guard const lock(self->contract_images_mutex);
                 if (!self->contract_images.contains(&source))
                     return rhi::error::invalid_argument;
             }
-            auto const& image = static_cast<core::owned_image const&>(source);
+            auto const& image = *rhi::do_concrete<core::owned_image>(source, concrete::image);
             auto const& buffer = static_cast<core::owned_buffer const&>(destination);
             if (image.owner != self || buffer.owner != self || !buffer.readback)
                 return rhi::error::invalid_argument;
@@ -2949,7 +2949,7 @@ namespace deren::vulkan {
         // core itself owns (the same object `use()` accepts by identity) - so the identity check is the
         // second acceptance, with the format the swapchain was created with.
         auto const resolve_image = [&](rhi::image const* const resource, VkImage& native, VkFormat& format) -> rhi::error {
-            if (resource == nullptr || (resource->type != "deren_image_vulkan" && resource->type != "deren_frame_image_vulkan")) {
+            if (resource == nullptr || (!rhi::is_concrete(*resource, concrete::image) && !rhi::is_concrete(*resource, concrete::frame_image))) {
                 return rhi::error::invalid_argument;
             }
             if (static_cast<void const*>(resource) == static_cast<void const*>(&self->frame_image_view)) {
@@ -2961,7 +2961,7 @@ namespace deren::vulkan {
             if (!self->contract_images.contains(resource)) {
                 return rhi::error::invalid_argument;
             }
-            auto const* const owned = static_cast<owned_image const*>(resource);
+            auto const* const owned = rhi::do_concrete<owned_image>(*resource, concrete::image);
             native = owned->native_handle;
             format = owned->resolved_format;
             return rhi::error::ok;
@@ -3010,7 +3010,7 @@ namespace deren::vulkan {
             if (buffer_count >= buffer_barriers.size()) {
                 return rhi::error::invalid_argument;
             }
-            if (one.resource == nullptr || one.resource->type != "deren_buffer_vulkan") {
+            if (one.resource == nullptr || !rhi::is_concrete(*one.resource, concrete::buffer)) {
                 return rhi::error::invalid_argument;
             }
             auto const* const owned = static_cast<owned_buffer const*>(one.resource);
@@ -3060,7 +3060,7 @@ namespace deren::vulkan {
         // fields above): an older caller's bytes decode to "no acceleration-structure barriers".
         if (covered_by(group.struct_size, offsetof(rhi::barrier_group, acceleration_structures), sizeof(rhi::barrier_group::acceleration_structures))) {
             for (rhi::acceleration_structure_barrier const& one : group.acceleration_structures) {
-                if (one.resource == nullptr || one.resource->type != "deren_acceleration_structure_vulkan") {
+                if (one.resource == nullptr || !rhi::is_concrete(*one.resource, concrete::acceleration_structure)) {
                     return rhi::error::invalid_argument;
                 }
                 auto const& structure = static_cast<owned_acceleration_structure const&>(*one.resource);
@@ -3132,7 +3132,7 @@ namespace deren::vulkan {
             return rhi::error::invalid_argument;
         }
         auto const resolve_view = [&](rhi::image_view const* const view) -> VkImageView {
-            if (view == nullptr || view->type != "deren_image_view_vulkan") {
+            if (view == nullptr || !rhi::is_concrete(*view, concrete::image_view)) {
                 return VK_NULL_HANDLE;
             }
             return static_cast<owned_image_view const*>(view)->native_view;
@@ -3222,7 +3222,7 @@ namespace deren::vulkan {
         if (command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
-        if (handle.type != "deren_pipeline_vulkan") {
+        if (!rhi::is_concrete(handle, concrete::pipeline)) {
             return rhi::error::invalid_argument;
         }
         {
@@ -3230,7 +3230,7 @@ namespace deren::vulkan {
             if (!owner->contract_pipelines.contains(&handle))
                 return rhi::error::invalid_argument;
         }
-        auto const* const owned = static_cast<owned_pipeline const*>(&handle);
+        auto const* const owned = rhi::do_concrete<owned_pipeline>(handle, concrete::pipeline);
         vkCmdBindPipeline(command_buffer, owned->bind_point, owned->native_handle);
         bound_pipeline = owned;
         if (owned->group_binding.enabled) {
@@ -3248,7 +3248,7 @@ namespace deren::vulkan {
         if (command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
-        if (handle.type != "deren_buffer_vulkan") {
+        if (!rhi::is_concrete(handle, concrete::buffer)) {
             return rhi::error::invalid_argument;
         }
         auto const* const owned = static_cast<owned_buffer const*>(&handle);
@@ -3263,7 +3263,7 @@ namespace deren::vulkan {
         if (command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
-        if (handle.type != "deren_buffer_vulkan") {
+        if (!rhi::is_concrete(handle, concrete::buffer)) {
             return rhi::error::invalid_argument;
         }
         auto const* const owned = static_cast<owned_buffer const*>(&handle);
@@ -3474,7 +3474,7 @@ namespace deren::vulkan {
             out->scratch_address = this->address_view.buffer_address(*out->scratch, 0);
         }
 
-        auto const* const storage_buffer = static_cast<owned_buffer const*>(out->storage);
+        auto const* const storage_buffer = rhi::do_concrete<owned_buffer>(*out->storage, concrete::buffer);
         VkMicromapCreateInfoEXT create_info{};
         create_info.sType = VK_STRUCTURE_TYPE_MICROMAP_CREATE_INFO_EXT;
         create_info.pNext = nullptr;
@@ -3611,7 +3611,7 @@ namespace deren::vulkan {
                 // first attached it in the wrong place). THE INDEX ARRAY IS THIS BACKEND'S - it built the micromap
                 // and owns the buffer - which is what makes the contract's attachment one handle and a usage record.
                 if (source.opacity_micromap != nullptr) {
-                    if (source.opacity_micromap->type != "deren_micromap_vulkan") {
+                    if (!rhi::is_concrete(*source.opacity_micromap, concrete::micromap)) {
                         deren::utility::log("rhi: create_acceleration_structure refused: a geometry's opacity micromap is not a handle this backend handed out");
                         delete structure;
                         return nullptr;
@@ -3712,7 +3712,7 @@ namespace deren::vulkan {
         }
 
         // ---- 3. THE HANDLE AND ITS ADDRESS --------------------------------------------------------------
-        auto const* const storage_buffer = static_cast<owned_buffer const*>(structure->storage);
+        auto const* const storage_buffer = rhi::do_concrete<owned_buffer>(*structure->storage, concrete::buffer);
         VkAccelerationStructureCreateInfoKHR create_info{};
         create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
         create_info.pNext = nullptr;
@@ -3747,7 +3747,7 @@ namespace deren::vulkan {
         if (self->micromap_build == nullptr) {
             return rhi::error::unsupported; // no VK_EXT_opacity_micromap on this device (see the constructor)
         }
-        if (target.type != "deren_micromap_vulkan") {
+        if (!rhi::is_concrete(target, concrete::micromap)) {
             return rhi::error::invalid_argument; // a handle this backend did not hand out
         }
         auto& micromap = static_cast<owned_micromap&>(target);
@@ -3818,7 +3818,7 @@ namespace deren::vulkan {
         if (self->acceleration_structure_build == nullptr) {
             return rhi::error::unsupported; // no VK_KHR_acceleration_structure on this device (see the constructor)
         }
-        if (target.type != "deren_acceleration_structure_vulkan") {
+        if (!rhi::is_concrete(target, concrete::acceleration_structure)) {
             return rhi::error::invalid_argument; // a handle this backend did not hand out (the provenance rule)
         }
         auto& structure = static_cast<owned_acceleration_structure&>(target);
@@ -3882,7 +3882,7 @@ namespace deren::vulkan {
         if (self->acceleration_structure_build == nullptr) {
             return rhi::error::unsupported;
         }
-        if (target.type != "deren_acceleration_structure_vulkan") {
+        if (!rhi::is_concrete(target, concrete::acceleration_structure)) {
             return rhi::error::invalid_argument;
         }
         auto& structure = static_cast<owned_acceleration_structure&>(target);
@@ -3991,7 +3991,7 @@ namespace deren::vulkan {
         if (this->owner == nullptr || !this->recording || this->native() == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
-        if (arguments.type != "deren_buffer_vulkan") {
+        if (!rhi::is_concrete(arguments, concrete::buffer)) {
             return rhi::error::invalid_argument;
         }
         auto const& owned = static_cast<owned_buffer const&>(arguments);
@@ -4023,7 +4023,7 @@ namespace deren::vulkan {
         if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
-        if (argument_buffer.type != "deren_buffer_vulkan") {
+        if (!rhi::is_concrete(argument_buffer, concrete::buffer)) {
             return rhi::error::invalid_argument;
         }
         if (self->mesh_dispatch_indirect == nullptr) {
@@ -4097,13 +4097,13 @@ namespace deren::vulkan {
         VkFormat destination_format = VK_FORMAT_UNDEFINED;
         {
             std::lock_guard const lock(self->contract_images_mutex);
-            if (copy.source == nullptr || copy.destination == nullptr || (copy.source->type != "deren_image_vulkan" && copy.source->type != "deren_frame_image_vulkan") ||
-                (copy.destination->type != "deren_image_vulkan" && copy.destination->type != "deren_frame_image_vulkan") || !self->contract_images.contains(copy.source) ||
+            if (copy.source == nullptr || copy.destination == nullptr || (!rhi::is_concrete(*copy.source, concrete::image) && !rhi::is_concrete(*copy.source, concrete::frame_image)) ||
+                (!rhi::is_concrete(*copy.destination, concrete::image) && !rhi::is_concrete(*copy.destination, concrete::frame_image)) || !self->contract_images.contains(copy.source) ||
                 !self->contract_images.contains(copy.destination)) {
                 return rhi::error::invalid_argument;
             }
-            auto const* const source_owned = static_cast<owned_image const*>(copy.source);
-            auto const* const destination_owned = static_cast<owned_image const*>(copy.destination);
+            auto const* const source_owned = rhi::do_concrete<owned_image>(*copy.source, concrete::image);
+            auto const* const destination_owned = rhi::do_concrete<owned_image>(*copy.destination, concrete::image);
             source_native = source_owned->native_handle;
             source_format = source_owned->resolved_format;
             destination_native = destination_owned->native_handle;
@@ -4146,7 +4146,7 @@ namespace deren::vulkan {
         if (command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
-        if (destination.type != "deren_buffer_vulkan" || source.type != "deren_buffer_vulkan") {
+        if (!rhi::is_concrete(destination, concrete::buffer) || !rhi::is_concrete(source, concrete::buffer)) {
             return rhi::error::invalid_argument;
         }
         auto const* const destination_owned = static_cast<owned_buffer const*>(&destination);
@@ -4176,7 +4176,7 @@ namespace deren::vulkan {
         if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
-        if ((target.type != "deren_image_vulkan" && target.type != "deren_frame_image_vulkan")) {
+        if (!rhi::is_concrete(target, concrete::image) && !rhi::is_concrete(target, concrete::frame_image)) {
             return rhi::error::invalid_argument;
         }
         std::lock_guard const lock(self->contract_images_mutex);
@@ -4280,6 +4280,11 @@ namespace deren::vulkan {
         // ours, so the cast rests on the documented precondition rather than on a hopeful assumption -
         // and a RELEASED buffer must not reach here at all (touching a released handle is a caller bug
         // the contract names; this would turn it into a crash instead of a wrong answer).
+        //
+        // THE BORROWED READ-BACK SLOT IS NOT AN `owned_buffer` (it has its own layout and its own concrete
+        // name), so a caller must not ask this escape about it: the same documented precondition covers the
+        // escape's operands, and `rhi::is_concrete(..., concrete::buffer)` is the caller-side test when a
+        // caller does not already know the handle's provenance.
         auto const* const owned = static_cast<owned_buffer const*>(&resource);
         return reinterpret_cast<void*>(owned->native);
     }
@@ -4696,7 +4701,7 @@ namespace deren::vulkan {
                     return rhi::error::invalid_argument; // a list this backend did not hand out (provenance)
                 }
             }
-            auto& owned = static_cast<core::owned_command_buffer&>(commands);
+            auto& owned = *rhi::do_concrete<core::owned_command_buffer>(commands, concrete::command_buffer);
             if (owned.kind != rhi::command_buffer_kind::primary)
                 return rhi::error::invalid_argument;
             if (!owned.executable || owned.recording || owned.pending.load(std::memory_order_acquire))

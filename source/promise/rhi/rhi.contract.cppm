@@ -26,6 +26,11 @@ module;
 
 export module deren.promise.rhi:contract;
 
+// ONE PROJECT DEPENDENCY, AND ONLY ONE: `deren.utility.shared` is the process-wide half (the one
+// panic sink and the log), which BOTH halves of the boundary already link; the validate-and-cast
+// helpers below terminate through it, so the failure report cannot fork into a second routine.
+import deren.utility.shared;
+
 /**
  * @file source/promise/rhi/rhi.contract.cppm
  * @brief the ABI number the backend and the engine compare, and the `error` enum every promise entry
@@ -297,6 +302,12 @@ export namespace deren::promise::rhi {
     /// 30 -> 31: immutable texture groups and command-buffer group loading.
     // ABI 32 adds ordinary indirect drawing to the recording interface.
     // ABI33: owned readback storage uses vessel allocator across the DLL boundary.
+    // NOT A BUMP (the validate-and-cast helpers): `is_concrete()` / `do_concrete()` below are inline and
+    // template FREE functions over the existing `object::type` field - no vtable slot, no by-value POD,
+    // no entry-point signature moved, and the NAMES stay the backend's (the contract owns only the
+    // operation). They live here because EVERY backend needs the same "check the concrete name, then
+    // cast to the concrete layout" pair, and one copy is what keeps the next backend from reinventing
+    // it (or from weakening the panic/refusal split its own doc states).
     inline constexpr std::uint32_t abi_version = 33u;
 
     /// Why a promise entry point could not do what it was asked.
@@ -445,6 +456,68 @@ export namespace deren::promise::rhi {
         }
         ~object() = default; // Destruction stays on each interface's release path.
     };
+
+    /// THE CONCRETE-IDENTITY MECHANISM, SHARED BY EVERY BACKEND: a handle's `type` is the concrete
+    /// implementation name (ABI 30), the backend OWNS the name constants, and the validate-then-cast
+    /// operation lives HERE so a second backend cannot reinvent it (a D3D12 backend validates its own
+    /// names with the same two calls).
+    ///
+    /// WHY THE GRANULARITY IS CONCRETE, NOT THE INTERFACE: one interface has several concrete
+    /// implementations with different layouts behind it (`buffer` is owned and, separately, the
+    /// backend's borrowed read-back slot; `image` is owned and the borrowed swapchain image), so the
+    /// `static_cast` a true answer permits is defined only for the ONE layout the name names.
+    ///
+    /// A FALSE ANSWER IS A CALLER CONDITION at the function's entrance: a handle this backend did not
+    /// hand out, which the contract answers `rhi::error::invalid_argument` (or `nullptr` from a
+    /// factory). It is never a panic. The panic belongs to `do_concrete()`, which runs only after the
+    /// provenance has already been established - see its note.
+
+    /// @brief whether @p value is the concrete implementation @p name names
+    [[nodiscard]] constexpr bool is_concrete(object const& value, std::string_view const name) noexcept {
+        return value.type == name;
+    }
+
+    /// @brief the concrete implementation behind @p value, as its own type
+    ///
+    /// PANICS ON A MISMATCH, AND THAT IS DELIBERATE: by the time this is called the provenance has
+    /// already been established (registry membership, an object-identity comparison, ...), so a name
+    /// that does not match is the BACKEND'S own bookkeeping being inconsistent - a bug in the code
+    /// holding the invariant, which is what `deren::utility::panic` exists for ("a failure the code
+    /// EXPECTS travels as a value; a violated invariant terminates"). Callers that instead have a
+    /// handle which may legitimately be foreign use `is_concrete()` and answer
+    /// `rhi::error::invalid_argument`; they never route a container's caller bug through this cast.
+    ///
+    /// @param value the handle to cast; MUST already be proven to belong to the calling backend
+    /// @param name the concrete name the cast requires, taken from that backend's own constants
+    /// @param where the CALLER's site, captured by the default argument; the panic reports it
+    /// @tparam concrete_t the backend's concrete adapter type; spelled in snake_case because it is a
+    ///         local name for the type, not a conventional `T`
+    template <typename concrete_t>
+    [[nodiscard]] concrete_t const* do_concrete(object const& value, std::string_view const name,
+                                                std::source_location const where = std::source_location::current()) noexcept {
+        if (!is_concrete(value, name)) {
+            deren::utility::panic(deren::utility::vessel::format(
+                                      "rhi: do_concrete: a handle named \"{}\" is not the \"{}\" this cast requires - "
+                                      "provenance was already established, so the name and the registry disagree",
+                                      value.type, name),
+                                  where);
+        }
+        return static_cast<concrete_t const*>(&value);
+    }
+
+    /// the mutable spelling, for the sites that record INTO the handle (a command buffer, a build target)
+    template <typename concrete_t>
+    [[nodiscard]] concrete_t* do_concrete(object& value, std::string_view const name,
+                                          std::source_location const where = std::source_location::current()) noexcept {
+        if (!is_concrete(value, name)) {
+            deren::utility::panic(deren::utility::vessel::format(
+                                      "rhi: do_concrete: a handle named \"{}\" is not the \"{}\" this cast requires - "
+                                      "provenance was already established, so the name and the registry disagree",
+                                      value.type, name),
+                                  where);
+        }
+        return static_cast<concrete_t*>(&value);
+    }
 
     enum class structure_type : std::uint32_t {
         unknown = 0,
