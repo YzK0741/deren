@@ -198,3 +198,26 @@ resolve's module was recompiled - and the ON-path reference moved with the fix, 
 `docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt` now names `7EF9249001EB6035` with this section as
 the reason for the re-baseline. Remaining known difference source: the tangent frame (triangle edges vs screen
 derivatives), which is the next non-extension fix.
+
+## The G-buffer residual after the LOD fix, and why the TBN item is closed
+
+The next non-extension item on the list was "align the resolve's tangent frame with the fragment's". The
+per-channel measurement says there is nothing left to align. The same `deferred` frame, ON vs OFF, captured
+through the G-buffer debug view (channels 0/1/2 = albedo, world normal, roughness) after the LOD fix:
+
+| channel | changed | frame mean | mean over changed | max |
+| --- | ---: | ---: | ---: | ---: |
+| 0 albedo | 2.65% | 0.098 | 3.678 | 151 |
+| 1 world normal | **0.76%** | **0.012** | 1.624 | 64 |
+| 2 roughness | 3.65% | 0.112 | 3.056 | 145 |
+
+The normal channel is the tell: BEFORE the LOD fix it was the largest difference (15.29% changed, mean 8.72,
+max 209 - the normal MAP's mip, not the frame), and now it is the smallest. Algebraically the two TBN
+constructions were never different - `surface_tbn` solves the same linear system from ddx/ddy that the
+resolve solves from the triangle's edges, and a change of basis does not change ∂P/∂u, ∂P/∂v - so the earlier
+normal-channel gap was the normal map being sampled at LOD 0, i.e. the fix that landed. The TBN follow-up is
+therefore CLOSED AS NOT NEEDED; what remains is the LOD being a per-TRIANGLE scale rather than the sampler's
+per-pixel gradient (albedo and roughness show it most, 3-4% of pixels at ~3/255 on the changed ones), plus the
+rasterizer-interpolation vs resolve-perspective-weight float residue. A per-pixel gradient would shrink it
+further at the cost of the analytic derivative reconstruction; that is a quality/diminishing-returns call for a
+later pass, not a correctness debt.
