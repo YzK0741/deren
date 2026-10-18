@@ -506,3 +506,29 @@ already fetches (no new fetch, no runtime change). MEASURED: the ON `deferred` f
 (`7EF9249001EB6035`) because carrying an interpolant is not using it; CTest 49/49. The material index + the
 alpha test + the admission-clause removal are the next step of item 2, and their ON reference change will be
 recorded here with the new hash.
+
+## Item 2, step 2 spec: the push-block extension (round 17)
+
+The alpha-tested raster fragment needs ONE more scalar per item: the material index (the albedo texture and
+the cutoff live in the material table). The layout decision, taken before editing so the host/shader mirrors
+and the tests move together:
+
+- `visibility::push_block` gains `uint32_t material_index` and one explicit `uint32_t pad`, inserted between
+  `frame_slot` (offset 68) and `geometry` (which must keep its 8-byte alignment): offsets become model 0,
+  item_index 64, frame_slot 68, material_index 72, pad 76, geometry 80, total 112 bytes
+  (`push_block_bytes` 104 -> 112). The explicit pad is not decoration: `geometry_lanes`' first member is a
+  `uint2`, so the compiler would insert it silently and the Slang mirror would disagree with the host.
+- `scene/visibility.slang` mirrors the same four scalars; the mesh stage passes `push.material_index` through
+  to the fragment (a flat `nointerpolation uint`, beside the already-carried UV from the previous step).
+- the fragment samples the albedo texture at the interpolated UV (implicit LOD is legal in a fragment stage)
+  and does the glTF MASK rule (`flags & 16`, alpha < cutoff) with a `discard` BEFORE the depth write - the
+  rasterizer then lets the surface behind win, which is what the resolve cannot do (957,719 pixels with no
+  surface behind, round 3).
+- `runtime::record_visibility_items` fills the new field from the leaf's material index; the load-bearing
+  detail is the ORDER the shader and host mirrors are updated in: constants, static_asserts, mirror test,
+  host writer, then the shader, so a mismatch is a test failure rather than a validation error at run time.
+- only after that are the admission clause `masked_material` and its unit test removed, the ON references
+  re-measured (deferred has no MASK leaf: its hash must stay `7EF9249001EB6035`; sponza becomes admitted and
+  is the A/B that proves the cut-outs), and the review table extended.
+
+No code this step: the offsets and the order are the deliverable, so the next step is mechanical.
