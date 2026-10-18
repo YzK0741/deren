@@ -3,8 +3,12 @@
 **STATUS: REACHED.** The target below is the state of the renderer now. The conversion landed as the
 heap-native frame, and the deletions it called for are done: `vkCreateDescriptorSetLayout`,
 `vkAllocateDescriptorSets`, `vkCreateDescriptorPool`, `vkCreatePipelineLayout`,
-`vkCmdBindDescriptorSets`, `vkCmdPushConstants` and every `VkDescriptorSetAndBindingMapping*` type
-appear ZERO times in the tree. The sections below that are written in the future tense are kept as the
+`vkCmdBindDescriptorSets` and `vkCmdPushConstants` appear ZERO times in the tree (the last one only inside a
+comment). ONE mapping use SURVIVES on purpose rather than as leftover: a ray-tracing pipeline's
+acceleration-structure bindings are still declared through `VkDescriptorSetAndBindingMappingEXT`, with a
+constant-offset source into the resource heap, because a native heap load of an AS lost the device on the
+driver the traversal probe was run on (`source/backends/vulkan/core/core.api_core.cpp`, the ray-tracing branch
+of create_pipeline). The sections below that are written in the future tense are kept as the
 plan they were - they are what the work followed - and the deletions section is annotated with what
 each item became.
 
@@ -51,7 +55,7 @@ Rules that follow from the extension and are already paid for:
 - A **combined image sampler cannot be declared**. It is constructed at the use site:
   `texture(sampler2D(heap_textures[i], heap_samplers[s]), uv)`. Every fetch therefore names an image index
   *and* a sampler index - the sampler is no longer implicit in the binding, so the sampler indices become a
-  shader-visible convention (the five shared samplers at fixed heap indices, named by `const uint` in a
+  shader-visible convention (the six shared samplers at fixed heap indices, named by `const uint` in a
   shared GLSL header).
 - A **variable index** requires `#extension GL_EXT_nonuniform_qualifier : enable` and `nonuniformEXT(i)`.
 - Storage images with `descriptor_heap` need a **format layout qualifier** (`rgba16f`, `r16f`, ...), which the
@@ -136,7 +140,7 @@ the same classic binding numbers in `source/backends/vulkan/core/core.declaratio
 ## Host-side work
 
 1. **Heap layout, reserved once** in `core`: per-kind index spaces (frame slot x2; swapchain image xN;
-   material table; texture array; the five samplers; TLAS array; storage images; the post chain's per-pass
+   material table; texture array; the six samplers; TLAS array; storage images; the post chain's per-pass
    images), each offset a multiple of that kind's descriptor stride, recorded in `core` beside the existing
    `heap_*` members.
 2. **Every descriptor write gains a heap twin**: each `vkUpdateDescriptorSets` site (scene set, G-buffer
@@ -487,7 +491,9 @@ descriptor heap: slot grid at 1048576 (1024 slots x 64 B; textures 0 materials 5
 ```
 
 - The resource grid's base is **1 MiB** and its stride **64 B**; the slot numbers (relative to that base) are
-  the constants in `source/shaders/common/heap_slots.slang` and `core::heap_slots`. 703 of the 1024 slots are named.
+  the constants in `source/shaders/common/heap_slot_constants.slang` and `core::heap_slots`. The grid reserves
+  1024 slots, and the highest slot any array uses is `heap_slot_base + 795` (the visibility resolve's
+  scene-colour storage twin, 788..795), so the room left for the next family is 796..1023.
 - The SAMPLER heap is a second grid at a **64 KiB** base with the device's 32 B stride: the API caps that heap
   at 128 KiB, so it cannot use the resource grid's 1 MiB. Refused unless the device's reserved window fits
   below the base and its sampler stride is 32 B.

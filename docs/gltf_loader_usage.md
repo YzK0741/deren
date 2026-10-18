@@ -35,8 +35,11 @@ namespace gltf {
     struct texture_data  { std::vector<unsigned char> data; uint32_t width, height; uint8_t component; };
     struct vertex_portion{ std::vector<unsigned char> data; component_type component; };
     struct material_factors { glm::vec4 base_color_factor; glm::vec3 emissive_factor;
-                              float metallic_factor; float roughness_factor; float normal_scale; };
-    struct material      { material_factors factors; std::map<std::string, uint16_t> texture_indices; };
+                              float metallic_factor; float roughness_factor; float normal_scale;
+                              float occlusion_strength; float alpha_cutoff;
+                              bool alpha_mask; bool alpha_blend; };
+    struct material      { material_factors factors; std::map<std::string, uint16_t> texture_indices;
+                           bool double_sided; };
     struct primitive     { std::map<std::string, vertex_portion> vertex;
                            std::vector<unsigned char> index;
                            component_type index_component_type;
@@ -84,6 +87,7 @@ namespace gltf {
 - Keys of `primitive.vertex` are glTF attribute names (`POSITION` / `NORMAL` / `TEXCOORD_0` / `COLOR_0` ...).
 - Vertex and index data are **de-interleaved raw bytes**; their type is described by `component` / `index_component_type` (byteStride and sparse accessors are already handled by fastgltf).
 - `scenes.materials` holds one entry per glTF material (in material order); each `material.texture_indices` uses the fixed roles `albedo` / `metallic_roughness` / `normal` / `occlusion` / `emissive`, and the values index into `scenes::textures` (in glTF texture order). `primitive.material_index` selects the primitive's material (`UINT32_MAX` when the glTF primitive has none).
+- The glTF alpha mode and the double-sided flag are decoded onto the material: `material.factors.alpha_mask` (`alphaMode` MASK, with `alpha_cutoff`), `material.factors.alpha_blend` (`alphaMode` BLEND) and `material.double_sided`. They are what decides which pass draws a primitive - the engine imports `alpha_blend` as the primitive's `transparent` flag - so a consumer must forward all three rather than only the five texture slots.
 - `scenes.animations` holds the file's keyframe animations in glTF order (see [section 8 Animations](#8-animations)). An animation is file-scoped  -  its channels can target nodes of any scene. Channel targets reference nodes by their **asset node index**, which each scene-pool `node.source_index` records.
 - `scenes.node_by_source` is the **asset-level node lookup**: glTF asset node index (`node::source_index`) -> the loader's `node` copy for it (first scene pool that contains it; a node referenced from several scenes has identical copies). Consumers that animate or skin the nodes of a *runtime* scene tree  -  where each tree node only carries its `source_index`  -  look loader metadata up here instead of iterating every scene pool: `scenes.node_by_source.at(tree_node->source_index)` yields that node's TRS base pose, `skin_index`, attached meshes etc. (`animation::controller` does exactly this: the scene tree is the authoritative host, the loader table is pure data.)
 
@@ -214,20 +218,18 @@ if (prim.material_index < model.materials.size()) {
 
 ## 6. Integration with Vulkan Rendering
 
-`source/backends/vulkan/model`'s `draw()` currently hardcodes `VK_INDEX_TYPE_UINT32`, while the loader preserves the original index type, so a conversion is needed before upload:
+The engine's draw path is index-width agnostic, so `prim.index` needs NO conversion before upload: a
+primitive's geometry lanes carry `index_width` - bytes per index, 2 or 4 - in
+`source/engine/primitive/primitive.cppm` (`mesh_geometry_lanes`), and the geometry fetch
+`source/shaders/geometry/mesh_geometry.slang` reads 16- and 32-bit indices the same way. The loader already
+normalizes the one width the GPU has no form for: u8 indices are widened to u16, while 2-byte and 4-byte
+data are kept as they were found, and a non-indexed primitive gets a synthesized uint32 index buffer
+(`source/gltf_loader/gltf_loader.cpp`).
 
-```cpp
-std::vector<uint32_t> indices32;
-if (prim.index_component_type == deren::gltf::component_type::unsigned_short_t) {
-    auto* src = reinterpret_cast<const uint16_t*>(prim.index.data());
-    indices32.assign(src, src + prim.index.size() / 2);
-} else if (prim.index_component_type == deren::gltf::component_type::unsigned_int_t) {
-    auto* src = reinterpret_cast<const uint32_t*>(prim.index.data());
-    indices32.assign(src, src + prim.index.size() / 4);
-}
-```
-
-Vertex buffers can be uploaded by memcpy'ing the raw bytes directly, provided the pipeline's vertex input layout matches the data layout (e.g. POSITION/NORMAL as `VK_FORMAT_R32G32B32_SFLOAT`, stored contiguously); otherwise re-arrange into an interleaved struct before upload.
+Vertex buffers can be uploaded by memcpy'ing the raw bytes directly, provided the destination's vertex input
+layout matches the data layout (e.g. POSITION/NORMAL as `VK_FORMAT_R32G32B32_SFLOAT`, stored contiguously);
+otherwise re-arrange into an interleaved struct before upload. The engine's own vertex format is ONE 64-byte
+interleaved record, which the engine's importer builds from these de-interleaved portions.
 
 ---
 

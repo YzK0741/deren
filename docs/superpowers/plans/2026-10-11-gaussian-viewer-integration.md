@@ -3,6 +3,30 @@
 > For agentic workers: execute this plan on master, task by task, with RED/GREEN tests. The raster batch that
 > precedes it is complete (a5ff51b0..b4760); this batch is the one its review named as next.
 
+**2026-10-18 status check (the checkboxes below were never maintained after 2026-10-12):** most of this batch's
+deliverables landed through the LATER plans, not through the task list below, so `[ ]` no longer means "not done":
+
+- Task 0's config decision was resolved as "NO NEW KEY": the model path's extension picks the loader
+  (`app_config::model_format_of`, `.ply` -> `gaussian_ply`). Evidence: source/application_configuration/application_configuration.cppm:608-625,
+  source/app/main.cpp:498-510 and :650, and the file dialog filter now includes `*.ply` (source/app/chores.cpp:61).
+- Task 2's stage exists, but as a RENDER GRAPH lane, not a demo-wired tail stage: lane 17, appended after lighting
+  and before transparency and gated by `gaussian_active()`. Evidence: source/engine/render_graph/gaussian.cppm,
+  source/engine/runtime/runtime.post_graph.cpp:40 and :730-743.
+- Task 3's per-slot retention exists: one frame snapshot per completion slot, refilled in place
+  (`prepare_raster_frame(..., slot.get(), core_owner)`). Evidence: source/engine/runtime/runtime.frames.cppm:2345-2371.
+- Task 8's goal (no per-frame buffer creation, reuse the slot's buffers) is met by the `reuse` parameter above;
+  there is no `raster_frame::refill()` member by that name (source/engine/gaussian_splatting/raster.cppm:130).
+- Task 9's blocker analysis is now partly historical: `buffer_usage::staging_source` WAS added
+  (source/promise/rhi/rhi.api_core.cppm:105), but the per-frame staging/device split is still not in the tree -
+  the only `uniform_gpu_only` use is the immutable static asset table (source/engine/gaussian_splatting/gaussian_splatting.gpu.cpp:170).
+- Task 7 (placeholder triangle through `import_scene`) has NO implementation left in the tree - no
+  `add_placeholder_triangle` and no placeholder leaf exist (grep over source/app). If the resize corruption it was
+  written for is still open, it needs re-scoping rather than resurrecting this task.
+- NOT VERIFIED here: Task 4's TAA policy (no `taa`+`gaussian` interaction found in runtime.frames.cppm /
+  runtime.post_graph.cpp) and Task 5's particle/byte reporting. Verify before relying on them.
+- Task 6's verification was superseded by the later rounds: docs/reviews/2026-10-12-gaussian-gpu-frame.md,
+  2026-10-12-gaussian-projection-cache.md and the 15-scenario frozen gate ("14 frozen scenarios" below is now 15).
+
 Goal: a Gaussian PLY asset reaches the SCREEN through the normal frame chain - the engine's own camera drives
 it, instance transforms work, TAA policy respects it, failure paths leave the previous scene intact, and the
 numbers the design spec asks for are reported. No offscreen probe, no test-only path.

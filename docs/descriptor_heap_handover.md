@@ -218,7 +218,7 @@ image, which is why it survived every fix that changed what the frame does.
 
 ```powershell
 cmake --build build-release-clang64            # must be exit 0
-ctest --test-dir build-release-clang64         # 13 binaries
+ctest --test-dir build-release-clang64         # every test target (43 today)
 pwsh scripts\windows\check_render.ps1          # the scenario set, changed must be 0
 ```
 

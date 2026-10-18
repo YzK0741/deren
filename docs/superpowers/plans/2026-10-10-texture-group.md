@@ -79,11 +79,11 @@ dummy 是 backend 持有的有效 sampled 2D image/view；所有空槽填 dummy�
 - `core.declarations.cppm`：以上实现的声明及状态；`core.api_core.cpp`：bind/record/execute/submit 接入；
   `core.cpp`：frame submit、slot wait、wait_idle 与 teardown 接入。
 - `descriptor_heap.cppm`、`pipeline/pipeline.cppm`、`pipeline/spirv_parser.cppm`：容量验证、匹配 pipeline/layout 与 push 检查。
-- 新建 `source/shaders/texture_group.slang` 与 `texture_group_probe.slang`；`CMakeLists.txt` 注册源码、includes、shader 与探针。
+- 新建 `source/shaders/common/texture_group.slang` 与 `source/shaders/debug/texture_group_probe.slang`；`CMakeLists.txt` 注册源码、includes、shader 与探针（**2026-10-18 核对**：原文写作 `source/shaders/texture_group.slang`，实际文件在 `common/` 与 `debug/` 子目录，证据 CMakeLists.txt:2060、:2228）。
 - 新建 `source/tests/test_texture_group.cpp`；现有动态边界/runtime 测试同步 ABI 及默认不支持行为。
-  CPU 契约断言放入既有 headless 测试；新增 GPU 探针按现有 runtime probe 注册，设备测试需 `--with-device`，不加入 VR_TEST_TARGETS。
+  CPU 契约断言放入既有 headless 测试；新增 GPU 探针按现有 runtime probe 注册，设备测试需 `--with-device`，不加入 VR_TEST_TARGETS（2026-10-18 核对：`test_texture_group` 确实不在 `VR_TEST_TARGETS` 里，只在 CMakeLists.txt:1648 单独建目标）。
 - `source/engine/primitive/primitive.cppm` / `.cpp`、`runtime/runtime.frames.cppm` / `runtime.constructor.cppm`、
-  `source/shaders/unlit.slang`：最后接入一个既有普通 draw 路径。
+  `source/shaders/scene/unlit.slang`：最后接入一个既有普通 draw 路径（**2026-10-18 核对**：该接入尚未发生——`source/shaders/scene/unlit.slang`、primitive 与 runtime 都没有 texture_group 引用，所以 Task 4/5/6 的未勾选状态与代码一致）。
 
 ## Task 1 — Immutable groups and rollback
 

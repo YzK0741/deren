@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Resources are created outside the graph; default legacy mode remains.
+- Resources are created outside the graph; default legacy mode remains（2026-10-18 核对：该句的“default legacy mode”已不成立——图是唯一录制路径，legacy tail 与 `main_render_graph` 等启动开关已删除；资源图外创建这一条仍然成立。证据：source/application_configuration/application_configuration.cppm:255、docs/reviews/2026-10-17-render-graph-gate.md:997-1014）。
 - Names: ownable, graph_appender, pass_recorder; exact noexcept return contracts.
 - Preserve current workspace modifications; no commits/pushes in this task.
 - Builds use -j12, serial build invocations because formatting is shared.

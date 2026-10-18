@@ -18,7 +18,7 @@ their statements about unrecorded temporal work and open wiring defects are hist
 This renderer's punctual lights are unshadowed. `source/shaders/lighting/shading.slang`'s cluster loop accumulates
 `light.punctual_lights[]` with no visibility term, so a demo light behind a column lights the wall in front
 of it; the sun is the only shadowed light (cascades, or one ray-traced ray per pixel in
-`source/shaders/rt_shadow.comp`). "One shadow ray per light per pixel" fixes the look but costs O(lights) rays per
+`source/shaders/lighting/rt_shadow.slang`). "One shadow ray per light per pixel" fixes the look but costs O(lights) rays per
 pixel, which is the opposite of what the clustered path was built for.
 
 This feature is the other estimator, ported from Unreal's MegaLights: each pixel picks a FEW lights with
@@ -31,8 +31,8 @@ staging, and the measurements as they land.
 
 | UE needs | here |
 |---|---|
-| a culled light grid cell (`MaxCulledLightsPerCell = 32`) | `source/shaders/light_cluster.comp`'s cluster list, `deren::vulkan::cluster_light_capacity = 32` - the same number |
-| 15-bit light indices, 32768 lights | `max_punctual_lights = 128`, so an index fits a byte |
+| a culled light grid cell (`MaxCulledLightsPerCell = 32`) | `source/shaders/lighting/light_cluster.slang`'s cluster list, `deren::engine::cluster_light_capacity = 32` - the same number |
+| 15-bit light indices, 32768 lights | `deren::engine::max_punctual_lights = 128`, so an index fits a byte |
 | visible/hidden light HASHES with a 2^-10 false-positive rate | an EXACT 128-bit mask per tile (4 uints): the light count is bounded, so no hashing is needed |
 | 13 tile modes, indirect dispatch buckets, per-mode shading permutations | nothing: one BRDF, one path |
 | the light-function atlas, IES profiles, rect lights, hair, substrate | nothing: `punctual_light_radiance` is the whole model |

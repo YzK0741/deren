@@ -43,7 +43,7 @@ Two things it does NOT remove:
   \ref md_docs_2unified__image__layouts "Unified image layouts"), which is why GENERAL is the layout both queried
   and passed.
 
-## The three-part capability check
+## The capability check
 
 `init_utils::query` decides `host_image_copy_available`, and the two halves are decided in two different places
 because they come from different Vulkan structures:
@@ -103,7 +103,7 @@ reason:
    `vkQueueSubmit(): ... expects VkImage ... to be in layout VK_IMAGE_LAYOUT_GENERAL--instead, current layout is
    VK_IMAGE_LAYOUT_PRESENT_SRC_KHR` for every capturing scene. THE FAILURE WAS THE TIMING, NOT THE INTERFACE, and
    the recording surface that fixes the timing now exists (`api_core::begin_commands()`, `image::format()`,
-   `buffer::mapped()`, `command_list::use()` / `copy_image_to_buffer()`): the copy is recorded in the SAME slot it
+   `buffer::mapped()`, `command_buffer::use()` / `command_buffer::copy_image_to_buffer()`): the copy is recorded in the SAME slot it
    always was - `runtime::end_recording`, before the present transition - and the submitter is unchanged
    (`submit_and_present()`; this batch adds no submission and no wait). The engine touches no Vulkan handle on that
    path any more: the list, the frame image, the read-back slot and the wait all come from the contract.
@@ -186,9 +186,9 @@ MEASURED on this machine:
   validation: 13 capturing scenes report the `PRESENT_SRC_KHR` / `GENERAL` mismatch above, which is why the
   screenshot read-back was left where it was (see "What is NOT established" and the batch report for the raw
   lines).
-- No frame changed: `scripts/windows/check_render.ps1 -Full` reports the same 13 render hashes byte for byte, the
-  screenshot PNG is unchanged (the read-back did not move), and `ctest` is 14/14 (including `test_docs`, which is
-  why `docs/host_image_copy.md` is in the `Doxyfile` INPUT list).
+- No frame changed: `scripts/windows/check_render.ps1 -Full` reports the same render hashes byte for byte, the
+  screenshot PNG is unchanged (the read-back did not move), and `ctest` is green (43 targets today, including
+  `test_docs`, which is why `docs/host_image_copy.md` is in the `Doxyfile` INPUT list).
 
 ## What is NOT established
 

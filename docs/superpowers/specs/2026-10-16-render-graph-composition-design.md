@@ -2,6 +2,21 @@
 
 日期：2026-10-16。状态：组合构图基线及现有后处理适配已实施，ownable 命名按用户确认。下文保留设计说明；实际接口见 compose.cppm，验收见 [实施记录](../../reviews/2026-10-16-render-graph-composition.md)。主链绘制迁移仍为下一阶段。
 
+**2026-10-18 现状核对：最后一句已过期。** 主链绘制已经迁到同一张组合图，"下一阶段" 是
+2026-10-16 的排期，不是今天的待办：`runtime.post_graph.cpp` 现在是**全帧**构图入口，
+最多 21 条 lane，覆盖 deferred lighting、scene、cluster、shadow、TAA、gbuffer debug、
+transparent、character forward、toon screen rim、goo rim、Gaussian、ray-traced shadow 与
+visibility raster/resolve（`source/engine/runtime/runtime.post_graph.cpp:30-47`）。
+旧路径不再存在：`runtime.frames.cppm:876-878`（"THE GRAPH IS THE ONLY RECORDER NOW ... no
+legacy cluster sort, no legacy shadow pass, no legacy scene"）与 `:3147-3150`
+（"NO LEGACY HALF IS LEFT TO FALL BACK TO"）。
+
+第 4 节给出的执行层接口**按原样落地**，可逐项对照：`ownable` / `graph_appender` /
+`pass_recorder`（`compose.cppm:14`、`:24`、`:29`）、`execution::builder`（`:75`）、
+`append`（`:176`）、`export_resource`（`:192`、`:200`）、`bind_pass`（`:218`）、
+`bind_barrier_only`（`:230`）、`retain`（`:239`）、`prepare`（`:247`），以及 §269 说明的
+`detail::composition_access`（`:264`）。
+
 ## 1. 目标和范围
 
 让场景、光照、时间处理和后处理向同一个 builder 登记 pass，最终统一编译依赖、裁剪和同步。资源继续在图外创建，由 resource_cluster、既有 generation owner 和 lease 管理；旧路径保留到对应部分验收完成。
@@ -252,6 +267,15 @@ build_error 区分 graph_error 与执行/RHI 错误，补充组合层的 wrong_g
 | tests/CMake/CI | 组合构图、动作及生命周期测试 |
 
 先迁移现有后处理来验证机制，保持 post_render_graph 默认关闭。独立后处理、Bloom-only 和既有纯 CPU 入口继续可用。通过验收后，下一项才是基础 GBuffer → lighting → post 共图；本设计不将其实现捆绑进来。
+
+**2026-10-18 现状核对：** `post_render_graph` 这个配置键**已经不存在**——`config.example.toml`
+里没有任何 render-graph 键（全文检索 "graph" 命中 0 次），图也不再可关：
+"the composed render graph is the only recording path: there is no per-frame fallback any more"
+（`source/application_configuration/application_configuration.cppm:255`）。所以"保持默认关闭"这句
+不应再被当成现状或操作说明。表里 `runtime.post_graph.cpp` 一行只**部分**完成：绑定确实改成了
+具名 `pass_ref`（`bind_pass(output->composite, …)`，`runtime.post_graph.cpp:906`），但录制载荷
+仍是 21 槽的固定 `std::array` + `record(unsigned lane)`
+（同文件 `:46-55`），"删除固定位置分发" 没有做完。GBuffer → lighting → post 共图已实现。
 
 ## 11. 验收场景
 

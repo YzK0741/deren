@@ -29,6 +29,12 @@ commands.draw_indexed(...);
 下列名称与签名为拟议接口，不是已经编译验证的声明。项目 RHI 目前使用 image 表示纹理，
 所以接口写 image*；engine 的 texture 包装对象应先取得对应的 RHI image。
 
+**2026-10-18 现状核对：** 这一节的四个声明都已按原样进入契约并通过编译：
+`texture_group_capacity = 16u`、`texture_group_info`、`texture_group : object` +
+`texture_group_ref`、`assign_texture_group`、`load_texture_group`
+（`source/promise/rhi/rhi.api_core.cppm:1595-1610`、`:1800`、`:2106`）。
+"不是已编译验证的声明" 这句只对撰写当日成立。
+
 ```cpp
 inline constexpr uint32_t texture_group_capacity = 16;
 
@@ -138,6 +144,13 @@ GpuTextureGroup，拟议 80 字节
   uint padding[3]
 ```
 
+**2026-10-18 现状核对：** 80 字节的布局成立，字段名是 `indices[16]`：宿主侧
+`texture_group_record`（`source/backends/vulkan/core/core.declarations.cppm:1030-1036`，
+`static_assert(sizeof(...) == 80)`、`offsetof(present_mask) == 64`），shader 侧同名的
+`TextureGroup`（`source/shaders/common/texture_group.slang:6-10`）。组表与纹理的 heap 槽
+基址分别是该文件里的 `texture_group_table_slot = 17664` 和
+`texture_group_texture_base = 17665`（`:4-5`）。
+
 内部 record id 不出现在公开 texture_group 接口上。引擎把 group 对象交给 backend，
 由 backend 提取其内部 id 并写入 shader 参数。
 纹理索引在 Vulkan shader 实现中解释；engine 不知道其类型数组、heap 前缀或 descriptor stride。
@@ -178,6 +191,12 @@ push_byte_offset               // 一个 uint32 group id，必须四字节对齐
 shader_stages                  // pipeline 实际读取该参数的阶段
 profile = sampled_2d_16
 ```
+
+**2026-10-18 现状核对：** 这三个字段已落地为 `texture_group_binding`
+（`source/promise/rhi/rhi.api_core.cppm:1179-1185`，`pipeline_desc::texture_group` 在
+`:1244`），但阶段字段的**名字与形态**是 `shader_stage_bits`（`uint32_t` 位集，
+注释为 "vertex=1, fragment=2, compute=4, mesh=8"），不是 `shader_stages`。
+`texture_group_profile` 只有 `sampled_2d_16 = 0` 一个值（`:1178`），与本文一致。
 
 创建时核对 shader 的参数布局、profile、push 范围与设备限制。组参数不能与现有 draw 参数重叠。
 Vulkan 通过 vkCmdPushDataEXT 写这个 uint；其他 API 在自己的后端映射等价参数。
@@ -236,6 +255,13 @@ engine 不感知具体模型，公共 shader 入口保持槽位和采样语义�
 当前 ABI 为 31；factory/load 已追加到接口，版本测试同步拒绝旧 DLL。
 pipeline_desc 新字段须按 struct_size 读取，旧描述默认不使用 texture group。
 具体源码拆分在实施计划中确定；不为了做这个接口顺带修改全项目模块命名。
+
+**2026-10-18 现状核对：** 追加发生在 ABI 31，当前 ABI 已是 33
+（`source/promise/rhi/rhi.contract.cppm:300`）；两个动词的注释仍以 "ABI 31" 标注它们加入的
+版本（`source/promise/rhi/rhi.api_core.cppm:1799`、`:2105`）。语义未变：工厂按
+`struct_size` 读取 `texture_group_info`，`load_texture_group(nullptr)` 仍选择后端全空组。
+`pipeline_desc::texture_group` 也确实是按 `struct_size` 追加的尾部字段
+（`rhi.api_core.cppm:1244`）。
 
 ## 11. 首轮范围与测试
 

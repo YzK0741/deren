@@ -235,3 +235,21 @@ RHI 采用新增可查询接口渐进接入；是否变更 ABI 必须依据实�
 
 若必须要求“每材质固定物理范围 + base/count 直接访问”，可以选择第 3 节第二条路线；
 上层组语义保持一致，但需要额外承担描述符复制、连续分配与更新版本管理成本。
+
+## 2026-10-18 现状核对
+
+本文是已废弃路线的比较记录，不要按它实现。仅核对两处会误导实施者的事实：
+
+- 第 6 节的固定九槽（base color … matcap）**没有**成为接口。落地的是
+  [Texture group 设计](2026-10-10-texture-group-rhi-vulkan-design.md) 的固定 16 槽
+  （`source/promise/rhi/rhi.api_core.cppm:1595`），语义标签仍留在 engine/shader 侧
+  （`source/shaders/common/material_record.slang` 的 `tex_indices` / `toon_indices`）。
+- 第 3 节“当前 Material 已经保存五种 PBR 与四种 toon 纹理索引”仍然成立，且现在有第二处
+  权威：`Material` 记录是 `uint4 tex_indices`（albedo、metallic-roughness、normal、
+  occlusion）+ `uint emissive_index` + `uint4 toon_indices`（diffuse ramp、shadow LUT、
+  specular ramp、matcap）（`source/shaders/common/material_record.slang:30-63`）。
+  "九槽" 只是把这些索引改成语义槽位编号的一种提议，不代表现状。
+
+GPU 访问结构一节写的 `group_table[group_id] = { reference_base, count }` 也没有采用：
+落地形态是每组一条 80 字节 record（`indices[16]` + `present_mask`），见 Texture group
+设计第 5 节与 `source/backends/vulkan/core/core.declarations.cppm:1030-1036`。

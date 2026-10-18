@@ -4,6 +4,17 @@ Status: written proposal for review, not implemented. Refines the previously dis
 uses the current [pass inventory](../../render_resource_inventory.md). Scope is the engine resource
 layer and its adapters; the initial migration preserves the existing RHI ABI and shader heap layout.
 
+**2026-10-18 现状核对：the layer this document specifies was built, under the names §9 suggested.**
+"Not implemented" is 2026-10-13's state. Today the vocabulary exists in
+`source/engine/render_resource/` — `render_resource.cppm` stays the pure description module as §9
+asks, and the nested module is literally `deren.engine.render_resource.instances`
+(`source/engine/render_resource/instances.cppm:11`) with `resource_instance`, `generation`,
+`resource_set` and `resource_snapshot` (`:80-99`). Three of the four identities of §2 are therefore
+code (`allocation generation`, the concrete-instance `resource_instance`, and the per-frame snapshot);
+the fourth (logical handle + incarnation) remains a design intent — there is no `*_handle` type with
+an `incarnation` field in the source. Read `docs/managed_resources.md` for how the migration actually
+landed, and treat §10's A–E sequence below as history rather than as the open task list.
+
 ## 1. Objective and non-goals
 
 Unify resource identity, instance selection, declared GPU use and completion-dependent ownership.
@@ -48,6 +59,14 @@ Use strong types for frame slot and output-image index at this layer. Conversion
 happens at the binding adapter. The existing RHI image range currently has no aspect field; preserve
 its existing semantics initially and reject combinations requiring an unsupported precise barrier,
 rather than silently claiming the current contract can express them.
+
+**2026-10-18 现状核对：** the aspect clause is now wrong. `rhi::synchronization::image_range`
+carries `aspect aspects` alongside its mip/layer fields
+(`source/promise/rhi/rhi.synchronization.cppm:71-75`), so a precise colour-vs-depth aspect scope IS
+expressible on the barrier path. It is the *copy* region that still has no aspect:
+`rhi::image_copy_region` is extent/mip/layer/offset only
+(`source/promise/rhi/rhi.api_core.cppm:228-237`). Re-check which of the two a caller needs before
+rejecting an aspect-qualified transition.
 
 ## 3. Ownership and instance domains
 

@@ -16,7 +16,7 @@ MSVC is a second configuration the BUILD FILES support but the scripts and CI do
 cache variables an MSVC build needs are documented in the README rather than here.
 
 Everything below about GCC is a MEASUREMENT, not a promise. The audit ran GCC 16.2 (MinGW, ucrt64) against the
-same tree: it now compiles all of it and links five of the thirteen test executables, and does not link the rest.
+same tree: it now compiles all of it and links five of the test executables, and does not link the rest.
 Nothing in the build files supports that configuration yet, and this document is why nobody has to re-derive
 what happens if it is tried.
 

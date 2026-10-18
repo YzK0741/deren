@@ -1,6 +1,6 @@
 # Migrating this renderer's shaders to Slang: the binding contract, and what is proven
 
-**STATUS (2026-10-09): all 39 runtime entry points and their shared bodies are native Slang.**
+**STATUS (2026-10-09): every runtime entry point and its shared body is native Slang.**
 The build and both manual scripts no longer enable GLSL compatibility or define `VR_SLANG`.
 Runtime sources live in `source/shaders/`; the original GLSL shared headers, retired stages, and
 upstream reference samples are preserved verbatim under `source/reference/shaders/`.
@@ -550,25 +550,34 @@ done too, and the UBO member lists are shared through the `VR_MAT4` type macro: 
 
 ## 10. What remained, and how it finished
 
-THE MIGRATION IS COMPLETE. All twenty-four stage outputs are built by slangc; the retired GLSL stage sources
+THE MIGRATION IS COMPLETE. Every stage output is built by slangc - `VR_SLANG_SOURCES` carries forty-two
+application entries (plus four more for `test_acceleration_structures`, behind `if(TARGET
+test_acceleration_structures)`) - the retired GLSL stage sources
 are in `source/reference/shaders/glsl.old/`; `slangc` is required by `CMakeLists.txt` with no glslc fallback; the compile
 scripts and the docs were synced; CI installs a pinned slangc and asserts that CMake found it. The numbered
 list below is kept as the record of HOW each step closed, because the reasons are what a reader needs - not
 just the fact.
 
-WHAT DELIBERATELY DID NOT MOVE, because it is not a leftover but the architecture: `surface.glsl`,
-`shading.glsl`, `sky.glsl`, `ibl_specular.glsl`, `heap_slots.glsl` and `heap_slot_constants.glsl` stay in
-`source/shaders/`, written in GLSL syntax, `#include`d by every Slang leaf, and parsed by Slang's GLSL mode. The
-last of them is also the grid mirror `source/tests/test_render_resources.cpp` parses against `core::heap_slots`, so
-its path is load-bearing for a test rather than a convenience.
+WHAT DELIBERATELY DID NOT MOVE, because it is not a leftover but the architecture: the shared bodies stay
+`#include`d by every Slang leaf rather than being folded into one file - `common/surface.slang`,
+`common/surface_body.slang`, `common/material_record.slang`, `common/heap_access.slang`,
+`common/heap_slots.slang`, `common/heap_slot_constants.slang`, `lighting/shading.slang`,
+`lighting/sky.slang`, `lighting/ibl_specular.slang`, `geometry/mesh_geometry.slang`,
+`scene/gbuffer_body.slang` and `toon/toon_params.slang` (all under `source/shaders/`). They are `.slang` now,
+compiled by slangc's native path - the original GLSL headers are the ones preserved verbatim under
+`source/reference/shaders/`. `common/heap_slot_constants.slang` is also the grid mirror that
+`source/tests/test_render_resources.cpp` parses against `deren::engine::render_layout::heap_slots` in
+`source/engine/render_layout/render_layout.cppm`, so its path is load-bearing for a test rather than a
+convenience.
 
 WHAT A READER SHOULD STILL BE SCEPTICAL ABOUT, stated here rather than buried: THREE stages could not be
 shown to run in any automated capture (`rt_shadow.rahit` - forcing `IgnoreHit()` on every hit changed 0
 pixels; `compute_skin` - shifting every skinned vertex by +1.0 changed 0 pixels; `mask_bake` - turning its
 own key on changed 0 pixels). Those three are built, `spirv-val` clean and shape-verified, and the
 reachability table below says which route each stage was accepted by. The two `megalights` stages, by
-contrast, ARE covered by an A/B that a forced-output probe proved live (forcing the resolve to red moved
-98.945% of the frame). A green gate is evidence about the paths a capture REACHES, and this document has said
+contrast, WERE covered by an A/B that a forced-output probe proved live (forcing the resolve to red moved
+98.945% of the frame) - until the whole chain was removed on 2026-10-17 (docs/megalights.md). A green gate
+is evidence about the paths a capture REACHES, and this document has said
 so since the any-hit proved it.
 
 WHAT REMAINED, step by step (each line was true when it was written, and is kept for the reason):
@@ -602,8 +611,8 @@ not the runtime, before declaring a stage unreachable.
 | `rt_shadow.rgen/.rchit/.rmiss` | A/B with `rt_shadow = true` | proven: 0/1036800 on two scenes |
 | `compute_skin.comp` | reachable, but NOT visible in the A/B scene tried | `rt_skin_bake = true` IS honoured (the loaded settings echo it, the pipeline is created), yet the frame does not change and shifting every skinned vertex by +1.0 changes nothing either - the skinned caster's effect is evidently not on screen in the fixture's framing. Needs a scene where that caster's shadow lands in view, or the probe technique applied until one is found |
 | `mask_bake.comp` | built + shape + spirv-val; the key is honoured but INVISIBLE on the scenes tried | 11668 B against glslc's 14640 B, 0 descriptor sets, three `OpConvertUToPtr`, `spirv-val` clean. `rt_mask_bake = true` changes the Sponza RT frame by **0 pixels**, so its effect is not on screen there either. The port also had to change a fetch, and the reason is a LATENT HAZARD IN THE GLSL: its `texture(...)` inside the nested sample loops is an implicit-LOD fetch in NON-UNIFORM CONTROL FLOW, where a derivative has no meaning (the quad's four invocations are four different triangles) - so the mip it selects is not the "texture resolution" the pass's own header describes. Slang refuses to compile it at all (`E31210`, even with a 64-wide group), so the port uses the explicit LOD 0 the walk actually wants, and an A/B on a scene where a wholly-cut MASK caster's shadow is visible is what would settle whether the two agree |
-| `megalights_temporal.comp` | `source/shaders/lighting/megalights_temporal.slang` | **A/B-VERIFIED AND PROVEN EXERCISED** - the strongest pair of statements in this table. With `megalights = true` and `megalights_samples = 4` on Sponza, the GLSL frame and the Slang frame are **0/1036800 pixels apart**, and forcing the resolve to write red changed **98.945%** of the frame, so the comparison really did run this pass (it feeds the lighting stage's `ml_lighting`). 14052 B against glslc's 14328 B, 0 descriptor sets, LocalSize 8 8 1, three `OpImageWrite`, ten explicit-LOD fetches and no implicit one. The port also documents a process lesson that cost two wasted captures: an A/B that edits a `.slang` file while its entry is UNWIRED, or that edits `CMakeLists.txt` without re-running `cmake` (this build has `CMAKE_SUPPRESS_REGENERATION=ON`), probes a module the build never used - and the size of the built `.spv` is the cheap way to see which compiler produced it |
-| `megalights_trace.comp` | `source/shaders/lighting/megalights_trace.slang` | **A/B-VERIFIED, and its liveness follows from the chain's**: the full-GLSL megalights frame (trace AND temporal built by glslc) and the both-Slang frame are **0/1036800 pixels apart** on Sponza with `megalights = true`. Since the temporal pass was independently proven to be ON the path (forcing its resolve to red moved 98.945% of the frame), an identical frame means the tracer's contribution is identical too - a dead or black tracer would have differed. 41764 B against glslc's 43204 B, 0 descriptor sets, LocalSize 8 8 1, three `OpRayQuery*` ops under `OpCapability RayQueryKHR`, two `OpImageWrite`, three explicit-LOD fetches and no implicit one. Slang's ray-query spelling is `RayQuery<flags>` with `TraceRayInline` / `Proceed` / `CommittedStatus`, and `gl_RayFlagsOpaqueEXT` is `RAY_FLAG_FORCE_OPAQUE` there (there is no plain `RAY_FLAG_OPAQUE`, which cost one build) |
+| `megalights_temporal.comp` | `source/shaders/lighting/megalights_temporal.slang` - REMOVED 2026-10-17 with the whole chain (docs/megalights.md) | **A/B-VERIFIED AND PROVEN EXERCISED** - the strongest pair of statements in this table. With `megalights = true` and `megalights_samples = 4` on Sponza, the GLSL frame and the Slang frame are **0/1036800 pixels apart**, and forcing the resolve to write red changed **98.945%** of the frame, so the comparison really did run this pass (it feeds the lighting stage's `ml_lighting`). 14052 B against glslc's 14328 B, 0 descriptor sets, LocalSize 8 8 1, three `OpImageWrite`, ten explicit-LOD fetches and no implicit one. The port also documents a process lesson that cost two wasted captures: an A/B that edits a `.slang` file while its entry is UNWIRED, or that edits `CMakeLists.txt` without re-running `cmake` (this build has `CMAKE_SUPPRESS_REGENERATION=ON`), probes a module the build never used - and the size of the built `.spv` is the cheap way to see which compiler produced it |
+| `megalights_trace.comp` | `source/shaders/lighting/megalights_trace.slang` - REMOVED 2026-10-17 with the whole chain (docs/megalights.md) | **A/B-VERIFIED, and its liveness follows from the chain's**: the full-GLSL megalights frame (trace AND temporal built by glslc) and the both-Slang frame are **0/1036800 pixels apart** on Sponza with `megalights = true`. Since the temporal pass was independently proven to be ON the path (forcing its resolve to red moved 98.945% of the frame), an identical frame means the tracer's contribution is identical too - a dead or black tracer would have differed. 41764 B against glslc's 43204 B, 0 descriptor sets, LocalSize 8 8 1, three `OpRayQuery*` ops under `OpCapability RayQueryKHR`, two `OpImageWrite`, three explicit-LOD fetches and no implicit one. Slang's ray-query spelling is `RayQuery<flags>` with `TraceRayInline` / `Proceed` / `CommittedStatus`, and `gl_RayFlagsOpaqueEXT` is `RAY_FLAG_FORCE_OPAQUE` there (there is no plain `RAY_FLAG_OPAQUE`, which cost one build) |
 | `rt_shadow.rahit` | shape + spirv-val, for now | the ANY-HIT is not reached in the Sponza RT configuration - proven by the forced-IgnoreHit probe (0 pixels changed). The mask bake is OFF by default and configurable, so that is NOT the reason; whatever keeps it off the path is still to be found, and the probe is how |
 | `heap_probe.*` | log comparison | the runtime logs the probe's own answer at startup, both halves |
 
@@ -615,8 +624,8 @@ table now separates the two.
 
 
 The gate records what the ten scenarios render, and three groups of shaders are NOT on any of their paths:
-`rt_shadow.*` (no scenario enables `rt_shadows`), `megalights_trace/temporal.comp` (no scenario enables the
-megalights path) and `heap_probe.*` (the runtime's own PBR/heap probe, which the demo app does not run in
+`rt_shadow.*` (no scenario enables `rt_shadows`), `megalights_trace/temporal.comp` (no scenario enabled the
+megalights path, and the chain was removed on 2026-10-17) and `heap_probe.*` (the runtime's own PBR/heap probe, which the demo app does not run in
 capture mode). For those, "the gate stays 10/10" only proves nothing regressed; the port has to be verified
 by its SHAPE (descriptor sets, heaps, the instructions the fetches land as) plus the family-by-family proof
 from section 3, and that limit should be stated in the commit rather than implied away. This is the same

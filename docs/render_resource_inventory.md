@@ -8,7 +8,7 @@ jobs, not a proposed resource system. Debug validation probes and offline asset/
 outside the pass table. Conditional resources are needed only when the corresponding feature runs.
 
 Raster shadow images, their view bundles, clustered-light count/index buffers, camera/light/head constant buffers, G-buffer attachments, HDR and
-physical scene-input, TAA history, LDR, Bloom, MegaLights and RT visibility images, plus shared
+physical scene-input, TAA history, LDR, Bloom and RT visibility images, plus shared
 motion-transform, skin/previous-skin, morph and nine shared scene-table buffers now belong to
 the passchain resource registry. The
 runtime borrows their handles and maintains the existing heap publication and hand-back barriers;
@@ -40,7 +40,7 @@ identities even if their counts happen to match in windowless mode. G does not i
 
 - F: camera/light blocks, current/previous skin matrices, morph data, previous transforms, shadow map,
   cluster lists, TLAS and mask-instance data, ray-traced visibility.
-- I: G-buffer attachments/depth/velocity, scene color/HDR/LDR, bloom pyramid, TAA and MegaLights histories
+- I: G-buffer attachments/depth/velocity, scene color/HDR/LDR, bloom pyramid, TAA history
   and per-image processing outputs.
 - G: material and instance-transform descriptors, scene textures, meshlet table, IBL cubes/LUTs,
   toon rig/material tables and other explicitly shared lookups. Geometry lives with its scene/asset;
@@ -57,7 +57,7 @@ mesh shaders fetching vertex/index data by device address, not a traditional ver
 | Scene / G-buffer / unlit | Geometry D; camera F; material table/textures G; current skin/morph F; current instance transforms G; previous transforms/skin/morph F for motion | G-buffer albedo, normal/roughness, material/AO, velocity, scene-color attachment and depth I; unlit path depends on selected pipeline | H+D+P, A |
 | Raster shadow | Geometry D; cascade matrices/light F; instance G; skin/morph F; MASK material/albedo G | Layered depth image F, one attachment view per cascade | H+D+P, A; later `Texture2DArray<float>.SampleCmpLevelZero` |
 | Cluster lights | Camera and punctual-light records F | Cluster counts/indices buffers F | H: constant/structured reads, RWStructuredBuffer writes |
-| Deferred lighting (SSAO inline) | G-buffer I; camera/light F; shadow F or RT visibility F; cluster lists F; IBL environment/irradiance cubes and BRDF LUT G; optional resolved MegaLights I | Scene-color attachment I; preserves/composes material emissive already in the chain | H+P, A; SSAO is not a separate registered frame pass |
+| Deferred lighting (SSAO inline) | G-buffer I; camera/light F; shadow F or RT visibility F; cluster lists F; IBL environment/irradiance cubes and BRDF LUT G | Scene-color attachment I; preserves/composes material emissive already in the chain | H+P, A; SSAO is not a separate registered frame pass |
 | Transparent PBR | Geometry D; material textures G; camera/light F; shadow/cluster F; IBL G; current deformation F | Alpha blend into scene color I, hardware depth test against depth I | H+D+P, A |
 | Character forward | Geometry D; current deformation F; camera/light/head block F; material/toon lane/color/rig tables and textures G; toon lighting inputs incl. shadow/IBL as selected by shared helpers | Scene-color blend I and depth test; includes character-specific material shading | H+D+P, A |
 | Toon screen rim | G-buffer albedo/depth/material I; material/toon records G; camera/light F | Scene-color blend I | H+P, A |
@@ -128,7 +128,8 @@ above describe future access/ordering work, not outstanding production allocatio
 - `source/engine/render_resource/render_resource.cppm`: resource schema, binding access, pass I/O.
 - `source/shaders/common/heap_access.slang` and `heap_slot_constants.slang`: typed fetches/index domains.
 - `source/shaders/geometry/mesh_geometry.slang`, `compute_skin.slang`, `mask_bake.slang`: device-address paths.
-- `source/shaders/lighting/rt_shadow.slang`, `megalights_trace.slang`: the two traversal binding methods.
+- `source/shaders/lighting/rt_shadow.slang`: the mapped-TLAS traversal binding method (the MegaLights trace that
+  was the second one is gone with its chain).
 - `source/shaders/gaussian/gaussian_prepare.slang`, `gaussian_raster.slang`: address-based Gaussian buffers.
 - `source/backends/vulkan/core/radix_sort.cpp`: VRDX push descriptors and restored heap state.
-- `source/engine/pass/taa.cpp`, `megalights_temporal.cpp`, `post.cpp`: history copies and routed outputs.
+- `source/engine/pass/taa.cpp`, `post.cpp`: history copies and routed outputs.

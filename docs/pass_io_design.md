@@ -1,7 +1,7 @@
 # `vulkan.pass_io`: describing a pass's inputs and outputs the way Vulkan already does
 
 The layer every pass in this renderer describes its inputs and outputs with, and the design the code
-implements: the types below live in `source/backends/vulkan/render_resource`, and the per-pass declarations are its consumers.
+implements: the types below live in `source/engine/render_resource`, and the per-pass declarations are its consumers.
 
 **STATUS NOTE, because this document's premise is now half history.** It is built around descriptor
 sets - "a pass's inputs and outputs are ALREADY descriptor sets", below - and those are gone: the
@@ -54,12 +54,12 @@ Three ideas, and everything else follows from them.
 
 ## 3. Naming
 
-The repository's conventions, which this follows: module names are flat peers under `vulkan.`, the namespace
-mirrors the module's suffix (`namespace deren::vulkan::bindings`), types are `snake_case`, a builder's result carries
+The repository's conventions, which this follows: module names are flat peers under `deren.engine.` / `deren.vulkan.`, the namespace
+mirrors the module's suffix (`namespace deren::engine::render_resource`), types are `snake_case`, a builder's result carries
 `_owned`, and capacities/constants are lower_snake_case.
 
     module            deren.engine.render_resource               (doxygen: @defgroup engine_render_resource)
-    namespace         deren::vulkan::render_resource
+    namespace         deren::engine::render_resource
     files             source/engine/render_resource/render_resource.cppm  (CMake: FILE_SET, as every module)
 
 | name | kind | what it is | why this name |
@@ -71,7 +71,7 @@ mirrors the module's suffix (`namespace deren::vulkan::bindings`), types are `sn
 | `resource_kind` | `enum class : uint8_t` | `image2d` / `image3d` / `image_cube` / `buffer` / `accel_struct` | decides the descriptor type together with `binding_kind` |
 | `binding_kind` | `enum class : uint8_t` | `sampled_image` / `storage_image` / `sampler` / `uniform_buffer` / `storage_buffer` / `input_attachment` | 1:1 with `VkDescriptorType`; named after the Vulkan concept rather than "read/write" because the DESCRIPTOR is what the layout is built from |
 | `binding_access` | `enum class : uint8_t` | `read` / `write` / `read_write` | the access is NOT derivable from the descriptor type (the spatial filter only READS its `gi_input` storage image), and it is what a later barrier stage keys on |
-| `sampler_hint` | `enum class : uint8_t` | `gbuffer` / `taa` / `post` / `nearest` / `shadow` | this renderer creates FIVE samplers today (`gbuffer_sampler`, `taa_sampler`, `post_sampler`, `post_nearest_sampler`, `shadow_sampler`) and which one a binding gets is currently a ternary; naming the choices makes it a field |
+| `sampler_hint` | `enum class : uint8_t` | `gbuffer` / `taa` / `post` / `nearest` / `shadow` | this renderer creates SIX shared samplers today (`texture_sampler`, `gbuffer_sampler`, `taa_sampler`, `post_sampler`, `post_nearest_sampler`, `shadow_sampler`) and which one a binding gets is currently a ternary; naming the choices makes it a field. Five of the six have a hint - `texture_sampler` is the bindless array's, and `deren.engine.render_resource.shared`'s `sampler_set` says so |
 | `pass_binding` | `struct` | `{ uint32_t set; uint32_t binding; binding_kind kind; resource_id resource; uint16_t element; uint16_t descriptor_count; binding_access access; sampler_hint sampler; VkShaderStageFlags stages; }` | **the heart**: one binding, one use. `binding` alone would collide with the `deren.vulkan.bindings` module, hence the `pass_` prefix |
 | `image_layout` | **REMOVED** | was `sampled` (SHADER_READ_ONLY_OPTIMAL) / `general` / `color_attachment` (COLOR_ATTACHMENT_OPTIMAL) | REMOVED WITH `VK_KHR_unified_image_layouts`: every image this renderer owns is in GENERAL now, so a declaration has no layout left to state and the validator's "a storage image must declare GENERAL" rule has nothing to check. It had been ADDED after the first conversion because the layout was NOT derivable from the kind (the probe cache kept all nine of its own bindings in GENERAL, so a descriptor claiming SHADER_READ for one of them was a lie validation rejects). The history is kept here for one reason: it is why step 4 below no longer takes a layout as input at all |
 | `render_target` | `struct` | `{ resource_id resource; uint16_t element; }` | an image a pass RENDERS INTO. Not a binding, and the distinction is not cosmetic: a binding is a descriptor, the layout generator walks that list, and a colour attachment has no `VkDescriptorType` at all - it is bound by `vkCmdBeginRendering`. The load op and clear value are deliberately NOT declared: the pass that renders into the image is the one that opens the rendering instance, so it is the one that says whether the old contents matter |
@@ -128,11 +128,12 @@ transition exists because the multi-bounce feedback samples last frame's resolve
 
 Beside the pass they describe, not in a central table: `pass_io` is a description OF a pass. While a pass still
 lives in `runtime.cpp`, its declaration lives in a small unit of its own next to it (for the first conversion,
-`source/backends/vulkan/pass_io/probe_io.cppm` exporting `gi_probe_io`, the probe cache's 9 bindings and its push block); when
+`source/backends/vulkan/pass_io/probe_io.cppm` exporting `gi_probe_io`, the probe cache's 9 bindings and its push
+block - both the unit and that pass are gone now, with the traced-GI chain); when
 that pass is later extracted into `vulkan.gi_probe` (the first extraction in `docs/runtime_split.md`), the
 declaration moves with it and the runtime only passes the `resource_views` in. The resource list itself
-(`resource_id` + `resource_info`) belongs to `deren.vulkan.core`, because `core` is the only place the complete image
-list exists - and that is the same reason its create/destroy loops can later be driven from it.
+(`resource_id` + `resource_info`) belongs to `deren.engine.render_resource` (`source/engine/render_resource/render_resource.cppm`),
+which is where the complete image list is declared now that the engine creates the render chain's targets.
 
 ## 6. Migration order and the cases that shape the design
 
@@ -153,7 +154,7 @@ own gate and its own measurement, not a step of this layer.
 
 ## 7. Acceptance, and what would make it fail
 
-Every step: the capture gate 14 scenarios x 2 with 0 changed, Release/Debug/ASan+UBSan clean, ctest 13/13,
+Every step: the capture gate, every scenario x 2 with 0 changed, Release/Debug/ASan+UBSan clean, ctest 43/43,
 doxygen exit 0 with an empty warning stream, every run validation clean. The layer's own success metric, which
 is testable and whose baseline is measured: **adding a pass becomes declare-I/O plus implement-record** - no
 separate layout loop, no separate write loop, no separate pool count, no parallel storage/sampler ternaries.
@@ -165,7 +166,7 @@ Failure modes to refuse in advance:
   needs a test that it FAILS on a wrong declaration;
 * **the layer becomes a mini-RHI** - it must never allocate an image, own a queue, or hide a Vulkan type it is
   not generating;
-* **`resource_id` becomes a god-enum** - it stays owned by `core` and grows only when a family is added there;
+* **`resource_id` becomes a god-enum** - it stays owned by `deren.engine.render_resource` and grows only when a family is added there;
   its order is never a contract (that is the difference between it and `gpu_mark_id`);
 * **push-constant size**: declared plus `static_assert`-pinned (as `light_ubo` and `instance_record` already
   are), never computed from the declaration against a shader block whose layout this layer cannot see;
@@ -221,8 +222,8 @@ was open in the first draft of this document:
   shaders and registers them; a pass asks for its own by file name) and the layout of the shared set its
   pipeline layout must be built against (asked by SET INDEX, the same vocabulary the declaration already uses).
   The runner still binds the pipeline before the pass records - ownership and binding are different questions -
-  and `resolved_io::pipelines`/`pipeline_layout` stay the channel it does it through, filled from the pass's own
-  handles when the pass owns them.
+  and `resolved_io::pipelines` stays the channel it does it through, filled from the pass's own
+  handles when the pass owns them (`pipeline_layout` went with the descriptor sets: a heap pipeline has none).
 * **CREATE AND RECORD ARE TWO STRUCTS, because they have two owners.** Once a pass builds its own objects, what
   it needs at create time (a device, the six samplers, a shared-set-layout lookup, its shader bytes) and what a
   frame loop needs to run one (the frame, the feature registry, the resolver, the behaviour step, the marks)
@@ -242,9 +243,10 @@ neither a resource nor a behaviour: the values in them (scene bounds, an instanc
 global light direction) are the RENDERER's, while the block's shape and its per-dispatch lanes belong to the
 PASS that declared the shader. So the split follows the values: the HOST composes the block and `resolved_io`
 carries it as raw bytes (`std::span<std::byte const> push`, whose size the declaration's `push` block
-contracts), and the PASS reads it as the struct it declared, changes the lanes it owns and pushes it through
-`resolved_io::pipeline_layout` - a layout, one per pass, which is what this renderer's passes have (post's five
-pipelines and TAA's two are each built from a single layout). The alternative - the host pushing on the pass's
+contracts), and the PASS reads it as the struct it declared, changes the lanes it owns and sends it through
+`resolved_io::push_block` - a `push_endpoint` (owner plus callback), not a pipeline layout, because every heap
+pipeline is created with `layout = VK_NULL_HANDLE` and the block travels through `vkCmdPushDataEXT`. The
+alternative - the host pushing on the pass's
 behalf - would have meant the host knowing every pass's push block: the same fact in two places, which is the
 one thing this layer exists to prevent.
 
@@ -356,6 +358,6 @@ worth what the instrument can decide: the capture gate is a RELEASE instrument. 
 or ASan+UBSan build, two runs of the SAME binary differ - measured on `sponza_gi` and on `deferred_ssao_off`,
 which runs none of the GI chain at all - so those builds are not deterministic here and cannot be gated against
 the Release references. That is why every acceptance number in this sequence comes from the Release build, and
-why Debug/ASan+UBSan are held to "clean build, ctest 13/13, and a run that reports no validation or sanitizer
+why Debug/ASan+UBSan are held to "clean build, ctest 43/43, and a run that reports no validation or sanitizer
 finding" instead.
 

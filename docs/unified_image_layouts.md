@@ -79,17 +79,20 @@ lines across nine files (constant_init 32, core.constructor 11, runtime.probes 5
 runtime.constructor 3, runtime.frames 2, taa 1, megalights_temporal 1, runtime.readback 1), and a second
 pass caught 32 more that were comment prose naming the layouts without the `VK_IMAGE_LAYOUT_` prefix.
 `UNDEFINED` and
-`PRESENT_SRC_KHR` were not touched. Exactly two places still name a retired layout, and both are
-QUOTES rather than descriptions: `docs/megalights.md` reproduces a validation message from a run made
-before this change, and `source/engine/runtime/runtime.frames.cppm` quotes the driver's "expects ...
+`PRESENT_SRC_KHR` were not touched. The places that still name a retired layout are QUOTES and COMMENTS rather
+than descriptions - `docs/megalights.md` reproduces a validation message from a run made
+before this change, `source/engine/runtime/runtime.frames.cppm` quotes the driver's "expects ...
 SHADER_READ_ONLY_OPTIMAL ... current layout is UNDEFINED" with a note that GENERAL is what it expects
-now. A blind text substitution had rewritten the second quote, which is how it was caught: a quoted
+now, `constant_init.cppm` and `render_resource.cppm` name the layouts in their history notes, and
+`source/tests/test_vulkan_capabilities.cpp` builds a NON-GENERAL copy-layout fixture on purpose (it is the
+test that proves the capability check can say no). A blind text substitution had rewritten the second quote,
+which is how the rule was caught: a quoted
 error message is evidence and must not be edited to match the current code.
 
 ## 4. The gate, and one withdrawn measurement
 
 * `cmake --build build-release-clang64 -j 12`: exit 0.
-* `ctest --test-dir build-release-clang64`: 13/13.
+* `ctest --test-dir build-release-clang64`: 43/43.
 * `scripts/windows/check_render.ps1 -Full`: all 14 scene hashes IDENTICAL to the run made immediately
   before this step. The scene hash is the first 16 hex digits of the PNG file's SHA-256, so identical
   hashes mean byte-identical frames.
@@ -117,4 +120,6 @@ baseline is only a baseline if it is the state you are changing FROM.
   driver's claim and this repository has no benchmark for it.
 * A device without the extension now fails at startup with a message instead of running. That is the
   intended trade (section 2) and it means the renderer's minimum requirement moved.
-* `host_copy_image` (`VK_EXT_host_image_copy`) is the NEXT step, deliberately not part of this one.
+* `host_copy_image` (`VK_EXT_host_image_copy`) was the NEXT step when this was written, deliberately not part of
+  this one; it has since landed and is a required extension here - see \ref md_docs_2host__image__copy
+  "Host image copy".

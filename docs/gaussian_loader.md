@@ -14,11 +14,11 @@ if (!result) {
 ```
 
 `parse_ply(span<const byte>, options)` also accepts memory. Both APIs return `std::expected<asset, diagnostic>`.
-Supported PLY 1.0 encodings: ASCII and binary little endian. Only one vertex element and scalar properties are supported. Required fields: x/y/z, scale_0..2, rot_0..3, opacity, f_dc_0..2; optional complete f_rest_0..N sequence determines SH degree0..3. Unknown scalar attributes are consumed; lists and other elements are rejected.
+Supported PLY 1.0 encodings: ASCII and binary little endian. Only one vertex element and scalar properties are supported. Required fields: x/y/z, scale_0..2, rot_0..3, opacity, f_dc_0..2; optional complete f_rest_0..N sequence determines SH degree 0..3. Unknown scalar attributes are consumed; lists and other elements are rejected.
 
 Values use the INRIA convention: exp scale, stable sigmoid opacity, normalized wxyz quaternion, channel-major file SH converted to coefficient-major RGB. Unused entries in the 48-float SH array are zero. Bounds reflect rotated 3-sigma ellipsoids. Empty assets have zero bounds.
 
-Default limits: 4,000,000 particles, 1 GiB file bytes, 1 GiB output bytes. Header is limited to64 KiB and256 attributes. Count arithmetic and binary payload length are checked before particle allocation. Budgets concern file and resulting asset, not total process peak memory. STL allocation failure retains the project's existing no-exceptions behavior; these limits do not promise recoverable system OOM.
+Default limits: 4,000,000 particles, 1 GiB file bytes, 1 GiB output bytes. Header is limited to 64 KiB and 256 attributes. Count arithmetic and binary payload length are checked before particle allocation. Budgets concern file and resulting asset, not total process peak memory. STL allocation failure retains the project's existing no-exceptions behavior; these limits do not promise recoverable system OOM.
 
 Malformed fields, nonfinite values, zero quaternions, unusable float32 scales/covariance, trailing payload, truncation and exceeded limits return errors. No partially converted asset is returned. Diagnostics identify byte offset and property when available.
 

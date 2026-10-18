@@ -2,6 +2,26 @@
 
 状态：资源簇、A1 纯 CPU 图核心和 A2 的子资源范围、类型化参数、用途/stage 与单队列抽象屏障基线已经实现；文本/JSON dump、RHI 映射、Vulkan GENERAL 映射和资源绑定录制入口已实现。Bloom 与完整后处理链均有默认关闭的图执行路径，包含合成、FXAA/upscale、acquire 帧资源快照、截图后的最终交接及按 generation 的提交状态发布。场景主链尚未迁移，旧路径继续保留。实际接口见 [CPU 图核心](../../render_graph.md)，本文其余后续接口仍属设计。
 
+**2026-10-18 现状核对：状态句里"Bloom 与完整后处理链均有默认关闭的图执行路径"和
+"场景主链尚未迁移，旧路径继续保留"两处已过期，其余成立。** 后处理不再是"默认关闭的可选路径"，
+而是唯一路径；**场景主链也已迁移进同一张图**，旧的场景尾部和旧后处理阶段都已删除：
+
+- 组合后的帧是一张图，最多 21 条 lane（裁剪后只录活跃者），含 deferred lighting、scene、
+  cluster、shadow、TAA resolve/history、gbuffer debug、transparent、character forward、
+  toon screen rim、goo rim、gaussian、ray-traced shadow 与 visibility raster/resolve
+  （`source/engine/runtime/runtime.post_graph.cpp:30-47`）。
+- "THE GRAPH IS THE ONLY RECORDER NOW ... an ineligible frame records NOTHING here - no legacy
+  cluster sort, no legacy shadow pass, no legacy scene"
+  （`source/engine/runtime/runtime.frames.cppm:876-878`）；
+  "NO LEGACY HALF IS LEFT TO FALL BACK TO"（同文件 `:3147-3150`）。
+- 没有任何开关可以退回旧路径：配置里已没有 render-graph 键，注释是
+  "the composed render graph is the only recording path: there is no per-frame fallback any more"
+  （`source/application_configuration/application_configuration.cppm:255`）。
+- 主链各段是否走图仍按帧判定（`main_graph_frame` 与 `graph_cluster_frame` /
+  `graph_shadow_frame` / `graph_taa_frame` / `graph_debug_frame` / `graph_rt_frame`，
+  `runtime.declarations.cppm:1464-1479`）：这是**就绪条件**（对应 pipeline 缺失则该帧不录图），
+  不再是新旧两条录制路径。
+
 用户目标：逐步取得接近 UE RDG 的声明驱动、依赖分析、无用 pass 裁剪和自动同步收益。资源创建位于图外，方便场景、视图和多张图共享；保留现有机制，直到对应功能完成替换并验收。CPU 图核心和后处理接入不要求先完成场景快照或 GPU 几何簇。
 
 ## 1. 已实现的基础与本次选择
@@ -34,6 +54,13 @@
 | runtime | acquire、帧槽保留、提交、提交结果和 present | 推断 shader 中未声明的资源使用 |
 | 旧 registry / generation / snapshot | 继续服务未迁移路径及其在途所有权 | 强制所有图资源追加全局 resource_id |
 
+**2026-10-18 现状核对：** 没有名为 `compiler` 的类型。第二行到第四行的职责全部由
+`builder` 承担——`compile(compile_options)` 是 `builder` 的成员，返回 `compiled_graph`
+（`source/engine/render_graph/render_graph.cppm:61`；`compiled_graph` 见
+`source/engine/render_graph/types.cppm:293`）。"图执行器"对应
+`deren.engine.render_graph.execute` 的 `prepared_graph` 与组合层的
+`execution::builder`（`compose.cppm:75`）。
+
 sampler 不参与内存读写 hazard，但其 lease 及 descriptor/管线依赖仍需保留。资源簇也不是 allocation 或同步范围：两个簇共享的同一 image 必须归一到同一资源身份，不能按 cluster 地址隔离 hazard。
 
 ## 3. 多场景、多视图和多图
@@ -65,6 +92,13 @@ sampler 不参与内存读写 hazard，但其 lease 及 descriptor/管线依赖�
 
 例如 `post_resources` 拥有一个簇及四级 Bloom image/view lease，记录 extent 和格式。它在图外确保资源就绪，向构图函数传递具名字段；关闭 feature 可在创建资源包前判断，无需请求其资源。
 
+**2026-10-18 现状核对：** 没有名为 `post_resources` 的类型。同样的职责落在 runtime 自身：
+四级 Bloom image 是 runtime 的成员
+`bloom_images[render_layout::bloom_level_count][max_swapchain_images]`
+（`source/engine/runtime/runtime.declarations.cppm:1387`），帧输出与它的 lease 在
+`record_post_graph()` 里导入（`source/engine/runtime/runtime.post_graph.cpp:95-110`）。
+"图外创建、按需传入具名字段" 这个约束本身没有被破坏，只是拥有者不是本文假设的那个对象。
+
 resize 或描述变化时创建候选资源包，全部成功才替换当前包；失败保留旧包，但 extent 不兼容时应跳过/报错，不能盲用。旧帧 lease 和提交保留项保持旧资源存活。簇不提供 clear、强制 seal 或通用 snapshot；builder 固定本次绑定和参数，并不冻结整个簇。
 
 **首版代价：图外已创建的资源不会因 pass 裁剪撤销创建。** first/last use 用于计划、诊断和后续优化，不授权提前释放在途资源，也不代表已经池化。后续确需延迟创建时，在图外设计资源请求/准备层，再消费编译使用集合，不恢复 graph.create。
@@ -73,7 +107,20 @@ resize 或描述变化时创建候选资源包，全部成功才替换当前包�
 
 `add_pass(name, parameters, workload, record_callback)` 拥有参数和录制状态。资源字段使用 sampled、storage read/write/read-write、颜色/深度附件、transfer、indirect/vertex/index 等用途包装，携带 ref、view/range、stage 和内容操作。
 
+**2026-10-18 现状核对：** 落地的签名没有 `workload` / `record_callback` 两个参数，录制动作也不再
+随 pass 登记：
+`add_pass(name, Parameters, pass_options = {})` 只登记参数与访问
+（`source/engine/render_graph/render_graph.cppm:42-57`），录制动作由组合层
+`execution::builder::bind_pass(pass_ref, Recorder&&)` 事后绑定，另有
+`bind_barrier_only(pass_ref)` 表示纯屏障 pass
+（`source/engine/render_graph/compose.cppm:218`、`:230`）。原因见
+[组合构建机制](2026-10-16-render-graph-composition-design.md) 第 4 节。
+
 C++ traits/visitor 从参数生成唯一的规范访问列表，执行时同一参数解析为本 pass 的资源视图；不另公开必须同步维护的读写数组。CPU 核心已支持纹理/缓冲区的内容操作包装、const noexcept 成员 visit_resources、嵌套/数组/optional/span 遍历，以及按值保留的只读参数快照。访问字段已携带用途/stage；执行解析仍待补齐，不建设通用反射或 UE 参数宏。
+
+**2026-10-18 现状核对：** "执行解析仍待补齐" 已不成立：`builder::add_pass` 的模板重载在登记时
+就通过 `visit_resources` 生成访问列表（`render_graph.cppm:43-57`），执行层用同一份参数快照按
+`bind_pass<Parameters>` 的实际类型校验后再录制（`compose.cppm:218`、`:247`）。
 
 CPU 标量、feature 和实际资源集合在构图时固定。GPU 地址、bindless、间接参数和附件同样声明实际目标；持有 heap 不能替代声明其指向的可写资源。管线、sampler、descriptor、上传存储也必须进入执行保留项。
 
@@ -89,6 +136,14 @@ add_bloom(graph, hdr, levels, settings); // 仅添加 pass，不创建资源
 add_composite(graph, hdr, levels, output, settings);
 graph.export_state(output, final_sampled_state); // 输出根 + 最终状态要求
 ```
+
+**2026-10-18 现状核对：** 这段示意已经实现，改的只是拼写。"（除资源簇接口外均待实现）" 不再成立。
+`import_texture` 由 CPU `builder` 取 `resource_identity`（`render_graph.cppm:40`），execution 层
+另提供取 `resource_lease` 的重载（`compose.cppm:168`）；`graph.export_state(output, state)` 落地为
+`export_resource(texture_ref, texture_range)`，只建立内容根，**不能**指定目标最终状态
+（`render_graph.cppm:58`、`compose.cppm:192`）——最终状态由最后一次使用推导
+（`compiled_graph::final_states`，`types.cppm:302`）。`post_resources` 这个类型名不存在，
+Bloom 四级 image 由 runtime 自己持有（见第 5 节注记）。
 
 Bloom 关闭时构建不读取 levels 的分支或明确有效的 fallback，不能仍声明必读却填空 ref。多次 dispatch/copy 之间存在依赖时优先拆 pass；必要内部 barrier 单独声明人工边界。pass 前 barrier 不能解决 pass 内非法 feedback。回调隐藏访问必须审计，不宣称 C++ 类型系统能阻止任意外部访问。
 
@@ -172,6 +227,13 @@ binding 拥有 lease 保证构图/录制期间生命周期；GPU 保留须另外
 | D：扩大覆盖 | composite/Output、TAA、Lighting/GBuffer、阴影、scene/Gaussian/变形/AS 分批 | 绑定、地址/heap 隐式访问、历史和同步分别验收 |
 | E：测量优化 | 图外复用/延迟准备、图内复用、多队列、并行录制、显存别名单独设计 | CPU/GPU/显存数据；不作为 A-C 可用的前置条件 |
 
+**2026-10-18 现状核对：D 列的"分批"已完成**，且 A–C 的"可选路径"已翻转为唯一路径：
+deferred lighting、scene、cluster、shadow、TAA resolve/history copy、gbuffer debug、
+transparent、character forward、toon screen rim、goo rim、Gaussian、ray-traced shadow 以及
+visibility raster/resolve 都在同一张图里
+（`source/engine/runtime/runtime.post_graph.cpp:30-47`）。E 列仍然全部未做——图内资源池、
+延迟创建、显存别名、多队列、并行录制在本文第 1 节是明确的非目标，至今也没有对应代码。
+
 首段针对 `source/engine/pass/post.cppm` / `post.cpp` 四级 Bloom：HDR -> prefilter -> 三次 downsample -> 四级 sampled 输出，composite 显式消费。曝光目前是 push constant，不虚构曝光 pass。composite、FXAA/upscale、UI、截图和 present 初期人工管理；UI 在 rendering instance 内，不能任意插入图 transition。
 
 每段按“声明验证 -> 可切换执行 -> 回归验收 -> 成为默认 -> 删除对应旧分支”推进。验证模式保留旧屏障，不发图屏障；新执行模式只对接管边界发图屏障。部分声明覆盖不代表整帧验证正确。
@@ -181,6 +243,20 @@ binding 拥有 lease 保证构图/录制期间生命周期；GPU 保留须另外
 ## 12. 文件边界、测试和下一步
 
 新模块位于 `source/engine/render_graph/`，按实际依赖拆分 types/access、builder、compile、parameters、execute；不新增 resource_pool。纯编译模块不 import runtime 或 Vulkan。全局 resource_id 继续服务旧路径，不承载新图局部身份。
+
+**2026-10-18 现状核对：** 目录与"不新增 resource_pool"都对，切分方式不同——`builder` 与
+`compile` 同处一个模块而不是两个文件。实际落点（`CMakeLists.txt:1217-1277`）：
+
+- `render_graph_core` 编 `:types`、`:parameters`、`:diagnostics`、`:render_graph`
+  （后者的 `builder` 同时提供 `compile`）。
+- `render_graph_rhi`（`:rhi`）、`render_graph_execute`（`:execute`）、
+  `render_graph_compose`（`:compose`）。
+- 每 pass 一个 target：`render_graph_{bloom,lighting,post,geometry,visibility,cluster,shadow,taa,gbuffer_debug,transparent,character,gaussian,rt_shadow}`。
+
+`access.cppm` / `compile.cppm` / `builder.cppm` 这三个名字没有出现过。测试也不止
+`test_render_graph.cpp`：还有
+`test_render_graph_{bloom,compose,dump,execute,frame,lighting,lowering,parameters,post,ranges,sync,visibility}.cpp`
+（`source/tests/`）。
 
 新增 `source/tests/test_render_graph.cpp` 并接入 CMake/CI。B 扩展 probe/runtime 注入测试，C 复用 `scripts/windows/check_render.ps1` 等截图和验证工具。
 
@@ -193,5 +269,18 @@ binding 拥有 lease 保证构图/录制期间生命周期；GPU 保留须另外
 
 首版文本/JSON dump 已展示身份、参数访问、粗粒度裁剪原因、依赖、范围、活跃执行使用区间、屏障和计划最终状态；错误也可独立 dump。用户参数值不做反射，64 位整数用十进制字符串保真。RHI 审计见 [映射审计](../../render_graph_rhi_mapping.md)：前端布局是抽象语义，无需与后端原生布局逐值相同；Vulkan 可映射为 GENERAL 并保留全部依赖。独立 scope 转换已实现，旧角色对及单一 stage_hint 仍不能承载全部图前沿；新数据已通过可选 scoped_synchronization 接入 lease 绑定和录制入口；旧 pass 尚未迁移。记录构图/编译/录制时间及活跃 pass 数，未测量前不缓存跨帧图结构。
 
+**2026-10-18 现状核对：** 本段只有结尾的 "旧 pass 尚未迁移" 过期——现在全部生产 pass 都经由
+组合图录制（见本文开头的注记）。`scoped_synchronization` 也不再是"可选接入"：
+组合层的导入靠它取得规范身份与范围（`source/engine/render_graph/compose.cppm:123`），
+执行层在缺少该能力时直接失败（同目录 `execute.cppm:22-24`、`:111-116`）。
+
 **A1、A2 范围/参数与单队列抽象同步基线已落地，资源绑定录制、Bloom 及完整后处理链均已接入可选路径。** 范围按访问边界稀疏切分，已支持 mip/layer/aspect、字节区间、局部内容版本与输出根；compile({.synchronization = true}) 显式生成范围屏障与最终状态；RHI scope 转换与 Vulkan 未绑定模板、真实资源录制已接通。规范身份使用稳定的 VMA allocation record 地址，覆盖去重别名；帧输出使用 acquire 快照身份。后处理已完成固定场景图像对照与窗口缩放同步验证，后续迁移场景主链，继续保留旧机制。
+
+**2026-10-18 现状核对：** 本段的技术事实（范围切分、`compile({.synchronization = true})`、
+GENERAL 映射、VMA allocation record 身份）仍与代码一致，已抽查
+`source/engine/render_graph/types.cppm:179-180`（`compile_options::synchronization`）、
+`source/engine/render_graph/types.cppm:40-43`（`resource_identity{device, object}`）与
+`source/promise/rhi/rhi.extension.cppm:124`（`scoped_synchronization`）。
+唯一过期的是结论句："可选路径" 已变唯一路径，"继续保留旧机制" 已不成立——见本文开头的
+2026-10-18 注记与 `source/engine/runtime/runtime.frames.cppm:876-878`。
 

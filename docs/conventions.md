@@ -7,16 +7,15 @@ Where a rule has exceptions, the exception list is the reason.
 
 **A module name says what the module IS, in full words.** No abbreviations.
 
-The tree has 56 modules. These keep a short spelling, and each one is a NAME rather than an abbreviation:
+The tree has 110 modules. These keep a short spelling, and each one is a NAME rather than an abbreviation:
 
 | keeps | why |
 | --- | --- |
-| `deren.vstd` | the project's own STL module name - documented in `source/vstd/README.md`, imported by 34 files |
+| `deren.vstd` | the project's own STL module name - documented in `source/vstd/README.md`, imported by 38 files |
 | `deren.gltf_loader`, `deren.vulkan.core.pipeline:spirv_parser` | glTF and SPIR-V are **format** names |
-| `deren.vulkan.core:vma`, `deren.utility:better_pmr` | VMA and PMR are the library's and the standard's own terms (Vulkan Memory Allocator, polymorphic memory resource) |
+| `deren.vulkan.core:vma` | VMA is the library's own term (Vulkan Memory Allocator) |
 | `deren.vulkan.core:init_utils`, `deren.vulkan.init_utils`, `deren.vulkan.constant_init` | `init` was kept by request |
-| `vulkan.pass:taa`, `vulkan.pass:fxaa` | the `-aa` pair was kept by request |
-| `vulkan.pass.megalights_*` | a feature of this renderer, not a shortening of one |
+| `deren.engine.pass.taa`, `deren.engine.pass.fxaa` | the `-aa` pair was kept by request |
 
 The rule renamed `app_config` -> `application_configuration`, `vulkan.gui` ->
 `deren.vulkan.graphical_user_interface` and `vulkan.pass.{rt_shadow,gbuffer_debug}` ->
@@ -31,10 +30,10 @@ a dotted submodule becomes a `:partition` exactly when **nothing outside its own
 measured per module rather than judged:
 
 * it moved: `deren.vulkan.core:init_utils`, `:vma`, `:vma_handles`, `:descriptor_heap`,
-  `deren.vulkan.core.pipeline:spirv_parser`, and `deren.utility:better_pmr`, `:bvh`, `:data_block`, `:frame_clock`,
+  `deren.vulkan.core.pipeline:spirv_parser`, and `deren.utility:bvh`, `:data_block`, `:frame_clock`,
   `:frame_stats`, `:thread_pool`;
-* it stayed a module: `deren.vulkan.core.handles` (12 importers outside the family),
-  `deren.engine.render_resource.shared` (10), `deren.vulkan.core.pipeline` (6), `deren.engine.filters` (1). Converting
+* it stayed a module: `deren.vulkan.core.handles` (2 importers),
+  `deren.engine.render_resource.shared` (10), `deren.vulkan.core.pipeline` (3), `deren.engine.filters` (1). Converting
   those would force every consumer to import the whole parent, which is the opposite of what the split is
   for.
 
@@ -74,9 +73,10 @@ and listing them in the CMake module file set is what compiles them.
 
 ## Where a helper belongs
 
-Beside the thing it is defined in terms of, and published once. Example: `core::heap_slot_offset` existed as
-three copies because it multiplies `core::heap_slot_stride`; the helper and the constant now live together,
-and moving the helper into the heap-plumbing partition instead would have closed a cycle
+Beside the thing it is defined in terms of, and published once. Example: `heap_slot_offset` existed as
+three copies because it multiplies `heap_slot_stride`; the helper and the constant now live together in
+`deren.engine.render_layout` (with aliases in `core` for the backend's own call sites), and moving the
+helper into the heap-plumbing partition instead would have closed a cycle
 (`core.declarations.cppm` already re-exports `:descriptor_heap`).
 
 ## Arithmetic types

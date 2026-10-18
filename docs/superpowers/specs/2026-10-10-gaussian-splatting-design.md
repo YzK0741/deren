@@ -2,6 +2,13 @@
 
 日期：2026-10-10。状态：供评审，尚未实施。对应现有阶段计划 `../plans/2026-10-09-gaussian-splatting.md` 与[资料调研](../../research/2026-10-10-gaussian-splatting.md)。
 
+**2026-10-18 现状核对：本文已全部实施。** "尚未实施" 只描述撰写当日。当前落点：
+`source/gaussian_loader/gaussian_loader.cppm/.cpp`（模块 `deren.gaussian_loader`，
+`load_options` 见 `:26-30`）、`source/engine/gaussian_splatting/`
+（`gaussian_splatting.cppm`、`raster.cppm`、`gpu_frame.cppm`、`probe.cppm` 四个模块）、
+`source/engine/pass/gaussian_splatting.cppm/.cpp`、GPU 排序见 `gpu_frame.cppm:19-51`。
+第 4 节的布局与第 8 节的 RHI 缺口在实施后已固定或补齐，逐条差异见各节注记。
+
 ## 1. 目标和路线选择
 
 用户希望在现有 C++23、Slang、多后端边界的 renderer 中增加高斯泼溅。沿用此前范围：浏览已经训练好的静态资产，随后与 PBR 网格及卡渲角色组合。首版支持透视相机、SH 0..3 阶和多个高斯实例；训练、编辑、动态高斯、重光照和光追另立阶段。
@@ -23,8 +30,18 @@
 | `source/gaussian_loader/gaussian_loader.cppm/.cpp` | 文件读取、属性转换、CPU 资产与错误诊断；不依赖 engine 或 RHI |
 | `source/engine/gaussian_splatting/` | GPU 资产、场景实例、全局绘制引用、排序、逐帧资源与统计 |
 | `source/engine/pass/gaussian_splatting.cppm/.cpp` | 声明目标与深度输入、记录 pipeline、状态和 draw |
-| `source/shaders/gaussian_raster.slang` | vertex/fragment 两个入口；数学共用文件按实际需要拆出 |
+| `source/shaders/gaussian/gaussian_raster.slang` | vertex/fragment 两个入口；数学共用文件按实际需要拆出 |
 | `source/tests/` | 加载器、数学及排序 CPU 测试、GPU 小样本、冻结场景 |
+
+**2026-10-18 现状核对：** 路径与拆分已定案。`source/shaders/gaussian_raster.slang`
+不存在，实际是 `source/shaders/gaussian/gaussian_raster.slang`，并已按本节最后一句拆出
+`gaussian_common.slang`、`gaussian_projection.slang`、`gaussian_prepare.slang`（同目录）。
+`source/engine/gaussian_splatting/` 拆成四个模块而不是一个：
+`deren.engine.gaussian_splatting`（资产/打包/CPU 排序，`gaussian_splatting.cppm:11-115`）、
+`.raster`（`raster.cppm:9-136`）、`.gpu_frame`（`gpu_frame.cppm:10-115`）、`.probe`。
+pass 侧文件名与本节一致（`source/engine/pass/gaussian_splatting.cppm`）。测试为
+`source/tests/test_gaussian_loader.cpp`、`test_gaussian_raster.cpp`、
+`test_gaussian_splatting.cpp`、`test_gaussian_gpu_frame.cpp`。
 
 CPU 资产不可变，可提前异步加载；GPU 创建在拥有对应设备的线程完成。GPU asset 可被多个 instance 共享。instance 是 `asset + transform + stable_id`，第一版接受平移、旋转和正的统一缩放；非统一缩放、镜像和非仿射变换明确拒绝。支持这些变换时须另行定义视角相关外观的语义。
 
@@ -130,6 +147,24 @@ GPU 阶段已确认的缺口：
 - GPU radix passes 之间使用现有 shader_write → shader_read 同步；现有 Vulkan shader_read 覆盖 vertex/fragment/compute。新增 mesh 消费时再核对 mesh stage 覆盖。
 
 第一轮 GPU 基线可按总粒子数排序，culled 条目使用 sentinel key，直接 draw 总数量并令无效实例退化；再加入 GPU 可见计数与 indirect draw，避免为了第一条 GPU 排序路径一次扩展所有命令。
+
+**2026-10-18 现状核对：上面三条缺口均已补齐，实施形态如下。**
+
+- 普通 `draw_indirect(buffer, offset, count, stride)` 已在 `api_core` 上
+  （`source/promise/rhi/rhi.api_core.cppm:1734`），命令结构 `draw_indirect_command`
+  16 字节（同名文件 `:1564-1567`），Vulkan 实现在
+  `source/backends/vulkan/core/core.declarations.cppm:363`。
+- `buffer_use::indirect_read` 已追加（`rhi.api_core.cppm:342`，在 `buffer_use` 枚举末尾
+  的 `host_read` 之前），读写角色 `shader_read_write` 也已在 `buffer_use` 中
+  （`rhi.api_core.cppm:343`；`image_use` 一侧的值是 `:210`）。
+- GPU 排序不是自建 radix pass，而是 RHI 的 tier-1 对象 `radix_sorter` +
+  `gpu_sorting` 能力（`rhi.api_core.cppm:1327-1345`；`query_extension<rhi::gpu_sorting>()`
+  的用法见 `source/engine/gaussian_splatting/gpu_probe.cpp:18-22`），Vulkan 侧包 VRDX
+  （`source/backends/vulkan/core/radix_sort.cpp:13-126`）。因此 "GPU radix passes 之间使用
+  现有 shader_write → shader_read 同步" 这句话改由 sorter 的后端包装承担。
+- 最终落地形态是第 3 条所说的 sentinel key + 固定位置 + 后端稳定排序，并直接以
+  indirect draw 提交；CPU 侧的 `draw(6, visible_count, 0, 0)` 仍是同步 CPU 回退路径
+  （`source/engine/pass/gaussian_splatting.cpp:153-155` 两条分支并存）。
 
 shader 的资源入口集中在 Gaussian 共用访问层，当前 Vulkan 映射到 BDA，其他 API 将来映射它自己的资源访问。统一的是 RHI 和场景逻辑，不要求 Vulkan 为旧描述符模型提供回退。
 

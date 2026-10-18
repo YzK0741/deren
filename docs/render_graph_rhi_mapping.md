@@ -1,6 +1,10 @@
 # Render graph to RHI mapping audit
 
-The converters and optional scoped recording capability are implemented. Bloom and the complete post chain have opt-in runtime paths; legacy remains the default. See the [post-chain acceptance record](reviews/2026-10-16-render-graph-post.md) for current GPU evidence. This audit does not imply whole-renderer migration.
+The converters and optional scoped recording capability are implemented. The graph is the only recording path
+now: since the 2026-10-17 cleanup every frame a build renders is graph-recorded, and the startup switches that
+used to select it (and the legacy chains they fell back to) are gone. See the
+[post-chain acceptance record](reviews/2026-10-16-render-graph-post.md) for current GPU evidence. This audit does
+not imply that every subsystem's resources are declared to the graph.
 
 ## Frontend semantics and native layout are independent
 
@@ -131,6 +135,9 @@ use this API and publish initialization after submission; the generic recorder
 does not publish outgoing state. See [binding and recording](render_graph.md).
 
 ## Bloom default-path acceptance gates
+
+**This list is the gate the graph path had to pass BEFORE it became the default; it has since been
+enabled, so read the numbered items as the record of what was checked rather than as pending work.**
 
 The existing [post_bloom_pass::record](../source/engine/pass/post.cpp) is a graphics
 fullscreen draw chain, not a compute dispatch chain. It currently owns its input

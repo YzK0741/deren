@@ -37,7 +37,7 @@ implementation details, measured results and the limits of each feature.
   pipelines available to its stages. See \ref md_docs_2pass__io__design "Pass I/O design"
   and \ref md_docs_2runtime__split "Runtime split".
   The independent CPU render-graph core adds typed parameter snapshots and visitors, range-aware dependencies, culling and
-  stable ordering plus optional single-queue abstract barriers for future migration; see \ref md_docs_2render__graph "CPU render graph".
+  stable ordering plus single-queue abstract barriers that the frame's recording path consumes; see \ref md_docs_2render__graph "CPU render graph".
 - **Temporal anti-aliasing on a 1x G-buffer.** A Halton(2,3) projection jitter, per-pixel
   camera motion vectors written by the G-buffer, and a reprojected, neighborhood-clamped
   history with a view-depth disocclusion guard. TAA is the engine's anti-aliasing because a
@@ -68,8 +68,9 @@ implementation details, measured results and the limits of each feature.
 - **Ray-traced shadows.** `deren.engine.pass.ray_traced_shadow` sits beside the cascade path; see
   the module documentation and `docs/reference/` for the source notes it was built from.
 - **A toon character pipeline.** Per-material families (base / skin / face / hair / eye /
-  cloth) select which shader lanes run; five optional sidecar lanes (diffuse ramp, shadow
-  LUT, specular ramp, matcap, SDF lightmap) come from a `<model>.glb.toon.tsv` file so a
+  cloth) select which shader lanes run; sixteen optional sidecar lanes (four in the material
+  record - diffuse ramp, shadow LUT, specular ramp, matcap - and twelve more in three toon lane
+  blocks, from the face SDF lightmap on) come from a `<model>.glb.toon.tsv` file so a
   model can be tuned without recompiling; the face terminator is a distance field
   thresholded against the light angle **in the head's own frame**, not against N.L. The
   MMD/VMD motion path (IK, retargeting, morph tracks, physics baking) lives entirely in
@@ -125,6 +126,15 @@ finally the migration history.
 | 17 | \subpage md_docs_2unified__image__layouts "Unified image layouts" | One layout vocabulary for render targets, uploads and read-back. |
 | 18 | \subpage md_docs_2host__image__copy "Host image copy" | The VK_EXT_host_image_copy path: a texture uploaded without a staging buffer. |
 
+Seven further pages sit in the manual's `INPUT` ahead of this one and are not part of the numbered
+reading path: the passchain resource pages (\ref managed_resources "Passchain-managed resources",
+\ref md_docs_2resource__clusters "Resource clusters",
+\ref md_docs_2render__resource__inventory "Current pass resource inventory"), the CPU render graph and
+its RHI mapping audit (\ref md_docs_2render__graph "CPU render graph",
+\ref md_docs_2render__graph__rhi__mapping "Render graph to RHI mapping audit"), and the two
+support libraries (\ref md_docs_2vessel "vessel", \ref md_docs_2stacktrace "Stack diagnostics").
+The `Doxyfile`'s `INPUT` order is the chapter order; the list above is the reading path.
+
 Three shorter paths, if you are not reading front to back:
 
 - **Run it and see a frame:** the README at the repository root for controls and the config
@@ -177,7 +187,7 @@ Most modules are independent building blocks that meet only through narrow inter
 you are free to recombine or rewire them.
 
 - `deren.vstd` - the project's STL module (modified from libc++ and trimmed to the project's
-  usage; consumed as `import deren.vstd;`, module version 0.1.0a - see `source/vstd/README.md`)
+  usage; consumed as `import deren.vstd;`, module version 0.1.1a - see `source/vstd/README.md`)
 - `deren.vulkan.core` - instance / device / swapchain / VMA allocator / pipeline / descriptor
   plumbing
 - `deren.engine.scene_tree` - pure-CPU scene storage (transform hierarchy of scene_node objects
@@ -189,8 +199,8 @@ you are free to recombine or rewire them.
   record_main_drawcalls -> end_recording -> submit_and_present, plus one-call
   render_frame()), drives the peer scene_tree / primitive modules, debug GUI overlay.
   Shadow + main pass commands are recorded into per-slot secondary command buffers and the
-  main pass fans its leaf recording out over the shared task pool (sub_render_task
-  batches); each recording worker gets its own render_environment (thread-local
+  main pass fans its leaf recording out over the shared task pool (task_pool batches); each
+  recording worker gets its own render_environment (thread-local
   pipeline-bind state)
 - `deren.engine.render_environment` - per-recording-session render state: the session's command
   buffer, the available named pipelines (pointer to the runtime's stable name table), the
@@ -206,7 +216,7 @@ you are free to recombine or rewire them.
 - `deren.chores` - demo bootstrap helpers for main(): startup config analysis (config + argv
   merge, source/shaders/model location), pipeline setup, instancing stress grid, shader loading
 - `deren.utility` - log/panic, handle distribution, thread pool (deren.utility:thread_pool), BVH, data
-  blocks, frame_clock, pmr routing
+  blocks, frame_clock, and the `vessel` containers' mimalloc-backed allocator (`memory::allocator`)
 - `deren.app_config` - TOML startup configuration merged with argv
 
 Modular composition is the point, not a side effect:

@@ -8,6 +8,14 @@
 
 保持现有 mesh shader/GBuffer/PBR、透明与角色材质路径、frame slot、heap 和 GPU 同步策略。动态 skin/morph 不改为 GPU cluster 路径，但其节点引用和帧数据也必须迁移。Gaussian 的独立数据路径保持当前入口。阶段一不引入自动屏障、LOD、通用 ECS、任意线程场景修改、全局内容去重或新的 RHI 命令。RHI ABI 预期保持 32；C++ module/API 的破坏性变化按各模块 banner 升版。
 
+**2026-10-18 现状核对：** "ABI 保持 32" 是撰写时的基线，当前 ABI 已是 33
+（`source/promise/rhi/rhi.contract.cppm:300`）。阶段一本身仍未实施——本设计提出的
+`node_handle` / `render_instance_id` / `geometry_asset` / `draw_packet` / `render_snapshot`
+在源码中都不存在，`scene_tree` 依旧是 `vector<scene_node>` 值语义、
+`instanced_draw_primitive::source` 仍是裸指针
+（`source/engine/scene_tree/scene_tree.cppm:111`、
+`source/engine/primitive/primitive.cppm:2145`），所以下文 "本轮尚未修改生产代码" 仍然成立。
+
 已有所有权迁移改动未提交。本轮只写文档；实施前保存工作区基线和现有程序行为证据，不把现存代码改动归到阶段一，也不自动提交或推送。
 
 ## 实际代码暴露的边界
@@ -22,6 +30,27 @@
 | BVH/可见集/各绘制列表借用 primitive | [runtime.declarations.cppm](../../../source/engine/runtime/runtime.declarations.cppm:1709) | payload 改为实例身份或当前快照索引，不以 bvh_dirty 作为唯一存活保护。 |
 | RT caster list 借用 primitive，并从它读取 model、材质和地址 | [ray_tracing.cppm](../../../source/engine/ray_tracing/ray_tracing.cppm:88)、[ray_tracing.cpp](../../../source/engine/ray_tracing/ray_tracing.cpp:639) | caster/build 输入拥有冻结记录和 lease，不能留下跨帧借用指针。 |
 | 材质/实例/motion/meshlet 使用固定表与 cursor | [runtime.cpp](../../../source/engine/runtime/runtime.cpp:1988)、[primitive.cppm](../../../source/engine/primitive/primitive.cppm:1755) | 动态删除不能只释放 CPU 节点；需要延迟回收表范围，并有容量不足的原子拒绝行为。 |
+
+**2026-10-18 现状核对：** 这一表的事实仍然成立，但**行号是撰写当日（2026-10-14）的锚点，已漂移**。
+逐条核对后的当前锚点（内容一致，仅位置变化）：
+
+- scene_tree 节点仍是 `vector<scene_node>` 值，注释仍写明 "reference valid until the next
+  structural mutation of this node's children vector"（`scene_tree.cppm:111`、`:128-131`）。
+- `instanced_draw_primitive::source` 仍是 `primitive const*`，`draw()` 直接解引用
+  （`primitive.cppm:2145`，解引用见 `primitive.cpp:265-273`）。
+- animation 仍保存 `node_target::node` / `skin_rig::mesh_node` / `morph_rig::prim` 三处指针
+  （`controller.cppm:784-796`）；并行 sample 写 local 的位置在 `controller.cpp:325-339`。
+- `motion_previous` 的"录制前更新"现在是 `advance_motion_transforms()` 里的
+  `published = previous; previous = world`（`runtime.frames.cppm:438-439`），不在 `:410`。
+- BVH 的裸 `primitive const*` 存活契约注释在 `runtime.declarations.cppm:1707-1718`（原引 `:1709`）。
+- `caster_level::caster` 在 `ray_tracing.cppm:89-90`（原引 `:88`），
+  caster 循环在 `ray_tracing.cpp:643` 起（原引 `:639`）。
+- 固定表容量常量：`material_capacity = 16384`、`instance_capacity = 8192`、
+  `scene_motion_capacity = instance_capacity`（`primitive.cppm:1756`、`:1762`、`:1771`），
+  `meshlet_capacity = 65536`（`meshlet.cppm:59`）；实例/motion 的 cursor 递增在
+  `runtime.cpp:2136`、`:2178-2200`——原引的 `:1988` 现在是 `create_primitive`。
+- 第 5 节 "保留当前 capacities：material 16384，instance/motion 8192，meshlet 65536" 仍与
+  上面这四个常量一致。
 
 ## 方案选择
 

@@ -148,10 +148,11 @@ is crossed.
 | --- | --- |
 | `scripts/check_native_boundary.py` | the executable's import table, the engine objects' unresolved symbols, and the engine sources' vocabulary |
 | `scripts/check_backend_boundary.py` | the symbol ratchet, the whitelist (empty now) and the export table of each plugin |
-| the render gates (`check_render.ps1`, `check_gui.ps1`, `check_rt.ps1`) | that the application really runs the backend it resolved: 14 frozen pixel-identical scenarios, a GUI on/off pair, and a GPU ray-traversal probe |
+| the render gates (`check_render.ps1`, `check_gui.ps1`, `check_rt.ps1`) | that the application really runs the backend it resolved: fifteen frozen legacy-path scenarios plus the visibility-path A/B, a GUI on/off pair, and a GPU ray-traversal probe |
 
-## Still open
+## The rename, done
 
-The C++ module namespaces still read `vulkan.*` and four doxygen groups still read `vulkan_render_*`.
-Renaming them is a decision about what is the backend versus what is the engine, which is why it is
-taken separately from the boundary itself.
+The namespaces split the way the module names do: the portable half reads `deren.engine.*` /
+`deren::engine`, and only the native Vulkan implementation keeps `deren.vulkan.*` / `deren::vulkan`.
+The doxygen groups follow the same split (`engine_*` and `vulkan_*`; no group is spelled
+`vulkan_render_*` any more), so the rename that used to be the open item here has been made.

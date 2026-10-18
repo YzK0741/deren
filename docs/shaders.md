@@ -3,10 +3,13 @@
  * @brief The Slang pass sources, the descriptor/push-constant contracts they share with the C++
  *        records, and how they are compiled.
  *
- * The renderer has no shader reflection and no runtime shader compilation: `dsh`-style `.spv`
- * files live in the build's `shaders/` directory beside the executable, are loaded by `deren::chores::setup_pipeline()` and are turned into
+ * The renderer has no runtime shader compilation: prebuilt `.spv` files live in the build's `shaders/`
+ * directory beside the executable, are loaded by `deren::chores::setup_pipeline()` and are turned into
  * `vk_pipeline` objects through the `runtime::make_*_pipeline()` calls (which own the render
- * state: color format, depth, and the shared scene pipeline layout).
+ * state: color format, depth, and the bindless heap - a heap pipeline has no pipeline layout to own).
+ * The tree's ONE reflection is `source/backends/vulkan/core/pipeline/spirv_parser.cppm` (SPIRV-Reflect),
+ * which a VERTEX stage's input state is derived from; a mesh stage declares no vertex input, so nothing
+ * is derived from it.
  *
  * @section shader_folders Source folders
  *
@@ -30,7 +33,7 @@
  * THE NAMES BELOW ARE STAGE NAMES, and they are also the `.spv` file names the runtime loads. The SOURCES
  * are Slang (`.slang` files, one per shader family - a family with several stages has several entries in one
  * file, which is why this list names stages rather than files). The former GLSL sources are archived in
- * `source/reference/shaders/glsl.old/` and are not built; the four shared bodies still carry GLSL syntax and are `#include`d
+ * `source/reference/shaders/glsl.old/` and are not built; the shared bodies are `.slang` too and are `#include`d
  * by the Slang leaves (see docs/slang_migration.md for how that works).
  *
  * EVERY GEOMETRY STAGE BELOW IS A MESH STAGE, AND THE MESH FORM IS THE ONLY FORM: `VK_EXT_mesh_shader` is a
@@ -83,13 +86,33 @@
  *  Dear ImGui                    overlay, drawn on the final 1x swapchain image
  * @endcode
  *
- * That is the whole frame: `pbr.mesh.spv + gbuffer.frag` is the engine's only scene path (the opaque
- * surface write), and everything after it shades or composites the result. A 1x G-buffer cannot be
+ * That is the whole frame on the DEFAULT lane: `pbr.mesh.spv + gbuffer.frag` is the engine's opaque
+ * surface write, and everything after it shades or composites the result. A 1x G-buffer cannot be
  * multisampled without per-sample shading, so there is no MSAA - `taa.frag` is the anti-aliasing.
+ *
+ * ONE ALTERNATIVE OPAQUE PRODUCER EXISTS and it replaces that row rather than adding to it: the
+ * `[render] visibility_buffer` key (off by default, `false`) records `visibility.mesh.spv` + `visibility.frag.spv`
+ * (`source/shaders/scene/visibility.slang` - one packed triangle id per pixel, the alphaMode MASK test in
+ * the raster fragment) followed by `visibility_resolve.comp.spv` (`source/shaders/scene/visibility_resolve.slang`
+ * - the ids back into the five colour targets), and the geometry lane is then NOT recorded at all: two
+ * authors for one G-buffer is the failure the gate exists to make impossible. The lighting, debug, gaussian,
+ * transparent and toon stages below read the same five targets and the same depth either way, so nothing
+ * after this row knows which lane ran (`runtime.post_graph.cpp`'s visibility section carries the frozen
+ * per-frame decision).
+ *
+ * THE OPTIONAL STAGES SLOT INTO THAT LIST IN THIS ORDER, which is the order `runtime.post_graph.cpp` records
+ * them in: the cluster sort (`light_cluster.comp`) and then the shadow pass, both before the opaque
+ * producer; the ray-traced shadow (`rt_shadow.*`) after the producer and before the lighting stage it
+ * feeds; the lighting stage; the Gaussian raster (`gaussian_reset`/`gaussian_prepare`/`gaussian_finalize`
+ * compute passes then `gaussian_raster.vert`/`.frag`) AFTER lighting and BEFORE the transparent pass; the
+ * transparent pass; the character chain (`character_forward`, then `toon_screen_rim`, then `goo_rim`, all
+ * three composing over the shaded frame); then TAA. The post chain's LAST pass is `fxaa.frag`, or - below
+ * `[render] render_scale = 1.0` - `upscale.slang`'s EASU resolve instead; the two are one exclusion because
+ * both want to be the frame's last writer, and a 1.0-scale frame records neither.
  *
  * @section shader_taa Temporal anti-aliasing
  *
- * The scene renders at 1x, so `source/shaders/taa.frag` is the engine's anti-aliasing instead of MSAA:
+ * The scene renders at 1x, so `source/shaders/post/taa.slang` is the engine's anti-aliasing instead of MSAA:
  * `runtime::set_taa` jitters the projection by a Halton(2,3) sub-pixel offset every frame (the
  * G-buffer and the lighting stage both see the jittered projection - geometry and the depth
  * reconstruction agree about where each sample is), the G-buffer writes a motion vector per pixel
@@ -146,7 +169,7 @@
  * normal, albedo, emissive, metallic, roughness, AO - which the caller fills from whatever it has (the
  * deferred path from G-buffer texels, a forward-style stage from its interpolated fragment inputs), so
  * the lighting cannot tell where the surface came from. The include reaches the resources it needs
- * through the descriptor heap, with `source/shaders/common/heap_slots.slang` naming the slots (the camera UBO, the IBL
+ * through the descriptor heap, with `source/shaders/common/heap_slot_constants.slang` naming the slots (the camera UBO, the IBL
  * maps, the light UBO and the shadow map).
  *
  * This section used to read ONE FUNCTION, TWO PATHS - `pbr.frag` (forward) and `deferred.frag`
@@ -265,8 +288,11 @@
  * by walking up from the working directory). **slangc is required, not optional** - every stage is built from
  * a `.slang` source and the rule has no GLSL fallback any more, so a configuration without the compiler
  * fails loudly instead of compiling modules the project no longer uses. The retired GLSL stage sources are
- * archived in `source/reference/shaders/glsl.old/`; the shared bodies (`surface.slang`, `shading.slang`, `sky.slang`,
- * `ibl_specular.slang`, `heap_slots.slang`, `heap_slot_constants.slang`) stay in `source/shaders/`, because the Slang
+ * archived in `source/reference/shaders/glsl.old/`; the shared bodies stay under `source/shaders/`'s folders -
+ * `common/surface.slang`, `common/surface_body.slang`, `common/material_record.slang`, `common/heap_access.slang`,
+ * `common/heap_slots.slang`, `common/heap_slot_constants.slang`, `lighting/shading.slang`, `lighting/sky.slang`,
+ * `lighting/ibl_specular.slang`, `geometry/mesh_geometry.slang`, `scene/gbuffer_body.slang`,
+ * `gaussian/gaussian_common.slang`/`gaussian_projection.slang` and `toon/toon_params.slang` - because the Slang
  * leaves include them.
  *
  * `source/shaders/compile_shaders.ps1` / `.sh` remain as a manual escape hatch for a machine without CMake -
@@ -278,7 +304,7 @@
  * @endcode
  *
  * Both scripts mirror `CMakeLists.txt`'s `VR_SLANG_SOURCES` (source, entry point, stage, output) and pass the
- * same flags, including `-I source/shaders/`, which is what lets a leaf `#include "surface.slang"`. They are verified
+ * same flags, including `-I source/shaders/`, which is what lets a leaf `#include "common/surface.slang"`. They are verified
  * by running them and comparing their output with the build's, byte for byte.
  *
  * @section shader_conventions Conventions and pitfalls

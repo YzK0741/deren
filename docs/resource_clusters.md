@@ -2,7 +2,7 @@
 
 `deren.engine.resource_cluster` is an engine-only ownership module using the
 public RHI. It adds no backend implementation or RHI ABI entry. Existing registry,
-generation snapshots and pass chains remain in use during render-graph migration.
+generation snapshots and pass chains remain in use alongside the render graph.
 
 An empty cluster is tied to a core and owns its debug name. It creates no GPU
 resources and does not wait for the device:
@@ -71,7 +71,7 @@ inside the window return invalid_argument. Ordinary cluster/lease destruction do
 not call wait_idle. Custom/direct RHI submissions and asynchronous uploads need
 their own retention until completion; this API does not infer those uses.
 
-The opt-in post graph adapts existing resource generations into leases and retains
+The post graph adapts existing resource generations into leases and retains
 a cluster for the acquired output view. This complements the existing resource
 registry; clusters do not infer synchronization or pool GPU allocations.
 

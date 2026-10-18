@@ -251,11 +251,13 @@ deleted those two vertex entries outright. So `pbr.vert` / `shadow.vert` below n
 in the tree today - and `source/shaders/scene/pbr.slang` / `source/shaders/lighting/shadow.slang` are where the entries actually are.
 
 **"The gate" means the CORE set, and the exact scope matters because the numbers above were not all
-taken over the same one.** `check_render.ps1` defines fourteen scenarios and tags five of them `core`; the
+taken over the same one.** `check_render.ps1` defines sixteen scenarios, tags five of them `core`, and keeps
+one (`deferred_visibility`) out of `-Full` because its frozen reference describes the visibility lane; the
 default run is those five x 2 runs = 10 renders. The earlier rounds in this document ran all ten (20
 renders) because the harness had no tiers yet. The rule for a step here: iterate on the core round,
-and run `-Full` (all fourteen, 28 renders) once when the change is meant to be the step's final state, so
-that the nine extra references cannot go stale unwatched - `-Update` only re-baselines what ran.
+and run `-Full` (the fifteen non-visibility scenarios, 30 renders) once when the change is meant to be the
+step's final state, so that the ten extra references cannot go stale unwatched - `-Update` only
+re-baselines what ran.
 
 ### Step 0 - the stage is reachable (DONE)
 
@@ -601,7 +603,7 @@ the counts the GPU used are demonstrably the ones in the table.
 
 **WHAT THE CULLING BUYS, COUNTED (and this is the measurement the log could not carry before).** A rejected meshlet
 and a meshlet nobody dispatched are the same pixels, so the culling needed a witness of its own: the mesh entries now
-add to counters on the heap (slot `meshlet_stats`, `core::heap_slots::meshlet_stats` - the heap is a mesh stage's
+add to counters on the heap (slot `meshlet_stats`, `deren::engine::render_layout::heap_slots::meshlet_stats` - the heap is a mesh stage's
 ONLY route to memory) and the host reads the buffer back once, at shutdown, where `wait_idle` has already made the
 numbers final. One atomic per workgroup per counter, eight uints per frame in flight, cumulative for the session -
 so the figures below are totals over a scenario's 40 frames and are comparable between runs:
@@ -652,9 +654,10 @@ HOW IT IS WIRED, and the four things it deliberately does not do:
 - the flag that says which table travels in the lanes' `base_vertex`, a field a meshlet session never uses for
   anything else (a record carries its own base vertex). Zero keeps the table-driven path, which is what the shadow
   pass and every non-meshlet session still do.
-- the command table gained a **second class** (`runtime::mesh_command_capacity` = two runs of `meshlet_capacity` per
-  frame): the shadow pass and the camera dispatch the SAME primitive with DIFFERENT counts, so they cannot share a
-  command - whichever wrote last would be the count both passes got.
+- the command table gained a **second class** (`runtime::mesh_command_capacity` = THREE runs of
+  `meshlet_capacity` per frame, one per command class): the shadow pass and the camera dispatch the SAME
+  primitive with DIFFERENT counts, so they cannot share a command - whichever wrote last would be the count
+  both passes got.
 
 **NEVER CULLED, and each clause is a way a host-side cull could remove something visible**: an INSTANCED draw (its
 world matrix comes from the instance table per workgroup, so one run's survivors differ per instance and a single

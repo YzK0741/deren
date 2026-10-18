@@ -7,14 +7,15 @@ become declared rather than positional. It is written before any code moves, bec
 ## 0. Status: this map has been walked
 
 The split this document maps has since happened, so the plan below reads as the record of what was measured
-before any code moved. `deren.engine.runtime` is now an umbrella (`runtime.cppm`, 26 lines) over
-`runtime.declarations.cppm` (3855), `runtime.frames.cppm` (3144), `runtime.constructor.cppm` (1839),
-`runtime.cpp` (1890), `runtime.probes.cppm` (365) and `runtime.readback.cppm` (153), and the pass extraction
+before any code moved. `deren.engine.runtime` is now an umbrella (`runtime.cppm`, 27 lines) over
+`runtime.declarations.cppm` (4544), `runtime.frames.cppm` (3446), `runtime.constructor.cppm` (2422),
+`runtime.cpp` (2301), `runtime.post_graph.cpp` (1041), `runtime.probes.cppm` (361) and
+`runtime.readback.cppm` (142), and the pass extraction
 the acceptance section asks for has landed.
 
 Two parts of the map describe code that no longer exists, and are kept only as that record: C1's G-buffer
-descriptor set (its generator and its writes went with the descriptor-family plumbing - the header of
-`source/backends/vulkan/bindings/bindings.cppm` is the surviving account) and C8's `image_set_family` / `scene_bindings`,
+descriptor set (its generator and its writes went with the descriptor-family plumbing - the surviving account
+is `docs/descriptor_heap_migration.md`) and C8's `image_set_family` / `scene_bindings`,
 `set_ssgi` and the SSGI / GI-probe families (the traced-GI subsystem left in `1162d88`). The line counts in
 section 1 are the pre-split measurements they were written as.
 
@@ -26,9 +27,9 @@ quotes numbers so they can be re-derived, so the method is part of the number.
 
 The architecture this refactor moves TOWARD is already written down, so this is not a new design:
 
-* `docs/mainpage.md` (87-88): "Most modules are independent building blocks that meet only through narrow
-  interfaces, so you are free to recombine or rewire them";
-* the same page (96-99) defines `deren.vulkan.core` / `deren.engine.runtime` as "a configurable facade ... the demo entry
+* `docs/mainpage.md` (section "What is in the box"): "Most modules are independent building blocks that meet only
+  through narrow interfaces, so you are free to recombine or rewire them";
+* the same page (section "What is in the box") defines `deren.vulkan.core` / `deren.engine.runtime` as "a configurable facade ... the demo entry
   point (`main.cpp` + `deren.chores`) is a thin glue layer on top and can be replaced wholesale".
 
 The measured shape of what exists instead:
@@ -51,15 +52,21 @@ descriptor bindings, one push-constant lane and a second dispatch of an existing
 
 ## 2. What is already extracted (do not re-propose these)
 
-`deren.engine.pipelines` (all stateless pass-pipeline builders), `deren.vulkan.bindings` (`scene_bindings`,
-`image_set_family` with its pool lifetime), `deren.engine.shadow_fit` (the cascade FIT math only - the gather and its
-cache stay in runtime), `deren.vulkan.readback` (screenshot staging), `deren.engine.acceleration_structure` (the BLAS/TLAS
-classes), `deren.engine.profiling` (CPU phases), `deren.vulkan.graphical_user_interface`, `deren.vulkan.core` with its nested parts (`filter`,
-`handles`, `init_utils`, `deren.vulkan.core.pipeline`, `spirv_parser`, `vma`, `vma.handles`), plus `deren.engine.scene_tree`
+`deren.engine.pipelines` (all stateless pass-pipeline builders), `deren.engine.shadow_fit` (the cascade FIT math only - the gather and its
+cache stay in runtime), `deren.engine.acceleration_structure` (the BLAS/TLAS
+classes), `deren.engine.profiling` (CPU phases), `deren.vulkan.graphical_user_interface`, `deren.vulkan.core` with its nested parts (`handles`,
+`init_utils`, `deren.vulkan.core.pipeline`, `spirv_parser`, `vma`, `vma.handles`, `descriptor_heap`), plus `deren.engine.scene_tree`
 and `deren.engine.render_environment`.
 
+Two units named above have been DELETED rather than extracted since this map was written, and neither is a
+candidate for re-proposal: `deren.vulkan.bindings` (`scene_bindings`, `image_set_family` with its pool lifetime)
+went with the descriptor-set world (see `docs/descriptor_heap_migration.md`), and `deren.vulkan.readback` is the
+`runtime.readback.cppm` partition now.
+
 THE PRECEDENT THAT MATTERS: three prior extractions say "Extracted from deren.engine.runtime" in their headers
-(`source/engine/pipelines/pipelines.cppm:10`, `source/backends/vulkan/bindings/bindings.cppm:9`, `source/engine/shadow_fit/shadow_fit.cppm:9`) and all three are of the STATELESS/PURE kind - they
+(`source/engine/pipelines/pipelines.cppm:10`, `source/engine/shadow_fit/shadow_fit.cppm:9`, and
+`source/backends/vulkan/bindings/bindings.cppm:9` - the last of the three has since been deleted with the
+descriptor-set world) and all three are of the STATELESS/PURE kind - they
 take handles and return builders. **No extraction in this repository has ever moved state.** Everything below is
 therefore the first of its kind, and the acceptance criteria have to be stronger than "it compiles".
 
@@ -141,14 +148,16 @@ what stayed is on purpose: the pass owns its set layout, its two-set ping-pong f
 pipeline, its barriers, its clear and its push; `deren.engine.runtime` keeps the switch, and the values the push block
 is composed from (they are the renderer's). `record_gi_probe_pass`, `ensure_gi_probe_descriptors` and
 `make_gi_probe_pipeline` are gone, and `gi_probe_valid`/`gi_probe_light_dir_valid` are the pass's state now. The
-app's two calls are `register_shader` (it owns the file) and `create_passes` (the pass owns the pipeline). The
+app's two calls are `register_shader` (it owns the file) and `create_passes` (the pass owns the pipeline). That
+pass and the probe cache have since been removed with the traced-GI chain (commit `1162d88`; see
+`docs/pass_io_design.md`), so extraction 1 is history rather than a live module. The
 remaining entries in the order above are unchanged, and TAA is next - but it needed one thing this map did not
 anticipate, because the map counted lines rather than shape: TAA is a FULLSCREEN GRAPHICS pass, and the framework
 only drove compute. Its half of the framework (declared render targets, a graphics bind point, the
 viewport/scissor a pass cannot forget) landed first and separately; the extraction order below is unchanged, only
 the cost of entry 2 is now two steps instead of one.
 
-**Extraction 2 is DONE too (`deren.engine.pass.taa`, version 0.1.0)**, and it cost the three things the map could not
+**Extraction 2 is DONE too (`deren.engine.pass.taa`, 0.1.0 when it landed and 1.0.0 today)**, and it cost the three things the map could not
 see either:
 
 * the SAMPLER was created inside the factory it was extracted from, so moving the factory deleted the sampler and
@@ -196,7 +205,7 @@ TWO THINGS TO SETTLE BEFORE COMMITTING TO IT, both cheap:
 * `CMakeLists.txt` lists every `.cppm` explicitly, so each extraction adds lines there. The self-check for that
   is part of every step: introduce a deliberate error in the new module and confirm the build FAILS - a file in
   the tree that no target compiles is a silent failure this project has no other guard against.
-* Version banners: a new module starts at 0.1.0 and `deren.engine.runtime` bumps with each extraction (it is 0.55.0
+* Version banners: a new module starts at 0.1.0 and `deren.engine.runtime` bumps with each extraction (it is 1.0.0
   today).
 
 ## 8. Acceptance for every step, and the hazards that are NOT behaviour changes
@@ -204,7 +213,7 @@ TWO THINGS TO SETTLE BEFORE COMMITTING TO IT, both cheap:
 Every step is a MOVE, so its acceptance is the strongest control this project has:
 
 * `scripts/windows/check_render.ps1`: the core set, 5 scenarios x 2, **0 changed**, 0 flaky; Release, Debug and ASan+UBSan
-  clean; `ctest` 13/13; `doxygen Doxyfile` exit 0 with an empty warning stream; every run validation clean.
+  clean; `ctest` 43/43; `doxygen Doxyfile` exit 0 with an empty warning stream; every run validation clean.
 * IF A MOVE CHANGES A FRAME, the reason is found and stated before anything is re-seeded. Re-seeding a reference
   to make a refactor pass is how a refactor hides a behaviour change.
 

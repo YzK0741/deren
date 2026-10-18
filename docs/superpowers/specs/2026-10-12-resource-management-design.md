@@ -2,6 +2,24 @@
 
 Status: proposed design for review; implementation has not started.
 
+**2026-10-18 现状核对：this proposal WAS implemented and then superseded in shape.**
+"Implementation has not started" describes 2026-10-12 only. Today:
+
+- The generations/instance vocabulary it asks for exists in
+  `source/engine/render_resource/instances.cppm` — `resource_instance` (`:80-88`),
+  `generation` (`:89-94`), `resource_set` (`:95-98`), `resource_snapshot` (`:99`) — plus the
+  owning engine lease `resource_lease<T>` in
+  `source/engine/resource_cluster/resource_cluster.cppm:29-47`.
+- The shadow family did move onto that vocabulary: the runtime now holds
+  `shadow_images` / `shadow_array_views` / `shadow_layer_views` /
+  `shadow_allocated_layers` / `shadow_resource_view`
+  (`source/engine/runtime/runtime.declarations.cppm:1442-1461`), one layered depth image per
+  frame slot, with `heap_frame_slot` still selecting the slot in shaders
+  (`source/shaders/common/heap_slot_constants.slang:229`).
+- What this document assigns to "later" (automatic barriers, dependency-derived transitions)
+  now exists as the composed render graph, so the *first phase* below is history rather than
+  the current plan. Read that section against `docs/render_graph.md`.
+
 ## Objective and constraints
 
 Following the shadow fixes, make render resource ownership, descriptor publication, slot reuse and
@@ -39,6 +57,15 @@ No additional buffering or async compute is part of this proposal.
 3. Introduce a complete render graph now, including dependency compilation, transient aliasing and
    automatic barriers. Broad reach, but too much change to validate at once; defer until ownership
    and resource-state facts have a reliable home.
+
+   **2026-10-18 现状核对：** this was deferred, then built: the render graph exists as
+   `source/engine/render_graph/` (module `deren.engine.render_graph` plus
+   `compose`/`execute`/`rhi`/`parameters` and one module per pass), and the frame's scene and post
+   chains are now recorded through it with no per-frame fallback
+   (`source/engine/runtime/runtime.frames.cppm:876-878`, `:3147-3150`). It still does NOT do
+   transient aliasing or in-graph resource creation — those remain explicitly out of scope in
+   `docs/superpowers/specs/2026-10-15-render-graph-design.md` §1 — so the deferral was right about
+   aliasing and wrong only about "not yet".
 
 ## Shadow resource generation
 

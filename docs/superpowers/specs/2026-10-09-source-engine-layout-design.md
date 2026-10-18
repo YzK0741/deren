@@ -26,11 +26,13 @@ for backend-neutral code and collect project code under `source/`.
 | `application_configuration/` | `source/application_configuration/` |
 | `gltf_loader/` | `source/gltf_loader/` |
 | `utility/`, `vstd/` | Corresponding directories under `source/` |
-| `tests/`, `scripts/`, `shaders/`, `third_party/` | Corresponding directories under `source/` |
-| `docs/official-shaders/` | `source/shaders/reference/official/` |
+| `tests/`, `shaders/`, `third_party/` | Corresponding directories under `source/` |
+| `scripts/` | Stays at the repository root: it is delivery tooling, not project source (see the note below). |
+| `docs/official-shaders/` | `source/reference/shaders/official/` |
 
 All application, backend, contract, library, test, shader, vendor, and executable
-tool sources belong under `source/`. Root build entry points (`CMakeLists.txt`),
+tool sources belong under `source/` — the delivery scripts are the one exception and
+stay in `scripts/` at the root. Root build entry points (`CMakeLists.txt`),
 CI configuration, formatter settings, and Doxygen configuration remain at root.
 Documentation and document templates remain in `docs/`; model assets and
 snapshots retain their existing locations. Shader reference files are moved
@@ -38,7 +40,10 @@ without modifying their contents or adding them to shader compilation.
 
 Backend ownership follows the actual CMake target source lists. In particular,
 `vulkan/init_utils/` is native backend code; `vulkan/core/filter/` is engine code.
-`render_layout` remains a separate portable library shared with the backend.
+`render_layout` remains a separate portable library shared with the backend: the
+CMake target is `renderer_layout` (`CMakeLists.txt:479`) and it builds the module
+`deren.engine.render_layout` (`source/engine/render_layout/render_layout.cppm:22`),
+which `deren_vulkan` links (`CMakeLists.txt:592`).
 
 ## Behavior and compatibility
 
@@ -46,6 +51,14 @@ This is a source organization change. Update imports, qualified engine names,
 source lists, include paths, test fixtures, CI, documentation, and tools together.
 Preserve RHI ABI 28, GUI ABI 2, exported C entry points, DLL file names, runtime
 configuration, compiled shader destinations, and rendering behavior.
+
+**2026-10-18 现状核对：** the ABI clause above records the constraint of THIS change
+(do not bump an ABI just to move files), not the current numbers. Both numbers have
+moved since, deliberately and separately from any layout work: the RHI ABI is 33
+(`source/promise/rhi/rhi.contract.cppm:300`) and the GUI ABI is 3
+(`source/promise/gui/gui.cppm:18`). The exported C entry points and DLL names are
+still what the loaders resolve by name (`source/utility/dynamic_link.cppm`), so the
+part of the clause about entry points and file names still holds.
 
 No legacy engine module aliases are introduced. The new source module names
 become canonical; true Vulkan backend names remain distinguishable.
@@ -71,3 +84,30 @@ supports them, and report any unverified CI/Debug/GPU checks explicitly.
 
 Stop development and report progress when the user's remaining short-term
 Codex quota reaches 5%. Do not push or merge without authorization.
+
+## 2026-10-18 现状核对
+
+The layout this document approved is in place and was extended afterwards. Verified
+against the tree, not against this text:
+
+- `source/app/` holds `main.cpp`, `chores.cpp`, `chores.cppm` as mapped.
+- `source/engine/` holds the backend-neutral modules (`runtime/`, `filters/`,
+  `render_layout/`, `pass/`, `render_graph/`, `render_resource/`, `gaussian_splatting/`, …);
+  `source/backends/vulkan/` holds the implementation (`core/`, `init_utils/`,
+  `constant_init/`, `synchronization/`, `graphical_user_interface/`). The old
+  `vulkan/init_utils/` split into two backend directories — `source/backends/vulkan/init_utils/`
+  and `source/backends/vulkan/core/init_utils/` — so the "native backend code" ownership
+  rule still holds, but neither path in the sentence above exists verbatim any more.
+- `source/promise/rhi/`, `source/promise/gui/`, `source/application_configuration/`,
+  `source/gltf_loader/`, `source/gaussian_loader/`, `source/utility/`, `source/vstd/`,
+  `source/tests/`, `source/shaders/`, `source/third_party/` all exist as mapped.
+- `docs/official-shaders/` became `source/reference/shaders/official/` and is joined by
+  `source/reference/shaders/glsl.old/`; the two are reference inputs only and are not in
+  the shader compile list (`VR_SHADER_SRC_DIR` is `source/shaders` and `VR_SHADER_INCLUDES`
+  lists only `source/shaders/**`, `CMakeLists.txt:2007`, `2027-2090`).
+- `scripts/` did NOT move under `source/`; it is still `scripts/` at the repository root
+  with `windows/`, `posix/` and `measure/` beneath it. Tools therefore still resolve the
+  repository root one level above themselves, not two.
+- New engine targets appeared after this document and follow the same naming direction:
+  `deren_engine`/`deren::engine` (`CMakeLists.txt:649-650`), `deren_assets`,
+  `resource_cluster_core`, and the `render_graph_*` family (`CMakeLists.txt:1217-1277`).

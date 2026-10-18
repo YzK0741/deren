@@ -2,7 +2,7 @@
 
 Continuation of the accepted passchain lifetime-group design. Scope: the shared camera input of scene,
 shadow, deferred and post passes. Preserve shader slots, ABI32, projection/jitter/history calculations,
-frame completion and descriptor publication ordering.
+frame completion and descriptor publication ordering.（2026-10-18 核对：这里记的当时值是 ABI32，RHI ABI 现为 33，证据 source/promise/rhi/rhi.contract.cppm:300；本批的“不改 ABI”约束本身仍成立。）
 
 - [x] Add behavioral regression for camera ownership, heap binding, slot isolation, reuse, chain handover/retirement and invalid admission before acquire.
 - [x] Extend scene_constants_pass with the camera request and optional selection. Replace runtime camera ownership with a borrowed snapshot; initialize new generations, upload via checked frame-buffer writes and publish existing heap slots.

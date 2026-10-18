@@ -2,6 +2,8 @@
 
 > **For agentic workers:** 后续实施使用 superpowers:executing-plans，按阶段验证和提交。本文件目前仅用于规划，尚未开始高斯功能开发。
 
+**2026-10-18 状态核对（本文件的复选框已不再代表实际进度）：** 上面那句“尚未开始”和下面全部未勾选的复选框都是 2026-10-09 的原始状态，而高斯功能早已实现并接入帧：后续 [loader](2026-10-10-gaussian-loader.md)、[渲染基础](2026-10-10-gaussian-render-foundation.md)、[光栅管线](2026-10-11-gaussian-raster-pipeline.md)、[viewer 接入](2026-10-11-gaussian-viewer-integration.md)、[GPU 帧](2026-10-12-gaussian-gpu-frame.md) 与 [光栅成本](2026-10-12-gaussian-raster-cost.md) 六份计划逐段实施，代码为 `source/gaussian_loader/`、`source/engine/gaussian_splatting/`（含 `gpu_frame.cppm`、`raster.cppm`、`radix_sort` 后端）、`source/engine/pass/gaussian_splatting.cpp` 与渲染图侧 `source/engine/render_graph/gaussian.cppm`（图内 lane 17，证据 source/engine/runtime/runtime.post_graph.cpp:40、:743），测试为 `test_gaussian_loader` / `test_gaussian_splatting` / `test_gaussian_raster` / `test_gaussian_gpu_frame`；阶段 0–3 的实质目标（Slang、确定性资产、CPU 参考数学、普通光栅+透明混合、CPU 深度排序、GPU 可见性筛选与 radix sort、独立计时与冻结回归）均由上述计划与 docs/reviews/ 下 2026-10-10 至 2026-10-12 的对应记录验收（例如 2026-10-11-gaussian-raster-pipeline.md、2026-10-12-gaussian-gpu-frame.md、2026-10-12-gaussian-projection-cache.md）。本文件不据此批量改勾：逐条完成度以那六份计划的复选框与 review 记录为准。另外两处数值/路径已过时：下面的 `source/shaders/gaussian_*.slang` 现为 `source/shaders/gaussian/`（`gaussian_common.slang`、`gaussian_prepare.slang`、`gaussian_projection.slang`、`gaussian_raster.slang`），Global Constraints 里的“十四个冻结场景”现为 15 个（含 `deferred_visibility` 属另一套 ON 参考）。
+
 **Goal:** 在 deren 中浏览已有 3D Gaussian Splatting 场景，并与现有 PBR 网格、卡渲角色组合成一个稳定、可测量的展示场景。
 
 **Architecture:** 高斯资源和渲染 pass 属于 `deren.engine`，加载器负责把文件方言转换成统一数据。GPU 操作只通过 RHI；Vulkan 实现留在后端。先实现普通光栅路径与正确性基准，再依据测量选择 GPU 排序、分块及 LOD。
@@ -27,7 +29,7 @@
 | `source/gaussian_loader/` | 读取 PLY、校验属性与大小、转换训练参数，输出 CPU 数据 |
 | `source/engine/gaussian_splatting/` | 高斯场景实例、GPU 资源、可见列表、排序和生命周期 |
 | `source/engine/pass/gaussian_splatting.*` | pass 声明、资源读写、光栅记录及合成 |
-| `source/shaders/gaussian_*.slang` | 投影、剔除、球谐求值、排序及高斯覆盖率计算 |
+| `source/shaders/gaussian/` | 投影、剔除、球谐求值、排序及高斯覆盖率计算 |
 | `source/tests/` | 加载异常、数学参考、GPU 小样本、场景回归 |
 
 统一数据至少包含中心、旋转、尺度、透明度和球谐系数。文件中的指数尺度、透明度编码、四元数顺序及球谐布局按所选方言显式转换，禁止猜测。GPU 打包结构在实现前给出字段、对齐和偏移，并用 CPU/GPU 小样本验证。

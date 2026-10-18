@@ -8,7 +8,10 @@ instrument that has to exist before the fix can be accepted at all.
 > migration moved those bodies into `source/shaders/scene/pbr.slang` / `source/shaders/lighting/shadow.slang` (the GLSL originals are in
 > `source/reference/shaders/glsl.old/`), and the mesh-shader migration then removed those files' vertex ENTRIES altogether
 > (docs/mesh_shaders.md step 4) - the morph/skin/motion code they argue about now lives in the shared
-> `pbr_shade_vertex` body that the mesh entries call. The measurements, the fixtures and the acceptance are
+> `pbr_shade_vertex` body that the mesh entries call. The same is true of the other pre-Slang paths below -
+> `source/shaders/gbuffer.frag` is `source/shaders/scene/gbuffer.slang`, `source/shaders/taa.frag` is
+> `source/shaders/post/taa.slang` and `source/shaders/gbuffer_debug.frag` is `source/shaders/debug/gbuffer_debug.slang`.
+> The measurements, the fixtures and the acceptance are
 > unaffected; only the paths changed.
 
 ## 1. The gap, stated by the code
@@ -27,7 +30,8 @@ space contributes zero to the motion vector.
 
 The code says so out loud. `source/shaders/gbuffer.frag:83-88`: "A deforming mesh is still approximate: a
 skinned or morphed vertex moves inside its own object space as well, and the previous-frame skin matrices
-/ morph weights that would describe that are not stored yet." `docs/shaders.md:79-82` repeats it, and
+/ morph weights that would describe that are not stored yet." `docs/shaders.md`'s TAA section repeated it
+(as `docs/shaders.md:79-82` did when this was written), and
 `docs/mainpage.md:84-89` lists it as what is still ahead on this path.
 
 Why this is the next thing rather than a polish item: TAA is the engine's **only** anti-aliasing (a 1x
@@ -66,7 +70,9 @@ push occupies **108 of `pass::max_push_bytes = 128`** - the 96-byte `material_pu
 `source/engine/primitive/primitive.cppm:488`) plus three 4-byte lanes `{frame_slot, image_index, extra_lane}`
 (`runtime.cpp:849`); the limit is at `source/engine/pass/pass.cppm:184` and the validator refuses anything past it
 (`source/engine/render_resource/render_resource.cppm:719-721`). **20 bytes stay free**, and only the morph half
-needs one of them.
+needs one of them. (THAT COUNT IS PRE-MESH-SHADER ARITHMETIC: since docs/mesh_shaders.md step 1 the same
+block also carries the 32-byte `MeshGeometryLanes`, the declared block is 144 bytes, and the device is
+required to have room for it - so no new lane may be added to it by this design.)
 
 **2. The publication is the runtime's, once per frame, in the same place as the rigid publication.**
 `runtime::advance_motion_transforms()` (`source/engine/runtime/runtime.frames.cppm:220-244`, called at `:335`)
@@ -244,7 +250,7 @@ and SimpleMorph **100.00% still -> 99.48% moved**. The flag's step-1 numbers are
 
 ### Step 3 - the documents
 
-`docs/shaders.md:79-82`, `source/shaders/gbuffer.frag:83-88`, `docs/mainpage.md:84-89` and the README's TAA
+`docs/shaders.md`'s TAA section (as `docs/shaders.md:79-82` did then), `source/shaders/gbuffer.frag:83-88`, `docs/mainpage.md:84-89` and the README's TAA
 feature line all state the gap as current. Each becomes false and is rewritten to the **new** residual:
 what stays approximate is transparent geometry, per-swapchain-image deformation history, and a mesh whose
 deformation changed while its swapchain image was recreated.
@@ -322,7 +328,7 @@ image, descriptor family or render target.
 
 | item | state |
 | --- | --- |
-| the gap, documented by the code | DONE - `source/shaders/gbuffer.frag:83-88`, `docs/shaders.md:79-82` |
+| the gap, documented by the code | DONE - `source/shaders/gbuffer.frag:83-88`, `docs/shaders.md`'s TAA section |
 | step 0(a) frame-indexed animation sweep | DONE - `--capture-animation-sweep`; byte-neutral without the flag (the rigid reference capture stayed `77EFE3C2D80A3C34F3B3229CC91AC27A9A47440A2393B8C0677795E0AB8E1C53` before and after it), two runs of one sweep hash-equal, and two different rates produce two different poses |
 | step 0(b) animated skinned fixture + the instrument | DONE - `scripts/make_animated_skin_fixture.py` -> `source/tests/fixtures/animated_skin_plane.gltf` (169 vertices / 288 triangles / one pinned joint + one animated about Z / 5 keyframes over 2 s), and `scripts/measure/motion_channel.py`. The bug's baseline: 229,267 foreground px, **100.00% still**, **one** distinct value |
 | step 1 the skins (heap family, buffers, publication, vertex stage) | DONE - `skin_matrices_previous` in both grid files, the per-slot previous buffer + its CPU copy, `runtime::advance_motion_deformations()`, and the second skin blend in `source/shaders/pbr.vert`. Measured on the swept fixture: **0.00% -> 65.59% moved** (150,371 px, mean deviation 17.14, worst 104, 597 distinct values) with the pinned left half correctly still (34.41%); the PINNED-pose null test **100.00% still**; the rigid reference capture byte-identical; ctest 8/8; zero validation findings. On a REAL character from the sample assets (Fox, 24 joints): swept **100.00% moved** (266,727 px, 218 distinct values) against **100.00% still** when the pose is pinned - every skinned pixel reports the motion it has, and none reports any when nothing changed |

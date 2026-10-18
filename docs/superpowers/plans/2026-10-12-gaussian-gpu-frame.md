@@ -33,10 +33,11 @@
 - `source/backends/vulkan/core/radix_sort.cpp`（新建）：唯一 VRDX_IMPLEMENTATION、sorter 所有权、scratch 查询、录制与校验。
 - `source/backends/vulkan/core/core.declarations.cppm`、`core.api_core.cpp`、`core.constructor.cppm`：能力查询、句柄/命令接入、启用特性及计时容量；VRDX 实现不堆入现有大文件。
 - `source/engine/gaussian_splatting/gpu_frame.cppm/.cpp`（新建）：GPU frame 数据、预算、slot 资源更新和 compute 录制。
-- `source/shaders/gaussian_projection.slang`（新建）：准备与 vertex 共享的纯数学 helper。
-- `source/shaders/gaussian_prepare.slang`（新建）：reset、prepare、finalize 入口。
-- 现有 `gaussian_raster.slang`、Gaussian pass、runtime：GPU 帧消费、间接绘制及 CPU 回退。
-- `source/tests/test_gpu_sort.cpp`、`test_gaussian_gpu_frame.cpp`（新建）：契约/fake 测试；`source/engine/gaussian_splatting/gpu_probe.cppm/.cpp`（新建）：真实 GPU 排序与输出探针。
+- `source/shaders/gaussian/gaussian_projection.slang`（新建）：准备与 vertex 共享的纯数学 helper。
+- `source/shaders/gaussian/gaussian_prepare.slang`（新建）：reset、prepare、finalize 入口。
+- 现有 `source/shaders/gaussian/gaussian_raster.slang`、Gaussian pass、runtime：GPU 帧消费、间接绘制及 CPU 回退。
+- `source/tests/test_gaussian_gpu_frame.cpp`（新建）：契约/fake 测试；`source/engine/gaussian_splatting/probe.cppm` + `gpu_probe.cpp`（新建）：真实 GPU 排序与输出探针。
+（2026-10-18 核对：四个 shader 现位于 `source/shaders/gaussian/`，不是 `source/shaders/` 根目录；排序契约测试并入 `test_dynamic_link`（本文件“实施记录”已记），故没有 `test_gpu_sort.cpp`；探针的模块接口文件是 `probe.cppm`（`gpu_probe.cpp` 是其实现单元），没有 `gpu_probe.cppm`。）
 - `CMakeLists.txt`、现有 shader 编译脚本、shader source 测试、CI：统一登记新模块、shader、测试与检查。
 
 ## Task 1: 通用间接绘制与排序契约
@@ -107,7 +108,7 @@
 
 ## Task 5: 独立计时、画质与性能验收
 
-**Files:** 修改 runtime 计时 enum/labels/report、backend timestamp 容量、`profiling.cppm`、GPU frame CPU 计时、旧逐帧 Gaussian 日志；新增 `source/scripts/windows/check_gaussian_gpu.ps1`，更新 Gaussian 文档和本轮 review report。
+**Files:** 修改 runtime 计时 enum/labels/report、backend timestamp 容量、`profiling.cppm`、GPU frame CPU 计时、旧逐帧 Gaussian 日志；新增 `scripts/windows/check_gaussian_gpu.ps1`（2026-10-18 核对：脚本在仓库根的 `scripts/windows/`，原文写作 `source/scripts/windows/`，而 `source/scripts/` 不存在），更新 Gaussian 文档和本轮 review report。
 
 **Interfaces:** 扩展现有 mark，不另开 VRDX 内部 15 mark 查询；Gaussian intervals 为 prepare、sort、finalize、raster。runtime 与 backend 的 mark capacity 同时由 16 扩到 32，所有数组和 query pool 容量使用该值。
 

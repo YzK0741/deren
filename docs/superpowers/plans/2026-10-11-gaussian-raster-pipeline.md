@@ -49,7 +49,7 @@ Interfaces: raster_camera (VP, world position, viewport), raster_push, projectio
 
 ## Task 2: immutable frame upload, Slang pair and RHI pass
 
-Files: extend raster.cppm, create raster.gpu.cpp, source/engine/pass/gaussian_splatting.cppm/.cpp, source/shaders/gaussian_raster.slang and gaussian_common.slang; extend test_gaussian_raster.cpp, shader-source registration and docs/gaussian_splatting.md.
+Files: extend raster.cppm, create raster.gpu.cpp, source/engine/pass/gaussian_splatting.cppm/.cpp, source/shaders/gaussian/gaussian_raster.slang and source/shaders/gaussian/gaussian_common.slang（2026-10-18 核对：两个 shader 在 `source/shaders/gaussian/` 子目录，原文省略了该前缀）; extend test_gaussian_raster.cpp, shader-source registration and docs/gaussian_splatting.md.
 
 Interfaces: make_raster_asset(core, gaussian::asset by value, limits) binds immutable CPU source/geometry and GPU asset; raster_instance references that shared asset/model/stable ID. prepare_raster_frame(core, instances, camera, limits) returns immutable shared raster_frame holding instance/reference buffers and all asset owners. gaussian_splatting_pass owns its pipeline and receives one shared frame snapshot.
 

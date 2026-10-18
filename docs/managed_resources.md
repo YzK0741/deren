@@ -195,7 +195,7 @@ The MegaLights trace/resolve/history families this section also described were r
 `scene_deformation_pass` describes motion transforms, current and previous skin matrices, and morph
 data as four coherent storage buffers with device addresses. All use frame-slot scope/lifetime and
 zero-on-create; none uses zero-on-frame. `skin_matrices_previous` is an appended engine resource id,
-preserving all earlier ids and RHI ABI32. The frame resource table now also publishes that buffer.
+preserving all earlier ids and the RHI ABI number. The frame resource table now also publishes that buffer.
 
 Constructor preparation provides the buffers before animation setup or instanced motion writes.
 The runtime borrows buffers/mappings and retains each family's owning snapshot. Application and
@@ -218,7 +218,7 @@ see [deformation migration evidence](reviews/2026-10-14-deformation-resources.md
 
 `scene_tables_pass` declares nine global buffers: materials, instance transforms, toon colour/lanes/rig,
 meshlets, mesh indirect commands, statistics and culled meshlets. Material/instance schema scope now
-matches the actual global binding. Seven ids are appended without renumbering prior ids or changing ABI32.
+matches the actual global binding. Seven ids are appended without renumbering prior ids or changing the RHI ABI.
 The last three buffers retain internal frame regions and their original offsets; indirect commands
 retain indirect usage and are not placed on the descriptor heap.
 
@@ -304,7 +304,7 @@ See [geometry upload evidence](reviews/2026-10-14-geometry-resources.md).
 
 ## Shared images, samplers and ownership coverage
 
-Shared texture/IBL/furnace/LUT images and seven samplers use typed resource-only subchains. Runtime
+Shared texture/IBL/furnace/LUT images and six samplers use typed resource-only subchains. Runtime
 holds shared_ptr aliases to their objects; those aliases own the subchains and their device roots.
 Image upload sources use the immutable initial-data/key protocol and are released after creation.
 Only whole views are requested for shared sampled images. Shader binding table uploads also use
