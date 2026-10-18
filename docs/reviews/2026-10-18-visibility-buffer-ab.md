@@ -377,3 +377,27 @@ CONSEQUENCE FOR THE ROADMAP, recorded before any optimization work: material bin
 now have a concrete target - the resolve+raster pair costs more than the thing it replaced, so a visibility
 path that is not faster than the fragment G-buffer is the honest starting point, not a regression to hide.
 The next measurement (lane-level mark splitting raster from resolve) says WHICH of the two to optimize first.
+
+## The repeat measurement makes the contradiction REAL: the pass labels are the problem
+
+Round 6's TAA result was dismissed as a single-window artifact. Repeated 3x per arm it is reproducible:
+
+| arm | scene median [range] | total median [range] |
+| --- | ---: | ---: |
+| OFF (TAA) | 0.67 [0.66..0.76] | 1.30 [1.29..2.04] |
+| ON (TAA) | **0.28** [0.27..0.30] | **0.95** [0.95..1.21] |
+
+ON is reproducibly ~27% FASTER on total in the TAA configuration, while the non-TAA `deferred` configuration
+is reproducibly ~2.4x SLOWER (round 7). Both are now stable measurements, so the discrepancy is not noise - and
+the per-bucket numbers make the cause visible: the OFF+TAA `scene` bucket reads 0.67 ms while the OFF non-TAA
+`scene` bucket reads 0.28 ms for a frame that does the SAME G-buffer work plus a TAA pass the report already
+has a bucket for (`taa 0.00`). The `scene` bucket is therefore absorbing different lanes depending on the
+path (TAA resolve/copy marks, and on ON frames the raster+resolve pair), exactly the caveat the round-7
+section recorded.
+
+CONCLUSION, and it is the blocking fact for item 5: the runtime's pass-timing BUCKETS cannot compare the two
+opaque lanes - the marks that bound them are written by different lanes in the two paths. The baseline needs a
+lane-level mark (raster end, resolve end) so raster, resolve, TAA and lighting are attributed per LANE rather
+than per bucket, and only then can material binning or any other optimization be judged. Until then the item-5
+status stays: instrument works, comparison not valid - but the absolute ON numbers (scene+resolve+taa+lighting
+around 0.9-2.0 ms total for a 1080x960 frame) are usable as a smoke-level check.
