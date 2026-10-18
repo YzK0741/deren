@@ -1576,6 +1576,15 @@ namespace deren::engine {
             return vis::admission::no_scene; // no graph-recordable scene: there is no G-buffer lane to replace
         if (this->frame_visible.empty())
             return vis::admission::no_draws; // the old lane's clear IS the frame; nothing to capture
+        // A DEPTH-EQUAL RE-SHADING STAGE (the toon character pass): it draws the opaque leaves a SECOND time with
+        // `depth_compare::equal`, which is an EXACT test, so the depth its fragments see must be the depth ITS OWN
+        // pipeline wrote - a value from a different pipeline module can be one ULP away and the fragment is then
+        // rejected, letting the deferred shading it was meant to replace show through. MEASURED on the toon capture
+        // scenarios: the character stage's coverage shrank by ~106k pixels and the frame displayed the base shading
+        // there (the ON/OFF mean over changed pixels was 67/255, against 8/255 for the plain deferred scene). Until
+        // the opaque depth producer and that stage share one depth source, a frame carrying it records the OLD lane.
+        if (this->character_forward_on && (!this->frame_visible.empty() || !this->frame_overlay.empty()))
+            return vis::admission::depth_equal_stage;
         bool const material_table_ready = this->material_mapped != nullptr;
         std::uint32_t item = 0;
         for (primitive const* const leaf : this->frame_visible) {

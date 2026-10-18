@@ -473,8 +473,8 @@ namespace {
         // admitted frame with the switch off records it too - the two inputs are independent, the answer is one lane.
         CHECK(choose_opaque_lane(true, admission::admitted) == opaque_lane::visibility);
         CHECK(choose_opaque_lane(false, admission::admitted) == opaque_lane::geometry);
-        std::array const refusals{admission::disabled, admission::no_pipeline, admission::no_scene, admission::no_draws, admission::custom_pipeline,
-                                  admission::instanced, admission::deforming, admission::missing_geometry, admission::no_meshlet_run,
+        std::array const refusals{admission::disabled, admission::no_pipeline, admission::no_scene, admission::no_draws, admission::depth_equal_stage,
+                                  admission::custom_pipeline, admission::instanced, admission::deforming, admission::missing_geometry, admission::no_meshlet_run,
                                   admission::masked_material, admission::missing_material, admission::meshlet_overflow, admission::item_overflow};
         for (admission const refusal : refusals) {
             CHECK_MSG(choose_opaque_lane(true, refusal) == opaque_lane::geometry, "a refusal must record the geometry lane");

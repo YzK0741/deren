@@ -395,19 +395,20 @@ export namespace deren::engine::visibility {
     // =============================================================================================
     enum class admission : std::uint8_t {
         admitted = 0,
-        disabled,         ///< [render] visibility_buffer is off: the old lane is the frame
-        no_pipeline,      ///< the raster and/or the resolve pass has no pipeline this session
-        no_scene,         ///< this frame has no graph-recordable scene (there is no G-buffer lane to replace)
-        no_draws,         ///< no visible opaque leaves: the old lane's clear is the whole frame
-        custom_pipeline,  ///< a leaf names its own pipeline (a different stage this path does not know)
-        instanced,        ///< an instanced draw: its world matrix comes from the instance table per workgroup
-        deforming,        ///< a skinned or morphed draw: one model matrix and one vertex fetch per item
-        missing_geometry, ///< a leaf without its vertex or index buffer
-        no_meshlet_run,   ///< a leaf with no meshlets to dispatch
-        masked_material,  ///< an alphaMode MASK material: a resolve cannot cut a pixel whose depth is already written
-        missing_material, ///< a leaf whose material index is outside the host table (a registration failure)
-        meshlet_overflow, ///< one item's meshlet count past the packed id's 14-bit field
-        item_overflow,    ///< more visible items than the packed id's 10-bit field (or the pass's table) can hold
+        disabled,          ///< [render] visibility_buffer is off: the old lane is the frame
+        no_pipeline,       ///< the raster and/or the resolve pass has no pipeline this session
+        no_scene,          ///< this frame has no graph-recordable scene (there is no G-buffer lane to replace)
+        no_draws,          ///< no visible opaque leaves: the old lane's clear is the whole frame
+        depth_equal_stage, ///< a re-shading stage tests depth with EXACT equality: it needs its own pipeline's depth
+        custom_pipeline,   ///< a leaf names its own pipeline (a different stage this path does not know)
+        instanced,         ///< an instanced draw: its world matrix comes from the instance table per workgroup
+        deforming,         ///< a skinned or morphed draw: one model matrix and one vertex fetch per item
+        missing_geometry,  ///< a leaf without its vertex or index buffer
+        no_meshlet_run,    ///< a leaf with no meshlets to dispatch
+        masked_material,   ///< an alphaMode MASK material: a resolve cannot cut a pixel whose depth is already written
+        missing_material,  ///< a leaf whose material index is outside the host table (a registration failure)
+        meshlet_overflow,  ///< one item's meshlet count past the packed id's 14-bit field
+        item_overflow,     ///< more visible items than the packed id's 10-bit field (or the pass's table) can hold
     };
 
     /// @brief whether an admission verdict lets the frame record the visibility path
@@ -428,6 +429,8 @@ export namespace deren::engine::visibility {
             return "this frame has no graph-recordable scene";
         case admission::no_draws:
             return "no visible opaque leaves";
+        case admission::depth_equal_stage:
+            return "a re-shading stage tests depth with exact equality (it needs its own pipeline's depth)";
         case admission::custom_pipeline:
             return "a leaf names its own pipeline";
         case admission::instanced:

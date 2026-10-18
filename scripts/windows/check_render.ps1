@@ -87,10 +87,22 @@ param(
     [int]$Frames = 40,
     [string]$Camera = "35,20,7,0,-1.6,0",
     [int]$Width = 1080,
-    [int]$Height = 960
+    [int]$Height = 960,
+    # THE A/B INSTRUMENT: `[render]`-section lines injected into EVERY scenario's config (e.g.
+    # @("visibility_buffer = true") for the visibility path's ON arm). They land after the pinned defaults and
+    # before the scenario's own `extra` keys, so a scenario that names the same key wins (and the default line it
+    # would have duplicated is suppressed). With the same cameras, models and frame counts a normal -Full round
+    # uses, one -ExtraConfig round is one A/B arm - which is how docs/reviews/2026-10-18-visibility-buffer-ab.md
+    # was measured. Refused with -Update: an override that changes the picture must never be accepted as a
+    # reference for the round that measures base behaviour.
+    [string[]]$ExtraConfig = @()
 )
 
 $ErrorActionPreference = "Stop"
+if ($Update -and $ExtraConfig.Count -gt 0) {
+    Write-Error "-ExtraConfig cannot be combined with -Update: an override changes the picture, so it must not be accepted as a reference"
+    exit 1
+}
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 if (-not $BuildDir) { $BuildDir = Join-Path $repo "build-release-clang64" }
 $exe = Join-Path $BuildDir "deren.exe"
@@ -303,6 +315,16 @@ function Write-ScenarioConfig {
     # A scenario's `extra` keys must not repeat a default line: TOML forbids a duplicate key and
     # toml++ rejects the whole file (which reads as "the scenario silently fell back to the
     # compiled-in defaults"). Hence the -notcontains filter below.
+    #
+    # -ExtraConfig lines obey the same rule: the scenario's own `extra` key WINS over an override of the
+    # same name (a scenario that means to differ must be able to), and an override of a pinned default replaces
+    # that default line rather than duplicating it.
+    $overrideKeys = [System.Collections.Generic.HashSet[string]]::new()
+    foreach ($line in $ExtraConfig) {
+        $eq = $line.IndexOf('=')
+        if ($eq -lt 1) { Write-Error "-ExtraConfig line '$line' is not 'key = value'"; exit 1 }
+        [void]$overrideKeys.Add($line.Substring(0, $eq).Trim())
+    }
     $defaults = [ordered]@{
         "window_width"      = "$Width"
         "window_height"     = "$Height"
@@ -330,7 +352,14 @@ function Write-ScenarioConfig {
     )
     foreach ($k in $defaults.Keys) {
         if ($Scenario.extra.ContainsKey($k)) { continue } # the scenario's value wins (see above)
+        if ($overrideKeys.Contains($k)) { continue }     # the override replaces this default line
         $lines += "$k = $($defaults[$k])"
+    }
+    foreach ($line in $ExtraConfig) {
+        $eq = $line.IndexOf('=')
+        $key = $line.Substring(0, $eq).Trim()
+        if ($Scenario.extra.ContainsKey($key)) { continue } # the scenario's own value wins
+        $lines += $line
     }
     foreach ($k in $Scenario.extra.Keys) { $lines += "$k = $($Scenario.extra[$k])" }
     $lines += @(
