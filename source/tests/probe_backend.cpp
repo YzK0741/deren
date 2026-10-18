@@ -357,6 +357,10 @@ namespace {
         [[nodiscard]] rhi::error begin_recording(rhi::command_buffer_begin_info const& info) override;
         [[nodiscard]] rhi::error end_recording() noexcept override;
         [[nodiscard]] rhi::error execute(rhi::command_buffer& secondary) override;
+        /// abi 36: the recording-time batch merge on the probe. The fake records no commands; what it
+        /// validates is the batch rules (non-empty, every handle this probe handed out, none still
+        /// recording), so `test_dynamic_link` can drive the real refusal paths without a device.
+        [[nodiscard]] rhi::error execute(std::span<rhi::mergeable_command_buffer_ref const> batch) override;
         /// WHOSE LIST THIS IS (abi 15): the probe has exactly two kinds of list - the FRAME's
         /// (`begin_commands()`, the abi-13/14 object) and one per owned command buffer - and the
         /// frame-scoped verbs below must tell them apart the way the real backend does.
@@ -1740,6 +1744,32 @@ namespace {
     rhi::error probe_command_buffer::end_recording() noexcept {
         this->recording = false;
         return this->released ? rhi::error::not_ready : rhi::error::ok;
+    }
+
+    rhi::error probe_command_buffer::execute(std::span<rhi::mergeable_command_buffer_ref const> batch) {
+        if (this->released) {
+            return rhi::error::not_ready;
+        }
+        if (batch.empty()) {
+            return rhi::error::invalid_argument;
+        }
+        if (this->owner == nullptr) {
+            return rhi::error::not_ready;
+        }
+        for (auto const& one : batch) {
+            if (one == nullptr) {
+                return rhi::error::invalid_argument;
+            }
+            auto const* const mergeable = static_cast<probe_mergeable_command_buffer const*>(one.get());
+            if (std::find(this->owner->mergeable_buffers.begin(), this->owner->mergeable_buffers.end(), mergeable) == this->owner->mergeable_buffers.end()) {
+                return rhi::error::invalid_argument;
+            }
+            if (mergeable->inner.recording || mergeable->inner.released) {
+                return rhi::error::not_ready;
+            }
+        }
+        ++this->executions;
+        return rhi::error::ok;
     }
 
     rhi::error probe_command_buffer::execute(rhi::command_buffer& secondary) {

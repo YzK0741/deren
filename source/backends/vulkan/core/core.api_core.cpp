@@ -877,10 +877,30 @@ namespace deren::vulkan {
         static_assert(heap_descriptor_type(rhi::descriptor_type::uniform_buffer_dynamic) == VK_DESCRIPTOR_TYPE_MAX_ENUM);
         static_assert(heap_descriptor_type(rhi::descriptor_type::storage_buffer_dynamic) == VK_DESCRIPTOR_TYPE_MAX_ENUM);
 
-        /// THE COMMAND BUFFER A HEAP RECORDING VERB RECORDS INTO, from contract handles only: the native
-        /// `vulkan_command_buffer_info` pNext path was retired in abi 34 (no caller set it, and a raw
-        /// VkCommandBuffer is obtained from the escape, never smuggled through a heap request).
-        [[nodiscard]] VkCommandBuffer heap_commands(core& owner, rhi::command_buffer* const commands, rhi::error& result) noexcept {
+        /// THE COMMAND BUFFER A HEAP RECORDING VERB RECORDS INTO. abi 36 widened the target: a `command_buffer`
+        /// (the borrowed frame list or an owned buffer) OR a `mergeable_command_buffer` segment - exactly one of
+        /// the two, because "both" would be two truths for one recording. The native `vulkan_command_buffer_info`
+        /// pNext path this used to accept was retired in abi 34.
+        [[nodiscard]] VkCommandBuffer heap_commands(core& owner, rhi::command_buffer* const commands,
+                                                    rhi::mergeable_command_buffer* const mergeable_commands, rhi::error& result) noexcept {
+            if ((commands == nullptr) == (mergeable_commands == nullptr)) {
+                result = rhi::error::invalid_argument; // exactly one target
+                return VK_NULL_HANDLE;
+            }
+            if (mergeable_commands != nullptr) {
+                std::lock_guard lock(owner.contract_mergeable_buffers_mutex);
+                if (!owner.contract_mergeable_buffers.contains(mergeable_commands)) {
+                    result = rhi::error::invalid_argument;
+                    return VK_NULL_HANDLE;
+                }
+                auto const& mergeable = *rhi::do_concrete<core::owned_mergeable_command_buffer>(*mergeable_commands, concrete::mergeable_command_buffer);
+                if (mergeable.inner == nullptr || !mergeable.inner->recording || *mergeable.inner->buffer == VK_NULL_HANDLE) {
+                    result = rhi::error::not_ready;
+                    return VK_NULL_HANDLE;
+                }
+                result = rhi::error::ok;
+                return *mergeable.inner->buffer;
+            }
             if (commands == nullptr) {
                 result = rhi::error::invalid_argument;
                 return VK_NULL_HANDLE;
@@ -987,7 +1007,7 @@ namespace deren::vulkan {
             return result;
         if (!this->ready())
             return rhi::error::not_ready;
-        VkCommandBuffer const commands = heap_commands(*this->owner, info.commands, result);
+        VkCommandBuffer const commands = heap_commands(*this->owner, info.commands, info.mergeable_commands, result);
         if (result != rhi::error::ok)
             return result;
         this->owner->descriptor_heaps.record_bind(commands);
@@ -1003,7 +1023,7 @@ namespace deren::vulkan {
         result = rhi::validate_heap_push_range(info.offset, info.data.size(), this->properties().max_push_data);
         if (result != rhi::error::ok)
             return result;
-        VkCommandBuffer const commands = heap_commands(*this->owner, info.commands, result);
+        VkCommandBuffer const commands = heap_commands(*this->owner, info.commands, info.mergeable_commands, result);
         if (result != rhi::error::ok)
             return result;
         // THERE IS NO NATIVE PATH IN THE HEAP VERBS ANY MORE (abi 34): every push writes through a contract
@@ -2412,6 +2432,58 @@ namespace deren::vulkan {
         vkCmdExecuteCommands(command_buffer, 1, &native_secondary);
         return rhi::error::ok;
     }
+
+    namespace {
+        /// THE ONE RECORDING-TIME MERGE (abi 36): validate the whole batch, then record the segments into
+        /// `target`'s native buffer in span order. The segments are retained through the target's
+        /// `secondary_refs`, which is what keeps their recordings alive for the submission that follows - the
+        /// same retention an `execute(command_buffer&)` of one secondary already uses.
+        [[nodiscard]] rhi::error execute_mergeable_batch(core& owner, core::frame_commands& target,
+                                                         std::span<rhi::mergeable_command_buffer_ref const> batch) {
+            if (batch.empty()) {
+                return rhi::error::invalid_argument;
+            }
+            if (!target.recording) {
+                return rhi::error::not_ready;
+            }
+            VkCommandBuffer const command_buffer = target.native();
+            if (command_buffer == VK_NULL_HANDLE) {
+                return rhi::error::not_ready;
+            }
+            {
+                std::lock_guard const lock(owner.contract_mergeable_buffers_mutex);
+                for (auto const& one : batch) {
+                    if (one == nullptr || !owner.contract_mergeable_buffers.contains(one.get())) {
+                        return rhi::error::invalid_argument;
+                    }
+                }
+            }
+            deren::utility::vessel::vector<core::owned_mergeable_command_buffer const*> resolved;
+            resolved.reserve(batch.size());
+            for (auto const& one : batch) {
+                auto const& mergeable = *rhi::do_concrete<core::owned_mergeable_command_buffer>(*one, concrete::mergeable_command_buffer);
+                if (mergeable.inner == nullptr || mergeable.inner->kind != rhi::command_buffer_kind::secondary ||
+                    !mergeable.inner->executable || mergeable.inner->recording ||
+                    mergeable.inner->pending.load(std::memory_order_acquire) != 0 || *mergeable.inner->buffer == VK_NULL_HANDLE) {
+                    return rhi::error::not_ready;
+                }
+                for (auto const* const seen : resolved) {
+                    if (seen == &mergeable) {
+                        return rhi::error::invalid_argument; // the same segment twice is not one batch
+                    }
+                }
+                resolved.push_back(&mergeable);
+            }
+            for (auto const* const mergeable : resolved) {
+                auto& inner = *mergeable->inner;
+                target.secondary_refs.push_back(owner.retain_command(inner, true));
+                VkCommandBuffer const native = *inner.buffer;
+                vkCmdExecuteCommands(command_buffer, 1, &native);
+            }
+            return rhi::error::ok;
+        }
+    } // namespace
+
     rhi::error core::owned_command_buffer::execute(rhi::command_buffer& secondary) {
         if (!recording)
             return rhi::error::not_ready;
@@ -2445,6 +2517,17 @@ namespace deren::vulkan {
         secondary_refs.push_back(owner->retain_command(other, true));
         vkCmdExecuteCommands(*this->buffer, 1, &native);
         return rhi::error::ok;
+    }
+
+    rhi::error core::frame_commands::execute(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) {
+        return execute_mergeable_batch(*this->owner, *this, batch);
+    }
+
+    rhi::error core::owned_command_buffer::execute(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) {
+        if (this->kind != rhi::command_buffer_kind::primary) {
+            return rhi::error::invalid_argument; // only a primary can be a merge target
+        }
+        return execute_mergeable_batch(*this->owner, *this, batch);
     }
 
     rhi::image* core::frame_image() noexcept {

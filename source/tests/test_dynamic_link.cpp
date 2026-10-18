@@ -348,7 +348,7 @@ namespace {
         // number exists for. The three transition structures (vulkan_heap_image_desc / vulkan_heap_image_info /
         // vulkan_command_buffer_info) are deleted with it, their `structure_type` values are retired and never
         // reused, and a heap request that still chains one is refused with `unsupported`.
-        CHECK(rhi::abi_version == 35u);
+        CHECK(rhi::abi_version == 36u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
@@ -499,6 +499,21 @@ namespace {
             CHECK(core->submit(std::span<rhi::mergeable_command_buffer_ref const>(duplicate)) == rhi::error::invalid_argument);
             // an empty batch is a caller bug
             CHECK(core->submit(std::span<rhi::mergeable_command_buffer_ref const>{}) == rhi::error::invalid_argument);
+        }
+
+        // ---- ABI 36: THE RECORDING-TIME BATCH MERGE -------------------------------------------------
+        // A normal command buffer merges a batch of mergeable segments while recording (the frame-shaped
+        // path the engine's multithreaded passes will use); the batch rules are the submission's.
+        std::shared_ptr<rhi::command_buffer> recording_target = core->make_command_buffer({.kind = rhi::command_buffer_kind::primary});
+        CHECK_MSG(recording_target != nullptr, which_half);
+        if (recording_target != nullptr) {
+            CHECK(recording_target->begin_recording({}) == rhi::error::ok);
+            CHECK(recording_target->execute(std::span<rhi::mergeable_command_buffer_ref const>{}) == rhi::error::invalid_argument);
+            if (first_mergeable != nullptr && second_mergeable != nullptr) {
+                rhi::mergeable_command_buffer_ref const segments[] = {first_mergeable, second_mergeable};
+                CHECK(recording_target->execute(std::span<rhi::mergeable_command_buffer_ref const>(segments)) == rhi::error::ok);
+            }
+            CHECK(recording_target->end_recording() == rhi::error::ok);
         }
 
         // ---- tier-1: a factory, and a virtual call that comes back out of the backend ---------

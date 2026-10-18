@@ -84,6 +84,7 @@ export namespace deren::promise::rhi {
     struct image;
     struct image_view;
     struct texture_group;
+    struct mergeable_command_buffer;
     struct sampler;
     struct pipeline;
     struct shader;
@@ -565,12 +566,17 @@ export namespace deren::promise::rhi {
     struct heap_bind_info {
         structure_header header{structure_type::heap_bind, sizeof(heap_bind_info), nullptr};
         command_buffer* commands = nullptr;
+        /// ABI 36: the batch-only recording target, so a mergeable segment can publish its heap binding
+        /// without a command_buffer round trip. Exactly one of the two targets is set.
+        mergeable_command_buffer* mergeable_commands = nullptr;
     };
     struct heap_push_info {
         structure_header header{structure_type::heap_push, sizeof(heap_push_info), nullptr};
         command_buffer* commands = nullptr;
         std::uint32_t offset = 0;
         std::span<std::byte const> data;
+        /// ABI 36: same rule as `heap_bind_info::mergeable_commands` - exactly one target is set.
+        mergeable_command_buffer* mergeable_commands = nullptr;
     };
 
     /// 推送常量以4字节为单位；先比较offset再相减，避免大跨度输入溢出。

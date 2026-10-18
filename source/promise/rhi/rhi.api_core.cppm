@@ -1599,6 +1599,15 @@ export namespace deren::promise::rhi {
         deren::utility::vessel::array<std::optional<image*>, texture_group_capacity> textures{};
     };
 
+    /// The batch-only recording handle (defined after `command_buffer`): forward-declared here so the
+    /// recording interface can name the batch its `execute()` merges.
+    struct mergeable_command_buffer;
+
+    /// The batch-only recording handle (defined after command_buffer): forward-declared here so the
+    /// recording interface can name the batch its xecute() merges.
+    struct mergeable_command_buffer;
+    using mergeable_command_buffer_ref = std::shared_ptr<mergeable_command_buffer>;
+
     /// Immutable sampled 2D slots. The device and backend must outlive all references.
     struct texture_group : object {
         explicit texture_group(std::string_view name) noexcept
@@ -1798,6 +1807,15 @@ export namespace deren::promise::rhi {
 
         /// ABI 31. Success retains the group for recorded work; nullptr clears it.
         [[nodiscard]] virtual error load_texture_group(texture_group_ref const& /*group*/) {
+            return error::unsupported;
+        }
+
+        /// ABI 36. Merge a BATCH of mergeable segments into THIS recording buffer - the recording-time
+        /// counterpart of the submission-time batch. The batch rules are the same ones
+        /// `api_core::submit(span)` states: span order, self-contained segments, no implicit memory
+        /// barriers, whole-batch validation. `unsupported` = a backend whose merge must happen at submit
+        /// time (the default body): that backend serves `submit(span)` instead.
+        [[nodiscard]] virtual error execute(std::span<mergeable_command_buffer_ref const> /*batch*/) {
             return error::unsupported;
         }
     };

@@ -270,6 +270,36 @@ void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, bool us
         std::memcpy(observed.data(), batch_output->mapped().data(), sizeof(observed));
         CHECK(observed[0] == first_value);
         CHECK(observed[1] == second_value);
+
+        // ---- ABI 36: THE RECORDING-TIME BATCH MERGE on the real backend --------------------------------
+        // The same two segments, merged into an ORDINARY primary while recording (the shape the engine's
+        // multithreaded passes use): one execute(span) call, then the normal single-buffer submit.
+        rhi::object_manager<rhi::buffer> merged_output{core.create_buffer({.size = 8u,
+                                                                           .usage = rhi::buffer_usage::storage_coherent,
+                                                                           .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
+        CHECK(merged_output);
+        if (merged_output) {
+            CHECK(mergeable_a->begin_recording({}) == rhi::error::ok);
+            CHECK(mergeable_a->copy_buffer(*merged_output, *first_source, 4u, 0u, 0u) == rhi::error::ok);
+            CHECK(mergeable_a->end_recording() == rhi::error::ok);
+            CHECK(mergeable_b->begin_recording({}) == rhi::error::ok);
+            CHECK(mergeable_b->copy_buffer(*merged_output, *second_source, 4u, 0u, 4u) == rhi::error::ok);
+            CHECK(mergeable_b->end_recording() == rhi::error::ok);
+            auto recording_target = core.make_command_buffer({.kind = rhi::command_buffer_kind::primary});
+            CHECK(recording_target != nullptr);
+            if (recording_target) {
+                CHECK(recording_target->begin_recording({}) == rhi::error::ok);
+                rhi::mergeable_command_buffer_ref const merged[] = {mergeable_a, mergeable_b};
+                CHECK(recording_target->execute(std::span<rhi::mergeable_command_buffer_ref const>(merged)) == rhi::error::ok);
+                CHECK(recording_target->end_recording() == rhi::error::ok);
+                CHECK(core.submit(*recording_target) == rhi::error::ok);
+                core.wait_idle();
+                deren::utility::vessel::array<std::uint32_t, 2> merged_values{};
+                std::memcpy(merged_values.data(), merged_output->mapped().data(), sizeof(merged_values));
+                CHECK(merged_values[0] == first_value);
+                CHECK(merged_values[1] == second_value);
+            }
+        }
     }
 }
 

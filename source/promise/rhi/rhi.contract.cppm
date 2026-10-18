@@ -327,13 +327,20 @@ export namespace deren::promise::rhi {
     // existing submission (`submit(command_buffer&)`), `execute()` and the frame path keep their slots and
     // their meaning: this batch adds ONE more way to reach the queue (an ordered, self-contained batch,
     // atomically validated, with no implicit barriers) without re-shaping anything already there.
+    // ABI 36 is the RECORDING-TIME BATCH MERGE: `command_buffer` APPENDED
+    // `execute(std::span<mergeable_command_buffer_ref const>)` (the default body answers `unsupported`, so
+    // a backend whose merge is submit-only still compiles and names the refusal) - a vtable append on an
+    // existing tier-1 interface, the case the number exists for. The heap recording requests also gained
+    // an APPENDED target (`heap_bind_info::mergeable_commands` / `heap_push_info::mergeable_commands`):
+    // a mergeable segment publishes its binding/push data through the same ability as a command_buffer,
+    // one target of the two set. Existing fields, slots and meanings do not move.
     // NOT A BUMP (the validate-and-cast helpers): `is_concrete()` / `do_concrete()` below are inline and
     // template FREE functions over the existing `object::type` field - no vtable slot, no by-value POD,
     // no entry-point signature moved, and the NAMES stay the backend's (the contract owns only the
     // operation). They live here because EVERY backend needs the same "check the concrete name, then
     // cast to the concrete layout" pair, and one copy is what keeps the next backend from reinventing
     // it (or from weakening the panic/refusal split its own doc states).
-    inline constexpr std::uint32_t abi_version = 35u;
+    inline constexpr std::uint32_t abi_version = 36u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
