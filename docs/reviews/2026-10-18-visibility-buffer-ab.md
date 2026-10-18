@@ -543,3 +543,20 @@ from the leaf's material index, and the mesh stage passes it to the fragment as 
 beside the UV from the previous step. The alpha test itself is NOT in yet - the fragment carries the input and
 ignores it - so the frame is unchanged: ON `deferred` = `7EF9249001EB6035` as required, CTest 49/49, and the
 frozen OFF path is untouched (no OFF code changed; the visibility shaders are only used by the ON lane).
+
+## Item 2 landed: the MASK frames are CARRIED (round 19)
+
+The visibility RASTER fragment now runs the glTF alphaMode MASK test - material table fetch, albedo alpha,
+`discard` BEFORE the depth write - so a cut-out pixel keeps the surface behind it (the property the compute
+resolve lacks), and the `masked_material` admission clause is retired with its unit test replaced by "a MASK
+leaf is carried". Measured on this build:
+
+| frame | lane | ON vs OFF |
+| --- | --- | --- |
+| deferred (no MASK leaf) | visibility | hash unchanged `7EF9249001EB6035` - the alpha test changes nothing without a MASK material |
+| sponza (alpha-tested foliage/interior) | **admitted, 62 items** (was a whole-frame fallback) | 69.04% pixels changed, frame mean 3.674, mean over changed 5.32, max 179 - the foliage/interior differences are the known LOD+cutout-edge territory, and the resolve's own counter says the pixels are no longer "no surface behind" |
+| transparent_blend (AlphaBlendModeTest: OPAQUE/MASK/BLEND mix) | **admitted, 7 items** (was a whole-frame fallback) | 4.45% pixels changed, frame mean 0.054, mean over changed 1.21, max 29 - the closest ON/OFF agreement of any multi-material scene so far |
+
+The deferred ON reference and the frozen OFF gate do not move (no OFF code changed; the ON reference scenario
+has no MASK leaf). CTest 49/49. Two frames that used to be refused whole - the alphaMode MASK pair - now
+record the new path, which is item 2's stated goal.

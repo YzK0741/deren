@@ -501,8 +501,9 @@ export namespace deren::engine::visibility {
             return admission::no_meshlet_run;
         if (!facts.material_index_valid)
             return admission::missing_material;
-        if ((facts.material_flags & 16u) != 0u)
-            return admission::masked_material;
+        // `masked_material` is NOT a clause any more (item 2): the visibility RASTER fragment runs the glTF MASK
+        // test and discards before the depth write, so a masked pixel keeps the surface behind it - the property
+        // the compute resolve lacks. The enum value stays for older log vocabulary.
         if (facts.meshlet_count > id_meshlet_capacity)
             return admission::meshlet_overflow;
         if (facts.item_index >= id_item_capacity)

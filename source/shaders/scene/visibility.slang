@@ -43,6 +43,8 @@
 // dispatch's group count) - not an index window; `geometry.base_vertex` is unused and zero.
 
 #include "common/heap_access.slang"
+// the material record: the raster fragment reads one record per pixel for the alphaMode MASK test (item 2)
+#include "common/material_record.slang"
 #include "geometry/mesh_geometry.slang"
 
 struct VisibilityPush
@@ -147,7 +149,17 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
 void main([[vk::location(0)]] nointerpolation uint vis_id : TEXCOORD0, [[vk::location(1)]] float2 uv : TEXCOORD1,
           [[vk::location(2)]] nointerpolation uint material_index : TEXCOORD2, out uint target : SV_Target0)
 {
-    // ONE STORE, and it is the whole fragment stage: depth was decided by the rasterizer, and the resolve pass
+    // ---- THE alphaMode MASK TEST, IN THE RASTER FRAGMENT (visibility-buffer item 2) ----
+    // It has to run HERE and BEFORE the depth write: a `discard` kills the fragment, the rasterizer keeps testing
+    // the triangles behind it, and the surface that is actually visible wins the id AND the depth. The compute
+    // resolve cannot reproduce this - it cannot reach the surface behind a masked pixel (measured: 957,719 pixels
+    // with no surface behind on sponza before this test existed), which is why MASK frames used to fall back whole.
+    // The cost is bounded by measurement: the mesh-task raster is 0.01 ms against the resolve's 0.92 ms (the
+    // review record's lane split), and only a MASK material fetches the albedo here.
+    const Material material = material_at(heap_slots_materials, material_index);
+    if ((material.flags & 16u) != 0u && heap_sample(material.tex_indices.x, uv).a < material.alpha_cutoff)
+        discard;
+    // the store remains the whole of the surviving fragment: depth was decided by the rasterizer, and the resolve
     // turns this word back into the triangle it names.
     target = vis_id;
 }

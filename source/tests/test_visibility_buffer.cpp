@@ -454,7 +454,13 @@ namespace {
         // the MATERIAL clauses: a MASK material cannot be resolved (a written depth cannot be discarded), and an
         // index outside the host table would read a zero flag word and be carried as if it were a plain surface
         CHECK(refused([](leaf_admission_facts& f) { f.material_index_valid = false; }) == admission::missing_material);
-        CHECK(refused([](leaf_admission_facts& f) { f.material_flags = 16u; }) == admission::masked_material);
+        // a MASK material is CARRIED now: its cut-out is the raster fragment's discard before the depth write
+        // (item 2), so the frame no longer falls back for it
+        {
+            leaf_admission_facts masked{};
+            masked.material_flags = 16u;
+            CHECK(admitted(admit_leaf(masked)));
+        }
         CHECK(refused([](leaf_admission_facts& f) { f.meshlet_count = id_meshlet_capacity + 1u; }) == admission::meshlet_overflow);
         CHECK(refused([](leaf_admission_facts& f) { f.item_index = id_item_capacity; }) == admission::item_overflow);
         // THE TWO-SIDED FLAG IS NOT A CLAUSE (the raster lane culls per item, like the fragment path): a doubled-sided
@@ -475,7 +481,7 @@ namespace {
         CHECK(choose_opaque_lane(false, admission::admitted) == opaque_lane::geometry);
         std::array const refusals{admission::disabled, admission::no_pipeline, admission::no_scene, admission::no_draws, admission::depth_equal_stage,
                                   admission::custom_pipeline, admission::instanced, admission::deforming, admission::missing_geometry, admission::no_meshlet_run,
-                                  admission::masked_material, admission::missing_material, admission::meshlet_overflow, admission::item_overflow};
+                                  admission::missing_material, admission::meshlet_overflow, admission::item_overflow};
         for (admission const refusal : refusals) {
             CHECK_MSG(choose_opaque_lane(true, refusal) == opaque_lane::geometry, "a refusal must record the geometry lane");
             CHECK_MSG(!describe(refusal).empty(), "every refusal has a name for the one fallback line");
