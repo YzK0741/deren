@@ -221,3 +221,22 @@ per-pixel gradient (albedo and roughness show it most, 3-4% of pixels at ~3/255 
 rasterizer-interpolation vs resolve-perspective-weight float residue. A per-pixel gradient would shrink it
 further at the cost of the analytic derivative reconstruction; that is a quality/diminishing-returns call for a
 later pass, not a correctness debt.
+
+## Depth-producer unification (non-extension item 1): first root-cause evidence
+
+v0.6 recorded the depth-EQUAL re-shading stage as a 1-ULP depth difference between pipeline modules. The
+first measurement for the fix checks that premise at the SPIR-V level: the two mesh stages disassemble to the
+SAME arithmetic for the clip position - a `view_proj = OpMatrixTimesMatrix(view, proj)`, then
+`OpMatrixTimesVector(model, position)`, then `OpMatrixTimesVector(view_proj, world)`, in that order
+(`visibility.mesh.spv` and `pbr.meshlet.spv` both). With the same inputs the depth values these stages write
+must therefore be bit-identical, so the 1-ULP hypothesis is NOT supported by the code the pipeline runs. What
+the next step has to instrument is the INPUT side and the comparison itself: the model matrix bytes each
+pipeline receives, the camera block, and the actual depth values at the rejected pixels (a readback, not the
+8-bit debug view) - the stage's coverage mask cannot distinguish "depth unequal" from "depth equal but the
+pixel was never drawn by the character stage for another reason", and the earlier mask measurement compared
+two DIFFERENT captures for its base, which is one confound this item must remove.
+
+So: item 1 is now root-cause-finding, not "apply the known fix". The candidate remain unchanged (a: produce
+the depth with the character stage's own module; b: give the stage a reconstructable depth source; c: only if
+the input comparison shows it, an arithmetic/contraction change), but the decision needs the raw depth values,
+which the next session measures with a temporary readback of the depth attachment at the rejected pixels.
