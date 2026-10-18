@@ -59,10 +59,19 @@
 #
 # Usage:
 #   pwsh -File scripts/windows/check_render.ps1                 # the CORE set (5 scenarios x 2 runs)
-#   pwsh -File scripts/windows/check_render.ps1 -Full           # all FOURTEEN scenarios
+#   pwsh -File scripts/windows/check_render.ps1 -Full           # all FIFTEEN legacy-path scenarios
+#   pwsh -File scripts/windows/check_render.ps1 -Visibility     # the VISIBILITY-path reference scenario(s)
 #   pwsh -File scripts/windows/check_render.ps1 -Update         # accept the current output as reference
 #   pwsh -File scripts/windows/check_render.ps1 -Only deferred_taa_fxaa
 #   pwsh -File scripts/windows/check_render.ps1 -List
+#
+# -Visibility is the ONE selection that runs a scenario whose frozen reference describes the VISIBILITY
+# buffer's lanes instead of the geometry lane (visibility-buffer plan v0.7). -Full deliberately does not run
+# them: a -Full round's verdict is "15/15 against docs/reviews/2026-10-17-render-graph-gate/legacy-hashes.txt",
+# and that file describes the old path. The visibility scenario's reference is
+# docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt, compared with
+# `-Visibility -Compare <that file>`; the scenario config is the deferred one plus `visibility_buffer = true`,
+# so the two rounds' hashes on that scenario ARE the A/B on one frame.
 #
 # References live OUTSIDE the repository (they are machine-specific; committing them would be red for
 # everyone else and would tie every accepted change to a multi-megabyte commit). Override the location
@@ -76,6 +85,10 @@ param(
     [switch]$Update,
     [switch]$List,
     [switch]$Full,
+    # run the VISIBILITY-path reference scenario(s) instead of the legacy-path selection (see the usage note:
+    # their frozen hash describes the raster+resolve lanes, so they are a SECOND reference set, not part of the
+    # -Full 15/15 verdict).
+    [switch]$Visibility,
     [string]$Only = "",
     [string]$BuildDir = "",
     # THE STANDARD COMPARISON (G2): "" = none, "frozen" = the migration's fourteen frozen hashes, or a
@@ -156,6 +169,14 @@ $scenarios = @(
     # `config.toml` renders. Every other scenario is that frame plus the one difference its name claims,
     # which is why a key equal to its compiled default must never be spelled out here.
     @{ name = "deferred";          desc = "deferred G-buffer + lighting, no AA stage";   tier = "core";  extra = @{} }
+    # THE VISIBILITY PATH'S OWN REFERENCE (visibility-buffer plan v0.7): the deferred frame with the switch on,
+    # i.e. the one scenario whose frozen hash describes the raster+resolve lanes instead of the geometry lane.
+    # The SAME model/camera/frames as `deferred` and one key different, so the two rounds' hashes on this
+    # scenario ARE the A/B on one frame. tier = "visibility" keeps it out of -Full on purpose: -Full's verdict
+    # is 15/15 against the legacy-path file, and this scenario's reference lives in
+    # docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt (`-Visibility -Compare <that file>`).
+    @{ name = "deferred_visibility"; desc = "deferred through the VISIBILITY raster+resolve lanes"; tier = "visibility";
+       extra = @{ visibility_buffer = "true" } }
     @{ name = "deferred_taa_fxaa"; desc = "deferred + TAA + FXAA (the AA path)";         tier = "extra"; extra = @{ taa = "true"; fxaa = "true" } }
     @{ name = "deferred_ssao_off"; desc = "deferred with SSAO disabled";                tier = "extra"; extra = @{ ssao = "false" } }
     @{ name = "shadow_single";     desc = "one cascade, i.e. the historic shadow path"; tier = "extra"; extra = @{ shadow_cascades = "1" } }
@@ -287,7 +308,7 @@ $scenarios = @(
 # A tier is REQUIRED, and the failure it prevents is a scenario that silently never runs: the default
 # selection is `tier -eq "core"`, so a typo or a missing key would drop the scenario out of every
 # default round while -List still showed it.
-$tiers = @("core", "extra")
+$tiers = @("core", "extra", "visibility")
 foreach ($s in $scenarios) {
     if ($tiers -notcontains $s.tier) {
         Write-Error "scenario '$($s.name)' has tier '$($s.tier)' - must be one of $($tiers -join ', ')"
@@ -504,7 +525,10 @@ $assetRequirements = @(
        why       = "the goo FGD LUT the rewritten chain samples - without it those scenarios render a DIFFERENT picture and report a changed hash" }
 )
 $selectedNames = @($scenarios | Where-Object {
-    if ($onlyNames.Count -gt 0) { $onlyNames -contains $_.name } else { $Full -or $_.tier -eq "core" }
+    if ($onlyNames.Count -gt 0) { $onlyNames -contains $_.name }
+    elseif ($Visibility) { $_.tier -eq "visibility" }
+    elseif ($Full) { $_.tier -ne "visibility" } # -Full is the legacy-path verdict, and that reference file is 15 hashes
+    else { $_.tier -eq "core" }
 } | ForEach-Object { $_.name })
 $missingAssets = @()
 foreach ($requirement in $assetRequirements) {
@@ -539,7 +563,11 @@ then run again.
 foreach ($s in $scenarios) {
     if ($onlyNames.Count -gt 0) {
         if ($onlyNames -notcontains $s.name) { $skipped++; continue }
-    } elseif (-not $Full -and $s.tier -ne "core") { $skipped++; continue }
+    } elseif ($Visibility) {
+        if ($s.tier -ne "visibility") { $skipped++; continue }
+    } elseif ($Full) {
+        if ($s.tier -eq "visibility") { $skipped++; continue }
+    } elseif ($s.tier -ne "core") { $skipped++; continue }
     $ref = Join-Path $baseDir "$($s.name).png"
     Write-Host ("`n=== {0} ({1})" -f $s.name, $s.desc) -ForegroundColor Cyan
 
@@ -552,11 +580,18 @@ foreach ($s in $scenarios) {
         $pass++
         continue
     }
-    if (-not (Test-Path $ref)) {
-        Write-Host "  NOT SEEDED: no reference at $ref" -ForegroundColor Yellow
-        Write-Host "  run with -Update once to accept the current output as the reference"
-        $missing++
-        continue
+    $hasLocalReference = Test-Path $ref
+    if (-not $hasLocalReference) {
+        if (-not $Compare) {
+            Write-Host "  NOT SEEDED: no reference at $ref" -ForegroundColor Yellow
+            Write-Host "  run with -Update once to accept the current output as the reference"
+            $missing++
+            continue
+        }
+        # A FROZEN COMPARISON IS THE REFERENCE (G2): a committed reference file - the visibility path's - is
+        # judged by -Compare, so a machine that never seeded a local baseline still gets the determinism check
+        # below and the frozen verdict, instead of a "NOT SEEDED" stop.
+        Write-Host "  no local reference - the -Compare file is this round's reference"
     }
 
     # determinism first: two runs of the SAME binary must agree, or a mismatch below would be noise
@@ -570,6 +605,11 @@ foreach ($s in $scenarios) {
         continue
     }
 
+    if (-not $hasLocalReference) {
+        Write-Host "  deterministic ($($a.hash.Substring(0,16))); the verdict is the -Compare file" -ForegroundColor Green
+        $pass++
+        continue
+    }
     $refHash = (Get-FileHash $ref -Algorithm SHA256).Hash
     if ($a.hash -eq $refHash) {
         Write-Host "  ok  ($($a.hash.Substring(0,16)))" -ForegroundColor Green
@@ -585,7 +625,7 @@ foreach ($s in $scenarios) {
 }
 
 $ran = $pass + $fail + $flaky + $missing
-$set = if ($onlyNames.Count -gt 0) { "-Only $($onlyNames -join ',')" } elseif ($Full) { "full" } else { "core" }
+$set = if ($onlyNames.Count -gt 0) { "-Only $($onlyNames -join ',')" } elseif ($Visibility) { "visibility" } elseif ($Full) { "full" } else { "core" }
 Write-Host "`n---------------- summary ----------------"
 Write-Host "  set      : $set   (of $($scenarios.Count) defined)"
 # ---- WHAT THIS ROUND ACTUALLY RENDERED, IN A FILE (G2) ------------------------------------------------
@@ -610,10 +650,10 @@ Write-Host "  actual hashes written to: $hashesFile"
 # AN EMPTY RUN IS A FAILURE, and this guard exists because the opposite was believed for several layers:
 # `-Only a,b` matched no scenario, so the run compared nothing and still printed "changed : 0".
 if ($ran -eq 0) { Write-Host "  ERROR: no scenario ran, so NOTHING was verified (check -Only / the scenario names)" -ForegroundColor Red; exit 1 }
-if ($missing -gt 0) { Write-Host "  ERROR: $missing scenario(s) have no reference - run with -Update once to seed them" -ForegroundColor Red; exit 1 }
+if ($missing -gt 0 -and -not $Compare) { Write-Host "  ERROR: $missing scenario(s) have no reference - run with -Update once to seed them" -ForegroundColor Red; exit 1 }
 # A default (core) round says so, because "changed : 0" over five scenarios is NOT the same statement as
 # "changed : 0" over all fourteen - the other nine only ran if -Full asked for them.
-if (-not $Full -and $onlyNames.Count -eq 0 -and $skipped -gt 0) {
+if (-not $Full -and -not $Visibility -and $onlyNames.Count -eq 0 -and $skipped -gt 0) {
     Write-Host "  note     : $($skipped) extra scenario(s) NOT run - `-Full runs all $($scenarios.Count)" -ForegroundColor DarkGray
 }
 

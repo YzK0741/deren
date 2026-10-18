@@ -122,3 +122,53 @@ The two rounds' per-scenario frames and logs are machine-local scratch under
 above are reproducible from them with the command in "What was measured"; the logs are also where the
 `visibility raster: recorded N item(s)` (admitted) and `visibility buffer: frame NOT admitted (...)` (fallback)
 lines live.
+
+## The ON-path reference gate (v0.7)
+
+The ON arm needs a frozen reference of its own, and it is a SECOND reference set rather than more entries in
+the legacy file: the legacy file describes the geometry lane, and a -Full round's verdict is "15 of 15
+against it". So the gate grew one `tier = "visibility"` scenario and one selection switch:
+
+- The scenario is `deferred_visibility`: the `deferred` scenario's model, camera, frame count and config plus
+  `visibility_buffer = true` - one key different, so the two rounds' hashes on it ARE the A/B on one frame.
+- `-Visibility` selects that tier; `-Full` deliberately does NOT (the legacy verdict stays 15/15), and the
+  cross-selection note in the script says why.
+- Its frozen hash lives in `docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt`
+  (`deferred_visibility = 104E00AFDF3630EA` on this build), and the round that judges it is:
+
+```
+pwsh -File scripts/windows/check_render.ps1 -Visibility -Compare docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt -BuildDir build-release-dyn-clang64
+```
+
+which this build passes: `deferred_visibility 104E00AFDF3630EA 104E00AFDF3630EA matched`, deterministic across
+the round's two runs (`flaky: 0`), zero validation findings in its log. A `-Compare` round does not need a
+machine-local baseline: the frozen file IS the reference, so the determinism check and the verdict run even on
+a machine that never seeded one (the script's local-reference branch says so).
+
+The hash is a NEW reference, not a regression of the old one: when the visibility path's resolve changes
+(a mip rule, the near-plane clip, a material family), this scenario moves and the legacy file must not - the
+two files together are what keeps "the old path is unchanged" and "the new path changed on purpose"
+separable. Re-baselining it is `-Visibility -Update`-free by design: the committed file is updated by hand
+from the round's actual hashes, in the same commit as the change that moved them, with the reason.
+
+## Follow-ups (v0.8 record)
+
+The plan's road after v0 is software raster writing the SAME visibility buffer (hardware and software
+converge on the id), then material binning (the resolve stops branching per pixel and bins by material tile),
+then a cluster hierarchy with screen-error LOD writing the ids (the id layout changes there: item/meshlet
+fields narrow), then paging/streaming. This v0 build keeps the id small for exactly that reason and does not
+reserve complexity for it.
+
+The three concrete debts this record leaves:
+
+1. **The depth producer is not unified with the depth-EQUAL re-shading stage** (the v0.6 defect): the
+   character pass needs its own pipeline's depth bit-exactly, so those frames fall back. Options are to have
+   the character stage write its surface through the resolve/compute path as well, or to give it a
+   reconstructable depth source instead of the attachment.
+2. **alphaMode MASK has no visibility-path answer yet**: a compute resolve cannot discard a pixel whose depth
+   is already written, so MASK materials (and every frame containing one) record the old lane. A later step
+   can either bin masked materials out of the raster lane or give the resolve an alpha test against the
+   stored coverage.
+3. **The retired `visibility_depth` family** stays declared/created/published (schema ids renumber on removal)
+   until the v1 software raster's resource pass, which is also where the five storage twins' layout should be
+   revisited.
