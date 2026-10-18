@@ -560,3 +560,22 @@ leaf is carried". Measured on this build:
 The deferred ON reference and the frozen OFF gate do not move (no OFF code changed; the ON reference scenario
 has no MASK leaf). CTest 49/49. Two frames that used to be refused whole - the alphaMode MASK pair - now
 record the new path, which is item 2's stated goal.
+
+## Correction to the round-19 claim, and where sponza's residual actually lives (round 20)
+
+Round 19 said the resolve's counter "says the pixels are no longer no-surface-behind". That wording was too
+strong; the corrected reading, with the measurement that settles it:
+
+- sponza ON vs OFF, structural-hole proxy on the saved frames: pixels differing by >16 went from 3.591% (the
+  pre-alpha-test frame, round 3's MASK-bypass capture) to 3.412% with the alpha test; >64 from 0.995% to
+  0.951%. The MASK cut-out handling is CORRECT (transparent_blend: 4.45% changed, the closest multi-material
+  agreement measured), but it barely moves sponza's picture - so the residual large differences there are NOT
+  mostly MASK pixels.
+- the resolve counter after the alpha test is 858,868 over the session (~10.7k pixels/frame, ~1.0% of the
+  frame) of "could not rebuild their triangle", labelled by the counter as near-plane/degenerate - that is
+  the size of the next item (near-plane clipping), not a MASK residue.
+- the deferred ON reference and the frozen OFF gate are unchanged by the alpha test (no MASK leaf in the
+  reference scene; no OFF code touched), CTest 49/49.
+
+Item 2 is therefore complete on its stated goal (both MASK frames are carried); item 3 (near-plane clipping)
+is the next quality lever, with the counter above as its acceptance measurement.
