@@ -172,3 +172,29 @@ The three concrete debts this record leaves:
 3. **The retired `visibility_depth` family** stays declared/created/published (schema ids renumber on removal)
    until the v1 software raster's resource pass, which is also where the five storage twins' layout should be
    revisited.
+
+## Follow-up measured after v0.6: the material LOD (first of the non-extension fixes)
+
+The v0.6 table's largest admitted-scene term was the material fetch's LOD: the resolve sampled at explicit
+LOD 0 while the fragment sampler's derivative picked a mip, so minified detail was sharper on the new path.
+The resolve now derives the LOD from the same quantity a derivative approximates - the triangle's UV area over
+its screen area, i.e. the UV scale per pixel (`visibility_texture_lod` in `scene/visibility_resolve.slang`) -
+and passes it as the `SampleLevel` argument. It is still an explicit fetch (the compute-derivative capability
+is not in this renderer's baseline), and it reproduces the mip RANGE rather than the hardware's per-pixel
+anisotropic choice.
+
+Measured on the same `deferred` frame, ON vs OFF, this build:
+
+| metric | before (LOD 0) | after (triangle-scaled LOD) |
+| --- | ---: | ---: |
+| pixels changed | 6.88% | **4.57%** |
+| frame mean | 0.554 | **0.125** |
+| mean over changed pixels | 8.048 | **2.741** |
+| share of pixels differing by >4 | 2.91% | **0.67%** |
+| max pixel difference | 165 | **129** |
+
+The OFF arm is unchanged byte for byte (`deferred = FAE60C0B1D8C1191`, the frozen legacy hash) - only the
+resolve's module was recompiled - and the ON-path reference moved with the fix, so
+`docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt` now names `7EF9249001EB6035` with this section as
+the reason for the re-baseline. Remaining known difference source: the tangent frame (triangle edges vs screen
+derivatives), which is the next non-extension fix.

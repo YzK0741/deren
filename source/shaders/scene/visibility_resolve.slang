@@ -28,13 +28,12 @@
 //    rebuilt from three projected vertices; the pixel is left empty (and counted in
 //    `mesh_stat_visibility_unresolved`) rather than projected through a mirrored point. v0 accepts that hole as a
 //    known limitation and V0.6 measures it; a proper resolve clips the triangle.
-//  * it does not choose a TEXTURE MIP the way a fragment does. The material fetch is the shared decode's
-//    EXPLICIT-LOD-0 spelling - a compute stage cannot use an implicit `Sample` (Slang would declare the
-//    `ComputeDerivativeGroupQuadsKHR` capability, which this renderer's device does not enable; see
-//    heap_access.slang's `heap_sample_lod0`) - while the fragment path's derivative-driven sampler picks a higher mip
-//    on a minified surface. That is an EXPECTED difference between the two pictures on magnified-away detail (V0.6
-//    quantifies it), not a bug: pinning LOD 0 on the fragment side too would change the old path's picture, which is
-//    a bigger decision than v0.
+//  * it does not choose a TEXTURE MIP exactly the way a fragment does. The material fetch is the shared decode's
+//    EXPLICIT-LOD spelling (a compute stage cannot use an implicit `Sample`: Slang would declare the
+//    `ComputeDerivativeGroupQuadsKHR` capability, which this renderer's device does not enable), and the LOD it
+//    passes is rebuilt from the TRIANGLE's UV area against its screen area (see `visibility_texture_lod`). That
+//    reproduces the mip RANGE the fragment sampler lands in, not its per-pixel gradient or its anisotropy - the
+//    residue is one of the two known v0 difference sources (V0.6 measures it; see the leaf's helper note).
 //
 // THE ID, THE RECORD AND THE TABLES ARE READ THROUGH THE HEAP, like every stage: the id and the depth are per-image
 // slots, the item table is a per-frame lane, and the meshlet table is one descriptor written at import. The graph
@@ -46,10 +45,42 @@
 
 #include "common/heap_access.slang"
 #include "geometry/mesh_geometry.slang"
-// THE COMPUTE STAGE'S TEXTURE FETCH (see surface_body.slang's macro note): explicit LOD 0, for the capability reason
-// above. DEFINED BEFORE THE SHARED BODY IS INCLUDED, because the macro is expanded where the body's function is
+
+// ---- THE FRAGMENT SAMPLER'S MIP, REBUILT FROM THE TRIANGLE (visibility-buffer v0.6 quality alignment) --------
+// A compute thread has no derivatives, so the shared decode's fetches are EXPLICIT SampleLevel calls. v0 used
+// LOD 0 for all of them, which made a minified surface sample a sharper mip than the fragment path's
+// derivative-driven sampler - one of the two measured sources of the ON/OFF difference (see
+// docs/reviews/2026-10-18-visibility-buffer-ab.md). The LOD is now derived from the SAME quantity that
+// approximate derivative is: this triangle's UV-per-pixel scale, `sqrt(|uv area| / |screen area in pixels|)`.
+// A per-pixel gradient and a per-triangle scale differ on a heavily foreshortened triangle, and the hardware's
+// anisotropic choice is not reproduced; what IS reproduced is the mip RANGE the fragment sampler lands in, which
+// is what a mip miss changes. Set by resolve_pixel before the decode; the helpers live in THIS leaf (not in
+// heap_access.slang) so adding them does not recompile every other shader.
+static float visibility_uv_footprint = 0.0; // uv units per render pixel at the current pixel's surface
+
+float2 visibility_texture_size(uint texture_index)
+{
+    uint width, height, levels;
+    heap_at<Texture2D<float4>>(heap_slots_textures + texture_index).GetDimensions(0u, width, height, levels);
+    return float2(float(width), float(height));
+}
+
+float visibility_texture_lod(uint texture_index)
+{
+    const float2 size = visibility_texture_size(texture_index);
+    return max(0.0, log2(max(size.x, size.y) * visibility_uv_footprint)); // a magnified surface keeps mip 0
+}
+
+float4 visibility_sample_lod(uint texture_index, float2 uv)
+{
+    return combined_at(heap_slots_textures + texture_index, heap_sampler_texture).SampleLevel(uv, visibility_texture_lod(texture_index));
+}
+
+// THE COMPUTE STAGE'S TEXTURE FETCH IS STILL EXPLICIT-LOD (the capability reason stays: an implicit `Sample` in
+// compute declares `ComputeDerivativeGroupQuadsKHR`, which vkCreateShaderModule refuses unless the device enabled
+// it). DEFINED BEFORE THE SHARED BODY IS INCLUDED, because the macro is expanded where the body's function is
 // defined; `gbuffer_body.slang` includes `surface_body.slang`, so the override must arrive first.
-#define DEREN_SURFACE_SAMPLE_TEXTURE heap_sample_lod0
+#define DEREN_SURFACE_SAMPLE_TEXTURE(texture_index, uv) visibility_sample_lod(texture_index, uv)
 #include "scene/gbuffer_body.slang"
 
 // This stage's only push fields: the two heap indices every heap-native stage carries, plus the third lane the
@@ -319,6 +350,14 @@ gbuffer_output resolve_pixel(const uint2 pixel,
 
     // the rasterizer's front/back decision for this pixel: FRONT is a negative signed area (see triangle_twice_area)
     const bool is_front = triangle_twice_area(screen[0], screen[1], screen[2]) < 0.0;
+
+    // ---- the UV-per-pixel scale the material fetch's explicit LOD is derived from (see the leaf's helpers) ----
+    // The ratio of the triangle's UV area to its SCREEN area is the linear UV scale of this triangle in uv units
+    // per pixel; the derivative helpers a fragment stage would call are the local version of the same quantity.
+    const float twice_uv = abs((triangle.uv[1].x - triangle.uv[0].x) * (triangle.uv[2].y - triangle.uv[0].y) -
+                               (triangle.uv[1].y - triangle.uv[0].y) * (triangle.uv[2].x - triangle.uv[0].x));
+    const float twice_screen = abs(triangle_twice_area(screen[0], screen[1], screen[2]));
+    visibility_uv_footprint = twice_screen > 0.0 ? sqrt(twice_uv / twice_screen) : 0.0;
 
     // ---- the SHARED material decode, then the SHARED five-target composition: the same two phases the fragment
     //      G-buffer stage calls, so the two producers cannot disagree about what a surface is. THE ORDER OF THE TWO
