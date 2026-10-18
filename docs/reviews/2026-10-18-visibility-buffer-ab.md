@@ -417,3 +417,25 @@ images) and its per-frame descriptor publication is gone; the frames are unchang
 `FAE60C0B1D8C1191` and ON `deferred` is `7EF9249001EB6035`, both identical to before this step, and CTest is
 49/49 (which includes the shader/host heap-slot mirror parity test that caught the two halves during the
 cleanup). No reference or review hash moves.
+
+## Lane-level split: the design the bucket labels demand (round 10)
+
+The report's labels are static (interval i is labelled `gpu_timing_labels[i]`), so the split cannot be done
+by only adding marks to the ON path - an OFF frame would then carry the wrong label on the interval where
+its geometry pass runs. The design that keeps both arms comparable in ONE table:
+
+- insert ONE new mark between `shadow_end` and `scene_end` (`visibility_raster_end`), so the report has two
+  intervals: `scene` (shadow_end -> that mark) and `visibility raster` (mark -> scene_end);
+- BOTH paths write the mark at the same semantic point. ON: the raster lane writes it after its item
+  dispatches; the resolve lane writes `scene_end` after its dispatch. OFF: the geometry lane's callback
+  writes the new mark FIRST (so the interval before it is ~0) and `scene_end` after the pass, which keeps
+  the geometry pass inside the SAME second interval label;
+- the labels become path-independent: ON's second interval is "raster + resolve" (the pair the bucket
+  measured), OFF's second interval is the geometry pass. The first interval is the raster-only time on ON
+  and ~0 on OFF. That makes ON's raster cost directly readable as (first interval) and the pair comparable
+  against OFF's second interval without a second label set.
+
+The mark's id must sit BEFORE `scene_end` in the enum for the write order to be legal, which shifts every
+later mark id by one; every writer uses the symbolic ids, and the labels table is one shorter than the mark
+list, so the change is mechanical. This is the next implementation step for item 5; no measurement is
+claimed for it here.
