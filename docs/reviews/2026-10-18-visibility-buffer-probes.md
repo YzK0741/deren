@@ -94,3 +94,13 @@ the near-plane clip), then a coverage-scaling run (camera far away, same lane) f
 then an env-gated "constant-surface" resolve variant - `S = M0 - M1` is the absolute ceiling of any
 material/bin scheme. Decision rule: build only if `S >= 0.30 ms`; arithmetic predicts 0.05-0.15 ms, i.e.
 binning should be killed, and the optimization budget should go to the clip fast-path.
+
+## CORRECTION (measured after the report): the "features:" line is AVAILABILITY, and TAA was OFF
+
+The probes read `runtime::log_feature_status`'s startup line as session state; the function itself documents
+"on" as "the pipeline exists and the feature CAN run" (runtime.cpp:973-981). The config default is
+`taa = false` (application_configuration.cppm:267) and the laevatain scenario configs carry no `taa` key, so
+every depth-EQUAL capture - including the probes' own artefacts - was made with TAA OFF. H2 (host cull
+against the unjittered view_proj vs the raster lane's jittered GPU cull) is therefore REFUTED for the hatch:
+there is no jitter in those frames. The unexplained ~2.3%-of-frame residual from the later diff analysis is a
+separate, non-depth question, and the readback harness (section B) remains the only route to the root cause.
