@@ -983,6 +983,38 @@ namespace deren::engine {
                     this->gaussian_hdr_extent = extent;
             }
         }
+        // ---- THE DEPTH-PROBE CAPTURE (visibility-buffer root-cause measurement) ----
+        // The shared G-buffer depth is the value the toon re-shading stage tests EQUAL against, so it is THE
+        // datum the depth-mismatch investigation needs. Copied out on the same screenshot frame as the Gaussian
+        // HDR capture, for the same reason: this is where the frame exists and its layout is known. The
+        // readback itself stays the screenshot path (runtime.readback.cppm).
+        if (this->screenshot_requested && std::getenv("DEREN_DEPTH_PROBE_CAPTURE")) {
+            auto* const depth = this->gbuffer_depth_images[this->current_image_index].get();
+            auto const extent = this->render_extent();
+            rhi::buffer_desc desc;
+            desc.size = static_cast<std::uint64_t>(extent.width) * extent.height * 4u;
+            desc.usage = rhi::buffer_usage::readback_coherent;
+            this->depth_probe_readback = rhi::object_manager<rhi::buffer>{this->rhi_face().create_buffer(desc)};
+            // THE PAIR IS THE LEGACY ONE, deliberately (same reasoning as the Gaussian HDR copy above): unified
+            // image layouts make every state GENERAL, so this pair is a synchronization recipe, and the depth is
+            // re-imported with undefined contents by the next frame.
+            auto const from = rhi::image_use::color_attachment;
+            if (!depth || !this->depth_probe_readback) {
+                deren::utility::log("depth probe capture: FAIL allocation");
+            } else if (auto const entry = commands->barrier(rhi::image_barrier{.resource = depth, .from = from, .to = rhi::image_use::transfer_source});
+                       entry != rhi::error::ok) {
+                deren::utility::log("depth probe capture: FAIL entry barrier ({})", static_cast<std::uint32_t>(entry));
+            } else {
+                auto const copied = commands->copy_image_to_buffer(*this->depth_probe_readback, *depth, {.extent = extent});
+                auto const restored = commands->barrier(rhi::image_barrier{.resource = depth, .from = rhi::image_use::transfer_source, .to = from});
+                rhi::buffer_barrier const host{.resource = this->depth_probe_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read};
+                auto const published = commands->barrier(rhi::barrier_group{.buffers = std::span{&host, 1}});
+                if (copied != rhi::error::ok || restored != rhi::error::ok || published != rhi::error::ok)
+                    deren::utility::log("depth probe capture: FAIL copy or publication");
+                else
+                    this->depth_probe_extent = extent;
+            }
+        }
         if (this->main_graph_frame && !this->main_graph_reported) {
             deren::utility::log("main graph: scene geometry -> GBuffer handoff -> deferred LOAD -> post recorded in one graph");
             this->main_graph_reported = true;

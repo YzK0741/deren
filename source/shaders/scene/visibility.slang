@@ -135,7 +135,15 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
             const uint vertex_index = uint(int(raw_index) + meshlet.base_vertex);
             const MeshVertex v = mesh_vertex_at(geometry, vertex_index);
             VisibilityVertexOutput o;
-            o.position = mul(mul(float4(v.position, 1.0), push.model), view_proj);
+            // THE CLIP POSITION MUST BE SPELLED LIKE pbr.slang SPELLS IT, and that is a MEASURED requirement, not
+            // style: with a precomputed `view_proj` local (`mul(mul(pos, model), view_proj)`) this stage's depth came
+            // out 1-2 ULP NEARER than the toon re-shading pipeline's on 184,782 pixels (17.8% of the frame, every one
+            // nearer, u32-bit delta mostly 1), so the stage's EXACT depth-EQUAL test rejected every character
+            // fragment and the whole-frame fallback was invented for it. With this nested form both stages' depth
+            // dumps are BIT-IDENTICAL (0 differing pixels) - see docs/reviews/2026-10-18-visibility-buffer-ab.md.
+            // The difference is codegen: the precomputed-product form lets the compiler reassociate the matrix
+            // chain `(world * view) * proj` differently than the nested form's evaluation order.
+            o.position = mul(mul(float4(v.position, 1.0), push.model), mul(visibility_camera.view, visibility_camera.proj));
             o.vis_id = vis_id;
             o.uv = v.uv;
             o.material_index = push.material_index;

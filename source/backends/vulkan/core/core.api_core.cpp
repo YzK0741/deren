@@ -2630,7 +2630,25 @@ namespace deren::vulkan {
                 return rhi::error::invalid_argument;
             if (!rhi::has_flag(image.declared_flags, rhi::image_flag::transfer_source))
                 return rhi::error::unsupported;
-            auto const bpp = rhi::bytes_per_pixel(image.declared_format);
+            auto bpp = rhi::bytes_per_pixel(image.declared_format);
+            VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+            if (!bpp) {
+                // A DEPTH ROLE's declared format is `rhi::image_format::depth` (the device picks the concrete one into
+                // `resolved_format`), and the contract refuses depth in bytes_per_pixel on purpose. The DEPTH-PROBE
+                // capture (visibility-buffer root-cause measurement) is the one caller that copies it: derive the byte
+                // width and the DEPTH aspect here rather than at the call site.
+                switch (image.resolved_format) {
+                case VK_FORMAT_D16_UNORM:
+                    bpp = 2u;
+                    break;
+                case VK_FORMAT_UNDEFINED:
+                    return rhi::error::unsupported;
+                default:
+                    bpp = 4u;
+                    break; // D24*, D32_SFLOAT*, X8_D24*
+                }
+                aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+            }
             if (!bpp || region.mip_level >= image.mip_levels || region.base_array_layer >= image.array_layers ||
                 !region.array_layer_count || region.array_layer_count > image.array_layers - region.base_array_layer ||
                 !region.extent.width || !region.extent.height || region.extent.depth != 1u || region.offset_z != 0u)
@@ -2643,7 +2661,7 @@ namespace deren::vulkan {
             if (needed > buffer.size_bytes / bpp / region.array_layer_count)
                 return rhi::error::invalid_argument;
             VkBufferImageCopy copy{};
-            copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, region.mip_level, region.base_array_layer, region.array_layer_count};
+            copy.imageSubresource = {aspect, region.mip_level, region.base_array_layer, region.array_layer_count};
             copy.imageOffset = {static_cast<std::int32_t>(region.offset_x), static_cast<std::int32_t>(region.offset_y), 0};
             copy.imageExtent = {region.extent.width, region.extent.height, 1u};
             vkCmdCopyImageToBuffer(this->native(), image.native_handle, VK_IMAGE_LAYOUT_GENERAL, buffer.native, 1u, &copy);

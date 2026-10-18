@@ -185,8 +185,11 @@ v0 把「几何生产」与「材质着色」拆开，之后的顺序是：v1 so
   visibility lane (measured ON vs OFF: changed 8.66-13.48%, frame mean 4.04-6.50, max 200-255). Root cause of the
   mismatch was NOT found (mechanism measured; SPIR-V arithmetic, pipeline state and cull decisions all identical) -
   the static search space is closed and the readback harness is the recorded entry point.
-- [ ] Quality follow-up for item 1: the LE substitution leaves a measured 8.7-13.5% pixel difference with a high
-  per-changed-pixel magnitude (~43-48/255, the base shading showing through where the direction of the mismatch is
-  "toon behind"), so a proper unification - candidate (a), the character stage PRODUCES the depth it tests against -
-  still needs the depth readback + input-byte dump harness before it can be attempted.
+- [x] Quality follow-up for item 1: ROOT CAUSE FOUND AND FIXED. A depth-probe readback harness showed the
+  visibility mesh shader's precomputed `world * (view * proj)` clip form gives a depth 1-2 ULP NEARER than the
+  toon pipeline's nested `mul(world_pos, mul(view, proj))` form on every one of 184,782 differing pixels; with
+  the nested form the two stages' depths are BIT-IDENTICAL (0 differing pixels), the exact `depth_compare::equal`
+  test passes again by construction (the `depth_equal_stage` fallback stays retired), and the toon frames measure
+  0.00-2.13% changed against the old path (from 8.66-13.48%). See the review record's "root cause found" section.
+
 - [x] Material binning, DECIDED AGAINST by measurement (see the review record): material is per ITEM (already fully coherent on the measured frame), the whole fragment G-Buffer pass costs 0.19 ms so any material-only change is capped at ~21% of the resolve, and a bin consume pass needs an RHI indirect-compute verb that does not exist. The measured gap is geometry reconstruction. Recorded alternatives for a future pass: multi-pixel-per-thread resolve with hoisting (20-40% if latency-bound; needs >=5-repeat measurement), and a scoped -O2/-O3 for this shader.

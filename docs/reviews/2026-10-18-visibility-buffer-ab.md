@@ -824,3 +824,72 @@ depth-EQUAL measurements, including the one in this goal round, were made with T
 Item 1's remaining root-cause candidates are therefore limited to numeric/rasterization divergence between the
 two modules, which is exactly what the readback harness (probe report, section B) measures. The unexplained
 ~2.3%-of-frame residual from the diff analysis is a separate, non-depth question.
+
+## Item 1 ROOT CAUSE FOUND AND FIXED: the clip-position expression form (depth-probe measurement)
+
+The probes' phase-1 harness was built, and the phase-2 measurement it enabled settled the question in one
+comparison.
+
+### The harness (shipped as debug instrumentation, env-gated, mirroring the Gaussian HDR capture)
+
+- `output_targets.cppm`: the G-buffer depth family gained `image_flag::transfer_source`; the Vulkan owned-image
+  copy learned the DEPTH ROLE (`core.api_core.cpp`: byte width from `resolved_format` - 2 for D16, 4 for
+  D24/D32 - and `VK_IMAGE_ASPECT_DEPTH_BIT` instead of the hardcoded color aspect).
+- `runtime.post_graph.cpp` + `runtime.readback.cppm`: on the screenshot frame with `DEREN_DEPTH_PROBE_CAPTURE`
+  naming a file, the shared G-buffer depth is copied to a host-visible buffer and written as
+  `u32 width, u32 height, then one u32 per texel` (the depth format's own bits). `scripts/measure/depth_probe.py`
+  is the comparison script.
+- Phase 2 used a TEMPORARY switch (removed before this commit) that let the character pass WRITE the depth its
+  own pipeline computes (`env.set_depth_write(...)`), so two dumps measure "raster lane"s depth vs "toon
+  pipeline"s depth" directly on the same camera/frame (static scene, TAA off, deterministic captures).
+
+### MEASUREMENT: the two stages" depths differ, in ONE direction
+
+| quantity | value |
+| --- | ---: |
+| pixels whose two depths differ | 184,782 (17.8% of the frame = the character's coverage) |
+| direction | **100% "toon pipeline NEARER"**, 0% farther |
+| delta in u32 depth bits | median 1, 139,709 pixels exactly 1 ULP, 34,359 exactly 2, p95 = 3 |
+| delta in float depth | median -5.96e-8 (= 2^-24, i.e. 1 ULP at depth 0.74) |
+
+So the v0.6 "1-ULP" guess was directionally right but the real figure is 1-2 ULP with a CONSISTENT direction:
+the toon pipeline's depth is nearer, which is exactly why `EQUAL` rejected every character fragment (stored
+depth is farther) while `LESS_OR_EQUAL` passed them all.
+
+### ROOT CAUSE: the expression form of the clip position
+
+`visibility.slang` computed the clip position as `mul(mul(pos, model), view_proj)` with a PRECOMPUTED
+`view_proj = mul(view, proj)`, while `pbr.slang` (the toon pipelines' module) spells the same mathematics
+nested: `mul(world_pos, mul(view, proj))`. Changing the visibility shader to the NESTED form - no other change,
+no matrix data change - made the two depth dumps BIT-IDENTICAL: **0 differing pixels (was 184,782)**. The
+precomputed-product form lets the compiler reassociate the matrix chain `(world * view) * proj` differently from
+the nested evaluation order, and the resulting 1-2 ULP difference broke an exact depth test across pipelines.
+
+### THE FIX, and what it buys (measured, all four toon scenarios)
+
+- `visibility.slang`: the clip position is spelled the nested way, with the measurement recorded in the comment.
+- `runtime.cpp`: the character-forward pipelines go back to the design's EXACT `depth_compare::equal` (the
+  `depth_equal_stage` admission clause stays retired; the two stages' depths are now bit-identical).
+- The temporary phase-2 depth-write switch was removed; the probe harness stays (env-gated, harmless).
+
+`laevatain_*` ON vs OFF, before -> after (changed% / mean over changed / max):
+
+| scenario | before the fix | after the fix |
+| --- | --- | --- |
+| laevatain_goo_toon | 11.29% / 42.88 / 236 | **2.13% / 4.76 / 236** |
+| laevatain_goo_toon_body | 13.48% / 48.25 / 255 | **0.63% / 4.34 / 208** |
+| laevatain_no_sidecar | 8.66% / 46.71 / 200 | **0.00% / 0.00 / 0** (bit-identical to the old path) |
+| laevatain_old_chain | 9.47% / 48.16 / 202 | **0.23% / 1.06 / 6** |
+
+That closes item 1 completely: the whole-frame fallback is gone, the exact depth test it broke now passes by
+construction, and three of four toon frames are within 0.2-2.1% of the old path with per-pixel magnitudes at the
+admitted-scene level.
+
+### Verification
+
+- Full frozen OFF gate: **15/15 matched, PASS** (the run before it saw a single `glossy_motion` flake - the
+  camera-moving scenario - and a clean rerun with its hash matching the reference; recorded here as an observed
+  one-off, not a regression).
+- ON reference re-baselined to `AEE07350B796AC07` because the visibility mesh shader's clip-position code
+  changed (the pixels of the deferred reference moved by the same 1-2 ULP class); `-Visibility -Compare` PASS.
+- CTest 49/49. OFF hashes otherwise untouched: the fix lives in ON-only code.

@@ -76,6 +76,8 @@ export namespace deren::engine::pass {
                 value.image.format = formats[i];
                 value.image.flags = rhi::to_bits(rhi::image_flag::sampled) |
                                     rhi::to_bits(i == 6 ? rhi::image_flag::depth_attachment : rhi::image_flag::color_attachment);
+                // THE DEPTH-PROBE CAPTURE reads it back (visibility-buffer root-cause measurement: the shared G-buffer
+                // depth is copied to host memory on the screenshot frame, see runtime.post_graph.cpp / runtime.readback.cppm).
                 // THE TARGETS THE VISIBILITY RESOLVE WRITES AS STORAGE IMAGES (v0.4b): a compute stage cannot use a
                 // colour attachment, so these families are created with STORAGE usage as well. Family 0 is included
                 // because the scene colour target ALTERNATES between family 5 (the TAA working image) and family 0
@@ -88,6 +90,8 @@ export namespace deren::engine::pass {
                 if (i == 13)
                     value.image.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::storage);
                 if (i == 0)
+                    value.image.flags |= rhi::to_bits(rhi::image_flag::transfer_source);
+                if (i == 6)
                     value.image.flags |= rhi::to_bits(rhi::image_flag::transfer_source);
                 value.image.debug_name = "managed output target";
             }

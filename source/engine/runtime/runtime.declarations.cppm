@@ -1036,6 +1036,10 @@ namespace deren::engine {
         std::uint64_t gaussian_trace_frames = 0;
         rhi::object_manager<rhi::buffer> gaussian_hdr_readback;
         rhi::image_extent gaussian_hdr_extent = {};
+        /// THE DEPTH-PROBE CAPTURE (visibility-buffer root-cause measurement): the shared G-buffer depth copied
+        /// out on the screenshot frame when DEREN_DEPTH_PROBE_CAPTURE names a file (written by runtime.readback.cppm).
+        rhi::object_manager<rhi::buffer> depth_probe_readback;
+        rhi::image_extent depth_probe_extent = {};
         // Enable only after the image and performance acceptance checks pass.
         static constexpr bool gaussian_gpu_auto_enabled = true;
         /**

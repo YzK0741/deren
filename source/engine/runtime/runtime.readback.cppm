@@ -87,6 +87,22 @@ namespace deren::engine {
                 return std::unexpected(deren::utility::vessel::string("Gaussian HDR capture: FAIL file write"));
         }
 
+        // THE DEPTH-PROBE CAPTURE's file (visibility-buffer root-cause measurement): same wait, same frame, a
+        // raw dump the comparison script reads (scripts/measure/depth_probe.py): u32 width, u32 height, then
+        // one u32 per texel - the depth format's own bits (D32_SFLOAT float bits on this device, logged by the
+        // backend copy).
+        if (auto const* path = std::getenv("DEREN_DEPTH_PROBE_CAPTURE"); path && this->depth_probe_readback) {
+            auto const bytes = this->depth_probe_readback->mapped();
+            std::uint64_t const required = static_cast<std::uint64_t>(this->depth_probe_extent.width) * this->depth_probe_extent.height * 4u;
+            if (!required || bytes.size() < required)
+                return std::unexpected(deren::utility::vessel::string("depth probe capture: FAIL unavailable readback"));
+            std::ofstream output(path, std::ios::binary);
+            deren::utility::vessel::array<std::uint32_t, 2> const dimensions = {this->depth_probe_extent.width, this->depth_probe_extent.height};
+            output.write(reinterpret_cast<char const*>(dimensions.data()), sizeof(dimensions));
+            output.write(reinterpret_cast<char const*>(bytes.data()), static_cast<std::streamsize>(required));
+            if (!output)
+                return std::unexpected(deren::utility::vessel::string("depth probe capture: FAIL file write"));
+        }
         std::size_t const buffer_size = static_cast<std::size_t>(extent.width) * static_cast<std::size_t>(extent.height) * 4u;
         std::span<std::byte> const mapped = slot->mapped();
         if (mapped.empty() || mapped.size() < buffer_size) {
