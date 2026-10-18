@@ -300,3 +300,32 @@ two marks after its dispatch, meaning the same thing (the opaque producer is don
 lane's slot in the report is unchanged). MEASURED after: **0 refusals**, and the frame's hash is unchanged
 (`7EF9249001EB6035`) because marks are timing queries, not pixels. The OFF arm never had the problem (the
 geometry lane records its own marks), so no OFF reference moves.
+
+## Performance baseline: the ON path is SLOWER than the geometry lane (item 5, first measurement)
+
+The GPU timing marks fixed in the previous commit make this measurable on the ON path. Two 130-frame runs of
+the same `deferred` config (130 frames = the report's 60-frame window has converged; the SECOND window of each
+run is quoted, the first includes startup), per-pass GPU timestamps from the runtime's own report:
+
+| pass bucket | OFF (geometry lane) | ON (visibility raster + resolve) |
+| --- | ---: | ---: |
+| scene | 0.32 ms | **0.65 ms** |
+| lighting | 0.20 ms | 0.21 ms |
+| bloom | 0.05 ms | 0.03 ms |
+| composite | 0.37 ms | 0.22 ms |
+| **total** | **0.95 ms** | **1.11 ms** |
+
+READ IT HONESTLY: the ON path is ~17% SLOWER in GPU time on this frame, not faster. The bucket the report
+calls "scene" is where the difference lives (0.65 vs 0.32 ms): on an ON frame it contains the mesh-task id
+raster AND the compute resolve, while the OFF frame's contains only the fragment G-buffer pass - so the id
+raster plus the resolve costs about twice the single G-buffer pass it replaces on this scene, and the
+composite/bloom columns' differences are small/variance. CPU-side totals were not stable enough in capture
+mode to quote. This is the number the optimization item (material binning, then the software raster) has to
+move: it says the resolve is the cost centre, not the raster, and that "the visibility path exists" does not
+mean "the visibility path is faster" yet.
+
+CAVEATS, recorded because a baseline without them invites over-reading: one scene (DamagedHelmet, one opaque
+item), one machine (RTX 4060 Laptop), capture mode with validation layers ON and a screenshot read-back at the
+end; the per-pass numbers are averaged over the frame window and the pass labels are the runtime's buckets
+("scene" as defined above), not per-lane counters. The next measurement splits the registry's buckets to
+separate raster from resolve (a lane-level mark), and only then should an optimization be judged.
