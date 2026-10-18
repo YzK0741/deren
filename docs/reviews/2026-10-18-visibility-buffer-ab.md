@@ -807,3 +807,20 @@ clip-fast-path alternative was implemented, checked for numerical identity, and 
   matrix hoisting (probe estimate 20-40% if latency-bound), measured with the `DEREN_GAUSSIAN_BENCHMARK` CSV
   (per-frame pass timings) plus >=5 repeats - the 3-repeat protocol used here is too coarse; (2) scoped
   `-O2/-O3` for this shader (Slang default is -O1) with a re-baselined ON reference.
+
+## The TAA question is resolved, and it removes a hypothesis (this round)
+
+The probe report read the startup `features:` line as session state; `runtime::log_feature_status` documents it
+as AVAILABILITY ("on means the pipeline exists and the feature CAN run"). The config default is `taa = false`
+(application_configuration.cppm:267) and the laevatain scenario configs carry no `taa` key - so all the
+depth-EQUAL measurements, including the one in this goal round, were made with TAA OFF. Two consequences:
+
+- **H2 (host culling against the unjittered view_proj while the raster lane's GPU cull uses the jittered one) is
+  REFUTED for the hatch**: there is no jitter in those frames at all. The jitter-based reading of the LEQUAL
+  residual blobs falls with it.
+- The `-ExtraConfig "taa = false"` experiment's identical captures are explained: TAA was already off (a
+  duplicate TOML key would also have been ignored, but no override was needed).
+
+Item 1's remaining root-cause candidates are therefore limited to numeric/rasterization divergence between the
+two modules, which is exactly what the readback harness (probe report, section B) measures. The unexplained
+~2.3%-of-frame residual from the diff analysis is a separate, non-depth question.
