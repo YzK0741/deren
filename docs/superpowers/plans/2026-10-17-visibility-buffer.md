@@ -189,4 +189,4 @@ v0 把「几何生产」与「材质着色」拆开，之后的顺序是：v1 so
   per-changed-pixel magnitude (~43-48/255, the base shading showing through where the direction of the mismatch is
   "toon behind"), so a proper unification - candidate (a), the character stage PRODUCES the depth it tests against -
   still needs the depth readback + input-byte dump harness before it can be attempted.
-- [ ] Material binning (the resolve optimization): target sized by the lane split - the resolve is ~5x the fragment G-Buffer pass it replaced; bin the material fetches by tile and re-measure with the same repeat/median method.
+- [x] Material binning, DECIDED AGAINST by measurement (see the review record): material is per ITEM (already fully coherent on the measured frame), the whole fragment G-Buffer pass costs 0.19 ms so any material-only change is capped at ~21% of the resolve, and a bin consume pass needs an RHI indirect-compute verb that does not exist. The measured gap is geometry reconstruction. Recorded alternatives for a future pass: multi-pixel-per-thread resolve with hoisting (20-40% if latency-bound; needs >=5-repeat measurement), and a scoped -O2/-O3 for this shader.

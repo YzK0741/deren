@@ -776,3 +776,34 @@ implemented, measured, and reverted (the tree is back to the shipped LESS_OR_EQU
 Root cause remains unfound; every static candidate is now eliminated by experiment (arithmetic, pipeline
 state, cull decisions, identity skinning). The depth-readback Phase 1 plan in the probe report is the recorded
 next step; item 1's quality trade-off (LEQUAL, 8.66-13.48% changed to the old frame) stands as shipped.
+
+## Optimization decision recorded: material binning is KILLED, and the first alternative was measured (this round)
+
+Following the probe's analysis (docs/reviews/2026-10-18-visibility-buffer-probes.md, section C), the resolve
+was re-measured on the CURRENT tree first (the 0.92 ms figure predated the near-plane clip), then the
+clip-fast-path alternative was implemented, checked for numerical identity, and measured:
+
+| measurement (3 x 130-frame runs, medians, same `deferred` config) | value |
+| --- | ---: |
+| visibility raster bucket | 0.01 ms |
+| resolve bucket (scene on an ON frame) | 0.68 ms [0.64..0.96] (post-clip, BEFORE the alternative) |
+| ON total GPU | 1.21 ms (OFF total 0.94 ms in the same session) |
+| resolve bucket with the clip fast-path | 0.81 ms [0.64..0.88] |
+
+- The post-clip resolve is cheaper than the pre-clip 0.92 ms, and still ~3x the fragment G-Buffer pass (0.19 ms).
+- The clip fast-path (the common `behind == 0` case skips the 4-corner clip scratch and the fan loop; the
+  ON reference stayed EXACTLY `0F4CC199AEC42A0D`, so it was numerically identical) measured 0.81 [0.64..0.88]
+  against 0.68 [0.64..0.96] without it: INCONCLUSIVE, possibly a hair worse, and the run-to-run spread is
+  larger than the effect. It was therefore REVERTED rather than shipped as unproven churn - the register-
+  pressure hypothesis is not confirmed at this measurement resolution (the ON total also varies 1.11..1.64 ms
+  across identical runs, so 3 repeats cannot resolve a <10% change).
+- MATERIAL BINNING IS OFF the roadmap by evidence, not by preference: the whole fragment G-Buffer pass (same
+  shared decode, same five targets) costs 0.19 ms, so anything material-only is capped at ~21% of the resolve;
+  the material row is per ITEM and already perfectly coherent on the frame it was sized against (one helmet =
+  one material; sponza tiles stay inside one item except at silhouettes); and a bin consume pass would need an
+  RHI indirect-compute verb that does not exist. The 0.68-0.92 ms gap is geometry reconstruction, which binning
+  never touches.
+- NEXT optimization, if the path is ever made default: (1) multi-pixel-per-thread resolve with item/meshlet/
+  matrix hoisting (probe estimate 20-40% if latency-bound), measured with the `DEREN_GAUSSIAN_BENCHMARK` CSV
+  (per-frame pass timings) plus >=5 repeats - the 3-repeat protocol used here is too coarse; (2) scoped
+  `-O2/-O3` for this shader (Slang default is -O1) with a re-baselined ON reference.
