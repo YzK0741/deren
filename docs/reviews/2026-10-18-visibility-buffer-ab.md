@@ -439,3 +439,30 @@ The mark's id must sit BEFORE `scene_end` in the enum for the write order to be 
 later mark id by one; every writer uses the symbolic ids, and the labels table is one shorter than the mark
 list, so the change is mechanical. This is the next implementation step for item 5; no measurement is
 claimed for it here.
+
+## The lane split, measured: the RESOLVE is the cost (item 5 closed on the comparison question)
+
+The lane-level mark from the previous design landed (both paths write it at the same semantic point, so the
+labels are path-independent), and 3 repeats per arm of the 130-frame `deferred` measurement now give a
+comparable split:
+
+| bucket | OFF (geometry lane) | ON (visibility path) |
+| --- | ---: | ---: |
+| visibility raster | 0.09 ms [0.09..0.09] | **0.01 ms** [0.01..0.01] |
+| scene (OFF: geometry pass; ON: resolve) | 0.19 ms [0.19..0.19] | **0.92 ms** [0.64..1.05] |
+| **total** | **0.72 ms** | **1.65 ms** |
+
+Reading it:
+
+- The split is VALID: OFF's two buckets sum to the round-7 single bucket (0.09 + 0.19 = 0.28 ms), so the mark
+  did not move the geometry pass out of the "scene" slot on the old path.
+- The mesh-task id RASTER is essentially FREE on this frame (0.01 ms, one item / one meshlet visible).
+- The COMPUTE RESOLVE is the cost: 0.92 ms - about 5x the fragment G-Buffer pass it replaced (0.19 ms), and the
+  reason the ON total is 1.65 vs 0.72 ms (~2.3x).
+- CONSEQUENCE FOR THE OPTIMIZATION ITEM: material binning (or any resolve-side work) is the right lever; the
+  raster lane is not worth optimizing on this scene. The item-5 baseline question is answered as far as this
+  scene can answer it; the TAA configuration's re-measurement (3 repeats, the round-8 medians) can now use the
+  same labels if needed, and its ON-total advantage there remains unexplained by this split and is not used.
+
+The mark's pixel effect: none (OFF `deferred = FAE60C0B1D8C1191`, ON `deferred = 7EF9249001EB6035`, both
+unchanged), so the frozen references and the ON reference file do not move.

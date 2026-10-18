@@ -556,8 +556,15 @@ namespace deren::engine {
                 }
                 this->visibility_raster->set_frame(this->make_visibility_frame());
                 auto visibility_bound = build.bind_pass<graph::visibility::parameters>(
-                    visibility_added->pass, [payload](graph::visibility::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
-                        return payload->record(19);
+                    visibility_added->pass, [this, payload](graph::visibility::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                        auto error = payload->record(19);
+                        if (error != rhi::error::ok)
+                            return error;
+                        // shadow_end -> here is the MESH-TASK RASTER ALONE; here -> scene_end (written by the
+                        // resolve lane below) is the resolve. BOTH paths write this mark, so the labels never
+                        // lie per-path (the geometry callback writes it immediately before its pass).
+                        this->gpu_mark(gpu_mark_id::visibility_raster_end);
+                        return rhi::error::ok;
                     });
                 if (!visibility_bound) {
                     return post_build_error(visibility_bound.error());
@@ -635,6 +642,9 @@ namespace deren::engine {
                         return rhi::error::invalid_argument;
                 auto geometry_bound = build.bind_pass<graph::geometry::parameters>(geometry->pass,
                                                                                    [this, payload](graph::geometry::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                                                                                       // THE SPLIT MARK, before the pass: the geometry lane keeps the interval it
+                                                                                       // always had ("scene" = this mark -> scene_end); the visibility slot reads ~0
+                                                                                       this->gpu_mark(gpu_mark_id::visibility_raster_end);
                                                                                        auto error = payload->record(7);
                                                                                        if (error != rhi::error::ok)
                                                                                            return error;

@@ -645,17 +645,24 @@ namespace deren::engine {
         // never shifts. Mark i is written at the END of the pass named by gpu_timing_labels[i],
         // which is why the label table is one entry shorter than the mark list.
         enum class gpu_mark_id : uint32_t {
-            frame_begin = 0, // first command of the frame (TOP_OF_PIPE)
-            rt_build_end,    // after the acceleration-structure builds (the bottom levels on the frame
-                             // that creates them, the top level every frame after it)
-            shadow_end,      // after the shadow pass + its sampling barrier
-            scene_end,       // after the geometry instance: forward main (opaque + transparent), or
-                             // the background + G-buffer pass in the deferred path
-            rt_shadow_end,   // after the ray-traced sun shadow pass (~0 when it does not run). Its own
-                             // mark because it sits BETWEEN the G-buffer pass and the lighting stage:
-                             // without it the traversals were reported as lighting time, which made the
-                             // lighting interval look four times more expensive with rays on
-            lighting_end,    // after deferred lighting, before Gaussian preparation and transparent work
+            frame_begin = 0,       // first command of the frame (TOP_OF_PIPE)
+            rt_build_end,          // after the acceleration-structure builds (the bottom levels on the frame
+                                   // that creates them, the top level every frame after it)
+            shadow_end,            // after the shadow pass + its sampling barrier
+            visibility_raster_end, // after the VISIBILITY RASTER lane (the mesh-task id dispatch). Written by BOTH
+                                   // opaque paths so the labels stay path-independent: a visibility frame writes it
+                                   // after the raster lane (so shadow_end -> here is the raster alone and here ->
+                                   // scene_end is the resolve), while the geometry path writes it immediately before
+                                   // the geometry lane (so its interval is ~0 and the pass keeps its old slot).
+                                   // MEASURED NEED: the "scene" bucket could not compare the two lanes - see
+                                   // docs/reviews/2026-10-18-visibility-buffer-ab.md
+            scene_end,             // after the geometry instance: forward main (opaque + transparent), or
+                                   // the background + G-buffer pass in the deferred path
+            rt_shadow_end,         // after the ray-traced sun shadow pass (~0 when it does not run). Its own
+                                   // mark because it sits BETWEEN the G-buffer pass and the lighting stage:
+                                   // without it the traversals were reported as lighting time, which made the
+                                   // lighting interval look four times more expensive with rays on
+            lighting_end,          // after deferred lighting, before Gaussian preparation and transparent work
             gaussian_prepare_end,
             gaussian_sort_end,
             gaussian_finalize_end,
@@ -692,6 +699,7 @@ namespace deren::engine {
         static constexpr deren::utility::vessel::array<gpu_timing_label, gpu_mark_count - 1> gpu_timing_labels = {{
             {"rt", false},
             {"shadow", false},
+            {"visibility raster", false},
             {"scene", false},
             {"rt shadow", false},
             {"lighting", false},
