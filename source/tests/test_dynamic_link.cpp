@@ -82,8 +82,6 @@ namespace {
         info.header.next = &extra;
         return rhi::validate_structure(info.header, rhi::structure_type::heap_buffer_write, sizeof(info)) == rhi::error::unsupported;
     }());
-    static_assert(std::is_standard_layout_v<rhi::vulkan_heap_image_info> && offsetof(rhi::vulkan_heap_image_info, header) == 0);
-    static_assert(std::is_standard_layout_v<rhi::vulkan_command_buffer_info> && offsetof(rhi::vulkan_command_buffer_info, header) == 0);
     static_assert([] {
         auto info = rhi::heap_buffer_write_info{};
         info.header.struct_size = sizeof(info) - 1u;
@@ -93,6 +91,18 @@ namespace {
         auto info = rhi::heap_buffer_write_info{};
         info.header.struct_size += 64u;
         return rhi::validate_structure(info.header, rhi::structure_type::heap_buffer_write, sizeof(info)) == rhi::error::ok;
+    }());
+
+    // RETIRED TAGS ARE VALUES, NOT SLOTS (abi 34): the native heap-image / command-buffer structures are
+    // deleted, but their `structure_type` numbers are never reused - a request that chains one is refused
+    // (`unsupported`) instead of having the chain walked, which is what makes retiring the vocabulary safe.
+    static_assert(static_cast<std::uint32_t>(rhi::structure_type::vulkan_heap_image) == 0x10000u);
+    static_assert(static_cast<std::uint32_t>(rhi::structure_type::vulkan_command_buffer) == 0x10001u);
+    static_assert([] {
+        auto info = rhi::heap_image_write_info{};
+        rhi::structure_header extra{};
+        info.header.next = &extra;
+        return rhi::validate_structure(info.header, rhi::structure_type::heap_image_write, sizeof(info)) == rhi::error::unsupported;
     }());
 
     // THE CONTRACT-LEVEL CONCRETE IDENTITY PAIR (`is_concrete` / `do_concrete`): the validate-then-cast
@@ -304,7 +314,7 @@ namespace {
         // `native_swapchain_image_format()` - a virtual on an existing tier-2 interface. The engine
         // builds the pipelines that render into the presentation image (the post chain, FXAA, the
         // upscale resolve) and the debug overlay BEFORE the first frame is acquired, and the contract's
-        // only format query (`native_image_format(image const&)`) needs an image - the only swapchain
+        // only format query (`native_image_format(image const&)`, removed in abi 34) needed an image - the only swapchain
         // image a caller can name is `frame_image()`, which is nullptr until an acquire. So the surface
         // format had no pre-acquire answer, and this accessor is the one thing the slice adds to the
         // contract. (The number was previously reserved for `graphics_queue_family_index()`; that entry
@@ -332,7 +342,13 @@ namespace {
         // interface, which is what the number exists for. The PODs of the same batch (the compute pipeline
         // spelling, the barrier stage hint, the global memory barrier) are `struct_size`-guarded appends and
         // do not move it.
-        CHECK(rhi::abi_version == 33u);
+        // ABI34 is the NATIVE-VOCABULARY CLEANUP batch: `vulkan_escape::native_image_format()` is DELETED (an
+        // image-based format query no caller asked for; the raw heap view path it existed for is portable now),
+        // which removes a virtual from an existing tier-2 interface - every slot after it shifts, the case the
+        // number exists for. The three transition structures (vulkan_heap_image_desc / vulkan_heap_image_info /
+        // vulkan_command_buffer_info) are deleted with it, their `structure_type` values are retired and never
+        // reused, and a heap request that still chains one is refused with `unsupported`.
+        CHECK(rhi::abi_version == 34u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 

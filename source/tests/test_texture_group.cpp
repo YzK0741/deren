@@ -120,6 +120,14 @@ void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, bool us
     // released group is stale (invalid_argument) - the generation is what tells the two states apart.
     auto* const space = rhi::query_extension<rhi::descriptor_space>(core);
     CHECK(space != nullptr);
+    // abi 34 retired the native-vocabulary transition: a heap image write that still chains a structure is
+    // refused (`unsupported`) instead of having the chain walked.
+    if (heap != nullptr) {
+        rhi::heap_image_write_info chained{};
+        rhi::structure_header extra{};
+        chained.header.next = &extra;
+        CHECK(heap->write_image(chained) == rhi::error::unsupported);
+    }
     rhi::descriptor_position position_a{};
     if (space != nullptr) {
         position_a = space->position(*group_a);

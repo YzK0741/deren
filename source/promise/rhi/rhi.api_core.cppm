@@ -557,7 +557,7 @@ export namespace deren::promise::rhi {
     /// APPENDED" is about the numbers, and no caller compares format values by order. No `abi_version`
     /// bump follows for the same reason the appended `error` values did not need one: nothing that
     /// already crossed the boundary changed. A backend built against the older enum refuses the value
-    /// (its `native_image_format` switch has no case) instead of misreading it - the documented answer
+    /// (its image-format switch has no case) instead of misreading it - the documented answer
     /// to a descriptor a backend cannot honour.
     ///
     /// `r32_uint` is the NEXT APPEND (2026-10-17, same high-bit rule): one 32-bit unsigned channel, the

@@ -877,24 +877,10 @@ namespace deren::vulkan {
         static_assert(heap_descriptor_type(rhi::descriptor_type::uniform_buffer_dynamic) == VK_DESCRIPTOR_TYPE_MAX_ENUM);
         static_assert(heap_descriptor_type(rhi::descriptor_type::storage_buffer_dynamic) == VK_DESCRIPTOR_TYPE_MAX_ENUM);
 
-        [[nodiscard]] VkCommandBuffer heap_commands(core& owner, rhi::command_buffer* const commands,
-                                                    rhi::structure_header const* const next, rhi::error& result) noexcept {
-            if (next != nullptr) {
-                if (next->s_type != rhi::structure_type::vulkan_command_buffer) {
-                    result = rhi::error::unsupported;
-                    return VK_NULL_HANDLE;
-                }
-                result = rhi::validate_structure(*next, rhi::structure_type::vulkan_command_buffer, sizeof(rhi::vulkan_command_buffer_info));
-                if (result != rhi::error::ok)
-                    return VK_NULL_HANDLE;
-                auto const& native = *reinterpret_cast<rhi::vulkan_command_buffer_info const*>(next);
-                if (commands != nullptr || native.context != static_cast<rhi::api_core const*>(&owner) || native.commands == nullptr) {
-                    result = rhi::error::invalid_argument;
-                    return VK_NULL_HANDLE;
-                }
-                // 原生命令缓冲的归属和录制状态仍是调用方前提；不强转frame_commands。
-                return static_cast<VkCommandBuffer>(native.commands);
-            }
+        /// THE COMMAND BUFFER A HEAP RECORDING VERB RECORDS INTO, from contract handles only: the native
+        /// `vulkan_command_buffer_info` pNext path was retired in abi 34 (no caller set it, and a raw
+        /// VkCommandBuffer is obtained from the escape, never smuggled through a heap request).
+        [[nodiscard]] VkCommandBuffer heap_commands(core& owner, rhi::command_buffer* const commands, rhi::error& result) noexcept {
             if (commands == nullptr) {
                 result = rhi::error::invalid_argument;
                 return VK_NULL_HANDLE;
@@ -934,7 +920,7 @@ namespace deren::vulkan {
     } // namespace
 
     rhi::error core::frame_heap::write_image(rhi::heap_image_write_info const& info) noexcept {
-        rhi::error const checked = rhi::validate_structure(info.header, rhi::structure_type::heap_image_write, sizeof(info), true);
+        rhi::error const checked = rhi::validate_structure(info.header, rhi::structure_type::heap_image_write, sizeof(info), false);
         if (checked != rhi::error::ok)
             return checked;
         if (!this->ready())
@@ -946,62 +932,35 @@ namespace deren::vulkan {
         auto const stride = this->owner->descriptor_heaps.descriptor_stride(type);
         if (info.offset > capacity || stride > capacity - info.offset)
             return rhi::error::invalid_argument;
-        VkImageViewCreateInfo view{};
-        VkImageLayout layout = VK_IMAGE_LAYOUT_GENERAL;
-        if (info.header.next != nullptr) {
-            if (info.header.next->s_type != rhi::structure_type::vulkan_heap_image)
-                return rhi::error::unsupported;
-            rhi::error const native_checked = rhi::validate_structure(*info.header.next, rhi::structure_type::vulkan_heap_image, sizeof(rhi::vulkan_heap_image_info));
-            if (native_checked != rhi::error::ok)
-                return native_checked;
-            auto const& native = *reinterpret_cast<rhi::vulkan_heap_image_info const*>(info.header.next);
-            auto const& desc = native.view;
-            if (info.resource != nullptr || info.view != nullptr || native.context != static_cast<rhi::api_core const*>(this->owner) ||
-                desc.struct_size < sizeof(desc) || desc.native_image == nullptr)
+        if (info.resource == nullptr || info.view == nullptr || info.view->struct_size < sizeof(rhi::image_view_desc))
+            return rhi::error::invalid_argument;
+        // 类型标签相同不代表具体布局相同；先核实本core发出的活跃image，再访问owned_image。
+        {
+            std::lock_guard const lock(this->owner->contract_images_mutex);
+            if (!this->owner->contract_images.contains(info.resource))
                 return rhi::error::invalid_argument;
-            view = {
-                .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = desc.view_flags,
-                .image = static_cast<VkImage>(desc.native_image),
-                .viewType = static_cast<VkImageViewType>(desc.view_type),
-                .format = static_cast<VkFormat>(desc.format),
-                .components = {static_cast<VkComponentSwizzle>(desc.components[0]), static_cast<VkComponentSwizzle>(desc.components[1]),
-                               static_cast<VkComponentSwizzle>(desc.components[2]), static_cast<VkComponentSwizzle>(desc.components[3])},
-                .subresourceRange = {desc.aspect_mask, desc.base_mip, desc.mip_count, desc.base_layer, desc.layer_count},
-            };
-            layout = static_cast<VkImageLayout>(native.layout);
-        } else {
-            if (info.resource == nullptr || info.view == nullptr || info.view->struct_size < sizeof(rhi::image_view_desc))
-                return rhi::error::invalid_argument;
-            // 类型标签相同不代表具体布局相同；先核实本core发出的活跃image，再访问owned_image。
-            {
-                std::lock_guard const lock(this->owner->contract_images_mutex);
-                if (!this->owner->contract_images.contains(info.resource))
-                    return rhi::error::invalid_argument;
-            }
-            auto const& image = *rhi::do_concrete<owned_image>(*info.resource, concrete::image);
-            auto const& range = *info.view;
-            if (range.base_layer >= image.array_layers || range.base_mip >= image.mip_levels)
-                return rhi::error::invalid_argument;
-            auto const layers = range.layer_count == 0 ? image.array_layers - range.base_layer : range.layer_count;
-            auto const mips = range.mip_count == 0 ? image.mip_levels - range.base_mip : range.mip_count;
-            if (layers > image.array_layers - range.base_layer || mips > image.mip_levels - range.base_mip)
-                return rhi::error::invalid_argument;
-            bool const sampled = type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-            if ((sampled && range.role != rhi::view_role::sampled) || (!sampled && range.role != rhi::view_role::storage) ||
-                !rhi::has_flag(image.declared_flags, sampled ? rhi::image_flag::sampled : rhi::image_flag::storage))
-                return rhi::error::unsupported;
-            bool const cube = image.cube_compatible && image.array_layers == 6 && range.base_layer == 0 && layers == 6;
-            view = make_image_view_info(image.native_handle, image.resolved_format,
-                                        cube ? VK_IMAGE_VIEW_TYPE_CUBE : layers == 1 ? VK_IMAGE_VIEW_TYPE_2D
-                                                                                     : VK_IMAGE_VIEW_TYPE_2D_ARRAY,
-                                        image.declared_format == rhi::image_format::depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
-                                        mips, layers);
-            view.subresourceRange.baseMipLevel = range.base_mip;
-            view.subresourceRange.baseArrayLayer = range.base_layer;
         }
-        return this->owner->descriptor_heaps.write_image(info.offset, view, layout, type) ? rhi::error::ok : rhi::error::operation_failed;
+        auto const& image = *rhi::do_concrete<owned_image>(*info.resource, concrete::image);
+        auto const& range = *info.view;
+        if (range.base_layer >= image.array_layers || range.base_mip >= image.mip_levels)
+            return rhi::error::invalid_argument;
+        auto const layers = range.layer_count == 0 ? image.array_layers - range.base_layer : range.layer_count;
+        auto const mips = range.mip_count == 0 ? image.mip_levels - range.base_mip : range.mip_count;
+        if (layers > image.array_layers - range.base_layer || mips > image.mip_levels - range.base_mip)
+            return rhi::error::invalid_argument;
+        bool const sampled = type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        if ((sampled && range.role != rhi::view_role::sampled) || (!sampled && range.role != rhi::view_role::storage) ||
+            !rhi::has_flag(image.declared_flags, sampled ? rhi::image_flag::sampled : rhi::image_flag::storage))
+            return rhi::error::unsupported;
+        bool const cube = image.cube_compatible && image.array_layers == 6 && range.base_layer == 0 && layers == 6;
+        VkImageViewCreateInfo view = make_image_view_info(image.native_handle, image.resolved_format,
+                                                          cube ? VK_IMAGE_VIEW_TYPE_CUBE : layers == 1 ? VK_IMAGE_VIEW_TYPE_2D
+                                                                                                       : VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+                                                          image.declared_format == rhi::image_format::depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
+                                                          mips, layers);
+        view.subresourceRange.baseMipLevel = range.base_mip;
+        view.subresourceRange.baseArrayLayer = range.base_layer;
+        return this->owner->descriptor_heaps.write_image(info.offset, view, VK_IMAGE_LAYOUT_GENERAL, type) ? rhi::error::ok : rhi::error::operation_failed;
     }
 
     rhi::error core::frame_heap::write_buffer(rhi::heap_buffer_write_info const& info) noexcept {
@@ -1023,12 +982,12 @@ namespace deren::vulkan {
     }
 
     rhi::error core::frame_heap::bind(rhi::heap_bind_info const& info) const noexcept {
-        rhi::error result = rhi::validate_structure(info.header, rhi::structure_type::heap_bind, sizeof(info), true);
+        rhi::error result = rhi::validate_structure(info.header, rhi::structure_type::heap_bind, sizeof(info), false);
         if (result != rhi::error::ok)
             return result;
         if (!this->ready())
             return rhi::error::not_ready;
-        VkCommandBuffer const commands = heap_commands(*this->owner, info.commands, info.header.next, result);
+        VkCommandBuffer const commands = heap_commands(*this->owner, info.commands, result);
         if (result != rhi::error::ok)
             return result;
         this->owner->descriptor_heaps.record_bind(commands);
@@ -1036,7 +995,7 @@ namespace deren::vulkan {
     }
 
     rhi::error core::frame_heap::push_data(rhi::heap_push_info const& info) const noexcept {
-        rhi::error result = rhi::validate_structure(info.header, rhi::structure_type::heap_push, sizeof(info), true);
+        rhi::error result = rhi::validate_structure(info.header, rhi::structure_type::heap_push, sizeof(info), false);
         if (result != rhi::error::ok)
             return result;
         if (!this->ready())
@@ -1044,12 +1003,12 @@ namespace deren::vulkan {
         result = rhi::validate_heap_push_range(info.offset, info.data.size(), this->properties().max_push_data);
         if (result != rhi::error::ok)
             return result;
-        VkCommandBuffer const commands = heap_commands(*this->owner, info.commands, info.header.next, result);
+        VkCommandBuffer const commands = heap_commands(*this->owner, info.commands, result);
         if (result != rhi::error::ok)
             return result;
-        // The native escape is responsible for its own state. Portable writes must
-        // preserve the pipeline's backend-owned group token.
-        if (info.commands != nullptr && info.header.next == nullptr) {
+        // THERE IS NO NATIVE PATH IN THE HEAP VERBS ANY MORE (abi 34): every push writes through a contract
+        // command buffer, so the pipeline's backend-owned group token can be protected here for all of them.
+        if (info.commands != nullptr) {
             frame_commands const* recorded = nullptr;
             if (info.commands == &owner->commands_view)
                 recorded = &owner->commands_view;
@@ -4324,26 +4283,14 @@ namespace deren::vulkan {
         return reinterpret_cast<void*>(owned->native_sampler_handle);
     }
 
-    std::uint32_t core::frame_escape::native_image_format(rhi::image const& resource) const noexcept {
-        // THE FRAME IMAGE IS THE ONE BORROWED IMAGE, and it is not an `owned_image` (it is the swapchain's
-        // presentation image, which the core owns; abi 16's borrowed view). Asking for its format must
-        // answer the SWAPCHAIN's format rather than reinterpret the borrowed object as an owned one - the
-        // same pointer-identity test `fill_heap_bindings` and `frame_commands::use` already use for this
-        // object. `owned_image::resolved_format` and the swapchain's format are the same value for it by
-        // construction (the backend created the images from that format).
-        if (static_cast<void const*>(&resource) == static_cast<void const*>(&this->owner->frame_image_view)) {
-            return static_cast<std::uint32_t>(this->owner->swap_chain_image_format);
-        }
-        auto const* const owned = static_cast<owned_image const*>(&resource);
-        return static_cast<std::uint32_t>(owned->resolved_format);
-    }
-
     std::uint32_t core::frame_escape::native_swapchain_image_format() const noexcept {
         // abi 17 (③-D/E step 2): the SESSION-STABLE surface format, answerable before any frame exists -
-        // which is the whole reason it is on the escape rather than on `native_image_format`, whose only
-        // swapchain-image operand (`frame_image()`) is nullptr until an acquire. UNDEFINED before the
-        // swapchain is built; the engine's debug overlay and its presentation-drawing pipelines are
-        // created after construction, so they see the real value.
+        // the pipelines that render INTO the presentation image are created before the first acquire. The
+        // image-based query this could have been asked of was `native_image_format(image const&)`, removed
+        // in abi 34 with the raw heap view path; it could not answer before an acquire anyway (the only
+        // swapchain image a caller can name is the borrowed `frame_image()`, nullptr until then). UNDEFINED
+        // before the swapchain is built; the engine creates its overlay and presentation pipelines after
+        // construction, so they see the real value.
         return static_cast<std::uint32_t>(this->owner->swap_chain_image_format);
     }
 

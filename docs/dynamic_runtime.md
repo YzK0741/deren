@@ -47,7 +47,7 @@ copy of the rule:
 | `rhi::is_concrete(object const&, string_view name)` | false = a handle this backend did not hand out; the caller-facing answer is `error::invalid_argument` (a factory answers `nullptr`) |
 | `rhi::do_concrete<concrete_t>(object const& / object&, name, source_location = current())` | the handle as its concrete adapter type. A mismatch PANICS: by the time this is called the provenance (registry membership, an object-identity comparison) has already been established, so a mismatch is the backend's own bookkeeping being inconsistent - a bug in the code holding the invariant, not a caller condition |
 
-The names are the BACKEND's, not the contract's: the Vulkan backend keeps its 27 constants in
+The names are the BACKEND's, not the contract's: the Vulkan backend keeps its 28 constants in
 `deren::vulkan::concrete` and passes them to both calls, which is what lets a second backend apply the
 same rule with its own names. Moving the two helpers into `:contract` moved no `abi_version` - they are
 inline and template free functions over the existing field (no vtable slot, no by-value POD, no

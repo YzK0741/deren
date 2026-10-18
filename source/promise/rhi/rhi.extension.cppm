@@ -522,21 +522,6 @@ export namespace deren::promise::rhi {
         std::uint32_t max_embedded_samplers = 0;
     };
 
-    /// 原生Vulkan视图的过渡参数，只能用于vulkan_heap_image_info；不冒充通用格式。
-    struct vulkan_heap_image_desc {
-        std::uint32_t struct_size = sizeof(vulkan_heap_image_desc);
-        void* native_image = nullptr;
-        std::uint32_t view_flags = 0;
-        std::uint32_t view_type = 0;
-        std::uint32_t format = 0;
-        deren::utility::vessel::array<std::uint32_t, 4> components = {};
-        std::uint32_t aspect_mask = 0;
-        std::uint32_t base_mip = 0;
-        std::uint32_t mip_count = 1;
-        std::uint32_t base_layer = 0;
-        std::uint32_t layer_count = 1;
-    };
-
     struct heap_binding {
         std::uint64_t address = 0;
         std::uint64_t size = 0;
@@ -549,7 +534,9 @@ export namespace deren::promise::rhi {
         heap_binding sampler;
     };
 
-    // 通用语义与原生参数分开；普通请求不解释Vulkan枚举。
+    // 请求只含可移植语义。THE `next` CHAIN IS REFUSED (abi 34): the native view/command-buffer parameters the
+    // transition carried are DELETED, so a request that still chains a tag is answered `unsupported` instead
+    // of having the chain walked - the portable fields below are the whole request.
     enum class descriptor_type : std::uint32_t {
         sampled_image = 0,
         storage_image = 1,
@@ -666,19 +653,6 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error write(descriptor_write const& info) noexcept = 0;
     };
 
-    /// 过渡的Vulkan参数通过next显式借用；不是通用格式/句柄的别名。
-    struct vulkan_heap_image_info {
-        structure_header header{structure_type::vulkan_heap_image, sizeof(vulkan_heap_image_info), nullptr};
-        vulkan_heap_image_desc view;
-        std::uint32_t layout = 0;
-        api_core const* context = nullptr;
-    };
-    struct vulkan_command_buffer_info {
-        structure_header header{structure_type::vulkan_command_buffer, sizeof(vulkan_command_buffer_info), nullptr};
-        void* commands = nullptr;
-        api_core const* context = nullptr;
-    };
-
     /// THE ATTACHMENT INHERITANCE a SECONDARY command buffer declares (abi 15, the
     /// `vulkan_command_buffer_inheritance` structure type).
     ///
@@ -687,7 +661,8 @@ export namespace deren::promise::rhi {
     /// rendering requires the secondary to declare the attachment formats it will render against
     /// (VUID-vkBeginCommandBuffer-commandBuffer-00050 and its pNext-chain companions), and which
     /// formats a device serves is a property of the API, not of a recording session. It rides the SAME
-    /// tagged mechanism `vulkan_command_buffer_info` / `vulkan_heap_image_info` use - a
+    /// tagged mechanism the two RETIRED native structures used (deleted in abi 34; a secondary's
+    /// attachment formats have no portable spelling, so this is the one native parameter left) - a
     /// `structure_header` first, exactly one layer, borrowed only until the call returns - so the
     /// portable `command_buffer_begin_info` stays free of one API's attachment model.
     ///
@@ -821,13 +796,6 @@ export namespace deren::promise::rhi {
         /// The native `VkSampler` behind a contract `sampler`; same lifetime rule as the two above.
         [[nodiscard]] virtual void* native_sampler(sampler const& resource) const noexcept = 0;
 
-        /// The concrete format behind a contract `image`, as the integer VkFormat spells it - the one
-        /// image FACT a `native_image` consumer still needs while the heap's image descriptors are
-        /// raw `VkImageViewCreateInfo` (the `depth` ROLE resolved to the device's own format inside
-        /// the backend, and only the backend knows which). Same borrowed rule as the three above.
-        /// TRANSITIONAL by the same measure the escape is: the raw heap path is Face D's to remove.
-        [[nodiscard]] virtual std::uint32_t native_image_format(image const& resource) const noexcept = 0;
-
         /// The native `VkPipeline` behind a contract `pipeline` - what a raw `vkCmdBindPipeline` and
         /// the compute/ray-tracing dispatch paths consume. Same borrowed rule as the image handles.
         /// APPENDED IN ABI 8 with the pipeline face.
@@ -843,10 +811,12 @@ export namespace deren::promise::rhi {
         /// WHY IT IS ON THE CONTEXT RATHER THAN ASKED OF AN IMAGE: this is a SESSION-STABLE fact (the
         /// surface's format does not change for a given surface), and the engine needs it BEFORE any
         /// frame exists - the pipelines that render INTO the presentation image are created up front.
-        /// `native_image_format(image const&)` cannot answer then: the only swapchain image a caller can
-        /// name is `api_core::frame_image()`, and that is deliberately nullptr until an acquire has
-        /// happened. VkFormat::VK_FORMAT_UNDEFINED when the backend has no swapchain (nothing has been
-        /// presented into yet, or the context was created without one).
+        /// The image-based format query this could have been asked of was `native_image_format(image
+        /// const&)`, DELETED in abi 34 with the raw heap view path (the format it existed for is a
+        /// portable view now), and it could not answer before an acquire anyway: the only swapchain
+        /// image a caller can name is `api_core::frame_image()`, which is nullptr until then. This
+        /// session-stable accessor is the one format fact left; VK_FORMAT_UNDEFINED when the backend
+        /// has no swapchain (nothing presented yet, or the context was created without one).
         ///
         /// APPENDED IN ABI 17 with the contract-only runtime's merged slice (③-D/E step 2): a virtual on
         /// an existing tier-2 interface, which is the case the abi number exists for.

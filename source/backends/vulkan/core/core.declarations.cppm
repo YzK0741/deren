@@ -926,7 +926,6 @@ namespace deren::vulkan {
             [[nodiscard]] void* native_image(deren::promise::rhi::image const& resource) const noexcept override;
             [[nodiscard]] void* native_image_view(deren::promise::rhi::image_view const& resource) const noexcept override;
             [[nodiscard]] void* native_sampler(deren::promise::rhi::sampler const& resource) const noexcept override;
-            [[nodiscard]] std::uint32_t native_image_format(deren::promise::rhi::image const& resource) const noexcept override;
             [[nodiscard]] void* native_pipeline(deren::promise::rhi::pipeline const& resource) const noexcept override;
             [[nodiscard]] void* native_shader_module(deren::promise::rhi::shader const& resource) const noexcept override;
             /// abi 17 (③-D/E step 2): the swapchain's format as a session-stable fact, asked of the

@@ -265,9 +265,7 @@ namespace {
         [[nodiscard]] void* native_sampler(rhi::sampler const&) const noexcept override {
             return nullptr;
         }
-        [[nodiscard]] std::uint32_t native_image_format(rhi::image const&) const noexcept override {
-            return static_cast<std::uint32_t>(probe_image_format);
-        }
+
         [[nodiscard]] void* native_pipeline(rhi::pipeline const&) const noexcept override {
             return nullptr;
         }

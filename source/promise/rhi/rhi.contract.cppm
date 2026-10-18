@@ -170,7 +170,7 @@ export namespace deren::promise::rhi {
     /// AND ITS FIRST FOLLOW-UP, SAME RULE (2026-10-17): `r32_uint` joins the enum at 0x80000001u for the
     /// visibility buffer the geometry path is gaining - one 32-bit unsigned channel holding a packed
     /// visibility id. No enumerator moved, nothing already crossing the boundary changed shape, and an
-    /// older backend refuses the value (its `native_image_format` switch has no case), so this is not a
+    /// older backend refuses the value (its image-format switch has no case), so this is not a
     /// renumbering either. The `abi_version` number does not move.
     /// 16 -> 17 in the contract-only runtime's merged slice (③-D/E step 2, S2+S3 - the SECOND thing the
     /// abi-17 number was held for, and the reason it is spelled here): `vulkan_escape` APPENDED
@@ -179,10 +179,11 @@ export namespace deren::promise::rhi {
     /// INTO the presentation image (the post chain, FXAA, the upscale resolve) and the debug overlay
     /// BEFORE the first frame is acquired (`main.cpp` calls `runtime.create_passes()` after the runtime
     /// is constructed and before the frame loop), and the surface's format is a session-stable fact
-    /// those builders must be created with. The contract's only format query,
-    /// `vulkan_escape::native_image_format(image const&)`, needs an IMAGE - and the only swapchain image
-    /// the engine can name is `api_core::frame_image()`, which the contract deliberately answers with
-    /// nullptr until an acquire has happened. So the fact had no pre-acquire answer at all, and this is
+    /// those builders must be created with. The contract's only format query at the time,
+    /// `vulkan_escape::native_image_format(image const&)` (REMOVED in abi 34 with the raw heap view path),
+    /// needed an IMAGE - and the only swapchain image the engine can name is `api_core::frame_image()`,
+    /// which the contract deliberately answers with nullptr until an acquire has happened. So the fact
+    /// had no pre-acquire answer at all, and this is
     /// the one escape accessor the slice adds: the swapchain image's format as the backend resolved it,
     /// asked of the context rather than of an image. (The withdrawn entry at this number was
     /// `graphics_queue_family_index()`; that one was replaced by a read-only runtime derivation and is
@@ -309,13 +310,22 @@ export namespace deren::promise::rhi {
     // value moves nothing" rule the error enumeration and the earlier structure tags follow. The
     // texture-group object and every existing verb keep their slots: the ability is the servable face of
     // detail the backend already owns (its descriptor heap + group table), not a re-shape of it.
+    // ABI 34 retires the LAST native-vocabulary transition. `vulkan_escape::native_image_format()` is DELETED:
+    // it answered the resolved VkFormat of an image, no caller asked for it, and the raw heap view path it
+    // existed for is portable now. Removing a virtual from an existing tier-2 interface shifts every slot
+    // after it - the case `abi_version` exists for, so the number moves even though no by-value POD changed.
+    // The three transition structures `vulkan_heap_image_desc` / `vulkan_heap_image_info` /
+    // `vulkan_command_buffer_info` are DELETED with it (no caller ever set their `next` chain); their
+    // `structure_type` values are RETIRED and never reused, and a heap request that still chains one is
+    // refused with `unsupported` instead of being walked. The heap image write is now described ONLY by the
+    // portable `image_view_desc` (role/layers/mips/format derived from the contract image).
     // NOT A BUMP (the validate-and-cast helpers): `is_concrete()` / `do_concrete()` below are inline and
     // template FREE functions over the existing `object::type` field - no vtable slot, no by-value POD,
     // no entry-point signature moved, and the NAMES stay the backend's (the contract owns only the
     // operation). They live here because EVERY backend needs the same "check the concrete name, then
     // cast to the concrete layout" pair, and one copy is what keeps the next backend from reinventing
     // it (or from weakening the panic/refusal split its own doc states).
-    inline constexpr std::uint32_t abi_version = 33u;
+    inline constexpr std::uint32_t abi_version = 34u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
@@ -537,7 +547,10 @@ export namespace deren::promise::rhi {
         /// `descriptor_position` (see `descriptor_write`). A value, not a vtable, so appending it moves
         /// no `abi_version` - the same rule the `vulkan_*` tags below follow.
         descriptor_write = 6,
+        /// RETIRED in abi 34: the heap image write carries no native view any more. The VALUE stays (a tag,
+        /// like an ability bit, is never reused) and the request validation refuses it.
         vulkan_heap_image = 0x10000,
+        /// RETIRED in abi 34: a recording verb takes a contract command_buffer, never a raw VkCommandBuffer.
         vulkan_command_buffer = 0x10001,
         /// appended in abi 15: the attachment inheritance a SECONDARY recording declares (see
         /// `vulkan_command_buffer_inheritance_info`) - a value, not a vtable, so appending it does not
@@ -549,7 +562,9 @@ export namespace deren::promise::rhi {
         vulkan_device_basis = 0x10003,
     };
 
-    /// next只借用到同步调用结束；当前只接受明确支持的一层后端参数，不静默丢链。
+    /// next 只借用到同步调用结束。ABI 34 之后没有"未解释就静默丢链"的请求：除
+    /// `vulkan_command_buffer_inheritance`（secondary recording 的附件格式，没有可移植拼写）以外，
+    /// 带 `next` 的请求一律被拒绝（validate_structure(..., allow_next=false) 回答 unsupported）。
     struct structure_header {
         structure_type s_type = structure_type::unknown;
         std::uint32_t struct_size = sizeof(structure_header);

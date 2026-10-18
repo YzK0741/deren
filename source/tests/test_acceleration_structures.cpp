@@ -579,7 +579,9 @@ int main(int const argc, char** const argv) {
         check_geometry_lease(leaf.vertex_buffer);
     }
     deren::vk_test::write_line("as_probe: this executable compiled abi {}", rhi::abi_version);
-    CHECK(rhi::abi_version == 33u);
+    // ABI34: the native-vocabulary cleanup removed a virtual from vulkan_escape (vtable shift), so the
+    // handshake number moved with it.
+    CHECK(rhi::abi_version == 34u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("as_probe: device path skipped (pass --with-device to run the real instrument)");
