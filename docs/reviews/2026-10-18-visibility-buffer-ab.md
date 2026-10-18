@@ -532,3 +532,14 @@ and the tests move together:
   is the A/B that proves the cut-outs), and the review table extended.
 
 No code this step: the offsets and the order are the deliverable, so the next step is mechanical.
+
+## Item 2, step 2 landed: the push block carries the material index (round 18)
+
+Per the round-17 spec: `visibility::push_block` is now 112 bytes - model 0, item_index 64, frame_slot 68,
+material_index 72, explicit pad 76, geometry 80 - with the static_asserts, the mirror test's constants and the
+Slang `VisibilityPush` all moved together (the test caught the one hard-coded geometry offset in the mirror
+test, which is exactly the failure order the spec asked for). `record_visibility_items` fills the new scalar
+from the leaf's material index, and the mesh stage passes it to the fragment as a flat `nointerpolation uint`
+beside the UV from the previous step. The alpha test itself is NOT in yet - the fragment carries the input and
+ignores it - so the frame is unchanged: ON `deferred` = `7EF9249001EB6035` as required, CTest 49/49, and the
+frozen OFF path is untouched (no OFF code changed; the visibility shaders are only used by the ON lane).

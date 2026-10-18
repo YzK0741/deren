@@ -52,6 +52,8 @@ struct VisibilityPush
     VR_MAT4 model;            // the draw item's model matrix (static draws only in v0)
     uint item_index;          // the per-frame draw item this dispatch belongs to (10 bits in the id)
     uint frame_slot;          // which per-frame lane the camera reads through
+    uint material_index;      // the material record (alpha test source); the explicit pad keeps geometry aligned
+    uint pad;
     MeshGeometryLanes geometry; // where this item's vertices/indexes are, and which window the dispatch covers
 };
 [[vk::push_constant]] ConstantBuffer<VisibilityPush> push;
@@ -77,7 +79,8 @@ struct VisibilityVertexOutput
 {
     float4 position : SV_Position;
     nointerpolation uint vis_id : TEXCOORD0;
-    float2 uv : TEXCOORD1; // INTERPOLATED FOR THE ALPHA TEST, item 2: the raster fragment needs the material UV to
+    float2 uv : TEXCOORD1; // the alpha test's UV (item 2)
+    nointerpolation uint material_index : TEXCOORD2; // the alpha test's material (item 2) // INTERPOLATED FOR THE ALPHA TEST, item 2: the raster fragment needs the material UV to
                            // decide an alphaMode MASK cut-out BEFORE the depth write (see the plan review).
                            // Carried now that the decision is priced: the mesh raster measures 0.01 ms.
 };
@@ -133,6 +136,7 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
             o.position = mul(mul(float4(v.position, 1.0), push.model), view_proj);
             o.vis_id = vis_id;
             o.uv = v.uv;
+            o.material_index = push.material_index;
             verts[t * mesh_indices_per_triangle + corner] = o;
         }
         tris[t] = uint3(t * mesh_indices_per_triangle + 0u, t * mesh_indices_per_triangle + 1u, t * mesh_indices_per_triangle + 2u);
@@ -140,7 +144,8 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
 }
 
 [shader("fragment")]
-void main([[vk::location(0)]] nointerpolation uint vis_id : TEXCOORD0, [[vk::location(1)]] float2 uv : TEXCOORD1, out uint target : SV_Target0)
+void main([[vk::location(0)]] nointerpolation uint vis_id : TEXCOORD0, [[vk::location(1)]] float2 uv : TEXCOORD1,
+          [[vk::location(2)]] nointerpolation uint material_index : TEXCOORD2, out uint target : SV_Target0)
 {
     // ONE STORE, and it is the whole fragment stage: depth was decided by the rasterizer, and the resolve pass
     // turns this word back into the triangle it names.

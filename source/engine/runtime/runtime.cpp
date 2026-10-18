@@ -1653,6 +1653,7 @@ namespace deren::engine {
             std::memcpy(block.model.data(), &leaf->push.model, sizeof(block.model));
             block.item_index = item;
             block.frame_slot = frame_slot;
+            block.material_index = leaf->push.material_index.value; // the raster fragment's alpha test source (item 2)
             block.geometry.vertex_address_low = static_cast<std::uint32_t>(vertex_address & 0xFFFFFFFFu);
             block.geometry.vertex_address_high = static_cast<std::uint32_t>(vertex_address >> 32u);
             block.geometry.index_address_low = static_cast<std::uint32_t>(index_address & 0xFFFFFFFFu);

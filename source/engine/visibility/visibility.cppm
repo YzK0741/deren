@@ -170,11 +170,17 @@ export namespace deren::engine::visibility {
     //    THE SHADER MIRRORS THIS BY HAND and `test_visibility_buffer` parses the shader's struct to pin the
     //    order - a drift here is a silently drawn-with-the-wrong-matrix frame, not a compile error.
     // =============================================================================================
-    inline constexpr std::uint32_t push_block_bytes = 104u;
-    inline constexpr std::uint32_t push_block_model_bytes = 16u * sizeof(float);              // 64
-    inline constexpr std::uint32_t push_block_item_offset = push_block_model_bytes;           // 64
-    inline constexpr std::uint32_t push_block_frame_offset = push_block_item_offset + 4u;     // 68
-    inline constexpr std::uint32_t push_block_geometry_offset = push_block_frame_offset + 4u; // 72
+    inline constexpr std::uint32_t push_block_bytes = 112u;
+    inline constexpr std::uint32_t push_block_model_bytes = 16u * sizeof(float);          // 64
+    inline constexpr std::uint32_t push_block_item_offset = push_block_model_bytes;       // 64
+    inline constexpr std::uint32_t push_block_frame_offset = push_block_item_offset + 4u; // 68
+    /// the item's material index, for the raster fragment's alphaMode MASK test (item 2): the albedo texture and
+    /// the cutoff live in the material table, and the test must run in the RASTER fragment so a cut-out pixel
+    /// lets the surface behind win the depth test - which the compute resolve cannot do.
+    inline constexpr std::uint32_t push_block_material_offset = push_block_frame_offset + 4u; // 72
+    /// EXPLICIT, not compiler-inserted: `geometry_lanes` starts with a `uint2`, so the 8-byte alignment gap would
+    /// otherwise be silent and the Slang mirror would disagree with the host.
+    inline constexpr std::uint32_t push_block_geometry_offset = push_block_material_offset + 8u; // 80
     static_assert(push_block_geometry_offset + 8u * sizeof(std::uint32_t) == push_block_bytes);
 
     /// the eight vertex/index lanes the mesh stage fetches through (the shape primitive's `mesh_geometry_lanes`
@@ -195,12 +201,16 @@ export namespace deren::engine::visibility {
         std::array<float, 16> model = {}; ///< the item's model matrix, row-major (the push block's first member)
         std::uint32_t item_index = 0;     ///< which per-frame draw item this dispatch belongs to
         std::uint32_t frame_slot = 0;     ///< the per-frame lane the stage reads the camera through
+        std::uint32_t material_index = 0; ///< the material record (alpha test source); see push_block_material_offset
+        std::uint32_t pad = 0;            ///< keeps `geometry` 8-byte aligned; mirrored explicitly in the shader
         geometry_lanes geometry = {};     ///< where the item's vertices/indexes are, and its meshlet run
     };
     static_assert(sizeof(push_block) == push_block_bytes);
     static_assert(offsetof(push_block, model) == 0u);
     static_assert(offsetof(push_block, item_index) == push_block_item_offset);
     static_assert(offsetof(push_block, frame_slot) == push_block_frame_offset);
+    static_assert(offsetof(push_block, material_index) == push_block_material_offset);
+    static_assert(offsetof(push_block, pad) == push_block_material_offset + 4u);
     static_assert(offsetof(push_block, geometry) == push_block_geometry_offset);
 
     /**

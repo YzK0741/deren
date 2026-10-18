@@ -83,12 +83,12 @@ namespace {
 
 namespace {
     void test_push_block_layout() {
-        static_assert(push_block_bytes == 104u);
+        static_assert(push_block_bytes == 112u);
         static_assert(sizeof(push_block) == push_block_bytes);
         static_assert(offsetof(push_block, model) == 0u);
         static_assert(offsetof(push_block, item_index) == 64u);
         static_assert(offsetof(push_block, frame_slot) == 68u);
-        static_assert(offsetof(push_block, geometry) == 72u);
+        static_assert(offsetof(push_block, geometry) == 80u);
         static_assert(sizeof(geometry_lanes) == 32u);
         static_assert(offsetof(geometry_lanes, first_index) == 16u);
         push_block const defaults{};
