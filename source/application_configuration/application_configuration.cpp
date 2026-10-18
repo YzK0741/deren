@@ -265,6 +265,13 @@ namespace deren::app_config {
                     settings.render.gbuffer_debug = *value;
                 }
             }
+            // THE VISIBILITY BUFFER'S SWITCH ([render] visibility_buffer): the opaque path's all-or-nothing frame
+            // gate - see render_settings::visibility_buffer for what "off" and "cannot be carried" both mean.
+            if (toml::node const* node = render->get("visibility_buffer")) {
+                if (std::optional<bool> const value = node->value<bool>()) {
+                    settings.render.visibility_buffer = *value;
+                }
+            }
             if (toml::node const* node = render->get("character_forward")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
                     settings.render.character_forward = *value;

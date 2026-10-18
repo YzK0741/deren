@@ -67,9 +67,10 @@ export namespace deren::engine::render_graph::visibility {
     }
 
     // ---- THE RESOLVE LANE (visibility-buffer v0.4) -------------------------------------------------
-    /// the reads the VISIBILITY RESOLVE makes: the two textures it samples (the id and the capture depth), the five
-    /// G-buffer targets it writes, and the six scene/visibility tables a pixel's id is turned back into a surface
-    /// through.
+    /// the reads the VISIBILITY RESOLVE makes: the two textures it samples (the id and the FRAME'S G-BUFFER
+    /// DEPTH, which the raster lane wrote - v0.5 made that lane the opaque producer, so its depth output is the
+    /// depth the lighting stage also samples), the five G-buffer targets it writes, and the six scene/visibility
+    /// tables a pixel's id is turned back into a surface through.
     struct resolve_shared_inputs {
         buffer_ref camera;              ///< the same per-frame camera block the raster projected with
         buffer_ref materials;           ///< the material table the shared decode reads
@@ -123,8 +124,9 @@ export namespace deren::engine::render_graph::visibility {
             for (std::size_t j = 0; j < i; ++j)
                 if (outputs[i] == outputs[j])
                     return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "visibility resolve", .resource_name = "G-buffer alias"});
-        // the inputs and the outputs are different images by construction (the capture pair is not a G-buffer
-        // family), so a shared handle would be a wiring mistake rather than a legal read-write pair.
+        // the inputs and the outputs are different images by construction (the id is not a G-buffer family, and the
+        // depth is READ but never written by this pass), so a shared handle would be a wiring mistake rather than a
+        // legal read-write pair.
         for (texture_ref const input : {in.vis_id, in.depth})
             for (texture_ref const output : outputs)
                 if (input == output)

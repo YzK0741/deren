@@ -982,8 +982,8 @@ namespace deren::engine {
         deren::utility::vessel::array<pass::frame_pass*, 1> visibility_pass = {};
         pass::visibility_raster_pass* visibility_raster = nullptr;
         /// the visibility buffer's RESOLVE pass (visibility-buffer v0.4c): the compute stage that consumes the id and
-        /// capture depth the raster pass wrote and reconstructs the five G-buffer targets. Bound by declaration name
-        /// like the raster pass; null when the chain has none.
+        /// the FRAME'S G-BUFFER DEPTH the raster pass wrote (v0.5) and reconstructs the five G-buffer targets. Bound
+        /// by declaration name like the raster pass; null when the chain has none.
         deren::utility::vessel::array<pass::frame_pass*, 1> visibility_resolve_stage = {};
         pass::visibility_resolve_pass* visibility_resolve = nullptr;
         /// THE TRANSPARENT PASS (deren.engine.pass.transparent): the same scene, its own LOAD instance, after lighting
@@ -1340,7 +1340,11 @@ namespace deren::engine {
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> velocity_image_views = {};
         /// the visibility buffer (V0.1b): per swapchain image, the id the raster wrote and the resolve samples
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> visibility_images = {};
-        /// the capture-only step's OWN depth image: two depth writers on one frame were order-dependent (measured)
+        /// THE CAPTURE-STEP DEPTH, RETIRED FROM THE FRAME IN v0.5: the raster lane writes the frame's SHARED G-buffer
+        /// depth now (it is the opaque producer, so the depth it clears/writes is the one the lighting stage samples),
+        /// and nothing imports this family any more. It stays allocated because retiring a managed family renumbers
+        /// every id after it (see render_resource.cppm's schema order); the removal is scheduled with the v1 software
+        /// raster, which will want a private depth for its own A/B.
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> visibility_depth_images = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> visibility_image_views = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> visibility_depth_image_views = {};
@@ -2016,26 +2020,44 @@ namespace deren::engine {
          * THE VISIBILITY ITEM TABLE (visibility-buffer v0.2b, `deren.engine.visibility::draw_item`): a per-frame
          * lane of id_item_capacity 112-byte records, host-visible because the recording path writes it while it
          * builds the main view's draws and heap-bound because the resolve compute pass is its only reader.
-         * Empty until the raster lane exists (V0.3), which is why this slice changes no picture.
          */
         static constexpr uint32_t visibility_item_capacity = deren::engine::visibility::id_item_capacity;
         render_resource::instances::borrowed<rhi::buffer> visibility_items_buffer = {};
         void* visibility_items_mapped = nullptr;
         static bool visibility_items_write(void* owner, uint32_t base, std::span<std::byte const> records);
         /// the last command run of a frame's mesh table: the RUN THE VISIBILITY RASTER WRITES (the first two are
-        /// the scene's culled/unculled classes and the shadow pass reuses them, so the capture lane must not)
+        /// the scene's culled/unculled classes and the shadow pass reuses them, so the visibility lane must not)
         static constexpr uint32_t visibility_command_run = 2u * deren::engine::meshlet_capacity;
         /**
-         * @brief whether THIS frame can be captured into the visibility buffer
-         *
-         * v0's admission rule, and every clause is a way the per-item resolve data would be WRONG: only leaves
-         * with default pipeline semantics (a custom pipeline is a different stage), no instanced draw (its model
-         * comes from the instance table per workgroup), no skinning and no morph (the per-item record carries one
-         * model matrix and one vertex fetch), geometry with a meshlet run and device addresses. A frame with any
-         * other leaf is not captured AT ALL - a partially captured frame would be a wrong picture later, and
-         * the capture step must never produce one.
+         * THE SWITCH ([render] visibility_buffer, v0.5) and the FRAME's frozen verdicts beside it. The verdicts are
+         * computed ONCE per frame, in `record_main_drawcalls`, before the first recording decision that depends on
+         * them - the same freeze `main_graph_frame`/`graph_cluster_frame` already do - so the record step and the
+         * fallback log cannot disagree about this frame.
          */
-        [[nodiscard]] bool visibility_item_candidate() const noexcept;
+        bool visibility_buffer_on = false;
+        /// why this frame was or was not admitted (the record step's lane decision, and the log's vocabulary)
+        deren::engine::visibility::admission visibility_admission_frame = deren::engine::visibility::admission::disabled;
+        /// the opaque lane this frame records through - `choose_opaque_lane(switch, admission)`'s answer
+        deren::engine::visibility::opaque_lane visibility_lane_frame = deren::engine::visibility::opaque_lane::geometry;
+        /// one line per session for the first frame the switch was on but the path was not taken
+        bool visibility_fallback_logged = false;
+        /**
+         * @brief this frame's admission verdict for the visibility path (v0.5)
+         *
+         * The switch, the pipelines, whether the frame has a graph-recordable scene, and the per-leaf clauses of
+         * `deren::engine::visibility::admit_leaf` folded into ONE value. Every clause is a way the per-item resolve
+         * data would be WRONG: only leaves with default pipeline semantics (a custom pipeline is a different
+         * stage), no instanced draw (its model comes from the instance table per workgroup), no skinning and no
+         * morph (the per-item record carries one model matrix and one vertex fetch), geometry with a meshlet run
+         * and device addresses, and within the item/meshlet fields the packed id holds. A frame with any other
+         * leaf is not captured AT ALL - a partially captured frame would be a picture with two G-buffer authors,
+         * and the frame fallback must never produce one.
+         * @param graph_frame whether this frame records the composed graph at all (the lane to replace exists)
+         */
+        [[nodiscard]] deren::engine::visibility::admission visibility_frame_admission(bool graph_frame) const noexcept;
+        /// @brief the material record's flag word for a leaf (0 when the index is outside the host material table,
+        ///        or the table is not mapped yet - the admission then refuses the frame by `material_index_valid`)
+        [[nodiscard]] std::uint32_t material_flags_of(primitive const& leaf) const noexcept;
         /// @brief build the visibility raster pass's frame: the item recorder + extent (rebuild per frame)
         pass::visibility_frame make_visibility_frame() noexcept;
         /// the recorder: push each admitted item's own block, write its table row and issue its dispatch
@@ -3247,6 +3269,23 @@ namespace deren::engine {
          *       flag can be flipped at any time and the next frame's traced shadows follow.
          */
         void set_rt_skin_bake(bool enabled) noexcept;
+
+        /**
+         * @ingroup runtime
+         * @brief THE VISIBILITY BUFFER'S SWITCH ([render] visibility_buffer): record the opaque path through the
+         *        GPU-driven id raster + compute resolve instead of the fragment G-buffer pass
+         * @param enabled true = every ADMITTED frame records the visibility lanes and skips the geometry lane;
+         *        false = the geometry lane records exactly what it always did (the byte-identical default)
+         * @note ALL-OR-NOTHING PER FRAME: a frame one admission clause cannot carry records the geometry lane for
+         *       every leaf and says why ONCE (see deren::engine::visibility::admission). Two G-buffer authors in
+         *       one frame is the failure mode this gate exists to make impossible.
+         * @note startup-order safe: called after create_passes() (the gate also asks whether the two pipelines
+         *       exist), and read per frame, so a later flip takes effect on the next frame
+         */
+        void set_visibility_buffer(bool enabled) noexcept;
+
+        /** @brief whether the visibility path's two passes exist AND both built their pipelines this session */
+        [[nodiscard]] bool visibility_available() const noexcept;
 
         /**
          * @ingroup runtime

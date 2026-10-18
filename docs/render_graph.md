@@ -578,3 +578,34 @@ checked deferred record_content records only LOAD/draw commands. Recording or
 preparation failure blocks submission; no second path is replayed after partial
 graph recording. See the [lighting acceptance record](reviews/2026-10-16-render-graph-lighting.md)
 and [geometry acceptance record](reviews/2026-10-16-render-graph-geometry.md).
+
+## The visibility buffer's lanes (v0.5)
+
+The renderer can record the OPAQUE half of the main view through the visibility buffer instead of the
+fragment G-buffer pass (`[render] visibility_buffer`). Two lanes replace the geometry lane on an admitted
+frame, and the switch is all-or-nothing per frame:
+
+- `scene visibility raster` - a mesh-task lane over two attachments: the R32_UINT visibility buffer and the
+  frame's SHARED G-buffer depth. The mesh stage culls per meshlet (the same conservative test the pbr meshlet
+  entry uses), the fragment stage writes one packed triangle id per pixel. The lane replaces the geometry
+  lane's duty to write depth and the ids; it is also the only depth writer on such a frame.
+- `visibility resolve` - a compute lane that reads the id and the depth, fetches the triangle's three vertices
+  through the per-frame draw-item table and the meshlet table, reconstructs the screen barycentrics and the
+  world-space attributes, and writes the five G-buffer/HDR targets as STORAGE images through the same shared
+  material decode the fragment path uses. The deferred lighting, TAA and post lanes read the result exactly
+  as they read the fragment G-buffer's.
+
+The runtime decides which lane a frame records through ONCE per frame
+(`deren::engine::visibility::choose_opaque_lane(switch, admission)`), and the answer is one of two: the
+visibility lanes, or the old geometry lane for every leaf. A frame the path cannot carry - a custom
+pipeline, an instanced/skinned/morphed draw, an alphaMode MASK material (a resolve cannot discard a pixel
+whose depth is already written), an out-of-range item, or a missing pipeline - falls back for the WHOLE
+frame and says why once. The two lanes are never recorded beside the geometry lane: a frame with two
+G-buffer authors is a picture that is wrong in a way no single pass can explain.
+
+The graph orders the pair by their declared accesses (the raster's attachment writes, the resolve's sampled
+reads of exactly those two images and its storage writes of the five targets); a compute write to a target
+the next lane samples is the same hazard the bloom chain already exercises. The resolve's depth input is
+READ but never written, which is why the depth target is not one of its outputs. The fixed heap slots for
+the two images and the five storage twins are in [the resource inventory](render_resource_inventory.md) and
+`docs/managed_resources.md`.

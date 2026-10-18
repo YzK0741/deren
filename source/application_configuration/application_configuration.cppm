@@ -267,6 +267,21 @@ namespace deren::app_config {
         bool taa = false;
         float taa_blend_static = 0.9f; // history weight for a pixel that did not move
         float taa_blend_min = 0.5f;    // history weight floor under motion (lower = less ghosting)
+        /**
+         * THE VISIBILITY BUFFER ([render] visibility_buffer): the GPU-driven opaque path. A mesh-task raster
+         * writes one packed triangle id per pixel and the frame's shared depth; a compute resolve turns the ids
+         * back into the five G-buffer targets, and the deferred lighting stage then reads them exactly as it reads
+         * the fragment G-buffer's (see docs/superpowers/plans/2026-10-17-visibility-buffer.md, v0.5).
+         *
+         * OFF BY DEFAULT, and off is the historic frame: the old geometry lane records what it always did,
+         * byte for byte - the capture gate's frozen references are the acceptance of that default.
+         *
+         * THE SWITCH IS ALL-OR-NOTHING PER FRAME, like every other "can this frame be carried" gate in this
+         * renderer: a frame one clause cannot carry (a custom pipeline, an instanced draw, a skinned or morphed
+         * draw, an item-table overflow, a missing pipeline) records the OLD lane for the whole frame and says why
+         * ONCE. A partially captured frame would be a G-buffer with two authors, which is worse than either path.
+         */
+        bool visibility_buffer = false;
         // The TOON CHARACTER STAGE ([render] character_forward): a pass that re-shades the scene's OPAQUE
         // leaves OVER the lit frame, at depth-EQUAL, so a character can have its own hand-authored shading
         // instead of the deferred one - and without being lit twice, which is what happens if a finished

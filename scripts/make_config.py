@@ -183,6 +183,7 @@ def write_toml(path: str, cfg: dict) -> None:
         f"taa = {str(cfg['taa']).lower()}",
         f"taa_blend_static = {cfg['taa_blend_static']}",
         f"taa_blend_min = {cfg['taa_blend_min']}",
+        f"visibility_buffer = {str(cfg['visibility_buffer']).lower()}",
         f"fxaa = {str(cfg['fxaa']).lower()}",
         f"render_scale = {cfg['render_scale']}",
         f"upscale = \"{cfg['upscale']}\"",
@@ -307,6 +308,11 @@ def ask_all(output_dir: str) -> dict:
     )
     taa_blend_static = ask_float("render.taa_blend_static", 0.9, 0.0, 1.0, hint="history weight for a still pixel")
     taa_blend_min = ask_float("render.taa_blend_min", 0.5, 0.0, 1.0, hint="history weight floor under motion")
+    visibility_buffer = ask_bool(
+        "render.visibility_buffer",
+        False,
+        hint="GPU-driven opaque path (mesh-task id raster + compute resolve); a frame it cannot carry falls back whole",
+    )
     fxaa = ask_bool("render.fxaa", False, hint="final anti-aliasing pass; costs nothing when off")
     render_scale = ask_float(
         "render.render_scale", 1.0, 0.1, 1.0, hint="fraction of the window the render chain runs at (1.0 = no scaling)"
@@ -444,6 +450,7 @@ def ask_all(output_dir: str) -> dict:
         "taa": taa,
         "taa_blend_static": taa_blend_static,
         "taa_blend_min": taa_blend_min,
+        "visibility_buffer": visibility_buffer,
         "fxaa": fxaa,
         "render_scale": render_scale,
         "upscale": upscale,

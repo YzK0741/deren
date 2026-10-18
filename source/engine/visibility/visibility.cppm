@@ -11,10 +11,11 @@
  * both of which the GLSL side will mirror by hand (the shader cannot include a C++ enum, exactly as the heap
  * slot grid and the material lanes are mirrored).
  *
- * IT DOES NOT OWN THE BUFFER, AND IT DOES NOT DECIDE WHICH FRAME IS ELIGIBLE. What it states is the FORMAT:
- * the id a geometry raster writes, the record the host fills while it culls and builds the draws, and the
- * bounds each of them has. The render graph owns the image, the runtime owns the per-frame item table and
- * decides whether the frame can use the path at all.
+ * IT DOES NOT OWN THE BUFFER, AND IT DOES NOT SEE A DEVICE. What it states is the FORMAT (the id a geometry
+ * raster writes, the record the host fills while it culls and builds the draws, the bounds each of them has) and,
+ * from v0.5, THE FRAME'S ADMISSION RULE AND WHICH OPAQUE LANE A FRAME RECORDS THROUGH (section 5) - pure data and
+ * pure functions, so the rule that must never produce a partly-captured frame is testable without a GPU. The render
+ * graph owns the image, the runtime owns the per-frame item table and the facts the rule reads.
  *
  * THE PACKING IS v0's, NOT THE FINAL ONE. The lightweight-Nanite roadmap replaces the item/meshlet half with
  * cluster groups and a hierarchy; that change belongs WITH the hierarchy, not before it, so this layout stays
@@ -29,6 +30,7 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string_view>
 #include <type_traits>
 
 export module deren.engine.visibility;
@@ -374,6 +376,135 @@ export namespace deren::engine::visibility {
     [[nodiscard]] constexpr std::array<float, 3> interpolate3(barycentrics const& weights, std::array<float, 3> const& a, std::array<float, 3> const& b, std::array<float, 3> const& c) noexcept {
         return {weights.a * a[0] + weights.b * b[0] + weights.c * c[0], weights.a * a[1] + weights.b * b[1] + weights.c * c[1],
                 weights.a * a[2] + weights.b * b[2] + weights.c * c[2]};
+    }
+
+    // =============================================================================================
+    // 5. THE FRAME'S ADMISSION AND THE OPAQUE LANE IT RECORDS THROUGH (visibility-buffer v0.5)
+    //
+    //    The switch ([render] visibility_buffer) is not the whole answer: the path carries a SUBSET of what the
+    //    geometry lane can draw, and a frame outside the subset must record the OLD lane for every leaf. The
+    //    rule is written here, as pure data and two functions, because getting it wrong is not a compile error
+    //    or a crash - it is a G-buffer with TWO authors (the visibility ids for the admitted leaves, the fragment
+    //    pass for the rest), which is a picture that is wrong in a way no single pass can explain. The runtime's
+    //    frame loop owns the FACTS (it is the one holding the primitives); this module owns the DECISION, and the
+    //    headless tests pin every clause of it.
+    //
+    //    THE REASON IS PART OF THE CONTRACT, not a debugging nicety: the fallback log line names it ONCE, and
+    //    `test_visibility_buffer` pins the mapping, because "why is the new path not on?" has to be answerable
+    //    from a session log alone.
+    // =============================================================================================
+    enum class admission : std::uint8_t {
+        admitted = 0,
+        disabled,         ///< [render] visibility_buffer is off: the old lane is the frame
+        no_pipeline,      ///< the raster and/or the resolve pass has no pipeline this session
+        no_scene,         ///< this frame has no graph-recordable scene (there is no G-buffer lane to replace)
+        no_draws,         ///< no visible opaque leaves: the old lane's clear is the whole frame
+        custom_pipeline,  ///< a leaf names its own pipeline (a different stage this path does not know)
+        instanced,        ///< an instanced draw: its world matrix comes from the instance table per workgroup
+        deforming,        ///< a skinned or morphed draw: one model matrix and one vertex fetch per item
+        missing_geometry, ///< a leaf without its vertex or index buffer
+        no_meshlet_run,   ///< a leaf with no meshlets to dispatch
+        masked_material,  ///< an alphaMode MASK material: a resolve cannot cut a pixel whose depth is already written
+        missing_material, ///< a leaf whose material index is outside the host table (a registration failure)
+        meshlet_overflow, ///< one item's meshlet count past the packed id's 14-bit field
+        item_overflow,    ///< more visible items than the packed id's 10-bit field (or the pass's table) can hold
+    };
+
+    /// @brief whether an admission verdict lets the frame record the visibility path
+    [[nodiscard]] constexpr bool admitted(admission const value) noexcept {
+        return value == admission::admitted;
+    }
+
+    /// @brief the one log line's vocabulary: why the frame did NOT take the path (or that it did)
+    [[nodiscard]] constexpr std::string_view describe(admission const value) noexcept {
+        switch (value) {
+        case admission::admitted:
+            return "admitted";
+        case admission::disabled:
+            return "the [render] visibility_buffer switch is off";
+        case admission::no_pipeline:
+            return "the visibility raster or resolve pipeline was not created";
+        case admission::no_scene:
+            return "this frame has no graph-recordable scene";
+        case admission::no_draws:
+            return "no visible opaque leaves";
+        case admission::custom_pipeline:
+            return "a leaf names its own pipeline";
+        case admission::instanced:
+            return "a leaf is an instanced draw";
+        case admission::deforming:
+            return "a leaf is skinned or morphed";
+        case admission::missing_geometry:
+            return "a leaf has no vertex or index buffer";
+        case admission::no_meshlet_run:
+            return "a leaf has no meshlet run";
+        case admission::masked_material:
+            return "a leaf's material is alphaMode MASK (the resolve cannot cut a written pixel)";
+        case admission::missing_material:
+            return "a leaf's material index is outside the host material table";
+        case admission::meshlet_overflow:
+            return "an item has more meshlets than the packed id holds";
+        case admission::item_overflow:
+            return "more visible items than the id and the item table hold";
+        }
+        return "unrecognised admission verdict";
+    }
+
+    /**
+     * @brief the per-LEAF clauses, as facts the runtime reads off one primitive
+     * @note `item_index` is the row the leaf would take in the per-frame table: the id's item field and the
+     *       table's capacity are the same number, which is why the overflow is checked here rather than twice
+     * @note THE MATERIAL'S MASK FLAG IS AN ADMISSION CLAUSE, not a shading detail: a rasterized fragment's depth is
+     *       already written, so the resolve cannot `discard` a masked fragment the way the fragment G-buffer pass
+     *       does - the pixel would be shaded as a surface the old path would have cut out. v0 therefore refuses the
+     *       FRAME (the plan's "whole frame or nothing"). The DOUBLE-SIDED flag is deliberately NOT a clause: the
+     *       raster lane culls per item exactly as the fragment path does (see runtime::record_visibility_items), so
+     *       a two-sided material is carried.
+     */
+    struct leaf_admission_facts {
+        bool default_pipeline = true;     ///< no custom pipeline name
+        bool instanced = false;           ///< `push.flags & 1`: the world matrix comes from the instance table
+        bool deforming = false;           ///< `push.skin_base != 0` or `push.morph_targets != 0`
+        bool has_vertex_buffer = true;    ///< the item record carries its device address
+        bool has_index_buffer = true;     ///< the item record carries its device address
+        bool has_meshlets = true;         ///< `meshlet_count != 0`: there is a run to dispatch
+        bool material_index_valid = true; ///< the index is inside the host material table
+        std::uint32_t material_flags = 0; ///< the material record's flag word (bit 4 = alphaMode MASK)
+        std::uint32_t meshlet_count = 1;  ///< the run's size: the dispatch's groups, and the id's 14-bit field
+        std::uint32_t item_index = 0;     ///< the row this leaf takes in the frame's item table
+    };
+
+    /// @brief CLASSIFY ONE LEAF against the path's clauses, first refusal wins
+    [[nodiscard]] constexpr admission admit_leaf(leaf_admission_facts const& facts) noexcept {
+        if (!facts.default_pipeline)
+            return admission::custom_pipeline;
+        if (facts.instanced)
+            return admission::instanced;
+        if (facts.deforming)
+            return admission::deforming;
+        if (!facts.has_vertex_buffer || !facts.has_index_buffer)
+            return admission::missing_geometry;
+        if (!facts.has_meshlets)
+            return admission::no_meshlet_run;
+        if (!facts.material_index_valid)
+            return admission::missing_material;
+        if ((facts.material_flags & 16u) != 0u)
+            return admission::masked_material;
+        if (facts.meshlet_count > id_meshlet_capacity)
+            return admission::meshlet_overflow;
+        if (facts.item_index >= id_item_capacity)
+            return admission::item_overflow;
+        return admission::admitted;
+    }
+
+    /// WHICH opaque lane a frame records through. The whole point of folding both inputs into one function is
+    /// that "off" and "cannot be carried" must have the SAME answer: the old geometry lane, recorded for every
+    /// leaf. There is no third lane and no partial frame.
+    enum class opaque_lane : std::uint8_t { geometry = 0,
+                                            visibility = 1 };
+
+    [[nodiscard]] constexpr opaque_lane choose_opaque_lane(bool const enabled, admission const verdict) noexcept {
+        return enabled && verdict == admission::admitted ? opaque_lane::visibility : opaque_lane::geometry;
     }
 
 } // namespace deren::engine::visibility

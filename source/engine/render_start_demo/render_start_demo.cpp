@@ -421,6 +421,13 @@ namespace deren::engine {
         if (name == "clustered") {
             return self.cluster != nullptr && self.cluster->ready();
         }
+        if (name == "visibility") {
+            // CAN the visibility buffer run at all: both passes exist AND built their pipelines (the raster needs
+            // VK_EXT_mesh_shader, and the resolve a compute pipeline the device refused only for a shader error).
+            // The two typed pointers are the runtime's (this demo does not hold them): whether the path is ON is the
+            // switch, and whether THIS frame takes it is the admission verdict - three questions, three answers.
+            return self.runtime_owner != nullptr && self.runtime_owner->visibility_available();
+        }
         return false;
     }
 

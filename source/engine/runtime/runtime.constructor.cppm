@@ -520,7 +520,8 @@ namespace deren::engine {
         // THE VISIBILITY RESOLVE'S WITNESSES (visibility-buffer v0.4b): two counters its compute stage increments on
         // FAILING pixels only, so a healthy frame prints nothing and a nonzero number names the known v0 limits -
         // pixels whose id was valid but whose triangle could not be rebuilt (the near-plane clip v0 does not do), and
-        // pixels whose rebuilt z disagreed with the capture depth (the id and the depth naming different triangles).
+        // pixels whose rebuilt z disagreed with the frame's G-buffer depth (the id and the depth naming different
+        // triangles).
         // Logged BEFORE the mesh-workgroup early return: a session whose mesh stages were all quiet can still have
         // had a resolve pass, and this is the only evidence that the ids/depth pair was actually consumed.
         uint64_t const visibility_unresolved = total[5];
@@ -1585,6 +1586,8 @@ namespace deren::engine {
                 adopt(9 + level, this->bloom_images[level], this->bloom_image_views[level]);
             adopt(13, this->rt_shadow_images, this->rt_shadow_image_views);
             adopt(14, this->visibility_images, this->visibility_image_views);
+            // family 15 is the RETIRED capture-step depth (see runtime.declarations.cppm's member note): adopted and
+            // published for schema stability, imported by no frame since v0.5.
             adopt(15, this->visibility_depth_images, this->visibility_depth_image_views);
             this->reset_image_generation_state();
         }

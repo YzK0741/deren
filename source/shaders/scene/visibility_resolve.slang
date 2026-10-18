@@ -2,7 +2,8 @@
 //
 // PRODUCES `visibility_resolve.comp.spv`, the compute stage that turns a pixel's packed id back into the five
 // G-buffer targets. The raster lane (`visibility.slang`) wrote ONE `r32_uint` word per pixel - the triangle that won
-// the depth test - and a capture-owned depth; this stage reads both, rebuilds the triangle's world-space attributes
+// the depth test - and the frame's own G-buffer depth (v0.5: the raster lane is the opaque producer, so the depth it
+// wrote is the one the lighting stage samples); this stage reads both, rebuilds the triangle's world-space attributes
 // from the per-frame draw-item and meshlet tables, and writes the same five values `scene/gbuffer.slang` writes,
 // through the same shared bodies (`scene/gbuffer_body.slang` + `common/surface_body.slang`). Downstream pixel
 // processing is unchanged: deferred lighting / TAA / post read the same G-buffer semantics they always did.
@@ -16,9 +17,9 @@
 //
 // WHAT IT DOES NOT DO, deliberately:
 //  * it does not write DEPTH. The raster lane owns the depth target: the depth test is the visibility decision,
-//    and a compute pass has no load/store semantics over it. The capture depth is READ back for a correctness
-//    check of the reconstructed triangle (see `visibility_depth_tolerance`), which is also what gives the capture
-//    lane's depth output a consumer.
+//    and a compute pass has no load/store semantics over it. The depth is READ back here for a correctness check
+//    of the reconstructed triangle (see `visibility_depth_tolerance`): the pixel's stored depth must belong to
+//    the triangle the id names, and the counter is how a wrong-id resolve would be caught.
 //  * it does not handle alphaMode MASK: a rasterized fragment's depth is already written, so a resolve "discard"
 //    cannot cut the pixel out of the picture. v0 therefore excludes MASK materials from the visibility path
 //    entirely (the frame falls back to the old geometry path - V0.5's eligibility rule), and this stage treats a
@@ -186,7 +187,7 @@ struct visibility_triangle {
  * @brief resolve one pixel's id into the five G-buffer values
  * @param pixel the pixel index (the value the dispatch thread id names)
  * @param packed the raw visibility word the raster wrote for this pixel (valid bit included)
- * @param depth_value the capture depth the pixel kept (NDC z, 0..1), read by the caller
+ * @param depth_value the frame's G-buffer depth for the pixel (NDC z, 0..1), read by the caller
  * @param extent the render extent in pixels
  * @param depth_mismatch set when the reconstructed triangle's z disagrees with @p depth_value
  * @param unresolved set when a VALID id could not be resolved at all (degenerate / behind the eye)
@@ -251,7 +252,14 @@ gbuffer_output resolve_pixel(const uint2 pixel,
         // world -> clip by the camera pair the raster configured itself with (view*proj, jitter included).
         const float4 world = mul(float4(v.position, 1.0), item.model);
         triangle.world[corner] = world.xyz;
-        triangle.normal[corner] = v.normal;
+        // THE NORMAL GOES THROUGH THE MODEL TOO, and it is the attribute a missing transform is LEAST likely to
+        // announce: the fragment path's mesh stage writes `normalize(mul(object_normal, world))`, so a resolve that
+        // interpolated the OBJECT-space normal would hand `gather_surface_finish` a geometric normal in the model's
+        // frame and light the surface with it - a whole-frame shading shift, measured on this plan's first admitted
+        // capture (the helmet's normals came out rotated, its G-buffer normal channel differing in z while x/y
+        // agreed, which is what a Y-up -> Z-up model rotation looks like when one producer forgets it). w = 0 keeps
+        // the translation out of a direction.
+        triangle.normal[corner] = mul(float4(v.normal, 0.0), item.model).xyz;
         triangle.uv[corner] = v.uv;
         triangle.clip[corner] = mul(world, view_proj);
         // the previous world position is the LOCAL position through last frame's model matrix: v0 admits static
@@ -277,7 +285,7 @@ gbuffer_output resolve_pixel(const uint2 pixel,
         return gbuffer_empty_output();
     }
 
-    // ---- the depth check the capture depth exists for: NDC z is linear in SCREEN space, so the SCREEN weights
+    // ---- the depth check the G-buffer depth makes possible: NDC z is linear in SCREEN space, so the SCREEN weights
     //      (not the perspective-corrected ones) recover the depth the rasterizer wrote for this centre ----
     const float z_ndc = screen_weights.x * (triangle.clip[0].z / triangle.clip[0].w) + screen_weights.y * (triangle.clip[1].z / triangle.clip[1].w) +
                         screen_weights.z * (triangle.clip[2].z / triangle.clip[2].w);
@@ -344,11 +352,11 @@ void main(const uint3 dispatch : SV_DispatchThreadID) {
     const uint2 pixel = dispatch.xy;
     const float2 extent = float2(float(width), float(height));
 
-    // the two inputs: the id (integer load - no sampler, no filtering) and the capture depth (the proven depth-fetch
-    // pattern from `gbuffer_debug`/`deferred`: the sampled float view through the nearest gbuffer sampler)
+    // the two inputs: the id (integer load - no sampler, no filtering) and the frame's G-buffer depth (the proven
+    // depth-fetch pattern from `gbuffer_debug`/`deferred`: the sampled float view through the nearest gbuffer sampler)
     const uint packed = heap_at<Texture2D<uint>>(heap_image_slot(heap_slots_visibility)).Load(int3(pixel, 0));
     const float2 uv = (float2(pixel) + 0.5) / extent;
-    const float depth_value = heap_texel_lod0(heap_at<Texture2D<float4>>(heap_image_slot(heap_slots_visibility_depth)), heap_sampler_gbuffer, uv).r;
+    const float depth_value = heap_texel_lod0(heap_at<Texture2D<float4>>(heap_image_slot(heap_slots_gbuffer_depth)), heap_sampler_gbuffer, uv).r;
 
     bool depth_mismatch = false;
     bool unresolved = false;

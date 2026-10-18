@@ -77,9 +77,10 @@ namespace deren::engine::pass {
                 return rhi::error::invalid_argument;
             }
         }
-        // THE SCOPE: the id target CLEARS to zero (0 = "no geometry"), the depth CLEARS to the far plane - this
-        // pass owns both while it runs, and the geometry pass that follows in the capture-only step clears the
-        // shared depth again, which is exactly why the frame cannot move yet.
+        // THE SCOPE: the id target CLEARS to zero (0 = "no geometry"), the shared G-buffer depth CLEARS to the far
+        // plane - the exact pair the geometry pass clears when IT owns the frame. This pass replaces the geometry lane
+        // on an admitted frame (v0.5), so these clears ARE the frame's, not a private copy: the lighting and toon
+        // stages read the depth written here.
         std::array<rhi::color_attachment, 1> const colors = {
             rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::clear, .store = rhi::store_op::store, .clear = {0.0f, 0.0f, 0.0f, 0.0f}},
         };
@@ -131,16 +132,16 @@ namespace deren::engine::pass {
         std::uint32_t recorded = 0;
         bool const ok = this->pass_frame.record_items(this->pass_frame.owner, *io.list, recorded);
         io.list->end_rendering();
-        // THE CAPTURE LANE'S OWN WITNESS (visibility-buffer v0.4b): one line, once per run, saying that the item
-        // recorder actually ran and how many mesh-task dispatches it issued. Until this existed the lane's only
-        // evidence was the absence of a validation error, which cannot distinguish "the resolve consumed the ids"
-        // from "the graph never recorded this pass"; the depth-mismatch counter in visibility_resolve.slang is the
-        // other half (it only has a value if the resolve read what this pass wrote).
+        // THE LANE'S OWN WITNESS (visibility-buffer v0.4b): one line, once per run, saying that the item recorder
+        // actually ran and how many mesh-task dispatches it issued. Until this existed the lane's only evidence was
+        // the absence of a validation error, which cannot distinguish "the resolve consumed the ids" from "the graph
+        // never recorded this pass"; the depth-mismatch counter in visibility_resolve.slang is the other half (it
+        // only has a value if the resolve read what this pass wrote).
         if (ok && recorded > 0u) {
             static bool recorded_logged = false;
             if (!recorded_logged) {
                 recorded_logged = true;
-                deren::utility::log("visibility raster: recorded {} item(s) - the capture lane dispatched its meshlets into the id and capture-depth targets", recorded);
+                deren::utility::log("visibility raster: recorded {} item(s) - the lane dispatched its meshlets into the packed id and the frame's shared depth", recorded);
             }
         }
         return ok ? rhi::error::ok : rhi::error::invalid_argument;

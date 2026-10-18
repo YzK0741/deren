@@ -480,6 +480,51 @@ int main(int const argc, char** const argv) {
         return deren::vk_test::finish("output_resources");
     }
 
+    // THE VISIBILITY SWITCH AND ITS FRAME FALLBACK (visibility-buffer v0.5): the switch is a request, not a
+    // promise - what this probe (a device with no mesh/compute pipelines and no chain) must prove is that asking
+    // for the path is SAFE: availability answers false, the request does not panic, and the frames keep recording
+    // (through whatever the old path does on this device: no scene, the cleared background). The admitted path's
+    // own picture is the capture gate's A/B, which needs the real device.
+    if (has_flag(argc, argv, "--child-visibility-fallback")) {
+        rhi::create_info options{};
+        options.window_width = options.window_height = 4;
+        auto root = deren::vk_test::probe_make_core(options, rhi::abi_version, true);
+        deren::engine::scene_tree::scene scene;
+        deren::engine::runtime engine{root, options};
+        engine.set_scene(scene);
+        auto application = std::make_unique<pass::pass_chain>();
+        // A NON-EMPTY CHAIN FOR THE FRAME'S RESOURCE PREPARATION (the empty chain has nothing to prepare, and the
+        // probe's begin_recording path then has no command buffer to open). The output targets are the one
+        // provider every chain has, and this test cares about the visibility switch, not about the G-buffer.
+        application->emplace<pass::output_targets_pass>();
+        engine.set_pass_chain(*application, {});
+        auto const finish_frame = [&] {
+            CHECK(engine.begin_recording() == deren::engine::frame_status::proceed);
+            engine.record_main_drawcalls();
+            CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
+            CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
+        };
+        auto const pace = [&] { CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed); };
+        // OFF is the default and must stay a pure no-op: the frames record the historic path.
+        engine.set_visibility_buffer(false);
+        CHECK(!engine.visibility_available()); // no chain built the two passes on this device
+        pace();
+        finish_frame();
+        // ON with no pipelines: a named refusal (the availability answer + the once-per-session warn inside the
+        // setter), the frame still records, and the fallback is whole-frame - there is no half-captured frame here.
+        engine.set_visibility_buffer(true);
+        CHECK(!engine.visibility_available());
+        pace();
+        finish_frame(); // the first ON frame: the once-per-session fallback line is emitted here
+        pace();
+        finish_frame(); // ... and the second ON frame records the same old lane, without a second line
+        // ... and OFF again is the same no-op, on the next frame already.
+        engine.set_visibility_buffer(false);
+        pace();
+        finish_frame();
+        return deren::vk_test::finish("visibility_fallback");
+    }
+
     if (has_flag(argc, argv, "--child-shared-assets")) {
         namespace rr = deren::engine::render_resource;
         namespace layout = deren::engine::render_layout;
@@ -1608,6 +1653,8 @@ int main(int const argc, char** const argv) {
     CHECK(post_resources.ran && post_resources.status == 0u);
     child_outcome const outputs = run_child(argv[0], "--child-output-resources");
     CHECK(outputs.ran && outputs.status == 0u);
+    child_outcome const visibility_fallback = run_child(argv[0], "--child-visibility-fallback");
+    CHECK(visibility_fallback.ran && visibility_fallback.status == 0u);
     child_outcome const constants = run_child(argv[0], "--child-scene-constants");
     CHECK(constants.ran && constants.status == 0u);
     child_outcome const camera_resources = run_child(argv[0], "--child-camera-resources");

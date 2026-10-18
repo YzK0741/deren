@@ -12,13 +12,14 @@ namespace pass = deren::engine::pass;
 
 int main() {
     pass::visibility_raster_pass visibility;
-    // ---- the declaration: the id target is colour, the shared depth is depth ----
+    // ---- the declaration: the id target is colour, the FRAME'S SHARED G-BUFFER DEPTH is depth (v0.5: this lane is
+    //      the opaque producer when it runs, so the depth it clears/writes is the one the lighting stage samples) ----
     auto const& io = visibility.io();
     CHECK(io.name == "visibility raster");
     CHECK(io.targets.size() == 2u);
     CHECK(io.targets[0].resource == deren::engine::render_resource::resource_id::visibility_buffer);
     CHECK(io.targets[0].kind == deren::engine::render_resource::target_kind::color);
-    CHECK(io.targets[1].resource == deren::engine::render_resource::resource_id::visibility_depth);
+    CHECK(io.targets[1].resource == deren::engine::render_resource::resource_id::gbuffer_depth);
     CHECK(io.targets[1].kind == deren::engine::render_resource::target_kind::depth);
     CHECK(io.push == std::nullopt);
     // ---- the behaviour: a graphics pass over the full extent, with the viewport rule carried by the declaration ----

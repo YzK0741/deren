@@ -851,6 +851,18 @@ namespace deren::engine {
         // the next step); the resolve and its history copy are two graph passes because the model allows one
         // access per resource per pass, and the history's cross-frame state rides taa_history_in_transfer_state.
         this->graph_taa_frame = this->main_graph_frame && this->taa_active() && this->taa_pass[0] != nullptr;
+        // THE OPAQUE LANE'S FREEZE (visibility-buffer v0.5): the switch, this frame's admission clause and the two
+        // pipelines, folded ONCE so the record step and the fallback line cannot disagree about THIS frame. The
+        // verdict is the pure vocabulary of deren::engine::visibility (the runtime's scan answers the facts); the
+        // lane is then one function of (switch, verdict). A refused or disabled frame records the GEOMETRY lane for
+        // every leaf - there is no partial frame.
+        this->visibility_admission_frame = this->visibility_frame_admission(this->main_graph_frame);
+        this->visibility_lane_frame = deren::engine::visibility::choose_opaque_lane(this->visibility_buffer_on, this->visibility_admission_frame);
+        if (this->visibility_buffer_on && this->visibility_lane_frame == deren::engine::visibility::opaque_lane::geometry && !this->visibility_fallback_logged) {
+            this->visibility_fallback_logged = true;
+            deren::utility::log("visibility buffer: frame NOT admitted ({}), so the geometry lane records it - the fallback is whole-frame and announced once per session",
+                                deren::engine::visibility::describe(this->visibility_admission_frame));
+        }
         // THE G-BUFFER DEBUG VIEW'S LANE: a debug frame records through the graph with the debug view INSTEAD of the
         // lighting stage (the view wins over lighting), so the eligibility asks for the G-buffer pass and this flag
         // says which producer the graph records.

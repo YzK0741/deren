@@ -502,43 +502,40 @@ namespace deren::engine {
                 if (!shadow_bound)
                     return post_build_error(shadow_bound.error());
             }
-            // ---- THE VISIBILITY BUFFER'S RASTER LANE (visibility-buffer v0.3b-3b) ----------------------
-            // CAPTURE ONLY: it runs BESIDE the old geometry lane and writes ONLY its own two images (the id
-            // target and a capture-owned depth), so no pass shares a writer with it - which is what makes the
-            // frame deterministic (the shared-depth attempt was measured to be order-dependent and reverted).
-            // The G-buffer lane still produces the real frame; the resolve pass that consumes these ids is V0.4.
-            // THE CAPTURE PAIR, hoisted above the lane: the RASTER lane writes these two images and the RESOLVE lane
-            // below reads them, so both passes take the same imported refs - and the resolve is only appended when
-            // the raster is.
-            std::optional<graph::texture_ref> visibility_ref{}, capture_depth_ref{};
-            bool const visibility_candidate = this->visibility_raster != nullptr && this->visibility_raster->has_pipeline() && this->visibility_item_candidate();
-            if (!visibility_candidate && this->visibility_raster != nullptr && this->visibility_raster->has_pipeline()) {
-                static bool not_admitted_logged = false;
-                if (!not_admitted_logged) {
-                    not_admitted_logged = true;
-                    deren::utility::log("visibility capture: frame NOT admitted (custom pipeline/instancing/skin/morph or no meshlet run) - the old path alone records it");
-                }
-            }
-            if (visibility_candidate) {
+            // ---- THE VISIBILITY PATH'S TWO LANES (visibility-buffer v0.4c, made the opaque producer in v0.5) ----
+            // WHEN THE FRAME'S FROZEN LANE IS `visibility`, THESE TWO PASSES ARE THE G-BUFFER'S PRODUCER: the raster
+            // lane writes the packed id AND the frame's own shared depth (no separate capture depth any more - the
+            // lighting, transparent and toon stages read the depth THIS lane wrote), and the resolve lane reads that
+            // pair back and reconstructs the five colour targets. The geometry lane is then NOT recorded at all.
+            //
+            // THE LANE DECISION IS THE RUNTIME'S, FROZEN ONCE PER FRAME in record_main_drawcalls (`visibility_lane_frame`,
+            // see deren::engine::visibility::choose_opaque_lane): the switch, the pipelines, the frame's scene and every
+            // leaf's admission clause. A frame that is off OR cannot be carried records the geometry lane for every
+            // leaf and the fallback line names the reason - a frame with two G-buffer authors is the failure the gate
+            // exists to make impossible.
+            //
+            // THE ORDER VISIBILITY -> RESOLVE -> (skipped geometry) IS THE GRAPH'S, and it is the whole dependency:
+            //   * the raster writes vis id + depth (both discard writes);
+            //   * the resolve reads both (sampled) and writes the five colour targets as STORAGE images - the compute
+            //     stage's only route, and the reason those five families carry STORAGE usage;
+            //   * the lighting / debug / gaussian / transparent / toon lanes below read the same five targets and the
+            //     depth exactly as they read the geometry lane's, so none of them knows which producer ran.
+            bool const visibility_frame = this->visibility_lane_frame == deren::engine::visibility::opaque_lane::visibility;
+            std::optional<graph::texture_ref> visibility_ref{};
+            if (visibility_frame) {
                 graph::resource_state visibility_id_state{};
                 auto visibility_lease = retain(14, graph::invalid_index, visibility_id_state);
-                graph::resource_state visibility_depth_state{};
-                auto depth_lease = retain(15, graph::invalid_index, visibility_depth_state);
-                if (!visibility_lease || visibility_lease.get() != this->visibility_images[index].get() || !depth_lease ||
-                    depth_lease.get() != this->visibility_depth_images[index].get()) {
+                if (!visibility_lease || visibility_lease.get() != this->visibility_images[index].get()) {
                     return rhi::error::not_ready;
                 }
                 auto visibility_import = build.import_texture(visibility_lease, {graph::initial_contents::undefined, {}}, "visibility buffer");
                 if (!visibility_import) {
                     return post_build_error(visibility_import.error());
                 }
-                auto capture_depth_import = build.import_texture(depth_lease, {graph::initial_contents::undefined, {}}, "visibility capture depth");
-                if (!capture_depth_import) {
-                    return post_build_error(capture_depth_import.error());
-                }
                 visibility_ref = *visibility_import;
-                capture_depth_ref = *capture_depth_import;
-                graph::visibility::inputs visibility_inputs{*visibility_ref, *capture_depth_ref};
+                // THE RASTER LANE'S DEPTH IS THE FRAME'S G-BUFFER DEPTH, imported above with the surface targets -
+                // the same image the lighting stage samples, and the same one the geometry lane would have written.
+                graph::visibility::inputs visibility_inputs{*visibility_ref, *depth_ref};
                 // THE RASTER STAGE'S THREE READS: the camera it projects through, the meshlet records it culls/emits
                 // and this frame's indirect dispatch arguments (consumed at the DRAW-INDIRECT stage). The draw-item
                 // table is NOT a raster read - its consumer is the resolve lane below.
@@ -566,24 +563,12 @@ namespace deren::engine {
                     return post_build_error(visibility_bound.error());
                 }
             }
-            // ---- THE VISIBILITY BUFFER'S RESOLVE LANE (visibility-buffer v0.4c) -----------------------------
-            // The raster lane's DECLARED CONSUMER: a compute pass that reads the id + capture depth it wrote and
-            // reconstructs the five G-buffer targets (the same images the geometry lane below writes as attachments,
-            // through the same material decode - see visibility_resolve.slang).
-            //
-            // IT IS APPENDED BEFORE THE GEOMETRY LANE, AND THAT IS THE WHOLE FRAME-SAFETY ARGUMENT OF THIS STEP:
-            // the graph's WAW edge orders the resolve first, then the geometry lane CLEARS every one of those targets
-            // and draws the frame exactly as it always did - so the resolved pixels are overwritten and the picture
-            // stays byte-identical. That is what lets the consumer land (and be proven by its own failure counters)
-            // before v0.5 makes it the G-buffer's producer; a pass that ran after the geometry lane would change
-            // every capture's pixels.
-            //
-            // WHAT IT PROVES: with the resolve reading them, the capture lane's two outputs are no longer
-            // consumerless, so the graph keeps it and transitions its attachments to sampled reads - the problem the
-            // v0.3b-3c export attempts hit from the other side. The resolve's depth-mismatch / unresolved counters
-            // (mesh_statistics, logged at shutdown) are the positive evidence that the pair was actually read.
-            if (visibility_candidate && this->visibility_resolve != nullptr && this->visibility_resolve->has_pipeline()) {
-                graph::visibility::resolve_inputs resolve_inputs{*visibility_ref, *capture_depth_ref, lighting_inputs.surface, *velocity_ref, scene_target, {}};
+            if (visibility_frame) {
+                if (this->visibility_resolve == nullptr) {
+                    // the admission said both pipelines exist; a null here is a wiring error, not a fallback case
+                    return rhi::error::not_ready;
+                }
+                graph::visibility::resolve_inputs resolve_inputs{*visibility_ref, *depth_ref, lighting_inputs.surface, *velocity_ref, scene_target, {}};
                 resolve_inputs.shared = graph::visibility::resolve_shared_inputs{
                     shared_refs[0],  // camera: the same per-frame block the raster projected with
                     shared_refs[1],  // material table: the shared decode reads it
@@ -613,35 +598,41 @@ namespace deren::engine {
                     return post_build_error(resolve_bound.error());
                 }
             }
-            auto geometry = build.append([&](graph::builder& description) noexcept {
-                return graph::geometry::append(description, {scene_target, lighting_inputs.surface, *velocity_ref, *depth_ref, shared_geometry});
-            });
-            if (!geometry)
-                return post_build_error(geometry.error());
+            // THE GEOMETRY LANE (the old producer) IS RECORDED ONLY WHEN THE VISIBILITY LANE IS NOT: the two write
+            // the same six attachments, so recording both would be two G-buffer authors. `update_pass_geometry`
+            // still runs on EVERY frame - the transparent, character, shadow and cluster pipelines are not part of
+            // either opaque lane and keep their cached viewports synced from here.
             this->update_pass_geometry();
-            pass::stage scene_stage{.name = "scene", .passes = this->scene_pass};
-            this->prepare_stage(scene_stage);
-            passes[7] = this->scene_pass[0];
-            ios[7].push_block = host.push_block;
-            if (!passes[7] || !host.resolve || !host.resolve(host.context, *passes[7], ios[7]) ||
-                ios[7].list != commands.get() || ios[7].targets.size() != 6)
-                return rhi::error::not_ready;
-            std::array expected{this->gbuffer_images[0][index].get(), this->gbuffer_images[1][index].get(), this->gbuffer_images[2][index].get(),
-                                velocity.get(), scene_target_image, depth.get()};
-            for (unsigned i = 0; i < expected.size(); ++i)
-                if (ios[7].targets[i].image_handle != expected[i])
-                    return rhi::error::invalid_argument;
-            auto geometry_bound = build.bind_pass<graph::geometry::parameters>(geometry->pass,
-                                                                               [this, payload](graph::geometry::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
-                                                                                   auto error = payload->record(7);
-                                                                                   if (error != rhi::error::ok)
-                                                                                       return error;
-                                                                                   this->gpu_mark(gpu_mark_id::scene_end);
-                                                                                   this->gpu_mark(gpu_mark_id::rt_shadow_end);
-                                                                                   return rhi::error::ok;
-                                                                               });
-            if (!geometry_bound)
-                return post_build_error(geometry_bound.error());
+            if (!visibility_frame) {
+                auto geometry = build.append([&](graph::builder& description) noexcept {
+                    return graph::geometry::append(description, {scene_target, lighting_inputs.surface, *velocity_ref, *depth_ref, shared_geometry});
+                });
+                if (!geometry)
+                    return post_build_error(geometry.error());
+                pass::stage scene_stage{.name = "scene", .passes = this->scene_pass};
+                this->prepare_stage(scene_stage);
+                passes[7] = this->scene_pass[0];
+                ios[7].push_block = host.push_block;
+                if (!passes[7] || !host.resolve || !host.resolve(host.context, *passes[7], ios[7]) ||
+                    ios[7].list != commands.get() || ios[7].targets.size() != 6)
+                    return rhi::error::not_ready;
+                std::array expected{this->gbuffer_images[0][index].get(), this->gbuffer_images[1][index].get(), this->gbuffer_images[2][index].get(),
+                                    velocity.get(), scene_target_image, depth.get()};
+                for (unsigned i = 0; i < expected.size(); ++i)
+                    if (ios[7].targets[i].image_handle != expected[i])
+                        return rhi::error::invalid_argument;
+                auto geometry_bound = build.bind_pass<graph::geometry::parameters>(geometry->pass,
+                                                                                   [this, payload](graph::geometry::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                                                                                       auto error = payload->record(7);
+                                                                                       if (error != rhi::error::ok)
+                                                                                           return error;
+                                                                                       this->gpu_mark(gpu_mark_id::scene_end);
+                                                                                       this->gpu_mark(gpu_mark_id::rt_shadow_end);
+                                                                                       return rhi::error::ok;
+                                                                                   });
+                if (!geometry_bound)
+                    return post_build_error(geometry_bound.error());
+            }
             // THE RAY-TRACED SHADOW LANE (RT stage 2b): recorded between the G-buffer producer and the lighting stage its
             // visibility feeds. The adapter declares the storage write from the ray-tracing stage plus the G-buffer
             // reads the tracer reconstructs its ray origins from, so the graph orders geometry -> trace -> lighting and

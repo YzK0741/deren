@@ -976,12 +976,13 @@ namespace deren::engine {
         // One line naming every optional feature, so "why does this switch do nothing?" is answerable
         // from the log alone. `on` means the pipeline exists and the feature CAN run; whether it is
         // currently switched on is the overlay's and the config's business.
-        deren::utility::log("features: gbuffer-debug={} taa={} fxaa={} shadow={} clustered-lights={}",
+        deren::utility::log("features: gbuffer-debug={} taa={} fxaa={} shadow={} clustered-lights={} visibility-buffer={}",
                             this->feature_available("gbuffer-debug") ? "on" : "UNAVAILABLE",
                             this->feature_available("taa") ? "on" : "UNAVAILABLE",
                             this->feature_available("fxaa") ? "on" : "UNAVAILABLE",
                             this->feature_available("shadow") ? "on" : "UNAVAILABLE",
-                            this->feature_available("clustered") ? "on" : "UNAVAILABLE");
+                            this->feature_available("clustered") ? "on" : "UNAVAILABLE",
+                            this->feature_available("visibility") ? "on" : "UNAVAILABLE");
         if ((!this->gbuffer_pipeline_mesh.has_value() && !this->gbuffer_pipeline_meshlet.has_value()) || !this->pass_ready("deferred")) {
             deren::utility::log("features: the G-buffer pass or its lighting stage was not created, so NO SCENE IS DRAWN this session (see the startup log's 'deferred lighting disabled' line)");
         }
@@ -1316,6 +1317,23 @@ namespace deren::engine {
         this->rt_skin_bake = enabled;
     }
 
+    void runtime::set_visibility_buffer(bool const enabled) noexcept {
+        // FLAG ONLY: the lane decision is taken per frame (see visibility_frame_admission), because whether the
+        // visibility path can carry THIS frame is a property of the frame's leaves and not of the switch. A
+        // request the session cannot honour is still worth saying once here - the fallback line would otherwise
+        // only appear at the first frame, far from the switch that caused it.
+        this->visibility_buffer_on = enabled;
+        if (enabled && !this->visibility_available()) {
+            this->warn_missing_feature("visibility", "the visibility buffer has no effect: the raster or the resolve pipeline was not created (see the startup log)");
+        }
+    }
+
+    bool runtime::visibility_available() const noexcept {
+        // BOTH halves are required: the raster writes the ids (and the depth the resolve reconstructs against),
+        // the resolve is the only consumer, so either missing means the path cannot produce a G-buffer at all.
+        return this->visibility_raster != nullptr && this->visibility_raster->has_pipeline() && this->visibility_resolve != nullptr && this->visibility_resolve->has_pipeline();
+    }
+
     bool runtime::rt_structures_wanted() const noexcept {
         // The ray-traced sun is the only reason a frame needs a top level structure: the binding is written
         // whenever it is wanted, whether or not the traced branch runs.
@@ -1538,26 +1556,49 @@ namespace deren::engine {
 
     // THIS FRAME'S COMPACTED RUN of a primitive's surviving meshlets. The layout is the shared table's, one frame
     // lane apart, so a workgroup id selects the i-th SURVIVOR directly - and the entry point needs no second lookup.
-    // ---- THE VISIBILITY CAPTURE'S FRAME DATA (visibility-buffer v0.3b-3) ----------------------------
-    bool runtime::visibility_item_candidate() const noexcept {
-        std::uint32_t items = 0;
+    // ---- THE VISIBILITY PATH'S FRAME ADMISSION (visibility-buffer v0.5) ------------------------------
+    // THE WHOLE FRAME OR NOTHING: this scan returns the FIRST clause that refuses the frame, and the record step
+    // then records the OLD geometry lane for EVERY leaf. The clauses live in deren::engine::visibility (pure, and
+    // unit-tested there); this function owns the FACTS, i.e. which primitive field each clause reads.
+    std::uint32_t runtime::material_flags_of(primitive const& leaf) const noexcept {
+        if (this->material_mapped == nullptr || leaf.push.material_index.value >= this->material_count)
+            return 0u;
+        return static_cast<material_record const*>(this->material_mapped)[leaf.push.material_index.value].flags;
+    }
+
+    deren::engine::visibility::admission runtime::visibility_frame_admission(bool const graph_frame) const noexcept {
+        namespace vis = deren::engine::visibility;
+        if (!this->visibility_buffer_on)
+            return vis::admission::disabled;
+        if (!this->visibility_available())
+            return vis::admission::no_pipeline;
+        if (!graph_frame)
+            return vis::admission::no_scene; // no graph-recordable scene: there is no G-buffer lane to replace
+        if (this->frame_visible.empty())
+            return vis::admission::no_draws; // the old lane's clear IS the frame; nothing to capture
+        bool const material_table_ready = this->material_mapped != nullptr;
+        std::uint32_t item = 0;
         for (primitive const* const leaf : this->frame_visible) {
-            if (leaf == nullptr || items >= runtime::visibility_item_capacity) {
-                return false;
-            }
-            // v0's admission rule (see the declaration): default pipeline semantics only - a custom pipeline is
-            // a different stage, an instanced draw's model comes from the instance table per workgroup, and a
-            // skinning/morphing draw's records would need the per-frame deformation data this item row does not
-            // carry. ANY other leaf means the WHOLE frame is not captured, never a partial one.
-            if (!leaf->pipeline_name.empty() || (leaf->push.flags & 1u) != 0u || leaf->push.skin_base != 0u || leaf->push.morph_targets != 0u) {
-                return false;
-            }
-            if (!leaf->vertex_buffer || !leaf->index_buffer || leaf->meshlet_count == 0u) {
-                return false;
-            }
-            ++items;
+            if (leaf == nullptr)
+                return vis::admission::missing_geometry; // a null leaf has no item to write
+            vis::leaf_admission_facts facts{
+                .default_pipeline = leaf->pipeline_name.empty(),
+                .instanced = (leaf->push.flags & 1u) != 0u,
+                .deforming = leaf->push.skin_base != 0u || leaf->push.morph_targets != 0u,
+                .has_vertex_buffer = static_cast<bool>(leaf->vertex_buffer),
+                .has_index_buffer = static_cast<bool>(leaf->index_buffer),
+                .has_meshlets = leaf->meshlet_count != 0u,
+                .material_index_valid = material_table_ready && leaf->push.material_index.value < this->material_count,
+                .material_flags = this->material_flags_of(*leaf),
+                .meshlet_count = leaf->meshlet_count,
+                .item_index = item,
+            };
+            vis::admission const verdict = vis::admit_leaf(facts);
+            if (!vis::admitted(verdict))
+                return verdict;
+            ++item;
         }
-        return items > 0u;
+        return vis::admission::admitted;
     }
 
     bool runtime::record_visibility_items(deren::promise::rhi::command_buffer& command_buffer, std::uint32_t& recorded) {
@@ -1577,6 +1618,11 @@ namespace deren::engine {
                 !leaf->vertex_buffer || !leaf->index_buffer || leaf->meshlet_count == 0u) {
                 return false; // the candidate scan refused this frame; a mixed frame must not be recorded
             }
+            // THE CULL MODE IS THE MATERIAL'S, exactly as the fragment path sets it per draw: glTF doubleSided (record
+            // flag bit 3) draws both faces, a single-sided material culls back faces. The raster pass binds ONE
+            // pipeline and sets its own default (back) before this loop, so a two-sided item has to say so itself -
+            // otherwise its back face would be culled here but drawn by the old path, i.e. a hole this lane invented.
+            command_buffer.set_cull_mode((this->material_flags_of(*leaf) & 8u) != 0u ? rhi::cull_mode::none : rhi::cull_mode::back);
             std::uint64_t const vertex_address = this->buffer_address(*leaf->vertex_buffer);
             std::uint64_t const index_address = this->buffer_address(*leaf->index_buffer);
             if (vertex_address == 0u || index_address == 0u) {

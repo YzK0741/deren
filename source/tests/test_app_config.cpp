@@ -56,6 +56,7 @@ namespace {
         CHECK(settings.render.taa);
         CHECK(settings.render.taa_blend_static > 0.79f && settings.render.taa_blend_static < 0.81f);
         CHECK(settings.render.taa_blend_min > 0.19f && settings.render.taa_blend_min < 0.21f);
+        CHECK(settings.render.visibility_buffer); // fixture: the GPU-driven opaque path on (the switch's non-default read-back)
         // the frame's static surround (`[render] background_glb`): a STRING key, so unlike the boolean
         // switches above this CHECK cannot pass by accident - an empty compiled default would read back as
         // "" and the comparison would fail
@@ -89,6 +90,8 @@ namespace {
         CHECK(!settings.render.gbuffer_debug);
         CHECK(settings.render.gbuffer_channel == 1);
         CHECK(!settings.render.taa);
+        // default: the GEOMETRY lane is the opaque path - the frame every recorded reference was made from
+        CHECK(!settings.render.visibility_buffer);
         // default: NO background model - the frame is the one import it always was (see the key's note)
         CHECK(settings.render.background_glb.empty());
         CHECK(settings.render.shadow_cascades == 3); // default: three cascades
@@ -120,6 +123,7 @@ namespace {
         CHECK(settings.render.ssao);
         CHECK(settings.render.ssao_samples == 8);
         CHECK(!settings.render.taa);
+        CHECK(!settings.render.visibility_buffer); // the example ships the switch OFF (the historic frame)
         CHECK(settings.lighting.demo_lights == 0);
         CHECK(settings.lighting.env_size == 256);
         // environment_hdr empty is the contract that keeps the procedural sky (and therefore every frame
@@ -193,6 +197,7 @@ namespace {
         // `taa` altogether would read false too). `config_full.toml` is the fixture that proves the
         // read-back, with every one of these keys at a non-default value.
         CHECK(!settings.render.taa);
+        CHECK(settings.render.visibility_buffer == false); // generator default: the switch OFF, like the compiled default
         CHECK(settings.render.taa_blend_static > 0.89f && settings.render.taa_blend_static < 0.91f);
         CHECK(settings.render.taa_blend_min > 0.49f && settings.render.taa_blend_min < 0.51f);
         CHECK(!settings.render.fxaa);

@@ -621,6 +621,11 @@ int main(int argc, char** argv) {
     // caster actually is: the structures are built from the bind pose, so without it the ray sees the mesh
     // at rest.
     runtime.set_rt_skin_bake(settings.render.rt_skin_bake);
+    // THE VISIBILITY BUFFER'S SWITCH ([render] visibility_buffer): the opaque path's frame gate. Applied here,
+    // AFTER create_passes(), because that is what builds the raster and resolve pipelines the gate also asks
+    // about - a config that asks for the new path while its pipelines failed logs the refusal once and the frame
+    // keeps the geometry lane.
+    runtime.set_visibility_buffer(settings.render.visibility_buffer);
 
     // 7. Collect the async startup results. FOR A GAUSSIAN-ONLY RUN THERE IS NO MODEL, so the slot holds an EMPTY
     //    scene: the import, the material resolve, the toon lookup and the animation state below then all work over

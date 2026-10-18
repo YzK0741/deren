@@ -121,6 +121,21 @@ swapchain image). These requests have
 The existing runtime still supplies the RHI output-image bound. Formats and attachment/sampled/copy
 usage match the former allocation path; HDR retains transfer-source usage for history and readback.
 
+THE VISIBILITY BUFFER'S RESOURCES (v0.4b/v0.5), and why two of them look unused from here:
+
+- The five G-buffer/HDR families (`hdr`, `gbuffer_albedo`, `gbuffer_normal`, `gbuffer_material`, `velocity`,
+  `scene_input`) carry STORAGE usage as well as their sampled/attachment usage: the compute resolve writes them
+  through the descriptor heap, and a sampled descriptor and a storage descriptor are different heap slots for
+  the same image. The storage twins live at heap slots 756/764/772/780/788 and are published every frame by
+  `runtime::resolve_pass` (the scene-colour target alternates between the TAA working image and the HDR image,
+  so which image that descriptor names is the frame's answer).
+- Family 15 (`visibility_depth`, the capture-only step's private depth) is RETIRED FROM THE FRAME in v0.5: the
+  raster lane is the opaque producer now, so it writes the shared `gbuffer_depth` instead, and nothing imports
+  family 15 any more. It is still declared, created and published because retiring a managed family renumbers
+  every resource id after it; the removal belongs to the v1 software-raster resource pass.
+- The draw-item table (`visibility_items`) is a per-frame-slot buffer the raster lane's recorder fills and the
+  compute resolve reads; its host-visible lane is one 112-byte record per visible item.
+
 The registry gives each physical G-buffer attachment its own allocation id because their formats differ.
 `gbuffer_targets` remains the three-element family used by existing pass IO. `scene_input` is the physical
 TAA input allocation; `scene_color` remains the per-frame alias selecting that image when TAA runs and

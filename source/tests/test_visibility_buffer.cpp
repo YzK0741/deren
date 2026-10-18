@@ -432,6 +432,56 @@ namespace {
         // a degenerate triangle covered no pixel: "front" would be a meaningless answer
         CHECK(!is_front_face(origin, right, std::array<float, 2>{8.0f, 0.0f}));
     }
+
+    /// THE FRAME'S ADMISSION AND LANE DECISION (visibility-buffer v0.5): the switch and the per-leaf clauses fold
+    /// into ONE lane answer, and "off" and "cannot carry" MUST agree - both mean the old geometry lane for every
+    /// leaf. The runtime's fallback and its one log line read exactly these two functions, so every refusal is
+    /// pinned by name, and so is the truth table that would otherwise be four hand-written ifs.
+    void test_frame_admission_and_lane() {
+        // the clauses are ordered (first refusal wins), and each one is a way the per-item resolve record would be wrong
+        CHECK(admitted(admit_leaf(leaf_admission_facts{})));
+        auto const refused = [](auto&& mutate) {
+            leaf_admission_facts facts{};
+            mutate(facts);
+            return admit_leaf(facts);
+        };
+        CHECK(refused([](leaf_admission_facts& f) { f.default_pipeline = false; }) == admission::custom_pipeline);
+        CHECK(refused([](leaf_admission_facts& f) { f.instanced = true; }) == admission::instanced);
+        CHECK(refused([](leaf_admission_facts& f) { f.deforming = true; }) == admission::deforming);
+        CHECK(refused([](leaf_admission_facts& f) { f.has_vertex_buffer = false; }) == admission::missing_geometry);
+        CHECK(refused([](leaf_admission_facts& f) { f.has_index_buffer = false; }) == admission::missing_geometry);
+        CHECK(refused([](leaf_admission_facts& f) { f.has_meshlets = false; }) == admission::no_meshlet_run);
+        // the MATERIAL clauses: a MASK material cannot be resolved (a written depth cannot be discarded), and an
+        // index outside the host table would read a zero flag word and be carried as if it were a plain surface
+        CHECK(refused([](leaf_admission_facts& f) { f.material_index_valid = false; }) == admission::missing_material);
+        CHECK(refused([](leaf_admission_facts& f) { f.material_flags = 16u; }) == admission::masked_material);
+        CHECK(refused([](leaf_admission_facts& f) { f.meshlet_count = id_meshlet_capacity + 1u; }) == admission::meshlet_overflow);
+        CHECK(refused([](leaf_admission_facts& f) { f.item_index = id_item_capacity; }) == admission::item_overflow);
+        // THE TWO-SIDED FLAG IS NOT A CLAUSE (the raster lane culls per item, like the fragment path): a doubled-sided
+        // material must be carried, not refused
+        {
+            leaf_admission_facts two_sided{};
+            two_sided.material_flags = 8u; // doubleSided, no MASK
+            CHECK(admitted(admit_leaf(two_sided)));
+        }
+        // the biggest LEGAL values still take the path: the overflow checks are off-by-one-sensitive
+        leaf_admission_facts edge{};
+        edge.meshlet_count = id_meshlet_capacity;
+        edge.item_index = id_item_capacity - 1u;
+        CHECK(admitted(admit_leaf(edge)));
+        // THE LANE TRUTH TABLE: the switch alone is NOT enough (a refused frame still records the old lane) and an
+        // admitted frame with the switch off records it too - the two inputs are independent, the answer is one lane.
+        CHECK(choose_opaque_lane(true, admission::admitted) == opaque_lane::visibility);
+        CHECK(choose_opaque_lane(false, admission::admitted) == opaque_lane::geometry);
+        std::array const refusals{admission::disabled, admission::no_pipeline, admission::no_scene, admission::no_draws, admission::custom_pipeline,
+                                  admission::instanced, admission::deforming, admission::missing_geometry, admission::no_meshlet_run,
+                                  admission::masked_material, admission::missing_material, admission::meshlet_overflow, admission::item_overflow};
+        for (admission const refusal : refusals) {
+            CHECK_MSG(choose_opaque_lane(true, refusal) == opaque_lane::geometry, "a refusal must record the geometry lane");
+            CHECK_MSG(!describe(refusal).empty(), "every refusal has a name for the one fallback line");
+        }
+        CHECK(!describe(admission::admitted).empty());
+    }
 } // namespace
 
 int main() {
@@ -445,6 +495,7 @@ int main() {
     test_resolve_shader_mirror();
     test_shared_gbuffer_body();
     test_front_face_convention();
+    test_frame_admission_and_lane();
     test_resolve_barycentrics();
     test_resolve_perspective_and_interpolation();
     test_clip_to_screen();

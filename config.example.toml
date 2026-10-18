@@ -391,6 +391,20 @@ taa = false
 taa_blend_static = 0.9
 taa_blend_min = 0.5
 
+# visibility_buffer: the GPU-DRIVEN OPAQUE PATH (the visibility-buffer plan's v0.5). A mesh-task raster writes one
+# packed triangle id per pixel plus the frame's own G-buffer depth, and a compute pass turns the ids back into the
+# five G-buffer targets the deferred lighting stage already reads - no per-draw vertex fetch, no per-pixel
+# interpolators, one id word per pixel instead.
+#
+# OFF by default, and off is the historic frame: the geometry lane records exactly what it always did, which is
+# what every recorded reference was made from. ON is ALL-OR-NOTHING PER FRAME: a frame the path cannot carry (an
+# instanced, skinned or morphed draw, a custom pipeline, an item-table overflow, a missing pipeline) falls back
+# to the geometry lane as a WHOLE and says why once in the log - a partially resolved G-buffer would have two
+# authors and is worse than either path. The known v0 limits are measured rather than silent: alphaMode MASK
+# materials are not shaded by this path yet (their pixels are counted in the resolve's unresolved counter) and
+# near-plane-clipped triangles cannot be reconstructed from the id.
+visibility_buffer = false
+
 # character_forward: the TOON CHARACTER STAGE. It draws the scene's opaque leaves a SECOND time, after the
 # lighting stage, through a pipeline whose depth compare is EQUAL and whose depth write is held off - so it
 # lands on exactly the surface the G-buffer pass recorded and REPLACES the lit pixel rather than layering

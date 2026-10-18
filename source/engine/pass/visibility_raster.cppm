@@ -12,14 +12,17 @@
  * commands - is the RENDERER's knowledge (it owns the scene, the buffer addresses and the tables), so the
  * pass asks for it through `visibility_frame::record_items` and knows nothing about leaves.
  *
- * WHAT IT DOES NOT DO, deliberately: it does not shade, does not touch the G-buffer, does not draw the
- * shadow pass and does not allocate anything. The resolve pass that turns the ids back into surface
- * attributes is a separate step (and a separate pass); this one's contract is the depth test plus the id.
+ * WHAT IT DOES NOT DO, deliberately: it does not shade, does not draw the shadow pass and does not allocate
+ * anything. The resolve pass that turns the ids back into surface attributes is a separate step (and a separate
+ * pass); this one's contract is the depth test, the depth it writes and the id. THE DEPTH IS THE FRAME'S OWN
+ * G-BUFFER DEPTH (v0.5), not a private copy: this lane replaces the geometry pass on an admitted frame, so what it
+ * writes here is what the lighting and toon stages sample afterwards.
  *
- * LOAD OPS: BOTH ATTACHMENTS ARE CLEARED HERE. The capture-only step records this pass BESIDE the old
- * geometry pass rather than in place of it, so the id buffer and the depth it tests against are this pass's
- * own cleared content - and the geometry pass that follows clears the shared depth again, which is why the
- * frame cannot move until the resolve pass takes the G-buffer's place.
+ * LOAD OPS: BOTH ATTACHMENTS ARE CLEARED HERE. Since v0.5 this pass replaces the geometry lane on the frames the
+ * visibility path is admitted to (the runtime's frame gate: `deren::engine::visibility::choose_opaque_lane`), so its
+ * clears are the FRAME's clears - the id to zero ("no geometry won this pixel") and the shared G-buffer depth to the
+ * far plane, exactly the pair the geometry pass used to write. On a frame the path is not admitted to, this pass does
+ * not run at all and the geometry lane clears both.
  */
 module;
 
@@ -65,10 +68,13 @@ export namespace deren::engine::pass {
         deren::promise::rhi::image_extent extent = {};
     };
 
-    /// the declaration's two attachments: the id target (colour) and the shared depth image
+    /// the declaration's two attachments: the id target (colour) and the FRAME'S SHARED G-BUFFER DEPTH - from
+    /// v0.5 this lane IS the opaque producer when it runs, so the depth it tests against is the one the lighting,
+    /// transparent and toon stages read afterwards (the dedicated capture depth of the capture-only step is
+    /// retired from the frame: writing it too would be a second depth no reader names).
     inline constexpr std::array<render_resource::render_target, 2> visibility_raster_targets = {{
         {.resource = render_resource::resource_id::visibility_buffer, .kind = render_resource::target_kind::color},
-        {.resource = render_resource::resource_id::visibility_depth, .kind = render_resource::target_kind::depth},
+        {.resource = render_resource::resource_id::gbuffer_depth, .kind = render_resource::target_kind::depth},
     }};
 
     inline constinit render_resource::pass_io const visibility_raster_io = {

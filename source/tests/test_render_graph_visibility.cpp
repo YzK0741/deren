@@ -72,7 +72,8 @@ int main() {
         CHECK(!visibility::append(graph, in).has_value());
     }
 
-    // ---- the RESOLVE lane (v0.4c): two sampled reads, five storage writes, six table reads ----
+    // ---- the RESOLVE lane (v0.4c; v0.5 made it the opaque producer so its depth input is the frame's own
+    //      G-buffer depth): two sampled reads, five storage writes, six table reads ----
     {
         rg::builder graph;
         visibility::resolve_inputs in{};
@@ -82,7 +83,7 @@ int main() {
         // `undefined_read` the graph refuses - the runtime path always has the raster lane ahead of this one.
         rg::resource_state const sampled_state{rg::resource_layout::shader_read_only, rg::pipeline_stage::compute_shader, rg::memory_access::read};
         in.vis_id = *graph.import_texture({31, 51}, rg::initial_contents::defined, "visibility", {}, sampled_state);
-        in.depth = *graph.import_texture({31, 52}, rg::initial_contents::defined, "capture depth", {1, 1, rg::texture_aspect::depth}, sampled_state);
+        in.depth = *graph.import_texture({31, 52}, rg::initial_contents::defined, "GBuffer depth", {1, 1, rg::texture_aspect::depth}, sampled_state);
         for (unsigned i = 0; i < in.surface.size(); ++i) {
             in.surface[i] = *graph.import_texture({31, 53 + i}, rg::initial_contents::undefined, "GBuffer surface", {}, surface_state);
         }
