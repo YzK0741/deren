@@ -688,3 +688,27 @@ CTest 49/49, and the FULL frozen OFF gate is 15/15 - so the hard constraint surv
 per-frame publication path on both arms. Savings are five descriptor writes per frame on every frame that does
 not run the resolve (the common case: the switch is off by default), which is small but is exactly the kind of
 "state maintained for nobody" this cleanup item exists to find.
+
+## Dispatch counts, and the last cull-divergence lead closed (round 29)
+
+Two 130-frame `deferred` runs, parsing the runtime's own mesh numbers (final window):
+
+| arm | meshlet workgroups | emitted | culled |
+| --- | ---: | ---: | ---: |
+| OFF (geometry lane) | 1,092 | 558 | **534** |
+| ON (visibility raster lane) | 24,934 | 24,400 | **534** |
+
+Two observations, both recorded because they change what these counters can be used for:
+
+- THE CULL DECISIONS ARE IDENTICAL: both arms culled exactly 534 workgroups. That is the strongest form of
+  the round-26 finding being RETIRED - the two paths do not disagree about a single meshlet. The launch-count
+  difference is partitioning (the raster lane's dispatch geometry vs the geometry lane's indirect run packing,
+  visible in the `mesh indirect` line), NOT a culling divergence, and it cannot be used as a draw-count
+  comparison between the lanes.
+- For item 5's "draw count" metric: these numbers are not a like-for-like draw/dispatch count between the two
+  producers, so no optimization claim may be built on them; the like-for-like metric remains the GPU pass
+  timings (resolve 0.92 ms vs the geometry pass 0.19 ms, mesh raster 0.01 ms) measured with the lane split.
+
+Item 1's static search space is now closed: arithmetic identical, pipeline state identical, cull identical,
+data paths untested-but-unreachable without a depth readback. The readback harness is the recorded entry point
+for whoever continues.
