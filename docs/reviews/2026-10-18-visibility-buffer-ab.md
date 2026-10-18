@@ -741,3 +741,38 @@ G-buffer surface" the base shading still shows through; it is a large improvemen
 was not found - every static candidate was eliminated by measurement (SPIR-V arithmetic, pipeline state, cull
 decisions) - so the readback harness remains the entry point for candidate (a), the character stage producing
 the depth it tests against. The plan records that as the open quality follow-up.
+
+## Probing the depth-EQUAL residual: H1 killed, the residual split measured (this round)
+
+Following the probe report (`docs/reviews/2026-10-18-visibility-buffer-probes.md`), two experiments were
+implemented, measured, and reverted (the tree is back to the shipped LESS_OR_EQUAL behaviour; ON reference
+`0F4CC199AEC42A0D` verified after the revert):
+
+1. **H1 (identity-skin chain) is REFUTED.** The experiment gated the `pbr.slang` skin chain on
+   `push.skin_base != 0u`, i.e. skipped the identity-block skinning that unskinned leaves currently run, with
+   the depth-EQUAL test restored by a temporary env switch. The EQUAL A/B frame was BIT-IDENTICAL to the
+   baseline failure (33.45% changed / 20.736 frame mean / 62.0 over changed / max 209; same capture hash). The
+   identity block is therefore exact and not the 1-ULP source.
+2. **The residual is split into two mechanisms.** Comparing the EQUAL frame, the LEQUAL frame and the OFF
+   reference on `laevatain_old_chain` (pixels with max channel difference > 16):
+
+   | comparison | >16 pixels |
+   | --- | ---: |
+   | EQUAL vs OFF | 21.98% |
+   | LEQUAL vs OFF | 4.61% |
+   | EQUAL vs LEQUAL | 17.38% |
+
+   - 85.9% of the large EQUAL-vs-OFF differences are also EQUAL-vs-LEQUAL differences: the exact depth
+     comparison is the DOMINANT cause, as established.
+   - But only 32.6% of the large LEQUAL-vs-OFF pixels lie in the EQUAL-vs-LEQUAL mask. The other ~32,228
+     pixels (~2.3% of the frame) are large differences that the depth comparison does not explain at all: a
+     second residual (draw-list/base-picture territory), recorded here so it is not mistaken for the depth
+     mismatch when someone revisits this.
+3. The TAA-off variant of the jitter hypothesis could not be produced through `-ExtraConfig` (the generated
+   TOML already carries `taa = on` and the appended duplicate key is ignored; the log still says `taa=on`), so
+   H2 remains UNTESTED rather than refuted. A real TAA-off capture needs the scenario's own config edited
+   rather than appended to.
+
+Root cause remains unfound; every static candidate is now eliminated by experiment (arithmetic, pipeline
+state, cull decisions, identity skinning). The depth-readback Phase 1 plan in the probe report is the recorded
+next step; item 1's quality trade-off (LEQUAL, 8.66-13.48% changed to the old frame) stands as shipped.
