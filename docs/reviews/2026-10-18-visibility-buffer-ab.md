@@ -466,3 +466,12 @@ Reading it:
 
 The mark's pixel effect: none (OFF `deferred = FAE60C0B1D8C1191`, ON `deferred = 7EF9249001EB6035`, both
 unchanged), so the frozen references and the ON reference file do not move.
+
+## The frozen OFF gate re-verified after the non-extension changes (round 12)
+
+The changes landed in this goal round series are all either ON-path-only (resolve LOD, GPU marks, lane split)
+or producer-side cleanups whose declared contract is "no pixel changes" (family 15 removal). The authoritative
+check is the full frozen round, re-run on the current tree: **15/15 scenarios matched, 0 mismatched,
+compare_render_hashes PASS** against docs/reviews/2026-10-17-render-graph-gate/legacy-hashes.txt. That is the
+objective's hard constraint satisfied end to end (not just the per-scenario `deferred` check each change ran),
+and the ON reference file is unchanged as well (7EF9249001EB6035). CTest remains 49/49.
