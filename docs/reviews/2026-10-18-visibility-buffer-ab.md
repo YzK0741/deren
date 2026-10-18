@@ -475,3 +475,24 @@ check is the full frozen round, re-run on the current tree: **15/15 scenarios ma
 compare_render_hashes PASS** against docs/reviews/2026-10-17-render-graph-gate/legacy-hashes.txt. That is the
 objective's hard constraint satisfied end to end (not just the per-scenario `deferred` check each change ran),
 and the ON reference file is unchanged as well (7EF9249001EB6035). CTest remains 49/49.
+
+## MASK item: the reuse-mask_bake plan does NOT fit, and the lane split says what does (round 14)
+
+Following the round-3 direction (exclude MASK triangles before the raster writes depth), the available
+instrument was checked against what the raster lane actually consumes. `mask_bake` (the ray-traced shadows'
+alphaMode MASK bake) writes a BAKED vertex/index buffer with the cut-out triangles collapsed - a different
+geometry stream. The visibility raster draws the original MESH LETS through the meshlet record table
+(`first_index/index_count/base_vertex`); a baked index buffer is not addressable by those records without a
+second meshlet build, so "reuse mask_bake" is not a wiring change - it is a new baking pipeline for the
+visibility meshlets, and its per-triangle approximation (the bake's 4x4 barycentric grid) would still drop
+pixels the old fragment path keeps, i.e. a structural difference, not a fix.
+
+THE FIX THE MEASUREMENTS POINT AT is the other candidate: make the visibility RASTER's fragment stage do the
+alpha test. It needs three things the mesh stage does not carry today - the item's material index, the
+interpolated UV and the albedo-texture fetch - and then a `discard` BEFORE the depth write, which makes the
+rasterizer's own depth test fall through to the surface behind: exactly the property the resolve lacks (the
+round-3 measurement: 957,719 pixels with no surface behind). The objection to this direction was always
+COST - a material fetch in the raster - and the lane split has now priced it: THE MESH-TASK RASTER IS
+0.01 ms on the measured frame against the resolve's 0.92 ms. The alpha-tested raster fragment is therefore
+affordable, and it is the direction item 2 should be implemented in; no code is claimed here, the plan and the
+pricing are the deliverable.
