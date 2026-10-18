@@ -329,3 +329,29 @@ item), one machine (RTX 4060 Laptop), capture mode with validation layers ON and
 end; the per-pass numbers are averaged over the frame window and the pass labels are the runtime's buckets
 ("scene" as defined above), not per-lane counters. The next measurement splits the registry's buckets to
 separate raster from resolve (a lane-level mark), and only then should an optimization be judged.
+
+## The baseline is NOT trustworthy yet: the TAA configuration contradicts the non-TAA one
+
+The same 130-frame measurement was repeated on `deferred_taa_fxaa` (the second admitted configuration):
+
+| pass bucket | OFF | ON |
+| --- | ---: | ---: |
+| scene | 0.67 ms | **0.27 ms** |
+| lighting | 0.25 ms | 0.14 ms |
+| bloom | 0.28 ms | 0.23 ms |
+| composite | 0.24 ms | 0.26 ms |
+| fxaa | 0.06 ms | 0.04 ms |
+| **total** | **1.50 ms** | **0.94 ms** |
+
+That is ON ~37% FASTER - the OPPOSITE SIGN of the `deferred` measurement (ON ~17% slower). Two configurations,
+two contradictory directions, so the per-pass numbers are NOT a baseline yet. The likely causes, all visible
+in the method: a single 60-frame window per arm (frame pacing in capture mode is not steady - the CPU `pace`
+phase measured 59.79 vs 0.92 ms between the two windows of one run), the pass labels are the runtime's buckets
+whose boundaries the lane swap moved, and `scene` on the TAA arm may still be absorbing different lanes than on
+the non-TAA arm. NO optimization may be judged against these numbers.
+
+What the next measurement must do before any optimization is judged: repeat each arm >=3 runs and quote the
+median + spread; make the raster/resolve split explicit with a lane-level mark; and verify the lane attribution
+from the logs (raster recorded N items / resolve counters) rather than assuming both arms took their intended
+path. The item-5 status is therefore "instrument works, baseline NOT yet established" - recorded here so the
+next round doesn't treat either direction as a fact.
