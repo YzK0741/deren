@@ -265,3 +265,23 @@ after proving where the difference comes from (b is NOT acceptable while the sou
 would hide a wrong-depth producer), or (c) align the data/state path. LESS_OR_EQUAL is measured to be closer
 to the old frame but is NOT the fix: it changes which fragments the stage draws (two surfaces at one pixel
 would both shade) and would need its own A/B on the 4 toon scenarios before it could be considered.
+
+## MASK impact measured (item 2, round 3)
+
+Sponza is the frame the MASK admission clause turns away, so its size is the number that decides how the
+resolve should grow an alpha test. With the clause bypassed (temporary env switch, reverted before this
+commit) the visibility path DOES run on sponza: the raster lane records all 62 items and the resolve reports
+**957,719 pixels over the session that could not be rebuilt** - the alphaMode MASK fragments the resolve
+recognises as cut-out (it evaluates the MASK rule but has no surface BEHIND the pixel to fall back to). That
+is ~1.2% of a frame's pixels per render, and the picture difference against the old lane measures
+changed% / frame_mean / mean_changed in the review table below this section (the holes show the background
+through alpha-tested foliage).
+
+THE FIX DIRECTION THIS POINTS AT: a resolve-side alpha test is NOT sufficient - not for lack of information
+(the resolve already samples the albedo alpha and applies the cutoff) but for lack of the NEXT surface: the
+raster lane stored only the nearest triangle's id, and a discarded masked pixel would need the depth-behind
+id. The viable shape is to keep masked triangles out of the id raster BEFORE it writes depth - either the
+existing `mask_bake` compute pass's per-triangle collapse (already built for the ray-traced shadows) marking
+the triangles the raster must skip, or an alpha-tested visibility fragment stage (interpolated UV + albedo
+alpha discard) which is a heavier raster. The first reuses a measured instrument and keeps the raster
+id-only; it is the direction item 2 should take.
