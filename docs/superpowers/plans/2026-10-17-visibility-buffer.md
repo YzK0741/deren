@@ -168,3 +168,15 @@ model[16]                                           // row-major，与 push bloc
 ## 与轻量 Nanite 后续的关系
 
 v0 把「几何生产」与「材质着色」拆开，之后的顺序是：v1 software raster 写同一张 vis buffer（硬件/软件两路合流）→ v2 material binning（resolve 从每像素分支改为按材质 tile binning）→ v3 cluster 层级 + screen-error LOD 写 vis ID（可选）→ v4 分页/流送。v0 的 ID 编码是后续扩展的起点：item 位宽与 meshlet 位宽在 v3 会被 cluster group 取代，届时升级到 64 位 vis buffer 或分两级表是预期变化，不在 v0 里预留复杂度。
+
+## Non-extension follow-up (started after V0.8; the "fix first, then optimize" list)
+
+- [x] Resolve material mip: derived from the triangle's UV-vs-screen scale, replacing explicit LOD 0 (deferred ON/OFF changed-pixels 6.88% -> 4.57%, mean over changed 8.05 -> 2.74; OFF byte-identical).
+- [x] ON path GPU marks: the geometry lane's scene_end/rt_shadow_end marks are emitted by the lanes that replaced it (refused marks 492 -> 0), making per-pass timings measurable on the path.
+- [x] Lane-level timing split: a path-independent mark separates the mesh raster from the resolve (measured: raster 0.01 ms, resolve 0.92 ms vs the geometry pass 0.19 ms - the resolve is the cost centre the optimization item must move).
+- [x] MASK materials carried: the visibility raster fragment runs the glTF alphaMode MASK test and discards before the depth write; the `masked_material` admission clause is retired (sponza and transparent_blend now record the new path).
+- [x] Near-plane clip: Sutherland-Hodgman in the resolve + fan rebuild, unclipped triangles keep v0's exact acceptance rule (sponza unresolved 858,868 -> 15,539, -98.2%; >64 pixel deltas vs OFF 0.951% -> 0.106%).
+- [x] Family 15 (retired capture depth) removed from the producer/adoption/publication and both heap-slot mirrors (~33 MB at 1080x960 + its descriptor writes); the schema id stays and slots 727..734 remain reserved.
+- [x] Storage twins publish only on a frame that reads them (5 descriptor writes per frame saved on every frame that does not run the resolve).
+- [ ] Item 1, depth-producer unification: the depth-EQUAL re-shading stage still falls back whole. Mechanism measured (exact depth compare rejects; LESS_OR_EQUAL recovers), and every static candidate is eliminated by measurement (SPIR-V arithmetic identical, pipeline state identical, cull decisions identical - both arms cull exactly the same 534 workgroups). The remaining work needs a depth readback + input-byte dump harness, then the fix candidates (a) character stage produces the depth it tests, (b) a reconstructable depth source, (c) only if the bytes show it, an arithmetic change.
+- [ ] Material binning (the resolve optimization): target sized by the lane split - the resolve is ~5x the fragment G-Buffer pass it replaced; bin the material fetches by tile and re-measure with the same repeat/median method.
