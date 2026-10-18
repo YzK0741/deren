@@ -116,7 +116,10 @@ uint mesh_index_at(const MeshGeometryLanes geometry, const uint i)
     return words[0];
 }
 
-/// @brief one MESHLET RECORD: exactly the 28 bytes `deren::vulkan::meshlet` holds and the GPU table stores, in byte order
+/// @brief one MESHLET RECORD: exactly the 48 bytes `deren::engine::meshlet` holds and the GPU table stores, in byte order:
+///        first_index @0, index_count @4, base_vertex @8, center @16, radius @28, axis @32, cone_cos @44 - the
+///        16-byte alignment of the std430 `float3` members is what makes the host record 48 bytes, not the 28 the
+///        fields alone would add up to, and the host struct carries the same padding explicitly.
 struct MeshletRecord
 {
     uint first_index;

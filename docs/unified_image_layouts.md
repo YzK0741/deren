@@ -80,7 +80,7 @@ runtime.constructor 3, runtime.frames 2, taa 1, megalights_temporal 1, runtime.r
 pass caught 32 more that were comment prose naming the layouts without the `VK_IMAGE_LAYOUT_` prefix.
 `UNDEFINED` and
 `PRESENT_SRC_KHR` were not touched. The places that still name a retired layout are QUOTES and COMMENTS rather
-than descriptions - `docs/megalights.md` reproduces a validation message from a run made
+than descriptions - the removed MegaLights document reproduced a validation message from a run made
 before this change, `source/engine/runtime/runtime.frames.cppm` quotes the driver's "expects ...
 SHADER_READ_ONLY_OPTIMAL ... current layout is UNDEFINED" with a note that GENERAL is what it expects
 now, `constant_init.cppm` and `render_resource.cppm` name the layouts in their history notes, and

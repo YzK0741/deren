@@ -51,9 +51,7 @@ implementation details, measured results and the limits of each feature.
 - **Clustered light culling.** `source/shaders/lighting/light_cluster.slang` sorts up to 128 punctual lights
   into a 64 px-tile x 16-exponential-depth-slice grid once per frame with one atomic counter
   per cluster. The recorded 64-light comparison reduced
-  deferred lighting from 0.25 to 0.08 ms with a byte-identical image; see
-  the broader many-light path studied in \ref md_docs_2megalights "Megalights" (its chain is currently removed
-    from the tree; the document is kept as the algorithm reference).
+  deferred lighting from 0.25 to 0.08 ms with a byte-identical image.
 - **Screen-space occlusion with no extra pass.** A golden-angle hemisphere spiral traced
   against the G-buffer depth and normals, folded into `shade_input.ao` so it scales the IBL
   ambient exactly like a baked AO map. No extra pass, no extra render target.
@@ -63,8 +61,15 @@ implementation details, measured results and the limits of each feature.
   design, the measurements and the two half-steps it was built in.
 - **Mesh shaders.** See \ref md_docs_2mesh__shaders "Mesh shaders" for the geometry
   path, its measurements and the migration that got there.
-- **Megalights (removed, kept as a reference).** The stochastic punctual lighting chain was removed from the
-  tree temporarily in 2026-10; see \ref md_docs_2megalights "Megalights" for the algorithm it implemented.
+- **Visibility buffer (experimental).** An alternative opaque producer: a mesh-shader raster writes a
+  packed 32-bit surface id plus the frame's shared G-buffer depth, and a compute resolve rebuilds the five
+  G-buffer targets from it. It is off by default, falls back per frame for geometry it cannot name, and is
+  gated by its own frozen reference set. See \ref md_docs_2visibility__buffer "The visibility buffer lane"
+  for the pipeline, the admission rules and the measured cost.
+- **Hierarchical geometry (Subtilis, in design).** The clustered, hierarchy-selected LOD design that replaces
+  the visibility lane's per-item meshlet set with cluster groups and a screen-error cut is written down in
+  `docs/superpowers/specs/2026-10-18-subtilis-design.md` (design phase; nothing in the frame path depends on
+  it yet).
 - **Ray-traced shadows.** `deren.engine.pass.ray_traced_shadow` sits beside the cascade path; see
   the module documentation and `docs/reference/` for the source notes it was built from.
 - **A toon character pipeline.** Per-material families (base / skin / face / hair / eye /
@@ -113,7 +118,7 @@ finally the migration history.
 | 4 | \subpage md_docs_2pass__io__design "Pass I/O design" | The declared contract a pass states about what it reads and writes, and how it is resolved. |
 | 5 | \subpage md_docs_2runtime__split "Runtime split" | How the runtime, the scene tree and the render environment divide the frame between them. |
 | 6 | \subpage md_docs_2mesh__shaders "Mesh shaders" | The mesh-shader geometry path: what it replaced, what it measured. |
-| 7 | \subpage md_docs_2megalights "Megalights" | Stochastic many-light sampling: the algorithm reference for a chain currently removed from the tree. |
+| 7 | \subpage md_docs_2visibility__buffer "The visibility buffer lane" | An experimental opaque producer: packed id raster plus a compute resolve, its gate and its measured limits. |
 | 8 | \subpage md_docs_2deformation__motion__vectors "Deformation motion vectors" | Why a deforming mesh needs more than a camera motion vector, and what was stored. |
 | 9 | \subpage md_docs_2gltf__loader__usage "glTF loader usage" | Loading models, animations, skins, morph targets and punctual lights. |
 | 10 | \subpage md_docs_2gaussian__loader "Gaussian PLY loader" | Trained PLY conventions, validation, limits and loading diagnostics. |

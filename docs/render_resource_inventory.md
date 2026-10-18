@@ -2,8 +2,10 @@
 
 Source-backed inventory, 2026-10-12; ownership update, 2026-10-14.
 
-> **NOTE 2026-10-17:** the MegaLights trace/temporal rows and the ml_trace/ml_resolve/ml_history images are
-> historical - the chain was removed temporarily on 2026-10-17 (the render graph gate review records it). This describes production frame passes and their related compute
+> **NOTE 2026-10-17:** the MegaLights trace/temporal rows and the ml_trace/ml_resolve/ml_history images were
+> historical - the chain was removed temporarily on 2026-10-17 (the render graph gate review records it).
+> The two rows themselves were removed from the pass table on 2026-10-18; the gate review keeps the history.
+ This describes production frame passes and their related compute
 jobs, not a proposed resource system. Debug validation probes and offline asset/IBL preparation are
 outside the pass table. Conditional resources are needed only when the corresponding feature runs.
 
@@ -63,8 +65,6 @@ mesh shaders fetching vertex/index data by device address, not a traditional ver
 | Toon screen rim | G-buffer albedo/depth/material I; material/toon records G; camera/light F | Scene-color blend I | H+P, A |
 | Goo rim | G-buffer normal/depth/material I; material/toon color records G; camera/light F | Scene-color blend I | H+P, A |
 | RT shadow | G-buffer depth/normal I; camera/light F; TLAS F; mask-instance records F; MASK materials/textures G; any-hit vertex/index addresses D | Visibility storage image F; ray generation/miss/any-hit traversal | H+M+D+P; `TraceRay(mapped_tlas[frame_slot], ...)`, RWTexture2D output |
-| MegaLights trace | G-buffer depth/normal/albedo I; camera/light F; TLAS F | Trace storage image I | H+P; inline `RayQuery` reads TLAS directly via heap, RWTexture2D output |
-| MegaLights temporal | Trace/history/depth/velocity I | Resolved storage image I, then transfer copy into history I | H+P+C; history update is an explicit copy, not an implied shader write |
 | Gaussian preparation | Point/SH asset data, candidate ranges, camera/preparation parameters; per-frame keys/values/status/projected-cache buffers | Cull/project outputs, visible count, indirect draw args, sorting input buffers | D+P; raw-pointer reads/writes and atomics |
 | Gaussian sorting | Key/value and scratch buffers, element count | Sorted key/value buffers | RHI `gpu_sorting`; Vulkan VRDX push-descriptor compute path, followed by heap rebind |
 | Gaussian raster | Sorted references, point/SH data or projected cache, pushed camera parameters | Scene-color alpha blend I, hardware depth test I; indirect argument buffer fetch | D+P+C, A; fragment uses interpolated Gaussian color/opacity without material texture sampling |

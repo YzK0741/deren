@@ -221,8 +221,8 @@ Related source docs (tracked in the repo):
 
 - [gltf_loader usage guide](docs/gltf_loader_usage.md) (API semantics, data formats, Vulkan integration examples)
 - [shader reference](docs/shaders.md) (the pass chain, the shared scene set, push constants, conventions) — also the Doxygen `shaders` group description
-- [MegaLights reference study](docs/reference/megalights_stochastic_lighting.md) (what UE 5.8.2 does, as a mechanism reference)
-- [MegaLights: stochastic punctual lighting](docs/megalights.md) (kept as the algorithm reference — the chain itself was removed from the tree on 2026-10-17)
+- [visibility buffer lane](docs/visibility_buffer.md) (experimental opaque producer: packed id raster plus a compute resolve, its gate and its measured limits)
+- [Subtilis design: hierarchical geometry](docs/superpowers/specs/2026-10-18-subtilis-design.md) (design draft for clustered, hierarchy-selected LOD)
 - [mesh shaders](docs/mesh_shaders.md) (what the stage buys here, this device's limits, the heap-native mesh probe, the shadow pass's mesh stage, and the migration plan)
 - [capture harness](scripts/windows/check_render.ps1) and the [measurement instruments](scripts/measure/README.md) every number in the docs came out of
 - [source/reference/shaders/official/](source/reference/shaders/official/): reference shaders (IBL / PBR / primitive)

@@ -1,0 +1,101 @@
+# The visibility buffer lane (experimental)
+
+**Status: implemented, experimental, off by default.** This page is the manual's description of the lane's
+current shape, its admission rules, its gate and its measured limits. The design record is
+`docs/superpowers/plans/2026-10-17-visibility-buffer.md`; the measurements and known differences are in
+`docs/reviews/2026-10-18-visibility-buffer-ab.md` (with the follow-up probe record beside it).
+
+## What it is
+
+The deferred scene path has two interchangeable opaque producers:
+
+1. the fragment G-buffer lane (the default, always available), and
+2. the **visibility buffer lane**: a mesh-shader raster writes only a packed 32-bit surface id plus the shared
+   G-buffer depth, and a compute **resolve** rebuilds the five G-buffer targets from that id.
+
+Everything after the opaque handoff is identical: the depth is the frame's own G-buffer depth, the lighting
+stage samples the same targets, and the toon re-shading stage tests the same depth. The switch is
+`[render] visibility_buffer` (`false` by default, `source/application_configuration/application_configuration.cppm`).
+
+```
+[mesh] visibility raster   ->  R32_UINT id  +  shared gbuffer_depth
+[compute] visibility resolve ->  albedo/metallic, normal/roughness, material/AO/flags, velocity, scene color
+[vertex/fragment] lighting, transient, character, toon rims, gaussian, TAA, post (unchanged)
+```
+
+## The id
+
+One 32-bit word: valid(1) + item(10) + meshlet(14) + triangle(7). The resolve looks up the draw item, then the
+meshlet record, then the triangle inside that record's index window - the same 48-byte meshlet record the
+fragment G-buffer path uses. A triangle at id 0 must not read as "empty", which is why the valid bit exists.
+
+## Admission and fallback
+
+The lane records only when the whole opaque frame can be produced from the item table. A frame that needs any
+of the following falls back to the fragment G-buffer lane as a whole (never a partial picture):
+
+- deforming geometry (skinned or morphed leaves),
+- instanced draws,
+- custom pipelines / non-meshlet leaves,
+- missing geometry or no meshlet run,
+- meshlet or item table overflow,
+- frames with no opaque draws at all.
+
+The fallback is a runtime decision frozen once per frame, logged once per session with the reason. The toon
+re-shading stage that draws opaque character leaves with an exact depth test works on this lane: the measured
+depth mismatch that used to force a fallback was a clip-position expression difference, fixed by spelling the
+clip position as the nested matrix product the toon pipeline uses (the two stages' depth is now bit-identical).
+
+## Material MASK
+
+Alpha-tested (glTF `alphaMode` MASK) materials are handled by the **raster fragment**: it samples the material's
+albedo alpha and discards before the depth write, so a cut-out pixel lets the surface behind win the id and the
+depth. The compute resolve does not re-run the cut-out test; a pixel with a valid id means the raster kept it.
+
+## What changed recently (all measured)
+
+- **Material mip selection**: the resolve samples material textures at a LOD derived from the triangle's
+  UV-vs-screen scale, not at LOD 0. The deferred A/B against the old lane moved from 6.88% to 4.57% of pixels,
+  with the mean over changed pixels from 8.05 to 2.74 (off path byte-identical).
+- **Near-plane clipping**: triangles that cross the eye plane are clipped (Sutherland-Hodgman) and fanned back
+  into triangles instead of being dropped. On Sponza the resolve's unresolved-pixel count fell from 858,868 to
+  15,539 per session (-98.2%), and pixels differing from the old path by more than 64 went from 0.951% to
+  0.106%.
+- **MASK materials** are carried by the lane (Sponza and the AlphaBlendModeTest scene both record it), and the
+  old whole-frame fallback for them is retired.
+- **Depth-EQUAL re-shading** no longer forces a fallback (see above); all four toon scenarios record the lane
+  and their frames measure 0.00-2.13% of pixels different from the old path, with the per-changed-pixel
+  magnitude at the level of the other admitted scenes.
+
+## Configuration and gate
+
+- `[render] visibility_buffer = false` - off by default; when off, the lane does not record and the frozen
+  off-path references are byte-for-byte unchanged.
+- A/B capture: run the capture harness with the switch appended, e.g.
+  `pwsh scripts/windows/check_render.ps1 -Only deferred -ExtraConfig 'visibility_buffer = true'`.
+- Frozen reference for the on path: `docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt` (the
+  `deferred_visibility` scenario), checked with `-Visibility -Compare <file>`. The legacy frozen round remains
+  `docs/reviews/2026-10-17-render-graph-gate/legacy-hashes.txt` (15/15) and does not include the visibility
+  tier.
+- Frame-to-frame A/B of the two producers: `scripts/measure/visibility_ab.py` over two capture directories.
+
+## Known limits and cost
+
+- The lane is an alternative opaque producer, not a faster one yet: measured on one 1080x960 deferred frame,
+  the mesh raster bucket is ~0.01 ms while the compute resolve bucket is ~0.68 ms (range 0.64-0.96 over three
+  runs) against the fragment G-buffer pass's ~0.19 ms, so the on-path total stays above the off path
+  (~1.21 vs ~0.94 ms). The resolve is the cost centre, and three repeated runs cannot resolve a change below
+  about ten percent; performance claims need five or more repeats or the benchmark CSV.
+- Differences from the fragment path that are expected, not bugs: material texture fetches use an explicit LOD
+  rebuilt from the triangle (the per-pixel derivative and anisotropic choice of a fragment sampler are not
+  reproduced), and the tangent frame comes from the triangle's edges rather than screen-space derivatives.
+- Near-plane geometry is now clipped, but the resolve remains a reconstruction: a triangle with a corrupt id or
+  a degenerate screen footprint is still reported and left empty.
+- Deforming, instanced and custom-pipeline frames still fall back by design; making the visibility lane the
+  default requires a performance result that does not exist yet.
+
+## See also
+
+- `docs/mesh_shaders.md` - the mesh-shader path the raster lane runs on.
+- `docs/render_graph.md` - the frame's lanes and their ordering.
+- `docs/shaders.md` - the shared shader bodies and slot conventions both producers use.

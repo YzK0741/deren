@@ -17,8 +17,9 @@
  * pure functions, so the rule that must never produce a partly-captured frame is testable without a GPU. The render
  * graph owns the image, the runtime owns the per-frame item table and the facts the rule reads.
  *
- * THE PACKING IS v0's, NOT THE FINAL ONE. The lightweight-Nanite roadmap replaces the item/meshlet half with
- * cluster groups and a hierarchy; that change belongs WITH the hierarchy, not before it, so this layout stays
+ * THE PACKING IS v0's, NOT THE FINAL ONE. The Subtilis (hierarchical geometry) roadmap replaces the item/meshlet
+ * half with cluster groups and a hierarchy (design: docs/superpowers/specs/2026-10-18-subtilis-design.md); that
+ * change belongs WITH the hierarchy, not before it, so this layout stays
  * as small as the current meshlet path needs: one valid bit (a triangle at id 0 must not read as "empty"),
  * an item index, the item's meshlet order, and the meshlet-local triangle. All bounds are capacities of the
  * table the host writes; an out-of-range pack FAILS rather than truncating, and the caller falls back to the

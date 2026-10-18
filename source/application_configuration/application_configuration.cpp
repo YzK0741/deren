@@ -616,10 +616,6 @@ namespace deren::app_config {
             deren::utility::log("app_config: invalid demo_lights {} (use 0..{}), clamping", settings.lighting.demo_lights, max_demo_lights);
             settings.lighting.demo_lights = std::clamp(settings.lighting.demo_lights, 0, static_cast<int32_t>(max_demo_lights));
         }
-        // The stochastic punctual lighting's sample count, clamped to the shader's own compile-time bound (see
-        // value here would silently do nothing rather than cost more.
-        // 0..4: the same bound the pass clamps to, and for the same reason (past a few texels it is wider than
-        // the neighbourhood it can read).
         if (settings.render.camera_fit != "exterior" && settings.render.camera_fit != "interior") {
             deren::utility::log("app_config: invalid camera_fit '{}' (use exterior/interior), falling back to exterior", settings.render.camera_fit);
             settings.render.camera_fit = "exterior";

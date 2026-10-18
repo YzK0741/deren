@@ -17,8 +17,10 @@ listed as follow-ups/deferred below.
 root-level `source/shaders/shading.slang`). It therefore cannot corroborate anything after 2026-10-12 — render
 graph adoption, RT/AS stages, the visibility buffer, RHI ABI 33, heap slots 719/755, vessel/stacktrace pages are
 all absent or stale in it. The audit used it only to confirm the generated label pattern; every substantive
-correction cites the source instead. **Regenerating the manual (doxygen against `Doxyfile`, then pdflatex) is an
-owner-level follow-up; no repository target or workflow entry for that build was found.**
+correction cites the source instead. **Refreshing the manual is an owner-level follow-up and the build entry
+points exist**: `scripts/windows/build_docs.ps1` and `scripts/posix/build_docs.sh` (README documents the raw
+`doxygen Doxyfile` plus pdflatex steps). Nothing in this audit is visible in the 2026-10-12 snapshot until
+that build is run again.
 
 ## Coverage
 
@@ -90,8 +92,9 @@ source, CMake, script, config or test file was touched.
 
 ## Owner decisions (reported, deliberately not changed)
 
-1. **Regenerate the manual**: `docs/latex` is a stale 2026-10-12 snapshot; rebuild it (doxygen + pdflatex) or
-   retire it. This audit's corrections are not visible in it until then.
+1. **Regenerate the manual**: `docs/latex` is a stale 2026-10-12 snapshot; rebuild it with
+   `scripts/windows/build_docs.ps1` (or `scripts/posix/build_docs.sh`) or retire it. This audit's corrections
+   are not visible in it until then.
 2. **`docs/megalights.md`**: whole feature removed 2026-10-17 but the doc's design/progress body still names
    removed shaders/keys under a REMOVED banner — archive vs rewrite.
 3. **`mainpage.md`**: does not mention the visibility-buffer opaque lane that `render_graph.md` documents as a
@@ -127,3 +130,29 @@ hashes, and acceptance measurements in historical records. The Subtilis design r
 own document, including the one load-bearing error it found: the M1 plan cannot be "table write only" — the
 visibility raster shader needs a host-culled-table branch plus four host wirings, or the frame silently loses
 geometry.
+
+## Follow-up applied in the same session (2026-10-18, later)
+
+The owner answered three of the open decisions: remove MegaLights from the documentation, add descriptions for
+the new feature, and complete the damaged source comments.
+
+- **MegaLights documentation removed.** `docs/megalights.md` and
+  `docs/reference/megalights_stochastic_lighting.md` are deleted. `Doxyfile`'s `INPUT` entry for the page was
+  replaced by the new visibility-buffer page, the mainpage's feature bullet and chapter-table row were replaced,
+  the two README links were removed, dead links in `slang_migration.md` and `unified_image_layouts.md` now point
+  at the history/review record, and `render_resource_inventory.md`'s two MegaLights rows were removed from the
+  production pass table (its 2026-10-17 note now says so explicitly). Mentions in migration/plan/spec documents
+  are kept: they are dated records of a chain that existed, not claims that it exists.
+- **New feature documented.** `docs/visibility_buffer.md` was added (manual INPUT, ASCII) and linked from the
+  mainpage (highlight bullet plus chapter row 7) and README: pipeline, id layout, admission/fallback, MASK
+  handling, near-plane clipping, the gate and its frozen reference, and the measured limits/cost. The Subtilis
+  hierarchical-geometry design is linked from the mainpage and README as a design-phase item.
+- **Source comments completed.** The orphaned MegaLights comment fragments left in
+  `source/application_configuration/application_configuration.cpp` (a sentence cut mid-line after the feature
+  removal) were deleted. `source/shaders/geometry/mesh_geometry.slang`'s record comment was corrected from
+  "28 bytes `deren::vulkan::meshlet`" to the real 48-byte `deren::engine::meshlet` layout with its std430 offsets.
+  `source/engine/visibility/visibility.cppm`'s roadmap comment now says Subtilis and points at the design instead
+  of the old "lightweight-Nanite" wording.
+- **Owner decisions 2, 3, 4 and the source-comment half of 11 are therefore resolved**; the remaining decisions
+  above (manual rebuild, megalights history rows elsewhere, runtime_split hazard list, static batching, plan
+  checkboxes, citation style) still stand as recorded.

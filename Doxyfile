@@ -1097,7 +1097,7 @@ INPUT                  = ./docs/managed_resources.md \
 				./docs/pass_io_design.md \
 				./docs/runtime_split.md \
 				./docs/mesh_shaders.md \
-				./docs/megalights.md \
+				./docs/visibility_buffer.md \
 				./docs/deformation_motion_vectors.md \
 				./docs/gltf_loader_usage.md \
                          ./docs/gaussian_loader.md \
