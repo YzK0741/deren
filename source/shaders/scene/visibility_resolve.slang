@@ -298,24 +298,103 @@ gbuffer_output resolve_pixel(const uint2 pixel,
         triangle.prev_world[corner] = mul(float4(v.position, 1.0), previous_transform_at(heap_previous_slot, item.motion_index)).xyz;
     }
 
-    // ---- where the triangle is on screen, and whether the pixel is inside it ----
-    float2 screen[3];
+    // ---- THE NEAR-PLANE CLIP (visibility-buffer item 3) ----
+    // The rasterizer clips a triangle that crosses the eye plane; v0 projected the three corners and gave up when
+    // one had w <= 0, which measured as 99.25% of sponza's unresolved pixels (852,390 of 858,868). The same three
+    // clip-space vertices are clipped here against w >= EPS (Sutherland-Hodgman), the attributes ride the SAME
+    // edge parameter as the positions - correct because they are interpolated linearly in homogeneous space, which
+    // is exactly the space the rasterizer interpolates a clipped edge in - and the resulting polygon is fanned
+    // back into triangles. The pixel lies in exactly one fan triangle (the id won for a pixel the raster clipped
+    // polygon covered), so the first triangle whose screen barycentrics contain the centre is the one to rebuild.
+    const float clip_epsilon = 1e-5;
+    float4 clipped_clip[4];
+    float3 clipped_world[4];
+    float3 clipped_normal[4];
+    float2 clipped_uv[4];
+    float3 clipped_prev_world[4];
+    uint clipped_count = 0u;
+    uint behind = 0u;
+    for (uint corner = 0u; corner < mesh_indices_per_triangle; ++corner)
+        behind += triangle.clip[corner].w < clip_epsilon ? 1u : 0u;
+    if (behind == mesh_indices_per_triangle) {
+        mesh_stat_add(push.frame_slot, mesh_stat_visibility_clipped, 1u);
+        unresolved = true; // the whole triangle is behind the eye: the rasterizer never wrote a pixel for it
+        return gbuffer_empty_output();
+    }
     for (uint corner = 0u; corner < mesh_indices_per_triangle; ++corner) {
-        if (!clip_to_screen_pixel(triangle.clip[corner], extent, screen[corner])) {
-            // a vertex behind the eye: the rasterizer clipped this triangle, and v0 cannot rebuild the clipped
-            // triangle from three projected points (see the header). Counted, not silently wrong - and counted
-            // in its OWN lane too, so the near-plane share of the unresolved pixels is a measurement rather than
-            // an assumption (item 3 sizes itself with it).
-            mesh_stat_add(push.frame_slot, mesh_stat_visibility_clipped, 1u);
-            unresolved = true;
-            return gbuffer_empty_output();
+        const uint next = (corner + 1u) % mesh_indices_per_triangle;
+        const float wa = triangle.clip[corner].w;
+        const float wb = triangle.clip[next].w;
+        const bool inside_a = wa >= clip_epsilon;
+        const bool inside_b = wb >= clip_epsilon;
+        if (inside_a) {
+            clipped_clip[clipped_count] = triangle.clip[corner];
+            clipped_world[clipped_count] = triangle.world[corner];
+            clipped_normal[clipped_count] = triangle.normal[corner];
+            clipped_uv[clipped_count] = triangle.uv[corner];
+            clipped_prev_world[clipped_count] = triangle.prev_world[corner];
+            ++clipped_count;
+        }
+        if (inside_a != inside_b) {
+            const float t_clip = (clip_epsilon - wa) / (wb - wa);
+            clipped_clip[clipped_count] = lerp(triangle.clip[corner], triangle.clip[next], t_clip);
+            clipped_world[clipped_count] = lerp(triangle.world[corner], triangle.world[next], t_clip);
+            clipped_normal[clipped_count] = lerp(triangle.normal[corner], triangle.normal[next], t_clip);
+            clipped_uv[clipped_count] = lerp(triangle.uv[corner], triangle.uv[next], t_clip);
+            clipped_prev_world[clipped_count] = lerp(triangle.prev_world[corner], triangle.prev_world[next], t_clip);
+            ++clipped_count;
         }
     }
+    if (behind != 0u)
+        mesh_stat_add(push.frame_slot, mesh_stat_visibility_clipped, 1u); // counted at the crossing itself
+
+    // ---- where the clipped polygon is on screen, and which fan triangle holds the pixel ----
     const float2 centre = float2(float(pixel.x) + 0.5, float(pixel.y) + 0.5);
+    float2 screen[3];
     float3 screen_weights;
-    screen_barycentrics(centre, screen[0], screen[1], screen[2], screen_weights);
-    if (all(screen_weights == float3(0.0, 0.0, 0.0))) {
-        unresolved = true; // degenerate screen triangle: it covered no pixel
+    bool found = false;
+    for (uint fan = 0u; fan + 3u <= clipped_count && !found; ++fan) {
+        const uint i0 = 0u;
+        const uint i1 = fan + 1u;
+        const uint i2 = fan + 2u;
+        bool projects = true;
+        projects = projects && clip_to_screen_pixel(clipped_clip[i0], extent, screen[0]);
+        projects = projects && clip_to_screen_pixel(clipped_clip[i1], extent, screen[1]);
+        projects = projects && clip_to_screen_pixel(clipped_clip[i2], extent, screen[2]);
+        if (!projects)
+            continue;
+        screen_barycentrics(centre, screen[0], screen[1], screen[2], screen_weights);
+        // THE UNCLIPPED TRIANGLE KEEPS v0's BEHAVIOUR EXACTLY: the id was written by the rasterizer for this
+        // pixel, so its own triangle is accepted as it was before this clip existed (an edge pixel can produce
+        // a barycentric a hair negative through the top-left rule, and rejecting it would turn a rendered pixel
+        // into a hole). Only a CLIPPED polygon needs the containment test: its fan triangles are new geometry.
+        if (behind == 0u) {
+            if (all(screen_weights == float3(0.0, 0.0, 0.0))) {
+                unresolved = true; // degenerate screen triangle: it covered no pixel (v0's own verdict)
+                return gbuffer_empty_output();
+            }
+        } else if (any(screen_weights < float3(-1e-5, -1e-5, -1e-5))) {
+            continue; // this fan triangle does not cover the pixel; the next one (if any) does
+        }
+        triangle.clip[0] = clipped_clip[i0];
+        triangle.clip[1] = clipped_clip[i1];
+        triangle.clip[2] = clipped_clip[i2];
+        triangle.world[0] = clipped_world[i0];
+        triangle.world[1] = clipped_world[i1];
+        triangle.world[2] = clipped_world[i2];
+        triangle.normal[0] = clipped_normal[i0];
+        triangle.normal[1] = clipped_normal[i1];
+        triangle.normal[2] = clipped_normal[i2];
+        triangle.uv[0] = clipped_uv[i0];
+        triangle.uv[1] = clipped_uv[i1];
+        triangle.uv[2] = clipped_uv[i2];
+        triangle.prev_world[0] = clipped_prev_world[i0];
+        triangle.prev_world[1] = clipped_prev_world[i1];
+        triangle.prev_world[2] = clipped_prev_world[i2];
+        found = true;
+    }
+    if (!found) {
+        unresolved = true; // degenerate screen triangle: the clipped polygon covered no pixel
         return gbuffer_empty_output();
     }
 
@@ -367,10 +446,11 @@ gbuffer_output resolve_pixel(const uint2 pixel,
     //      PHASES IS THE FRAGMENT PATH's (MASK verdict first, everything else after); this stage has no derivative to
     //      place between them and no discard to run, so it simply branches on the verdict. ----
     const surface_base base = gather_surface_base(item.material_index, uv);
-    if (base.alpha_masked) {
-        unresolved = true; // v0 excludes MASK materials: a resolve cannot cut a pixel whose depth is already written
-        return gbuffer_empty_output();
-    }
+    // A masked MASK pixel cannot reach this point: the RASTER RASTER fragment ran the glTF test and discarded it
+    // before the depth write (item 2), so a valid id means the raster KEPT the fragment. This stage therefore does
+    // NOT re-cut it: its own texel can differ by a mip (the LOD is rebuilt from the triangle, not the derivative),
+    // and re-cutting would turn a raster-accepted pixel into a hole. The verdict belongs to the lane that owns the
+    // depth test.
     const surface_sample surface = gather_surface_finish(base, normal, uv, is_front, frame_tangent, frame_bitangent, frame_valid);
     const float2 velocity = motion_vector(world_pos, prev_world_pos, visibility_camera.view_proj_unjittered, visibility_camera.prev_view_proj);
     return gbuffer_from_surface(surface, item.material_index, velocity);

@@ -596,3 +596,28 @@ the near plane recovers; the remaining 6,478 are degenerate/id-corruption cases 
 Deferred ON and the frozen OFF gate are unaffected (no OFF code changed; the deferred reference scene has no
 near-plane triangle in view), CTest 49/49. Item 2's own claim stands as corrected in the previous section; the
 `masked_material` clause is gone and the two MASK frames record the new path.
+
+## Item 3 landed: the near-plane clip recovers the holes (round 22)
+
+The resolve now clips a triangle that crosses the eye plane instead of giving up: the same three clip-space
+vertices go through Sutherland-Hodgman against `w >= 1e-5` with the attributes riding the same edge parameter
+(linear interpolation in homogeneous space - exactly the space the rasterizer interpolates a clipped edge in),
+the polygon is fanned back into triangles, and the fan triangle whose screen barycentrics contain the pixel is
+rebuilt with the existing depth/attribute pipeline. The MASK verdict is no longer taken in this stage at all:
+the raster fragment owns the depth test and already discarded the cut-outs (item 2), so re-cutting a pixel the
+raster KEPT would be a hole. MEASURED on sponza ON (62 items):
+
+| counter | before clip | after clip |
+| --- | ---: | ---: |
+| resolve pixels that could not rebuild | 858,868 | **15,539** (-98.2%) |
+| triangles crossing the near plane (recovered) | 852,390 | 852,390, all recovered |
+| id/depth disagreements | 0 | 0 |
+
+Picture (sponza ON vs OFF): pixels differing by >16 went from 3.412% to **1.993%**; by >64 from 0.951% to
+**0.106%**. Deferred (no near-plane triangle in view) is unchanged at the pixel level vs the LOD-fix frame.
+
+The unclipped triangle deliberately keeps v0's exact acceptance rule (a top-left edge can produce a hair
+negative barycentric and v0 accepted it; the containment test applies only to a CLIPPED fan triangle), and the
+clipped polygon's crossing count is still reported in its own stat lane. The deferred ON reference moved
+(0F4CC199AEC42A0D) although its picture is the LOD-fix frame's: the clip changed the shader's codegen and the
+reference is re-recorded here with this note as the reason; OFF is untouched, CTest 49/49 pending the final run.
