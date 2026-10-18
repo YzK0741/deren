@@ -673,3 +673,18 @@ difference in EMITTED counts is the mechanism; equal emitted counts retire this 
    root cause for the depth-EQUAL failure unless the per-pass split says otherwise.
 
 Item 1 therefore still needs the depth readback + input-byte dump to close; that is recorded as its entry point.
+
+## Item 4, cleanup half: the storage twins are published only on a frame that reads them (round 28)
+
+The visibility resolve's five storage targets (the G-buffer family's storage twins) were published as heap
+descriptors on EVERY frame - five `contract_write_heap_image` calls per image-slot cycle - while the only
+reader is the resolve lane and nothing else ever observes those descriptors. The publication is now inside
+`visibility_lane_frame == opaque_lane::visibility`, so an OFF frame and a fallback frame skip it (the descriptor
+memory keeps whatever the last visibility frame wrote; nothing reads it otherwise).
+
+MEASURED after: ON `deferred` = `0F4CC199AEC42A0D` (unchanged - the resolve still reads what it needs),
+OFF `deferred` = `FAE60C0B1D8C1191` (unchanged), sponza ON still records all 62 items and resolves,
+CTest 49/49, and the FULL frozen OFF gate is 15/15 - so the hard constraint survives a change that touches the
+per-frame publication path on both arms. Savings are five descriptor writes per frame on every frame that does
+not run the resolve (the common case: the switch is off by default), which is small but is exactly the kind of
+"state maintained for nobody" this cleanup item exists to find.

@@ -2892,12 +2892,19 @@ namespace deren::engine {
                 [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(slot),
                                                                                 *image, range, rhi::descriptor_type::storage_image);
             };
-            write_storage_target(deren::engine::render_layout::heap_slots::gbuffer_albedo_storage + image_slot, target_image(this->gbuffer_images[0][heap_image]));
-            write_storage_target(deren::engine::render_layout::heap_slots::gbuffer_normal_storage + image_slot, target_image(this->gbuffer_images[1][heap_image]));
-            write_storage_target(deren::engine::render_layout::heap_slots::gbuffer_material_storage + image_slot, target_image(this->gbuffer_images[2][heap_image]));
-            write_storage_target(deren::engine::render_layout::heap_slots::gbuffer_velocity_storage + image_slot, target_image(this->velocity_images[heap_image]));
-            write_storage_target(deren::engine::render_layout::heap_slots::scene_color_storage + image_slot,
-                                 target_image(this->graph_taa_frame ? this->scene_color_images[heap_image] : this->hdr_images[heap_image]));
+            // ---- ONLY ON A FRAME THAT RUNS THE RESOLVE (item 4's cleanup half): five descriptor writes per
+            // frame were issued on EVERY frame, but the only reader is the visibility resolve lane and the
+            // images are otherwise untouched by these descriptors. On an OFF frame (and on a fallback frame)
+            // the write cannot be observed, so it is the first thing the cleanup removes - measured: OFF and ON
+            // pixels unchanged (the writes are descriptor state, not rendering), see the review record.
+            if (this->visibility_lane_frame == deren::engine::visibility::opaque_lane::visibility) {
+                write_storage_target(deren::engine::render_layout::heap_slots::gbuffer_albedo_storage + image_slot, target_image(this->gbuffer_images[0][heap_image]));
+                write_storage_target(deren::engine::render_layout::heap_slots::gbuffer_normal_storage + image_slot, target_image(this->gbuffer_images[1][heap_image]));
+                write_storage_target(deren::engine::render_layout::heap_slots::gbuffer_material_storage + image_slot, target_image(this->gbuffer_images[2][heap_image]));
+                write_storage_target(deren::engine::render_layout::heap_slots::gbuffer_velocity_storage + image_slot, target_image(this->velocity_images[heap_image]));
+                write_storage_target(deren::engine::render_layout::heap_slots::scene_color_storage + image_slot,
+                                     target_image(this->graph_taa_frame ? this->scene_color_images[heap_image] : this->hdr_images[heap_image]));
+            }
             // THE TAA HISTORY IMAGE IS THE ENGINE'S OWN (③-D/E A1.1): the raw handle comes through the
             // contract's escape, and the guard is the fixed-size array's own VALIDITY rather than a vector's
             // length - `heap_image` is the acquired image index, already inside the rhi::max_swapchain_images
