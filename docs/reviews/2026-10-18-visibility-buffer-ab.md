@@ -656,3 +656,20 @@ ON number counts only the lanes that ran, so the two figures are not the same me
 narrow: split the counter per PASS and per LANE on one admitted scene (the stat lane mechanism is there), then
 compare "meshlets emitted / culled" between the geometry lane and the raster lane for the same 62 items. A
 difference in EMITTED counts is the mechanism; equal emitted counts retire this lead.
+
+## Two records: the full frozen gate on the current tree, and the launch-count lead weighed (round 27)
+
+1. HARD CONSTRAINT, re-verified end to end after the item-2/item-3 shader work: the full frozen OFF round on
+   the current tree is **15/15 matched, 0 mismatched, PASS** against the legacy hashes. The MASK alpha test and
+   the near-plane clip are ON-path shaders, and the stat-lane addition recompiled the shared mesh-geometry
+   header without moving a single OFF frame - which is what the mirror/statistic tests are there to keep true.
+
+2. The round-26 lead (raster lane launching ~4.5x fewer mesh workgroups than the geometry cost counter on
+   sponza) is NOT missing geometry: if the raster lane culled meshlets the old path draws, the base frame would
+   lose whole surfaces, and the measured base ON-vs-OFF difference is small per changed pixel (16.6% of pixels,
+   mean over changed ~15.5/255 at v0.6, dominated by shading/LOD rather than background-through-geometry,
+   which would read near a hundred). The launch-count difference is therefore attribution (the OFF counter
+   includes passes the ON arm does not run, e.g. the shadow lane's share), not a cull divergence - retired as a
+   root cause for the depth-EQUAL failure unless the per-pass split says otherwise.
+
+Item 1 therefore still needs the depth readback + input-byte dump to close; that is recorded as its entry point.
