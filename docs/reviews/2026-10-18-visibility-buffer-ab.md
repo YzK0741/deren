@@ -240,3 +240,28 @@ So: item 1 is now root-cause-finding, not "apply the known fix". The candidate r
 the depth with the character stage's own module; b: give the stage a reconstructable depth source; c: only if
 the input comparison shows it, an arithmetic/contraction change), but the decision needs the raw depth values,
 which the next session measures with a temporary readback of the depth attachment at the rejected pixels.
+
+## Depth-EQUAL root cause, measured (item 1, round 2)
+
+A temporary env-gated diagnostic isolated the mechanism (both switches reverted before this commit; they were
+measurement scaffolding, not code to keep):
+
+- bypassing the `depth_equal_stage` admission clause reproduces v0.6 EXACTLY: laevatain_old_chain ON vs OFF
+  is 33.45% changed / 20.736 frame mean / 62.0 over changed pixels - the same numbers v0.6 recorded, so the
+  clause is bypassed correctly and the earlier measurement was not confounded;
+- the SAME bypass with the character pipeline's depth compare changed from EQUAL to LESS_OR_EQUAL drops that
+  to 9.47% changed / 4.559 frame mean (mean over changed 48.16).
+
+So the mechanism IS the exact depth comparison: with `equal`, the character stage's fragments are rejected
+wherever its own depth and the stored G-buffer depth differ at all; with `less_or_equal` they draw. The
+SPIR-V check above shows the clip-position arithmetic is identical in both pipelines, so the difference is on
+the DATA side (model/camera bytes reaching the two stages, or a rasterization-state difference), not the
+expression. That is what the next measurement reads back: the stored depth and the character stage's own depth
+at the rejected pixels (a readback attachment), plus the model/camera bytes each stage received.
+
+The fix candidates narrow with it: (a) make the character stage produce the depth it tests against (its own
+pass writes the G-buffer depth on such frames), (b) give it a depth compare that tolerates the difference only
+after proving where the difference comes from (b is NOT acceptable while the source is unknown - a tolerance
+would hide a wrong-depth producer), or (c) align the data/state path. LESS_OR_EQUAL is measured to be closer
+to the old frame but is NOT the fix: it changes which fragments the stage draws (two surfaces at one pixel
+would both shade) and would need its own A/B on the 4 toon scenarios before it could be considered.
