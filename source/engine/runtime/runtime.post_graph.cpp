@@ -591,8 +591,20 @@ namespace deren::engine {
                     return rhi::error::not_ready;
                 }
                 auto resolve_bound = build.bind_pass<graph::visibility::resolve_parameters>(
-                    resolve_added->pass, [payload](graph::visibility::resolve_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
-                        return payload->record(20);
+                    resolve_added->pass, [this, payload](graph::visibility::resolve_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                        auto error = payload->record(20);
+                        if (error != rhi::error::ok)
+                            return error;
+                        // THE GEOMETRY LANE'S GPU MARKS, EMITTED BY THE LANE THAT REPLACED IT: the per-pass
+                        // timing report walks the frame's marks in gpu_mark_id order, and on a visibility frame the
+                        // geometry lane (which wrote scene_end/rt_shadow_end) is not recorded - so without these
+                        // two the NEXT marks are refused and the ON path's pass report is mislabeled (measured:
+                        // "GPU timing mark 5 was refused (9)" repeated for the rest of the frame). The marks mean
+                        // the same thing here: the opaque producer and the ray-traced shadow lane are the points
+                        // the report names, whoever recorded them.
+                        this->gpu_mark(gpu_mark_id::scene_end);
+                        this->gpu_mark(gpu_mark_id::rt_shadow_end);
+                        return rhi::error::ok;
                     });
                 if (!resolve_bound) {
                     return post_build_error(resolve_bound.error());

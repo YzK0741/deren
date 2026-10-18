@@ -285,3 +285,18 @@ existing `mask_bake` compute pass's per-triangle collapse (already built for the
 the triangles the raster must skip, or an alpha-tested visibility fragment stage (interpolated UV + albedo
 alpha discard) which is a heavier raster. The first reuses a measured instrument and keeps the raster
 id-only; it is the direction item 2 should take.
+
+## The ON path's GPU timing marks (non-extension fix, round 4 - the instrument item 5 needs)
+
+The ON arm was recording a frame whose per-pass GPU timing report was destroyed by the lane swap: the report
+walks the frame's marks in `gpu_mark_id` order, the geometry lane is what wrote `scene_end` and
+`rt_shadow_end`, and a visibility frame does not record it - so every later mark of the frame was refused.
+MEASURED on `deferred` ON: **492 "GPU timing mark N was refused (9)" lines per session**, which also means
+the per-pass timings (the instrument item 5's performance baseline needs) were unusable on exactly the path
+the baseline must measure.
+
+The fix: the resolve lane - the pass that REPLACED the geometry lane as the opaque producer - emits the same
+two marks after its dispatch, meaning the same thing (the opaque producer is done; the ray-traced shadow
+lane's slot in the report is unchanged). MEASURED after: **0 refusals**, and the frame's hash is unchanged
+(`7EF9249001EB6035`) because marks are timing queries, not pixels. The OFF arm never had the problem (the
+geometry lane records its own marks), so no OFF reference moves.
