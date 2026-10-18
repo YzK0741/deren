@@ -47,7 +47,7 @@ copy of the rule:
 | `rhi::is_concrete(object const&, string_view name)` | false = a handle this backend did not hand out; the caller-facing answer is `error::invalid_argument` (a factory answers `nullptr`) |
 | `rhi::do_concrete<concrete_t>(object const& / object&, name, source_location = current())` | the handle as its concrete adapter type. A mismatch PANICS: by the time this is called the provenance (registry membership, an object-identity comparison) has already been established, so a mismatch is the backend's own bookkeeping being inconsistent - a bug in the code holding the invariant, not a caller condition |
 
-The names are the BACKEND's, not the contract's: the Vulkan backend keeps its 28 constants in
+The names are the BACKEND's, not the contract's: the Vulkan backend keeps its 29 constants in
 `deren::vulkan::concrete` and passes them to both calls, which is what lets a second backend apply the
 same rule with its own names. Moving the two helpers into `:contract` moved no `abi_version` - they are
 inline and template free functions over the existing field (no vtable slot, no by-value POD, no
@@ -101,6 +101,18 @@ regressions when `offscreen` is false. The GUI is disabled without a window. The
 create its own internal temporary HWND; the renderer creates none. Async presentation now reads the
 configuration key; `DEREN_ASYNC_PRESENT` no longer selects it in current builds. Historical benchmark
 snapshots retain the environment switch they were measured with.
+
+## Recording and submission
+
+A command buffer records; `api_core::submit(command_buffer&)` submits one. For a batch there is a second,
+parallel type: `mergeable_command_buffer` (a sibling of `command_buffer`, not a subtype) can only be submitted
+through `api_core::submit(std::span<mergeable_command_buffer_ref const>)` - in span order, with the whole batch
+validated before anything is queued. The backend owns the merge: the Vulkan backend records the segments into a
+backend-owned primary and submits that, while a D3D12 backend can hand the command lists straight to
+`ExecuteCommandLists`. Segments are self-contained (state and render scopes do not cross a boundary), no memory
+barrier is inserted between them, and the backend retains the handles until the submission completes. The
+existing single-buffer submit and `execute()` stay untouched: the renderer still uses them, and migrating the
+frame path onto the batch is a separate batch.
 
 ## Capabilities: abilities and extensions
 

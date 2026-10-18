@@ -348,7 +348,7 @@ namespace {
         // number exists for. The three transition structures (vulkan_heap_image_desc / vulkan_heap_image_info /
         // vulkan_command_buffer_info) are deleted with it, their `structure_type` values are retired and never
         // reused, and a heap request that still chains one is refused with `unsupported`.
-        CHECK(rhi::abi_version == 34u);
+        CHECK(rhi::abi_version == 35u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
@@ -478,6 +478,27 @@ namespace {
             outside.where = descriptor_space->position(*empty_probe_group);
             outside.index = rhi::texture_group_capacity;
             CHECK(descriptor_space->write(outside) == rhi::error::invalid_argument);
+        }
+
+        // ---- ABI 35: THE MERGEABLE COMMAND BUFFER AND THE BATCH SUBMISSION -------------------------
+        // Two ended segments go to the queue as ONE batch; the duplicate/empty refusals are the contract's
+        // atomic-validation rules, and a segment is still usable after the batch returns (it retains the
+        // backend's inner object, not the caller's wrapper).
+        rhi::mergeable_command_buffer_ref first_mergeable = core->make_mergeable_command_buffer({});
+        rhi::mergeable_command_buffer_ref second_mergeable = core->make_mergeable_command_buffer({});
+        CHECK_MSG(first_mergeable != nullptr && second_mergeable != nullptr, which_half);
+        if (first_mergeable != nullptr && second_mergeable != nullptr) {
+            CHECK(first_mergeable->begin_recording({}) == rhi::error::ok);
+            CHECK(first_mergeable->end_recording() == rhi::error::ok);
+            CHECK(second_mergeable->begin_recording({}) == rhi::error::ok);
+            CHECK(second_mergeable->end_recording() == rhi::error::ok);
+            rhi::mergeable_command_buffer_ref const batch[] = {first_mergeable, second_mergeable};
+            CHECK_MSG(core->submit(std::span<rhi::mergeable_command_buffer_ref const>(batch)) == rhi::error::ok, which_half);
+            // the same segment twice is not one batch (refused whole, nothing queued)
+            rhi::mergeable_command_buffer_ref const duplicate[] = {second_mergeable, second_mergeable};
+            CHECK(core->submit(std::span<rhi::mergeable_command_buffer_ref const>(duplicate)) == rhi::error::invalid_argument);
+            // an empty batch is a caller bug
+            CHECK(core->submit(std::span<rhi::mergeable_command_buffer_ref const>{}) == rhi::error::invalid_argument);
         }
 
         // ---- tier-1: a factory, and a virtual call that comes back out of the backend ---------

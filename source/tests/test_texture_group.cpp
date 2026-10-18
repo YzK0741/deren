@@ -235,6 +235,42 @@ void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, bool us
     if (actual != expected)
         for (std::size_t i = 0; i < actual.size(); ++i)
             deren::vk_test::write_line("heap output[{}] = {:#x}, expected {:#x}", i, actual[i], expected[i]);
+
+    // ---- ABI 35: BATCH SUBMISSION of two mergeable command buffers (real backend) --------------------
+    // Two independent segments copy one value each into two halves of a host-visible buffer; ONE batch
+    // submission executes both, and the mapped read-back shows both writes - the minimal observable
+    // difference between "the batch ran" and "the handles were accepted".
+    rhi::object_manager<rhi::buffer> batch_output{core.create_buffer({.size = 8u,
+                                                                      .usage = rhi::buffer_usage::storage_coherent,
+                                                                      .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
+    std::uint32_t const first_value = 0x11111111u, second_value = 0x22222222u;
+    rhi::object_manager<rhi::buffer> first_source{core.create_buffer({.size = 4u,
+                                                                      .usage = rhi::buffer_usage::storage_coherent,
+                                                                      .flags = rhi::to_bits(rhi::buffer_flag::device_address),
+                                                                      .initial_bytes = std::as_bytes(std::span(&first_value, 1))})};
+    rhi::object_manager<rhi::buffer> second_source{core.create_buffer({.size = 4u,
+                                                                       .usage = rhi::buffer_usage::storage_coherent,
+                                                                       .flags = rhi::to_bits(rhi::buffer_flag::device_address),
+                                                                       .initial_bytes = std::as_bytes(std::span(&second_value, 1))})};
+    CHECK(batch_output && first_source && second_source);
+    rhi::mergeable_command_buffer_ref mergeable_a = core.make_mergeable_command_buffer({});
+    rhi::mergeable_command_buffer_ref mergeable_b = core.make_mergeable_command_buffer({});
+    CHECK(mergeable_a && mergeable_b);
+    if (batch_output && first_source && second_source && mergeable_a && mergeable_b) {
+        CHECK(mergeable_a->begin_recording({}) == rhi::error::ok);
+        CHECK(mergeable_a->copy_buffer(*batch_output, *first_source, 4u, 0u, 0u) == rhi::error::ok);
+        CHECK(mergeable_a->end_recording() == rhi::error::ok);
+        CHECK(mergeable_b->begin_recording({}) == rhi::error::ok);
+        CHECK(mergeable_b->copy_buffer(*batch_output, *second_source, 4u, 0u, 4u) == rhi::error::ok);
+        CHECK(mergeable_b->end_recording() == rhi::error::ok);
+        rhi::mergeable_command_buffer_ref const batch[] = {mergeable_a, mergeable_b};
+        CHECK(core.submit(std::span<rhi::mergeable_command_buffer_ref const>(batch)) == rhi::error::ok);
+        core.wait_idle();
+        deren::utility::vessel::array<std::uint32_t, 2> observed{};
+        std::memcpy(observed.data(), batch_output->mapped().data(), sizeof(observed));
+        CHECK(observed[0] == first_value);
+        CHECK(observed[1] == second_value);
+    }
 }
 
 int main(int argc, char** argv) {

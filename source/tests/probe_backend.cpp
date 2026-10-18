@@ -600,6 +600,120 @@ namespace {
     ///   - `execute()` accepts only THIS probe's buffer and refuses anything else by name.
     /// The bodies live below `impl` (the execute check reaches back through the owner).
 
+    /// THE PROBE'S MERGEABLE COMMAND BUFFER (abi 35): a batch-only recording handle. It reuses the probe's
+    /// existing recording stand-in by composition and adds the one batch-relevant state (`submitted`), so the
+    /// contract test can drive the real submission rules without a device: the batch must be non-empty, every
+    /// handle must come from this probe, none may still be recording/released/already submitted, and the same
+    /// segment may not appear twice.
+    struct probe_mergeable_command_buffer final : rhi::mergeable_command_buffer {
+        probe_mergeable_command_buffer() noexcept
+            : rhi::mergeable_command_buffer("deren_mergeable_command_buffer_probe") {
+        }
+        impl* owner = nullptr;
+        probe_command_buffer inner;
+        bool submitted = false;
+
+        void release() noexcept override;
+        [[nodiscard]] rhi::error begin_recording(rhi::command_buffer_begin_info const& info) override {
+            return inner.begin_recording(info);
+        }
+        [[nodiscard]] rhi::error end_recording() noexcept override {
+            return inner.end_recording();
+        }
+        [[nodiscard]] rhi::error use(rhi::image const& resource, rhi::image_use from, rhi::image_use to) noexcept override {
+            return inner.use(resource, from, to);
+        }
+        [[nodiscard]] rhi::error copy_image_to_buffer(rhi::buffer& destination, rhi::image const& source, rhi::image_copy_region const& region) noexcept override {
+            return inner.copy_image_to_buffer(destination, source, region);
+        }
+        [[nodiscard]] rhi::error begin_gpu_timing() noexcept override {
+            return inner.begin_gpu_timing();
+        }
+        [[nodiscard]] rhi::error mark_gpu_timing(std::uint32_t mark_index, std::string_view stage_name) noexcept override {
+            return inner.mark_gpu_timing(mark_index, stage_name);
+        }
+        [[nodiscard]] rhi::error begin_rendering(rhi::rendering_info const& info) override {
+            return inner.begin_rendering(info);
+        }
+        void end_rendering() noexcept override {
+            inner.end_rendering();
+        }
+        [[nodiscard]] rhi::error bind_pipeline(rhi::pipeline const& handle) override {
+            return inner.bind_pipeline(handle);
+        }
+        [[nodiscard]] rhi::error bind_vertex_buffer(rhi::buffer const& handle, std::uint64_t offset) override {
+            return inner.bind_vertex_buffer(handle, offset);
+        }
+        [[nodiscard]] rhi::error bind_index_buffer(rhi::buffer const& handle, std::uint64_t offset, rhi::index_type type) override {
+            return inner.bind_index_buffer(handle, offset, type);
+        }
+        void draw(std::uint32_t vertex_count, std::uint32_t instance_count, std::uint32_t first_vertex, std::uint32_t first_instance) noexcept override {
+            inner.draw(vertex_count, instance_count, first_vertex, first_instance);
+        }
+        void draw_indexed(std::uint32_t index_count, std::uint32_t instance_count, std::uint32_t first_index, std::int32_t vertex_offset, std::uint32_t first_instance) noexcept override {
+            inner.draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
+        }
+        [[nodiscard]] rhi::error draw_indirect(rhi::buffer const& arguments, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) override {
+            return inner.draw_indirect(arguments, offset, count, stride);
+        }
+        void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept override {
+            inner.dispatch(groups_x, groups_y, groups_z);
+        }
+        void draw_mesh_tasks(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept override {
+            inner.draw_mesh_tasks(groups_x, groups_y, groups_z);
+        }
+        [[nodiscard]] rhi::error draw_mesh_tasks_indirect(rhi::buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) override {
+            return inner.draw_mesh_tasks_indirect(argument_buffer, offset, count, stride);
+        }
+        void trace_rays(rhi::shader_binding_table_region const& raygen, rhi::shader_binding_table_region const& miss,
+                        rhi::shader_binding_table_region const& hit, rhi::shader_binding_table_region const& callable,
+                        std::uint32_t width, std::uint32_t height, std::uint32_t depth) noexcept override {
+            inner.trace_rays(raygen, miss, hit, callable, width, height, depth);
+        }
+        [[nodiscard]] rhi::error build_acceleration_structure(rhi::acceleration_structure& target) override {
+            return inner.build_acceleration_structure(target);
+        }
+        [[nodiscard]] rhi::error refit_acceleration_structure(rhi::acceleration_structure& target) override {
+            return inner.refit_acceleration_structure(target);
+        }
+        [[nodiscard]] rhi::error build_micromap(rhi::micromap& target) override {
+            return inner.build_micromap(target);
+        }
+        void set_viewport(rhi::viewport const& vp) noexcept override {
+            inner.set_viewport(vp);
+        }
+        void set_scissor(rhi::rect const& scissor) noexcept override {
+            inner.set_scissor(scissor);
+        }
+        void set_cull_mode(rhi::cull_mode mode) noexcept override {
+            inner.set_cull_mode(mode);
+        }
+        void set_depth_write(bool enable) noexcept override {
+            inner.set_depth_write(enable);
+        }
+        void set_depth_bias(float constant_factor, float slope_factor, float clamp) noexcept override {
+            inner.set_depth_bias(constant_factor, slope_factor, clamp);
+        }
+        [[nodiscard]] rhi::error barrier(rhi::barrier_group const& group) override {
+            return inner.barrier(group);
+        }
+        [[nodiscard]] rhi::error barrier(rhi::image_barrier const& one) override {
+            return inner.barrier(one);
+        }
+        [[nodiscard]] rhi::error copy_image(rhi::image_copy const& copy) override {
+            return inner.copy_image(copy);
+        }
+        [[nodiscard]] rhi::error copy_buffer(rhi::buffer& destination, rhi::buffer const& source, std::uint64_t size, std::uint64_t source_offset, std::uint64_t destination_offset) override {
+            return inner.copy_buffer(destination, source, size, source_offset, destination_offset);
+        }
+        [[nodiscard]] rhi::error clear_color_image(rhi::image const& target, deren::utility::vessel::array<float, 4> const& color, rhi::subresource_range const& range) override {
+            return inner.clear_color_image(target, color, range);
+        }
+        [[nodiscard]] rhi::error load_texture_group(rhi::texture_group_ref const& group) override {
+            return inner.load_texture_group(group);
+        }
+    };
+
     /// THE PROBE'S PRESENTATION SURFACE (abi 14): a BORROWED view like the walker and the profiler, and
     /// the DESCRIPTOR ECHO reaches through it - the "current size" a rebuild re-derives from the window
     /// it owns is, for a probe with no window, the creation descriptor it was handed
@@ -1272,6 +1386,60 @@ namespace {
             return rhi::texture_group_ref(answer, [](rhi::texture_group* group) { group->release(); });
         }
 
+        /// abi 35: the batch-only recording handle. The probe has no device, so the stand-in records nothing;
+        /// what it DOES record is the contract's batch rules (see `submit(span)` below).
+        [[nodiscard]] rhi::mergeable_command_buffer_ref make_mergeable_command_buffer(rhi::command_buffer_desc const&) override {
+            auto* const answer = new (std::nothrow) probe_mergeable_command_buffer();
+            if (answer == nullptr) {
+                return {};
+            }
+            answer->owner = this;
+            answer->inner.owner = this;
+            answer->inner.frame_scoped = false;
+            answer->inner.kind_echo = rhi::command_buffer_kind::secondary;
+            this->mergeable_buffers.push_back(answer);
+            return rhi::mergeable_command_buffer_ref(answer, [](rhi::mergeable_command_buffer* const handle) noexcept {
+                if (handle != nullptr) {
+                    handle->release();
+                }
+            });
+        }
+
+        /// abi 35: the batch submission's CONTRACT rules on the fake: non-empty, every handle ours, no
+        /// duplicates, every segment ended (not recording), not released and not already submitted. The
+        /// recording side records nothing (no device), so "the batch executed" is the accepted submission itself.
+        [[nodiscard]] rhi::error submit(std::span<rhi::mergeable_command_buffer_ref const> batch) override {
+            if (batch.empty()) {
+                return rhi::error::invalid_argument;
+            }
+            for (std::size_t i = 0; i < batch.size(); ++i) {
+                auto const& handle = batch[i];
+                if (handle == nullptr) {
+                    return rhi::error::invalid_argument;
+                }
+                auto const& owned = static_cast<probe_mergeable_command_buffer const&>(*handle);
+                if (std::find(this->mergeable_buffers.begin(), this->mergeable_buffers.end(), &owned) == this->mergeable_buffers.end()) {
+                    return rhi::error::invalid_argument; // a handle this probe did not hand out
+                }
+                if (owned.submitted) {
+                    return rhi::error::invalid_argument; // one batch per recording
+                }
+                if (owned.inner.recording || owned.inner.released) {
+                    return rhi::error::not_ready; // still recording, or the one reference was dropped
+                }
+                for (std::size_t j = 0; j < i; ++j) {
+                    if (batch[j].get() == handle.get()) {
+                        return rhi::error::invalid_argument; // the same segment twice is not one batch
+                    }
+                }
+            }
+            for (auto const& handle : batch) {
+                static_cast<probe_mergeable_command_buffer*>(handle.get())->submitted = true;
+            }
+            this->mergeable_batches += 1;
+            return rhi::error::ok;
+        }
+
         [[nodiscard]] rhi::query* create_query(rhi::query_desc const&) override {
             return nullptr;
         }
@@ -1429,6 +1597,10 @@ namespace {
         std::uint32_t presents = 0;
         std::uint32_t waits = 0;
         std::uint32_t submits = 0;
+        /// abi 35: the mergeable handles this probe handed out (provenance for the batch submission),
+        /// and the number of accepted batches (the observable "the call arrived").
+        deren::utility::vessel::vector<probe_mergeable_command_buffer*> mergeable_buffers;
+        std::uint32_t mergeable_batches = 0;
         /// WHETHER A FRAME IS OPEN: the probe's stand-in for the backend's `frame_in_flight`, so
         /// `begin_commands()`/the timing verbs/the submit check answer in the same window the real
         /// backend answers in
@@ -1581,6 +1753,13 @@ namespace {
         }
         ++this->executions;
         return rhi::error::ok;
+    }
+
+    void probe_mergeable_command_buffer::release() noexcept {
+        if (this->owner != nullptr) {
+            std::erase(this->owner->mergeable_buffers, this);
+        }
+        delete this;
     }
 
 } // namespace

@@ -2004,6 +2004,117 @@ namespace deren::vulkan {
         });
     }
 
+    // ---- abi 35: the mergeable command buffer (batch-only) -----------------------------------------
+
+    void core::owned_mergeable_command_buffer::release() noexcept {
+        if (this->owner != nullptr) {
+            std::lock_guard const lock(this->owner->contract_mergeable_buffers_mutex);
+            this->owner->contract_mergeable_buffers.erase(this);
+        }
+        // THE INNER SECONDARY IS DROPPED BY THE shared_ptr MEMBER: a submission that is still in flight holds
+        // its own reference (retain_command), so the recording outlives this handle exactly as the contract's
+        // retention rule promises.
+        delete this;
+    }
+
+    rhi::mergeable_command_buffer_ref core::make_mergeable_command_buffer(rhi::command_buffer_desc const& declared_desc) {
+        // THE KIND IS THE FACTORY'S, not the descriptor's: a mergeable is recorded as a SECONDARY in Vulkan
+        // terms (the backend owns the primary that executes the batch), so a caller's `primary` value is
+        // replaced rather than refused - the TYPE already says which submission rule applies.
+        rhi::command_buffer_desc desc = declared_desc;
+        desc.kind = rhi::command_buffer_kind::secondary;
+        rhi::command_buffer* const raw = this->create_command_buffer(desc);
+        if (raw == nullptr) {
+            return {};
+        }
+        auto* const raw_mergeable = new (std::nothrow) owned_mergeable_command_buffer();
+        if (raw_mergeable == nullptr) {
+            static_cast<owned_command_buffer*>(raw)->release();
+            return {};
+        }
+        raw_mergeable->owner = this;
+        raw_mergeable->inner = std::shared_ptr<owned_command_buffer>(static_cast<owned_command_buffer*>(raw), [](owned_command_buffer* const p) noexcept {
+            if (p != nullptr) {
+                p->release();
+            }
+        });
+        {
+            std::lock_guard const lock(this->contract_mergeable_buffers_mutex);
+            this->contract_mergeable_buffers.insert(raw_mergeable);
+        }
+        return rhi::mergeable_command_buffer_ref(raw_mergeable, [](rhi::mergeable_command_buffer* const p) noexcept {
+            if (p != nullptr) {
+                p->release();
+            }
+        });
+    }
+
+    rhi::error core::submit(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) {
+        // EMPTY IS A CALLER BUG: an empty frame wants no queue submission, and there is no acquire/present
+        // to do on its behalf - refusing keeps "submitted nothing" from looking like "submitted the frame".
+        if (batch.empty()) {
+            return rhi::error::invalid_argument;
+        }
+        // THE WHOLE BATCH IS VALIDATED BEFORE ANYTHING IS RECORDED OR QUEUED (the contract's atomic rule).
+        {
+            std::lock_guard const lock(this->contract_mergeable_buffers_mutex);
+            for (auto const& one : batch) {
+                if (one == nullptr || !this->contract_mergeable_buffers.contains(one.get())) {
+                    return rhi::error::invalid_argument; // a handle this backend did not hand out
+                }
+            }
+        }
+        for (auto const& one : batch) {
+            auto const& mergeable = *rhi::do_concrete<owned_mergeable_command_buffer>(*one, concrete::mergeable_command_buffer);
+            if (mergeable.inner == nullptr) {
+                return rhi::error::not_ready;
+            }
+            auto const& inner = *mergeable.inner;
+            if ((inner.kind != rhi::command_buffer_kind::secondary) || !inner.executable || inner.recording ||
+                inner.pending.load(std::memory_order_acquire) != 0 || *inner.buffer == VK_NULL_HANDLE) {
+                return rhi::error::not_ready; // still recording, released, or already in flight
+            }
+        }
+        for (std::size_t i = 0; i < batch.size(); ++i) {
+            for (std::size_t j = i + 1; j < batch.size(); ++j) {
+                if (batch[i].get() == batch[j].get()) {
+                    return rhi::error::invalid_argument; // the same segment twice is not one batch
+                }
+            }
+        }
+
+        // THE BACKEND-OWNED MERGE PRIMARY: an ordinary owned primary created here, so the EXISTING
+        // owned-primary submission path below does the retention, fence and pending bookkeeping - the batch
+        // does not need a second submission mechanism.
+        rhi::command_buffer_desc primary_desc{};
+        primary_desc.kind = rhi::command_buffer_kind::primary;
+        rhi::command_buffer* const raw_primary = this->create_command_buffer(primary_desc);
+        if (raw_primary == nullptr) {
+            return rhi::error::not_ready;
+        }
+        auto* const primary = static_cast<owned_command_buffer*>(raw_primary);
+        rhi::error status = primary->begin_recording(rhi::command_buffer_begin_info{});
+        if (status == rhi::error::ok) {
+            for (auto const& one : batch) {
+                auto& inner = *static_cast<owned_mergeable_command_buffer*>(one.get())->inner;
+                // THE RECORDING IS RETAINED (and its pending counter raised) by the primary's secondary_refs,
+                // which the submission path copies into the pending submission: the caller may drop its
+                // mergeable handles as soon as this call returns.
+                primary->secondary_refs.push_back(this->retain_command(inner, true));
+                VkCommandBuffer const native = *inner.buffer;
+                vkCmdExecuteCommands(*primary->buffer, 1, &native);
+            }
+            status = primary->end_recording();
+        }
+        if (status == rhi::error::ok) {
+            status = this->submit(*raw_primary);
+        }
+        // drop OUR one reference: after a successful submit the pending submission owns its own, and a failed
+        // one has nothing in flight - either way the handle dies here, inside the backend.
+        primary->release();
+        return status;
+    }
+
     void core::owned_command_buffer::release() noexcept {
         if (references.fetch_sub(1, std::memory_order_acq_rel) != 1)
             return;

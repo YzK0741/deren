@@ -319,13 +319,21 @@ export namespace deren::promise::rhi {
     // `structure_type` values are RETIRED and never reused, and a heap request that still chains one is
     // refused with `unsupported` instead of being walked. The heap image write is now described ONLY by the
     // portable `image_view_desc` (role/layers/mips/format derived from the contract image).
+    // ABI 35 is the MERGEABLE COMMAND BUFFER batch: `api_core` APPENDED two virtuals - the
+    // `make_mergeable_command_buffer` factory and the `submit(std::span<mergeable_command_buffer_ref const>)`
+    // overload. That is the vtable-append case the number exists for. The new tier-1 interface
+    // `mergeable_command_buffer` is a SIBLING of `command_buffer` (both derive `object` directly; the
+    // recording verbs are declared twice on purpose) and therefore carries no number of its own. The
+    // existing submission (`submit(command_buffer&)`), `execute()` and the frame path keep their slots and
+    // their meaning: this batch adds ONE more way to reach the queue (an ordered, self-contained batch,
+    // atomically validated, with no implicit barriers) without re-shaping anything already there.
     // NOT A BUMP (the validate-and-cast helpers): `is_concrete()` / `do_concrete()` below are inline and
     // template FREE functions over the existing `object::type` field - no vtable slot, no by-value POD,
     // no entry-point signature moved, and the NAMES stay the backend's (the contract owns only the
     // operation). They live here because EVERY backend needs the same "check the concrete name, then
     // cast to the concrete layout" pair, and one copy is what keeps the next backend from reinventing
     // it (or from weakening the panic/refusal split its own doc states).
-    inline constexpr std::uint32_t abi_version = 34u;
+    inline constexpr std::uint32_t abi_version = 35u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

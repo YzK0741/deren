@@ -277,6 +277,7 @@ namespace deren::vulkan {
         inline constexpr std::string_view api_core = "deren_api_core_vulkan";
         inline constexpr std::string_view frame_commands = "deren_frame_commands_vulkan";
         inline constexpr std::string_view command_buffer = "deren_command_buffer_vulkan";
+        inline constexpr std::string_view mergeable_command_buffer = "deren_mergeable_command_buffer_vulkan";
         inline constexpr std::string_view frame_image = "deren_frame_image_vulkan";
         inline constexpr std::string_view frame_snapshot = "deren_frame_snapshot_vulkan";
         inline constexpr std::string_view frame_resources = "deren_frame_resources_vulkan";
@@ -459,6 +460,145 @@ namespace deren::vulkan {
             [[nodiscard]] deren::promise::rhi::error begin_recording(deren::promise::rhi::command_buffer_begin_info const& info) override;
             [[nodiscard]] deren::promise::rhi::error end_recording() noexcept override;
             [[nodiscard]] deren::promise::rhi::error execute(deren::promise::rhi::command_buffer& secondary) override;
+        };
+
+        /// THE BATCH-ONLY COMMAND BUFFER (contract: `mergeable_command_buffer`). It reuses the owned
+        /// secondary's ENTIRE recording implementation by composition: `inner` is a real `owned_command_buffer`
+        /// created at the secondary level and held through a `shared_ptr`, so a batch submission can retain it
+        /// after the caller drops the mergeable. Every recording verb forwards to it.
+        ///
+        /// THE BATCH (`core::submit(std::span<...>)`) records these secondaries into a backend-owned primary and
+        /// hands that primary to the EXISTING owned-primary submission path: retention, fences, pending
+        /// counters and the one-shot rules are therefore the same machinery a caller-owned primary already
+        /// uses, and nothing about the frame path moves.
+        struct owned_mergeable_command_buffer final : deren::promise::rhi::mergeable_command_buffer {
+            using rhi_error = deren::promise::rhi::error;
+            using rhi_begin_info = deren::promise::rhi::command_buffer_begin_info;
+            using rhi_image = deren::promise::rhi::image;
+            using rhi_image_use = deren::promise::rhi::image_use;
+            using rhi_buffer = deren::promise::rhi::buffer;
+            using rhi_image_copy_region = deren::promise::rhi::image_copy_region;
+            using rhi_rendering_info = deren::promise::rhi::rendering_info;
+            using rhi_pipeline = deren::promise::rhi::pipeline;
+            using rhi_index_type = deren::promise::rhi::index_type;
+            using rhi_sbt_region = deren::promise::rhi::shader_binding_table_region;
+            using rhi_acceleration_structure = deren::promise::rhi::acceleration_structure;
+            using rhi_micromap = deren::promise::rhi::micromap;
+            using rhi_viewport = deren::promise::rhi::viewport;
+            using rhi_rect = deren::promise::rhi::rect;
+            using rhi_cull_mode = deren::promise::rhi::cull_mode;
+            using rhi_barrier_group = deren::promise::rhi::barrier_group;
+            using rhi_image_barrier = deren::promise::rhi::image_barrier;
+            using rhi_image_copy = deren::promise::rhi::image_copy;
+            using rhi_texture_group_ref = deren::promise::rhi::texture_group_ref;
+            using rhi_subresource_range = deren::promise::rhi::subresource_range;
+            using rhi_array4f = deren::utility::vessel::array<float, 4>;
+
+            owned_mergeable_command_buffer() noexcept
+                : deren::promise::rhi::mergeable_command_buffer(concrete::mergeable_command_buffer) {
+            }
+            core* owner = nullptr;
+            /// the secondary this mergeable records into (shared, so the batch can retain it)
+            std::shared_ptr<owned_command_buffer> inner;
+
+            void release() noexcept override;
+            [[nodiscard]] rhi_error begin_recording(rhi_begin_info const& info) override {
+                return inner != nullptr ? inner->begin_recording(info) : rhi_error::not_ready;
+            }
+            [[nodiscard]] rhi_error end_recording() noexcept override {
+                return inner != nullptr ? inner->end_recording() : rhi_error::not_ready;
+            }
+            [[nodiscard]] rhi_error use(rhi_image const& resource, rhi_image_use from, rhi_image_use to) noexcept override {
+                return inner->use(resource, from, to);
+            }
+            [[nodiscard]] rhi_error copy_image_to_buffer(rhi_buffer& destination, rhi_image const& source, rhi_image_copy_region const& region) noexcept override {
+                return inner->copy_image_to_buffer(destination, source, region);
+            }
+            [[nodiscard]] rhi_error begin_gpu_timing() noexcept override {
+                return inner->begin_gpu_timing();
+            }
+            [[nodiscard]] rhi_error mark_gpu_timing(std::uint32_t mark_index, std::string_view stage_name) noexcept override {
+                return inner->mark_gpu_timing(mark_index, stage_name);
+            }
+            [[nodiscard]] rhi_error begin_rendering(rhi_rendering_info const& info) override {
+                return inner->begin_rendering(info);
+            }
+            void end_rendering() noexcept override {
+                inner->end_rendering();
+            }
+            [[nodiscard]] rhi_error bind_pipeline(rhi_pipeline const& handle) override {
+                return inner->bind_pipeline(handle);
+            }
+            [[nodiscard]] rhi_error bind_vertex_buffer(rhi_buffer const& handle, std::uint64_t offset) override {
+                return inner->bind_vertex_buffer(handle, offset);
+            }
+            [[nodiscard]] rhi_error bind_index_buffer(rhi_buffer const& handle, std::uint64_t offset, rhi_index_type type) override {
+                return inner->bind_index_buffer(handle, offset, type);
+            }
+            void draw(std::uint32_t vertex_count, std::uint32_t instance_count, std::uint32_t first_vertex, std::uint32_t first_instance) noexcept override {
+                inner->draw(vertex_count, instance_count, first_vertex, first_instance);
+            }
+            void draw_indexed(std::uint32_t index_count, std::uint32_t instance_count, std::uint32_t first_index, std::int32_t vertex_offset, std::uint32_t first_instance) noexcept override {
+                inner->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
+            }
+            [[nodiscard]] rhi_error draw_indirect(rhi_buffer const& arguments, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) override {
+                return inner->draw_indirect(arguments, offset, count, stride);
+            }
+            void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept override {
+                inner->dispatch(groups_x, groups_y, groups_z);
+            }
+            void draw_mesh_tasks(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept override {
+                inner->draw_mesh_tasks(groups_x, groups_y, groups_z);
+            }
+            [[nodiscard]] rhi_error draw_mesh_tasks_indirect(rhi_buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) override {
+                return inner->draw_mesh_tasks_indirect(argument_buffer, offset, count, stride);
+            }
+            void trace_rays(rhi_sbt_region const& raygen, rhi_sbt_region const& miss, rhi_sbt_region const& hit,
+                            rhi_sbt_region const& callable, std::uint32_t width, std::uint32_t height, std::uint32_t depth) noexcept override {
+                inner->trace_rays(raygen, miss, hit, callable, width, height, depth);
+            }
+            [[nodiscard]] rhi_error build_acceleration_structure(rhi_acceleration_structure& target) override {
+                return inner->build_acceleration_structure(target);
+            }
+            [[nodiscard]] rhi_error refit_acceleration_structure(rhi_acceleration_structure& target) override {
+                return inner->refit_acceleration_structure(target);
+            }
+            [[nodiscard]] rhi_error build_micromap(rhi_micromap& target) override {
+                return inner->build_micromap(target);
+            }
+            void set_viewport(rhi_viewport const& vp) noexcept override {
+                inner->set_viewport(vp);
+            }
+            void set_scissor(rhi_rect const& scissor) noexcept override {
+                inner->set_scissor(scissor);
+            }
+            void set_cull_mode(rhi_cull_mode mode) noexcept override {
+                inner->set_cull_mode(mode);
+            }
+            void set_depth_write(bool enable) noexcept override {
+                inner->set_depth_write(enable);
+            }
+            void set_depth_bias(float constant_factor, float slope_factor, float clamp) noexcept override {
+                inner->set_depth_bias(constant_factor, slope_factor, clamp);
+            }
+            [[nodiscard]] rhi_error barrier(rhi_barrier_group const& group) override {
+                return inner->barrier(group);
+            }
+            [[nodiscard]] rhi_error barrier(rhi_image_barrier const& one) override {
+                return inner->barrier(one);
+            }
+            [[nodiscard]] rhi_error copy_image(rhi_image_copy const& copy) override {
+                return inner->copy_image(copy);
+            }
+            [[nodiscard]] rhi_error copy_buffer(rhi_buffer& destination, rhi_buffer const& source, std::uint64_t size, std::uint64_t source_offset, std::uint64_t destination_offset) override {
+                return inner->copy_buffer(destination, source, size, source_offset, destination_offset);
+            }
+            [[nodiscard]] rhi_error clear_color_image(rhi_image const& target, rhi_array4f const& color, rhi_subresource_range const& range) override {
+                return inner->clear_color_image(target, color, range);
+            }
+            [[nodiscard]] rhi_error load_texture_group(rhi_texture_group_ref const& group) override {
+                return inner->load_texture_group(group);
+            }
         };
 
         /// The swapchain image the frame in flight draws into, as the contract's `image`.
@@ -1158,6 +1298,11 @@ namespace deren::vulkan {
         /// `owned_command_buffer::release()`.
         std::mutex contract_command_buffers_mutex;
         deren::utility::vessel::unordered_set<deren::promise::rhi::command_buffer const*> contract_command_buffers;
+        /// THE BATCH-ONLY HANDLES `make_mergeable_command_buffer()` HANDED OUT (abi 35): the same provenance
+        /// rule as the command-buffer registry above - the batch submission refuses a pointer this backend
+        /// did not hand out BEFORE it casts anything. Erased by `owned_mergeable_command_buffer::release()`.
+        std::mutex contract_mergeable_buffers_mutex;
+        deren::utility::vessel::unordered_set<deren::promise::rhi::mergeable_command_buffer const*> contract_mergeable_buffers;
         /// the tier-2 address object `query_extension(device_address)` answers with
         struct frame_gpu_sorting final : deren::promise::rhi::gpu_sorting {
             frame_gpu_sorting() noexcept
@@ -1434,6 +1579,11 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::gpu_profiler* profiler() noexcept override;
         [[nodiscard]] deren::promise::rhi::swapchain* frame_swapchain() noexcept override;
         [[nodiscard]] deren::promise::rhi::error submit(deren::promise::rhi::command_buffer& commands) override;
+        /// abi 35: the batch submission (see `mergeable_command_buffer` and `core::submit(span)`).
+        [[nodiscard]] deren::promise::rhi::error submit(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) override;
+        /// abi 35: the batch-only recording handle. The returned handle carries one reference, dropped by
+        /// `release()`; the batch submission shares the underlying secondary through the owned registry.
+        [[nodiscard]] deren::promise::rhi::mergeable_command_buffer_ref make_mergeable_command_buffer(deren::promise::rhi::command_buffer_desc const& desc) override;
         /// abi 15: the owned recording handle. The result is heap-allocated here and destroyed by the
         /// contract's `release()` (which is also what removes it from the registry below).
         [[nodiscard]] deren::promise::rhi::command_buffer* create_command_buffer(deren::promise::rhi::command_buffer_desc const& desc) override;

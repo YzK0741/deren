@@ -322,6 +322,14 @@ struct upload_probe : rhi::api_core {
         bytes.emplace_back(desc.initial_bytes.begin(), desc.initial_bytes.end());
         return new probe_buffer(calls, releases, calls == undersized_at ? desc.size - 1 : desc.size);
     }
+    /// abi 35: this probe records no batches - the two slots exist so the class stays concrete; the
+    /// probe's own batch semantics live in source/tests/probe_backend.cpp.
+    [[nodiscard]] rhi::mergeable_command_buffer_ref make_mergeable_command_buffer(rhi::command_buffer_desc const&) override {
+        return {};
+    }
+    [[nodiscard]] rhi::error submit(std::span<rhi::mergeable_command_buffer_ref const>) override {
+        return rhi::error::unsupported;
+    }
     rhi::swapchain* create_swapchain(rhi::swapchain_desc const&) override {
         return nullptr;
     }
