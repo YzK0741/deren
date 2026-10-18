@@ -156,3 +156,31 @@ the new feature, and complete the damaged source comments.
 - **Owner decisions 2, 3, 4 and the source-comment half of 11 are therefore resolved**; the remaining decisions
   above (manual rebuild, megalights history rows elsewhere, runtime_split hazard list, static batching, plan
   checkboxes, citation style) still stand as recorded.
+
+## Docs build status after the documentation pass (2026-10-18)
+
+`scripts/windows/build_docs.ps1` (doxygen 1.18 + pdflatex) now completes with **exit 0, zero doxygen
+warnings and zero LaTeX errors**, and writes the 1074-page manual. Getting the doxygen step to zero required
+fixing what a docs build reads, not the manual's content:
+
+- `source/engine/runtime/runtime.declarations.cppm`: removed 41 lines of orphaned doc-comment blocks left when
+  the stochastic punctual lighting / SSGI members were deleted. One of them contained a malformed backtick run,
+  which doxygen treated as an unclosed verbatim block and then reported as three warnings (including "Reached
+  end of file while still searching closing '`'" at the file's end) - the same class of damage as the orphaned
+  MegaLights comment fragments fixed in `application_configuration.cpp`.
+- Four shader `@file` comments still named their pre-move paths (`shaders/surface.slang`,
+  `shaders/ibl_specular.slang`, `shaders/shading.slang`, `shaders/sky.slang`); they now name the real
+  `source/shaders/{common,lighting}/...` paths.
+- Two one-line `/** @file @brief ... */` blocks (`buffer_storage.cppm`, `scene_tables.cppm`) made doxygen read
+  `@brief` as the file name; they are proper multi-line file blocks now.
+
+The remaining `docs/latex/refman.log` noise is doxygen's LaTeX generator, not the documents: 205 anchors are
+emitted twice because doxygen 1.18 documents each C++20 module on BOTH its file page and its module page
+(member anchors appear in `constant__init_8cppm.tex` and `module__deren_8vulkan_8constant__init.tex` alike),
+which produces the "multiply defined label" / "destination with the same identifier" pairs; the overfull and
+underfull boxes are long identifiers and paths being typeset. Neither is a build error, and changing it means
+changing doxygen's per-compound output (exclude module pages or post-process `refman.tex`) - an owner decision,
+recorded here rather than patched into the build script.
+
+Verification alongside the source edits (comment-only): full frozen OFF gate 15/15, `-Visibility -Compare`
+PASS, OFF `deferred` hash unchanged `FAE60C0B1D8C1191`, `test_docs` PASS.

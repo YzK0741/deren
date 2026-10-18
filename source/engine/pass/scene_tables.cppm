@@ -1,4 +1,7 @@
-/** @file @brief Passchain-owned shared scene tables and packed mesh command/culling storage. */
+/**
+ * @file source/engine/pass/scene_tables.cppm
+ * @brief Passchain-owned shared scene tables and packed mesh command/culling storage.
+ */
 module;
 #include <array>
 #include <cstdint>

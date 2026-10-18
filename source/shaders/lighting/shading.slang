@@ -1,5 +1,5 @@
 /**
- * @file shaders/shading.slang
+ * @file source/shaders/lighting/shading.slang
  * @brief Shared lighting: the scene light/IBL/shadow bindings and the BRDF stack both PBR passes use.
  * @ingroup shaders
  *

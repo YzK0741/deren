@@ -1,5 +1,5 @@
 /**
- * @file shaders/ibl_specular.slang
+ * @file source/shaders/lighting/ibl_specular.slang
  * @brief The specular half of the split-sum IBL, shared by every pass that has to agree about it.
  * @ingroup shaders
  *

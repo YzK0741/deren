@@ -1,4 +1,7 @@
-/** @file @brief Resource-only pass for dynamic object requirements prepared by a completed job slot. */
+/**
+ * @file source/engine/pass/buffer_storage.cppm
+ * @brief Resource-only pass for dynamic object requirements prepared by a completed job slot.
+ */
 module;
 #include <span>
 #include <string_view>

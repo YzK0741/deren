@@ -1,5 +1,5 @@
 /**
- * @file shaders/sky.slang
+ * @file source/shaders/lighting/sky.slang
  * @brief The analytic sky radiance, shared by the forward skybox pass and the deferred lighting pass.
  * @ingroup shaders
  *

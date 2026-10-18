@@ -1,5 +1,5 @@
 /**
- * @file shaders/surface.slang
+ * @file source/shaders/common/surface.slang
  * @brief Shared material-surface gathering: the material table lookup, the glTF alpha tests, the
  *        tangent-space normal mapping and the texture-derived factors.
  * @ingroup shaders

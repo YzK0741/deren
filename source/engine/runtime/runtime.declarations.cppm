@@ -3510,48 +3510,6 @@ namespace deren::engine {
 
         /**
          * @ingroup runtime
-         * @brief stochastic punctual lighting: sample a few lights per pixel and trace one shadow ray each
-         * @param enabled true = the punctual lights are the stochastic pass's business (and the deferred
-         *        stage stops adding them raster-style), false = the engine's historic unshadowed loop
-         * @return whether this call turned the feature ON (the off -> on edge)
-         * @note the SAMPLE COUNT, the minimum sample weight and the origin bias are the PASS's parameters and
-         *       are set by whoever owns that pass (`vulkan.render_start_demo::`set_*_enabled`), by the same
-         */
-
-        /// @brief whether the stochastic punctual lighting chain runs this frame (its own composed predicate)
-
-        /**
-         * @ingroup runtime
-         *       nothing to the marched path, whose hits are the depth buffer's own surface.
-         */
-
-        /**
-         * @ingroup runtime
-         * @brief trace a glossy reflection ray per pixel, so a reflection shows the scene and not the sky
-         * @note a REPLACEMENT for the specular ambient the lighting stage adds, not an addition: the
-         *       estimate falls back to exactly `ibl_specular * F * ao` (the lighting stage's own term, from
-         *       the same expressions) wherever a ray finds no geometry, and the spatial filter removes that
-         *       term again. So the frame is unchanged wherever the reflection has nothing local to show, and
-         *       what changes is the light the reflection actually carries.
-         * @note it needs the TRACED path, hit shading and a built instance table - a marched hit is the
-         *       depth buffer's own surface and cannot be shaded from its geometry - so it is granted only
-         *       where all three hold, and the pass is not even recorded otherwise (which is what makes the
-         *       knob-off frame byte-identical by construction rather than by arithmetic).
-         * @note how far the rays reach as a fraction of the scene radius
-         *        coarse to find anything between them. Measured on Sponza, the lobe's effect is -0.907 at
-         *        0.12 (the marched default, i.e. 39% of what is available), -2.126 at 0.5 and -2.350 at
-         *        2.0, the cost rising +0.94 ms from the first to the second and not at all after it.
-         */
-
-        /**
-         * @ingroup runtime
-         * @note the predicate the frame's record order and the spatial filter's second subtraction are BOTH
-         *       subtraction that disagree about whether the pass ran leave the frame wrong by the whole
-         *       term, and the two are evaluated in different functions.
-         */
-
-        /**
-         * @ingroup runtime
          * @brief the furnace verification mode ([render] furnace)
          * @param enabled true = the sun is off; the constant-environment half is not implemented yet
          * @note the intent is an analytic reference: with the sun off and the environment a constant level L,
