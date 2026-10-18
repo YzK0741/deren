@@ -637,3 +637,22 @@ The same build re-measured the two admitted double-sided scenes for regressions 
 (0F4CC199AEC42A0D). Item 1's root cause is therefore still on the DATA side (model/camera bytes or the depth
 attachment path), and the depth-readback harness remains the only measurement that can close it - the static
 candidates (SPIR-V arithmetic, pipeline state, cull source) are now all eliminated by measurement.
+
+## Item 1: the meshlet-launch counts differ, and that is the next measurement (round 26)
+
+While looking for the data-side difference in the depth-EQUAL failure, a cheap comparison of the runtime's own
+`mesh culling` line exposed a large, unexplained asymmetry in the same scene:
+
+| sponza session (80 renders) | geometry cost workgroup launches |
+| --- | ---: |
+| OFF (geometry lane) | 84,675 (~1,058/frame) |
+| ON (visibility raster lane) | 18,870 (~236/frame) |
+
+If the raster lane really launched 4.5x fewer mesh-shader workgroups for the SAME 62 items, its culling-margin
+or run-partition arithmetic is not the geometry path's, and that alone can leave the shared depth missing
+surfaces the re-shading stage then tests against - the exact shape of the EQUAL failure. THE COMPARISON IS
+NOT YET CLEAN, though: the OFF number includes the shadow/other passes that also dispatch mesh work, and the
+ON number counts only the lanes that ran, so the two figures are not the same measurement. The next step is
+narrow: split the counter per PASS and per LANE on one admitted scene (the stat lane mechanism is there), then
+compare "meshlets emitted / culled" between the geometry lane and the raster lane for the same 62 items. A
+difference in EMITTED counts is the mechanism; equal emitted counts retire this lead.
