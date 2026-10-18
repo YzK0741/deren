@@ -814,6 +814,11 @@ namespace deren::vulkan {
         // consumer this bit was waiting for.
         return rhi::to_bits(rhi::extension_kind::frame_resources) | rhi::to_bits(rhi::extension_kind::scoped_synchronization) | (this->create_options.native_window != nullptr ? rhi::to_bits(rhi::extension_kind::async_presentation) : 0u) | (this->gpu_sorting_available ? rhi::to_bits(rhi::extension_kind::gpu_sorting) : 0u) | rhi::to_bits(rhi::extension_kind::vulkan_escape) | rhi::to_bits(rhi::extension_kind::device_address) |
                (this->heap_view.ready() ? rhi::to_bits(rhi::extension_kind::descriptor_heap) : 0u) |
+               // THE DESCRIPTOR SPACE IS SERVABLE EXACTLY WHEN THE HEAP IS: it is the same backend state
+               // (the heap's slot pool + the texture-group table), just addressed by positions instead of
+               // byte offsets. Announcing both together keeps the ability rule literal - a set bit is a
+               // promise about service, not a separate device fact.
+               (this->heap_view.ready() ? rhi::to_bits(rhi::extension_kind::descriptor_space) : 0u) |
                (this->host_image_copy_available ? rhi::to_bits(rhi::extension_kind::host_image_copy) : 0u) |
                // AND THE DEVICE'S OWN FACTS, SERVABLE THE MOMENT THE DEVICE EXISTS (a device with no mesh shader
                // ANSWERS false - that is an answer, not an unserved ability), which is why this bit carries no
@@ -1101,6 +1106,9 @@ namespace deren::vulkan {
         }
         if (kind == rhi::extension_kind::descriptor_heap && this->heap_view.ready()) {
             return &this->heap_view;
+        }
+        if (kind == rhi::extension_kind::descriptor_space && this->heap_view.ready()) {
+            return &this->descriptor_space_view;
         }
         if (kind == rhi::extension_kind::device_address) {
             return &this->address_view;

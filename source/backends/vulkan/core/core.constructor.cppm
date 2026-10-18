@@ -301,6 +301,7 @@ namespace deren::vulkan {
         this->presentation_surface.owner = this;
         this->escape_view.owner = this;
         this->heap_view.owner = this;
+        this->descriptor_space_view.owner = this;
         this->address_view.owner = this;
         this->sorting_view.owner = this;
         this->async_presentation_view.owner = this;

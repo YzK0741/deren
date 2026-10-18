@@ -243,6 +243,59 @@ namespace {
         std::size_t const at = text.rfind(marker);
         return at == deren::utility::vessel::string::npos ? deren::utility::vessel::string{} : text.substr(at + marker.size());
     }
+    /// THE DESCRIPTOR SPACE'S POSITIVE PATH, on a CPU root (no device). `test_dynamic_link`'s probe
+    /// has no image factory, so it can only check the refusals; here a registered group gets a stable
+    /// position, a portable write reaches it, and releasing the group makes the old position stale -
+    /// the three rules the ability exists for, all observable before any engine material uses them.
+    void check_descriptor_space_semantics() {
+        rhi::create_info options{};
+        std::shared_ptr<rhi::api_core> core = deren::vk_test::probe_make_core(options, rhi::abi_version, true);
+        CHECK(core != nullptr);
+        if (core == nullptr)
+            return;
+        rhi::image_desc image_desc{};
+        image_desc.extent = {.width = 4, .height = 4, .depth = 1};
+        image_desc.format = rhi::image_format::rgba8_unorm;
+        image_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
+        rhi::image* const image = core->create_image(image_desc);
+        CHECK(image != nullptr);
+        if (image == nullptr)
+            return;
+        rhi::texture_group_info info{};
+        info.textures[2] = image;
+        rhi::error assign_error = rhi::error::ok;
+        rhi::texture_group_ref group = core->assign_texture_group(info, &assign_error);
+        CHECK(group != nullptr);
+        CHECK(assign_error == rhi::error::ok);
+        auto* const space = rhi::query_extension<rhi::descriptor_space>(*core);
+        CHECK(space != nullptr);
+        if (group != nullptr && space != nullptr) {
+            rhi::descriptor_position const position = space->position(*group);
+            CHECK(position.space == 0u);
+            CHECK(position.base != 0u);
+            CHECK(position.count == rhi::texture_group_capacity);
+            CHECK(position.generation != 0u);
+            CHECK(space->position(*group).base == position.base);
+            rhi::descriptor_write write{};
+            write.where = position;
+            write.index = 0u;
+            write.resource = image;
+            CHECK(space->write(write) == rhi::error::ok);
+            rhi::descriptor_write out_of_range = write;
+            out_of_range.index = rhi::texture_group_capacity;
+            CHECK(space->write(out_of_range) == rhi::error::invalid_argument);
+            rhi::descriptor_write wrong_type = write;
+            wrong_type.type = rhi::descriptor_type::storage_image;
+            CHECK(space->write(wrong_type) == rhi::error::unsupported);
+            rhi::descriptor_position const stale = position;
+            group.reset();
+            // the position's token is no longer live: the frozen generation is what tells the two apart
+            CHECK(space->write(write) == rhi::error::invalid_argument);
+            (void)stale;
+        }
+        image->release();
+    }
+
 } // namespace
 
 int main(int const argc, char** const argv) {
@@ -1629,6 +1682,8 @@ int main(int const argc, char** const argv) {
                                    "returned, so the check this test exists for is gone");
         return 0; // only reachable if the refusal disappeared: the parent reads this as a failure
     }
+
+    check_descriptor_space_semantics();
 
     // ---- 1. THE AGREEING PATH, IN-PROCESS ---------------------------------------------------------
     std::shared_ptr<rhi::api_core> probe = deren::vk_test::probe_make_core(creation, rhi::abi_version);

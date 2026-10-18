@@ -302,6 +302,13 @@ export namespace deren::promise::rhi {
     /// 30 -> 31: immutable texture groups and command-buffer group loading.
     // ABI 32 adds ordinary indirect drawing to the recording interface.
     // ABI33: owned readback storage uses vessel allocator across the DLL boundary.
+    // NOT A BUMP (the descriptor space ability): `descriptor_space` is a NEW tier-2 ability, so it is a
+    // new `extension_kind` bit (12) and a new interface type - no existing vtable moves. Its vocabulary
+    // (`descriptor_position` / `descriptor_space_properties` / `descriptor_write`) is NEW by-value POD
+    // types, and `structure_type::descriptor_write` is an APPENDED enum value (6) - the same "appending a
+    // value moves nothing" rule the error enumeration and the earlier structure tags follow. The
+    // texture-group object and every existing verb keep their slots: the ability is the servable face of
+    // detail the backend already owns (its descriptor heap + group table), not a re-shape of it.
     // NOT A BUMP (the validate-and-cast helpers): `is_concrete()` / `do_concrete()` below are inline and
     // template FREE functions over the existing `object::type` field - no vtable slot, no by-value POD,
     // no entry-point signature moved, and the NAMES stay the backend's (the contract owns only the
@@ -526,6 +533,10 @@ export namespace deren::promise::rhi {
         heap_bind = 3,
         heap_push = 4,
         command_buffer_inheritance = 5, ///< attachment formats in the portable RHI vocabulary
+        /// appended with the descriptor space ability: one portable sampled-descriptor write into a
+        /// `descriptor_position` (see `descriptor_write`). A value, not a vtable, so appending it moves
+        /// no `abi_version` - the same rule the `vulkan_*` tags below follow.
+        descriptor_write = 6,
         vulkan_heap_image = 0x10000,
         vulkan_command_buffer = 0x10001,
         /// appended in abi 15: the attachment inheritance a SECONDARY recording declares (see

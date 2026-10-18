@@ -565,6 +565,7 @@ target_sources(deren_vulkan
         source/backends/vulkan/core/core.frame_resources.cpp
         source/backends/vulkan/core/radix_sort.cpp
         source/backends/vulkan/core/core.texture_groups.cpp
+        source/backends/vulkan/core/core.descriptor_space.cpp
         source/backends/vulkan/core/core.submission_lifetimes.cpp
         # The ONE C entry point, DEFINED for the real backend (source/promise/rhi/backend_entry.hpp, abi 18).
         # A plain TU rather than a module implementation unit, because the entry has to be reachable BY

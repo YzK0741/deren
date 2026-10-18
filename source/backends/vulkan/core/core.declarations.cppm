@@ -296,6 +296,7 @@ namespace deren::vulkan {
         inline constexpr std::string_view device_capabilities = "deren_device_capabilities_vulkan";
         inline constexpr std::string_view shader_group_access = "deren_shader_group_access_vulkan";
         inline constexpr std::string_view descriptor_heap = "deren_descriptor_heap_vulkan";
+        inline constexpr std::string_view descriptor_space = "deren_descriptor_space_vulkan";
         inline constexpr std::string_view texture_group = "deren_texture_group_vulkan";
         inline constexpr std::string_view gpu_sorting = "deren_gpu_sorting_vulkan";
         inline constexpr std::string_view async_presentation = "deren_async_presentation_vulkan";
@@ -1016,6 +1017,22 @@ namespace deren::vulkan {
             [[nodiscard]] deren::promise::rhi::error push_data(deren::promise::rhi::heap_push_info const&) const noexcept override;
         };
 
+        /// THE SERVABLE FACE OF THE DESCRIPTOR SPACE (see `rhi::descriptor_space`): positions and portable
+        /// writes for immutable texture groups. It lives beside the heap view rather than inside it because
+        /// the heap speaks the DEVICE's numbers (bytes, alignments) while this speaks the ENGINE's
+        /// vocabulary (a group and where it is); the group table and sampled-slot pool behind both are the
+        /// same backend state (`texture_groups`), which is why one write helper serves both callers.
+        struct frame_descriptor_space final : deren::promise::rhi::descriptor_space {
+            frame_descriptor_space() noexcept
+                : deren::promise::rhi::descriptor_space(concrete::descriptor_space) {
+            }
+            core* owner = nullptr;
+            [[nodiscard]] bool ready() const noexcept override;
+            [[nodiscard]] deren::promise::rhi::descriptor_space_properties properties() const noexcept override;
+            [[nodiscard]] deren::promise::rhi::descriptor_position position(deren::promise::rhi::texture_group const& group) const noexcept override;
+            [[nodiscard]] deren::promise::rhi::error write(deren::promise::rhi::descriptor_write const& info) noexcept override;
+        };
+
         // ---- WHAT THE RECORDING SURFACE OWNS --------------------------------------------------------
         //
         // THE COMMAND BUFFERS MOVED HERE FROM THE RUNTIME. They are RAII device objects and
@@ -1045,21 +1062,39 @@ namespace deren::vulkan {
         /// the tier-2 escape object `query_extension(vulkan_escape)` answers with
         frame_escape escape_view;
         frame_heap heap_view;
+        frame_descriptor_space descriptor_space_view;
         std::mutex contract_images_mutex;
         deren::utility::vessel::unordered_set<deren::promise::rhi::image const*> contract_images;
+        struct owned_texture_group; // the position map below holds it by pointer; defined after the record
         struct texture_group_state {
             static constexpr std::uint32_t table_slot = 17664;
             static constexpr std::uint32_t texture_base = 17665;
+            /// the descriptor space's answers (see `rhi::descriptor_space_properties`): the group table and
+            /// the sampled-slot pool this state owns, with the strides the shader-facing record layout uses.
+            static constexpr std::uint32_t group_capacity = 1024;
+            static constexpr std::uint32_t texture_capacity = 2048;
+            static constexpr std::uint32_t group_record_bytes = 80;
+            static constexpr std::uint32_t texture_slot_bytes = 64;
             std::mutex mutex;
             bool gpu_ready = false;
-            deren::utility::vessel::unordered_set<deren::promise::rhi::texture_group const*> live_groups;
+            /// live groups BY TOKEN (`allocation + 1`, the shader-facing identity a `descriptor_position`
+            /// carries). The token is what a position holds, so a write from a position has to reach the
+            /// group without a reverse scan of the 1024-slot table; the generation stored in each group is
+            /// what tells a stale position (token reused) from a live one.
+            deren::utility::vessel::unordered_map<std::uint32_t, owned_texture_group*> groups_by_token;
+            /// the reverse answer, and the reason a caller pointer is never cast before it is known to be
+            /// this backend's: the map turns a live `texture_group const*` into its token without the
+            /// `static_cast<owned_texture_group>` that a foreign object would make undefined behaviour.
+            deren::utility::vessel::unordered_map<deren::promise::rhi::texture_group const*, std::uint32_t> tokens_by_group;
+            /// bumped for every group registration; 0 is "no group", so a default position is never valid.
+            std::uint32_t next_generation = 0;
             VkDeviceSize reserved_offset = VK_WHOLE_SIZE;
             deren::promise::rhi::object_manager<deren::promise::rhi::buffer> records;
             deren::promise::rhi::object_manager<deren::promise::rhi::image> dummy_image;
             deren::promise::rhi::object_manager<deren::promise::rhi::image_view> dummy_view;
-            deren::utility::vessel::array<bool, 1024> groups{};
+            deren::utility::vessel::array<bool, group_capacity> groups{};
             // Slot 0 is reserved for the dummy descriptor.
-            deren::utility::vessel::array<bool, 2048> views{};
+            deren::utility::vessel::array<bool, texture_capacity> views{};
             struct sampled_view_lease {
                 texture_group_state* state = nullptr;
                 std::uint32_t slot = 0;
@@ -1083,6 +1118,9 @@ namespace deren::vulkan {
             deren::utility::vessel::array<std::shared_ptr<texture_group_state::sampled_view_lease>, 16> views{};
             texture_group_record record{};
             std::uint32_t allocation = 1024;
+            /// the position's generation (see `texture_group_state::next_generation`): 0 means this group
+            /// was never registered, which is also the empty `descriptor_position`'s generation.
+            std::uint32_t generation = 0;
             ~owned_texture_group() noexcept override;
             void release() noexcept override {
                 delete this;
@@ -1091,6 +1129,14 @@ namespace deren::vulkan {
         texture_group_state texture_groups;
         [[nodiscard]] deren::promise::rhi::error initialize_texture_groups();
         [[nodiscard]] deren::promise::rhi::error validate_texture_group_pipeline(deren::promise::rhi::pipeline_desc const& desc);
+        /// One image is a legal immutable-group source: this backend's, single-layer, colour, sampled.
+        /// Requires `contract_images_mutex` held (the caller has already established provenance).
+        [[nodiscard]] deren::promise::rhi::error validate_texture_group_image(owned_image const& image) const noexcept;
+        /// THE ONE SAMPLED-DESCRIPTOR WRITE PATH: registration (`assign_texture_group`) and
+        /// `descriptor_space::write()` both come through here, so "how a group slot is published" exists
+        /// once. Requires `texture_groups.mutex` held and `index < texture_group_capacity`.
+        [[nodiscard]] deren::promise::rhi::error write_group_texture_locked(owned_texture_group& group, std::uint32_t index,
+                                                                            deren::promise::rhi::image& texture) noexcept;
         struct pending_submission {
             core* owner = nullptr;
             VkFence fence = VK_NULL_HANDLE;

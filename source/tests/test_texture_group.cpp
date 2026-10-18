@@ -105,6 +105,7 @@ void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, bool us
     CHECK(group_a && group_b);
     if (!group_a || !group_b)
         return;
+    rhi::image* const red_image = red.get();
     red.reset();
     blue.reset();
     green.reset();
@@ -113,6 +114,34 @@ void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, bool us
     auto* heap = rhi::query_extension<rhi::descriptor_heap>(core);
     auto* addresses = rhi::query_extension<rhi::device_address>(core);
     CHECK(output && commands && heap && addresses);
+    // ---- THE DESCRIPTOR SPACE (new ability, no abi bump): positions + the portable write -----------
+    // On the REAL backend: a registered group answers a stable position, the portable write publishes a
+    // sampled descriptor through it, an unsupported view shape is refused by name, and the position of a
+    // released group is stale (invalid_argument) - the generation is what tells the two states apart.
+    auto* const space = rhi::query_extension<rhi::descriptor_space>(core);
+    CHECK(space != nullptr);
+    rhi::descriptor_position position_a{};
+    if (space != nullptr) {
+        position_a = space->position(*group_a);
+        CHECK(position_a.space == 0u);
+        CHECK(position_a.base != 0u);
+        CHECK(position_a.count == rhi::texture_group_capacity);
+        CHECK(position_a.generation != 0u);
+        CHECK(space->position(*group_a).base == position_a.base);
+        rhi::descriptor_write write{};
+        write.where = position_a;
+        write.index = 0u;
+        write.resource = red_image;
+        CHECK(space->write(write) == rhi::error::ok);
+        rhi::image_view_desc narrower{};
+        narrower.mip_count = 1; // the group profile is all-mips; a narrower view is not this write
+        rhi::descriptor_write wrong_view = write;
+        wrong_view.view = &narrower;
+        CHECK(space->write(wrong_view) == rhi::error::unsupported);
+        rhi::descriptor_write out_of_range = write;
+        out_of_range.index = rhi::texture_group_capacity;
+        CHECK(space->write(out_of_range) == rhi::error::invalid_argument);
+    }
     if (!output || !commands || !heap || !addresses)
         return;
     std::memset(output->mapped().data(), 0, 60);
@@ -181,6 +210,15 @@ void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, bool us
     CHECK(new_group); // new records/descriptors must not overwrite the delayed groups
     gate.release();
     CHECK(lifetime_a.expired() && lifetime_b.expired());
+    if (space != nullptr) {
+        // THE STALE POSITION: the token is gone (or reused), so the write is refused by name. The image
+        // pointer is only compared, never dereferenced: the group that owned it was released just above.
+        rhi::descriptor_write stale{};
+        stale.where = position_a;
+        stale.index = 0u;
+        stale.resource = red_image;
+        CHECK(space->write(stale) == rhi::error::invalid_argument);
+    }
     deren::utility::vessel::array<std::uint32_t, 15> actual{};
     std::memcpy(actual.data(), output->mapped().data(), 60);
     deren::utility::vessel::array<std::uint32_t, 15> const expected{0x8001, 0xff, 0xff0000, 0x8001, 0xff00, 0xff00,

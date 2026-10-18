@@ -383,8 +383,9 @@ namespace {
                           [](auto const& slot) { return !slot.has_value(); }));
         empty_group.textures[15] = nullptr;
         rhi::error group_error = rhi::error::ok;
-        CHECK(!core->assign_texture_group(empty_group, &group_error));
-        CHECK(group_error == rhi::error::unsupported);
+        rhi::texture_group_ref const empty_probe_group = core->assign_texture_group(empty_group, &group_error);
+        CHECK(empty_probe_group != nullptr);
+        CHECK(group_error == rhi::error::ok);
         CHECK_MSG(core->type == "deren_api_core_probe", "object.type must identify the concrete implementation across static and DLL boundaries");
 
         // Ownership is real and it came WITH the answer: the control block holds the backend's own
@@ -408,7 +409,8 @@ namespace {
         // broadcasts both bits and answers both kinds with a matching object; the invariant walk below is
         // what keeps that honest.
         CHECK_MSG(abilities == (rhi::to_bits(rhi::extension_kind::device_address) |
-                                rhi::to_bits(rhi::extension_kind::vulkan_escape)),
+                                rhi::to_bits(rhi::extension_kind::vulkan_escape) |
+                                rhi::to_bits(rhi::extension_kind::descriptor_space)),
                   which_half);
         CHECK((abilities & ~rhi::all_abilities()) == rhi::no_abilities);
 
@@ -429,6 +431,37 @@ namespace {
             } else {
                 CHECK_MSG(ability == nullptr, which_half);
             }
+        }
+
+        // ---- THE DESCRIPTOR SPACE (new ability, no abi bump): positions + the portable write ------
+        // The group above carries no textures, so it has no position (the rule the real backend follows:
+        // nothing to reference); a foreign group and a default write are refused by the same answers the
+        // contract documents, which is what makes the two semantics testable before any material uses them.
+        auto* const descriptor_space = rhi::query_extension<rhi::descriptor_space>(*core);
+        CHECK_MSG(descriptor_space != nullptr, which_half);
+        if (descriptor_space != nullptr) {
+            CHECK(rhi::query_extension<rhi::descriptor_space>(*core) == descriptor_space);
+            rhi::descriptor_space_properties const properties = descriptor_space->properties();
+            CHECK(properties.group_capacity > 0u);
+            CHECK(properties.texture_capacity > 0u);
+            CHECK(properties.group_record_bytes > 0u);
+            CHECK(properties.texture_slot_bytes > 0u);
+            CHECK(descriptor_space->position(*empty_probe_group).count == 0u);
+            struct foreign_group final : rhi::texture_group {
+                foreign_group()
+                    : rhi::texture_group("deren_foreign_texture_group_probe") {
+                }
+                void release() noexcept override {
+                }
+            };
+            foreign_group foreign;
+            CHECK(descriptor_space->position(foreign).count == 0u);
+            // no position, and an index outside the profile: both are the contract's invalid_argument
+            CHECK(descriptor_space->write(rhi::descriptor_write{}) == rhi::error::invalid_argument);
+            rhi::descriptor_write outside{};
+            outside.where = descriptor_space->position(*empty_probe_group);
+            outside.index = rhi::texture_group_capacity;
+            CHECK(descriptor_space->write(outside) == rhi::error::invalid_argument);
         }
 
         // ---- tier-1: a factory, and a virtual call that comes back out of the backend ---------

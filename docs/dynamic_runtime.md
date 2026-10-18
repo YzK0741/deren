@@ -114,6 +114,13 @@ A backend is not asked what it is; it is asked what it can do.
 * **A fact the engine needs is an answer, not a native query.** A graphics-API concept appearing in the
   engine is a contract gap: it gets an ability or a tier-1 object, never an `escape()` call and never a
   native type.
+* **The descriptor space gives descriptors logical positions.** `descriptor_space` is the servable
+  face of the descriptor heap: `position(texture_group)` answers the frozen `descriptor_position` an
+  immutable group was registered at (space, base, count, generation), and `write(descriptor_write)`
+  publishes one sampled descriptor there from a portable `image_view_desc` instead of a native view.
+  A position is opaque to the engine beyond identity: material data can carry it instead of an
+  absolute heap slot, and the generation turns a stale position into `invalid_argument` rather than
+  a mis-cast. It is a new ability bit, so it moved no ABI number.
 
 ## The loaders: how a backend becomes an object
 
@@ -156,7 +163,10 @@ executable locates it by walking up from its working directory.
    `abilities()`.
 2. Export `deren_make_api_core` with the contract's `abi_version` as the first argument.
 3. Answer `query_extension<T>()` for the extensions you implement and nothing for the rest, and report
-   the device's facts through `device_capabilities` rather than letting a caller query the API.
+   the device's facts through `device_capabilities` rather than letting a caller query the API. A
+   backend with a descriptor-heap-like model also answers `descriptor_space` (positions for immutable
+   texture groups and the portable sampled write); a backend without one does not, and the ability rule
+   keeps that a named failure instead of a silent downgrade.
 4. Change nothing in the executable: the application picks the backend by the file it loads, and the
    engine's side of the boundary is unchanged.
 

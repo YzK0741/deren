@@ -20,6 +20,10 @@
 //
 //   - `api_core::abilities()` announces device_address, and
 //     `query_extension()` answers it and returns nullptr for anything else.
+//   - abi 33 added `descriptor_space` to the probe: a CPU stand-in for the two semantics the ability
+//     exists for (a registered group answers a stable position; a write is validated against it), so the
+//     contract test can check them without a device. The real backend serves the same shape from its
+//     descriptor heap + texture-group table.
 //     ABI12 removed the old inert descriptor_heap: this probe has no recording DOMAIN (abi 14's
 //     recording VIEW is a static list it hands out - see the last bullet).
 //     That pair is what the plan's "named failure, no silent downgrade" rests on
@@ -78,6 +82,7 @@ import deren.promise.rhi;
 #include <future>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <source_location>
 #include <span>
 #include <string_view>
@@ -920,6 +925,92 @@ namespace {
         }
     };
 
+    /// THE CPU STAND-IN FOR `rhi::descriptor_space` (see the design spec): the two semantics the
+    /// contract test checks without a device - a group registered WITH textures gets a position
+    /// (space/base/count/generation), and a write is validated against that position's generation.
+    /// The slots are fake; the RULES are the contract's, which is what `test_dynamic_link` and
+    /// `test_runtime_injection` exercise.
+    struct cpu_descriptor_space final : rhi::descriptor_space {
+        cpu_descriptor_space() noexcept
+            : rhi::descriptor_space("deren_descriptor_space_cpu_probe") {
+        }
+        struct entry {
+            rhi::texture_group const* group = nullptr;
+            rhi::descriptor_position position{};
+        };
+        mutable std::mutex mutex;
+        std::vector<entry> live;
+        std::uint32_t next_token = 0;
+        std::uint32_t next_generation = 0;
+        std::uint32_t writes = 0;
+        [[nodiscard]] bool ready() const noexcept override {
+            return true;
+        }
+        [[nodiscard]] rhi::descriptor_space_properties properties() const noexcept override {
+            return {.group_capacity = 16u, .texture_capacity = 64u, .group_record_bytes = 80u, .texture_slot_bytes = 64u};
+        }
+        [[nodiscard]] rhi::descriptor_position position(rhi::texture_group const& group) const noexcept override {
+            std::lock_guard lock(mutex);
+            for (auto const& one : live) {
+                if (one.group == &group)
+                    return one.position;
+            }
+            return {};
+        }
+        [[nodiscard]] rhi::error write(rhi::descriptor_write const& info) noexcept override {
+            if (rhi::validate_structure(info.header, rhi::structure_type::descriptor_write, sizeof(info), false) != rhi::error::ok)
+                return rhi::error::invalid_argument;
+            if (info.where.space != 0u || info.where.count != rhi::texture_group_capacity || info.where.base == 0u ||
+                info.where.generation == 0u)
+                return rhi::error::invalid_argument;
+            if (info.index >= info.where.count)
+                return rhi::error::invalid_argument;
+            if (info.type != rhi::descriptor_type::sampled_image && info.type != rhi::descriptor_type::combined_image_sampler)
+                return rhi::error::unsupported;
+            if (info.resource == nullptr)
+                return rhi::error::invalid_argument;
+            if (info.view != nullptr) {
+                auto const& view = *info.view;
+                if (view.struct_size < sizeof(rhi::image_view_desc) || view.role != rhi::view_role::sampled ||
+                    view.base_mip != 0u || view.mip_count != 0u || view.base_layer != 0u || view.layer_count > 1u)
+                    return rhi::error::unsupported;
+            }
+            std::lock_guard lock(mutex);
+            for (auto const& one : live) {
+                if (one.position.base != info.where.base)
+                    continue;
+                if (one.position.generation != info.where.generation)
+                    return rhi::error::invalid_argument; // stale: the token was reused
+                ++writes;
+                return rhi::error::ok;
+            }
+            return rhi::error::invalid_argument;
+        }
+        void register_group(rhi::texture_group const& group) noexcept {
+            std::lock_guard lock(mutex);
+            live.push_back({.group = &group,
+                            .position = {.space = 0u, .base = ++next_token, .count = rhi::texture_group_capacity, .generation = ++next_generation}});
+        }
+        void forget_group(rhi::texture_group const& group) noexcept {
+            std::lock_guard lock(mutex);
+            std::erase_if(live, [&group](entry const& one) { return one.group == &group; });
+        }
+    };
+
+    /// The fake group: its release is the one observable event (it is what makes a position stale).
+    struct cpu_texture_group final : rhi::texture_group {
+        cpu_descriptor_space* space = nullptr;
+        explicit cpu_texture_group(cpu_descriptor_space* const owner) noexcept
+            : rhi::texture_group("deren_texture_group_cpu_probe")
+            , space(owner) {
+        }
+        void release() noexcept override {
+            if (space != nullptr)
+                space->forget_group(*this);
+            delete this;
+        }
+    };
+
     struct cpu_async_presentation final : rhi::async_presentation {
         cpu_async_presentation() noexcept
             : rhi::async_presentation("deren_async_presentation_cpu_probe") {
@@ -1059,13 +1150,14 @@ namespace {
 
         [[nodiscard]] rhi::ability_bits abilities() const noexcept override {
             if (portable_mode)
-                return rhi::to_bits(rhi::extension_kind::frame_resources) | (async_present.completion.valid() ? rhi::to_bits(rhi::extension_kind::async_presentation) : 0u) | (scoped_sync.enabled ? rhi::to_bits(rhi::extension_kind::scoped_synchronization) : 0u) | rhi::to_bits(rhi::extension_kind::device_address) | rhi::to_bits(rhi::extension_kind::device_capabilities) | rhi::to_bits(rhi::extension_kind::descriptor_heap);
+                return rhi::to_bits(rhi::extension_kind::frame_resources) | (async_present.completion.valid() ? rhi::to_bits(rhi::extension_kind::async_presentation) : 0u) | (scoped_sync.enabled ? rhi::to_bits(rhi::extension_kind::scoped_synchronization) : 0u) | rhi::to_bits(rhi::extension_kind::device_address) | rhi::to_bits(rhi::extension_kind::device_capabilities) | rhi::to_bits(rhi::extension_kind::descriptor_heap) | rhi::to_bits(rhi::extension_kind::descriptor_space);
             // TWO ABILITIES SINCE abi 19: the escape joined device_address, because the ENGINE's runtime
             // asks it for the presentation format before any frame exists (`escape()` dereferences what
             // `query_extension<vulkan_escape>()` answers, so an injected root has to serve it - see
             // `probe_escape`). Both bits are announced, and both answer with an object whose kind matches,
             // which is the contract's two-way invariant (the walk in test_dynamic_link checks it).
-            return rhi::to_bits(rhi::extension_kind::device_address) | rhi::to_bits(rhi::extension_kind::vulkan_escape);
+            return rhi::to_bits(rhi::extension_kind::device_address) | rhi::to_bits(rhi::extension_kind::vulkan_escape) |
+                   rhi::to_bits(rhi::extension_kind::descriptor_space);
         }
 
         [[nodiscard]] rhi::extension* query_extension(rhi::extension_kind kind) noexcept override {
@@ -1086,6 +1178,8 @@ namespace {
                 return portable_mode ? &cpu_caps : nullptr;
             case rhi::extension_kind::descriptor_heap:
                 return portable_mode ? &heap : nullptr;
+            case rhi::extension_kind::descriptor_space:
+                return &this->descriptor_space;
             default:
                 return nullptr; // not announced, so not available (§3.6)
             }
@@ -1154,6 +1248,30 @@ namespace {
                 }
             };
             return cpu_caps.graphics_enabled ? new stub_pipeline : nullptr;
+        }
+
+        /// abi 33 (descriptor space): the probe's texture groups. A group that carries at least one
+        /// texture is REGISTERED in the CPU space and gets a position; an empty group is a valid object
+        /// with no position (the real backend answers the same: nothing to reference).
+        [[nodiscard]] rhi::texture_group_ref assign_texture_group(rhi::texture_group_info const& info, rhi::error* result) override {
+            if (result != nullptr)
+                *result = rhi::error::invalid_argument;
+            if (info.struct_size < sizeof(info))
+                return {};
+            auto* answer = new (std::nothrow) cpu_texture_group(&this->descriptor_space);
+            if (answer == nullptr) {
+                if (result != nullptr)
+                    *result = rhi::error::out_of_host_memory;
+                return {};
+            }
+            bool any = false;
+            for (auto const& slot : info.textures)
+                any = any || slot.value_or(nullptr) != nullptr;
+            if (any)
+                this->descriptor_space.register_group(*answer);
+            if (result != nullptr)
+                *result = rhi::error::ok;
+            return rhi::texture_group_ref(answer, [](rhi::texture_group* group) { group->release(); });
         }
 
         [[nodiscard]] rhi::query* create_query(rhi::query_desc const&) override {
@@ -1287,6 +1405,7 @@ namespace {
         }
         cpu_capabilities cpu_caps;
         cpu_heap heap;
+        cpu_descriptor_space descriptor_space;
         cpu_device_address cpu_address;
         cpu_async_presentation async_present;
         probe_buffer buffer{};

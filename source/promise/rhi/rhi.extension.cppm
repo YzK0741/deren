@@ -43,6 +43,7 @@ module;
 #include <memory>
 #include <span>
 #include <string_view>
+#include <type_traits>
 
 export module deren.promise.rhi:extension;
 export import deren.utility.shared;
@@ -82,6 +83,7 @@ export namespace deren::promise::rhi {
     struct command_buffer;
     struct image;
     struct image_view;
+    struct texture_group;
     struct sampler;
     struct pipeline;
     struct shader;
@@ -123,6 +125,14 @@ export namespace deren::promise::rhi {
         async_presentation = 1u << 9,      ///< snapshot and enqueue presentation without blocking the caller
         scoped_synchronization = 1u << 10, ///< explicit stage/access scopes and bound resource ranges
         frame_resources = 1u << 11,        ///< immutable acquired-image snapshots for scoped recording
+        /// APPENDED (a new BIT; the twelve before it do not move - see the static_assert below): THE
+        /// LOGICAL DESCRIPTOR SPACE a backend publishes descriptors into, seen as positions rather than
+        /// byte offsets. It is the servable face of the `descriptor_heap` detail: the heap answers
+        /// capacities/strides, this answers "where an immutable texture group lives" (`descriptor_position`)
+        /// and "write one sampled descriptor there portably" (`descriptor_write`). Announced only when the
+        /// backend can serve a texture group - the object the position is about - the same rule the other
+        /// bits live by.
+        descriptor_space = 1u << 12,
     };
 
     /// What `api_core::abilities()` returns: a set of `extension_kind` bits.
@@ -141,7 +151,7 @@ export namespace deren::promise::rhi {
         return (abilities & to_bits(kind)) != no_abilities;
     }
 
-    /// Every bit defined here: what a backend with all eleven abilities reports, and the
+    /// Every bit defined here: what a backend with all twelve abilities reports, and the
     /// set the plan's §8 consistency gate iterates.
     [[nodiscard]] constexpr auto all_abilities() noexcept -> ability_bits {
         // `extension_kind::ray_tracing` IS NOT HERE ANY MORE (abi 26): its whole shape moved to tier-1, so no
@@ -150,15 +160,15 @@ export namespace deren::promise::rhi {
         return to_bits(extension_kind::device_address) | to_bits(extension_kind::descriptor_heap) |
                to_bits(extension_kind::mesh_shader) |
                to_bits(extension_kind::host_image_copy) | to_bits(extension_kind::vulkan_escape) |
-               to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access) | to_bits(extension_kind::gpu_sorting) | to_bits(extension_kind::async_presentation) | to_bits(extension_kind::scoped_synchronization) | to_bits(extension_kind::frame_resources);
+               to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access) | to_bits(extension_kind::gpu_sorting) | to_bits(extension_kind::async_presentation) | to_bits(extension_kind::scoped_synchronization) | to_bits(extension_kind::frame_resources) | to_bits(extension_kind::descriptor_space);
     }
 
-    /// The same eleven, as a LIST: what a gate walks to check one bit at a time.
+    /// The same twelve, as a LIST: what a gate walks to check one bit at a time.
     ///
     /// `all_abilities()` is the set as a bitmask; this is the enumeration the consistency gates and
     /// the tests iterate (`abilities()` set => `query_extension()` non-null, and the reverse), so the
     /// list is spelled in ONE place instead of per caller.
-    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> deren::utility::vessel::array<extension_kind, 11> {
+    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> deren::utility::vessel::array<extension_kind, 12> {
         return {
             extension_kind::device_address,
             extension_kind::descriptor_heap,
@@ -171,11 +181,12 @@ export namespace deren::promise::rhi {
             extension_kind::async_presentation,
             extension_kind::scoped_synchronization,
             extension_kind::frame_resources,
+            extension_kind::descriptor_space,
         };
     }
 
     static_assert(to_bits(extension_kind::device_address) == 0x1u, "the ability bits are ABI: they do not move");
-    static_assert(all_abilities() == 0xFF7u, "eleven active abilities; retired bits are never reused");
+    static_assert(all_abilities() == 0x1FF7u, "twelve active abilities; retired bits are never reused");
 
     /// The common root of the tier-2 abilities.
     ///
@@ -582,6 +593,78 @@ export namespace deren::promise::rhi {
                    ? error::invalid_argument
                    : error::ok;
     }
+
+    /// A LOGICAL POSITION inside a backend's descriptor space - what an immutable texture group was
+    /// registered at.
+    ///
+    /// `space` names the space (0 = the renderer's main bindless heap, the one space v1 defines);
+    /// `base` is the group's shader-facing identity (the token a push carries); `count` is the number of
+    /// sampled slots the group covers; `generation` changes when the backend REUSES the position for
+    /// another group, which is what makes a stale position distinguishable from a live one.
+    ///
+    /// FROZEN BY VALUE: a caller may store it in a material record and cross the boundary with it, so
+    /// every field addition moves `abi_version` (the `submit_info` rule). The ENCODING of `base` is the
+    /// backend's; the contract promises identity and validity, never address arithmetic.
+    struct descriptor_position {
+        std::uint32_t space = 0;
+        std::uint32_t base = 0;
+        std::uint32_t count = 0;
+        std::uint32_t generation = 0;
+    };
+    static_assert(sizeof(descriptor_position) == 16u, "a descriptor position crosses by value; the layout is frozen");
+    static_assert(std::is_trivially_copyable_v<descriptor_position>);
+    static_assert(std::is_standard_layout_v<descriptor_position>);
+
+    /// The shape of one backend's descriptor space, as answers rather than byte offsets.
+    struct descriptor_space_properties {
+        std::uint32_t group_capacity = 0;     ///< live immutable groups the space can hold
+        std::uint32_t texture_capacity = 0;   ///< sampled descriptor slots it can hold
+        std::uint32_t group_record_bytes = 0; ///< the shader-facing record one group occupies
+        std::uint32_t texture_slot_bytes = 0; ///< stride of one sampled descriptor, in bytes
+    };
+
+    /// ONE PORTABLE SAMPLED-DESCRIPTOR WRITE: slot `index` of the group positioned at `where`.
+    ///
+    /// `view == nullptr` means the group profile's own view (all mips, one array layer, sampled role).
+    /// The write is HOST-SIDE and must happen before the position is consumed by recorded work; the
+    /// position's generation has to still be live (`invalid_argument` otherwise).
+    struct descriptor_write {
+        structure_header header{structure_type::descriptor_write, sizeof(descriptor_write), nullptr};
+        descriptor_position where{};
+        std::uint32_t index = 0;
+        descriptor_type type = descriptor_type::sampled_image;
+        image* resource = nullptr;
+        image_view_desc const* view = nullptr;
+    };
+
+    /// tier-2 ability: the backend's DESCRIPTOR SPACE, addressed by positions instead of byte offsets.
+    ///
+    /// IT EXISTS BESIDE `descriptor_heap`, not instead of it: the heap interface answers the DEVICE's
+    /// numbers (capacities, alignments, strides, push-data limit), while this answers the ENGINE's
+    /// vocabulary - an immutable `texture_group`, the position it was registered at, and a portable
+    /// descriptor write. A caller stores the position (a frozen POD) instead of leaking an absolute heap
+    /// slot into material data, and `write()` is the one path that publishes the group's sampled
+    /// descriptors (the backend's group-table record follows it atomically).
+    ///
+    /// ANNOUNCED ONLY WHEN A GROUP CAN BE POSITIONED AND WRITTEN: the ability's rule is the same one the
+    /// other bits follow ("a set bit is a promise about service"), so a backend that cannot serve a
+    /// texture group answers null here rather than announcing a shape it cannot fill.
+    struct descriptor_space : extension {
+        static constexpr extension_kind extension_id = extension_kind::descriptor_space;
+        explicit descriptor_space(std::string_view const name) noexcept
+            : extension(name) {
+        }
+        [[nodiscard]] extension_kind kind() const noexcept final {
+            return extension_id;
+        }
+        [[nodiscard]] virtual bool ready() const noexcept = 0;
+        [[nodiscard]] virtual descriptor_space_properties properties() const noexcept = 0;
+        /// The position `group` was registered at, or `count == 0` for anything this space does not own
+        /// (a foreign group, an already-released one, another core's).
+        [[nodiscard]] virtual descriptor_position position(texture_group const& group) const noexcept = 0;
+        /// Write one sampled descriptor into a live position. See `descriptor_write` for the rules.
+        [[nodiscard]] virtual error write(descriptor_write const& info) noexcept = 0;
+    };
 
     /// 过渡的Vulkan参数通过next显式借用；不是通用格式/句柄的别名。
     struct vulkan_heap_image_info {
