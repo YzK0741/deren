@@ -496,3 +496,13 @@ COST - a material fetch in the raster - and the lane split has now priced it: TH
 0.01 ms on the measured frame against the resolve's 0.92 ms. The alpha-tested raster fragment is therefore
 affordable, and it is the direction item 2 should be implemented in; no code is claimed here, the plan and the
 pricing are the deliverable.
+
+## Item 2, step 1: the visibility fragment now carries the material UV (round 16)
+
+The alpha-tested raster fragment needs the interpolated UV (and, next, the item's material index) before it
+can sample the albedo alpha and `discard` before the depth write. This step adds the UV interpolant to the
+visibility mesh output and the id fragment's input, emitted from the same 64-byte vertex the mesh stage
+already fetches (no new fetch, no runtime change). MEASURED: the ON `deferred` frame is unchanged
+(`7EF9249001EB6035`) because carrying an interpolant is not using it; CTest 49/49. The material index + the
+alpha test + the admission-clause removal are the next step of item 2, and their ON reference change will be
+recorded here with the new hash.

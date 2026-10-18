@@ -77,6 +77,9 @@ struct VisibilityVertexOutput
 {
     float4 position : SV_Position;
     nointerpolation uint vis_id : TEXCOORD0;
+    float2 uv : TEXCOORD1; // INTERPOLATED FOR THE ALPHA TEST, item 2: the raster fragment needs the material UV to
+                           // decide an alphaMode MASK cut-out BEFORE the depth write (see the plan review).
+                           // Carried now that the decision is priced: the mesh raster measures 0.01 ms.
 };
 
 [shader("mesh")]
@@ -129,6 +132,7 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
             VisibilityVertexOutput o;
             o.position = mul(mul(float4(v.position, 1.0), push.model), view_proj);
             o.vis_id = vis_id;
+            o.uv = v.uv;
             verts[t * mesh_indices_per_triangle + corner] = o;
         }
         tris[t] = uint3(t * mesh_indices_per_triangle + 0u, t * mesh_indices_per_triangle + 1u, t * mesh_indices_per_triangle + 2u);
@@ -136,7 +140,7 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
 }
 
 [shader("fragment")]
-void main([[vk::location(0)]] nointerpolation uint vis_id : TEXCOORD0, out uint target : SV_Target0)
+void main([[vk::location(0)]] nointerpolation uint vis_id : TEXCOORD0, [[vk::location(1)]] float2 uv : TEXCOORD1, out uint target : SV_Target0)
 {
     // ONE STORE, and it is the whole fragment stage: depth was decided by the rasterizer, and the resolve pass
     // turns this word back into the triangle it names.
