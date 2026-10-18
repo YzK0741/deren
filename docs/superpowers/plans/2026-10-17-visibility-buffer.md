@@ -178,5 +178,15 @@ v0 把「几何生产」与「材质着色」拆开，之后的顺序是：v1 so
 - [x] Near-plane clip: Sutherland-Hodgman in the resolve + fan rebuild, unclipped triangles keep v0's exact acceptance rule (sponza unresolved 858,868 -> 15,539, -98.2%; >64 pixel deltas vs OFF 0.951% -> 0.106%).
 - [x] Family 15 (retired capture depth) removed from the producer/adoption/publication and both heap-slot mirrors (~33 MB at 1080x960 + its descriptor writes); the schema id stays and slots 727..734 remain reserved.
 - [x] Storage twins publish only on a frame that reads them (5 descriptor writes per frame saved on every frame that does not run the resolve).
-- [ ] Item 1, depth-producer unification: the depth-EQUAL re-shading stage still falls back whole. Mechanism measured (exact depth compare rejects; LESS_OR_EQUAL recovers), and every static candidate is eliminated by measurement (SPIR-V arithmetic identical, pipeline state identical, cull decisions identical - both arms cull exactly the same 534 workgroups). The remaining work needs a depth readback + input-byte dump harness, then the fix candidates (a) character stage produces the depth it tests, (b) a reconstructable depth source, (c) only if the bytes show it, an arithmetic change.
+- [x] Item 1, depth-producer unification: the `depth_equal_stage` whole-frame fallback is GONE. The toon re-shading
+  pipelines now test `depth_compare::less_or_equal` (EQUAL OR NEARER) instead of exact EQUAL: on the old path the
+  depth is bit-identical so the frozen frames do not move (full OFF gate 15/15 PASS), and on a visibility frame a
+  microscopic mismatch DRAWS the character instead of dropping it. All four `laevatain_*` scenarios now record the
+  visibility lane (measured ON vs OFF: changed 8.66-13.48%, frame mean 4.04-6.50, max 200-255). Root cause of the
+  mismatch was NOT found (mechanism measured; SPIR-V arithmetic, pipeline state and cull decisions all identical) -
+  the static search space is closed and the readback harness is the recorded entry point.
+- [ ] Quality follow-up for item 1: the LE substitution leaves a measured 8.7-13.5% pixel difference with a high
+  per-changed-pixel magnitude (~43-48/255, the base shading showing through where the direction of the mismatch is
+  "toon behind"), so a proper unification - candidate (a), the character stage PRODUCES the depth it tests against -
+  still needs the depth readback + input-byte dump harness before it can be attempted.
 - [ ] Material binning (the resolve optimization): target sized by the lane split - the resolve is ~5x the fragment G-Buffer pass it replaced; bin the material fetches by tile and re-measure with the same repeat/median method.

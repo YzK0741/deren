@@ -712,3 +712,32 @@ Two observations, both recorded because they change what these counters can be u
 Item 1's static search space is now closed: arithmetic identical, pipeline state identical, cull identical,
 data paths untested-but-unreachable without a depth readback. The readback harness is the recorded entry point
 for whoever continues.
+
+## Item 1 closed structurally: the depth-EQUAL fallback is gone (final round)
+
+The toon re-shading pipelines now test `rhi::depth_compare::less_or_equal` instead of `equal`, and the
+`depth_equal_stage` admission clause is retired. The reasoning, recorded with its trade-off:
+
+- On the OLD path nothing can move: the pipeline is the one that wrote the depth, so EQUAL and LESS_OR_EQUAL
+  select the same fragments - and the frozen gate PROVES it: full OFF round **15/15 matched, PASS** with the LE
+  compare in place, and CTest 49/49.
+- On a VISIBILITY frame, a fragment whose reconstructed depth is a hair nearer than the G-buffer's now DRAWS the
+  character instead of being rejected (EQUAL dropped ~106k pixels and showed the base shading through). All four
+  toon scenarios now record the visibility lane - the whole-frame fallback this item existed to remove is gone.
+
+MEASURED ON vs OFF for the four toon frames (same captures as the A/B table):
+
+| scenario | items | changed | frame mean | mean over changed | max |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| laevatain_goo_toon | 7 | 11.29% | 4.843 | 42.88 | 236 |
+| laevatain_goo_toon_body | 11 | 13.48% | 6.502 | 48.25 | 255 |
+| laevatain_no_sidecar | 7 | 8.66% | 4.043 | 46.71 | 200 |
+| laevatain_old_chain | 7 | 9.47% | 4.559 | 48.16 | 202 |
+
+READ IT HONESTLY: this is a QUALITY TRADE, not a root-cause fix. The per-changed-pixel magnitude (~43-48/255) is
+an order above the admitted-scene values (2.7-5.3) because where the depth mismatch runs "toon behind the
+G-buffer surface" the base shading still shows through; it is a large improvement over the whole-frame fallback
+(the old path's exact frame) only in the sense that the frame now uses the new producer at all. The root cause
+was not found - every static candidate was eliminated by measurement (SPIR-V arithmetic, pipeline state, cull
+decisions) - so the readback harness remains the entry point for candidate (a), the character stage producing
+the depth it tests against. The plan records that as the open quality follow-up.

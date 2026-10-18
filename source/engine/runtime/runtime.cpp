@@ -671,7 +671,7 @@ namespace deren::engine {
         std::optional<pipelines::pipeline_handle> mesh_result = std::nullopt;
         {
             auto built = this->build_toon_family_pipeline(mesh_vertex_shader_code, fragment_shader_code,
-                                                          rhi::blend_mode::alpha, rhi::depth_compare::equal,
+                                                          rhi::blend_mode::alpha, rhi::depth_compare::less_or_equal,
                                                           "character-forward pipeline");
             if (!built) {
                 return fail("character-forward pipeline '" + deren::utility::vessel::string(pipeline_name) + "': the mesh stage was refused (" + deren::utility::vessel::string(built.error()) + ")");
@@ -683,7 +683,7 @@ namespace deren::engine {
             // A refusal here leaves the mesh form as the answer rather than failing the call - the same
             // relationship the named forward pipelines have between their two forms.
             auto built = this->build_toon_family_pipeline(meshlet_shader_code, fragment_shader_code,
-                                                          rhi::blend_mode::alpha, rhi::depth_compare::equal,
+                                                          rhi::blend_mode::alpha, rhi::depth_compare::less_or_equal,
                                                           "character-forward meshlet pipeline");
             if (built) {
                 meshlet_result = std::move(*built);
@@ -1576,15 +1576,13 @@ namespace deren::engine {
             return vis::admission::no_scene; // no graph-recordable scene: there is no G-buffer lane to replace
         if (this->frame_visible.empty())
             return vis::admission::no_draws; // the old lane's clear IS the frame; nothing to capture
-        // A DEPTH-EQUAL RE-SHADING STAGE (the toon character pass): it draws the opaque leaves a SECOND time with
-        // `depth_compare::equal`, which is an EXACT test, so the depth its fragments see must be the depth ITS OWN
-        // pipeline wrote - a value from a different pipeline module can be one ULP away and the fragment is then
-        // rejected, letting the deferred shading it was meant to replace show through. MEASURED on the toon capture
-        // scenarios: the character stage's coverage shrank by ~106k pixels and the frame displayed the base shading
-        // there (the ON/OFF mean over changed pixels was 67/255, against 8/255 for the plain deferred scene). Until
-        // the opaque depth producer and that stage share one depth source, a frame carrying it records the OLD lane.
-        if (this->character_forward_on && (!this->frame_visible.empty() || !this->frame_overlay.empty()))
-            return vis::admission::depth_equal_stage;
+        // THE TOON RE-SHADING STAGE USED TO REFUSE THE FRAME (v0.6): it draws the opaque leaves a SECOND time
+        // with `depth_compare::equal`, an EXACT test, and a depth from another pipeline module was measured to
+        // reject its fragments on ~106k pixels (the deferred shading it replaces then showed through), so whole
+        // frames fell back. The pipeline now tests `less_or_equal`: EQUAL OR NEARER. On the old path nothing
+        // changes (the depth is its own pipeline's, bit for bit); on a visibility frame a microscopic mismatch
+        // DRAWS the character instead of dropping it, which is the correct-er picture either way. The clause is
+        // therefore gone - kept in the enum only as the name older logs used.
         bool const material_table_ready = this->material_mapped != nullptr;
         std::uint32_t item = 0;
         for (primitive const* const leaf : this->frame_visible) {
