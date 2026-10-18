@@ -621,3 +621,19 @@ negative barycentric and v0 accepted it; the containment test applies only to a 
 clipped polygon's crossing count is still reported in its own stat lane. The deferred ON reference moved
 (0F4CC199AEC42A0D) although its picture is the LOD-fix frame's: the clip changed the shader's codegen and the
 reference is re-recorded here with this note as the reason; OFF is untouched, CTest 49/49 pending the final run.
+
+## Item 1: the cull-source hypothesis is REJECTED (round 25)
+
+The leading candidate from round 24 - the two paths culling from different flags, so the shared depth holds a
+different surface than the re-shading stage tests against - was implemented and measured (visibility lane now
+culls from `leaf->double_sided`, the same fact `primitive::draw` uses; the `depth_equal_stage` clause bypassed
+with a temporary env switch for the re-test), and the result is EXACTLY the old failure: bypassed-EQUAL
+laevatain ON vs OFF is still 33.45% changed / 20.736 frame mean / 62.0 over changed / max 209 - bit-for-bit
+the round-2 numbers. So the cull sources agree on every leaf in these frames and the hypothesis explains
+nothing. It is reverted with this record instead of kept as a "maybe correct" change.
+
+The same build re-measured the two admitted double-sided scenes for regressions before reverting: sponza
+>16 = 1.993%, >64 = 0.106%, transparent_blend >16 = 0.001%, >64 = 0.0%, deferred ON hash unchanged
+(0F4CC199AEC42A0D). Item 1's root cause is therefore still on the DATA side (model/camera bytes or the depth
+attachment path), and the depth-readback harness remains the only measurement that can close it - the static
+candidates (SPIR-V arithmetic, pipeline state, cull source) are now all eliminated by measurement.
