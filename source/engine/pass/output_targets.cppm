@@ -23,7 +23,7 @@ import deren.promise.rhi;
 export namespace deren::engine::pass {
     class output_targets_pass final : public frame_pass {
     public:
-        static constexpr size_t resource_count = 16;
+        static constexpr size_t resource_count = 15;
 
     private:
         deren::utility::vessel::array<bool, resource_count> required = [] { deren::utility::vessel::array<bool, resource_count> values; values.fill(true); return values; }();
@@ -37,7 +37,7 @@ export namespace deren::engine::pass {
             render_resource::resource_id::gbuffer_depth, render_resource::resource_id::taa_history, render_resource::resource_id::ldr,
             render_resource::resource_id::bloom_level0, render_resource::resource_id::bloom_level1,
             render_resource::resource_id::bloom_level2, render_resource::resource_id::bloom_level3,
-            render_resource::resource_id::rt_shadow_visibility, render_resource::resource_id::visibility_buffer, render_resource::resource_id::visibility_depth};
+            render_resource::resource_id::rt_shadow_visibility, render_resource::resource_id::visibility_buffer};
         static constexpr deren::utility::vessel::array heap_slots{
             render_layout::heap_slots::post_color, render_layout::heap_slots::gbuffer_albedo,
             render_layout::heap_slots::gbuffer_normal, render_layout::heap_slots::gbuffer_material,
@@ -47,7 +47,7 @@ export namespace deren::engine::pass {
             render_layout::heap_slots::bloom_l0 + render_layout::heap_image_capacity,
             render_layout::heap_slots::bloom_l0 + 2u * render_layout::heap_image_capacity,
             render_layout::heap_slots::bloom_l0 + 3u * render_layout::heap_image_capacity,
-            render_layout::heap_slots::rt_visibility, render_layout::heap_slots::visibility, render_layout::heap_slots::visibility_depth};
+            render_layout::heap_slots::rt_visibility, render_layout::heap_slots::visibility};
         static constexpr deren::utility::vessel::array<uint32_t, resource_count> storage_slots = [] {
             deren::utility::vessel::array<uint32_t, resource_count> slots{};
             slots[13] = render_layout::heap_slots::rt_visibility_storage;
@@ -62,7 +62,7 @@ export namespace deren::engine::pass {
                                                             render_layout::gbuffer_velocity_format, render_layout::hdr_format, rhi::image_format::depth,
                                                             render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format,
                                                             render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format,
-                                                            rhi::image_format::r16_sfloat, render_layout::visibility_format, rhi::image_format::depth};
+                                                            rhi::image_format::r16_sfloat, render_layout::visibility_format};
             for (size_t i = 0; i < values.size(); ++i) {
                 auto& value = values[i];
                 value.id = ids[i];
@@ -87,8 +87,6 @@ export namespace deren::engine::pass {
                     value.image.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination);
                 if (i == 13)
                     value.image.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::storage);
-                if (i == 15)
-                    value.image.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::depth_attachment);
                 if (i == 0)
                     value.image.flags |= rhi::to_bits(rhi::image_flag::transfer_source);
                 value.image.debug_name = "managed output target";

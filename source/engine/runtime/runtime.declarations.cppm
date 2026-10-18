@@ -1340,14 +1340,8 @@ namespace deren::engine {
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> velocity_image_views = {};
         /// the visibility buffer (V0.1b): per swapchain image, the id the raster wrote and the resolve samples
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> visibility_images = {};
-        /// THE CAPTURE-STEP DEPTH, RETIRED FROM THE FRAME IN v0.5: the raster lane writes the frame's SHARED G-buffer
         /// depth now (it is the opaque producer, so the depth it clears/writes is the one the lighting stage samples),
-        /// and nothing imports this family any more. It stays allocated because retiring a managed family renumbers
-        /// every id after it (see render_resource.cppm's schema order); the removal is scheduled with the v1 software
-        /// raster, which will want a private depth for its own A/B.
-        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> visibility_depth_images = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> visibility_image_views = {};
-        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> visibility_depth_image_views = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> scene_color_images = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> scene_color_image_views = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> gbuffer_depth_images = {};

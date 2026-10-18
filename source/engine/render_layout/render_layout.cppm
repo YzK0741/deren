@@ -344,9 +344,9 @@ export namespace deren::engine::render_layout {
          *       place would renumber every array after it.
          */
         static constexpr uint32_t visibility = heap_slot_base + 719u;
-        /// the capture-only step's own depth image (727..734): written by the visibility raster and, since v0.4b,
-        /// read back by the visibility resolve as the depth check of the triangle it reconstructs
-        static constexpr uint32_t visibility_depth = heap_slot_base + 727u;
+        /// 727..734 stay RESERVED: the capture-only depth the visibility work retired from the frame in v0.5 (the
+        /// raster lane writes the shared gbuffer_depth). The constant went with the family's producer in the
+        /// non-extension cleanup; the slots stay reserved for the v1 software raster's own private depth.
         /**
          * THE VISIBILITY RESOLVE'S FIVE OUTPUTS (visibility-buffer v0.4b): the SAME images as the G-buffer family,
          * as STORAGE descriptors instead of sampled ones (756..795, `heap_image_capacity` each)

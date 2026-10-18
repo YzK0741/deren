@@ -401,3 +401,19 @@ lane-level mark (raster end, resolve end) so raster, resolve, TAA and lighting a
 than per bucket, and only then can material binning or any other optimization be judged. Until then the item-5
 status stays: instrument works, comparison not valid - but the absolute ON numbers (scene+resolve+taa+lighting
 around 0.9-2.0 ms total for a 1080x960 frame) are usable as a smoke-level check.
+
+## Family 15 (the retired capture depth) is GONE from the producer (item 4, first half)
+
+v0.5 made the raster lane write the shared G-buffer depth, so `visibility_depth` (family 15) had no importer
+left; the cleanup kept it "declared, created and published for schema stability". This step removes the
+producer side entirely: `output_targets_pass` no longer declares it (16 -> 15 families), the runtime no longer
+adopts or publishes it, and both heap-slot mirrors (shader `heap_slot_constants.slang` and
+`render_layout.cppm`) drop the constant. `resource_id::visibility_depth` itself stays in the enum (removing an
+enum value renumbers every id after it) and heap slots 727..734 stay reserved for the v1 software raster's own
+private depth - both documented in docs/managed_resources.md.
+
+MEASURED: one depth image per swapchain image is no longer created or cleared (~33 MB at 1080x960 across 8
+images) and its per-frame descriptor publication is gone; the frames are unchanged - OFF `deferred` is
+`FAE60C0B1D8C1191` and ON `deferred` is `7EF9249001EB6035`, both identical to before this step, and CTest is
+49/49 (which includes the shader/host heap-slot mirror parity test that caught the two halves during the
+cleanup). No reference or review hash moves.

@@ -131,8 +131,12 @@ THE VISIBILITY BUFFER'S RESOURCES (v0.4b/v0.5), and why two of them look unused 
   so which image that descriptor names is the frame's answer).
 - Family 15 (`visibility_depth`, the capture-only step's private depth) is RETIRED FROM THE FRAME in v0.5: the
   raster lane is the opaque producer now, so it writes the shared `gbuffer_depth` instead, and nothing imports
-  family 15 any more. It is still declared, created and published because retiring a managed family renumbers
-  every resource id after it; the removal belongs to the v1 software-raster resource pass.
+  it any more. The PRODUCER side is gone as of the non-extension cleanup: `output_targets_pass` no longer
+  declares it, the runtime no longer adopts/publishes it and the shader slot constant is removed - which saves
+  one depth image per swapchain image (8 x render extent, ~33 MB at 1080x960) plus its descriptor writes. The
+  `resource_id` entry itself stays (removing an enum value would renumber every id after it); the v1 software
+  raster's resource pass can take that renumber together with its own private depth. HEAP SLOTS 727..734
+  remain reserved for it.
 - The draw-item table (`visibility_items`) is a per-frame-slot buffer the raster lane's recorder fills and the
   compute resolve reads; its host-visible lane is one 112-byte record per visible item.
 

@@ -1890,7 +1890,6 @@ namespace deren::engine {
         // THE VISIBILITY BUFFER AND ITS CAPTURE-ONLY DEPTH (visibility-buffer v0.3b): the raster pass names both as
         // render TARGETS, so the table has to carry the current image or the declaration cannot resolve.
         owned_family(render_resource::resource_id::visibility_buffer, 0, this->visibility_images, this->visibility_image_views);
-        owned_family(render_resource::resource_id::visibility_depth, 0, this->visibility_depth_images, this->visibility_depth_image_views);
         owned_family(render_resource::resource_id::ldr, 0, this->ldr_images, this->ldr_image_views);
         // THE G-BUFFER CLUSTER IS THE ENGINE'S OWN (③-D/E A1.4), published the same way and for the same
         // reason: NO FAMILY-SPAN CONSUMER. `gbuffer_depth` and `velocity` ARE `own` per-image bindings of the

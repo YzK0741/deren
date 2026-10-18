@@ -140,12 +140,9 @@ static const uint heap_slots_rt_visibility_storage = heap_slot_base + 711u;
 // the visibility buffer (V0.1b): one R32_UINT id per render pixel, per swapchain image. 719..726 is the range the
 // removed MegaLights storage twins left free, which is what keeps every existing per-image array's number.
 static const uint heap_slots_visibility = heap_slot_base + 719u;
-/// THE RETIRED CAPTURE-STEP DEPTH IMAGE (727..734): the capture-only step owned it AND the visibility raster wrote
-/// it, while the old geometry lane wrote the frame's own depth. v0.5 made the raster lane the opaque producer, so it
-/// writes `heap_slots_gbuffer_depth` instead and NOTHING imports this family any more - it stays declared (and
-/// published) because retiring a managed family renumbers every resource id after it; the removal is scheduled with
-/// the v1 software raster's resource pass.
-static const uint heap_slots_visibility_depth = heap_slot_base + 727u;
+// 727..734 stay RESERVED for a private capture depth the v1 software raster may want; the constant went
+// with the family v0.4b retired from the frame (nothing in the shader tree reads it any more).
+
 // ---- THE VISIBILITY RESOLVE'S FIVE OUTPUTS (visibility-buffer v0.4b): 756..795, appended at the END of the used
 // ---- region like every array that cannot move into a free window (the rule the TLAS, the storage twins and
 // ---- `skin_matrices_previous` follow: growing an array in place would renumber every array after it).

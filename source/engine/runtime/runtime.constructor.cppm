@@ -1588,7 +1588,6 @@ namespace deren::engine {
             adopt(14, this->visibility_images, this->visibility_image_views);
             // family 15 is the RETIRED capture-step depth (see runtime.declarations.cppm's member note): adopted and
             // published for schema stability, imported by no frame since v0.5.
-            adopt(15, this->visibility_depth_images, this->visibility_depth_image_views);
             this->reset_image_generation_state();
         }
         this->output_resource_views = output_views;
