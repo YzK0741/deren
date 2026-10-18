@@ -355,3 +355,25 @@ median + spread; make the raster/resolve split explicit with a lane-level mark; 
 from the logs (raster recorded N items / resolve counters) rather than assuming both arms took their intended
 path. The item-5 status is therefore "instrument works, baseline NOT yet established" - recorded here so the
 next round doesn't treat either direction as a fact.
+
+## The baseline, measured properly: repeats + medians (item 5, corrects round 5/6)
+
+The two contradictory single-window rounds were replaced with the method the contradiction demanded: 3 runs
+per arm of the same 130-frame `deferred` measurement, each run's LAST converged 60-frame window, median quoted.
+Results (ms, GPU pass timings from the runtime's report):
+
+| arm | scene (3 runs, sorted) | scene median | total (3 runs, sorted) | total median |
+| --- | --- | ---: | --- | ---: |
+| OFF | 0.27 / 0.28 / 0.33 | **0.28** | 0.71 / 0.84 / 1.04 | **0.84** |
+| ON | 0.92 / 1.05 / 1.06 | **1.05** | 1.70 / 2.02 / 2.05 | **2.02** |
+
+This is a stable, one-direction signal: the ON path's GPU total is **~2.4x** the geometry lane's on this frame
+(2.02 vs 0.84 ms), and the `scene` bucket - mesh-task id raster + compute resolve - is **~3.75x** the single
+fragment G-Buffer pass it replaces (1.05 vs 0.28 ms). The round-5 single-window numbers (1.11 vs 0.95) and the
+round-6 TAA contradiction were BOTH window/pacing artifacts; they are superseded by these medians, and the
+round-6 TAA configuration must be re-measured with repeats before it is quoted at all.
+
+CONSEQUENCE FOR THE ROADMAP, recorded before any optimization work: material binning / the software raster
+now have a concrete target - the resolve+raster pair costs more than the thing it replaced, so a visibility
+path that is not faster than the fragment G-buffer is the honest starting point, not a regression to hide.
+The next measurement (lane-level mark splitting raster from resolve) says WHICH of the two to optimize first.
