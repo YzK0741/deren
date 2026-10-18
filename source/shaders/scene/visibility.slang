@@ -25,9 +25,22 @@
 // no skin, no morph), which is exactly the subset the runtime will admit to this path; the id's `item` is
 // the runtime's index into its per-frame draw-item table, which is what the resolve pass reads back.
 //
+// ---- v0.4b CORRECTION: THE TRIANGLES COME FROM THE MESHLET RECORD, NOT FROM THE GEOMETRY WINDOW ----
+// The first version of this entry (v0.3a) was `pbr.slang`'s *mesh* entry with a per-meshlet cull bolted on:
+// it read the triangle count from `geometry.index_count` and the indices from `geometry.first_index + t*3`.
+// The runtime's item recorder (v0.3b-3a) fills those two lanes with the MESHLET RUN's base and count - the
+// values the per-meshlet dispatch needs - not with the draw's index window, so for every meshlet past the
+// first few the stage indexed the index buffer at the wrong place (and could read beyond it). Nothing caught
+// it because until v0.4 there was no consumer of the ids: the capture lane wrote its own two targets and the
+// frame's picture came from the old geometry path. The emission below is now `pbr.slang`'s MESHLET entry's
+// emission - the record's own `first_index`/`index_count`/`base_vertex` window - so a triangle's id, depth and
+// the indices the resolve reads back are three views of ONE record.
+//
 // THE PUSH BLOCK IS THIS STAGE'S OWN SHAPE, not the material block: the visibility raster pass composes it
 // from the draw item it is recording (model + item index + frame slot + the geometry lanes), so no field has
-// to be kept in step with the material push constants or the shadow stage's extra lanes.
+// to be kept in step with the material push constants or the shadow stage's extra lanes. In a meshlet run
+// `geometry.first_index` is the item's MESHLET RUN BASE and `geometry.index_count` its MESHLET COUNT (the
+// dispatch's group count) - not an index window; `geometry.base_vertex` is unused and zero.
 
 #include "common/heap_access.slang"
 #include "geometry/mesh_geometry.slang"
@@ -72,20 +85,18 @@ struct VisibilityVertexOutput
 void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workgroup], out indices uint3 tris[mesh_triangles_per_workgroup], uint3 group_id : SV_GroupID)
 {
     const MeshGeometryLanes geometry = push.geometry;
-    const uint triangle_count = geometry.index_count / mesh_indices_per_triangle;
-    const uint first_triangle = group_id.x * mesh_triangles_per_workgroup;
-    const uint remaining = first_triangle < triangle_count ? triangle_count - first_triangle : 0u;
-    const uint emit = min(remaining, mesh_triangles_per_workgroup);
-    SetMeshOutputCounts(emit * mesh_indices_per_triangle, emit);
+    // ONE WORKGROUP PER MESHLET: the lane's first_index is the item's MESHLET RUN BASE and the group id is the
+    // meshlet's order inside that run, so this is the same record the pbr meshlet entry reads (and the resolve
+    // reads back through the id).
+    const MeshletRecord meshlet = meshlet_at(geometry.first_index + group_id.x);
 
-    // THE SAME CONSERVATIVE CULL pbr's meshlet entry does: one workgroup per meshlet, its object-space sphere
-    // pushed through the draw's model and the camera's view*proj, the radius scaled by an upper bound on both
-    // matrices' axis scales. A culled meshlet emits NOTHING, which leaves those pixels to a nearer triangle -
-    // and the test is deliberately conservative, because a visible meshlet culled here is a hole.
+    // THE SAME CONSERVATIVE CULL pbr's meshlet entry does: the record's object-space sphere pushed through the
+    // draw's model and the camera's view*proj, the radius scaled by an upper bound on both matrices' axis scales.
+    // A culled meshlet emits NOTHING, which leaves those pixels to a nearer triangle - and the test is
+    // deliberately conservative, because a visible meshlet culled here is a hole.
     // a descriptor HANDLE converts to its block only through a member access (the pattern every other stage
     // uses as `camera_at(...).view`), so the two matrices are read member-wise rather than copied as a struct.
     const VR_MAT4 view_proj = mul(visibility_camera.view, visibility_camera.proj);
-    const MeshletRecord meshlet = meshlet_at(geometry.first_index + group_id.x);
     const float4 clip_center = mul(mul(float4(meshlet.center, 1.0), push.model), view_proj);
     const float radius = meshlet.radius * matrix_max_axis_scale(push.model) * matrix_max_axis_scale(view_proj);
     if (!clip_sphere_visible(clip_center, radius))
@@ -94,17 +105,26 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
         return;
     }
 
+    // THE MESHLET'S OWN WINDOW, and no more than one mesh workgroup can emit: `index_count` is the record's
+    // (a multiple of three), capped at the 85-triangle / 255-vertex workgroup limit - the same `min` the pbr
+    // meshlet entry applies, so a meshlet that fits a workgroup emits exactly the triangles the old path
+    // rasterized for it.
+    const uint triangle_count = min(meshlet.index_count, mesh_triangles_per_workgroup * mesh_indices_per_triangle) / mesh_indices_per_triangle;
+    SetMeshOutputCounts(triangle_count * mesh_indices_per_triangle, triangle_count);
+
     // THE ID IS THE MESHLET'S ORDER INSIDE THE ITEM, not its table index: the resolve pass reads the item's
     // record to find the run's base, so the two halves agree on the order the dispatch was built with.
     const uint meshlet_in_item = group_id.x;
-    for (uint t = 0u; t < emit; ++t)
+    for (uint t = 0u; t < triangle_count; ++t)
     {
         const uint vis_id = visibility_id_valid | (push.item_index << visibility_id_item_shift) |
                             (meshlet_in_item << visibility_id_meshlet_shift) | t;
         for (uint corner = 0u; corner < mesh_indices_per_triangle; ++corner)
         {
-            const uint raw_index = mesh_index_at(geometry, geometry.first_index + (first_triangle + t) * mesh_indices_per_triangle + corner);
-            const uint vertex_index = uint(int(raw_index) + geometry.base_vertex);
+            // THE RECORD'S WINDOW AND THE RECORD'S base_vertex, exactly as the pbr meshlet entry fetches them:
+            // `geometry.base_vertex` is the run's flag lane in a meshlet session, never a vertex offset.
+            const uint raw_index = mesh_index_at(geometry, meshlet.first_index + t * mesh_indices_per_triangle + corner);
+            const uint vertex_index = uint(int(raw_index) + meshlet.base_vertex);
             const MeshVertex v = mesh_vertex_at(geometry, vertex_index);
             VisibilityVertexOutput o;
             o.position = mul(mul(float4(v.position, 1.0), push.model), view_proj);

@@ -140,9 +140,25 @@ static const uint heap_slots_rt_visibility_storage = heap_slot_base + 711u;
 // the visibility buffer (V0.1b): one R32_UINT id per render pixel, per swapchain image. 719..726 is the range the
 // removed MegaLights storage twins left free, which is what keeps every existing per-image array's number.
 static const uint heap_slots_visibility = heap_slot_base + 719u;
-/// the CAPTURE-ONLY STEP's own depth image (727..734): no shader samples it yet; it is in the grid because the
-/// managed-output adoption path writes a sampled descriptor for every family and the host/shader grids must agree.
+/// the CAPTURE-ONLY STEP's own depth image (727..734): the visibility raster writes it, and the visibility RESOLVE
+/// reads it back (v0.4b) as the depth-correctness check of the triangle it reconstructed.
 static const uint heap_slots_visibility_depth = heap_slot_base + 727u;
+// ---- THE VISIBILITY RESOLVE'S FIVE OUTPUTS (visibility-buffer v0.4b): 756..795, appended at the END of the used
+// ---- region like every array that cannot move into a free window (the rule the TLAS, the storage twins and
+// ---- `skin_matrices_previous` follow: growing an array in place would renumber every array after it).
+//
+// THE SAME IMAGES AS THE G-BUFFER FAMILY, as STORAGE descriptors instead of sampled/attachment ones: the resolve is
+// a COMPUTE stage, so its only route to the five G-buffer targets is a storage image in the heap - and no single
+// heap descriptor is both, exactly the arrangement `heap_slots_rt_visibility_storage` already has for the ray-traced
+// visibility image. Each entry is a per-swapchain-image array (`heap_image_capacity` slots), like the sampled target
+// it twins.
+static const uint heap_slots_gbuffer_albedo_storage = heap_slot_base + 756u;
+static const uint heap_slots_gbuffer_normal_storage = heap_slot_base + 764u;
+static const uint heap_slots_gbuffer_material_storage = heap_slot_base + 772u;
+static const uint heap_slots_gbuffer_velocity_storage = heap_slot_base + 780u;
+/// the scene colour target (`output_targets_pass::ids[5]` / the TAA working image): the resolve writes the emissive
+/// term there, and the old path CLEARS it to zero before the G-buffer writes - see gbuffer_body.slang.
+static const uint heap_slots_scene_color_storage = heap_slot_base + 788u;
 static const uint heap_slots_gbuffer_albedo = heap_slot_base + 551u;
 static const uint heap_slots_gbuffer_normal = heap_slot_base + 559u;
 static const uint heap_slots_gbuffer_material = heap_slot_base + 567u;
@@ -158,7 +174,8 @@ static const uint heap_slots_bloom_l1 = heap_slot_base + 655u;
 static const uint heap_slots_bloom_l2 = heap_slot_base + 663u;
 static const uint heap_slots_bloom_l3 = heap_slot_base + 671u;
 static const uint heap_slots_display_color = heap_slot_base + 695u;
-// one past the last array: 703 slots are in use, the grid reserves 1024
+// one past the last array: the highest slot any array above uses is base + 795 (the visibility resolve's
+// scene-colour storage twin, 788..795), and the grid reserves 1024 - room for the next families without moving one
 static const uint heap_slot_count = 1024u;
 
 // THE SAMPLER HEAP IS A SECOND GRID, and its own base: the sampler heap is a separate heap in this API, and the

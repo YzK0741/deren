@@ -11,6 +11,12 @@
  * frame's). Keeping the fetch in one place also keeps the glTF semantics (MASK discard, the
  * double-sided normal flip, occlusion_strength) in one place.
  *
+ * THE DECODE ITSELF LIVES IN `common/surface_body.slang` since visibility-buffer v0.4b, because the visibility
+ * resolve is a COMPUTE pass and cannot include this file (the push block below is 144 bytes, over a compute
+ * pipeline's 128-byte limit). This file keeps what is FRAGMENT-ONLY and SHARED-BY-FRAGMENTS: the tangent frame
+ * from the screen-space derivatives, the glTF MASK `discard`, and the shared scene push block every fragment
+ * stage of the deferred/forward paths declares.
+ *
  * What stays OUT of here: the lighting itself (the forward path evaluates it in pbr.frag; the
  * deferred path evaluates it in the lighting pass from what the G-buffer stored), the camera /
  * light / shadow bindings, and anything that depends on the pass.
@@ -45,6 +51,10 @@
 // (the shared scene push block below is 144 bytes, over the 128-byte heap limit, so only a geometry stage
 // can declare it) and a fullscreen stage may still need the material table. See material_record.slang.
 #include "common/material_record.slang"
+// ... AND THE DECODE IS IN ANOTHER FILE OF ITS OWN, for the same 128-byte wall: the visibility resolve is a
+// COMPUTE stage, so the surface_sample type and the material/texture decode it shares with the fragment paths
+// have to be reachable without this file's push block. See surface_body.slang.
+#include "common/surface_body.slang"
 // The ARRAY name carries the HEAP slot and the block member carries the record index: two index spaces, which is
 // why a lookup is `heap_material_tables[heap_slots_materials].materials[push.material_index]`.
 
@@ -113,11 +123,6 @@ struct PushConstants {
 #define heap_image_index (push.image_index)
 
 /**
- * @brief everything the lighting code needs to know about one surface point
- * @note the names mirror the glTF metallic-roughness material model so the fields map 1:1 onto the
- *       spec (albedo = baseColor, ao = occlusion, ...)
- */
-/**
  * @brief the fragment's TANGENT frame, from the screen-space derivatives of `world_pos` and `uv`
  *
  * A FUNCTION RATHER THAN A BLOCK INSIDE `gather_surface`, and the reason is a SECOND CALLER rather than tidiness:
@@ -152,22 +157,6 @@ bool surface_tbn(float3 world_pos, float2 uv, out float3 tangent, out float3 bit
     return true;
 }
 
-struct surface_sample {
-    float3 albedo;    // base color: base_color_factor * albedo texture (linear, NOT premultiplied)
-    float alpha;    // coverage: base_color_factor.a * albedo.a (only meaningful for MASK/BLEND)
-    float3 normal;    // shading normal in world space: normal-mapped, double-sided flipped
-    float3 emissive;  // emissive_factor * emissive texture (linear HDR-ish radiance)
-    float roughness; // roughness_factor * metallic-roughness texture .g
-    float metallic;  // metallic_factor * metallic-roughness texture .b
-    float ao;        // mix(1, occlusion texture .r, occlusion_strength)
-    uint flags;      // the material record's flag bits (see Material)
-    uint toon_family; // the toon material family (see Material::toon_family); 0 == none
-    // THE TOON TEXTURE LANES (see Material::toon_indices): x = diffuse ramp, y = shadow LUT, z = specular
-    // ramp, w = matcap. ELEMENT 0 IS "DO NOT READ" - it is the white fallback, and a stage that read it as a
-    // ramp would tint from a constant rather than from a no-op.
-    uint4 toon_indices;
-};
-
 /**
  * @brief gather the surface properties of one fragment from the material table and the texture array
  * @param world_pos interpolated world position (needed for the screen-space TBN derivatives)
@@ -181,52 +170,30 @@ struct surface_sample {
  * @note the TBN frame comes from screen-space derivatives of the world position and the UVs, so
  *       mirrored UV layouts (glTF TANGENT.w = -1) are handled implicitly and the vertex TANGENT
  *       attribute is never consumed; a degenerate UV derivative falls back to the fine normal.
+ * @note THE ORDER HERE IS THE LEGACY ORDER AND IT IS LOAD-BEARING: the MASK test runs FIRST (so a rejected
+ *       fragment executes no derivative), the derivative frame is requested NEXT and ONLY for a material that
+ *       has a normal map, and the rest of the decode runs last. A killed invocation stops contributing to its
+ *       pixel quad's derivative helpers, so asking for the frame before the discard changed the TBN of
+ *       normal-mapped alpha-tested foliage - measured on the capture gate's sponza scenario (10.5% of its pixels
+ *       moved, concentrated in the vegetation and on thin highlight edges) when this file's decode was first
+ *       extracted as one function. The two phases below exist to keep that order while sharing the decode with
+ *       the compute resolve; see surface_body.slang's header.
  */
 surface_sample gather_surface(float3 world_pos, float3 geo_normal, float2 uv, bool is_front) {
-    Material mat = material_at(heap_slots_materials, push.material_index);
-
-    surface_sample s;
-    const float4 base_color = mat.base_color_factor * heap_sample(mat.tex_indices.x, uv);
-    // alphaMode MASK (record flag bit4): discard fragments below the cutoff (base_color.a is
-    // factor.a * albedo.a) - glTF alphaCutoff semantics
-    if ((mat.flags & 16u) != 0u && base_color.a < mat.alpha_cutoff) {
+    // ---- phase one: material fetch, albedo sample, MASK verdict ----
+    const surface_base base = gather_surface_base(push.material_index, uv);
+    if (base.alpha_masked) {
         discard;
     }
-
-    s.albedo = base_color.rgb;
-    s.alpha = base_color.a;
-    s.metallic = mat.metallic_factor * heap_sample(mat.tex_indices.y, uv).b;
-    s.roughness = mat.roughness_factor * heap_sample(mat.tex_indices.y, uv).g;
-    // occlusion: sampled AO modulated by occlusion_strength; without an occlusion map the slot is
-    // the white fallback (ao = 1) and the strength has no effect
-    s.ao = lerp(1.0, heap_sample(mat.tex_indices.w, uv).r, mat.occlusion_strength);
-    s.emissive = mat.emissive_factor.rgb * heap_sample(mat.emissive_index, uv).rgb;
-    s.flags = mat.flags;
-    s.toon_family = mat.toon_family;
-    s.toon_indices = mat.toon_indices;
-
-    // ---- normal: optional tangent-space normal map, else the interpolated normal ----
-    if ((mat.flags & 1u) != 0u) {
-        const float3 normal = normalize(geo_normal);
-        float3 sdir = float3(1.0, 0.0, 0.0);   // world tangent direction (see surface_tbn)
-        float3 tdir = float3(0.0, 1.0, 0.0);   // world bitangent direction
-        if (!surface_tbn(world_pos, uv, sdir, tdir)) {
-            s.normal = normal; // degenerate UV derivatives: fall back to the interpolated normal
-        } else {
-            float3 tbn_normal = heap_sample(mat.tex_indices.z, uv).rgb * 2.0 - 1.0;
-            tbn_normal.xy *= mat.normal_scale;
-            tbn_normal = normalize(tbn_normal);
-            s.normal = normalize(mul(tbn_normal, float3x3(sdir, tdir, normal)));
-        }
-    } else {
-        s.normal = normalize(geo_normal);
+    // ---- phase two: the derivative frame (a fragment-only concept, and only for a normal-mapped material) and
+    //      the rest of the decode ----
+    float3 tangent = float3(1.0, 0.0, 0.0);
+    float3 bitangent = float3(0.0, 1.0, 0.0);
+    bool frame_valid = false;
+    if ((base.material.flags & 1u) != 0u) {
+        frame_valid = surface_tbn(world_pos, uv, tangent, bitangent);
     }
-    // double-sided material (record flag bit3): mirror the normal on back faces, as the glTF spec
-    // requires, so the inner side of a shell is lit by its inward-facing normal
-    if ((mat.flags & 8u) != 0u && !is_front) {
-        s.normal = -s.normal;
-    }
-    return s;
+    return gather_surface_finish(base, geo_normal, uv, is_front, tangent, bitangent, frame_valid);
 }
 
 #endif // DEREN_SURFACE_SLANG

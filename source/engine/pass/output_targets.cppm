@@ -76,6 +76,13 @@ export namespace deren::engine::pass {
                 value.image.format = formats[i];
                 value.image.flags = rhi::to_bits(rhi::image_flag::sampled) |
                                     rhi::to_bits(i == 6 ? rhi::image_flag::depth_attachment : rhi::image_flag::color_attachment);
+                // THE TARGETS THE VISIBILITY RESOLVE WRITES AS STORAGE IMAGES (v0.4b): a compute stage cannot use a
+                // colour attachment, so these families are created with STORAGE usage as well. Family 0 is included
+                // because the scene colour target ALTERNATES between family 5 (the TAA working image) and family 0
+                // (the HDR image) - see `runtime::resolve_pass`, which publishes the storage descriptors per frame
+                // and knows which one this frame's scene colour is.
+                if (i <= 5)
+                    value.image.flags |= rhi::to_bits(rhi::image_flag::storage);
                 if (i == 7)
                     value.image.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination);
                 if (i == 13)

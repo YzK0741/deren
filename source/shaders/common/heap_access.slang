@@ -150,6 +150,19 @@ float4 heap_sample(uint texture_index, float2 uv)
     return combined_at(heap_slots_textures + texture_index, heap_sampler_texture).Sample(uv);
 }
 
+/// THE SAME FETCH AT AN EXPLICIT LOD 0, for a stage that cannot use implicit LOD.
+/// @note WHY A COMPUTE STAGE NEEDS IT: Slang lowers an implicit `Sample` in a compute shader to a derivative-group
+///       quad instruction and DECLARES the `ComputeDerivativeGroupQuadsKHR` capability in the module - which
+///       vkCreateShaderModule refuses unless the device enabled
+///       `VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR::computeDerivativeGroupQuads` (measured 2026-10-17:
+///       the visibility resolve's module was rejected with exactly that message). An explicit SampleLevel carries
+///       no derivative anywhere, so the module stays inside the baseline. The VALUE is the LOD a compute stage
+///       would have implicitly chosen anyway (0).
+float4 heap_sample_lod0(uint texture_index, float2 uv)
+{
+    return combined_at(heap_slots_textures + texture_index, heap_sampler_texture).SampleLevel(uv, 0.0);
+}
+
 // ---- THE IBL FETCHES (the GLSL definitions live in ibl_specular.slang) ----
 
 /// the prefiltered chain's mip count, QUERIED from the texture rather than hardcoded

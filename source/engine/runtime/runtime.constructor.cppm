@@ -517,6 +517,19 @@ namespace deren::engine {
         uint64_t const emitted = total[2];
         uint64_t const triangles = total[3];
         uint64_t const mesh_workgroups = total[4];
+        // THE VISIBILITY RESOLVE'S WITNESSES (visibility-buffer v0.4b): two counters its compute stage increments on
+        // FAILING pixels only, so a healthy frame prints nothing and a nonzero number names the known v0 limits -
+        // pixels whose id was valid but whose triangle could not be rebuilt (the near-plane clip v0 does not do), and
+        // pixels whose rebuilt z disagreed with the capture depth (the id and the depth naming different triangles).
+        // Logged BEFORE the mesh-workgroup early return: a session whose mesh stages were all quiet can still have
+        // had a resolve pass, and this is the only evidence that the ids/depth pair was actually consumed.
+        uint64_t const visibility_unresolved = total[5];
+        uint64_t const visibility_depth_mismatch = total[6];
+        if (visibility_unresolved != 0u || visibility_depth_mismatch != 0u) {
+            deren::utility::log("visibility resolve: {} pixel(s) could not rebuild their triangle (near-plane clip / degenerate, the known v0 limit), {} pixel(s) had an id/depth disagreement",
+                                visibility_unresolved,
+                                visibility_depth_mismatch);
+        }
         if (workgroups == 0u && mesh_workgroups == 0u) {
             return; // no mesh stage ran: a vertex-path session says nothing rather than reporting zeroes
         }
@@ -1326,8 +1339,9 @@ namespace deren::engine {
         } else if (this->fallback_output_provider != nullptr)
             this->fallback_output_provider->bind_resources({});
         auto const prepared = fallback.prepare_resources(this->core_owner, context);
-        if (prepared != rhi::error::ok)
+        if (prepared != rhi::error::ok) {
             return prepared;
+        }
         auto const fallback_view = fallback.resources().snapshot();
         auto const shadow_view = missing_shadow ? fallback_view : primary;
         auto const cluster_view = missing_counts ? fallback_view : primary;

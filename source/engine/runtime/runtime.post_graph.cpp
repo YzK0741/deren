@@ -30,8 +30,21 @@ namespace deren::engine {
     namespace {
         struct post_recording_payload {
             pass::pass_host host{};
-            std::array<pass::resolved_io, 19> ios;
-            std::array<pass::frame_pass*, 19> passes{};
+            // THE LANE NUMBER IS A SLOT IN THESE ARRAYS, AND THE WHOLE FRAME IS ONE GRAPH: the main-view passes and
+            // the post chain share this payload, so a lane index is a NAMESPACE ACROSS BOTH. The assigned slots, as
+            // of visibility-buffer v0.4c (a lane collision is SILENT until the day the pass actually runs):
+            //   0..3 bloom levels      4 post composite      5 post resolve (fxaa/upscale)
+            //   6 deferred lighting    7 scene               8 cluster    9 shadow
+            //   10 TAA resolve         11 TAA history copy   12 gbuffer debug
+            //   13 transparent         14 character forward   15 toon screen rim   16 goo rim
+            //   17 gaussian splats     18 ray-traced shadow   19 VISIBILITY RASTER  20 VISIBILITY RESOLVE
+            // THE VISIBILITY LANES ARE 19/20 BECAUSE THOSE ARE THE LAST FREE SLOTS. The first attempt shipped them at
+            // 3/4 (the post chain overwrote `passes[3]` with `post_bloom_3`) and the second at 10/11 (the TAA lane's
+            // two passes): both are harmless while the visibility passes are pruned, and both mis-record another pass
+            // the moment one runs - measured, first as a `post_bloom_3` begin_rendering in the wrong layout, then as
+            // the post composite recording the resolve pass instead of itself (a transparent-black frame).
+            std::array<pass::resolved_io, 21> ios;
+            std::array<pass::frame_pass*, 21> passes{};
             rhi::error record(unsigned lane) const noexcept {
                 if (host.apply_behaviour)
                     host.apply_behaviour(host.context, *passes[lane], ios[lane]);
@@ -494,6 +507,10 @@ namespace deren::engine {
             // target and a capture-owned depth), so no pass shares a writer with it - which is what makes the
             // frame deterministic (the shared-depth attempt was measured to be order-dependent and reverted).
             // The G-buffer lane still produces the real frame; the resolve pass that consumes these ids is V0.4.
+            // THE CAPTURE PAIR, hoisted above the lane: the RASTER lane writes these two images and the RESOLVE lane
+            // below reads them, so both passes take the same imported refs - and the resolve is only appended when
+            // the raster is.
+            std::optional<graph::texture_ref> visibility_ref{}, capture_depth_ref{};
             bool const visibility_candidate = this->visibility_raster != nullptr && this->visibility_raster->has_pipeline() && this->visibility_item_candidate();
             if (!visibility_candidate && this->visibility_raster != nullptr && this->visibility_raster->has_pipeline()) {
                 static bool not_admitted_logged = false;
@@ -511,16 +528,21 @@ namespace deren::engine {
                     depth_lease.get() != this->visibility_depth_images[index].get()) {
                     return rhi::error::not_ready;
                 }
-                auto visibility_ref = build.import_texture(visibility_lease, {graph::initial_contents::undefined, {}}, "visibility buffer");
-                if (!visibility_ref) {
-                    return post_build_error(visibility_ref.error());
+                auto visibility_import = build.import_texture(visibility_lease, {graph::initial_contents::undefined, {}}, "visibility buffer");
+                if (!visibility_import) {
+                    return post_build_error(visibility_import.error());
                 }
-                auto capture_depth_ref = build.import_texture(depth_lease, {graph::initial_contents::undefined, {}}, "visibility capture depth");
-                if (!capture_depth_ref) {
-                    return post_build_error(capture_depth_ref.error());
+                auto capture_depth_import = build.import_texture(depth_lease, {graph::initial_contents::undefined, {}}, "visibility capture depth");
+                if (!capture_depth_import) {
+                    return post_build_error(capture_depth_import.error());
                 }
+                visibility_ref = *visibility_import;
+                capture_depth_ref = *capture_depth_import;
                 graph::visibility::inputs visibility_inputs{*visibility_ref, *capture_depth_ref};
-                visibility_inputs.shared = graph::visibility::shared_inputs{shared_refs[0], shared_refs[8], shared_refs[12], shared_refs[11]};
+                // THE RASTER STAGE'S THREE READS: the camera it projects through, the meshlet records it culls/emits
+                // and this frame's indirect dispatch arguments (consumed at the DRAW-INDIRECT stage). The draw-item
+                // table is NOT a raster read - its consumer is the resolve lane below.
+                visibility_inputs.shared = graph::visibility::shared_inputs{shared_refs[0], shared_refs[8], shared_refs[11]};
                 auto visibility_added = build.append([&](graph::builder& description) noexcept {
                     return graph::visibility::append(description, visibility_inputs);
                 });
@@ -529,19 +551,66 @@ namespace deren::engine {
                 }
                 pass::stage visibility_stage{.name = "visibility raster", .passes = this->visibility_pass};
                 this->prepare_stage(visibility_stage);
-                passes[3] = this->visibility_pass[0];
-                ios[3].push_block = host.push_block;
-                if (!passes[3] || !host.resolve || !host.resolve(host.context, *passes[3], ios[3]) || ios[3].list != commands.get() ||
-                    ios[3].targets.size() != 2) {
+                passes[19] = this->visibility_pass[0];
+                ios[19].push_block = host.push_block;
+                if (!passes[19] || !host.resolve || !host.resolve(host.context, *passes[19], ios[19]) || ios[19].list != commands.get() ||
+                    ios[19].targets.size() != 2) {
                     return rhi::error::not_ready;
                 }
                 this->visibility_raster->set_frame(this->make_visibility_frame());
                 auto visibility_bound = build.bind_pass<graph::visibility::parameters>(
                     visibility_added->pass, [payload](graph::visibility::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
-                        return payload->record(3);
+                        return payload->record(19);
                     });
                 if (!visibility_bound) {
                     return post_build_error(visibility_bound.error());
+                }
+            }
+            // ---- THE VISIBILITY BUFFER'S RESOLVE LANE (visibility-buffer v0.4c) -----------------------------
+            // The raster lane's DECLARED CONSUMER: a compute pass that reads the id + capture depth it wrote and
+            // reconstructs the five G-buffer targets (the same images the geometry lane below writes as attachments,
+            // through the same material decode - see visibility_resolve.slang).
+            //
+            // IT IS APPENDED BEFORE THE GEOMETRY LANE, AND THAT IS THE WHOLE FRAME-SAFETY ARGUMENT OF THIS STEP:
+            // the graph's WAW edge orders the resolve first, then the geometry lane CLEARS every one of those targets
+            // and draws the frame exactly as it always did - so the resolved pixels are overwritten and the picture
+            // stays byte-identical. That is what lets the consumer land (and be proven by its own failure counters)
+            // before v0.5 makes it the G-buffer's producer; a pass that ran after the geometry lane would change
+            // every capture's pixels.
+            //
+            // WHAT IT PROVES: with the resolve reading them, the capture lane's two outputs are no longer
+            // consumerless, so the graph keeps it and transitions its attachments to sampled reads - the problem the
+            // v0.3b-3c export attempts hit from the other side. The resolve's depth-mismatch / unresolved counters
+            // (mesh_statistics, logged at shutdown) are the positive evidence that the pair was actually read.
+            if (visibility_candidate && this->visibility_resolve != nullptr && this->visibility_resolve->has_pipeline()) {
+                graph::visibility::resolve_inputs resolve_inputs{*visibility_ref, *capture_depth_ref, lighting_inputs.surface, *velocity_ref, scene_target, {}};
+                resolve_inputs.shared = graph::visibility::resolve_shared_inputs{
+                    shared_refs[0],  // camera: the same per-frame block the raster projected with
+                    shared_refs[1],  // material table: the shared decode reads it
+                    shared_refs[12], // this frame's draw-item table
+                    shared_refs[8],  // the meshlet record table the id's order indexes
+                    shared_refs[3],  // previous transforms: the motion vector's second half
+                    shared_refs[10]  // mesh statistics: the resolve's two failure counters are atomic adds
+                };
+                auto resolve_added = build.append([&](graph::builder& description) noexcept {
+                    return graph::visibility::append_resolve(description, resolve_inputs);
+                });
+                if (!resolve_added) {
+                    return post_build_error(resolve_added.error());
+                }
+                pass::stage resolve_stage{.name = "visibility resolve", .passes = this->visibility_resolve_stage};
+                this->prepare_stage(resolve_stage);
+                passes[20] = this->visibility_resolve_stage[0];
+                ios[20].push_block = host.push_block;
+                if (!passes[20] || !host.resolve || !host.resolve(host.context, *passes[20], ios[20]) || ios[20].list != commands.get()) {
+                    return rhi::error::not_ready;
+                }
+                auto resolve_bound = build.bind_pass<graph::visibility::resolve_parameters>(
+                    resolve_added->pass, [payload](graph::visibility::resolve_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                        return payload->record(20);
+                    });
+                if (!resolve_bound) {
+                    return post_build_error(resolve_bound.error());
                 }
             }
             auto geometry = build.append([&](graph::builder& description) noexcept {

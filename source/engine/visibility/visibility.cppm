@@ -300,6 +300,32 @@ export namespace deren::engine::visibility {
     }
 
     /**
+     * @brief twice the SIGNED area of a screen-space triangle, in the framebuffer's own coordinates (y grows DOWN)
+     * @note the sign is the RASTERIZER'S front/back decision, which is why the expression is written out rather than
+     *       derived from a cross product in a y-up frame: Vulkan faces are determined by the sign of the area
+     *       computed in FRAMEBUFFER coordinates, and this renderer's pipelines use `frontFace = COUNTER_CLOCKWISE`.
+     *       Under that pair a front face has a NEGATIVE area here (the y-down framebuffer turns the usual
+     *       counter-clockwise sign around) - see @ref is_front_face, which pins it with a test rather than leaving
+     *       it to a comment.
+     */
+    [[nodiscard]] constexpr float triangle_twice_area(std::array<float, 2> const& a, std::array<float, 2> const& b, std::array<float, 2> const& c) noexcept {
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    }
+
+    /**
+     * @brief whether a screen-space triangle is FRONT facing for this renderer's pipelines
+     * @return true for a front face (negative signed area), false for a back face - and false for a degenerate
+     *         triangle, which the rasterizer covers no pixel of, so "front" would be a meaningless answer
+     * @note THE RESOLVE NEEDS THIS because `gather_surface`'s double-sided normal flip keys on it
+     *       (glTF `doubleSided`): the fragment path receives `SV_IsFrontFace` from the rasterizer, and a compute
+     *       thread has to rebuild the same decision from the triangle it projected. A sign error is a silently
+     *       inverted normal - a lighting difference, not an error.
+     */
+    [[nodiscard]] constexpr bool is_front_face(std::array<float, 2> const& a, std::array<float, 2> const& b, std::array<float, 2> const& c) noexcept {
+        return triangle_twice_area(a, b, c) < 0.0f;
+    }
+
+    /**
      * @brief the screen-space barycentrics of @p p inside the triangle (@p pa, @p pb, @p pc)
      * @return the weights; all zero for a degenerate triangle (the caller must treat that as "no triangle"),
      *         which is a defined answer rather than a division by zero

@@ -177,6 +177,10 @@ namespace deren::engine::pipelines {
     /// why this builder takes no push size. It is the first compute pipeline in this module
     /// that came out of `deren.vulkan.core`.
     export std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_cluster(rhi::api_core& face, std::span<uint8_t const> compute_shader_code);
+    /// the VISIBILITY RESOLVE (source/shaders/scene/visibility_resolve.slang): the same heap-native compute shape as
+    /// the cluster sort - no layout, no set, no push size - over the id/depth/capture descriptors the frame's heap
+    /// carries. It is the consumer the visibility raster lane was recorded for.
+    export std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_visibility_resolve(rhi::api_core& face, std::span<uint8_t const> compute_shader_code);
 
     /**
      * @brief the HEAP-NATIVE probe's pipeline: the first one in this renderer created the heap way
@@ -394,6 +398,26 @@ namespace deren::engine::pipelines {
         rhi::pipeline* const built = face.create_pipeline(desc);
         if (built == nullptr) {
             return fail("cluster: the contract's compute pipeline factory refused the descriptor");
+        }
+        out.trace = pipeline_handle(built);
+        return out;
+    }
+
+    // The VISIBILITY RESOLVE (source/shaders/scene/visibility_resolve.slang): the same heap-native compute shape as
+    // the cluster sort above and for the same reason - every input and output is a heap descriptor, the shader's only
+    // constants are the two index lanes it receives through vkCmdPushDataEXT, and there is no set or layout to own.
+    std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_visibility_resolve(rhi::api_core& face, std::span<uint8_t const> const compute_shader_code) {
+        using fail = std::unexpected<deren::utility::vessel::string>;
+        compute_pipeline_owned out;
+        // THE PIPELINE IS A CONTRACT OBJECT (abi 21): the heap-native compute rules live in the backend
+        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        rhi::pipeline_desc desc{};
+        desc.first_stage = rhi::shader_stage::compute;
+        desc.compute_code = std::as_bytes(compute_shader_code);
+        desc.debug_name = "visibility resolve";
+        rhi::pipeline* const built = face.create_pipeline(desc);
+        if (built == nullptr) {
+            return fail("visibility resolve: the contract's compute pipeline factory refused the descriptor");
         }
         out.trace = pipeline_handle(built);
         return out;

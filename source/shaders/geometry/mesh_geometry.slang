@@ -171,6 +171,16 @@ static const uint mesh_stat_culled = 1u;         // ... rejected by the frustum 
 static const uint mesh_stat_emitted = 2u;        // ... that emitted their triangles
 static const uint mesh_stat_triangles = 3u;      // triangles those meshlets emitted
 static const uint mesh_stat_mesh_workgroups = 4u; // workgroups of the NON-meshlet mesh path, for comparison
+// THE VISIBILITY RESOLVE'S TWO FAILURE COUNTERS (visibility-buffer v0.4b), and they are the ONE exception to the
+// rule above: they are incremented PER FAILING PIXEL rather than per workgroup, which is affordable because a
+// correct frame increments neither. `unresolved` counts pixels whose id was valid but whose triangle could not be
+// rebuilt (a degenerate screen triangle, or a vertex behind the eye - v0 does not clip against the near plane, see
+// visibility_resolve.slang's header); `depth_mismatch` counts pixels where the rebuilt triangle's NDC z disagreed
+// with the capture depth, i.e. where the id and the depth the pixel kept name DIFFERENT triangles. The vertex
+// pipeline never writes these; the resolve pass is their only producer, and the log at shutdown is the witness that
+// the capture lane plus its consumer actually ran (the ids themselves cannot be seen in a shaded frame).
+static const uint mesh_stat_visibility_unresolved = 5u;
+static const uint mesh_stat_visibility_depth_mismatch = 6u;
 
 /// @brief add @p value to one of this frame's mesh counters (see the block comment above)
 export void mesh_stat_add(const uint frame_slot, const uint counter, const uint value)

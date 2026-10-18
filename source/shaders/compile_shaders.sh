@@ -47,6 +47,12 @@ fi
 count=0
 while IFS=: read -r src entry_point stage dst; do
     [ -n "$src" ] || continue
+    # A COMMENT LINE IS A NOTE FOR THE READER, not a source: the table below uses them the way the PowerShell twin's
+    # array does, and reading one as `src` is exactly the kind of escape-hatch rot this script exists to avoid. (The
+    # list is also parsed by test_shader_sources, which skips '#' lines too - both readers agree on the format.)
+    case "$src" in
+        '#'*) continue ;;
+    esac
     "$slangc_path" "$script_dir/$src" -I "$script_dir" \
         -target spirv -profile spirv_1_6 -capability spvDescriptorHeapEXT \
         -spirv-resource-heap-stride 64 -spirv-sampler-heap-stride 32 \
@@ -77,8 +83,11 @@ scene/pbr.slang:main:fragment:pbr.frag.spv
 scene/pbr.slang:mesh_main:mesh:pbr.mesh.spv
 scene/pbr.slang:meshlet_main:mesh:pbr.meshlet.spv
 scene/pbr.slang:outline_mesh_main:mesh:outline.mesh.spv
-"scene/visibility.slang:mesh_main:mesh:visibility.mesh.spv",
-"scene/visibility.slang:main:fragment:visibility.frag.spv",
+scene/visibility.slang:mesh_main:mesh:visibility.mesh.spv
+scene/visibility.slang:main:fragment:visibility.frag.spv
+# the visibility buffer's RESOLVE (v0.4b): the compute stage that turns the ids back into the five G-buffer
+# targets, and the consumer the capture lane needed before the graph would keep it alive.
+scene/visibility_resolve.slang:main:compute:visibility_resolve.comp.spv
 toon/outline.slang:frag_main:fragment:outline.frag.spv
 lighting/shadow.slang:main:fragment:shadow.frag.spv
 lighting/shadow.slang:mesh_main:mesh:shadow.mesh.spv

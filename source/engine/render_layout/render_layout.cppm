@@ -344,9 +344,29 @@ export namespace deren::engine::render_layout {
          *       place would renumber every array after it.
          */
         static constexpr uint32_t visibility = heap_slot_base + 719u;
-        /// the capture-only step's own depth image (727..734): NOT sampled by any shader, but the managed-output
-        /// adoption path writes a sampled descriptor for every family, so it owns a slot like the rest
+        /// the capture-only step's own depth image (727..734): written by the visibility raster and, since v0.4b,
+        /// read back by the visibility resolve as the depth check of the triangle it reconstructs
         static constexpr uint32_t visibility_depth = heap_slot_base + 727u;
+        /**
+         * THE VISIBILITY RESOLVE'S FIVE OUTPUTS (visibility-buffer v0.4b): the SAME images as the G-buffer family,
+         * as STORAGE descriptors instead of sampled ones (756..795, `heap_image_capacity` each)
+         *
+         * @note WHY TWINS RATHER THAN REUSING THE SAMPLED SLOTS: the resolve is a COMPUTE stage and writes its five
+         *       targets as storage images, while the deferred lighting stage and the debug view SAMPLE the same
+         *       images - and no single heap descriptor is both kinds. `rt_visibility` / `rt_visibility_storage`
+         *       already establish the pair for exactly this reason (see their note above).
+         * @note APPENDED AT THE END OF THE USED REGION, the rule every new array here follows: growing one in place
+         *       would renumber every array after it. The five families match `pass::output_targets_pass`'s families
+         *       1..5 (albedo, normal, material, velocity, scene colour), and the host writes these slots in
+         *       `output_targets_pass::storage_slots` + the adoption path in `runtime.constructor.cppm`.
+         * @note the sampled twins are `gbuffer_albedo` .. `gbuffer_velocity` and `taa_current` (the scene colour
+         *       target's sampled slot), because the scene colour image is the TAA working image (family 5).
+         */
+        static constexpr uint32_t gbuffer_albedo_storage = heap_slot_base + 756u;
+        static constexpr uint32_t gbuffer_normal_storage = heap_slot_base + 764u;
+        static constexpr uint32_t gbuffer_material_storage = heap_slot_base + 772u;
+        static constexpr uint32_t gbuffer_velocity_storage = heap_slot_base + 780u;
+        static constexpr uint32_t scene_color_storage = heap_slot_base + 788u;
     };
 
     // ================================================================================================

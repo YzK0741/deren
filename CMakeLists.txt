@@ -689,6 +689,7 @@ target_sources(deren_engine
         source/engine/pass/geometry_buffer_debug.cppm
         source/engine/pass/shadow.cppm
         source/engine/pass/visibility_raster.cppm
+        source/engine/pass/visibility_resolve.cppm
         source/engine/pass/chain.cppm
         ${VR_FULL_API_MODULES}
         source/engine/profiling/profiling.cppm
@@ -735,6 +736,7 @@ target_sources(deren_engine
         source/engine/pass/geometry_buffer_debug.cpp
         source/engine/pass/shadow.cpp
         source/engine/pass/visibility_raster.cpp
+        source/engine/pass/visibility_resolve.cpp
         ${VR_FULL_API_SOURCES}
         source/engine/shadow_fit/shadow_fit.cpp
         source/engine/acceleration_structure/acceleration_structure.cpp
@@ -1316,7 +1318,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_app_config test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass)
+    set(VR_TEST_TARGETS test_app_config test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1428,6 +1430,10 @@ if(VR_BUILD_TESTS)
     target_compile_definitions(test_visibility_buffer PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(test_render_graph_visibility render_graph_visibility)
     target_link_libraries(test_visibility_raster_pass
+            deren_engine
+            vstd_lib
+    )
+    target_link_libraries(test_visibility_resolve_pass
             deren_engine
             vstd_lib
     )
@@ -2053,6 +2059,13 @@ set(VR_SHADER_INCLUDES
     "${VR_SHADER_SRC_DIR}/common/heap_access.slang"
     "${VR_SHADER_SRC_DIR}/common/texture_group.slang"
     "${VR_SHADER_SRC_DIR}/geometry/mesh_geometry.slang"
+    # surface_body.slang and gbuffer_body.slang are the SHARED G-BUFFER BODY (visibility-buffer v0.4b): the material
+    # decode and the five-target composition are included by the fragment G-buffer stage AND by the visibility
+    # resolve compute stage, so editing either must rebuild BOTH .spv - a stale half is the two-pictures-drift this
+    # extraction exists to prevent. surface.slang includes surface_body.slang (the fragment wrapper) and gbuffer.slang
+    # includes gbuffer_body.slang; the test below requires every include to be listed here.
+    "${VR_SHADER_SRC_DIR}/common/surface_body.slang"
+    "${VR_SHADER_SRC_DIR}/scene/gbuffer_body.slang"
     "${VR_SHADER_SRC_DIR}/gaussian/gaussian_common.slang"
     "${VR_SHADER_SRC_DIR}/gaussian/gaussian_projection.slang"
     # character_forward.slang IS INCLUDED BY A LEAF NOW, which is why it is here: the outline fragment stage
@@ -2166,10 +2179,16 @@ set(VR_SLANG_SOURCES
     scene/pbr.slang:outline_mesh_main:mesh:outline.mesh.spv
     # visibility.slang is THE VISIBILITY BUFFER's two stages (visibility-buffer v0.3): the mesh entry
     # rasterizes triangles and carries ONE FLAT PACKED ID per triangle, the fragment writes it into the
-    # R32_UINT visibility target. No pipeline loads them yet - the raster lane lands next - so the frames
-    # cannot move, and the test that compares the four places a .spv is named covers them from here on.
+    # R32_UINT visibility target. The raster pass builds its pipeline from them, but the lane is CAPTURE-ONLY
+    # until the resolve consumed its outputs (v0.4): the frame's picture still comes from the old geometry lane,
+    # which is why the frames cannot move. The test that compares the four places a .spv is named covers them.
     scene/visibility.slang:mesh_main:mesh:visibility.mesh.spv
     scene/visibility.slang:main:fragment:visibility.frag.spv
+    # visibility_resolve.slang -> visibility_resolve.comp.spv is THE VISIBILITY BUFFER'S RESOLVE (visibility-buffer
+    # v0.4b): the compute stage that reads the id + capture depth + item/meshlet tables and writes the five G-buffer
+    # targets through the shared body. It has no pipeline yet (v0.4c wires the pass), so no frame can move; the entry
+    # is here so the build compiles it and the naming-contract test above covers it from the start.
+    scene/visibility_resolve.slang:main:compute:visibility_resolve.comp.spv
     # ... and the outline's FRAGMENT stage, which shades that hull with the G-buffer normal of the surface
     # BEHIND it (the author's `MyZmdOutlineShader.shader:196-198`). ITS ENTRY IS `frag_main`, NOT `main`, and the
     # reason is measured rather than stylistic: it INCLUDES character_forward.slang for `toon_diffuse`, which

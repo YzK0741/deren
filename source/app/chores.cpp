@@ -203,6 +203,16 @@ namespace deren::chores {
             }
         }
 
+        // ---- THE VISIBILITY RESOLVE'S COMPUTE MODULE (visibility-buffer v0.4c) ----
+        // The resolve pass builds its OWN pipeline at create time from this module (through `pass_context::shader`),
+        // so the app's job is to load and REGISTER it like the raster pair above: a name the pass asks for and
+        // nobody registered would leave the pass disabled, and the capture lane consumerless again - silently.
+        {
+            deren::utility::vessel::vector<uint8_t> visibility_resolve_code;
+            load_shader(shaders_dir, "visibility_resolve.comp.spv", visibility_resolve_code);
+            runtime.register_shader("visibility_resolve.comp.spv", visibility_resolve_code);
+        }
+
         {
             // THE TOON CHARACTER STAGE'S PIPELINE, and it is registered through a DIFFERENT entry point on
             // purpose: `runtime::make_pipeline` above builds the forward family's pipeline (swapchain format,

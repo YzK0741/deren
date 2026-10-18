@@ -10,15 +10,20 @@ export module deren.engine.render_graph.visibility;
 export import deren.engine.render_graph;
 
 export namespace deren::engine::render_graph::visibility {
-    /// the reads the resolve pass makes: the two inputs (id + depth) and the per-item/meshlet materials
+    /// the reads the VISIBILITY RASTER makes: the camera the mesh stage projects through, the meshlet records it
+    /// culls and emits, and this frame slot's draw arguments - which the dispatches consume at the DRAW-INDIRECT
+    /// stage rather than reading as a storage buffer (the mesh draws are `draw_mesh_tasks_indirect` records).
+    ///
+    /// ONLY THOSE THREE: the raster stage reads nothing else. In particular it does NOT read the draw-item table -
+    /// the per-item block arrives in its push block, and the item table's consumer is the resolve stage (below).
     struct shared_inputs {
-        buffer_ref camera, materials, items, meshlets;
+        buffer_ref camera, meshlets, indirect;
     };
 
     struct shared_parameters {
-        buffer_read camera, materials, items, meshlets;
+        buffer_read camera, meshlets, indirect;
         void visit_resources(parameter_visitor& visit) const noexcept {
-            visit(camera, materials, items, meshlets);
+            visit(camera, meshlets, indirect);
         }
     };
 
@@ -51,9 +56,9 @@ export namespace deren::engine::render_graph::visibility {
         parameters params{{in.vis_id, {}, color}, {in.depth, {}, depth}, {}};
         if (in.shared) {
             constexpr access_scope camera{resource_usage::uniform_buffer, pipeline_stage::mesh_shader};
-            constexpr access_scope material{resource_usage::storage, pipeline_stage::fragment_shader};
             constexpr access_scope mesh{resource_usage::storage, pipeline_stage::mesh_shader};
-            params.shared = shared_parameters{{in.shared->camera, {}, camera}, {in.shared->materials, {}, material}, {in.shared->items, {}, mesh}, {in.shared->meshlets, {}, mesh}};
+            constexpr access_scope indirect{resource_usage::indirect_buffer, pipeline_stage::draw_indirect};
+            params.shared = shared_parameters{{in.shared->camera, {}, camera}, {in.shared->meshlets, {}, mesh}, {in.shared->indirect, {}, indirect}};
         }
         auto added = graph.add_pass("scene visibility raster", std::move(params));
         if (!added)
@@ -61,25 +66,46 @@ export namespace deren::engine::render_graph::visibility {
         return outputs{in, *added};
     }
 
-    /// ---- THE RESOLVE LANE'S DECLARATION (visibility-buffer v0.4) --------------------------------
-    /// Inputs: the id and the capture depth, both SAMPLED reads (the resolve is a compute pass).
-    /// Outputs: the five G-buffer targets the old geometry path wrote - three surfaces, velocity, emissive.
+    // ---- THE RESOLVE LANE (visibility-buffer v0.4) -------------------------------------------------
+    /// the reads the VISIBILITY RESOLVE makes: the two textures it samples (the id and the capture depth), the five
+    /// G-buffer targets it writes, and the six scene/visibility tables a pixel's id is turned back into a surface
+    /// through.
+    struct resolve_shared_inputs {
+        buffer_ref camera;              ///< the same per-frame camera block the raster projected with
+        buffer_ref materials;           ///< the material table the shared decode reads
+        buffer_ref items;               ///< this frame's draw-item table (one row per visible item)
+        buffer_ref meshlets;            ///< the import-time meshlet record table
+        buffer_ref previous_transforms; ///< last frame's world matrices, for the motion vector
+        buffer_ref statistics;          ///< the mesh-statistics buffer: the resolve's failure counters are atomic adds
+    };
+
+    struct resolve_shared_parameters {
+        buffer_read camera, materials, items, meshlets, previous_transforms;
+        buffer_read_write statistics;
+        void visit_resources(parameter_visitor& visit) const noexcept {
+            visit(camera, materials, items, meshlets, previous_transforms, statistics);
+        }
+    };
+
     struct resolve_inputs {
         texture_ref vis_id;
         texture_ref depth;
         std::array<texture_ref, 3> surface;
         texture_ref velocity;
         texture_ref color;
-        std::optional<shared_inputs> shared = {};
+        std::optional<resolve_shared_inputs> shared = {};
     };
 
+    /// THE RESOLVE IS A COMPUTE PASS, and its write scope says so: the five G-buffer targets are written as STORAGE
+    /// images (the compute stage's only route), not as colour attachments - the graphics scope belongs to the
+    /// geometry lane that owns the same images. The graph's WAW edge is what orders the two writers.
     struct resolve_parameters {
         texture_read vis_id;
         texture_read depth;
         std::array<texture_discard_write, 3> surface;
         texture_discard_write velocity;
         texture_discard_write color;
-        std::optional<shared_parameters> shared = {};
+        std::optional<resolve_shared_parameters> shared = {};
 
         void visit_resources(parameter_visitor& visit) const noexcept {
             visit(vis_id, depth, surface, velocity, color, shared);
@@ -97,15 +123,25 @@ export namespace deren::engine::render_graph::visibility {
             for (std::size_t j = 0; j < i; ++j)
                 if (outputs[i] == outputs[j])
                     return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "visibility resolve", .resource_name = "G-buffer alias"});
-        if (in.vis_id == in.depth || in.vis_id == in.velocity || in.depth == in.velocity)
-            return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "visibility resolve", .resource_name = "visibility input alias"});
+        // the inputs and the outputs are different images by construction (the capture pair is not a G-buffer
+        // family), so a shared handle would be a wiring mistake rather than a legal read-write pair.
+        for (texture_ref const input : {in.vis_id, in.depth})
+            for (texture_ref const output : outputs)
+                if (input == output)
+                    return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "visibility resolve", .resource_name = "visibility input alias"});
         constexpr access_scope read{resource_usage::sampled, pipeline_stage::compute_shader};
-        constexpr access_scope write{resource_usage::color_attachment, pipeline_stage::color_output};
+        constexpr access_scope write{resource_usage::storage, pipeline_stage::compute_shader};
         resolve_parameters params{{in.vis_id, {}, read}, {in.depth, {}, read}, {}, {in.velocity, {}, write}, {in.color, {}, write}};
         params.surface = {texture_discard_write{in.surface[0], {}, write}, texture_discard_write{in.surface[1], {}, write}, texture_discard_write{in.surface[2], {}, write}};
         if (in.shared) {
             constexpr access_scope buffer{resource_usage::storage, pipeline_stage::compute_shader};
-            params.shared = shared_parameters{{in.shared->camera, {}, buffer}, {in.shared->materials, {}, buffer}, {in.shared->items, {}, buffer}, {in.shared->meshlets, {}, buffer}};
+            constexpr access_scope camera{resource_usage::uniform_buffer, pipeline_stage::compute_shader};
+            params.shared = resolve_shared_parameters{{in.shared->camera, {}, camera},
+                                                      {in.shared->materials, {}, buffer},
+                                                      {in.shared->items, {}, buffer},
+                                                      {in.shared->meshlets, {}, buffer},
+                                                      {in.shared->previous_transforms, {}, buffer},
+                                                      {in.shared->statistics, {}, buffer}};
         }
         auto added = graph.add_pass("visibility resolve", std::move(params));
         if (!added)

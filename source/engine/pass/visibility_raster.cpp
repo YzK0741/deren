@@ -103,20 +103,46 @@ namespace deren::engine::pass {
         if (rhi::error const begun = io.list->begin_rendering(rendering_info); begun != rhi::error::ok) {
             return begun;
         }
-        // BIND + RE-EMIT the dynamic state the handle stores, then THE VIEWPORT IS THE PASS'S: this pipeline is
-        // the pass's own and therefore outside the runtime's registry-wide `update_pass_geometry` resync, so the
-        // declaration asks the record step for the viewport and this pass sets it itself.
+        // BIND + RE-EMIT the dynamic state the handle stores. THE STORED VIEWPORT IS WRITTEN FIRST, because
+        // `begin_pipeline` re-emits the handle's own state and a pipeline this pass owns starts with a {0,0,0,0}
+        // viewport - recording that is a validation error (VUID-VkViewport-width-01770), which is how the first
+        // run that actually executed this pass found it. After this assignment the bind and the explicit sets
+        // below name the same numbers, for the same "the record step cannot know this pass's extent" reason the
+        // declaration's `resync_viewport` documents. (This pipeline is the pass's own, so writing its state is
+        // the pass's own business - the runtime's registry-wide resync never sees it.)
+        this->raster_pipeline->viewport = rhi::viewport{.x = 0.0f,
+                                                        .y = 0.0f,
+                                                        .width = static_cast<float>(this->pass_frame.extent.width),
+                                                        .height = static_cast<float>(this->pass_frame.extent.height),
+                                                        .min_depth = 0.0f,
+                                                        .max_depth = 1.0f};
+        this->raster_pipeline->scissor = rhi::rect{.offset_x = 0, .offset_y = 0, .width = this->pass_frame.extent.width, .height = this->pass_frame.extent.height};
         this->raster_pipeline->begin_pipeline(*io.list);
-        io.list->set_viewport(rhi::viewport{.x = 0.0f,
-                                            .y = 0.0f,
-                                            .width = static_cast<float>(this->pass_frame.extent.width),
-                                            .height = static_cast<float>(this->pass_frame.extent.height),
-                                            .min_depth = 0.0f,
-                                            .max_depth = 1.0f});
-        io.list->set_scissor(rhi::rect{.offset_x = 0, .offset_y = 0, .width = this->pass_frame.extent.width, .height = this->pass_frame.extent.height});
+        // THE PIPELINE'S TWO DYNAMIC RASTER STATES: `make_graphics_pipeline` creates EVERY graphics pipeline with
+        // VK_DYNAMIC_STATE_CULL_MODE and VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE (the scene pass sets them per draw
+        // because a single pipeline serves single- and double-sided materials), so a pass that binds its own
+        // pipeline must set them itself: BACK-face culling - the cull the G-buffer pass applies to a single-sided
+        // material - and depth WRITE on, because this pass is the depth producer. MEASURED: without the two calls
+        // the mesh dispatches are two validation errors (07840 / 07844) even though the picture would be right.
+        io.list->set_cull_mode(rhi::cull_mode::back);
+        io.list->set_depth_write(true);
+        io.list->set_viewport(this->raster_pipeline->viewport);
+        io.list->set_scissor(this->raster_pipeline->scissor);
         std::uint32_t recorded = 0;
         bool const ok = this->pass_frame.record_items(this->pass_frame.owner, *io.list, recorded);
         io.list->end_rendering();
+        // THE CAPTURE LANE'S OWN WITNESS (visibility-buffer v0.4b): one line, once per run, saying that the item
+        // recorder actually ran and how many mesh-task dispatches it issued. Until this existed the lane's only
+        // evidence was the absence of a validation error, which cannot distinguish "the resolve consumed the ids"
+        // from "the graph never recorded this pass"; the depth-mismatch counter in visibility_resolve.slang is the
+        // other half (it only has a value if the resolve read what this pass wrote).
+        if (ok && recorded > 0u) {
+            static bool recorded_logged = false;
+            if (!recorded_logged) {
+                recorded_logged = true;
+                deren::utility::log("visibility raster: recorded {} item(s) - the capture lane dispatched its meshlets into the id and capture-depth targets", recorded);
+            }
+        }
         return ok ? rhi::error::ok : rhi::error::invalid_argument;
     }
 } // namespace deren::engine::pass

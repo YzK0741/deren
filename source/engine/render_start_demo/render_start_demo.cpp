@@ -18,7 +18,8 @@ module;
 module deren.engine.render_start_demo;
 
 import deren.utility;
-import deren.engine.pass.visibility_raster; // the visibility buffer's raster pass
+import deren.engine.pass.visibility_raster;  // the visibility buffer's raster pass
+import deren.engine.pass.visibility_resolve; // ... and its consumer, the compute resolve
 
 namespace deren::engine {
 
@@ -36,6 +37,10 @@ namespace deren::engine {
         this->chain.emplace<pass::gbuffer_debug_pass>();
         this->chain.emplace<pass::shadow_pass>();
         this->chain.emplace<pass::visibility_raster_pass>();
+        // ... and the raster lane's DECLARED CONSUMER: the compute resolve that rebuilds the five G-buffer targets
+        // from the ids (v0.4c). It is in the chain only so its pipeline is built at startup; whether a frame records
+        // it is the graph lane's decision (and the frame's fallback), exactly like the raster pass above.
+        this->chain.emplace<pass::visibility_resolve_pass>();
         this->chain.emplace<pass::scene_pass>();
         this->chain.emplace<pass::transparent_pass>();
         // ... AND THE GAUSSIAN SPLAT CLOUD, whose create step only builds its pipeline (it owns no descriptor

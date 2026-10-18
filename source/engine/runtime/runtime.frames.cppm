@@ -2624,6 +2624,10 @@ namespace deren::engine {
         this->shadow_pass = {at("shadow")};
         this->visibility_pass = {at("visibility raster")};
         this->visibility_raster = static_cast<pass::visibility_raster_pass*>(at("visibility raster"));
+        // ... and the RESOLVE, the raster lane's declared consumer: bound by its own name, and a chain without one
+        // simply leaves the capture lane consumerless (the graph then records it for its own sake, as before v0.4c).
+        this->visibility_resolve_stage = {at("visibility resolve")};
+        this->visibility_resolve = static_cast<pass::visibility_resolve_pass*>(at("visibility resolve"));
         this->scene_pass = {at("scene")};
         this->transparent_pass = {at("transparent")};
         this->gaussian_pass = {at("gaussian")};
@@ -2861,6 +2865,28 @@ namespace deren::engine {
             write_sampled_target(deren::engine::render_layout::heap_slots::taa_current + image_slot, target_image(this->scene_color_images[heap_image]));
             write_sampled_target(deren::engine::render_layout::heap_slots::post_color + image_slot, target_image(this->hdr_images[heap_image]));
             write_sampled_target(deren::engine::render_layout::heap_slots::display_color + image_slot, target_image(this->ldr_images[heap_image]));
+            // ---- THE VISIBILITY RESOLVE'S FIVE STORAGE TARGETS (visibility-buffer v0.4c) ----
+            // The SAME images the old G-buffer pass draws into, published as STORAGE descriptors because the resolve
+            // is a compute stage and no heap descriptor is both sampled and storage. Written HERE, every frame, for
+            // the sampled descriptors' own measured reason (a heap image descriptor written while its image was still
+            // UNDEFINED never resolves - see the note above) - and because the SCENE COLOUR target is not one image:
+            // on a TAA frame it is the TAA working image (family 5), otherwise the HDR image the lighting pass adds
+            // into (family 0), so which image the resolve's fifth output names is this frame's answer.
+            auto const write_storage_target = [this](uint32_t const slot, rhi::image const* const image) {
+                if (image == nullptr) {
+                    return;
+                }
+                rhi::image_view_desc range{};
+                range.role = rhi::view_role::storage;
+                [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(slot),
+                                                                                *image, range, rhi::descriptor_type::storage_image);
+            };
+            write_storage_target(deren::engine::render_layout::heap_slots::gbuffer_albedo_storage + image_slot, target_image(this->gbuffer_images[0][heap_image]));
+            write_storage_target(deren::engine::render_layout::heap_slots::gbuffer_normal_storage + image_slot, target_image(this->gbuffer_images[1][heap_image]));
+            write_storage_target(deren::engine::render_layout::heap_slots::gbuffer_material_storage + image_slot, target_image(this->gbuffer_images[2][heap_image]));
+            write_storage_target(deren::engine::render_layout::heap_slots::gbuffer_velocity_storage + image_slot, target_image(this->velocity_images[heap_image]));
+            write_storage_target(deren::engine::render_layout::heap_slots::scene_color_storage + image_slot,
+                                 target_image(this->graph_taa_frame ? this->scene_color_images[heap_image] : this->hdr_images[heap_image]));
             // THE TAA HISTORY IMAGE IS THE ENGINE'S OWN (③-D/E A1.1): the raw handle comes through the
             // contract's escape, and the guard is the fixed-size array's own VALIDITY rather than a vector's
             // length - `heap_image` is the acquired image index, already inside the rhi::max_swapchain_images

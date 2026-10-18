@@ -61,8 +61,9 @@ import deren.engine.pass.compute_skin;          // ... and the compute-skinning 
 import deren.engine.pass.geometry_buffer_debug; // the fifteenth: the G-buffer debug view
 import deren.engine.pass.shadow;                // the sixteenth: the directional shadow map, one depth-only cascade per layer
 import deren.engine.pass.cluster;
-import deren.engine.pass.visibility_raster; // the raster pass's frame: what the lane records through
-import deren.engine.visibility;             // the visibility buffer's packed id and draw-item record
+import deren.engine.pass.visibility_raster;  // the raster pass's frame: what the lane records through
+import deren.engine.pass.visibility_resolve; // the resolve pass: the id's consumer in the graph
+import deren.engine.visibility;              // the visibility buffer's packed id and draw-item record
 import deren.engine.pass.scene_constants;
 import deren.engine.pass.scene_deformation;
 import deren.engine.pass.scene_tables;
@@ -980,6 +981,11 @@ namespace deren::engine {
         /// the visibility buffer's raster pass (bound by declaration name; null when the chain has none)
         deren::utility::vessel::array<pass::frame_pass*, 1> visibility_pass = {};
         pass::visibility_raster_pass* visibility_raster = nullptr;
+        /// the visibility buffer's RESOLVE pass (visibility-buffer v0.4c): the compute stage that consumes the id and
+        /// capture depth the raster pass wrote and reconstructs the five G-buffer targets. Bound by declaration name
+        /// like the raster pass; null when the chain has none.
+        deren::utility::vessel::array<pass::frame_pass*, 1> visibility_resolve_stage = {};
+        pass::visibility_resolve_pass* visibility_resolve = nullptr;
         /// THE TRANSPARENT PASS (deren.engine.pass.transparent): the same scene, its own LOAD instance, after lighting
         // called transparent_pass, not transparent_stage: the local of that name in
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).

@@ -58,6 +58,9 @@ $slangSources = @(
     "scene/pbr.slang:outline_mesh_main:mesh:outline.mesh.spv",
     "scene/visibility.slang:mesh_main:mesh:visibility.mesh.spv",
     "scene/visibility.slang:main:fragment:visibility.frag.spv",
+    # the visibility buffer's RESOLVE (v0.4b): the compute stage that turns the ids back into the five G-buffer
+    # targets, and the consumer the capture lane needed before the graph would keep it alive.
+    "scene/visibility_resolve.slang:main:compute:visibility_resolve.comp.spv",
     "toon/outline.slang:frag_main:fragment:outline.frag.spv",
     "lighting/shadow.slang:main:fragment:shadow.frag.spv",
     "lighting/shadow.slang:mesh_main:mesh:shadow.mesh.spv",

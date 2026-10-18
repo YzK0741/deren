@@ -388,7 +388,11 @@ int main(int const argc, char** const argv) {
         request.life = managed::lifetime::output_size;
         request.image.extent = {.width = 4, .height = 4, .depth = 1};
         request.image.format = layout::hdr_format;
-        request.image.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_source);
+        request.image.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_source) |
+                              // the G-buffer/HDR family's STORAGE usage joined the contract with visibility-buffer v0.4
+                              // (the resolve writes these targets from a compute shader), and an injected provider must
+                              // satisfy every flag the declaration requires - the check below is what says so.
+                              rhi::to_bits(rhi::image_flag::storage);
         application->emplace<resource_provider>(request);
         engine.set_pass_chain(*application, {});
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);

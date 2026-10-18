@@ -257,6 +257,183 @@ namespace {
     }
 } // namespace
 
+namespace {
+    /// the lines of one shader source, or an empty vector when it cannot be read (the CHECKs report that)
+    std::vector<std::string> shader_lines(char const* const relative) {
+        std::ifstream file(std::string(VR_TEST_SOURCE_DIR) + "/source/shaders/" + relative);
+        CHECK_MSG(file.is_open(), relative);
+        std::vector<std::string> lines;
+        std::string line;
+        while (std::getline(file, line)) {
+            lines.push_back(line);
+        }
+        return lines;
+    }
+
+    /// the source with every `//` comment stripped, so a text check cannot be satisfied by prose
+    std::string strip_comments(std::vector<std::string> const& lines) {
+        std::string text;
+        for (std::string line : lines) {
+            if (std::size_t const comment_at = line.find("//"); comment_at != std::string::npos) {
+                line.erase(comment_at);
+            }
+            text += line;
+            text += '\n';
+        }
+        return text;
+    }
+
+    bool text_contains(std::string const& text, char const* const needle) {
+        return text.find(needle) != std::string::npos;
+    }
+
+    /// the resolve compute stage mirrors the CPU reference's arithmetic AND the draw-item record, and it is the
+    /// third hand-mirror of the C++ layout (visibility.slang and the CPU reference are the other two). These checks
+    /// pin what a compile cannot: the record's FIELD ORDER, the packing constants, and the compute-stage rules that
+    /// would compile inside a body but not inside this leaf (a `discard` or a derivative).
+    void test_resolve_shader_mirror() {
+        std::vector<std::string> const lines = shader_lines("scene/visibility_resolve.slang");
+        std::string const code = strip_comments(lines);
+        // ---- the draw-item record, field for field: deren.engine.visibility::draw_item's 12 lanes then the matrix
+        std::vector<std::string> fields;
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            if (lines[i].find("struct VisibilityDrawItem") == std::string::npos) {
+                continue;
+            }
+            for (std::size_t k = i + 1; k < lines.size() && lines[k].find('}') == std::string::npos; ++k) {
+                std::string declaration = lines[k];
+                if (std::size_t const comment_at = declaration.find("//"); comment_at != std::string::npos) {
+                    declaration.erase(comment_at);
+                }
+                // the declaration's NAME is the LAST word of `uint x;` / `VR_MAT4 m;` - the struct has no arrays, and
+                // a line without a terminator (the opening brace) is not a declaration
+                while (!declaration.empty() && declaration.back() == ' ') {
+                    declaration.pop_back();
+                }
+                if (declaration.empty() || declaration.back() != ';') {
+                    continue;
+                }
+                declaration.pop_back();
+                std::size_t const space = declaration.rfind(' ');
+                fields.emplace_back(declaration.substr(space == std::string::npos ? 0u : space + 1u));
+            }
+            break;
+        }
+        std::vector<std::string> const expected{"vertex_address_low", "vertex_address_high", "index_address_low", "index_address_high",
+                                                "first_index", "base_vertex", "index_width", "meshlet_base",
+                                                "meshlet_table", "material_index", "motion_index", "flags", "model"};
+        CHECK_MSG(fields.size() == expected.size(), "the resolve shader's VisibilityDrawItem must declare 12 lanes + model");
+        for (std::size_t i = 0; i < fields.size() && i < expected.size(); ++i) {
+            CHECK_MSG(fields[i] == expected[i], (std::string("the resolve shader's draw-item field ") + std::to_string(i) + " is '" + fields[i] + "', expected '" + expected[i] + "'").c_str());
+        }
+        // ---- the packed id's fields, pinned against the C++ constants
+        static_assert(id_triangle_bits == 7u && id_meshlet_bits == 14u && id_item_bits == 10u && id_valid_bits == 1u);
+        CHECK_MSG(text_contains(code, "visibility_id_triangle_shift = 0u"), "the resolve shader's triangle shift must stay 0");
+        CHECK_MSG(text_contains(code, "visibility_id_meshlet_shift = 7u"), "the resolve shader's meshlet shift must stay 7");
+        CHECK_MSG(text_contains(code, "visibility_id_item_shift = 21u"), "the resolve shader's item shift must stay 21");
+        CHECK_MSG(text_contains(code, "visibility_id_valid = 1u << 31u"), "the resolve shader's valid bit must stay bit 31");
+        CHECK_MSG(text_contains(code, "visibility_id_triangle_mask = 0x7Fu"), "the resolve shader's triangle mask must stay 7 bits");
+        CHECK_MSG(text_contains(code, "visibility_id_meshlet_mask = 0x3FFFu"), "the resolve shader's meshlet mask must stay 14 bits");
+        CHECK_MSG(text_contains(code, "visibility_id_item_mask = 0x3FFu"), "the resolve shader's item mask must stay 10 bits");
+        // ---- the item table's LANE ARITHMETIC: one descriptor with the per-frame lanes INSIDE it (measured: adding
+        //      the frame slot to the heap slot instead read the next array's storage-image descriptor as a structured
+        //      buffer, and the device was lost on the second frame slot)
+        static_assert(id_item_capacity == 1024u);
+        CHECK_MSG(text_contains(code, "visibility_item_capacity = 1024u"), "the resolve shader's per-frame item stride must stay 1024 rows");
+        CHECK_MSG(text_contains(code, "push.frame_slot * visibility_item_capacity + id_item"), "the resolve must index the item table by frame-slot lane, not by heap slot");
+        CHECK_MSG(!text_contains(code, "heap_slots_visibility_items + heap_frame_slot"), "the item table is ONE descriptor with per-frame rows, not a per-frame array of descriptors");
+        // ---- the COMPUTE rules: no fragment-only statement, and the shared bodies are INCLUDED, not copied
+        CHECK_MSG(!text_contains(code, "discard;"), "a compute stage cannot discard: the MASK rule must be the eligibility check's");
+        CHECK_MSG(!text_contains(code, "ddx(") && !text_contains(code, "ddy("), "a compute stage has no derivatives: the tangent frame must come from the triangle's edges");
+        CHECK_MSG(text_contains(code, "#include \"scene/gbuffer_body.slang\""), "the resolve must include the shared G-buffer composition");
+        CHECK_MSG(text_contains(code, "#include \"geometry/mesh_geometry.slang\""), "the resolve must fetch through the shared mesh geometry helpers");
+        // ---- the push block's field order (the host appends the two heap index lanes to the pass's own payload)
+        std::vector<std::string> push_fields;
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            if (lines[i].find("struct VisibilityResolvePush") == std::string::npos) {
+                continue;
+            }
+            for (std::size_t k = i + 1; k < lines.size() && lines[k].find('}') == std::string::npos; ++k) {
+                for (char const* const field : {"frame_slot;", "image_index;", "spare_lane;"}) {
+                    if (lines[k].find(field) != std::string::npos) {
+                        push_fields.emplace_back(std::string(field, std::string(field).size() - 1u));
+                    }
+                }
+            }
+            break;
+        }
+        CHECK(push_fields.size() == 3u);
+        if (push_fields.size() == 3u) {
+            CHECK(push_fields[0] == "frame_slot");
+            CHECK(push_fields[1] == "image_index");
+            CHECK(push_fields[2] == "spare_lane");
+        }
+        // ---- the two failure counters are the capture lane's witnesses: the resolve increments them
+        CHECK_MSG(text_contains(code, "mesh_stat_visibility_depth_mismatch"), "the resolve must report an id/depth disagreement");
+        CHECK_MSG(text_contains(code, "mesh_stat_visibility_unresolved"), "the resolve must report a pixel it could not rebuild");
+    }
+
+    /// the shared-body extraction (v0.4b): the fragment stage and the resolve must COMPOSE through one body, and the
+    /// visibility mesh entry must fetch through the meshlet record (the bug the first capture-only attempt hid).
+    void test_shared_gbuffer_body() {
+        std::string const gbuffer = strip_comments(shader_lines("scene/gbuffer.slang"));
+        CHECK_MSG(text_contains(gbuffer, "#include \"scene/gbuffer_body.slang\""), "gbuffer.slang must include the shared composition");
+        CHECK_MSG(text_contains(gbuffer, "gbuffer_from_surface("), "gbuffer.slang must compose through the shared body");
+        CHECK_MSG(text_contains(gbuffer, "motion_vector("), "gbuffer.slang must compute its velocity through the shared body");
+        CHECK_MSG(!text_contains(gbuffer, "struct gbuffer_output"), "gbuffer_output moved to gbuffer_body.slang: a second declaration is a second contract");
+        std::string const body = strip_comments(shader_lines("scene/gbuffer_body.slang"));
+        CHECK_MSG(text_contains(body, "struct gbuffer_output"), "gbuffer_body.slang owns the five-target struct");
+        CHECK_MSG(text_contains(body, "gbuffer_empty_output("), "gbuffer_body.slang owns the clear value the resolve writes for empty pixels");
+        for (char const* const location : {"[[vk::location(0)]]", "[[vk::location(1)]]", "[[vk::location(2)]]", "[[vk::location(3)]]", "[[vk::location(4)]]"}) {
+            CHECK_MSG(text_contains(body, location), location);
+        }
+        std::string const surface = strip_comments(shader_lines("common/surface.slang"));
+        CHECK_MSG(text_contains(surface, "#include \"common/surface_body.slang\""), "surface.slang must include the shared decode");
+        CHECK_MSG(text_contains(surface, "gather_surface_base("), "the fragment wrapper must call the shared MASK phase first");
+        CHECK_MSG(text_contains(surface, "gather_surface_finish("), "the fragment wrapper must call the shared finish phase");
+        CHECK_MSG(text_contains(surface, "discard"), "the MASK discard stays in the fragment wrapper");
+        // THE ORDER OF THE WRAPPER IS LOAD-BEARING AND WAS MEASURED: the MASK verdict (and its discard) must come
+        // BEFORE the derivative frame is requested, and the frame is requested ONLY for a normal-mapped material -
+        // a killed invocation stops contributing to its quad's derivative helpers, so the order changed the TBN of
+        // normal-mapped alpha-tested foliage and moved 10.5% of the capture gate's sponza pixels when it was wrong.
+        {
+            std::size_t const base_at = surface.find("gather_surface_base(");
+            std::size_t const discard_at = surface.find("discard");
+            std::size_t const tbn_at = surface.find("surface_tbn(");
+            CHECK_MSG(base_at != std::string::npos && discard_at != std::string::npos && tbn_at != std::string::npos, "the wrapper's three steps must be visible to this test");
+            CHECK_MSG(discard_at < tbn_at, "THE MASK DISCARD MUST PRECEDE THE DERIVATIVE FRAME (measured: sponza)");
+            CHECK_MSG(surface.find("(base.material.flags & 1u) != 0u") != std::string::npos, "the derivative frame is requested only for a normal-mapped material");
+        }
+        std::string const decode = strip_comments(shader_lines("common/surface_body.slang"));
+        CHECK_MSG(text_contains(decode, "surface_base gather_surface_base("), "surface_body.slang owns the material/MASK phase");
+        CHECK_MSG(text_contains(decode, "surface_sample gather_surface_finish("), "surface_body.slang owns the surface decode");
+        CHECK_MSG(!text_contains(decode, "discard;"), "the shared decode must not discard: a compute caller cannot");
+        CHECK_MSG(!text_contains(decode, "ddx(") && !text_contains(decode, "ddy("), "the shared decode must not use derivatives: the frame is an argument");
+        // ---- the visibility mesh entry fetches the MESHLET's window, not the geometry lanes' run base/count
+        std::string const visibility = strip_comments(shader_lines("scene/visibility.slang"));
+        CHECK_MSG(text_contains(visibility, "meshlet.first_index + t * mesh_indices_per_triangle"), "the id raster must fetch the meshlet record's index window");
+        CHECK_MSG(text_contains(visibility, "meshlet.base_vertex"), "the id raster must use the meshlet record's base vertex");
+        CHECK_MSG(!text_contains(visibility, "geometry.first_index + (first_triangle + t)"), "the id raster must not use the run window as a mesh window (the v0.3a bug)");
+    }
+
+    /// the resolve's front/back decision: Vulkan decides facing by the signed area in FRAMEBUFFER coordinates (y
+    /// grows DOWN here) with `frontFace = COUNTER_CLOCKWISE`, so a front face is the NEGATIVE-area triangle.
+    void test_front_face_convention() {
+        auto const close = [](float const a, float const b) { return std::abs(a - b) < 1e-5f; };
+        std::array<float, 2> const origin{0.0f, 0.0f};
+        std::array<float, 2> const right{4.0f, 0.0f};
+        std::array<float, 2> const down{0.0f, 4.0f};
+        // (origin, right, down): turning towards +y (DOWN the screen) is a CLOCKWISE turn as seen, i.e. the back face
+        CHECK(close(triangle_twice_area(origin, right, down), 16.0f));
+        CHECK(!is_front_face(origin, right, down));
+        // ... and the mirrored winding is the front face
+        CHECK(close(triangle_twice_area(origin, down, right), -16.0f));
+        CHECK(is_front_face(origin, down, right));
+        // a degenerate triangle covered no pixel: "front" would be a meaningless answer
+        CHECK(!is_front_face(origin, right, std::array<float, 2>{8.0f, 0.0f}));
+    }
+} // namespace
+
 int main() {
     test_id_layout();
     test_id_round_trip();
@@ -265,6 +442,9 @@ int main() {
     test_push_block_layout();
     test_draw_item_builder();
     test_shader_mirror();
+    test_resolve_shader_mirror();
+    test_shared_gbuffer_body();
+    test_front_face_convention();
     test_resolve_barycentrics();
     test_resolve_perspective_and_interpolation();
     test_clip_to_screen();

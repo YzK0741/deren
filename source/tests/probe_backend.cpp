@@ -73,6 +73,7 @@ import deren.promise.rhi;
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <expected> // std::expected: the contract's `image::get_content()` (abi 25) answers one
 #include <future>
 #include <memory>
