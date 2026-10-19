@@ -1060,7 +1060,6 @@ namespace deren::vulkan {
             [[nodiscard]] void* native_device() const noexcept override;
             [[nodiscard]] void* native_queue() const noexcept override;
             [[nodiscard]] void* native_command_buffer(deren::promise::rhi::command_buffer& commands) const noexcept override;
-            [[nodiscard]] std::span<char const* const> enabled_instance_extensions() const noexcept override;
             [[nodiscard]] std::span<char const* const> enabled_device_extensions() const noexcept override;
             /// BORROWED: the `VkBuffer` behind a contract buffer this backend handed out (nullptr when it
             /// carries none). A released buffer must not be passed - see the contract's note.
@@ -1070,8 +1069,6 @@ namespace deren::vulkan {
             [[nodiscard]] void* native_image(deren::promise::rhi::image const& resource) const noexcept override;
             [[nodiscard]] void* native_image_view(deren::promise::rhi::image_view const& resource) const noexcept override;
             [[nodiscard]] void* native_sampler(deren::promise::rhi::sampler const& resource) const noexcept override;
-            [[nodiscard]] void* native_pipeline(deren::promise::rhi::pipeline const& resource) const noexcept override;
-            [[nodiscard]] void* native_shader_module(deren::promise::rhi::shader const& resource) const noexcept override;
             /// abi 17 (③-D/E step 2): the swapchain's format as a session-stable fact, asked of the
             /// CONTEXT because the engine builds its presentation-drawing pipelines before any frame
             /// exists (see the contract's own note on this accessor). `VK_FORMAT_UNDEFINED` when this

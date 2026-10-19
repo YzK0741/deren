@@ -4355,10 +4355,6 @@ namespace deren::vulkan {
         return nullptr; // not a list this backend handed out
     }
 
-    std::span<char const* const> core::frame_escape::enabled_instance_extensions() const noexcept {
-        return std::span<char const* const>(this->owner->instance_extension_names);
-    }
-
     std::span<char const* const> core::frame_escape::enabled_device_extensions() const noexcept {
         return std::span<char const* const>(this->owner->device_extension_names);
     }
@@ -4417,16 +4413,6 @@ namespace deren::vulkan {
         return static_cast<std::uint32_t>(this->owner->swap_chain_image_format);
     }
 
-    void* core::frame_escape::native_pipeline(rhi::pipeline const& resource) const noexcept {
-        auto const* const owned = static_cast<owned_pipeline const*>(&resource);
-        return reinterpret_cast<void*>(owned->native_handle);
-    }
-
-    void* core::frame_escape::native_shader_module(rhi::shader const& resource) const noexcept {
-        auto const* const owned = static_cast<owned_shader const*>(&resource);
-        return reinterpret_cast<void*>(owned->native_handle);
-    }
-
     // ---- abi 22: the BASIC-HANDLE basis ------------------------------------------------------------
     //
     // THE TOKEN CARRIES THE TAG AND NOTHING ELSE (see `api_basis`): what a caller passes is "the device this
@@ -4457,7 +4443,10 @@ namespace deren::vulkan {
         if (self == nullptr || !self->owns_basis(basis) || self->logical_device == VK_NULL_HANDLE) {
             return false;
         }
-        void* const native = this->native_pipeline(resource);
+        // THE HANDLE IS READ IN PLACE: `native_pipeline` was a zero-call public slot (abi 38), but this query
+        // still needs the VkPipeline behind the contract pipeline it was handed.
+        auto const* const owned = static_cast<owned_pipeline const*>(&resource);
+        void* const native = reinterpret_cast<void*>(owned->native_handle);
         if (native == nullptr || out.empty()) {
             return false;
         }

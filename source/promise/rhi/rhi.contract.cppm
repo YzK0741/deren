@@ -334,6 +334,11 @@ export namespace deren::promise::rhi {
     // an APPENDED target (`heap_bind_info::mergeable_commands` / `heap_push_info::mergeable_commands`):
     // a mergeable segment publishes its binding/push data through the same ability as a command_buffer,
     // one target of the two set. Existing fields, slots and meanings do not move.
+    // ABI 38 REMOVES THREE ZERO-CALL ESCAPE SLOTS: `vulkan_escape::enabled_instance_extensions()`,
+    // `native_pipeline()` and `native_shader_module()` are DELETED - nothing in this repository called
+    // them (the device-extension list is still asked for, the two resource handles moved to portable
+    // contract factories/abilities), and dead vocabulary is removed rather than kept "in case". Removing
+    // virtuals from an existing tier-2 interface shifts every slot after them: that is the number.
     // ABI 37 RETIRES THE SECONDARY COMMAND BUFFER: `command_buffer_kind::secondary` becomes a reserved value
     // the factories refuse by name, and `command_buffer::execute(command_buffer&)` is DELETED - the last
     // single-secondary recording-time merge, replaced by the batch `execute(span)` the multithreaded passes
@@ -345,7 +350,7 @@ export namespace deren::promise::rhi {
     // operation). They live here because EVERY backend needs the same "check the concrete name, then
     // cast to the concrete layout" pair, and one copy is what keeps the next backend from reinventing
     // it (or from weakening the panic/refusal split its own doc states).
-    inline constexpr std::uint32_t abi_version = 37u;
+    inline constexpr std::uint32_t abi_version = 38u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

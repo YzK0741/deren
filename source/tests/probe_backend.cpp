@@ -247,9 +247,6 @@ namespace {
         [[nodiscard]] void* native_command_buffer(rhi::command_buffer&) const noexcept override {
             return nullptr;
         }
-        [[nodiscard]] std::span<char const* const> enabled_instance_extensions() const noexcept override {
-            return {};
-        }
         [[nodiscard]] std::span<char const* const> enabled_device_extensions() const noexcept override {
             return {};
         }
@@ -266,12 +263,6 @@ namespace {
             return nullptr;
         }
 
-        [[nodiscard]] void* native_pipeline(rhi::pipeline const&) const noexcept override {
-            return nullptr;
-        }
-        [[nodiscard]] void* native_shader_module(rhi::shader const&) const noexcept override {
-            return nullptr;
-        }
         /// THE ONE NON-NULL ANSWER, and the reason the engine's runtime can ask this at all before a
         /// frame exists (abi 17): the presentation image's format is a session-stable fact, and the
         /// probe has to name SOMETHING for it. `VK_FORMAT_B8G8R8A8_UNORM` = 44 is the value a Vulkan

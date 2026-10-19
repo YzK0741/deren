@@ -759,8 +759,8 @@ export namespace deren::promise::rhi {
         /// frame it is part of.
         [[nodiscard]] virtual void* native_command_buffer(command_buffer& commands) const noexcept = 0;
 
-        /// The instance/device extensions this context ENABLED, NUL-terminated names, in the backend's
-        /// own storage (valid for the context's lifetime). The escape's guard rail: a pass checks the
+        /// The DEVICE extensions this context ENABLED, NUL-terminated names, in the backend's own
+        /// storage (valid for the context's lifetime). The escape's guard rail: a pass checks the
         /// extension it wants is here BEFORE it resolves an entry point for it.
         ///
         /// THE ELEMENT TYPE IS `char const* const`, AND THAT IS A COMPILE-LEVEL FACT RATHER THAN A STYLE
@@ -771,7 +771,9 @@ export namespace deren::promise::rhi {
         /// constrained away for a non-borrowed const range unless `is_const_v<element_type>` holds - the
         /// non-const-element spelling does not compile at the backend's return statements. The alternative,
         /// a const_cast, would misstate what the caller may do with the view.
-        [[nodiscard]] virtual std::span<char const* const> enabled_instance_extensions() const noexcept = 0;
+        ///
+        /// (The INSTANCE half, `enabled_instance_extensions`, was DELETED in abi 38: it had no caller, and
+        /// an instance-level extension is not a device fact any caller of this contract acts on.)
         [[nodiscard]] virtual std::span<char const* const> enabled_device_extensions() const noexcept = 0;
 
         /// The native buffer behind a contract `buffer`, as the backend's own handle; nullptr when the
@@ -802,15 +804,10 @@ export namespace deren::promise::rhi {
         /// The native `VkSampler` behind a contract `sampler`; same lifetime rule as the two above.
         [[nodiscard]] virtual void* native_sampler(sampler const& resource) const noexcept = 0;
 
-        /// The native `VkPipeline` behind a contract `pipeline` - what a raw `vkCmdBindPipeline` and
-        /// the compute/ray-tracing dispatch paths consume. Same borrowed rule as the image handles.
-        /// APPENDED IN ABI 8 with the pipeline face.
-        [[nodiscard]] virtual void* native_pipeline(pipeline const& resource) const noexcept = 0;
-
-        /// The native `VkShaderModule` behind a contract `shader` - what a raw
-        /// `VkPipelineShaderStageCreateInfo` (the compute and ray-tracing pipelines the engine still
-        /// assembles) consumes. Same borrowed rule.
-        [[nodiscard]] virtual void* native_shader_module(shader const& resource) const noexcept = 0;
+        // `native_pipeline` AND `native_shader_module` WERE DELETED in abi 38 - both had ZERO callers once
+        // `pass::shader_group_handles` moved to the portable `shader_group_access` and the pipeline/ray-tracing
+        // builders became contract factories. The two slots were APPENDED in abi 8 and are dead vocabulary now;
+        // the escape keeps only the handles something actually asks for.
 
         /// The swapchain image's format AS THE BACKEND RESOLVED IT, as the integer `VkFormat` spells it.
         ///

@@ -41,6 +41,8 @@
   image 的声明推导；cube 由 `cube_compatible && array_layers == 6` 决定）——raw `VkImageViewCreateInfo`
   不再穿过契约。
 - heap recording verb：只接受契约 `command_buffer&`；原生命令缓冲通过 escape 获取，不能再走 heap 请求。
+- （后续 ABI 38：`enabled_instance_extensions` / `native_pipeline` / `native_shader_module` 三个零调用槽也已
+  删除，见 `2026-10-18-escape-zero-call-cleanup.md`。）
 - `vulkan_escape::native_image_format` 已删；需要格式事实时，session 级用 `native_swapchain_image_format()`，
   单 image 的格式由 `image_format` + 后端解析规则表达（契约不暴露 VkFormat）。
 - 仅剩的原生参数是 `vulkan_command_buffer_inheritance_info`（secondary recording 的 attachment formats，

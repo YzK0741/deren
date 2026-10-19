@@ -345,7 +345,11 @@ namespace {
         // number exists for. The three transition structures (vulkan_heap_image_desc / vulkan_heap_image_info /
         // vulkan_command_buffer_info) are deleted with it, their `structure_type` values are retired and never
         // reused, and a heap request that still chains one is refused with `unsupported`.
-        CHECK(rhi::abi_version == 37u);
+        // ABI38 removes THREE ZERO-CALL ESCAPE slots: `vulkan_escape::enabled_instance_extensions()` and the
+        // two resource-handle borrows `native_pipeline()` / `native_shader_module()` are DELETED. Nothing in
+        // this repository called them (the portable factories/abilities replaced the last potential callers),
+        // and removing virtuals from a tier-2 interface is the vtable-shift case the number exists for.
+        CHECK(rhi::abi_version == 38u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
