@@ -641,8 +641,9 @@ export namespace deren::engine::pass {
 
     struct draw_callback {
         /// the host's function; null means "nothing to draw after this pass". @p begin is the inheritance
-        /// of the rendering instance the pass has OPEN: the overlay records its own segment under it and the
-        /// host executes the segment inside that same instance.
+        /// of the rendering instance the pass has OPEN: the overlay records its OWN mergeable segment under
+        /// it here; EXECUTION is the other half (`finish`), because a secondary-contents instance may not
+        /// share a pass's inline instance.
         void (*record)(void* owner, deren::promise::rhi::command_buffer& command_buffer,
                        deren::promise::rhi::command_buffer_begin_info const& begin) = nullptr;
         /// THE EXECUTION HALF, called AFTER the pass's own rendering instance ended: the host begins a

@@ -14,9 +14,10 @@
 //
 // WHAT IT CARRIES: exactly what the GUI plugin's ImGui Vulkan backend needs to come up - the RHI core
 // (for the version handshake) and the native handles/numbers that core already owns. Nothing here is
-// contract vocabulary. The per-frame RECORDING TARGET is not a callback here: the contract passes the RHI
-// `command_buffer` itself, and the plugin casts it to the shared `denen.vulkan.command_buffer` head after
-// checking its concrete tag (the same opaque-handle + tag + shared-layout rule).
+// contract vocabulary. The per-frame RECORDING TARGETS are not a callback here: the GUI overlay owns two
+// contract `mergeable_command_buffer` segments (gui abi 5) and reads their native VkCommandBuffer through
+// the shared `denen.vulkan.command_buffer` class's `get()`, after checking the concrete tag (the same
+// opaque-handle + tag + shared-layout rule).
 // ============================================================================
 module;
 

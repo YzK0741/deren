@@ -11,11 +11,14 @@ Shared motion-transform, skin/previous-skin and morph buffers are also managed b
 
 ## Ownership and lifetime
 
-The registry owns `resource_id -> shared_ptr<const generation>` and groups ids in
-`map<lifetime, vector<resource_id>>`. A generation owns its device root, allocations and image views;
-views are destroyed before their images, and the device is released last. A pass holds a snapshot and
-uses its objects. The runtime retains submitted snapshots until the corresponding frame-slot wait
-succeeds. Destroying a chain drains its device before releasing its owned passes and resources.
+The registry owns `resource_id -> shared_ptr<const generation>` (an engine object - `std::shared_ptr`
+is the engine's container and no longer manages an RHI handle) and groups ids in
+`map<lifetime, vector<resource_id>>`. A generation owns its device root as an
+`rhi::shared_object<rhi::api_core>` and its RHI objects as `rhi::unique_object<T>`: allocations and
+image views, destroyed so that views go before their images and the device root last. A pass holds a
+snapshot and uses its objects. The runtime retains submitted snapshots until the corresponding
+frame-slot wait succeeds. Destroying a chain drains its device before releasing its owned passes and
+resources.
 
 Lifetime labels are `device`, `scene`, `output_size`, `frame_slot`, `frame_scratch` and `history`.
 They classify resources for management; the pass description supplies the actual replacement criteria.
@@ -299,13 +302,15 @@ See [micromap evidence](reviews/2026-10-14-micromap-resources.md).
 
 Production scene geometry uploads also declare vertex/index buffer pairs through scene subchains.
 Primitive views carry generation leases, and BLAS retains both source-buffer leases. Legacy geometry
-assignments transfer an owned RHI reference into a shared holder; their external device obligation remains.
+assignments adopt one factory reference, the contract's `rhi::unique_object<rhi::buffer>`, into a
+shared holder (`geometry_buffer::operator=`); their external device obligation remains.
 See [geometry upload evidence](reviews/2026-10-14-geometry-resources.md).
 
 ## Shared images, samplers and ownership coverage
 
 Shared texture/IBL/furnace/LUT images and six samplers use typed resource-only subchains. Runtime
-holds shared_ptr aliases to their objects; those aliases own the subchains and their device roots.
+holds aliasing `rhi::shared_object<T>` handles whose control blocks name the subchain's own
+`std::shared_ptr`; those aliases own the subchains and their device roots.
 Image upload sources use the immutable initial-data/key protocol and are released after creation.
 Only whole views are requested for shared sampled images. Shader binding table uploads also use
 managed coherent/addressable buffers through the pass upload hook.

@@ -83,8 +83,8 @@ namespace deren::vulkan::gui {
         backend_info.ImageCount = info.frames_in_flight;
         backend_info.UseDynamicRendering = true;
         backend_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT; // the overlay draws on the 1x swapchain
-        // The overlay records into the still-open main rendering instance, which carries the
-        // scene's depth attachment. Dynamic rendering requires a bound pipeline's
+        // The overlay's segment records as a continuation of the still-open main rendering instance, which
+        // carries the scene's depth attachment. Dynamic rendering requires a bound pipeline's
         // depthAttachmentFormat to equal the attachment's format (VUID-vkCmdDrawIndexed-
         // dynamicRenderingUnusedAttachments-08914) unless dynamicRenderingUnusedAttachments is
         // enabled, so declare the scene depth format here - the pipeline still does no depth

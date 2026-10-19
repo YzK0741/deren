@@ -20,8 +20,9 @@
 // FUNCTION: the version arrives as the first ARGUMENT (a mismatch is refused here, before any
 // object exists, with the backend's own number written into the diagnostic), the creation
 // descriptor arrives by pointer and is borrowed for the length of the call, and OWNERSHIP
-// TRAVELS IN THE RETURNED `shared_ptr` - whose control block holds the deleter, so the delete
-// runs in THIS image without the host ever naming a deleter symbol. The two former entry points
+// TRAVELS IN THE RETURNED `shared_object` (abi 44) - its control block's last copy calls the
+// contract's `release()`, whose implementation below deletes the root in THIS image without the
+// host ever naming a deleter symbol. The two former entry points
 // are gone by consequence, not by taste: `deren_destroy_api_core` had nothing left to do, and
 // `deren_abi_version()` became an input plus a field of the refusal.
 //
@@ -31,9 +32,10 @@
 // ============================================================================
 
 // DO NOT DELETE (clang 22.1.8, MEASURED): the aligned `operator new` overloads must be VISIBLE in
-// this translation unit. `std::make_shared<deren::vulkan::core>` below instantiates libc++'s
-// `allocate_shared`, and without this include the frontend stops with `call to 'operator new' is
-// ambiguous` (candidate list printed twice at __new/global_new_delete.h) - the same class of failure
+// this translation unit for the root's heap allocation below (`new deren::vulkan::core` plus the
+// contract's shared_object control block); without this include the frontend stops with
+// `call to 'operator new' is ambiguous` (candidate list printed twice at
+// __new/global_new_delete.h) - the same class of failure
 // source/utility/utility.cpp, toon_screen_rim.cpp and upscale.cpp carry this include for.
 #include <new>
 
@@ -55,7 +57,7 @@ namespace rhi = deren::promise::rhi;
 extern "C" DEREN_API_EXPORT rhi::shared_object<rhi::api_core>
 deren_make_api_core(std::uint32_t abi_version, rhi::create_info const* desc, rhi::error_info* out_error_info) {
     // THE HANDSHAKE FIRST, BEFORE ANY OBJECT EXISTS (plan §4.2): an engine built against a
-    // different contract learns "we disagree" as an empty `shared_ptr`, at the only moment where
+    // different contract learns "we disagree" as an empty `shared_object`, at the only moment where
     // nothing has been allocated yet and nothing has to be cleaned up. THE BACKEND'S OWN NUMBER
     // travels in `native_code` - that is what the deleted `deren_abi_version()` used to answer, and
     // the refusal is the only place a host needs it.
@@ -77,11 +79,12 @@ deren_make_api_core(std::uint32_t abi_version, rhi::create_info const* desc, rhi
     if (out_error_info != nullptr) {
         *out_error_info = rhi::error_info{}; // ok: a zeroed diagnostic says ok, api unknown - nobody failed
     }
-    // OWNERSHIP TRANSFER, IN THE CONTROL BLOCK: `make_shared` allocates the object and its control
-    // block inside THIS image, and every copy of the returned pointer carries that deleter with it -
-    // so the destruction runs in the allocator that made the object even when the last reference is
-    // dropped on the host's side. That is safe HERE for the measured reason the header states: one
-    // C++ runtime and one heap (libc++.dll + UCRT) shared by every image, checked by the gate.
+    // OWNERSHIP TRANSFER, IN THE CONTROL BLOCK: the root is heap-allocated in THIS image, and the
+    // returned `shared_object` (its control block is created right here, abi 44) owns the contract's one
+    // reference - its last copy, wherever it is dropped, calls `release()`, whose implementation below
+    // deletes the object in the allocator that made it. That is safe HERE for the measured reason the
+    // header states: one C++ runtime and one heap (libc++.dll + UCRT) shared by every image, checked by
+    // the gate.
     //
     // The descriptor is read by the constructor and not kept: its `window_title` is borrowed only
     // until this call returns (GLFW copies the text into the window), which the contract's own note

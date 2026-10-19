@@ -111,8 +111,9 @@ export namespace deren::promise::rhi {
         mesh_shader = 1u << 2,     ///< vkCmdDrawMeshTasksEXT and its indirect form
         ray_tracing = 1u << 3,     ///< RETIRED in abi 26: the acceleration-structure half became TIER-1 (`acceleration_structure` + the recording verbs), and "can this device trace rays" is answered by `device_capabilities`. The BIT stays (never reused).
         host_image_copy = 1u << 4, ///< vkCopyImageToMemoryEXT
-        /// RETIRED in abi 43: the escape interface is gone - the GUI overlay's recording target is resolved
-        /// through the backend-owned `rhi::main_context`. The BIT stays (bits are never reused).
+        /// RETIRED in abi 43: the escape interface is gone - the GUI overlay receives the backend's opaque
+        /// `rhi::main_context` for its device handles (abi 39) and owns its recording targets as contract
+        /// `mergeable_command_buffer` handles now (gui abi 5). The BIT stays (bits are never reused).
         vulkan_escape = 1u << 5,
         /// APPENDED (a new BIT; the six before it do not move - see the static_assert below): WHAT THE DEVICE
         /// CAN DO, in the contract's own vocabulary. A backend announces it when it can answer every method,
@@ -667,9 +668,10 @@ export namespace deren::promise::rhi {
 
     // `vulkan_escape` STOOD HERE AND IS DELETED in abi 43. Its last content was one slot
     // (`native_command_buffer`) that the GUI overlay's Dear ImGui backend used to record its own draw data.
-    // That hand-off now passes the CONTRACT's `command_buffer` handle, which the plugin casts to the shared
+    // That hand-off then passed the CONTRACT's `command_buffer` handle, which the plugin cast to the shared
     // `denen.vulkan.command_buffer` layout after checking its concrete tag - so the contract names no escape
     // interface and no native type at all: the `extension_kind::vulkan_escape` BIT stays as a retired value
-    // (bits are never reused), and no backend announces it.
+    // (bits are never reused), and no backend announces it. Superseded by gui abi 5: the overlay owns two
+    // contract `mergeable_command_buffer` targets and records them itself (see deren.promise.gui).
 
 } // namespace deren::promise::rhi

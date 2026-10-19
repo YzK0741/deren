@@ -52,5 +52,5 @@ ABI 30 让每个 RHI 对象带一个静态字符串 `type`（**具体实现名**
 ## 后续（本次未做）
 
 - 19 处里仍有仅靠具体名、没有注册表/owner 兜底的记录类 verb（`bind_vertex_buffer` 等每 draw 调用是热路径）；给它们加锁校验需要先测量，另开一批处理。
-- `buffer_address_view` 与 `frame_escape::native_*` 的 7 处前置条件 cast 若也要“误用即命名 panic”，可统一改走 `rhi::do_concrete`（行为从 UB 变为定义良好的终止，需先确认 escape 的调用方前提不变）。
+- `buffer_address_view` 与 `frame_escape::native_*` 的 7 处前置条件 cast 若也要“误用即命名 panic”，可统一改走 `rhi::do_concrete`（行为从 UB 变为定义良好的终止，需先确认 escape 的调用方前提不变）。（`frame_escape` 已在 ABI 42 随最后一个 escape slot 删除、ABI 43 删除整个 escape 接口，所以这一半作废；`buffer_address_view` 的部分仍适用，见 `2026-10-18-native-escape-retirement.md`。）
 - 后端 `concrete` 名字常量目前仍在 `core.declarations.cppm`；若第二个后端出现，可以考虑把“名字常量 + 适配类型”的摆放规则写进 conventions。

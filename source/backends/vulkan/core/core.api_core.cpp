@@ -3,7 +3,7 @@
 // file: source/backends/vulkan/core/core.api_core.cpp
 //
 // THE RHI CONTRACT'S VIRTUALS, DEFINED FOR THE REAL BACKEND (S1-C; the
-// recording surface, the escape and the read-back slot are S2 batch 2).
+// recording surface and the read-back slot are S2 batch 2).
 // `core` derives from `deren::promise::rhi::api_core` (source/backends/vulkan/core/core.declarations.cppm), so the
 // object that owns the instance / device / swapchain IS the object a host gets from
 // deren_make_api_core() - there is no wrapper type to keep in step with it.
@@ -13,16 +13,15 @@
 //   - `abilities()`: A BIT MEANS THE CONTRACT CAN SERVE IT, not that the device has the feature. For
 //     every set bit, `query_extension(kind)` has to answer with an object that can carry out every
 //     operation that ability declares, on the objects this backend can produce. `vulkan_escape` IS NOT
-//     AMONG THEM ANY MORE (abi 43): the escape interface is deleted, and the GUI overlay's recording
-//     target travels through the backend-owned `denen.vulkan.main_context` instead.
+//     AMONG THEM ANY MORE (abi 43): the escape interface is deleted; the GUI overlay gets the device
+//     handles through the backend-owned `denen.vulkan.main_context` (abi 39) and owns its recording
+//     targets as contract `mergeable_command_buffer` handles (gui abi 5).
 //   - `query_extension()`: the announced ability object for its kind, nullptr for everything else -
 //     exactly the two-way invariant the startup gate (core.constructor.cppm, G2) and
 //     source/tests/test_dynamic_link.cpp (G1) check.
-//   - the factories: nullptr. Their descriptors are still forward-declared (the resource model is
-//     §6.4/S3), so building them here would mean inventing S3. A factory that cannot honour a
-//     descriptor answers nullptr (§4.2: no throwing path across the boundary).
-//   - the recording surface and the frame views: REAL, and they are the only `rhi` handles that can
-//     exist while the factories answer nullptr - borrowed views of objects this class already owns
+//   - the factories: REAL since S3 - each `create_*` answers the contract handle, or `nullptr` for a
+//     descriptor this backend cannot serve (§4.2: no throwing path across the boundary).
+//   - the recording surface and the frame views: REAL, borrowed views of objects this class already owns
 //     (the frame's primary command buffer, the swapchain image the frame draws into, the read-back
 //     slot). See the view types in core.declarations.cppm.
 //   - the shadow gate (plan §8.3, gate A5): `use()` derives the barrier from the contract's role pair
@@ -43,7 +42,7 @@ module;
 #include <cstdint>
 #include <expected>
 #include <format>
-#include <memory> // std::shared_ptr: make_command_buffer's control block
+#include <memory> // std::shared_ptr: the backend's INTERNAL retain of an owned command buffer (the contract hands out shared_object)
 #include <optional>
 #include <span>
 #include <string>
@@ -801,18 +800,20 @@ namespace deren::vulkan {
     }
 
     rhi::ability_bits core::abilities() const noexcept {
-        // ---- TWO BITS NOW, AND EACH IS A PROMISE ABOUT SERVICE (batch-1 spec §4.1) -----------------
+        // ---- THE ANNOUNCED BITS, EACH A PROMISE ABOUT SERVICE (batch-1 spec §4.1) -------------------
         //
         // A SET BIT IS A PROMISE ABOUT SERVICE, and every bit below is announced only when this backend can
         // carry out everything the ability declares on objects it can produce. `vulkan_escape` IS NOT
-        // ANNOUNCED ANY MORE (abi 43): the GUI overlay's recording target comes through the shared
-        // `denen.vulkan.main_context`, and no tier-2 escape interface exists for this backend to serve.
+        // ANNOUNCED ANY MORE (abi 43): the escape interface is deleted, the GUI overlay's device handles come
+        // through the shared `denen.vulkan.main_context` (abi 39), and no tier-2 escape interface exists for
+        // this backend to serve.
         //
         // `device_address` is served because a `buffer` is something `create_buffer()` hands out; its former
         // acceleration-structure half moved to `ray_tracing` (abi 5) so the bit would stop being hostage to a
         // resource no backend could make - see rhi.extension.cppm's `device_address` note and the view's own.
         //
-        // descriptor_heap只在heap真正可用时广播；mesh_shader和ray_tracing仍由pass通过原生接口录制。
+        // descriptor_heap 只在 heap 真正可用时广播；mesh_shader 的绘制走 contract 的 `draw_mesh_tasks`，
+        // ray_tracing ability 已在 abi 26 退役（launch 是 contract 的 `trace_rays`）。
         //
         // host_image_copy IS SERVED NOW (③-D/E step 2), so it is announced exactly when the device lets
         // the view do what it promises: the extension, its `hostImageCopy` feature, and GENERAL among the
@@ -1986,9 +1987,9 @@ namespace deren::vulkan {
         answer->kind = level == VK_COMMAND_BUFFER_LEVEL_SECONDARY ? rhi::command_buffer_kind::secondary
                                                                   : rhi::command_buffer_kind::primary;
         {
-            // THE PROVENANCE REGISTRY, the same shape `contract_images` uses: the batch merge and the escape's
-            // native-handle answer must tell a buffer this backend made from a pointer a caller holds, and the
-            // cast that reads it is only defined once that is known.
+            // THE PROVENANCE REGISTRY, the same shape `contract_images` uses: the batch merge / one-shot submit
+            // and the recording-time merge MUST tell a buffer this backend made from a pointer a caller holds,
+            // and the cast that reads it is only defined once that is known.
             std::lock_guard const lock(this->contract_command_buffers_mutex);
             this->contract_command_buffers.insert(answer);
         }
@@ -2022,7 +2023,7 @@ namespace deren::vulkan {
     rhi::shared_object<rhi::command_buffer> core::make_command_buffer(rhi::command_buffer_desc const& desc) {
         rhi::command_buffer* const raw = this->create_command_buffer(desc).release();
         if (raw == nullptr) {
-            return {}; // the refusal was named where it happened; an empty shared_ptr is the same answer
+            return {}; // the refusal was named where it happened; an empty shared_object is the same answer
         }
         // THE CONTROL BLOCK OWNS THE DROP, and the drop IS `release()`: the one factory reference is
         // the one the last shared copy drops - no second lifetime rule.
@@ -2036,9 +2037,9 @@ namespace deren::vulkan {
             std::lock_guard const lock(this->owner->contract_mergeable_buffers_mutex);
             this->owner->contract_mergeable_buffers.erase(this);
         }
-        // THE INNER SECONDARY IS DROPPED BY THE shared_ptr MEMBER: a submission that is still in flight holds
-        // its own reference (retain_command), so the recording outlives this handle exactly as the contract's
-        // retention rule promises.
+        // THE INNER SECONDARY IS DROPPED BY THE `std::shared_ptr` MEMBER - a backend-INTERNAL retain, not a
+        // contract handle: a submission that is still in flight holds its own reference (retain_command), so
+        // the recording outlives this handle exactly as the contract's retention rule promises.
         delete this;
     }
 
@@ -2241,6 +2242,11 @@ namespace deren::vulkan {
         // heap face is ACTIVE: a device without VK_EXT_descriptor_heap leaves both heaps unusable, the
         // bind infos stay zero, and chaining a heap the device never got would be worse than leaving it
         // out - the same "the heap is simply unused" state every other heap path in this file accepts.
+        //
+        // `inherit_descriptor_heaps` (abi 45) is the caller's one opt-OUT of that derivation: a THIRD-PARTY
+        // recorder that binds its own classic descriptor sets - the Dear ImGui Vulkan backend is the case the
+        // field exists for - starts its segment through the overlay's begin info with the flag false, because
+        // a heap-inheriting continuation would trip VUID-...-11295/11296 on every one of its binds.
         bool inherit_descriptor_heaps = true;
         if (covered_by(declared_info.struct_size, offsetof(rhi::command_buffer_begin_info, inherit_descriptor_heaps),
                        sizeof(rhi::command_buffer_begin_info::inherit_descriptor_heaps))) {
@@ -2794,7 +2800,7 @@ namespace deren::vulkan {
     // THE TRANSLATION IS THE BACKEND'S ALONE (the plan's §1): every Vulkan structure below is built
     // here, from the contract's vocabulary. The handles the descriptors carry are verified by
     // interface identity and, for images, by the same registry the heap writes go through; the cast
-    // to `owned_*` is defined only after that check, which is the no-RTTI provenance rule the escape
+    // to `owned_*` is defined only after that check, which is the no-RTTI provenance rule the contract
     // states as a caller premise. The readiness answer is uniform and cheap: a list with no buffer
     // to record into (`native()` null) is `not_ready` - the frame list's answer when no frame is in
     // flight, an owned list's never.
@@ -4429,7 +4435,7 @@ namespace deren::vulkan {
         // ONLY AN IMAGE THIS BACKEND CREATED, which is the contract's precondition for every borrowed
         // native handle. The frame image (a BORROWED view) is NOT served HERE, and that is deliberate: this
         // ability's contract is "an image a caller made", and reinterpreting the borrowed object as an owned
-        // one is the bug the escape's pointer-identity tests exist to avoid. The FRAME image has its own
+        // one is the bug this pointer-identity check exists to avoid. The FRAME image has its own
         // spelling now (`frame_image_slot::get_content()`), so nothing is lost by keeping this refusal.
         if (static_cast<void const*>(&source) == static_cast<void const*>(&self->frame_image_view)) {
             return rhi::error::invalid_argument;
@@ -4533,8 +4539,9 @@ namespace deren::vulkan {
             this->acquired_image_index = image_index;
             this->async_present_queued = false;
             this->frame_in_flight = true;
-            // THE RECORDING TARGET THE GUI PLUGIN READS (abi 43): while this frame is in flight the borrowed
-            // view's shared head names the frame slot's buffer; the frame's own submit/advance clears it.
+            // THE FRAME'S OWN RECORDING TARGET: while this frame is in flight the borrowed view's shared head
+            // names the frame slot's buffer; the frame's own submit/advance clears it. (The GUI overlay no
+            // longer records here - gui abi 5 gives the plugin its own two mergeable segments.)
             this->commands_view.set_target(this->frame_command_buffer());
             // and this is what makes `frame_image()` answer at all: before the first successful acquire
             // there is no last-acquired image, only a default index that happens to name one.
@@ -4593,9 +4600,10 @@ namespace deren::vulkan {
             //
             // WHAT THIS WIDENING IS FOR, and it is a WIDENING rather than a new slot (the signature does not
             // move, so abi 27 stands): the probes record their read-back into a buffer THEY created
-            // (`create_command_buffer()`), and they handed it to the queue through the escape with a raw
-            // `vkQueueSubmit` - the last Vulkan reference the engine half had. A one-shot list the caller owns is
-            // the same operation the frame's list is (record -> submit to the graphics queue); what differs is
+            // (`create_command_buffer()`), and they used to hand it to the queue through the escape with a raw
+            // `vkQueueSubmit` (the escape is deleted in abi 43) - the last Vulkan reference the engine half had.
+            // A one-shot list the caller owns is the same operation the frame's list is (record -> submit to
+            // the graphics queue); what differs is
             // that NOTHING IS PRESENTED, so the acquire state, the swapchain image and the semaphores are not
             // involved. THE ORDERING STAYS THE CALLER'S (`wait_idle()`), exactly as it was when it submitted by
             // hand - the contract has no fence for an owned buffer, and inventing one is not this batch's call.

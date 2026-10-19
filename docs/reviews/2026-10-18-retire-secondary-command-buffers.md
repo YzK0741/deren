@@ -1,6 +1,6 @@
 # 退役二级 command buffer（ABI 37）
 
-日期：2026-10-18 · 批次：retire-secondary · 前置：`2026-10-18-engine-mergeable-recording`（ABI 36）
+日期：2026-10-18 · 批次：retire-secondary · 前置：`2026-10-18-engine-mergeable-recording`（无 ABI bump，仍 36）
 
 ## 决策
 

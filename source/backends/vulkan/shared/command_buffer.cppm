@@ -7,8 +7,8 @@
 // The contract passes the RHI type (`rhi::command_buffer`); this is the class the Vulkan side casts it to
 // after checking the concrete tag, and `get()` is how the native handle is read:
 //
-//     if (denen::vulkan::is_command_buffer(commands)) {
-//         VkCommandBuffer native = static_cast<denen::vulkan::command_buffer const&>(commands).get();
+//     if (deren::vulkan::is_command_buffer(commands)) {
+//         VkCommandBuffer native = static_cast<deren::vulkan::command_buffer const&>(commands).get();
 //     }
 //
 // WHY THE CAST NEEDS A SHARED DECLARATION AT ALL: the backend DLL exports exactly one C name, so a module
@@ -29,7 +29,8 @@ export import deren.promise.rhi;
 
 /**
  * @file source/backends/vulkan/shared/command_buffer.cppm
- * @brief the Vulkan class behind the contract's `command_buffer` (abi 43): tag check, cast, `get()`
+ * @brief the Vulkan classes behind the contract's `command_buffer` and `mergeable_command_buffer`
+ *        (abi 43): tag checks, casts, `get()`
  * @ingroup promise
  */
 

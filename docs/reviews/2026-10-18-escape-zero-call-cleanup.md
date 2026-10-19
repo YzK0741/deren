@@ -52,3 +52,5 @@
 - 其余（`enabled_device_extensions` 等）可随测试改造一起删。
 
 整体退役顺序仍按上轮盘点：legacy SBT → 原生继承结构 → 资源句柄 → 设备/队列/帧句柄 → 整个 extension。
+（该顺序已走完：ABI 40 删设备/实例/队列/格式五个句柄，ABI 42 删其余 slot 与原生继承结构，ABI 43 删除
+escape 接口本身，见 `2026-10-18-native-escape-retirement.md`。）

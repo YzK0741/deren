@@ -8,8 +8,8 @@ become declared rather than positional. It is written before any code moves, bec
 
 The split this document maps has since happened, so the plan below reads as the record of what was measured
 before any code moved. `deren.engine.runtime` is now an umbrella (`runtime.cppm`, 27 lines) over
-`runtime.declarations.cppm` (4544), `runtime.frames.cppm` (3446), `runtime.constructor.cppm` (2422),
-`runtime.cpp` (2301), `runtime.post_graph.cpp` (1041), `runtime.probes.cppm` (361) and
+`runtime.declarations.cppm` (4494), `runtime.frames.cppm` (3509), `runtime.constructor.cppm` (2424),
+`runtime.cpp` (2318), `runtime.post_graph.cpp` (1041), `runtime.probes.cppm` (361) and
 `runtime.readback.cppm` (142), and the pass extraction
 the acceptance section asks for has landed.
 

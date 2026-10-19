@@ -441,8 +441,9 @@ namespace deren::engine {
         if (this->debug_overlay != nullptr && this->debug_overlay->is_active()) {
             return true;
         }
-        // The overlay draws into the runtime's OPEN main rendering instance via dynamic
-        // rendering (the backend is initialized with UseDynamicRendering=true).
+        // THE OVERLAY OWNS ITS RECORDING (gui abi 5): the runtime creates its two mergeable targets and the
+        // plugin records ImGui into one per frame; the recorded segment is executed by the frame right after the
+        // final-writer pass's instance ends (dynamic rendering; the backend is initialized with it).
         rhi::api_core& vk = this->vulkan_core;
         deren::gui::create_info info = {};
         info.api = deren::gui::api_type::vulkan;

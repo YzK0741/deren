@@ -63,8 +63,9 @@ CMake：`vulkan_main_context`（ABI 39 的共享布局静态库）链接到 `tes
 
 ## 后续
 
-`vulkan_escape` 还剩 9 个槽：`native_command_buffer`、`enabled_device_extensions`、四个资源句柄
-（buffer/image/image_view/sampler）、`get_basis` + `shader_group_handles`。下一步仍是先迁
+`vulkan_escape` 还剩 **8 个**槽：`native_command_buffer`、`enabled_device_extensions`、四个资源句柄
+（buffer/image/image_view/sampler）、`get_basis` + `shader_group_handles`（ABI 38 删到 13 个槽，本批删除
+5 个设备/格式句柄后为 13 - 5 = 8）。下一步仍是先迁
 `rt_traversal_probe` 的 legacy SBT 路径（engine 已用可移植 `shader_group_access`），再处理资源句柄
 回读与 raw command buffer（后者要等测试的 raw 录制有契约替代）。 </br>
 **已由 ABI 42 完成**：七个剩余 slot 与 `api_basis` / native inheritance 结构已删除，escape 只剩

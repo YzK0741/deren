@@ -1173,8 +1173,10 @@ export namespace deren::vulkan {
      * @brief GENERAL -> GENERAL, COLOR_ATTACHMENT_OUTPUT/COLOR_ATTACHMENT_WRITE -> HOST/HOST_READ (plan X4)
      *
      * THE ONE RECIPE THE ENGINE RECORDED BY HAND, and the reason the `image_use` census said "no HOST-access
-     * masks (the two host-visible barrier sites stay in the escape bucket, runtime.probes.cppm / ray_tracing.cpp)":
-     * the render's writes have to be visible to the HOST stage before the implementation copies the image out
+     * masks (the two host-visible barrier sites stay in the escape bucket, runtime.probes.cppm / ray_tracing.cpp)"
+     * - the census wording is quoted as it was written; those two sites use the contract's `host_read` roles
+     * now and the escape is deleted in abi 43. The render's writes have to be visible to the HOST stage
+     * before the implementation copies the image out
      * (`image::get_content()` and the descriptor-heap probes' read-back). It joins the table so the pair
      * (color_attachment, host_read) is a DECLARED one rather than a raw command somebody records.
      */

@@ -54,7 +54,7 @@ new is unchanged.
 Owned containers in engine, utility, application, configuration, loaders,
 backends, RHI/GUI contracts, and tests use vessel. Borrowed APIs retain
 span/string_view. Third-party libraries and vstd standard-library exports
-keep their existing types. RHI ABI33 and GUI ABI3 require rebuilt matching
+keep their existing types. RHI ABI45 and GUI ABI5 require rebuilt matching
 plugins; factories reject mismatched versions before returning typed objects.
 Vectors with different allocators use range copies; string boundaries use
 views or explicitly construct the target type.

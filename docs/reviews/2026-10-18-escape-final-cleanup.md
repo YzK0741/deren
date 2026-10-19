@@ -14,9 +14,9 @@
 | `api_basis` 类型 + `structure_type::vulkan_device_basis` | `get_basis` 的载体；tag 值保留退役 |
 | `vulkan_command_buffer_inheritance_info` + `structure_type::vulkan_command_buffer_inheritance` | native `VkFormat` 拼写的附件继承；engine 已用可移植 `command_buffer_inheritance_info`；spike 的 native-tagged begin 测试删除（portable 测试保留）；tag 值保留退役 |
 
-**ABI 43 已删除这个 slot 与整个 escape 接口本身（见 `2026-10-18-native-escape-retirement.md`）。
+（ABI 43 已删除这个 slot 与整个 escape 接口本身，见 `2026-10-18-native-escape-retirement.md`。）
 
-保留的最后一个 slot 与理由**：`native_command_buffer` 是 Dear ImGui Vulkan backend 每帧录制自己 draw data
+**保留的最后一个 slot 与理由**：`native_command_buffer` 是 Dear ImGui Vulkan backend 每帧录制自己 draw data
 所必需的——第三方渲染 API 要的就是 `VkCommandBuffer`，契约没有也不该为它发明一个 verb。GUI 的设备根已由
 `rhi::main_context`（ABI 39）提供；engine 和测试不再使用 escape。
 
@@ -42,8 +42,12 @@
 - 冻结像素门禁：完整 OFF gate **15/15**、`-Visibility -Compare` **PASS**；
 - doxygen **0 warnings**。
 
-## 契约层还剩什么 native 词汇
+## 契约层还剩什么 native 词汇（ABI 42 时状态）
 
 只剩：`vulkan_escape::native_command_buffer`（GUI overlay 的第三方录制入口）、`rhi::main_context`
 （不透明，无 native 类型）、`vulkan_escape` 这个 ability bit 本身，以及两个已退役 tag 的保留值。
 `api_basis`、`vulkan_command_buffer_inheritance_info` 等类型全部删除。
+
+（本节是本批时点。ABI 43 已删除整个 escape 接口与 `vulkan_escape` announce：`native_command_buffer`
+不再存在；`rhi::main_context` 仍是 ABI 39 引入的不透明设备根。ABI 45 起 GUI overlay 自己持有两个
+mergeable 录制目标，见 `2026-10-18-gui-owned-recording.md`。）

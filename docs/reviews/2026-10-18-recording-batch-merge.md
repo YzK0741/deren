@@ -46,3 +46,8 @@
 - pass 结构（`segment_buffer::buffer`、`shadow_frame::cascades`、`transparent_frame::secondary`）改
   mergeable ref；合并点改 `io.list->execute(span)`；
 - 验收：OFF gate 15/15 字节一致、ON 参考不变、真设备/ctest 全绿。
+
+（**已完成**：`2026-10-18-engine-mergeable-recording`；`command_buffer_kind::secondary` 随后在 ABI 37 退役
+（`2026-10-18-retire-secondary-command-buffers.md`）。上面“从 `shared_ptr<command_buffer>` 泛化”的表述是
+ABI 36 时的所有权形态——ABI 44 后 `make_command_buffer` 的返回已是
+`rhi::shared_object<command_buffer>`，见 `2026-10-18-shared-object-migration.md`。）

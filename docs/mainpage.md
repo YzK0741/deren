@@ -83,7 +83,10 @@ implementation details, measured results and the limits of each feature.
   simply stay off.
 - **Heap-native scene descriptors.** Scene bindings live in a heap the renderer manages.
   Backend integrations such as VRDX sorting and the GUI may use traditional descriptors;
-  the sorting wrapper restores heap bindings before subsequent stages. \ref md_docs_2descriptor__heap__migration "Descriptor heap migration" and
+  the sorting wrapper restores heap bindings before subsequent stages, and the GUI's own
+  recording segment starts with `command_buffer_begin_info::inherit_descriptor_heaps = false`
+  (abi 45) because the Dear ImGui Vulkan backend binds its own classic descriptor sets.
+  \ref md_docs_2descriptor__heap__migration "Descriptor heap migration" and
   \ref md_docs_2descriptor__heap__handover "Descriptor heap handover" are the record of
   how it got there and what it cost.
 - **Reproducible image and performance checks.** Frozen poses and reference captures,
@@ -157,22 +160,35 @@ Three shorter paths, if you are not reading front to back:
 One contract, and every graphics backend is an implementation of it.
 
 - **The contract** is the module `deren.promise.rhi` (`source/promise/rhi/`): the `api_core` virtual
-  surface - create and destroy objects, record commands, walk frames, report abilities - plus the
-  creation parameters (`create_info`). Both sides of the boundary compile the SAME interface unit, so
-  the two compilations cannot drift.
+  surface - create and release objects, record commands, walk frames, report abilities - plus the
+  creation parameters (`create_info`). OWNERSHIP IS THE CONTRACT'S OWN: the `create_*` factories and
+  `image::make_view()` return `rhi::unique_object<T>` (one reference, move-only RAII whose destructor
+  calls `release()`), while a handle more than one owner may hold is `rhi::shared_object<T>` (one
+  control block whose last copy drops the one factory reference, a nested `weak`, a non-owning
+  `borrow()`, and an aliasing constructor for an engine owner keeping a borrowed RHI pointer alive) -
+  `std::shared_ptr` no longer manages an RHI handle. Both sides of the boundary compile the SAME
+  interface unit, so the two compilations cannot drift.
 - **The C ABI is one symbol.** `source/promise/rhi/backend_entry.hpp` declares the single `extern "C"` entry
-  the host resolves, `deren_make_api_core`. Its first argument is `rhi::abi_version`, so a mismatched
-  backend is refused BEFORE an object exists, with the backend's own number in the returned error; it
-  returns an owning `rhi::shared_object<api_core>` (the contract's own shared container), so there is no
-  second destroy entry.
+  the host resolves, `deren_make_api_core`. Its first argument is `rhi::abi_version` (45 today), so a
+  mismatched backend is refused BEFORE an object exists, with the backend's own number in the returned
+  error; it returns an owning `rhi::shared_object<api_core>` (the contract's own shared container), so there
+  is no second destroy entry.
 - **Capabilities are queried, not assumed.** `abilities()` says what the device can do and
-  `query_extension<T>()` hands out the optional interfaces - ray tracing, mesh shaders, the descriptor
-  heap, the device capabilities. The engine asks for what it needs and keeps compiling when an answer is
-  "no".
+  `query_extension<T>()` hands out the optional interfaces - mesh shaders, the descriptor heap, host
+  image copy, the device capabilities (which carry the ray-query fact, the push-block limit and the
+  acceleration-structure numbers). The engine asks for what it needs and keeps compiling when an answer
+  is "no".
 - **The backends are DLLs resolved BY NAME** out of the executable's own directory, by absolute path
   (`deren.engine.backend_loader` over `deren.utility.dynamic_link`): `deren_vulkan.dll` exports one
   name and `deren_gui_vulkan.dll` exports one name. The handle is detached and the image is never
   unloaded, so a missing DLL is a named diagnosis rather than a loader error.
+- **The GUI plugin has its own number and its own recording targets.** `deren_gui_vulkan.dll` answers
+  `deren_make_gui`, whose first argument is `gui::gui_abi_version` (5 today). The device root crosses
+  as the opaque `rhi::main_context` (abi 39), and `gui::create_info` carries two contract
+  `mergeable_command_buffer_ref` targets the host created; the overlay records its ImGui segment into
+  one of them and returns it, and the host executes that segment in a dedicated LOAD + secondary-contents
+  rendering instance after the pass's own instance ends. The GUI never records into the frame's command
+  buffer and no native type crosses the contract.
 - **The run-time package is five images plus the C++ runtime.** Beside `deren.exe`:
   `deren_assets.dll` (glTF/GLB loading, linked through its import library so it loads before `main`),
   `deren_vulkan.dll`, `deren_gui_vulkan.dll` and `shared_utility.dll` (the process-wide log sink),

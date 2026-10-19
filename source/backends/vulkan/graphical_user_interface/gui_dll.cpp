@@ -6,11 +6,16 @@
 // widget classes). The port is deliberately a WRAP and not a rewrite: every class below this line is
 // unchanged, and the host sees verbs instead of objects.
 //
-// The boundary carries a borrowed PLATFORM WINDOW and the RHI's opaque main-thread context (abi 39).
-// The context is cast HERE, through the shared Vulkan layout (`denen.vulkan.main_context`), because the
-// native handles and the presentation format are this API's vocabulary and must not cross the contract.
-// abi 43 deleted the escape: `record()` receives the RHI `command_buffer`, checks its concrete tag and casts
-// it to the shared `denen.vulkan.command_buffer` head to read the `VkCommandBuffer` ImGui records into.
+// The boundary carries a borrowed PLATFORM WINDOW, the RHI's opaque main-thread context (abi 39) and the
+// overlay's OWN recording targets (gui abi 5): two contract `mergeable_command_buffer` handles the HOST
+// creates and hands over. The context is cast HERE, through the shared Vulkan layout
+// (`denen.vulkan.main_context`), because the native handles and the presentation format are this API's
+// vocabulary and must not cross the contract.
+// abi 43 deleted the escape; gui abi 5 moved the recording the other way - the overlay no longer records into
+// the host's buffer. `record()` starts the current target under the host's begin info, checks the target's
+// concrete tag, casts it to the shared `denen.vulkan.mergeable_command_buffer` class and reads the native
+// `VkCommandBuffer` ImGui records into through `get()`, then ends the segment and returns it for the host to
+// execute.
 // ============================================================================
 module;
 
@@ -49,7 +54,7 @@ namespace deren::vulkan::gui {
         class widget_adapter final : public deren::gui::widget {
         public:
             /// THE PLUGIN'S OWN widget CLASS, qualified: inside this adapter widget would name the BOUNDARY
-            /// interface it derives from, and the member has to be the class that actually has isible_when.
+            /// interface it derives from, and the member has to be the class that actually has `visible_when`.
             explicit widget_adapter(deren::vulkan::gui::widget& target) noexcept
                 : item(&target) {
             }

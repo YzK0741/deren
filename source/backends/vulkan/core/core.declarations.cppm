@@ -52,7 +52,8 @@ export import :descriptor_heap;
 // `deren_make_api_core()`, not a wrapper object standing beside it. It owns the instance, the device,
 // the swapchain and the frame machinery, so it is the thing the contract describes; a second type in
 // front of it would be a second lifetime to keep in step, and `deren_make_api_core()` would have to
-// invent an owner for it. With the base here, the S2 factory returns `this` and the deleter deletes it.
+// invent an owner for it. With the base here, the entry allocates `this` and hands it out as the
+// contract's `shared_object<api_core>`, whose drop is `core::release()` (which deletes it).
 //
 // THE DEPENDENCY DIRECTION IS THE POINT: backend -> contract, never contract -> backend. The contract
 // module imports nothing (source/promise/rhi/*.cppm), so a backend that implements it cannot drag anything
@@ -74,7 +75,8 @@ export import deren.engine.render_layout;
 export import :vma_handles;
 
 /**
- * @file core.cppm
+ * @file source/backends/vulkan/core/core.declarations.cppm
+ * @brief the interface partition of `deren.vulkan.core`: the core type, its views and its helpers.
  */
 
 namespace deren::vulkan {
@@ -314,10 +316,11 @@ namespace deren::vulkan {
     /**
      * @brief the device, its allocator and every resource created on it - the renderer's lifetime ROOT
      *
-     * `std::enable_shared_from_this` is here because the core is the one object that can be SHARED: a caller may
-     * hold it (see `runtime`'s constructor that takes a `shared_ptr<core>`), and the resources it owns are
-     * created through it, so a creation site can hand out a reference-counted handle to the device it is
-     * building on. It does NOT mean a `core` must be heap-allocated: nothing calls `shared_from_this()` yet.
+     * THE ROOT IS HANDED OUT AS A `shared_object<api_core>` (abi 44): the C entry allocates the core,
+     * `attach_self` keeps the control block's weak handle here, and `release()` is the drop the last
+     * shared copy performs (for the root that call destroys it). Frame-owned state keeps the root alive by
+     * locking `self_owner`, so a resource that outlives the engine's handle still has a live device. The
+     * old `enable_shared_from_this`/shared_ptr spelling is gone with that batch.
      */
     export struct core : deren::promise::rhi::api_core, deren::utility::enable_stack_destruct {
         // creation options this core was built with (window size, vsync); the window and the
@@ -333,14 +336,13 @@ namespace deren::vulkan {
         /// DROP THE ROOT (abi 44): the last shared handle destroys the object the entry allocated.
         void release() noexcept override;
 
-        // ---- S2 BATCH 2: THE RECORDING SURFACE, THE FRAME'S VIEWS AND THE ESCAPE --------------------
+        // ---- THE RECORDING SURFACE AND THE FRAME'S VIEWS --------------------------------------------
         //
-        // THE CONTRACT SPEAKS IN BORROWED VIEWS AND THESE ARE THE FOUR THIS BACKEND CAN ANSWER. The
-        // factories still answer nullptr (the resource model is S3), so the only `rhi` handles that can
-        // exist today are borrowings of objects this class ALREADY OWNS: the frame's primary command
-        // buffer, the swapchain image the frame draws into, the host-visible read-back slot, and the
-        // Vulkan escape. Each is a member of this class, so "the backend owns it, the caller borrows
-        // it" is the object graph rather than a rule in a comment.
+        // THE CONTRACT SPEAKS IN BORROWED VIEWS AND THESE ARE THE ONES THIS BACKEND ANSWERS. The frame's
+        // primary command buffer, the swapchain image the frame draws into, the host-visible read-back
+        // slot, and the main-thread context the GUI plugin casts (abi 39). Each is a member of this class,
+        // so "the backend owns it, the caller borrows it" is the object graph rather than a rule in a
+        // comment.
         //
         // `owner` is raw and non-owning: the views live INSIDE the core they point at, so their
         // lifetime is this object's, and a caller that keeps one past the core's death holds a
@@ -628,28 +630,30 @@ namespace deren::vulkan {
         ///
         /// A BORROWED VIEW, NOT AN OWNED HANDLE: this object is a member of the core, the core owns the
         /// swapchain image behind it, and the contract's `release()` must never drop a reference for it
-        /// (the caller never held one). That is why the override below answers with a ONE-TIME NAMED LOG
-        /// instead of a silent no-op (rhi.api_core.cppm's ownership note): a caller that wrapped a
-        /// borrowed view in `unique_object` has a bug, and the log is the only place that bug can be
-        /// said out loud.
+        /// (the caller never held one). That is why the override below PANICS instead of doing nothing
+        /// (rhi.api_core.cppm's ownership note): a caller that wrapped a borrowed view in `unique_object`
+        /// has a bug, and a lifecycle precondition violation terminates loudly rather than being logged.
         struct frame_image_slot final : deren::promise::rhi::image {
             frame_image_slot() noexcept
                 : deren::promise::rhi::image(concrete::frame_image) {
             }
             core* owner = nullptr;
-            /// one log per process, not one per call: a loop that mis-uses the view must not flood the log
-            /// (the same shape `frame_commands::use` uses for a foreign image)
+            /// legacy: the one-log rule the release() override used before the abi-44 lifetime rule made a
+            /// wrapped borrowed view a PANIC; nothing reads it now
             mutable bool borrowed_release_logged = false;
-            /// the same one-log rule for abi 7's make_view on this borrowed view
+            /// the same for abi 7's make_view on this view - which hands out OWNED views since abi 16, so
+            /// nothing reads it either
             mutable bool borrowed_make_view_logged = false;
 
             [[nodiscard]] ::deren::promise::rhi::image_extent extent() const noexcept override;
             [[nodiscard]] deren::promise::rhi::image_format format() const noexcept override;
-            /// abi 7's make_view on a BORROWED view: the swapchain image's views belong to the backend's
-            /// own presentation path, so the contract's one borrowed-view rule applies - a one-time log
-            /// and nullptr, never a handle
+            /// abi 7's make_view on a BORROWED image: what is borrowed is the IMAGE - the VIEW is a new
+            /// owned backend object (abi 16), returned as the factory product the caller releases. It
+            /// refuses (nullptr, with a named log) when no image has been acquired yet, or when the range
+            /// is not this single-layer/single-mip image, and the caller must release it before the
+            /// swapchain is recreated.
             [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::image_view> make_view(deren::promise::rhi::image_view_desc const& desc) override;
-            /// BORROWED: logs once and drops no reference (see the note above)
+            /// BORROWED: a wrapped borrowed view is a precondition violation and PANICS (see the note above)
             void release() noexcept override;
             /// abi 25's read-back on a BORROWED view: a swapchain image can only be host-copied when the
             /// surface listed `HOST_TRANSFER` in its `supportedUsageFlags`, which this one does not (measured
@@ -661,7 +665,8 @@ namespace deren::vulkan {
             [[nodiscard]] VkImage handle() const noexcept;
         };
 
-        // A snapshot owns its core, while the core only caches a weak reference to it.
+        // A snapshot keeps the ROOT alive (keep_alive, a shared copy), while the core only caches a weak
+        // reference to the snapshot.
         struct frame_snapshot final : deren::promise::rhi::image {
             frame_snapshot() noexcept
                 : deren::promise::rhi::image(concrete::frame_snapshot) {
@@ -712,11 +717,13 @@ namespace deren::vulkan {
                 : deren::promise::rhi::buffer(concrete::frame_readback_buffer) {
             }
             core* owner = nullptr;
+            /// legacy, for the same reason and with the same fate as frame_image_slot's:
+            /// release() PANICS now, so nothing reads it
             mutable bool borrowed_release_logged = false;
 
             [[nodiscard]] std::uint64_t size() const noexcept override;
             [[nodiscard]] std::span<std::byte> mapped() noexcept override;
-            /// BORROWED: logs once and drops no reference
+            /// BORROWED: a wrapped borrowed buffer is a precondition violation and PANICS (see frame_image_slot)
             void release() noexcept override;
             /// the raw handle `copy_image_to_buffer()` records into
             [[nodiscard]] VkBuffer handle() const noexcept;
@@ -934,8 +941,8 @@ namespace deren::vulkan {
             std::mutex shared_owner_mutex;
             deren::promise::rhi::shared_object<deren::promise::rhi::image>::weak shared_owner;
             /// the core that created this image: `make_view()` needs the device, and every owned
-            /// object that calls back into the backend carries its owner (the shape `frame_escape`
-            /// and `buffer_address_view` use)
+            /// object that calls back into the backend carries its owner (the shape `buffer_address_view`
+            /// uses)
             core* owner = nullptr;
             deren::vulkan::vk_image owned = {};
             /// the `VkImage`, copied out of the allocator's detail map AT CREATION (an unlocked borrow:
@@ -1010,8 +1017,10 @@ namespace deren::vulkan {
             void release() noexcept override;
         };
 
-        /// AN OWNED SHADER: what `create_shader()` hands the caller (abi 8's pipeline face). The
-        /// engine's raw compute/ray-tracing pipeline assembly consumes the module through the escape.
+        /// AN OWNED SHADER: what `create_shader()` hands the caller (abi 8's pipeline face). The engine
+        /// builds its pipelines from SPIR-V through `create_pipeline()` (`pipeline_desc`), so no native
+        /// module crosses the contract - the escape's borrow was deleted in abi 42 - and the factory
+        /// remains for a caller that wants the module as a contract handle.
         struct owned_shader final : deren::promise::rhi::shader {
             owned_shader() noexcept
                 : deren::promise::rhi::shader(concrete::shader) {
@@ -1037,7 +1046,8 @@ namespace deren::vulkan {
             std::uint32_t group_count = 0;
             /// same optional rule as owned_shader
             std::optional<deren::vulkan::vk_pipeline> owned;
-            /// the `VkPipeline`, cached at creation for the escape's borrow
+            /// the `VkPipeline`, cached at creation: `bind_pipeline` records with it and the
+            /// `shader_group_access` view queries it (the escape's borrow that used to read it is deleted)
             VkPipeline native_handle = VK_NULL_HANDLE;
             /// graphics or compute: the bind point `bind_pipeline` (abi 20) needs, decided at
             /// creation from the descriptor's shape and never re-guessed per bind
@@ -1065,9 +1075,10 @@ namespace deren::vulkan {
             [[nodiscard]] std::uint64_t buffer_address(deren::promise::rhi::buffer const& resource, std::uint64_t offset) const noexcept override;
         };
 
-        // `frame_escape` STOOD HERE AND IS DELETED in abi 43: the GUI overlay receives the RHI command_buffer
-        // and casts it to the shared `denen.vulkan.command_buffer` head (see `frame_commands` above), so the
-        // backend no longer implements a tier-2 escape interface at all.
+        // `frame_escape` STOOD HERE AND IS DELETED in abi 43: the GUI overlay received the RHI command_buffer
+        // and cast it to the shared `denen.vulkan.command_buffer` head (see `frame_commands` above), so the
+        // backend no longer implements a tier-2 escape interface at all. Gui abi 5 supersedes that hand-off:
+        // the overlay now owns two mergeable segments (`owned_mergeable_command_buffer`), see the GUI contract.
 
         /// tier-2 `host_image_copy`: the implementation-side copy out of an image into the app's own
         /// memory (`VK_EXT_host_image_copy`), announced ONLY when the device actually has it
@@ -1180,7 +1191,6 @@ namespace deren::vulkan {
         gpu_profiler_view profiler_view;
         /// the presentation surface `frame_swapchain()` answers with (abi 14), a borrowed view
         swapchain_view presentation_surface;
-        /// the tier-2 escape object `query_extension(vulkan_escape)` answers with
         /// abi 39: THE MAIN-THREAD CONTEXT the GUI plugin casts (see deren.vulkan.main_context). Backend-owned
         /// and borrowed; filled on each `main_context()` call because the handles it names are stable members.
         deren::vulkan::main_context main_context_view;
@@ -1276,10 +1286,10 @@ namespace deren::vulkan {
         void poll_submissions(bool all = false) const noexcept;
         [[nodiscard]] std::shared_ptr<owned_command_buffer> retain_command(owned_command_buffer& command, bool recorded_secondary);
         /// THE COMMAND BUFFERS `create_command_buffer()` HANDED OUT (abi 15), the same registry shape
-        /// `contract_images` uses and for the same reason: `execute()` and the escape's native-handle
-        /// answer must tell "a buffer this backend made" from "some pointer a caller has" WITHOUT
-        /// casting the caller's pointer (the cast is only defined once provenance is known). Erased by
-        /// `owned_command_buffer::release()`.
+        /// `contract_images` uses and for the same reason: the batch merge (`execute(span)` / `submit(span)`)
+        /// and the one-shot submit must tell "a buffer this backend made" from "some pointer a caller has"
+        /// WITHOUT casting the caller's pointer (the cast is only defined once provenance is known). Erased
+        /// by `owned_command_buffer::release()`.
         std::mutex contract_command_buffers_mutex;
         deren::utility::vessel::unordered_set<deren::promise::rhi::command_buffer const*> contract_command_buffers;
         /// THE BATCH-ONLY HANDLES `make_mergeable_command_buffer()` HANDED OUT (abi 35): the same provenance
@@ -1342,14 +1352,15 @@ namespace deren::vulkan {
         VkBuffer readback_slot_handle = VK_NULL_HANDLE;
         void* readback_slot_mapped = nullptr;
         VkDeviceSize readback_slot_size = 0;
-        /// the extension names this context ENABLED, in this core's own storage (the escape's guard
-        /// rail: a pass checks the extension it wants is in here BEFORE it resolves an entry point).
-        /// Filled once at construction; the names are literals, so the pointers stay valid.
+        /// the extension names this context ENABLED, in this core's own storage. Filled once at
+        /// construction from the list that went into VkInstanceCreateInfo / the device creation (the
+        /// strings are literals, so the pointers stay valid). NOTHING READS THEM TODAY: the escape that
+        /// exposed them to the engine is deleted (abi 38/43); they are retained as the construction record.
         deren::utility::vessel::vector<char const*> instance_extension_names;
         deren::utility::vessel::vector<char const*> device_extension_names;
         /// true between the ACQUIRE of a frame and the SUBMIT that hands it to the queue: it is the window
-        /// `begin_commands()`, `use()`, `copy_image_to_buffer()` and `native_command_buffer()` answer in
-        /// (nullptr, or `error::not_ready`, outside it)
+        /// `begin_commands()`, `use()` and `copy_image_to_buffer()` answer in (nullptr, or
+        /// `error::not_ready`, outside it)
         bool frame_in_flight = false;
         /// whether an acquire has EVER succeeded. `frame_image()` answers nullptr before the first one:
         /// `acquired_image_index` defaults to 0, which is a REAL image (the wrong one), so the index alone
@@ -1559,8 +1570,8 @@ namespace deren::vulkan {
         /// directly to allocate the secondary it executes in its batches. `level` is the API level, not a
         /// contract vocabulary: no caller can name it.
         [[nodiscard]] owned_command_buffer* allocate_owned_command_buffer(VkCommandBufferLevel level);
-        /// abi 21: THE SAME OWNED HANDLE, handed over as a `shared_ptr` - the control block owns the
-        /// deleter, so no call site spells `release()`. Empty = the same refusal
+        /// abi 21/44: THE SAME OWNED HANDLE, handed over as the contract's `shared_object` - its control
+        /// block's last copy calls `release()`, so no call site spells it. Empty = the same refusal
         /// `create_command_buffer()` reports as `nullptr` (logged there, once per call site).
         [[nodiscard]] deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer> make_command_buffer(deren::promise::rhi::command_buffer_desc const& desc) override;
 

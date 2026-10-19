@@ -37,7 +37,9 @@ GUI 插件是 `vulkan_escape` 剩余句柄方法（`native_instance` / `native_p
 ABI 43 删除了 escape：GUI 的 per-frame 录制目标不再由上下文回调转换，而是走**同一个规则的另一个
 共享单元**——契约传 RHI `command_buffer`，插件检查 concrete tag 后 cast 到共享 Vulkan 类
 `denen.vulkan.command_buffer` 并调用 `get()`。设备根仍在这个上下文里。契约里不再有 escape。见
-`2026-10-18-native-escape-retirement.md`。
+`2026-10-18-native-escape-retirement.md`。（ABI 45 再进一步：overlay 不再接收宿主帧的
+`command_buffer`，而是持有 `gui::create_info` 移交的两个 mergeable 录制目标，cast 到
+`denen.vulkan.mergeable_command_buffer` 后 `get()`，见 `2026-10-18-gui-owned-recording.md`。）
 
 ## 验证
 
@@ -50,7 +52,7 @@ ABI 43 删除了 escape：GUI 的 per-frame 录制目标不再由上下文回调
   渲染路径不变）；
 - doxygen **0 warnings**。
 
-## 后续
+## 后续（当时记录，已全部落地）
 
 - GUI `record()` 仍要 `vulkan_escape::native_command_buffer`；等测试/spike 的 raw 校验换掉之后，可把
   这个 slot 也收进 main_context（例如给 context 加一个"记录到 native command buffer"的转换函数指针，
@@ -58,3 +60,10 @@ ABI 43 删除了 escape：GUI 的 per-frame 录制目标不再由上下文回调
 - （已由 ABI 40 完成。）有了 main_context 之后，`vulkan_escape` 的 GUI 句柄方法（instance/physical device/device/queue/
   swapchain format）**可以在下一批删除**——只剩测试/spike 调用者需要迁移；这是上轮盘点里"设备/队列/帧
   句柄"退役路径的第一步。
+
+## 后续（ABI 43–45，已落地）
+
+上面的两条“当时的下一步”都没有按原样实现：ABI 42 删除最后一个 escape slot、ABI 43 删除整个 escape
+接口，录制目标先改成“契约 `command_buffer` + 共享 Vulkan 类 cast”，ABI 45 再改成 GUI 持有自己的两个
+mergeable 录制目标。设备根始终由本批的 `rhi::main_context` 提供。见
+`2026-10-18-native-escape-retirement.md` 与 `2026-10-18-gui-owned-recording.md`。

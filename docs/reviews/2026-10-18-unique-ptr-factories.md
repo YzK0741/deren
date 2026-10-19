@@ -38,7 +38,7 @@ frame/engine 会长期共享它们（batch 的 retain 也基于共享引用）�
 
 ## 迁移
 
-- Vulkan backend：13 个工厂 + `make_view` 的返回类型；内部"backend 自己持有时"用
+- Vulkan backend：10 个 `create_*` override + 3 个 `make_view` override（共 13 处返回类型）；内部"backend 自己持有时"用
   `create_buffer_raw()`（`create_buffer(...).release()`）继续持有裸句柄；
 - probe / 测试替身：工厂 override 返回 `object_ptr`，拒绝路径 `return {};`；
 - engine/app：调用点去掉 `object_ptr<T>{...}` 包装（工厂已经返回容器），需要裸指针的地方 `.get()` /
@@ -48,8 +48,9 @@ frame/engine 会长期共享它们（batch 的 retain 也基于共享引用）�
 
 ## ABI
 
-**40 -> 41**：virtual 的返回类型是 ABI 的一部分，11 个工厂 + `make_view` 的返回类型变化 = 一次 bump。
-历史写入 `rhi.contract.cppm`，三个 pin 同步 41；没有 by-value POD 变化，没有槽位移动。
+**40 -> 41**：virtual 的返回类型是 ABI 的一部分，10 个 `create_*` 工厂 + `image::make_view`（11 处
+virtual 返回类型）的变化 = 一次 bump。历史写入 `rhi.contract.cppm`，三个 pin 同步 41；没有 by-value
+POD 变化，没有槽位移动。
 
 ## 验证
 
@@ -60,7 +61,21 @@ frame/engine 会长期共享它们（batch 的 retain 也基于共享引用）�
 - 冻结像素门禁：完整 OFF gate **15/15**、`-Visibility -Compare` **PASS**；
 - doxygen **0 warnings**。
 
+（以上是本批最终树的值：`test_acceleration_structures` **506** / `test_texture_group` **87** 是 ABI 41
+时的计数；ABI 42 删除 escape 检查后分别变为 **495** / **89**，ABI 43 起 texture 为 **88**（当前 HEAD
+ABI 45 为 495 / 88）。本 record 保留本批记录值。）
+
 ## 已知非本批问题
 
 `test_backend_boundary_spike --with-device` 仍有一项既有失败（无 `native_window` 时 `present()` 返回
 `unsupported`，spike 期望 `not_ready`）；本批未触碰该断言，其余 105 checks 通过。
+
+## 后续（ABI 44 已取代）
+
+本文的 `rhi::object_ptr<T>` / `release_deleter<T>` 只描述 ABI 41–43 的状态：ABI 44 的
+`2026-10-18-shared-object-migration` 把它们换成契约自己的 `rhi::unique_object<T>`（工厂返回类型，语义
+相同：析构调 `release()`），把共享句柄换成 `rhi::shared_object<T>`——包括 `image::share()` /
+`image_view::get_image()` / `make_command_buffer()` / `make_mergeable_command_buffer()` 的返回类型，以及
+`denen_make_api_core` 的根对象。`std::shared_ptr` 不再出现在契约里，所以本文“调用方自己转
+`std::shared_ptr`”的共享建议与“录制句柄仍是 `std::shared_ptr`”的说法都已作废。当前源码里搜
+`object_ptr` / `release_deleter` 已无定义（只剩历史 review 记录中的文本）。

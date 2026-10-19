@@ -196,7 +196,7 @@ namespace deren::engine::pass {
             .colors = colors,
             .depth = {},
             .has_depth = false,
-            .secondary_contents = false, // the overlay records into the primary; nothing here executes a secondary
+            .secondary_contents = false, // this instance is inline; the overlay segment runs in its own after it ends
         };
         auto const begun = io.list->begin_rendering(rendering_info);
         if (begun != rhi::error::ok)
@@ -209,10 +209,11 @@ namespace deren::engine::pass {
             return rhi::error::operation_failed;
         }
         io.list->draw(3, 1, 0, 0);
-        // INSIDE the instance, between the draw and its end: this pass is the frame's LAST writer whenever it
-        // runs, so the overlay belongs here and NOT in the composite's instance - the composite drew into the
-        // render-extent LDR image this pass is about to resample, so a UI drawn there would be scaled up with
-        // the scene (see upscale_frame::after_draw and the composite's frame for the other case).
+        // THE OVERLAY RECORDS ITS OWN SEGMENT HERE (gui abi 5): the third-party recorder is not a contract
+        // consumer, so the plugin starts one of its mergeable targets under this instance's inheritance and
+        // returns it; the segment is EXECUTED by the host in its own secondary-contents instance after THIS
+        // instance ends (see draw_callback::finish - the two cannot share one instance because a
+        // CONTENTS_SECONDARY_COMMAND_BUFFERS instance may contain no primary draw).
         if (this->pass_frame.after_draw.valid()) {
             auto const overlay_begin = pass::make_overlay_begin(
                 rendering_info, io.targets[0].image_handle != nullptr ? io.targets[0].image_handle->format()

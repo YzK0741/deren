@@ -45,6 +45,9 @@ probe 后端：`probe_mergeable_command_buffer` 组合现有录制 stand-in，`s
 ## 本批不做的 / 已知边界
 
 - 引擎帧路径未迁移（仍 `begin_commands` + primary + execute + 单 submit）；迁移批次单独做，OFF gate 必须保持。
+  （已由 `2026-10-18-engine-mergeable-recording` 完成；`command_buffer_kind::secondary` 随后在 ABI 37 退役，
+  见 `2026-10-18-retire-secondary-command-buffers.md`。下一行里的 `vulkan_escape::native_command_buffer`
+  也已随 ABI 42/43 的 escape 退役删除，见 `2026-10-18-native-escape-retirement.md`。）
 - ability 驱动的录制动词仍收 `command_buffer&`（`descriptor_heap::bind/push_data`、`radix_sorter::record`、
   `scoped_synchronization::record`、`mesh_shader::dispatch_mesh`、`vulkan_escape::native_command_buffer`）：
   mergeable 目前能录制 command_buffer 自己的 verb 集合；引擎迁移批次需要为这些入口补 mergeable 目标。

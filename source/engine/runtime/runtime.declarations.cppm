@@ -31,7 +31,7 @@ module;
 #include <future>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <memory> // std::shared_ptr: the frame's command buffer and the caller-owned secondaries are spelled in this interface (abi 21)
+#include <memory> // std::shared_ptr: the engine's OWN owners (generations, caches); RHI handles use rhi::unique_object/shared_object
 
 // THE GUI PLUGIN'S BOUNDARY (plan X2): the runtime holds a deren::gui::overlay, which lives in a
 // deren_gui_<api>.dll the loader resolves by name. In the GLOBAL MODULE FRAGMENT because the header
@@ -316,7 +316,7 @@ namespace deren::engine {
         /**
          * THE DEVICE ROOT, and the reason it is a `shared_ptr`: the core is the one object every other device
          * resource depends on, so its lifetime is the frame's OUTERMOST fact. A caller may hand in a finished one
-         * (see the constructor that takes a `shared_ptr<core>`), which is what lets two owners - a second
+         * (see the constructor that takes a `rhi::shared_object<rhi::api_core>`), which is what lets two owners - a second
          * viewport, an editor, a test host - share one device without an artificial "who owns whom" order.
          *
          * DECLARED FIRST so it is released LAST: every member below (the pipelines a pass has not taken over,
@@ -855,7 +855,7 @@ namespace deren::engine {
         //
         // THE OWNERSHIP RULE, and it is the reason this class holds no pass at all: a renderer that declares one
         // member per pass decides when every pass is built and destroyed. That question - who owns whom - is
-        // answered in exactly one place in this branch: the device root is the `shared_ptr<core>`, and every other
+        // answered in exactly one place in this branch: the device root is the `rhi::shared_object<rhi::api_core>`, and every other
         // holder holds a VIEW (`pass_filter`, `core::user_filter`, a chain's pass list). The passes were the last
         // exception, and the chain the APPLICATION builds is what removes it: that chain OWNS them (`emplace`), it
         // decides the order they are built and destroyed in, and this class keeps no reference to any of them - its
@@ -1763,7 +1763,7 @@ namespace deren::engine {
         // nothing. It is one entry now - the secondaries that are really used.
         enum class secondary_pass : std::size_t { transparent = 0,
                                                   count = 1 }; // fixed non-segment slots
-        // THE CONTRACT'S OWNED HANDLE (abi 15/21), not the backend's RAII type: `std::shared_ptr` is the
+        // THE CONTRACT'S OWNED HANDLE (abi 15/21/44), not the backend's RAII type: `rhi::shared_object` is the
         // CALLER-owned spelling the recording face settled on (`api_core::make_command_buffer`), and the control
         // block's deleter IS the contract's one drop (`release()`), so no call site here spells it.
         deren::utility::vessel::vector<deren::utility::vessel::array<rhi::mergeable_command_buffer_ref, static_cast<std::size_t>(secondary_pass::count)>> secondary_command_buffers;
@@ -2698,7 +2698,7 @@ namespace deren::engine {
          * THE ONE CONSTRUCTION THAT DOES THE WORK (③-D/E step 2): the engine's own creation options and
          * the device root the C entry answered with. The public constructors above are the two ways a
          * caller can reach it - one makes the root, one receives it - and both hand over what the body
-         * needs. Private, because `shared_ptr<rhi::api_core>` is an implementation fact: allowing a
+         * needs. Private, because `rhi::shared_object<rhi::api_core>` is an implementation fact: allowing a
          * caller to combine arbitrary options with an arbitrary root would invite a mismatch between
          * what the device was built from and what this runtime thinks it was built from.
          *

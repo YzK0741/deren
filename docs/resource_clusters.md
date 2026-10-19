@@ -9,13 +9,15 @@ resources and does not wait for the device:
 
 ```cpp
 import deren.engine.resource_cluster;
+// core_owner is the runtime's owning rhi::shared_object<rhi::api_core>.
 auto resources = deren::engine::resource_cluster::create(core_owner, "MainView");
 // Or, from a valid runtime:
 auto view_resources = runtime.create_resource_cluster("MainView");
 ```
 
-The factory returns nullptr for a null core. CPU storage, including shared control
-blocks, uses the utility allocator and follows its fail-fast OOM policy.
+The factory takes the runtime's owning `rhi::shared_object<rhi::api_core>` and returns nullptr for a
+null core. CPU storage, including the lease holders' shared control blocks, uses the utility allocator
+and follows its fail-fast OOM policy.
 
 Clusters currently create buffers, images, samplers and image views through the
 existing RHI factories. Each returns `expected<resource_lease<T>, rhi::error>`;
@@ -31,12 +33,14 @@ auto view = resources->create_image_view(*image, view_desc);
 if (!view) return view.error();
 ```
 
-`resource_lease<T>` is an owning reference. Copies share a single RHI factory
-reference; `get()` and `operator->` borrow that object. Do not call release on
-the borrowed pointer or wrap it in another `object_ptr` (RHI factories already return
-one; a view is not a factory product). An escaped lease can
-outlive the cluster; the final owning reference releases the RHI object exactly
-once, before releasing its core dependency. Image views retain the parent image.
+`resource_lease<T>` is an owning engine reference. The factory product the lease keeps is the
+contract's `rhi::unique_object<T>` (one reference, dropped exactly once by the final owning lease; a
+lease adapted with `from_shared` keeps a `rhi::shared_object<T>` instead). Copies of a lease share that
+one holder, and `get()` / `operator->` only borrow the RHI object. Do not call `release()` on the
+borrowed pointer, and do not wrap it in another `rhi::unique_object` - the lease is not a factory - or
+in a second shared container. An escaped lease can outlive the cluster; the final owning reference
+releases the RHI object exactly once, before releasing its core dependency. Image views retain the
+parent image.
 
 `other_cluster->share(lease)` retains the same resource holder, checks core identity
 and is idempotent for that holder. An empty or foreign-device lease is rejected.
@@ -77,8 +81,10 @@ a cluster for the acquired output view. This complements the existing resource
 registry; clusters do not infer synchronization or pool GPU allocations.
 
 Existing generation/shared owners can be adapted with
-`resource_lease<T>::from_shared(core, shared_owner)`. An aliasing shared_ptr may
-pin a generation while naming one of its images. The lease retains that supplied
-owner and the core; it does not adopt another raw release reference. Pass the
-actual owning core and keep the supplied owner's lifetime correct. Executable
-render-graph preparation independently validates backend provenance and shape.
+`resource_lease<T>::from_shared(core, shared_owner)`, whose arguments are the owning
+`rhi::shared_object<rhi::api_core>` and the RHI reference's shared form, `rhi::shared_object<T>` - not
+a raw pointer and not a `std::shared_ptr` over the RHI type. An aliasing `rhi::shared_object<T>` may
+pin an engine owner (a generation, a subchain) while naming one of its images. The lease retains that
+supplied handle and the core; it does not adopt another raw release reference. Pass the actual owning
+core and keep the supplied owner's lifetime correct. Executable render-graph preparation independently
+validates backend provenance and shape.

@@ -23,11 +23,15 @@ compilations from drifting.
 | `:core_desc` | `create_info`, the ONE creation structure - the program fills it and the backend builds its context from it |
 | `:extension` | the optional interfaces and the queries that hand them out |
 
-The contract is versioned by `rhi::abi_version`, and a change to it is one of two kinds: **appending a
-slot to an existing interface bumps the number**, while **adding a new ability or extension does not**
-- a new capability is a new query, and a backend that does not implement it says so. A third kind is the
-same as the second: a NEW type or a free helper function (a `constexpr`/`inline`/template declaration)
-bumps nothing, because nothing already crossing the boundary changes shape.
+The contract is versioned by `rhi::abi_version` (45 today), and a change to it is one of three kinds:
+**appending a slot to an existing interface bumps the number**, and so does **adding a field to a
+by-value structure** - its layout is what both halves pass, even when a `struct_size` guard lets the
+backend keep the old default; abi 45 (the `command_buffer_begin_info::inherit_descriptor_heaps`
+append) is exactly that case. **Adding a new ability or extension does not** bump it - a new capability
+is a new query, and a backend that does not implement it says so - and neither does a NEW type or a free
+helper function (a `constexpr`/`inline`/template declaration), because nothing already crossing the
+boundary changes shape. The GUI plugin boundary versions separately: `gui::gui_abi_version` is 5 today,
+and the two numbers do not imply each other.
 
 ## Object identity: concrete names, and the validate-then-cast pair
 
@@ -71,7 +75,9 @@ function's own note states it. (The raw-handle escape that used to share this ru
   `api_core::release()` (for the root that call destroys it), exactly like every other RHI handle.
 * **The object attests its own number too**: the runtime checks `api_core::api_version()` after the
   handshake, because a host may be handed an `api_core` it did not create.
-* **The GUI plugin takes the same shape**: `deren_gui_vulkan.dll` exports one name, `deren_make_gui`.
+* **The GUI plugin takes the same shape**: `deren_gui_vulkan.dll` exports one name, `deren_make_gui`,
+  whose FIRST argument is the GUI boundary's own `gui::gui_abi_version` (5 today) - a mismatched caller
+  is refused before an overlay exists, exactly as the RHI entry refuses a mismatched backend.
 
 The keyword that makes a symbol visible across a DLL boundary lives in ONE header,
 `source/utility/abi_export.hpp`, chosen from the build mode rather than from a platform `#ifdef` at every
@@ -127,12 +133,21 @@ A backend is not asked what it is; it is asked what it can do.
 * **Extensions** are the optional interfaces behind those bits: `query_extension<T>()` hands one out or
   nothing. The device facts (`device_capabilities`), the shader-group access and the descriptor space are
   what the engine itself uses. THE ESCAPE IS GONE (abi 43): its last slot existed only so the GUI overlay's
-  Dear ImGui Vulkan backend could get the frame's `VkCommandBuffer`. The hand-off now passes the CONTRACT's
-  `command_buffer` handle and the plugin casts it to the backend's shared `denen.vulkan.command_buffer`
-  layout after checking the concrete tag (the same opaque-handle + tag + shared-layout rule
-  `rhi::main_context` follows - the device root itself moved there in abi 39, and abi 40/42 deleted the
-  resource/channel handles with their last callers). `extension_kind::vulkan_escape` survives only as a
-  retired bit value - never announced, never queried.
+  Dear ImGui Vulkan backend could get a host command buffer, and the overlay now gets no host recording
+  target at all. The GUI receives the opaque `rhi::main_context` (abi 39) for the device root plus its OWN
+  two contract `mergeable_command_buffer_ref` targets in `gui::create_info` (gui abi 5); `overlay::record()`
+  starts the current target, records ImGui into that segment and returns it, and the host executes the
+  segment in a dedicated LOAD + secondary-contents rendering instance AFTER the pass's own instance ends
+  (a dynamic-rendering instance flagged for secondary contents may contain no primary draws, and the pass
+  keeps its own draw in the primary). The plugin still names no native type to the contract - it checks the
+  target's concrete tag and casts it to the backend's shared `deren.vulkan.mergeable_command_buffer` class
+  to `get()` the native handle, the same opaque-handle + concrete-tag + shared-layout rule
+  `rhi::main_context` follows (the device root moved there in abi 39, and abi 40/42 deleted the
+  resource/channel handles with their last callers). That segment's begin is the abi-45
+  `command_buffer_begin_info::inherit_descriptor_heaps` opt-out: it passes false, because the Dear ImGui
+  Vulkan backend binds its own classic descriptor sets and inheriting the engine's heap bind made every
+  one of those binds fail validation. `extension_kind::vulkan_escape` survives only as a retired bit value
+  - never announced, never queried.
 * **A fact the engine needs is an answer, not a native query.** A graphics-API concept appearing in the
   engine is a contract gap: it gets an ability or a tier-1 object, never an `escape()` call and never a
   native type.
@@ -158,7 +173,7 @@ Four guarantees, each measured while the boundary was built:
    context had been built and torn down never returned.
 4. **A named diagnosis, never a null pointer.** A failing step fills the contract's `error_info` (code,
    raw native error, the backend's text, the failure point) and reports it before returning an empty
-   `shared_ptr`. A missing DLL is a message, not a system dialog.
+   `rhi::shared_object<api_core>`. A missing DLL is a message, not a system dialog.
 
 The GUI is reached the same way: `deren.engine.gui_loader` resolves `deren_gui_<api>.dll`, and the
 overlay crosses as the `deren::gui::overlay` interface plus one C entry.
@@ -166,6 +181,13 @@ The device root crosses as the RHI's OPAQUE `rhi::main_context` (abi 39): the co
 concrete-identity tag, and the API-specific plugin casts it to the layout it shares with its backend
 (`deren.vulkan.main_context` for the Vulkan plugin) - so no native handle or format number is part of
 the GUI contract.
+
+The overlay's recording crosses the same way (gui abi 5): the host creates the two
+`mergeable_command_buffer` recording targets through `api_core::make_mergeable_command_buffer()` and
+hands them over in `gui::create_info`; the plugin holds them, records ImGui into one per frame and
+returns the recorded segment. The host's own command buffer is never handed to the plugin - only the
+`command_buffer_begin_info` inheritance of the instance the overlay segment has to match. The two
+targets alternate per frame, and the frame slot ring's own timeline wait makes alternating reuse safe.
 
 ## The run-time package
 

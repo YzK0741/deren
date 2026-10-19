@@ -54,4 +54,5 @@ C 入口签名不变。决定记录在 `rhi.contract.cppm` 的 NOT-A-BUMP 批次
 - 材质记录/shader 从绝对槽位迁移到 `descriptor_position`（D1a-3，需要改 render layout/材质表/shader，
   会重基线 ON 参考）；本批只保证契约/后端/probe 语义可用且可测。
 - 多 descriptor space、storage image/buffer/AS 的统一 position（D1b）；`position.space` 为它们预留。
-- 删除 `vulkan_heap_image_desc/info`、`native_image_format`（D2，需要 view 描述完备后）。
+- 删除 `vulkan_heap_image_desc/info`、`native_image_format`（D2，需要 view 描述完备后）。（D2 已由
+  `2026-10-18-native-vocabulary-cleanup`（ABI 34）完成。）

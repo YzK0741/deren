@@ -3,8 +3,9 @@
 // module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Dear ImGui debug overlay: widget / panel layer driven from the runtime's frame
-// steps (runtime::debug_gui). Kept as its own unit so the overlay can be swapped
-// or embedded elsewhere; depends on the runtime's gui hook, ImGui + Vulkan.
+// steps through the GUI plugin boundary (deren.promise.gui; the plugin's overlay_adapter
+// owns a gui_content). Kept as its own unit so the overlay can be swapped
+// or embedded elsewhere; depends on the GUI contract, ImGui + Vulkan.
 //
 // evolve: bump MAJOR on breaking interface changes, MINOR on additive features,
 //         PATCH on internal fixes - independently of the rest of the project.
@@ -29,8 +30,9 @@ export import deren.vstd;
  * @file graphical_user_interface.cppm
  * @defgroup vulkan_gui Vulkan Debug GUI
  * @brief Dear ImGui integration for the vulkan runtime: owns the ImGui context, the GLFW +
- *        Vulkan backends and the per-frame recording slot, and exposes a small widget/panel
- *        API so the application builds its debug UI without touching Vulkan or GLFW directly.
+ *        Vulkan backends and the backend's per-frame render-buffer ring, and exposes a small
+ *        widget/panel API so the application builds its debug UI without touching Vulkan or
+ *        GLFW directly.
  * @note
  *      - plain classes with direct members, like the rest of the vulkan module (no pimpl): the
  *        ImGui context and backend state live in ImGui's own global storage, so the gui_content
@@ -39,10 +41,11 @@ export import deren.vstd;
  *        a virtual draw() and one subclass per control (label / checkbox / slider ...), so a new
  *        control is just a new subclass; debug_panel holds its widgets in a stack-style vector
  *        (push_back appends = more space, pop_back removes the top) and draws them in order
- *      - the runtime owns a gui_content member (optional, enabled via enable_debug_gui());
- *        when active, the runtime calls new_frame() before recording and record() after
- *        record_main_drawcalls() while the main rendering instance is still open, so the UI
- *        draws on top of the scene inside the same pass
+ *      - the GUI plugin's overlay_adapter owns a gui_content member (gui abi 5): the host calls
+ *        new_frame() before the frame's content, and record() while the overlay host pass's
+ *        rendering instance is open - the ImGui draw data goes into the overlay's OWN mergeable
+ *        segment under that instance's inheritance, and the host executes the segment after the
+ *        pass's instance ends
  */
 namespace deren::vulkan::gui {
     /**
@@ -60,8 +63,8 @@ namespace deren::vulkan::gui {
         VkDevice device = VK_NULL_HANDLE;
         uint32_t graphics_queue_family = 0; // queue family of @p graphics_queue
         VkQueue graphics_queue = VK_NULL_HANDLE;
-        // the overlay draws into the OPEN main rendering instance, so its pipeline must match
-        // the frame's attachments: swapchain color format + the scene's depth format
+        // the overlay's segment records under the OPEN main rendering instance's inheritance, so its
+        // pipeline must match the frame's attachments: swapchain color format + the scene's depth format
         VkFormat color_format = VK_FORMAT_UNDEFINED;
         VkFormat depth_format = VK_FORMAT_UNDEFINED; // must match the main pass' depth attachment
         // frames in flight (the backend sizes its per-frame render-buffer ring to this)
@@ -237,10 +240,11 @@ namespace deren::vulkan::gui {
     /**
      * @ingroup vulkan_gui
      * @brief owned Dear ImGui overlay for one window. Holds the registered debug panels and
-     *        draws them every frame; external code obtains the instance from the runtime
-     *        (runtime::debug_gui()) and adds/removes its own panels.
+     *        draws them every frame; the plugin's overlay_adapter holds exactly one, and external
+     *        code reaches the boundary overlay through the runtime (runtime::debug_gui()) to
+     *        add/remove its own panels.
      * @note non-copyable (a second copy would fight over the single global ImGui context);
-     *       the runtime holds exactly one as a direct member
+     *       the overlay_adapter holds exactly one as a direct member
      */
     export class gui_content {
     public:
@@ -310,9 +314,11 @@ namespace deren::vulkan::gui {
          * @ingroup vulkan_gui
          * @brief run the registered UI builder (if any), draw every visible panel, then render
          *        the ImGui draw data into @p cmd
-         * @param cmd command buffer currently being recorded, inside an OPEN rendering instance
-         *        whose color attachment matches the overlay's pipeline (the runtime's main pass)
-         * @note no-op when inactive
+         * @param cmd the native command buffer of the overlay's OWN mergeable segment, begun by the
+         *        plugin under the open rendering instance's inheritance (the host passes the
+         *        instance's attachment formats), whose color attachment matches the overlay's pipeline
+         * @note no-op when inactive; called by the plugin's overlay_adapter::record() after the
+         *       segment's begin_recording() succeeded
          */
         void record(VkCommandBuffer cmd);
 

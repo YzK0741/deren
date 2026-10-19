@@ -13,6 +13,10 @@ std::shared_ptr<rhi::image> image::share();
 std::shared_ptr<rhi::image> image_view::get_image() const noexcept;
 ```
 
+（**2026-10-18 后续核对（ABI 44）：** 这两处返回类型现在分别是 `rhi::shared_object<rhi::image>` /
+`rhi::shared_object<rhi::image_view>`；契约里不再有 `std::shared_ptr` 句柄，见
+`2026-10-18-shared-object-migration.md`。下面关于控制块/deleter 的语义仍在，只是容器换成了契约自己的。）
+
 Vulkan owned image 的 view 在创建时取得父 image 的共享拥有引用。
 get_image() 复制这份引用，保持原 RHI 对象身份；调用者可以先释放 factory 引用，也可以先释放 view。
 同时存活的 share() 引用共用控制块；共享控制块消失后，仍存在的 factory 引用允许再次取得共享引用。

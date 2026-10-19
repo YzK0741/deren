@@ -32,18 +32,14 @@
 //
 // WHAT IS DELIBERATELY NOT IN HERE:
 //
-//   - the three `extern "C"` entry points (`deren_abi_version`,
-//     `deren_make_api_core`, `deren_destroy_api_core`) and the `DEREN_API_*`
-//     keywords they are declared with. They are the ABI SURFACE, not an
-//     interface: a backend defines them and a host resolves them, and neither
-//     derives from anything. `source/promise/rhi/backend_entry.hpp` declares them,
+//   - the `extern "C"` entry point (`deren_make_api_core`) and the
+//     `DEREN_API_*` keywords it is declared with. It is the ABI SURFACE, not an
+//     interface: a backend defines it and a host resolves it, and neither
+//     derives from anything. `source/promise/rhi/backend_entry.hpp` declares it,
 //     `source/utility/abi_export.hpp` owns the keyword. (This is the m03159 ruling:
 //     promise is a collection of virtual base classes.)
-//   - the engine-side `std::shared_ptr` wrapper: §4.1 item 3 puts it on the
-//     engine's side of the line.
-//   - anything that is a descriptor's CONTENT: only `buffer_desc` is fixed so far,
-//     because `create_buffer()` needs something to carry (§5's capability table
-//     and §6.4's usage model are the rest).
+//   - engine concepts: no scene, no pass, no camera, no renderer state - `api_core` and every
+//     interface below it must not learn one, which is the plan's §4.1 item 2 rule.
 //
 // evolve: bump MAJOR on breaking interface changes, MINOR on additive features,
 //         PATCH on internal fixes - independently of the rest of the project.
@@ -66,25 +62,25 @@ export import :api_core;
  *
  * | part | what it is |
  * | --- | --- |
- * | `source/promise/rhi/rhi.contract.cppm` | the ABI number and the `error` enum every entry point reports through |
+ * | `source/promise/rhi/rhi.contract.cppm` | the ABI number, the `error` enum every entry point reports through, and the RHI ownership containers (`unique_object` / `shared_object`) |
  * | `source/promise/rhi/rhi.core_desc.cppm` | how the program asks for a context: the structure `deren_make_api_core()` takes |
- * | `source/promise/rhi/rhi.extension.cppm` | tier-2: the five abilities a backend may or may not have |
+ * | `source/promise/rhi/rhi.extension.cppm` | tier-2: the abilities a backend may or may not have |
  * | `source/promise/rhi/rhi.api_core.cppm` | tier-1: the context, its factories, the frame calls |
- * | `source/promise/rhi/backend_entry.hpp` | the three `extern "C"` entry points that hand an `api_core` out (same directory, but neither a partition nor imported) |
+ * | `source/promise/rhi/backend_entry.hpp` | the `extern "C"` entry point that hands an `api_core` out (same directory, but neither a partition nor imported) |
  *
  * @details
  * - **Two tiers, one rule.** `api_core` carries only what every backend has a concept for (DX12
  *   included), and an ability a backend may lack lives in tier-2, announced as one bit in
  *   `api_core::abilities()` (§1.5, §1.8). A pass that needs an ability declares it; a backend that
  *   does not have it is a named failure, never a silent downgrade (§1.9).
- * - **Nothing here allocates, throws, or names a container** (§4.2): every interface is a vtable,
- *   every parameter is a POD, a `std::span` or an opaque handle, and every failure is a returned
- *   `error`.
+ * - **No interface names engine state** (§4.2): every interface is a vtable, every parameter is a POD,
+ *   a `std::span` or an opaque handle, and every failure is a returned `error`. The contract's own
+ *   ownership containers (in `:contract`) are the one allocation: the `shared_object` control block.
  * - **A module, but not one that crosses the boundary as a symbol.** Both sides compile this
  *   interface unit into their own image, which is what keeps the engine off the DLL's import
- *   library; the only exchanged names are the three `extern "C"` entry points in
+ *   library; the only exchanged name is the `extern "C"` entry point in
  *   `source/promise/rhi/backend_entry.hpp` (the header, not the module).
- * - **Ownership is spelled out, not implied.** An object made inside the backend is deleted inside
- *   the backend: the engine builds its `std::shared_ptr` around `deren_destroy_api_core`, resolved
- *   from the backend it loaded (§4.1 item 3).
+ * - **Ownership is spelled out, not implied.** An object made inside the backend is dropped inside
+ *   the backend: the entry hands out a `shared_object<api_core>` (abi 44) whose last copy calls the
+ *   contract's `release()`, and the backend's implementation of that call destroys the object (§4.1 item 3).
  */

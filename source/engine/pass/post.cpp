@@ -219,7 +219,7 @@ namespace deren::engine::pass {
             .colors = colors,
             .depth = {},
             .has_depth = false,
-            .secondary_contents = false, // the overlay records straight into the primary; no secondary contents
+            .secondary_contents = false, // this instance is inline; the overlay segment runs in its own after it ends
         };
         auto const begun = io.list->begin_rendering(rendering_info);
         if (begun != rhi::error::ok)
@@ -230,11 +230,11 @@ namespace deren::engine::pass {
             return rhi::error::operation_failed;
         }
         io.list->draw(3, 1, 0, 0);
-        // INSIDE the instance, between the draw and its end: the debug overlay composites a UI over the image
-        // this draw just wrote and has no load op of its own, so it can be neither a pass nor outside the
-        // instance (see composite_frame::after_draw - the pass leaves this empty when a resolve is the frame's
-        // last writer instead, which its own frame decided in prepare_frame). The overlay records RAW (its
-        // third-party recorder is not a contract consumer), which is why io.cmd stays beside the list.
+        // THE OVERLAY RECORDS ITS OWN SEGMENT HERE (gui abi 5): the third-party recorder is not a contract
+        // consumer, so the plugin starts one of its mergeable targets under this instance's inheritance and
+        // returns it; the segment is EXECUTED by the host in its own secondary-contents instance after THIS
+        // instance ends (see draw_callback::finish - the two cannot share one instance because a
+        // CONTENTS_SECONDARY_COMMAND_BUFFERS instance may contain no primary draw).
         if (this->pass_frame.after_draw.valid()) {
             auto const overlay_begin = pass::make_overlay_begin(
                 rendering_info, io.targets[0].image_handle != nullptr ? io.targets[0].image_handle->format()

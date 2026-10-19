@@ -335,9 +335,9 @@ namespace deren::vulkan {
         // `abilities()` may only report a bit whose `query_extension()` answers with an object of that
         // kind: "reported but not retrievable" and "retrievable but not reported" are both backend bugs,
         // and both are NAMED startup failures here rather than log lines - a broken invariant is not a
-        // missing device feature. THIS BACKEND NOW ANNOUNCES `vulkan_escape`, so the loop runs on a
-        // NON-EMPTY set for the first time and `query_extension(vulkan_escape)` must answer with the
-        // escape object (it does: core.api_core.cpp) - a bit without its object refuses to start.
+        // missing device feature. This backend ANNOUNCES SEVERAL ABILITIES, so the loop runs on a
+        // non-empty set and every announced bit's `query_extension(kind)` must answer with an object of
+        // that kind (see core.api_core.cpp) - a bit without its object refuses to start.
         // The test half of the same gate is check_core_contract() in source/tests/test_dynamic_link.cpp.
         for (deren::promise::rhi::extension_kind const kind : deren::promise::rhi::all_extension_kinds()) {
             bool const announced = deren::promise::rhi::has_ability(this->abilities(), kind);
@@ -403,10 +403,10 @@ namespace deren::vulkan {
 
         create_info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
         create_info.ppEnabledExtensionNames = extensions.data();
-        // The escape's guard rail: the names this INSTANCE enabled, in this core's own storage. Taken
-        // from the very list that went into VkInstanceCreateInfo, so "enabled" cannot drift from what
-        // the escape reports, and the strings are literals/`VK_*_EXTENSION_NAME` - valid for the
-        // context's lifetime.
+        // The names this INSTANCE enabled, in this core's own storage: taken from the very list that went
+        // into VkInstanceCreateInfo, so "enabled" is the actual list, and the strings are
+        // literals/`VK_*_EXTENSION_NAME` - valid for the context's lifetime. (The escape that used to
+        // report them to the engine is deleted in abi 38/43; nothing reads this vector today.)
         this->instance_extension_names = extensions;
 
         // enable validation_layers
@@ -648,9 +648,9 @@ namespace deren::vulkan {
         }
 
         // Features go through the pNext chain (device_capabilities query result, incl. all 1.1/1.2/1.3 supported features)
-        // The escape's guard rail, device half: exactly the extension names this DEVICE was created
-        // with (the list checked above), so a pass can ask "is the extension I am about to resolve an
-        // entry point for actually enabled" and get the truth rather than a promise.
+        // The names this DEVICE was created with (the list checked above), in the core's own storage - the
+        // record of what the device creation actually enabled. (The escape that used to expose the list to
+        // the engine is deleted in abi 38/43; nothing reads this vector today.)
         this->device_extension_names = creation_info.extensions;
         creation_info.pNext = capabilities.device_pnext();
 

@@ -1,6 +1,6 @@
 # GUI overlay 持有自己的录制目标（GUI ABI 5 / RHI ABI 45）
 
-日期：2026-10-18 · 批次：gui-owned-recording · 前置：`2026-10-18-shared-object-migration`（ABI 44）
+日期：2026-10-18 · 批次：gui-owned-recording · 提交：`2d2b65a4`（step 1：共享 Vulkan 类，ABI 仍 44）+ `11e1c418`（本批主体，ABI 45）· 前置：`2026-10-18-shared-object-migration`（ABI 44）
 
 ## 决策
 
@@ -32,17 +32,22 @@
 ## ABI
 
 - **RHI 44 -> 45**：`command_buffer_begin_info` 追加 `inherit_descriptor_heaps`（默认 true，旧调用者
-  语义不变）；三个 pin 同步 45。
-- **GUI 4 -> 5**：`create_info` 追加两个录制目标字段，`overlay::record` 改签名（返回录好的段）。
+  语义不变）；三个 ABI pin（`test_dynamic_link` / `test_acceleration_structures` / `test_runtime_dyn`）
+  同步 45（HEAD 源码中分别为 `CHECK(rhi::abi_version == 45u)`）。
+- **GUI 4 -> 5**：`create_info` 追加两个录制目标字段，`overlay::record` 改签名（返回录好的段）；
+  `overlay::record` 的返回类型是 `rhi::mergeable_command_buffer_ref` = `shared_object<mergeable_command_buffer>`。
 
 ## 验证
 
 - `ctest`：**49/49 passed**；
 - 真设备：`test_runtime_dyn` **1167**、`test_texture_group` **88**、`test_acceleration_structures` **495**
   checks PASS；`test_gui_plugin` **35**；
-- **GUI 真路径**：`deren.exe --config gui-on.toml --capture-frames 2 --capture-windowed`（`[gui] show = true`，
-  validation layers on）退出码 0，日志只有 `gui plugin: deren_gui_vulkan is up` 与
-  `gui_content: ImGui overlay initialized`，**无 VUID、无 panic**；
+- **GUI 真路径**：`deren.exe --config gui-on.toml --capture-frames 2 --capture-windowed`（`gui-on.toml` 是
+  构建目录里的临时配置、未入库：`[gui] show = true`、`[render] validation_layers = true`）退出码 0；
+  GUI 侧日志含 `gui plugin: deren_gui_vulkan is up`、`gui: Dear ImGui debug overlay enabled` 与
+  `gui_content: ImGui overlay initialized`（`source/backends/vulkan/graphical_user_interface/gui_dll.cpp`、
+  `source/app/chores.cpp:902`、`source/backends/vulkan/graphical_user_interface/graphical_user_interface.cpp:114`），
+  **无 VUID、无 panic**；
 - 冻结像素门禁：完整 OFF gate **15/15**、`-Visibility` **PASS**（GUI off 帧不变）；
 - doxygen **0 warnings**。
 

@@ -36,8 +36,8 @@
 // EVOLUTION: `struct_size` is the first member and defaults to this type's size, so a newer program
 // talking to an older backend (or the reverse) can be detected instead of silently mis-read; the
 // fields are only ever APPENDED, never reordered, and a shape change that cannot be appended gets a
-// new name (`create_info_v2`) announced through the ABI number - the same rule the three entry
-// points follow (§3.4(3)). The backend applies the guard by copying a field only when its whole
+// new name (`create_info_v2`) announced through the ABI number - the same rule the boundary's one C
+// entry point follows (§3.4(3)). The backend applies the guard by copying a field only when its whole
 // extent lies inside the bytes the caller declares (core.constructor.cppm's `sanitize_create_info`).
 //
 // WHAT IS DELIBERATELY NOT HERE: the backend's defaults for anything the program leaves at zero, and

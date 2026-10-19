@@ -16,6 +16,11 @@ extern "C" {
 /// `abi_version` is the CALLER's `deren::gui::gui_abi_version`: a mismatch is refused (an empty pointer) with
 /// the plugin's own number in its log line. A null `info` is a caller bug, refused for the same reason the
 /// backend refuses a null descriptor.
+///
+/// OWNERSHIP: the returned `std::shared_ptr<overlay>` is the GUI boundary's OWN container - `overlay` is not an
+/// RHI handle, so the RHI contract's `shared_object` does not apply. The cross-image control block is safe for
+/// the same measured reason the RHI entry states: one C++ runtime and one heap (libc++.dll + UCRT) shared by
+/// every image, checked by the boundary gate.
 DEREN_API_EXPORT std::shared_ptr<deren::gui::overlay> deren_make_gui(std::uint32_t abi_version, deren::gui::create_info const* info);
 }
 

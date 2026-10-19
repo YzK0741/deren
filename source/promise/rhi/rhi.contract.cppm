@@ -10,11 +10,16 @@
 // backend's `deren_abi_version()`. Plan §8.1 row 4 makes the comparison a tested
 // check rather than a convention: the loader resolves the symbol and the test
 // asserts the returned number equals this constant. The value is part of the C
-// ABI: it moves only when the shape of `api_core` or of a tier-2 ability changes
-// in a way an older engine could not survive.
+// ABI: it moves when the SHAPE of something that crosses the boundary changes in a way
+// an older engine could not survive - a virtual on an existing interface (tier 1 or
+// tier 2), a by-value structure's width, or an entry point's signature. Appending an
+// enum value or a new interface does not move it; a virtual on an existing type does.
 //
-// Nothing here allocates, throws, or names a container. Both sides of the boundary
-// compile this partition (plan §4.1 item 1); neither exports a symbol for it.
+// The ABI number and the error codes here are plain values an ordinary C caller could read: no engine
+// state, no exception, and no standard-library container travels across the boundary on their account.
+// (The RHI ownership containers live in this partition too, but they are the contract's OWN types - both
+// sides spell them from this one definition - and their only allocation is a control block.) Both sides
+// of the boundary compile this partition (plan §4.1 item 1); neither exports a symbol for it.
 // ============================================================================
 module;
 
@@ -194,7 +199,8 @@ export namespace deren::promise::rhi {
     /// NOT coming back.)
     /// 17 -> 18 in the SHARED flip (the last batch of the dynamic-backend migration): the C entry
     /// surface goes from THREE symbols to ONE. `deren_make_api_core` RETURNS a
-    /// `shared_object<api_core>` instead of a raw pointer, and `deren_destroy_api_core` plus
+    /// `std::shared_ptr<api_core>` instead of a raw pointer (the `shared_object` spelling arrived with abi
+    /// 44; the SHAPE - a C++ handle carrying the control block - is this number's), and `deren_destroy_api_core` plus
     /// `deren_abi_version()` are DELETED with it: ownership lives in the control block the backend
     /// built (so no host names a deleter and no raw pointer crosses), and the version became the call's
     /// FIRST ARGUMENT - a mismatch is still refused before any object exists, with the backend's own
@@ -240,7 +246,8 @@ export namespace deren::promise::rhi {
     /// untouched. The number moves for an APPENDED tier-1 slot, which this is not.
     /// 20 -> 21 in the RECORDING FACE's owner half (the append the note above anticipated): `api_core`
     /// APPENDED the pure virtual `make_command_buffer(command_buffer_desc) ->
-    /// shared_object<command_buffer>` - a NEW vtable slot on an existing tier-1 interface, which is
+    /// std::shared_ptr<command_buffer>` (the `shared_object` spelling is abi 44's) - a NEW vtable slot on an
+    /// existing tier-1 interface, which is
     /// exactly the case the number exists for - and `command_list` was DELETED rather than renumbered
     /// (its `interface_type` enumerator and its number stay retired in place, and the series it carried
     /// is declared on `command_buffer` itself). The same batch's PODs are additive and carry NO bump:
@@ -338,17 +345,21 @@ export namespace deren::promise::rhi {
     // an APPENDED target (`heap_bind_info::mergeable_commands` / `heap_push_info::mergeable_commands`):
     // a mergeable segment publishes its binding/push data through the same ability as a command_buffer,
     // one target of the two set. Existing fields, slots and meanings do not move.
+    // ---- THE MOST RECENT BATCHES, NEWEST FIRST (a new note goes directly below this line) -----------
     // ABI 45 APPENDS ONE FIELD TO `command_buffer_begin_info`: `inherit_descriptor_heaps` (default true). The
     // GUI overlay records ITS OWN mergeable segment now, and the Dear ImGui Vulkan backend binds its own classic
     // descriptor sets - so the backend must be able to start that segment WITHOUT chaining the engine's
     // descriptor-heap inheritance (a heap-inheriting continuation makes every ImGui bind trip VUID-...-11295/96).
     // The field is APPENDED to a by-value POD, so it is a number move; the default keeps every existing caller's
     // meaning, and a caller compiled before the field simply gets the default.
-    // ABI 44 PUTS THE SHARED RHI OWNERSHIP ON THE CONTRACT\'S OWN CONTAINER: every shared RHI handle the
+    // ABI 44 PUTS THE SHARED RHI OWNERSHIP ON THE CONTRACT'S OWN CONTAINER: every shared RHI handle the
     // contract returns is `shared_object<T>` (one control block; the factory reference dropped exactly once
     // at the last copy) instead of `std::shared_ptr<T>`: `image::share()`, `image_view::get_image()`,
     // `frame_resources::retain_image()`, `make_command_buffer()`, `mergeable_command_buffer_ref`,
-    // `texture_group_ref`, and the `deren_make_api_core` entry\'s root. `api_core` gains `release()` so the
+    // `texture_group_ref`, and the `deren_make_api_core` entry's root. The MOVE-ONLY container took the
+    // same step in the batch before this one (no separate number needed): the factories return the
+    // contract's own `unique_object<T>`, and the `std::unique_ptr` + release-deleter spelling is gone -
+    // same one-reference drop, same slots. `api_core` gains `release()` so the
     // root obeys the same contract drop rule as every other handle (for the root that call destroys it).
     // `shared_object<T>` also answers `weak` (a nested observation handle), `borrow()` (a backend-owned
     // pointer) and an aliasing constructor (an engine owner keeping a borrowed RHI pointer alive). The
@@ -371,9 +382,11 @@ export namespace deren::promise::rhi {
     // shifts every later slot: that is the number.
     // ABI 41 puts the RESOURCE FACTORIES behind standard-library ownership: every `create_*` factory
     // (swapchain/buffer/image/acceleration structure/micromap/sampler/shader/pipeline/query/command
-    // buffer) and `image::make_view` now RETURN `unique_object<T>` - a `std::unique_ptr` whose deleter calls the
-    // contract's `release()`. A caller that wants shared ownership converts it with
-    // `std::shared_ptr(std::move(owned))`; the contract carries no second ownership vocabulary, and views
+    // buffer) and `image::make_view` now RETURN `object_ptr<T>` - a `std::unique_ptr` whose deleter calls the
+    // contract's `release()` (abi 43 replaced that spelling with the contract's own `unique_object<T>`,
+    // same one-reference drop; the name in this note is the one the batch shipped). A caller that wants
+    // shared ownership converted it with `std::shared_ptr(std::move(owned))` (abi 44 replaced that with
+    // `shared_object<T>`); the contract carries no second ownership vocabulary, and views
     // (frame image/buffer/command list) are NOT releasable: releasing one is a precondition violation that
     // panics. A virtual's return type is part of its ABI, so this is a number move; no by-value POD changes
     // shape and no slot moves.
@@ -858,7 +871,7 @@ export namespace deren::promise::rhi {
             return this->use_count() == 1u;
         }
 
-        /// whether @p other shares THIS handle\'s control block (the std::shared_ptr::owner_before identity)
+        /// whether @p other shares THIS handle's control block (the std::shared_ptr::owner_before identity)
         [[nodiscard]] bool shares_control(shared_object const& other) const noexcept {
             return this->control != nullptr ? this->control == other.control
                                             : this->alias_owner.get() == other.alias_owner.get();
@@ -1017,7 +1030,7 @@ export namespace deren::promise::rhi {
     /// IT IS OPAQUE HERE ON PURPOSE. The contract carries only the concrete-identity tag (`object::type`),
     /// no native vocabulary and no handle members: an API-specific consumer checks the tag with
     /// `is_concrete()` and casts the handle to the concrete layout ITS API's backend and plugin share (for
-    /// Vulkan: `denen::vulkan::main_context` in `denen.vulkan.main_context`, versioned with that
+    /// Vulkan: `deren::vulkan::main_context` in `denen.vulkan.main_context`, versioned with that
     /// backend/plugin pair rather than with this contract). A contract that named the layout would put the
     /// native vocabulary right back.
     ///

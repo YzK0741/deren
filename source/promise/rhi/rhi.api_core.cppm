@@ -6,10 +6,10 @@
 // plan v4, §1.11, §3.3, §4.1).
 //
 // `api_core` is the ONE object that crosses the boundary as a C++ type, and it is
-// reached through a single C function, `deren_make_api_core` - declared with the
-// other two entry points in source/promise/rhi/backend_entry.hpp, because an entry point is
-// the ABI surface rather than a virtual base class (m03159). Everything below
-// follows from the cross-boundary rules in §4.2:
+// reached through a single C function, `deren_make_api_core` - declared in
+// source/promise/rhi/backend_entry.hpp, the boundary's one C entry point, because an
+// entry point is the ABI surface rather than a virtual base class (m03159). Everything
+// below follows from the cross-boundary rules in §4.2:
 //
 //   - operations are virtual, the destructor is `virtual ... noexcept`, and the
 //     common object root carries a static concrete implementation name (ABI30). No owning
@@ -23,9 +23,10 @@
 //     call as "the memory is free now" - nor touch the handle afterwards;
 //   - a BORROWED view (`frame_image()`, `frame_readback_buffer()`, `begin_commands()`)
 //     holds no reference at all and must never be managed;
-//   - the engine builds `shared_object<api_core>(raw, &deren_destroy_api_core)`
-//     (or the pointer it resolved from the loaded library) - never the default
-//     deleter, which would free DLL memory with the executable's allocator;
+//   - the backend hands the ROOT out as the contract's own `shared_object<api_core>` (abi 44),
+//     whose control block's last copy calls the root's `release()` - the drop runs inside the
+//     backend, so no call site and no host ever names a deleter: the entry point returns the handle,
+//     and nothing in the engine's ownership path frees DLL memory with the executable's allocator;
 //   - `abilities()` is the tier-2 bit set (source/promise/rhi/rhi.extension.cppm) and
 //     `query_extension()` is the only way to reach an ability, so adding one does
 //     not grow this vtable;
@@ -34,14 +35,10 @@
 //   - the portable code touches nothing else, and this interface must never absorb
 //     engine concepts: no scene, no pass, no camera, no toon (§4.1 item 2).
 //
-// The `*_desc` structs other than `buffer_desc` are forward-declared on purpose.
-// This round lands the virtual base classes; the descriptor contents are S1 design
-// surface (§5's capability table, §6.4's usage and barrier model). A reference to an
-// incomplete type is all a virtual declaration needs, so the shape of the contract
-// can be reviewed before the shapes it carries are frozen.
-//
-// The `std::shared_ptr` wrapper the engine uses belongs on the ENGINE side (plan
-// §4.1 item 3: "住在模块里 inline 即可，不需要 DLL 配合"), so it is not here.
+// The `*_desc` structs that have landed are defined here, and their widths are part of the ABI - the
+// `struct_size` guard is how an older caller is served this build's defaults. swapchain_desc and
+// query_desc are still forward-declared (their factories answer nullptr), and a reference to an
+// incomplete type is all their virtual declarations need.
 // ============================================================================
 module;
 
@@ -49,7 +46,7 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <expected> // std::expected: `image::get_content()` answers the bytes OR the named reason
-#include <memory>   // std::shared_ptr: the ownership `make_command_buffer` hands over
+#include <memory>   // (unused since abi 44: the shared handles are :contract's `shared_object`, not a standard pointer)
 #include <optional>
 #include <span>        // std::span: buffer::mapped() hands the caller the bytes of a host-visible buffer
 #include <string_view> // std::string_view: gpu_profiler's stage names ride the boundary as views
@@ -261,8 +258,9 @@ export namespace deren::promise::rhi {
     // translates them.
     //
     // WHAT THE VOCABULARY DELIBERATELY DOES NOT CARRY, each one a MEASURED verdict rather
-    // than an omission: no HOST-ACCESS masks (the two host-visible barrier sites stay in the escape
-    // bucket, runtime.probes.cppm / ray_tracing.cpp), no QUEUE-FAMILY ownership-transfer field (there
+    // than an omission: no HOST-ACCESS masks (the two host-visible barrier sites were raw through the
+    // escape when this block was written, runtime.probes.cppm / ray_tracing.cpp - the `host_read` roles
+    // carry them now), no QUEUE-FAMILY ownership-transfer field (there
     // is no cross-queue submission; the 46 VK_QUEUE_FAMILY_* tokens are IGNORED initialisations), no
     // `resolve`/`resolveMode` and no `viewMask` (no path resolves MSAA in a rendering scope and none
     // uses multi-view - and both can be APPENDED later because `rendering_info` carries `struct_size`),
@@ -334,10 +332,10 @@ export namespace deren::promise::rhi {
         /// Neither half is a shader stage and neither is a transfer, so no earlier role named them - the same
         /// measurement rule that produced `acceleration_structure_read`/`acceleration_structure_write`.
         ///
-        /// THE MICROMAP'S *OTHER* BARRIER STAYS IN THE ESCAPE BUCKET, and that is a deliberate split rather than an
-        /// omission: its SOURCE is HOST_WRITE, and this enum carries no host role (the contract's `image_use` census
-        /// lists the host-visible barriers as the escape bucket's, because a host write is not a stage the recording
-        /// series can order).
+        /// THE MICROMAP'S *OTHER* BARRIER IS THE BACKEND'S, and that is a deliberate split rather than an
+        /// omission: its SOURCE is HOST_WRITE, and this enum carries no host-WRITE role (the host-visible
+        /// barrier was raw through the escape when this block was written, and `build_micromap` records it
+        /// inside the backend now - a host write is not a stage the recording series can order).
         micromap_write,
         micromap_read,
         indirect_read,
@@ -950,7 +948,7 @@ export namespace deren::promise::rhi {
         /// Borrowed images and backends without shared ownership return empty.
         /// The api_core and backend library must outlive all strong and weak resource references.
         /// While shared references exist, repeated calls use the same control block.
-        /// Use this instead of constructing an independent shared_ptr from a raw image.
+        /// Use this instead of constructing an independent `shared_object` from a raw image.
         [[nodiscard]] virtual shared_object<image> share() {
             return {};
         }
@@ -1349,13 +1347,14 @@ export namespace deren::promise::rhi {
 
     // ---- THE COMMAND BUFFER: THE OWNED RECORDING HANDLE (abi 15) ------------------------------------
     //
-    // `command_buffer` is a BORROWED view of a recording (abi 1/2/14: it has no `release()`, and the
-    // ownership note above says why); what the contract never had was the RESOURCE behind it - a
-    // command buffer the caller can create, keep, begin, end and execute, which is what the engine's
-    // per-slot primaries, its per-cascade and per-worker secondaries and the read-back's one-shot
-    // buffer need. `command_buffer` is that resource, in the ownership shape `buffer` / `image`
-    // established: the factory hands out ONE reference, `release()` drops it inside the backend, and
-    // `rhi::unique_object<T>` is the owner spelling.
+    // `command_buffer` used to be a BORROWED view of a recording with no `release()` of its own (abi
+    // 1/2/14); what the contract never had was the RESOURCE behind it - a command buffer the caller can
+    // create, keep, begin, end and execute, which is what the engine's per-slot primaries, its
+    // per-cascade and per-worker secondaries and the read-back's one-shot buffer need. Since abi 15
+    // `command_buffer` IS that resource, in the ownership shape `buffer` / `image` established: the
+    // factory hands out ONE reference, `release()` drops it inside the backend, and
+    // `rhi::unique_object<T>` is the owner spelling. The frame's own list is still the ONE borrowed
+    // instance of the type (`begin_commands()` answers it; its `release()` panics).
     //
     // WHAT DOES NOT CROSS THIS BOUNDARY, and it is the decision this type rests on: the ALLOCATOR. A
     // command buffer is allocated from an API-specific pool/allocator whose lifetime is entangled with
@@ -1371,7 +1370,8 @@ export namespace deren::promise::rhi {
     /// A PRIMARY buffer is handed to the device as a unit of work; it is the ONLY role a caller can
     /// create in abi 37 (the secondary role is retired - see the VALUE below). The multithreaded
     /// recording paths record into `mergeable_command_buffer` segments instead and merge them in
-    /// batches; those segments are backend-internal allocations, not contract `command_buffer`s.
+    /// batches; those segments are contract handles of their own (abi 35), handed out by
+    /// `make_mergeable_command_buffer()` - the GUI overlay's two recording targets are the other caller.
     enum class command_buffer_kind : std::uint32_t {
         primary = 0, ///< submitted by the frame itself
         /// RETIRED in abi 37: a secondary `command_buffer` is no longer creatable - the multithreaded
@@ -1488,12 +1488,7 @@ export namespace deren::promise::rhi {
     inline constexpr std::uint32_t mesh_task_command_size = 12u;
     static_assert(sizeof(mesh_task_command) == mesh_task_command_size, "the record's size IS the stride callers pass");
 
-    /// A command buffer the caller OWNS (abi 15).
-    ///
-    /// ONE REFERENCE, dropped through `release()` - the ownership the other owned handles carry (see
-    /// the ownership note above). What is specific to this type is that the resource is a RECORDING
-    /// SESSION rather than memory: the verbs below are that session's lifecycle, and the backend keeps
-    /// the pool, the query pool and the API's state machine behind them.
+    /// How many sampled slots one immutable texture group carries (`texture_group_info::textures`).
     inline constexpr std::uint32_t texture_group_capacity = 16u;
 
     struct texture_group_info {
@@ -1505,8 +1500,8 @@ export namespace deren::promise::rhi {
     /// recording interface can name the batch its `execute()` merges.
     struct mergeable_command_buffer;
 
-    /// The batch-only recording handle (defined after command_buffer): forward-declared here so the
-    /// recording interface can name the batch its xecute() merges.
+    /// The segment's shared handle, beside the repeated forward declaration the alias was introduced
+    /// with: a `shared_object` over the batch-only handle (abi 44).
     struct mergeable_command_buffer;
     using mergeable_command_buffer_ref = shared_object<mergeable_command_buffer>;
 
@@ -1520,6 +1515,12 @@ export namespace deren::promise::rhi {
     };
     using texture_group_ref = shared_object<texture_group>;
 
+    /// A command buffer the caller OWNS (abi 15).
+    ///
+    /// ONE REFERENCE, dropped through `release()` - the ownership the other owned handles carry (see
+    /// the ownership note above). What is specific to this type is that the resource is a RECORDING
+    /// SESSION rather than memory: the verbs below are that session's lifecycle, and the backend keeps
+    /// the pool, the query pool and the API's state machine behind them.
     struct command_buffer : object {
 
         explicit command_buffer(std::string_view const name) noexcept
@@ -1545,7 +1546,7 @@ export namespace deren::promise::rhi {
 
         // ---- THE RECORDING SERIES, NOW ON THE OWNER (user's ruling) ------------------------------
         // command_list is GONE: the recording verbs live on the one handle a caller holds, so a
-        // call site is uffer->draw(...) / ->barrier(...) with no borrowed view in between. The
+        // call site is `buffer->draw(...)` / `->barrier(...)` with no borrowed view in between. The
         // non-virtual forwarders this type used to carry are gone with it: these ARE the series.
 
         /// Declare that `resource` moves from one role to the other, and let the backend record what that
@@ -1595,14 +1596,13 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error mark_gpu_timing(std::uint32_t mark_index, std::string_view stage_name) noexcept = 0;
 
         // ---- the portable record series (abi 20) ------------------------------------------------
-        // THE RECORDING SURFACE'S OWN VOCABULARY (the verbs the passes actually record): the
-        // verbs this renderer's passes actually record, replacing 140 raw `vkCmd*` call sites in the
-        // engine's sources. Defined ONCE here, on the borrowed view; the owning `command_buffer`
-        // reaches the same series through `recording()` - a second declaration would be a second
-        // truth to keep in step. `push_data` is deliberately NOT here: the descriptor-heap face's
-        // `push_data(heap_push_info)` already takes the list and is the one heap verb that is a
-        // command-buffer operation, and a second spelling would be exactly the double declaration
-        // this block refuses.
+        // THE RECORDING SURFACE'S OWN VOCABULARY: the verbs this renderer's passes actually record,
+        // replacing 140 raw `vkCmd*` call sites in the engine's sources. Declared ONCE on the owning
+        // `command_buffer`; the sibling `mergeable_command_buffer` declares the same series again on
+        // purpose (the two types have different submit rules - abi 35). `push_data` is deliberately
+        // NOT here: the descriptor-heap face's `push_data(heap_push_info)` already takes the list and
+        // is the one heap verb that is a command-buffer operation, and a second spelling would be
+        // exactly the double declaration this block refuses.
         //
         // THE ANSWERING RULE, and the one place it deliberately deviates from the obvious shape: a verb that
         // RECEIVES A CONTRACT HANDLE answers `error` - "a handle this backend did not hand out" is a
@@ -1616,8 +1616,9 @@ export namespace deren::promise::rhi {
         //
         // EVERY DESCRIPTOR here is the plan's measured vocabulary: what the 140 sites name, nothing
         // more. Layouts are the images' current ones (GENERAL - docs/unified_image_layouts.md); the
-        // host-visible mask pairs and the queue-family transfers stay in the escape bucket (the
-        // plan's §0 verdicts).
+        // host-visible mask pairs and the queue-family transfers were raw through the escape when this
+        // block was written, and the `host_read` roles (`image_use` / `buffer_use`) carry the
+        // host-visible half now (the escape itself is deleted in abi 43).
 
         // render scope
         [[nodiscard]] virtual error begin_rendering(rendering_info const& info) = 0;
@@ -1748,13 +1749,14 @@ export namespace deren::promise::rhi {
         /// (`device_lost`, `out_of_*_memory`) travel as themselves.
         [[nodiscard]] virtual error begin_recording(command_buffer_begin_info const& info) = 0;
 
-        /// Close the recording session: the buffer becomes executable by `api_core::submit(span)` - the
-        /// batch submission is the ONLY way a mergeable's commands reach the queue.
+        /// Close the recording session: the segment becomes executable by `api_core::submit(span)` (the
+        /// submission-time merge) or by `command_buffer::execute(span)` (the recording-time merge, abi 36) -
+        /// those two are the only ways a mergeable's commands reach the queue.
         [[nodiscard]] virtual error end_recording() noexcept = 0;
 
         // ---- THE RECORDING SERIES, NOW ON THE OWNER (user's ruling) ------------------------------
         // command_list is GONE: the recording verbs live on the one handle a caller holds, so a
-        // call site is uffer->draw(...) / ->barrier(...) with no borrowed view in between. The
+        // call site is `buffer->draw(...)` / `->barrier(...)` with no borrowed view in between. The
         // non-virtual forwarders this type used to carry are gone with it: these ARE the series.
 
         /// Declare that `resource` moves from one role to the other, and let the backend record what that
@@ -1804,14 +1806,13 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error mark_gpu_timing(std::uint32_t mark_index, std::string_view stage_name) noexcept = 0;
 
         // ---- the portable record series (abi 20) ------------------------------------------------
-        // THE RECORDING SURFACE'S OWN VOCABULARY (the verbs the passes actually record): the
-        // verbs this renderer's passes actually record, replacing 140 raw `vkCmd*` call sites in the
-        // engine's sources. Defined ONCE here, on the borrowed view; the owning `command_buffer`
-        // reaches the same series through `recording()` - a second declaration would be a second
-        // truth to keep in step. `push_data` is deliberately NOT here: the descriptor-heap face's
-        // `push_data(heap_push_info)` already takes the list and is the one heap verb that is a
-        // command-buffer operation, and a second spelling would be exactly the double declaration
-        // this block refuses.
+        // THE RECORDING SURFACE'S OWN VOCABULARY: the verbs this renderer's passes actually record,
+        // replacing 140 raw `vkCmd*` call sites in the engine's sources. Declared ONCE on the owning
+        // `command_buffer`; the sibling `mergeable_command_buffer` declares the same series again on
+        // purpose (the two types have different submit rules - abi 35). `push_data` is deliberately
+        // NOT here: the descriptor-heap face's `push_data(heap_push_info)` already takes the list and
+        // is the one heap verb that is a command-buffer operation, and a second spelling would be
+        // exactly the double declaration this block refuses.
         //
         // THE ANSWERING RULE, and the one place it deliberately deviates from the obvious shape: a verb that
         // RECEIVES A CONTRACT HANDLE answers `error` - "a handle this backend did not hand out" is a
@@ -1825,8 +1826,9 @@ export namespace deren::promise::rhi {
         //
         // EVERY DESCRIPTOR here is the plan's measured vocabulary: what the 140 sites name, nothing
         // more. Layouts are the images' current ones (GENERAL - docs/unified_image_layouts.md); the
-        // host-visible mask pairs and the queue-family transfers stay in the escape bucket (the
-        // plan's §0 verdicts).
+        // host-visible mask pairs and the queue-family transfers were raw through the escape when this
+        // block was written, and the `host_read` roles (`image_use` / `buffer_use`) carry the
+        // host-visible half now (the escape itself is deleted in abi 43).
 
         // render scope
         [[nodiscard]] virtual error begin_rendering(rendering_info const& info) = 0;
@@ -2042,8 +2044,8 @@ export namespace deren::promise::rhi {
     /// boundary.
     ///
     /// One object per backend instance, created by `deren_make_api_core()` and owned by
-    /// the engine's `std::shared_ptr`. It is deliberately allowed to grow (it is the one
-    /// interface the plan lets be "big"), and deliberately not allowed to learn engine
+    /// the engine's `shared_object<api_core>` (abi 44). It is deliberately allowed to grow (it is the
+    /// one interface the plan lets be "big"), and deliberately not allowed to learn engine
     /// concepts (§4.1 item 2).
     struct api_core : object {
 
@@ -2103,15 +2105,16 @@ export namespace deren::promise::rhi {
         // ---- frame -------------------------------------------------------------
         /// The RECORDING VIEW of the frame in flight, or nullptr when no frame is being recorded.
         ///
-        /// ONE per frame, wrapping the frame's PRIMARY command buffer (mergeable segments are the
-        /// backend's own allocations). OWNERSHIP: the backend's - the caller borrows it, never deletes it, and must not
+        /// ONE per frame, wrapping the frame's PRIMARY command buffer (a mergeable segment is the
+        /// caller's own contract handle, abi 35 - the GUI overlay's two recording targets are that
+        /// kind, not this one). OWNERSHIP: the backend's - the caller borrows it, never deletes it, and must not
         /// touch it after the frame has been submitted. The backend may hand back the same object every
         /// frame. LIFETIME: from the moment the frame starts recording until that frame is submitted.
         /// THREADING: single-threaded; recording is the primary thread's (the repository's rule).
         ///
-        /// The NAME is the plan's and is kept; the verb is not literal yet - the frame's own
-        /// begin/end/submit still belong to the engine (only the engine knows the present recipe), so
-        /// this call starts nothing. It hands out the list the engine's frame is recording into.
+        /// The NAME is the plan's and is kept; the frame's own begin/end/submit still belong to the
+        /// engine (only the engine knows the present recipe), so this call starts nothing. It hands out
+        /// the list the engine's frame is recording into.
         [[nodiscard]] virtual command_buffer* begin_commands() = 0;
 
         /// The image the LAST acquire returned, as a BORROWED view - or nullptr BEFORE THE FIRST ONE: a
@@ -2189,12 +2192,14 @@ export namespace deren::promise::rhi {
         /// this boundary.
         [[nodiscard]] virtual unique_object<command_buffer> create_command_buffer(command_buffer_desc const& desc) = 0;
 
-        /// CREATE A COMMAND BUFFER THE CALLER OWNS, AS A `std::shared_ptr` (abi 21).
+        /// CREATE A COMMAND BUFFER THE CALLER OWNS, AS A `shared_object` (abi 21; the container is the
+        /// contract's own since abi 44).
         ///
         /// THE SAME OWNERSHIP SHAPE THE ENTRY POINT USES for `api_core`: the control block owns the
-        /// deleter, so the last reference destroys the session inside the backend and NO call site needs
-        /// a `release()`. An EMPTY pointer is the named refusal (the descriptor this backend cannot
-        /// serve), exactly as `create_command_buffer` answers `nullptr`.
+        /// RHI reference, so the LAST copy calls the object's `release()` and destroys the session
+        /// inside the backend - NO call site needs to spell `release()`. An EMPTY handle is the named
+        /// refusal (the descriptor this backend cannot serve), exactly as `create_command_buffer`
+        /// answers `nullptr`.
         [[nodiscard]] virtual shared_object<command_buffer> make_command_buffer(command_buffer_desc const& desc) = 0;
 
         /// THE OBJECT'S OWN ABI NUMBER, ASKED OF THE OBJECT (abi 19).

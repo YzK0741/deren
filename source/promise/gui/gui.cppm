@@ -45,7 +45,8 @@ export namespace deren::gui {
     /// overlay's lifetime; the runtime owns it. The GUI contract names no native vocabulary: the
     /// API-specific plugin checks the context's concrete tag and casts it to the layout its API's backend
     /// and plugin share (`denen.vulkan.main_context` for the Vulkan plugin), which is where the native
-    /// handles and format numbers live.
+    /// handles and format numbers live. The overlay's RECORDING TARGETS are contract handles, not native
+    /// ones - see `recording_targets` below.
     struct create_info {
         std::uint32_t struct_size = sizeof(create_info);
         api_type api = api_type::none;
@@ -54,8 +55,8 @@ export namespace deren::gui {
         /// THE OVERLAY'S OWN RECORDING TARGETS (abi 5): two mergeable command buffers the HOST creates through
         /// the contract and hands over - the overlay holds them, records ImGui into one per frame (the frame
         /// slot ring makes alternating reuse safe), and returns the recorded segment to the host, which
-        /// executes it inside the rendering instance it owns. The handles are the contract's; no native
-        /// vocabulary crosses this boundary.
+        /// executes it in a secondary-contents rendering instance of its own after the pass instance ends.
+        /// The handles are the contract's; no native vocabulary crosses this boundary.
         deren::promise::rhi::mergeable_command_buffer_ref recording_targets[2] = {};
     };
 
@@ -121,9 +122,14 @@ export namespace deren::gui {
         /// Record this frame's ImGui draw data into the CURRENT owned recording target and hand it back.
         ///
         /// @p begin is the rendering-instance inheritance the HOST's currently open instance declares (the
-        /// overlay draws inside it and cannot begin its own): the plugin starts the segment with it, records
-        /// ImGui, ends the segment and returns it - the host executes it on the frame's command buffer. An
-        /// empty return is a named refusal (no target, a target still in flight, or ImGui recording failure).
+        /// overlay's segment records as a continuation of it and cannot begin an instance of its own): the
+        /// plugin starts the segment with it, records ImGui, ends the segment and returns it - the host
+        /// executes it in the secondary-contents instance it begins after that pass instance ends. An empty
+        /// return is a named refusal (no target, a target still in flight, or ImGui recording failure).
+        ///
+        /// The host builds @p begin with `command_buffer_begin_info::inherit_descriptor_heaps = false` (rhi
+        /// abi 45): the Dear ImGui Vulkan backend binds its own classic descriptor sets, which a
+        /// heap-inheriting continuation would invalidate.
         [[nodiscard]] virtual deren::promise::rhi::mergeable_command_buffer_ref record(
             deren::promise::rhi::command_buffer_begin_info const& begin) = 0;
         /// the swapchain was recreated: let the backend adapt (its per-frame ring, its min-image hint)

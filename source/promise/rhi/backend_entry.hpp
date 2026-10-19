@@ -25,13 +25,14 @@
 // which also covers the backend DLL), so a control block allocated inside the backend can
 // be released by whoever drops the last reference. Two of the three entries therefore
 // become unnecessary rather than wrong:
-//   - `deren_destroy_api_core` is gone: ownership IS the shared_ptr's control block, whose
-//     deleter was baked in by the backend - there is no deleter name left to resolve, and
-//     no raw pointer for a host to delete;
+//   - `deren_destroy_api_core` is gone: ownership IS the returned handle's control block
+//     (abi 44 put it on the contract's own `shared_object`, whose last copy calls the
+//     object's `release()` - there is no deleter name left to resolve, and no raw pointer
+//     for a host to delete);
 //   - `deren_abi_version()` is gone: the version is an INPUT (argument one), so a
 //     disagreement is refused on the call that would have used it, and the backend's own
 //     number travels back in the `error_info` it fills (`native_code`) plus its message.
-// WHAT DOES NOT CHANGE: an empty `shared_ptr` means "refused", exactly as a null raw
+// WHAT DOES NOT CHANGE: an empty `shared_object` means "refused", exactly as a null raw
 // pointer did, and `create_info` is still the contract's one creation structure, borrowed
 // only until the call returns.
 // ============================================================================
@@ -40,7 +41,7 @@
 #include "../../utility/abi_export.hpp"
 
 #include <cstdint>
-#include <memory> // std::shared_ptr: the ownership the entry hands over
+#include <memory> // no standard pointer is named by the declaration any more (abi 44 returns the contract's `shared_object`)
 
 /**
  * @file source/promise/rhi/backend_entry.hpp
@@ -70,7 +71,7 @@ extern "C" {
 /// THE one producer of an `api_core`, and the only symbol a backend exports.
 ///
 /// `abi_version` is the CALLER's `deren::promise::rhi::abi_version`: a mismatch is refused (an empty
-/// `shared_ptr`) and reported through `out_error_info` as `error::abi_mismatch`, with the BACKEND's own
+/// `shared_object`) and reported through `out_error_info` as `error::abi_mismatch`, with the BACKEND's own
 /// number in `native_code` - the value `deren_abi_version()` used to answer, now carried by the
 /// diagnostic that explains the refusal instead of by a second entry point.
 ///
@@ -87,13 +88,14 @@ extern "C" {
 /// out-parameter whose storage the caller owns can stay a frozen type - the by-value rule does not
 /// bind here), and the backend fills the WHOLE structure - the decision code AND the diagnosis
 /// (which graphics API produced it, the raw native code, static text, the failure point). On a
-/// version mismatch it returns an EMPTY shared_ptr and fills `error::abi_mismatch`; a caller may not
+/// version mismatch it returns an EMPTY `shared_object` and fills `error::abi_mismatch`; a caller may not
 /// assume the out-parameter was written on failure, but when it WAS written, it is the whole story.
 ///
-/// OWNERSHIP: the returned `shared_ptr` carries the backend's own deleter, so the object is destroyed
-/// inside the image that made it, whenever the last reference goes - the engine holds it as its
-/// runtime's device root. A null return is the contract's "no context for you" and never a half-built
-/// one: an internal failure is the backend's own named panic (its startup rule).
+/// OWNERSHIP: the returned `shared_object` carries the contract's drop rule (abi 44) - its last copy
+/// calls `release()`, whose backend implementation destroys the object inside the image that made it -
+/// and the engine holds it as its runtime's device root. An empty return is the contract's "no context
+/// for you" and never a half-built one: an internal failure is the backend's own named panic (its
+/// startup rule).
 DEREN_API_EXPORT deren::promise::rhi::shared_object<deren::promise::rhi::api_core>
 deren_make_api_core(std::uint32_t abi_version, deren::promise::rhi::create_info const* desc,
                     deren::promise::rhi::error_info* out_error_info);

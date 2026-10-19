@@ -35,7 +35,7 @@
 - 像素门禁：完整冻结 OFF gate **15/15 PASS**、`-Visibility -Compare` **PASS**（本批只删除无调用方的词汇，
   引擎的 heap 写入本来就走可移植 view 路径，输出不变）。
 
-## 现在的边界
+## 现在的边界（ABI 34 时状态）
 
 - heap 图像写入：**只有** `image_view_desc` 一条路径（role/layers/mips，format/aspect/view type 由 contract
   image 的声明推导；cube 由 `cube_compatible && array_layers == 6` 决定）——raw `VkImageViewCreateInfo`
@@ -47,3 +47,9 @@
   单 image 的格式由 `image_format` + 后端解析规则表达（契约不暴露 VkFormat）。
 - 仅剩的原生参数是 `vulkan_command_buffer_inheritance_info`（secondary recording 的 attachment formats，
   没有可移植拼写），它继续走 tagged pNext 机制。
+
+（**2026-10-18 后续核对（ABI 45）：** 本节是 ABI 34 时状态，已被后续批次取代——`vulkan_escape` 的
+`native_buffer`/`native_image`/`native_image_view`/`native_sampler`/`enabled_device_extensions`/
+`get_basis`/`shader_group_handles` 在 ABI 42 删除、`vulkan_command_buffer_inheritance_info` 同批删除、整个
+escape 接口与 announce 在 ABI 43 删除；ABI 45 起 GUI overlay 自己持有两个 `mergeable_command_buffer`
+录制目标（`2026-10-18-gui-owned-recording.md`）。契约层现在没有任何 native 参数，最后一条已不成立。）
