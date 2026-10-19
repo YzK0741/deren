@@ -14,7 +14,7 @@ Get-ChildItem -LiteralPath $work -Filter 'screenshot_*.png' | Remove-Item -Force
 $config = Join-Path $work 'rt.toml'
 # CPU dispatch logs can be green while raygen returns before TraceRay. Require exact GPU results first.
 $probe = Join-Path $build 'test_acceleration_structures.exe'
-if (-not (Test-Path -LiteralPath $probe)) { throw 'Build test_acceleration_structures before RT acceptance' }
+if (-not (Test-Path -LiteralPath $probe)) { throw 'Build test_acceleration_structures and deren_vulkan before RT acceptance' }
 $probeStart = [Diagnostics.ProcessStartInfo]::new()
 $probeStart.FileName = $probe
 $probeStart.WorkingDirectory = $work

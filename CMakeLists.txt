@@ -1342,7 +1342,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_app_config test_subtilis test_subtilis_asset test_subtilis_lod test_rhi_ownership test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass)
+    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_lod test_rhi_ownership test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1681,11 +1681,12 @@ add_dependencies(test_texture_group deren_vulkan)
 
 # ---- THE ACCELERATION-STRUCTURE DEVICE PROBE (plan S1's P0) ------------------------------------------
 #
-# SPIKE-SHAPED LIKE `test_runtime_dyn` ABOVE, for the same reason (it creates a real device, so it cannot
-# belong to the headless ctest set) - and it is the SMALL instrument the acceleration-structure migration runs
-# against: a three-vertex triangle, one instance, a hidden 64x64 window and VALIDATION ON, where the repo's
-# only other ray-tracing instrument is the full Sponza scene at 1080x960 (see the file's own header comment).
-add_executable(test_acceleration_structures source/tests/test_acceleration_structures.cpp)
+# The default mode runs CPU ownership/allocation checks and belongs to VR_TEST_TARGETS.
+# --with-device additionally exercises the three-vertex Vulkan instrument. Keep that executable
+# available when headless tests are disabled, without registering or creating the target twice.
+if(NOT TARGET test_acceleration_structures)
+    add_executable(test_acceleration_structures source/tests/test_acceleration_structures.cpp)
+endif()
 # This GPU probe calls native fence/queue functions itself.
 target_link_libraries(test_acceleration_structures Vulkan::Vulkan)
 target_link_libraries(test_acceleration_structures
@@ -1696,15 +1697,9 @@ target_link_libraries(test_acceleration_structures
         vstd_lib
         vulkan_main_context # abi 40: the shared Vulkan layout the main context is cast through
 )
-# Same build-order rule again: this probe resolves deren_vulkan.dll at run time (it does not link it).
-add_dependencies(test_acceleration_structures deren_vulkan)
-if(VR_BUILD_TESTS)
-    add_test(NAME test_acceleration_structures COMMAND $<TARGET_FILE:test_acceleration_structures>)
-    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run/test_acceleration_structures")
-    set_tests_properties(test_acceleration_structures PROPERTIES
-        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run/test_acceleration_structures"
-        TIMEOUT 120)
-endif()
+# Only --with-device resolves deren_vulkan.dll; CPU tests must not build an unsanitized DLL
+# from sanitizer-instrumented archives. Full Release/Debug builds still produce the backend.
+# For a targeted device run, build both: --target test_acceleration_structures deren_vulkan.
 
 # THE GUI PLUGIN IS BUILT BESIDE THE EXECUTABLE like the renderer backend, and for the same build-order
 # reason - the runtime resolves `deren_gui_vulkan.dll` by NAME through deren.engine.gui_loader, so the file

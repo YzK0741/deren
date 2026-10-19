@@ -63,3 +63,5 @@ Ruling: bottom-up child indices (children before parent) make cycle rejection an
 Verification: full Release build + 53/53 tests; fresh ASan/UBSan build + 7/7 relevant tests, including real probe DLL loading. Independent foundation review and subsequent ownership-move review found no actionable issues. Exact CI tidy gate (31 files, warnings-as-errors) passed after adding the three Subtilis modules and removing the stale, deleted better_pmr.cpp entry. Evidence: ../../reviews/2026-10-20-subtilis-m1b-foundation.md.
 
 User steering: finish CI, then pause. Do not proceed into meshoptimizer/builder/runtime upload after CI.
+
+Remote 508769d5: Release/Debug/tidy/POSIX passed; ASan linked successfully but exposed a missing io.cmd in the post-resources test fixture and an out-of-inventory acceleration_structures executable. Both repaired within CI scope. Acceleration CPU mode now belongs to VR_TEST_TARGETS, device-only DLL dependency is explicit rather than forced on CPU tests. Final local Release 53/53 and full CI-equivalent ASan/UBSan 52/52 passed; independent follow-up review found no actionable issues. Submit follow-up, wait for remote CI, record and pause.

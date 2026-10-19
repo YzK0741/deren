@@ -39,6 +39,15 @@ MinGW/Clang 现在统一给 BMI 生产者和消费者定义 libc++ 支持的 `__
 
 独立审查和所有权整理复核均未发现可操作问题。不能把本地结果视为新的远程 CI 结果；远程流水线结束后补记并暂停。测试没有验证实际简化几何的图像和性能，因为该部分尚未接入。
 
+### 首轮远程结果及收尾修复
+
+提交 `508769d5` 的 [39311962445](https://github.com/YzK0741/deren/actions/runs/39311962445)：Release 构建/测试、Debug 完整构建、格式、clang-tidy、POSIX 全部通过。ASan 构建/链接通过，测试暴露两处既有遗漏：
+
+1. `test_runtime_injection --child-post-resources` 只填 `resolved_io.list`，未填 push endpoint 使用的 `cmd`。严格 UBSan 在本地复现 `taa.cpp:267` 的空引用绑定；fixture 现在借用同一个有效的帧命令对象，失败时输出子进程诊断。不改 TAA 生产逻辑。
+2. `test_acceleration_structures` 被单独注册到 CTest，却不在 ASan 构建清单；现在统一纳入 `VR_TEST_TARGETS` 和 CI。其默认模式在设备开关之前执行多项 CPU 资源检查，因此保留 sanitizer 覆盖。去掉默认 CPU 测试对 Vulkan DLL 的强制构建依赖：该 DLL 不插桩，强拉它会使已插桩静态库的 ASan/UBSan 符号链接失败。完整 Release/Debug 仍构建后端；设备模式需显式构建 `test_acceleration_structures deren_vulkan`，脚本提示同步更新。
+
+收尾本地验收：完整 Release 构建与 **53/53** 测试通过；按 CI 原目标清单构建并启用相同的 halt-on-error 设置，ASan/UBSan **52/52** 通过（与 CI 一样仅排除需要完整应用导入表的 `test_native_boundary_zero`）。独立审查未发现可操作问题。等待修复提交的远程结果后暂停。
+
 ## 下一入口
 
 固定 meshoptimizer 版本与许可证，先实现按 primitive/材质划分、锁区域外边界的索引简化构建器，将生成结果交给 `asset::make`。随后再做全驻留几何上传、MASK/toon/阴影强制 LOD0 接线及距离序列/混合层级接缝的视觉与性能验收。不能仅凭本轮结构校验启用真实简化。

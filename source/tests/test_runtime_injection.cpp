@@ -347,6 +347,12 @@ int main(int const argc, char** const argv) {
         float observed_history = -1;
         pass::resolved_io io;
         io.list = device->begin_commands();
+        CHECK(io.list != nullptr);
+        if (io.list == nullptr) {
+            return deren::vk_test::finish("post_resources");
+        }
+        // Mirror the host's two views of the same frame-owned recording object.
+        io.cmd = rhi::shared_object<rhi::command_buffer>::borrow(*io.list);
         io.frame.image_count = rhi::max_swapchain_images;
         io.frame.image_index = 0;
         io.extent = {.width = 4, .height = 4, .depth = 1};
@@ -1744,7 +1750,7 @@ int main(int const argc, char** const argv) {
     child_outcome const first_output_failure = run_child(argv[0], "--child-output-first-failure");
     CHECK(first_output_failure.ran && first_output_failure.status == 0u);
     child_outcome const post_resources = run_child(argv[0], "--child-post-resources");
-    CHECK(post_resources.ran && post_resources.status == 0u);
+    CHECK_MSG(post_resources.ran && post_resources.status == 0u, read_file(L"child_output.txt").c_str());
     child_outcome const outputs = run_child(argv[0], "--child-output-resources");
     CHECK(outputs.ran && outputs.status == 0u);
     child_outcome const visibility_fallback = run_child(argv[0], "--child-visibility-fallback");
