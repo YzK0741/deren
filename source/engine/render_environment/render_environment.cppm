@@ -353,9 +353,12 @@ namespace deren::engine {
          *       hull states Cull Front for a group of leaves that would otherwise each put BACK/NONE back.
          */
         void set_cull_mode(bool const two_sided_material) {
-            deren::promise::rhi::cull_mode const want = this->forced_cull_front
-                                                            ? deren::promise::rhi::cull_mode::front
-                                                            : ((this->two_sided || two_sided_material) ? deren::promise::rhi::cull_mode::none : deren::promise::rhi::cull_mode::back);
+            deren::promise::rhi::cull_mode want = deren::promise::rhi::cull_mode::back;
+            if (this->forced_cull_front) {
+                want = deren::promise::rhi::cull_mode::front;
+            } else if (this->two_sided || two_sided_material) {
+                want = deren::promise::rhi::cull_mode::none;
+            }
             if (!this->cull_mode_known || this->cull_mode_recorded != want) {
                 this->set_cull_mode_fn(this->target, want);
                 this->cull_mode_recorded = want;

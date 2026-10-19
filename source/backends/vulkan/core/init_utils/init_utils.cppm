@@ -559,9 +559,12 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     // VK_KHR_maintenance5), which validation reported as VUID-vkCreateDevice-ppEnabledExtensionNames-01387 the
     // first time the heap was enabled without one - so the dependency is resolved here and the NAME is kept
     // for the device-creation list rather than being re-derived there.
-    char const* const descriptor_heap_dependency = has_extension(VK_KHR_MAINTENANCE_5_EXTENSION_NAME)    ? VK_KHR_MAINTENANCE_5_EXTENSION_NAME
-                                                   : has_extension(VK_KHR_EXTENDED_FLAGS_EXTENSION_NAME) ? VK_KHR_EXTENDED_FLAGS_EXTENSION_NAME
-                                                                                                         : nullptr;
+    char const* descriptor_heap_dependency = nullptr;
+    if (has_extension(VK_KHR_MAINTENANCE_5_EXTENSION_NAME)) {
+        descriptor_heap_dependency = VK_KHR_MAINTENANCE_5_EXTENSION_NAME;
+    } else if (has_extension(VK_KHR_EXTENDED_FLAGS_EXTENSION_NAME)) {
+        descriptor_heap_dependency = VK_KHR_EXTENDED_FLAGS_EXTENSION_NAME;
+    }
     bool const descriptor_heap_extension = has_extension(VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME) && descriptor_heap_dependency != nullptr;
     // ... and the heap's SHADERS need one more extension and feature, which nothing declared until the
     // heap-native probe did: GL_EXT_descriptor_heap compiles every `descriptor_heap` declaration to an UNTYPED

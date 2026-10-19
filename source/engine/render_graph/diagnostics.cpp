@@ -100,9 +100,14 @@ namespace deren::engine::render_graph {
                         }
                         continue;
                     }
-                    unsigned width = c >= 0xc2 && c <= 0xdf ? 2 : c >= 0xe0 && c <= 0xef ? 3
-                                                              : c >= 0xf0 && c <= 0xf4   ? 4
-                                                                                         : 0;
+                    unsigned width = 0;
+                    if (c >= 0xc2 && c <= 0xdf) {
+                        width = 2;
+                    } else if (c >= 0xe0 && c <= 0xef) {
+                        width = 3;
+                    } else if (c >= 0xf0 && c <= 0xf4) {
+                        width = 4;
+                    }
                     bool valid = width && width <= text.size() - i;
                     for (unsigned j = 1; valid && j < width; ++j) {
                         valid = (static_cast<unsigned char>(text[i + j]) & 0xc0) == 0x80;

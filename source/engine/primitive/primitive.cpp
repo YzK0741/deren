@@ -188,9 +188,10 @@ namespace deren::engine {
         // emits the whole meshlet, so the group count is the primitive's run - not a slice of a triangle count. A
         // HOST-CULLED run dispatches its SURVIVORS instead, which is the point of culling before the dispatch: a
         // meshlet the frustum rejected costs no workgroup at all (docs/mesh_shaders.md step 3).
-        uint32_t const groups = survivors != not_culled
-                                    ? survivors
-                                    : (env.meshlets ? geometry.meshlet_count : (triangles + triangles_per_workgroup - 1u) / triangles_per_workgroup);
+        uint32_t groups = survivors;
+        if (survivors == not_culled) {
+            groups = env.meshlets ? geometry.meshlet_count : (triangles + triangles_per_workgroup - 1u) / triangles_per_workgroup;
+        }
         if (groups != 0u && static_cast<bool>(env.target)) {
             // A MESHLET SESSION DISPATCHES THROUGH THE INDIRECT ENTRY POINT (docs/mesh_shaders.md step 3, second
             // mechanism): the counts travel in the command table at the primitive's OWN slot (`meshlet_base`), so a

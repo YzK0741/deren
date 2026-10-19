@@ -180,13 +180,14 @@ namespace deren::engine::pass {
         // attachment does the transfer in hardware) and the GI weight, which is the frame's answer to whether the
         // chain resolved.
         render_settings const& settings = out.constants.settings;
+        float const encode_gamma = writing_ldr || !is_srgb_swapchain_format(this->swap_chain_format) ? 1.0f : 0.0f;
         post_push_constants const push = {
             .exposure = settings.exposure,
             // Zero while the G-buffer debug view is up (the frame says so - see composite_frame::suppress_bloom),
             // for the reason that field records.
             .bloom_intensity = this->pass_frame.suppress_bloom ? 0.0f : settings.bloom_intensity,
             .bloom_threshold = settings.bloom_threshold,
-            .encode_gamma = writing_ldr ? 1.0f : (is_srgb_swapchain_format(this->swap_chain_format) ? 0.0f : 1.0f),
+            .encode_gamma = encode_gamma,
             .fxaa_subpixel = settings.fxaa_subpixel,
             .fxaa_edge_threshold = settings.fxaa_edge_threshold,
         };

@@ -180,13 +180,24 @@ export namespace deren::engine::render_resource::instances {
             }
             auto next = std::make_shared<resource_set>();
             for (auto const& [id, value] : desired) {
-                uint32_t const count = value.scope == resource_scope::per_frame_slot ? context.frame_slots : value.scope == resource_scope::per_swapchain_image ? context.output_images
-                                                                                                                                                                : 1u;
+                uint32_t count = 1u;
+                if (value.scope == resource_scope::per_frame_slot) {
+                    count = context.frame_slots;
+                } else if (value.scope == resource_scope::per_swapchain_image) {
+                    count = context.output_images;
+                }
                 auto previous = snapshot().find(id);
+                auto const sizes_compatible = [&previous, &value] {
+                    if (value.type == kind::image) {
+                        return previous->description.image.array_layers >= value.image.array_layers;
+                    }
+                    if (value.type == kind::buffer) {
+                        return previous->description.buffer.size >= value.buffer.size;
+                    }
+                    return previous->description.structure.instance_capacity >= value.structure.instance_capacity;
+                };
                 if (previous && previous->device == device && previous->objects.size() == count &&
-                    compatible(previous->description, value) &&
-                    (value.type == kind::image ? previous->description.image.array_layers >= value.image.array_layers : value.type == kind::buffer ? previous->description.buffer.size >= value.buffer.size
-                                                                                                                                                   : previous->description.structure.instance_capacity >= value.structure.instance_capacity)) {
+                    compatible(previous->description, value) && sizes_compatible()) {
                     next->entries.emplace(id, previous);
                 } else {
                     auto created = std::make_shared<generation>();

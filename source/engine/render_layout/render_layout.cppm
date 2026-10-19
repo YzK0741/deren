@@ -394,7 +394,13 @@ export namespace deren::engine::render_layout {
      * @return the scale in [0.1, 1.0] the frame is actually rendered and sized with
      */
     [[nodiscard]] constexpr float clamp_render_scale(float const requested) noexcept {
-        return requested < 0.1f ? 0.1f : (requested > 1.0f ? 1.0f : requested);
+        if (requested < 0.1f) {
+            return 0.1f;
+        }
+        if (requested > 1.0f) {
+            return 1.0f;
+        }
+        return requested;
     }
 
     static_assert(clamp_render_scale(0.05f) == 0.1f, "the lower bound moved");

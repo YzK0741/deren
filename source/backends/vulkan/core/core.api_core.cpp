@@ -992,9 +992,15 @@ namespace deren::vulkan {
             return rhi::error::unsupported;
         }
         bool const cube = image.cube_compatible && image.array_layers == 6 && range.base_layer == 0 && layers == 6;
+        VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        if (layers == 1) {
+            view_type = VK_IMAGE_VIEW_TYPE_2D;
+        }
+        if (cube) {
+            view_type = VK_IMAGE_VIEW_TYPE_CUBE;
+        }
         VkImageViewCreateInfo view = make_image_view_info(image.native_handle, image.resolved_format,
-                                                          cube ? VK_IMAGE_VIEW_TYPE_CUBE : layers == 1 ? VK_IMAGE_VIEW_TYPE_2D
-                                                                                                       : VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+                                                          view_type,
                                                           image.declared_format == rhi::image_format::depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
                                                           mips, layers);
         view.subresourceRange.baseMipLevel = range.base_mip;
@@ -1486,9 +1492,13 @@ namespace deren::vulkan {
         // range is a plain 2D view even on a layered image (the per-cascade shadow layer view samples
         // as texture2D), a whole six-layer cube-compatible image is the CUBE, and every other
         // multi-layer range is a 2D array.
-        VkImageViewType const view_type = whole_cube    ? VK_IMAGE_VIEW_TYPE_CUBE
-                                          : layers == 1 ? VK_IMAGE_VIEW_TYPE_2D
-                                                        : VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        if (layers == 1) {
+            view_type = VK_IMAGE_VIEW_TYPE_2D;
+        }
+        if (whole_cube) {
+            view_type = VK_IMAGE_VIEW_TYPE_CUBE;
+        }
         VkImageViewCreateInfo const base_info = make_image_view_info(this->native_handle,
                                                                      this->resolved_format,
                                                                      view_type, aspect, mips, layers);
@@ -1930,11 +1940,14 @@ namespace deren::vulkan {
         groups.reserve(desc.ray_tracing_groups.size());
         for (rhi::ray_tracing_group const& group : desc.ray_tracing_groups) {
             bool const hit_group = group.closest_hit != rhi::shader_group_none || group.any_hit != rhi::shader_group_none || group.intersection != rhi::shader_group_none;
+            VkRayTracingShaderGroupTypeKHR group_type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+            if (hit_group) {
+                group_type = group.triangles ? VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR
+                                             : VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_KHR;
+            }
             groups.push_back(VkRayTracingShaderGroupCreateInfoKHR{.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR,
                                                                   .pNext = nullptr,
-                                                                  .type = !hit_group        ? VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR
-                                                                          : group.triangles ? VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR
-                                                                                            : VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_KHR,
+                                                                  .type = group_type,
                                                                   .generalShader = group.general,
                                                                   .closestHitShader = group.closest_hit,
                                                                   .anyHitShader = group.any_hit,
@@ -2988,11 +3001,16 @@ namespace deren::vulkan {
             if (hint == rhi::stage_hint::none || (mask & shader_stages) == 0) {
                 return mask;
             }
-            VkPipelineStageFlags2 const stage = hint == rhi::stage_hint::vertex     ? VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT
-                                                : hint == rhi::stage_hint::fragment ? VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
-                                                : hint == rhi::stage_hint::compute  ? VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
-                                                : hint == rhi::stage_hint::mesh     ? (VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT)
-                                                                                    : VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+            VkPipelineStageFlags2 stage = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+            if (hint == rhi::stage_hint::vertex) {
+                stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
+            } else if (hint == rhi::stage_hint::fragment) {
+                stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            } else if (hint == rhi::stage_hint::compute) {
+                stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            } else if (hint == rhi::stage_hint::mesh) {
+                stage = VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT;
+            }
             return (mask & ~shader_stages) | stage;
         }
 
@@ -3283,9 +3301,12 @@ namespace deren::vulkan {
                 .resolveMode = VK_RESOLVE_MODE_NONE,
                 .resolveImageView = VK_NULL_HANDLE,
                 .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-                .loadOp = one.load == rhi::load_op::clear       ? VK_ATTACHMENT_LOAD_OP_CLEAR
-                          : one.load == rhi::load_op::dont_care ? VK_ATTACHMENT_LOAD_OP_DONT_CARE
-                                                                : VK_ATTACHMENT_LOAD_OP_LOAD,
+                .loadOp = [&one] {
+                    if (one.load == rhi::load_op::clear) {
+                        return VK_ATTACHMENT_LOAD_OP_CLEAR;
+                    }
+                    return one.load == rhi::load_op::dont_care ? VK_ATTACHMENT_LOAD_OP_DONT_CARE : VK_ATTACHMENT_LOAD_OP_LOAD;
+                }(),
                 .storeOp = one.store == rhi::store_op::dont_care ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE,
                 .clearValue = {.color = {{one.clear[0], one.clear[1], one.clear[2], one.clear[3]}}},
             };
@@ -3306,9 +3327,12 @@ namespace deren::vulkan {
                 .resolveMode = VK_RESOLVE_MODE_NONE,
                 .resolveImageView = VK_NULL_HANDLE,
                 .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-                .loadOp = info.depth.load == rhi::load_op::clear       ? VK_ATTACHMENT_LOAD_OP_CLEAR
-                          : info.depth.load == rhi::load_op::dont_care ? VK_ATTACHMENT_LOAD_OP_DONT_CARE
-                                                                       : VK_ATTACHMENT_LOAD_OP_LOAD,
+                .loadOp = [&info] {
+                    if (info.depth.load == rhi::load_op::clear) {
+                        return VK_ATTACHMENT_LOAD_OP_CLEAR;
+                    }
+                    return info.depth.load == rhi::load_op::dont_care ? VK_ATTACHMENT_LOAD_OP_DONT_CARE : VK_ATTACHMENT_LOAD_OP_LOAD;
+                }(),
                 .storeOp = info.depth.store == rhi::store_op::dont_care ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE,
                 .clearValue = {.depthStencil = {.depth = info.depth.clear_depth, .stencil = info.depth.clear_stencil}},
             };
@@ -4181,10 +4205,14 @@ namespace deren::vulkan {
     void core::frame_commands::set_cull_mode(rhi::cull_mode const mode) noexcept {
         VkCommandBuffer const command_buffer = this->native();
         if (command_buffer != VK_NULL_HANDLE) {
-            VkCullModeFlags const native = mode == rhi::cull_mode::front  ? VK_CULL_MODE_FRONT_BIT
-                                           : mode == rhi::cull_mode::back ? VK_CULL_MODE_BACK_BIT
-                                           : mode == rhi::cull_mode::none ? VK_CULL_MODE_NONE
-                                                                          : VK_CULL_MODE_FRONT_AND_BACK;
+            VkCullModeFlags native = VK_CULL_MODE_FRONT_AND_BACK;
+            if (mode == rhi::cull_mode::front) {
+                native = VK_CULL_MODE_FRONT_BIT;
+            } else if (mode == rhi::cull_mode::back) {
+                native = VK_CULL_MODE_BACK_BIT;
+            } else if (mode == rhi::cull_mode::none) {
+                native = VK_CULL_MODE_NONE;
+            }
             vkCmdSetCullMode(command_buffer, native);
         }
     }

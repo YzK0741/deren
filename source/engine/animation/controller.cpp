@@ -24,7 +24,8 @@ namespace deren::engine::animation {
         }
         // values per keyframe: the sampler records it (morph-weights channels vary per mesh);
         // fall back to the path rule when a sampler carries no per_key shape
-        std::size_t const comps = sampler.per_key != 0 ? sampler.per_key : (path == channel_path::rotation ? 4 : 3);
+        std::size_t const default_comps = path == channel_path::rotation ? 4 : 3;
+        std::size_t const comps = sampler.per_key != 0 ? sampler.per_key : default_comps;
         bool const cubic = sampler.interp == interpolation::cubic_spline;
         std::size_t const stored_per_key = comps * (cubic ? 3 : 1);
         if (sampler.values.size() < keys * stored_per_key) {

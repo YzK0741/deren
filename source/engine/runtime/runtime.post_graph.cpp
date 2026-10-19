@@ -123,8 +123,13 @@ namespace deren::engine {
         }
         inputs.frame = *output_ref;
         settings.bloom_enabled = this->feature_active("bloom");
-        settings.resolution = this->post_upscale_active() ? graph::post::resolve::upscale : this->post_fxaa_active() ? graph::post::resolve::fxaa
-                                                                                                                     : graph::post::resolve::none;
+        if (this->post_upscale_active()) {
+            settings.resolution = graph::post::resolve::upscale;
+        } else if (this->post_fxaa_active()) {
+            settings.resolution = graph::post::resolve::fxaa;
+        } else {
+            settings.resolution = graph::post::resolve::none;
+        }
         for (auto it = this->bloom_graph_states.begin(); it != this->bloom_graph_states.end();) {
             if (it->first.expired()) {
                 it = this->bloom_graph_states.erase(it);
@@ -997,8 +1002,15 @@ namespace deren::engine {
                 ios[i].list != commands.get() || ios[i].targets.size() != 1) {
                 return rhi::error::not_ready;
             }
-            auto expected = i < 4 ? this->bloom_images[i][index].get() : i == 4 && ldr ? ldr.get()
-                                                                                       : this->rhi_face().frame_image();
+            auto const expected = [&] {
+                if (i < 4) {
+                    return this->bloom_images[i][index].get();
+                }
+                if (i == 4 && ldr) {
+                    return ldr.get();
+                }
+                return this->rhi_face().frame_image();
+            }();
             if (ios[i].targets[0].image_handle != expected) {
                 return rhi::error::invalid_argument;
             }

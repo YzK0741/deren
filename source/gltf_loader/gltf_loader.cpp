@@ -1053,9 +1053,8 @@ namespace {
             }
             deren::utility::panic(std::source_location::current(), "unsupported index component type: {}", static_cast<int32_t>(prim.index_component_type));
         }();
-        deren::utility::vessel::vector<uint8_t> const& index_bytes = !widened_indices.empty()
-                                                                         ? widened_indices
-                                                                         : (prim.index.empty() ? synthesized_indices : prim.index);
+        deren::utility::vessel::vector<uint8_t> const& fallback_indices = prim.index.empty() ? synthesized_indices : prim.index;
+        deren::utility::vessel::vector<uint8_t> const& index_bytes = widened_indices.empty() ? fallback_indices : widened_indices;
         uint32_t const index_count = static_cast<uint32_t>(index_bytes.size() / index_width);
 
         // ---- Normals: use the authored NORMAL attribute when the primitive has one; otherwise

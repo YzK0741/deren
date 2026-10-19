@@ -223,9 +223,14 @@ namespace deren::gaussian {
             return fail(error_code::truncated, offset, {}, "payload too short for declared count");
         }
         asset answer{};
-        answer.sh_degree = rest_count == 0 ? 0 : rest_count == 9 ? 1
-                                             : rest_count == 24  ? 2
-                                                                 : 3;
+        answer.sh_degree = 3;
+        if (rest_count == 0) {
+            answer.sh_degree = 0;
+        } else if (rest_count == 9) {
+            answer.sh_degree = 1;
+        } else if (rest_count == 24) {
+            answer.sh_degree = 2;
+        }
         answer.particles.reserve(static_cast<std::size_t>(count));
         deren::utility::vessel::vector<double> row(properties.size());
         for (std::uint64_t item = 0; item < count; ++item) {

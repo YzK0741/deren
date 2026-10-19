@@ -304,10 +304,16 @@ namespace {
     /// turns into `invalid`, i.e. "no base ramp", i.e. the old chain's diffuse.
     [[nodiscard]] std::string_view toon_base_ramp_name(deren::toon::material_sidecar const& material) {
         float const index = material.scalar("_GooRampIndex", 0.0f);
-        return index > 2.990000009536743f     ? std::string_view{"TPLK_actor_common_cloth_03_RD"}
-               : index >= 2.0f                ? std::string_view{"T_actor_common_cloth_04_RD"}
-               : index >= 0.9900000095367432f ? std::string_view{"T_actor_common_body_01_RD"}
-                                              : std::string_view{"T_actor_common_cloth_04_RD"};
+        if (index > 2.990000009536743f) {
+            return std::string_view{"TPLK_actor_common_cloth_03_RD"};
+        }
+        if (index >= 2.0f) {
+            return std::string_view{"T_actor_common_cloth_04_RD"};
+        }
+        if (index >= 0.9900000095367432f) {
+            return std::string_view{"T_actor_common_body_01_RD"};
+        }
+        return std::string_view{"T_actor_common_cloth_04_RD"};
     }
 
     /// THE `RS_Index` ROW'S NAME, which is the sidecar's contract rather than this table's: it is written here
