@@ -12,9 +12,11 @@
 // instead. The pair (backend, plugin) is versioned together by `rhi::abi_version`, which both sides already
 // compare at their own handshakes.
 //
-// WHAT IT CARRIES: exactly what the GUI plugin's ImGui Vulkan backend needs to come up - the RHI core it
-// must keep for the recording path, and the native handles/numbers that core already owns. Nothing here is
-// contract vocabulary.
+// WHAT IT CARRIES: exactly what the GUI plugin's ImGui Vulkan backend needs to come up - the RHI core
+// (for the version handshake) and the native handles/numbers that core already owns. Nothing here is
+// contract vocabulary. The per-frame RECORDING TARGET is not a callback here: the contract passes the RHI
+// `command_buffer` itself, and the plugin casts it to the shared `denen.vulkan.command_buffer` head after
+// checking its concrete tag (the same opaque-handle + tag + shared-layout rule).
 // ============================================================================
 module;
 
@@ -38,7 +40,7 @@ export namespace deren::vulkan {
     inline constexpr std::string_view main_context_name = "deren_main_context_vulkan";
 
     /// THE MAIN-THREAD CONTEXT, as this backend hands it out: everything the GUI plugin's Vulkan init needs,
-    /// plus the RHI core the overlay keeps for its per-frame recording path.
+    /// plus the RHI core the overlay keeps for the API-version handshake.
     struct main_context final : deren::promise::rhi::main_context {
         explicit main_context() noexcept
             : deren::promise::rhi::main_context(main_context_name) {
@@ -55,13 +57,6 @@ export namespace deren::vulkan {
         /// the presentation surface's format, as the backend resolved it (a VkFormat value)
         std::uint32_t color_format = 0;
         std::uint32_t frames_in_flight = 0;
-        /// THE NATIVE RECORDING TARGET a contract `command_buffer` names, resolved by the backend that owns it
-        /// (nullptr when the handle is foreign, or when the borrowed frame list has no frame in flight). This is
-        /// the ONE native handle a third-party renderer needs - the Dear ImGui Vulkan backend records its own
-        /// draw data into the frame's command buffer - and keeping the conversion on this backend-owned context
-        /// is what lets the contract drop its escape ability. abi 43.
-        VkCommandBuffer (*native_command_buffer)(deren::promise::rhi::api_core& face,
-                                                 deren::promise::rhi::command_buffer& commands) noexcept = nullptr;
     };
 
     /// @brief whether @p context is THIS backend's main context (the contract's provenance question)

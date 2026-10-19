@@ -15,6 +15,7 @@ import deren.engine.backend_loader;
 // abi 40: the native handles now come from the contract's opaque main context, cast through the shared
 // Vulkan layout (the same path the GUI plugin uses).
 import deren.vulkan.main_context;
+import deren.vulkan.command_buffer;
 namespace rhi = deren::promise::rhi;
 
 namespace {
@@ -207,7 +208,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
             CHECK(commands->bind_pipeline(*pipeline) == rhi::error::ok);
         commands->dispatch(1, 1, 1);
     }
-    auto native = static_cast<VkCommandBuffer>(main_context.native_command_buffer(*main_context.core, *commands));
+    auto native = static_cast<VkCommandBuffer>(deren::vulkan::native_command_buffer(*commands));
     VkMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
     barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -332,7 +333,7 @@ int main(int argc, char** argv) {
         return deren::vk_test::finish("test_texture_group");
     deren::vulkan::main_context const* const main_context = vulkan_main(*core);
     CHECK(main_context != nullptr);
-    if (main_context == nullptr || main_context->native_command_buffer == nullptr)
+    if (main_context == nullptr)
         return deren::vk_test::finish("test_texture_group");
     VkDevice const device = main_context->device;
     VkQueue const queue = main_context->graphics_queue;

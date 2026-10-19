@@ -61,6 +61,7 @@ import deren.promise.rhi;
 // THE CONCRETE LAYOUT of the contract's opaque `main_context` (abi 39): the SAME interface unit the GUI
 // plugin compiles (vulkan_main_context), so the tag and the layout cannot fork between the two images.
 export import deren.vulkan.main_context;
+import deren.vulkan.command_buffer;
 // The error translators and the diagnostic builder: a neutral module both sides link (see the note
 // in the purview). RE-EXPORTED, because every backend TU that names `failed`/`*_error` imports THIS
 // module and must keep compiling unchanged.
@@ -279,8 +280,10 @@ namespace deren::vulkan {
     /// the rule exists.
     namespace concrete {
         inline constexpr std::string_view api_core = "deren_api_core_vulkan";
-        inline constexpr std::string_view frame_commands = "deren_frame_commands_vulkan";
-        inline constexpr std::string_view command_buffer = "deren_command_buffer_vulkan";
+        /// abi 43: the identities live in the SHARED layout (`denen.vulkan.command_buffer`) because the GUI
+        /// plugin checks them too; these aliases keep the backend's own spellings pointing at one source.
+        inline constexpr std::string_view frame_commands = deren::vulkan::frame_command_buffer_name;
+        inline constexpr std::string_view command_buffer = deren::vulkan::owned_command_buffer_name;
         inline constexpr std::string_view mergeable_command_buffer = "deren_mergeable_command_buffer_vulkan";
         inline constexpr std::string_view frame_image = "deren_frame_image_vulkan";
         inline constexpr std::string_view frame_snapshot = "deren_frame_snapshot_vulkan";
@@ -349,9 +352,12 @@ namespace deren::vulkan {
         /// that is not the frame's, which is the window their own contract notes already name.
         struct owned_command_buffer;
         struct owned_pipeline;
-        struct frame_commands : deren::promise::rhi::command_buffer {
+        /// THE SHARED CONCRETE HEAD (abi 43) carries `recording_target`, the one field the GUI plugin reads
+        /// after checking the concrete tag; this class derives from it so the cast is a real base-class cast,
+        /// not a layout guess. The borrowed frame view and an owned buffer both publish their target there.
+        struct frame_commands : deren::vulkan::command_buffer_native {
             explicit frame_commands(std::string_view const name = concrete::frame_commands) noexcept
-                : deren::promise::rhi::command_buffer(name) {
+                : deren::vulkan::command_buffer_native(name) {
             }
             core* owner = nullptr;
             /// the buffer this list records into: null = the frame's slot buffer, set = an owned one
@@ -372,8 +378,9 @@ namespace deren::vulkan {
             /// the A5 dump (both sides of each barrier) is emitted once per pair per process
             std::uint32_t shadow_gate_dumped = 0;
 
-            /// the native command buffer this list records into (the escape answers with it, see
-            /// core.api_core.cpp's frame_escape::native_command_buffer)
+            /// the native command buffer this list records into: the owned buffer's own handle (`target`) or
+            /// the frame slot's while a frame is in flight. `recording_target` (the shared head) is this same
+            /// answer kept current for the GUI plugin's cast.
             [[nodiscard]] VkCommandBuffer native() const noexcept;
 
             /// THE FRAME'S BUFFER IS THE CORE'S, so the four lifecycle verbs take the BORROWED shape
@@ -1044,8 +1051,8 @@ namespace deren::vulkan {
             [[nodiscard]] std::uint64_t buffer_address(deren::promise::rhi::buffer const& resource, std::uint64_t offset) const noexcept override;
         };
 
-        // `frame_escape` STOOD HERE AND IS DELETED in abi 43: the GUI overlay's per-frame recording target is
-        // resolved through the shared `denen.vulkan.main_context` (its `native_command_buffer` member), so the
+        // `frame_escape` STOOD HERE AND IS DELETED in abi 43: the GUI overlay receives the RHI command_buffer
+        // and casts it to the shared `denen.vulkan.command_buffer` head (see `frame_commands` above), so the
         // backend no longer implements a tier-2 escape interface at all.
 
         /// tier-2 `host_image_copy`: the implementation-side copy out of an image into the app's own
@@ -1525,11 +1532,6 @@ namespace deren::vulkan {
         /// (source/backends/vulkan/main_context/main_context.cppm). Borrowed; nullptr only if this core has
         /// nothing to hand out (this backend always does).
         [[nodiscard]] deren::promise::rhi::main_context* main_context() noexcept override;
-        /// THE NATIVE RECORDING TARGET a contract command_buffer names - `deren.vulkan.main_context::native_command_buffer`
-        /// points at this. Static because the shared context stores a plain function pointer; it answers nullptr for a
-        /// handle this backend never handed out, and for the borrowed frame list when no frame is in flight.
-        [[nodiscard]] static VkCommandBuffer native_command_buffer_of(deren::promise::rhi::api_core& face,
-                                                                      deren::promise::rhi::command_buffer& commands) noexcept;
         /// abi 35: the batch submission (see `mergeable_command_buffer` and `core::submit(span)`).
         [[nodiscard]] deren::promise::rhi::error submit(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) override;
         /// abi 35: the batch-only recording handle. The returned handle carries one reference, dropped by

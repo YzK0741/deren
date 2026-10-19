@@ -789,7 +789,6 @@ namespace deren::vulkan {
         this->main_context_view.graphics_queue_family = this->graphics_queue_family_index;
         this->main_context_view.color_format = static_cast<std::uint32_t>(this->swap_chain_image_format);
         this->main_context_view.frames_in_flight = static_cast<std::uint32_t>(MAX_FRAMES_IN_FLIGHT);
-        this->main_context_view.native_command_buffer = &core::native_command_buffer_of;
         return &this->main_context_view;
     }
 
@@ -1985,6 +1984,7 @@ namespace deren::vulkan {
             return nullptr;
         }
         answer->target = *answer->buffer;
+        answer->recording_target = *answer->buffer; // the shared head's field, read by the GUI plugin's cast
         answer->kind = level == VK_COMMAND_BUFFER_LEVEL_SECONDARY ? rhi::command_buffer_kind::secondary
                                                                   : rhi::command_buffer_kind::primary;
         {
@@ -4289,33 +4289,15 @@ namespace deren::vulkan {
         return address + offset;
     }
 
-    // ---- THE NATIVE RECORDING TARGET (abi 43): the one conversion the GUI overlay needs --------------
+    // ---- THE GUI PLUGIN'S RECORDING TARGET (abi 43) ---------------------------------------------------
     //
-    // It used to be a tier-2 escape slot; it is a function reachable through the backend-owned
-    // `denen.vulkan.main_context` now, which is where the API-specific glue for a third-party renderer
-    // belongs. The contract carries no escape interface at all any more.
-
-    VkCommandBuffer core::native_command_buffer_of(rhi::api_core& face, rhi::command_buffer& commands) noexcept {
-        // THE SAME WINDOW `begin_commands()` ANSWERS IN for the FRAME's list: outside the frame there is
-        // no command buffer to name, and answering with "the slot that would be next" would be a lie.
-        auto& self = static_cast<core&>(face); // the only caller is core::main_context() on this core
-        if (static_cast<void const*>(&commands) == static_cast<void const*>(&self.commands_view)) {
-            if (!self.frame_in_flight) {
-                return VK_NULL_HANDLE;
-            }
-            return self.frame_command_buffer();
-        }
-        // ... AND AN OWNED BUFFER'S LIST (abi 15): resolved through the SAME provenance registry
-        // `execute()` uses, so no caller pointer is cast before it is known to be one of ours.
-        std::lock_guard const lock(self.contract_command_buffers_mutex);
-        for (rhi::command_buffer const* const candidate : self.contract_command_buffers) {
-            auto const* const owned = static_cast<core::owned_command_buffer const*>(candidate);
-            if (static_cast<void const*>(owned) == static_cast<void const*>(&commands)) {
-                return *owned->buffer;
-            }
-        }
-        return VK_NULL_HANDLE; // not a list this backend handed out
-    }
+    // The contract passes the RHI handle; the plugin checks the concrete tag and casts it to the shared
+    // `denen.vulkan.command_buffer` head to read `recording_target`. THE BACKEND'S JOB is only to keep that
+    // field current, which happens at the two moments a recording target changes:
+    //
+    //   - an OWNED buffer: set once when its VkCommandBuffer is allocated (it never changes afterwards);
+    //   - the BORROWED frame view: set when a frame is acquired (frame_in_flight) and cleared when the frame
+    //     is submitted or the slot advances - outside a frame it names nothing, which is the truthful answer.
 
     rhi::error core::frame_shader_group_access::read(rhi::pipeline const& resource, std::uint32_t const first_group,
                                                      std::uint32_t const group_count, std::span<std::uint8_t> const out) const noexcept {
@@ -4555,6 +4537,9 @@ namespace deren::vulkan {
             this->acquired_image_index = image_index;
             this->async_present_queued = false;
             this->frame_in_flight = true;
+            // THE RECORDING TARGET THE GUI PLUGIN READS (abi 43): while this frame is in flight the borrowed
+            // view's shared head names the frame slot's buffer; the frame's own submit/advance clears it.
+            this->commands_view.recording_target = this->frame_command_buffer();
             // and this is what makes `frame_image()` answer at all: before the first successful acquire
             // there is no last-acquired image, only a default index that happens to name one.
             this->frame_acquired = true;

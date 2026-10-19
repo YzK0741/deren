@@ -667,8 +667,9 @@ export namespace deren::promise::rhi {
 
     // `vulkan_escape` STOOD HERE AND IS DELETED in abi 43. Its last content was one slot
     // (`native_command_buffer`) that the GUI overlay's Dear ImGui backend used to record its own draw data.
-    // That hand-off now lives on the BACKEND-OWNED `rhi::main_context` (the shared Vulkan layout carries the
-    // conversion), so the contract names no escape interface at all: the `extension_kind::vulkan_escape` BIT
-    // stays as a retired value (bits are never reused), and no backend announces it.
+    // That hand-off now passes the CONTRACT's `command_buffer` handle, which the plugin casts to the shared
+    // `denen.vulkan.command_buffer` layout after checking its concrete tag - so the contract names no escape
+    // interface and no native type at all: the `extension_kind::vulkan_escape` BIT stays as a retired value
+    // (bits are never reused), and no backend announces it.
 
 } // namespace deren::promise::rhi

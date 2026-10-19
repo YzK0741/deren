@@ -473,7 +473,8 @@ target_link_libraries(vulkan_constant_init PUBLIC Vulkan::Vulkan)
 # attachment cannot be served from it, and both images compile the same unit instead.
 add_library(vulkan_main_context STATIC)
 target_sources(vulkan_main_context PUBLIC FILE_SET CXX_MODULES FILES
-    source/backends/vulkan/main_context/main_context.cppm)
+    source/backends/vulkan/main_context/main_context.cppm
+    source/backends/vulkan/shared/command_buffer.cppm)
 target_link_libraries(vulkan_main_context PUBLIC promise Vulkan::Vulkan)
 
 add_library(vulkan_synchronization STATIC)

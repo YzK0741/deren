@@ -126,10 +126,12 @@ A backend is not asked what it is; it is asked what it can do.
 * **Extensions** are the optional interfaces behind those bits: `query_extension<T>()` hands one out or
   nothing. The device facts (`device_capabilities`), the shader-group access and the descriptor space are
   what the engine itself uses. THE ESCAPE IS GONE (abi 43): its last slot existed only so the GUI overlay's
-  Dear ImGui Vulkan backend could get the frame's `VkCommandBuffer`, and that conversion now lives in the
-  backend-owned shared `denen.vulkan.main_context` (the device root itself moved there in abi 39, and abi
-  40/42 deleted the resource/channel handles with their last callers). `extension_kind::vulkan_escape`
-  survives only as a retired bit value - never announced, never queried.
+  Dear ImGui Vulkan backend could get the frame's `VkCommandBuffer`. The hand-off now passes the CONTRACT's
+  `command_buffer` handle and the plugin casts it to the backend's shared `denen.vulkan.command_buffer`
+  layout after checking the concrete tag (the same opaque-handle + tag + shared-layout rule
+  `rhi::main_context` follows - the device root itself moved there in abi 39, and abi 40/42 deleted the
+  resource/channel handles with their last callers). `extension_kind::vulkan_escape` survives only as a
+  retired bit value - never announced, never queried.
 * **A fact the engine needs is an answer, not a native query.** A graphics-API concept appearing in the
   engine is a contract gap: it gets an ability or a tier-1 object, never an `escape()` call and never a
   native type.

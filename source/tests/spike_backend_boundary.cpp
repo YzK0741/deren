@@ -73,6 +73,7 @@ import deren.promise.rhi;
 import deren.utility.dynamic_link;
 // abi 40: the native device handles come from the contract's opaque main context (the GUI plugin's path).
 import deren.vulkan.main_context;
+import deren.vulkan.command_buffer;
 
 // After the imports it needs: the header names deren::promise::rhi types (see its own note).
 #include "../promise/rhi/backend_entry.hpp"
@@ -327,7 +328,6 @@ namespace {
                 CHECK(main_context->physical_device != VK_NULL_HANDLE);
                 CHECK(main_context->device != VK_NULL_HANDLE);
                 CHECK(main_context->graphics_queue != VK_NULL_HANDLE);
-                CHECK(main_context->native_command_buffer != nullptr);
             }
 
             // The resource factories are the S3 design surface and answer nullptr today; what this
@@ -601,12 +601,9 @@ namespace {
                           "the frame-scoped mark verb refuses the same way");
                 // THE NATIVE HANDLE: the backend main context resolves a buffer the CALLER owns, outside
                 // any frame - which is the read-back's case (its read runs after the frame has landed).
-                auto const* const main_context = vulkan_main(*core);
-                CHECK(main_context != nullptr && main_context->native_command_buffer != nullptr);
-                if (main_context != nullptr && main_context->native_command_buffer != nullptr) {
-                    CHECK_MSG(main_context->native_command_buffer(*core, *primary) != nullptr,
-                              "an owned buffer's native handle resolves through the main context outside a frame");
-                }
+                CHECK_MSG(deren::vulkan::is_command_buffer(*primary), "an owned command buffer's concrete tag is shared");
+                CHECK_MSG(deren::vulkan::native_command_buffer(*primary) != nullptr,
+                          "an owned buffer's native target is published on the shared layout outside a frame");
 
                 // THE SEGMENT, the executable path: recorded with no usage flags (so executing it
                 // outside a render pass instance is legal) and ended - only an ended segment may be merged.

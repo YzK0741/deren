@@ -204,6 +204,7 @@ namespace deren::vulkan {
 
     void core::to_next_frame() noexcept {
         frame_in_flight = false;
+        this->commands_view.recording_target = VK_NULL_HANDLE;
         current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 
@@ -275,6 +276,7 @@ namespace deren::vulkan {
             // begin_commands()/frame_image() answer nullptr until the next acquire. This is the other
             // half of acquire_next_image() (core.api_core.cpp), which is what set the flag.
             this->frame_in_flight = false;
+            this->commands_view.recording_target = VK_NULL_HANDLE;
         }
         return result;
     }
