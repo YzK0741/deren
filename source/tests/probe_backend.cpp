@@ -227,37 +227,15 @@ namespace {
     /// is empty for the same reason, so both device-capability derivations answer "not available" -
     /// which is what a device-less probe can honestly claim. Broadcasting `vulkan_escape` alongside
     /// `device_address` is what makes the probe usable as an injected root at all.
+    /// abi 42: the escape carries ONE slot now; the probe stand-in answers it the only way a device-less
+    /// backend can (nullptr), and the rest of the contract surface it used to cover is gone with the
+    /// virtuals.
     struct probe_escape final : rhi::vulkan_escape {
         probe_escape() noexcept
             : rhi::vulkan_escape("deren_vulkan_escape_probe") {
         }
         [[nodiscard]] void* native_command_buffer(rhi::command_buffer&) const noexcept override {
             return nullptr;
-        }
-        [[nodiscard]] std::span<char const* const> enabled_device_extensions() const noexcept override {
-            return {};
-        }
-        [[nodiscard]] void* native_buffer(rhi::buffer const&) const noexcept override {
-            return nullptr;
-        }
-        [[nodiscard]] void* native_image(rhi::image const&) const noexcept override {
-            return nullptr;
-        }
-        [[nodiscard]] void* native_image_view(rhi::image_view const&) const noexcept override {
-            return nullptr;
-        }
-        [[nodiscard]] void* native_sampler(rhi::sampler const&) const noexcept override {
-            return nullptr;
-        }
-
-        [[nodiscard]] rhi::api_basis* get_basis() const noexcept override {
-            return nullptr;
-        }
-        // abi 24: `device_proc` was REMOVED from `vulkan_escape` (the ray-tracing launch resolves its entry point
-        // in the backend now), so the probe has no override for it - and it must not keep one, because the point
-        // of this stand-in is that it answers exactly the contract's slots.
-        [[nodiscard]] bool shader_group_handles(rhi::api_basis&, rhi::pipeline const&, std::uint32_t, std::uint32_t, std::span<std::uint8_t>) const noexcept override {
-            return false;
         }
     };
 

@@ -52,26 +52,11 @@ import deren.engine.render_resource.instances;
 import deren.engine.ray_tracing;
 import deren.engine.pass.mask_bake;
 import deren.engine.render_environment;
-// abi 40: native device/queue come from the contract's opaque main context, cast through the shared layout.
-import deren.vulkan.main_context;
 
 // After the imports it needs: the header names deren::promise::rhi types (see its own note).
 #include "../promise/rhi/backend_entry.hpp"
 #include "raster_probe.hpp"
 #include "rt_traversal_probe.hpp"
-
-namespace {
-    /// abi 40: a TEST gets a native device/queue the same way the GUI plugin does - the contract's opaque
-    /// `main_context` cast to the Vulkan layout the backend and GUI plugin share. nullptr when the context is
-    /// absent or is not this backend's (the tests below use a real backend, so it never is).
-    [[nodiscard]] deren::vulkan::main_context const* vulkan_main(rhi::api_core& core) noexcept {
-        rhi::main_context* const context = core.main_context();
-        if (context == nullptr || !deren::vulkan::is_main_context(*context)) {
-            return nullptr;
-        }
-        return rhi::do_concrete<deren::vulkan::main_context>(*context, deren::vulkan::main_context_name);
-    }
-} // namespace
 
 namespace {
     struct managed_structure final : rhi::acceleration_structure {
@@ -596,7 +581,7 @@ int main(int const argc, char** const argv) {
     deren::vk_test::write_line("as_probe: this executable compiled abi {}", rhi::abi_version);
     // ABI34: the native-vocabulary cleanup removed a virtual from vulkan_escape (vtable shift), so the
     // handshake number moved with it.
-    CHECK(rhi::abi_version == 41u);
+    CHECK(rhi::abi_version == 42u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("as_probe: device path skipped (pass --with-device to run the real instrument)");
@@ -610,13 +595,11 @@ int main(int const argc, char** const argv) {
         return deren::vk_test::finish("test_acceleration_structures");
     }
 
-    // ---- 1. THE DEVICE'S HALF: the escape (native handles, the probe's own submit) and the capability that
-    //         decides whether acceleration structures exist at all on this device.
-    rhi::vulkan_escape* const escape = rhi::query_extension<rhi::vulkan_escape>(*core);
-    CHECK(escape != nullptr);
+    // ---- 1. THE DEVICE'S HALF: the capability that decides whether acceleration structures exist at all on
+    //         this device. abi 42: the probe records and submits through the contract; the escape is not used.
     rhi::device_capabilities* const capabilities = rhi::query_extension<rhi::device_capabilities>(*core);
     CHECK(capabilities != nullptr); // announced unconditionally by this backend (see the ability's note)
-    if (escape == nullptr || capabilities == nullptr) {
+    if (capabilities == nullptr) {
         return deren::vk_test::finish("test_acceleration_structures");
     }
     deren::vk_test::write_line("as_probe: mesh_shader={} ray_query={} max_push_constants={} graphics_queue_family={}",
@@ -626,17 +609,6 @@ int main(int const argc, char** const argv) {
     // A DEVICE WITHOUT THE EXTENSION IS A SKIP, NOT A FAILURE: the question this probe answers is "does the
     // engine's acceleration-structure path work", and on a device that cannot have one there is nothing to
     // answer - the same "capability first" order every path in the engine follows.
-    bool acceleration_structure_available = false;
-    for (char const* const enabled : escape->enabled_device_extensions()) {
-        if (enabled != nullptr && std::strcmp(enabled, "VK_KHR_acceleration_structure") == 0) {
-            acceleration_structure_available = true;
-        }
-    }
-    if (!acceleration_structure_available) {
-        deren::vk_test::write_line("as_probe: VK_KHR_acceleration_structure is not enabled on this device - skipping");
-        return deren::vk_test::finish("test_acceleration_structures");
-    }
-
     rhi::device_address* const addresses = rhi::query_extension<rhi::device_address>(*core);
     CHECK(addresses != nullptr);
     if (addresses == nullptr) {
@@ -692,8 +664,6 @@ int main(int const argc, char** const argv) {
         return deren::vk_test::finish("test_acceleration_structures");
     }
     CHECK(commands->begin_recording({}) == rhi::error::ok);
-    auto* const native_commands = static_cast<VkCommandBuffer>(escape->native_command_buffer(*commands));
-    CHECK(native_commands != VK_NULL_HANDLE);
 
     // ---- 4. THE STRUCTURES, THROUGH THE TIER-1 INTERFACE (abi 26): the two levels, the refit the flag
     //         declares, and the refusals the interface promises - each as its own check.
@@ -724,7 +694,10 @@ int main(int const argc, char** const argv) {
         .geometries = multi_geometry ? geometries.data() : &geometry,
         .geometry_count = multi_geometry ? static_cast<std::uint32_t>(geometries.size()) : 1u,
     });
-    CHECK(blas != nullptr);
+    if (!blas) {
+        deren::vk_test::write_line("as_probe: this device cannot create an acceleration structure - skipping");
+        return deren::vk_test::finish("test_acceleration_structures");
+    }
     rhi::object_ptr<rhi::acceleration_structure> static_blas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
         .type = rhi::acceleration_structure_type::bottom_level,
         .geometries = &geometry,
@@ -891,29 +864,10 @@ int main(int const argc, char** const argv) {
 
     CHECK(commands->end_recording() == rhi::error::ok);
 
-    // ---- 6. THE SUBMISSION, THROUGH THE ESCAPE (plan X4's second item: the contract has no submit verb for a
-    //         buffer the CALLER owns, which is why this is still a raw pair here).
-    deren::vulkan::main_context const* const main_context = vulkan_main(*core);
+    // ---- 6. THE SUBMISSION, THROUGH THE CONTRACT (abi 42): the owned primary's submit verb, then a wait.
     {
-        CHECK(main_context != nullptr);
-        CHECK(main_context != nullptr);
-        VkDevice const device = main_context != nullptr ? main_context->device : VK_NULL_HANDLE;
-        VkQueue const queue = main_context != nullptr ? main_context->graphics_queue : VK_NULL_HANDLE;
-        VkFenceCreateInfo const fence_info{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = 0};
-        VkFence fence = VK_NULL_HANDLE;
-        CHECK(vkCreateFence(device, &fence_info, nullptr, &fence) == VK_SUCCESS);
-        VkSubmitInfo const submit{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                  .pNext = nullptr,
-                                  .waitSemaphoreCount = 0u,
-                                  .pWaitSemaphores = nullptr,
-                                  .pWaitDstStageMask = nullptr,
-                                  .commandBufferCount = 1u,
-                                  .pCommandBuffers = &native_commands,
-                                  .signalSemaphoreCount = 0u,
-                                  .pSignalSemaphores = nullptr};
-        CHECK(vkQueueSubmit(queue, 1u, &submit, fence) == VK_SUCCESS);
-        CHECK(vkWaitForFences(device, 1u, &fence, VK_TRUE, 10'000'000'000ull) == VK_SUCCESS); // a hung build fails the probe
-        vkDestroyFence(device, fence, nullptr);
+        CHECK(core->submit(*commands) == rhi::error::ok);
+        core->wait_idle();
         deren::vk_test::write_line("as_probe: built, refit, submitted and waited: 2 bottom level + 1 top level");
     }
 
@@ -921,9 +875,7 @@ int main(int const argc, char** const argv) {
     for (int index = 1; index < argc; ++index) {
         native_heap = native_heap || std::string_view(argv[index]) == "--native-heap-traversal";
     }
-    if (main_context != nullptr) {
-        check_rt_traversal(*core, *escape, *main_context, *addresses, *capabilities, *blas, *tlas, argv[0], native_heap);
-    }
+    check_rt_traversal(*core, *addresses, *capabilities, *blas, *tlas, argv[0], native_heap);
 
     deren::vk_test::write_line("as_probe: done (validation was ON: any VUID appears above)");
     return deren::vk_test::finish("test_acceleration_structures");

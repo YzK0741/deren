@@ -7,8 +7,6 @@
 // The caller has already built the indexed triangle and waited for it. Tests may use the native
 // queue to submit caller-owned commands; resource creation and recording stay on the RHI surface.
 static void check_rt_traversal(deren::promise::rhi::api_core& core,
-                               deren::promise::rhi::vulkan_escape& escape,
-                               deren::vulkan::main_context const& main_context,
                                deren::promise::rhi::device_address& addresses,
                                deren::promise::rhi::device_capabilities& capabilities,
                                deren::promise::rhi::acceleration_structure& blas,
@@ -95,10 +93,6 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
         void release() noexcept override {}
     } foreign;
     CHECK(group_access->read(foreign, 0, 1, handles) == rhi::error::invalid_argument);
-    deren::utility::vessel::vector<std::uint8_t> legacy_handles(handles.size());
-    auto* const basis = escape.get_basis();
-    CHECK(basis != nullptr && escape.shader_group_handles(*basis, *pipeline, 0, 3, legacy_handles));
-    CHECK(handles == legacy_handles);
     rhi::object_ptr<rhi::buffer> table{core.create_buffer({
         .size = 3u * stride + properties.base_alignment - 1u, .usage = rhi::buffer_usage::storage_coherent,
         .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::shader_binding_table),
@@ -147,27 +141,10 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
         commands->trace_rays(region(aligned), region(aligned + stride), region(aligned + 2 * stride), {}, 3, 1, 1);
     }
     if (!checked(commands->end_recording())) { return; }
-    VkDevice const device = main_context.device;
-    auto const native = static_cast<VkCommandBuffer>(escape.native_command_buffer(*commands));
-    VkFenceCreateInfo fence_info{};
-    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    VkFence fence = VK_NULL_HANDLE;
-    VkResult const fence_result = vkCreateFence(device, &fence_info, nullptr, &fence);
-    CHECK(fence_result == VK_SUCCESS);
-    if (fence_result != VK_SUCCESS) { return; }
-    VkSubmitInfo submit{};
-    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &native;
-    VkResult const submitted = vkQueueSubmit(main_context.graphics_queue, 1, &submit, fence);
-    CHECK(submitted == VK_SUCCESS);
-    VkResult const waited = submitted == VK_SUCCESS ? vkWaitForFences(device, 1, &fence, VK_TRUE, 10'000'000'000ull) : submitted;
-    CHECK(waited == VK_SUCCESS);
-    deren::vk_test::write_line("rt_traversal: submit={} wait={} ({})", static_cast<int>(submitted), static_cast<int>(waited),
-                               native_heap ? "native heap" : "mapped heap");
-    if (waited != VK_SUCCESS) { core.wait_idle(); }
-    vkDestroyFence(device, fence, nullptr);
-    if (waited != VK_SUCCESS) { return; }
+    // abi 42: the owned primary submits through the CONTRACT (the escape's raw submit is gone).
+    if (!checked(core.submit(*commands))) { return; }
+    core.wait_idle();
+    deren::vk_test::write_line("rt_traversal: submitted and waited through the contract");
     deren::utility::vessel::array<std::uint32_t, 6> values{};
     std::memcpy(values.data(), output->mapped().data(), sizeof(values));
     for (std::size_t slot = 0; slot < 2; ++slot) {

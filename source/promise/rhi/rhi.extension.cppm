@@ -111,7 +111,7 @@ export namespace deren::promise::rhi {
         mesh_shader = 1u << 2,     ///< vkCmdDrawMeshTasksEXT and its indirect form
         ray_tracing = 1u << 3,     ///< RETIRED in abi 26: the acceleration-structure half became TIER-1 (`acceleration_structure` + the recording verbs), and "can this device trace rays" is answered by `device_capabilities`. The BIT stays (never reused).
         host_image_copy = 1u << 4, ///< vkCopyImageToMemoryEXT
-        vulkan_escape = 1u << 5,   ///< raw Vulkan handles, for the code the contract cannot express yet
+        vulkan_escape = 1u << 5,   ///< the frame command buffer a third-party renderer (the GUI overlay) records into
         /// APPENDED (a new BIT; the six before it do not move - see the static_assert below): WHAT THE DEVICE
         /// CAN DO, in the contract's own vocabulary. A backend announces it when it can answer every method,
         /// the same "a set bit is a promise about service" rule the others live by. The engine used to derive
@@ -659,82 +659,26 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error write(descriptor_write const& info) noexcept = 0;
     };
 
-    /// THE ATTACHMENT INHERITANCE a SECONDARY command buffer declares (abi 15, the
-    /// `vulkan_command_buffer_inheritance` structure type).
-    ///
-    /// `command_buffer_begin_info::next` carries THIS when the recording is a `render_pass_continue`
-    /// one, because that is the one begin fact no portable vocabulary covers: Vulkan's dynamic
-    /// rendering requires the secondary to declare the attachment formats it will render against
-    /// (VUID-vkBeginCommandBuffer-commandBuffer-00050 and its pNext-chain companions), and which
-    /// formats a device serves is a property of the API, not of a recording session. It rides the SAME
-    /// tagged mechanism the two RETIRED native structures used (deleted in abi 34; a secondary's
-    /// attachment formats have no portable spelling, so this is the one native parameter left) - a
-    /// `structure_header` first, exactly one layer, borrowed only until the call returns - so the
-    /// portable `command_buffer_begin_info` stays free of one API's attachment model.
-    ///
-    /// The formats are NATIVE (`VkFormat` as a `std::int32_t`, the way Vulkan spells it): this struct
-    /// exists precisely to name what the contract cannot. `color_formats` is borrowed for the call and
-    /// must hold @p color_format_count entries; a count of 0 with a null pointer means "no colour
-    /// attachment", and `depth_format == 0` (VK_FORMAT_UNDEFINED) means "no depth attachment".
-    struct vulkan_command_buffer_inheritance_info {
-        structure_header header{structure_type::vulkan_command_buffer_inheritance, sizeof(vulkan_command_buffer_inheritance_info), nullptr};
-        std::uint32_t color_format_count = 0;
-        std::int32_t const* color_formats = nullptr; ///< native VkFormat values
-        std::int32_t depth_format = 0;               ///< native VkFormat; 0 = no depth attachment
-        std::uint32_t samples = 1;                   ///< VkSampleCountFlagBits; 1 = single-sampled
-        std::uint32_t view_mask = 0;                 ///< VkCommandBufferInheritanceRenderingInfo::viewMask
-    };
+    // `vulkan_command_buffer_inheritance_info` STOOD HERE AND IS DELETED in abi 42: it was the native
+    // (`VkFormat`) spelling of an attachment-inheritance declaration. The portable spelling in
+    // `:api_core` (`command_buffer_inheritance_info`, contract image formats) is the one every caller uses,
+    // so the native struct and its tag are retired (the tag VALUE stays - values are never reused).
 
-    /// tier-2 ability: the raw Vulkan handles a pass needs when the contract has no concept for what it
-    /// does. ONLY a Vulkan backend can answer these, which is exactly why this is an ability and not
-    /// tier-1; a non-Vulkan backend does not announce the bit, and G1/G2 then require `nullptr` from
-    /// `query_extension(vulkan_escape)`.
+    /// tier-2 ability: the ONE raw native handle the contract cannot express - the frame's command buffer,
+    /// which the Dear ImGui Vulkan backend needs to record its own draw data. ONLY a Vulkan backend can
+    /// answer it, which is why this is an ability and not tier-1; a non-Vulkan backend does not announce
+    /// the bit, and G1/G2 then require `nullptr` from `query_extension(vulkan_escape)`.
     ///
-    /// A pass that uses it MUST declare it (`required_capabilities()`): a backend that does not announce
-    /// it is a NAMED failure at startup, never a silent skip (plan §1.9/§3.6).
+    /// THE ENGINE DOES NOT USE IT ANY MORE, and neither does the content pipeline: every engine pass records
+    /// through the contract, the GUI plugin's device root is the opaque `rhi::main_context` (abi 39), and
+    /// the resource-handle borrows were deleted with their last test callers (abi 42). What is left is the
+    /// GUI overlay's per-frame recording hand-off, which is a third-party API's own requirement.
     ///
-    /// DELIBERATELY ABSENT: get_instance_proc / get_device_proc. The front end resolves its own entry
-    /// points through `vkGetDeviceProcAddr` on `native_device()` - the repository's documented way and
-    /// the only one that works for extension commands on this toolchain. Keeping a loader out of the
-    /// contract is the point of the rule.
-    ///
-    /// THE ESCAPE IS CURRENTLY REQUIRED BY THE ENGINE, and that is a TRANSITIONAL state, not a designed
-    /// exception: the engine still records its own frame by hand (until S3 moves the passes), so a
-    /// Vulkan backend that did not announce this bit would make the engine fail at startup by name.
-    /// Once the passes record through the contract, the escape shrinks to the few calls the contract has
-    /// no concept for.
-    /**
-     * @brief THE BASIS OF A BACKEND: the token that carries a BASIC HANDLE (a device above all) through the
-     *        engine without naming it - `core::get_basis()` answers one, and a method that needs a basic handle
-     *        takes `api_basis&` and passes it back to the backend that owns it.
-     *
-     * NO INTERFACE AT ALL, AND THAT IS THE POINT: there is no virtual, no ownership, no data beyond the TAG -
-     * an implementer owes this type NOTHING (a backend derives an empty struct, sets `s_type`, and is done).
-     * The fact being passed is "which device owns this work", and the contract deliberately does not name
-     * `VkDevice`: it is a dispatchable pointer whose type belongs to the backend. `void*` was the previous
-     * carrier, and it costs nothing and checks nothing; a TAGGED token is the improvement - the receiver asks
-     * the same question every other tagged structure in this contract is asked (`structure_header`'s `s_type`
-     * convention, one level up in the skeleton rather than in a pNext chain).
-     *
-     * WHY NOT A VIRTUAL: this build is `-fno-rtti`, and a virtual would buy nothing that the tag does not -
-     * the callee is the BACKEND, which already knows what it handed out and only has to check that the token is
-     * the one it expects. An empty base + `s_type` is also the only shape that keeps the contract free of a
-     * vtable it would then have to keep stable across releases.
-     *
-     * IT IS NOT A BASE OF `api_core` AND NOT A BASE OF THE BACKEND'S OWN TYPE (the ruling this was built
-     * under): the backend COMPOSES one and hands it out by name, so a signature that takes the contract does
-     * not also take "the thing handles hang off". The handle itself never travels IN the token (that would make
-     * it the native type leaking through the contract again) - the backend reads it from its own state.
-     *
-     * `struct_size` AND `next` ARE DELIBERATELY ABSENT, unlike `structure_header`: nothing crosses a boundary
-     * by value here (the token is passed by reference between engine and backend), so there is no caller/callee
-     * layout to guard, and there is no chain to walk.
-     */
-    struct api_basis {
-        /// WHICH KIND OF BASIS THIS IS - the tag a receiver checks (`structure_type::vulkan_device_basis` for
-        /// the Vulkan backend's logical device). The only content this type has.
-        structure_type s_type = structure_type::unknown;
-    };
+    /// DELIBERATELY ABSENT: get_instance_proc / get_device_proc. A front end resolves its own entry points
+    /// through the loader and the `main_context` device; keeping a loader out of the contract is the point.
+    // `api_basis` STOOD HERE AND IS DELETED in abi 42: it was the tagged "device this work belongs to"
+    // token behind `vulkan_escape::get_basis()`. Nothing outside the escape's own legacy SBT path ever
+    // needed a basis (`shader_group_access` answers the SBT data portably), and both slots are gone.
 
     struct vulkan_escape : extension {
 
@@ -745,94 +689,19 @@ export namespace deren::promise::rhi {
         [[nodiscard]] extension_kind kind() const noexcept final {
             return extension_id;
         }
-        // THE FOUR DEVICE/INSTANCE HANDLES AND THE SWAPCHAIN FORMAT ARE DELETED in abi 40. Their last
-        // non-test caller was the GUI plugin, which now gets the device root as the contract's OPAQUE
-        // `rhi::main_context` (abi 39) and casts it to the Vulkan layout the backend and plugin share.
-        // Tests that need a native device/queue do the same cast; the contract keeps only the escape slots
-        // whose callers still record raw API calls (`native_command_buffer`) or borrow resource handles.
+
+        // WHAT IS LEFT, AND WHY: this used to be the raw-handle hatch for passes that recorded Vulkan by
+        // hand. The engine records through the contract now, the GUI plugin takes the device root as the
+        // opaque `rhi::main_context` (abi 39), and the resource-handle borrows went with the tests that
+        // were their only callers (abi 40/42). ONE slot survives because one caller genuinely needs it:
+        // the Dear ImGui Vulkan backend records its own draw data into the frame's command buffer, and
+        // ImGui's API takes a `VkCommandBuffer` - there is no contract verb for "hand a third-party
+        // renderer the recording target".
 
         /// The PRIMARY command buffer of the frame `commands` belongs to, as VkCommandBuffer; nullptr
         /// when no frame is in flight. This is what lets an escaping pass record raw Vulkan into the
         /// frame it is part of.
         [[nodiscard]] virtual void* native_command_buffer(command_buffer& commands) const noexcept = 0;
-
-        /// The DEVICE extensions this context ENABLED, NUL-terminated names, in the backend's own
-        /// storage (valid for the context's lifetime). The escape's guard rail: a pass checks the
-        /// extension it wants is here BEFORE it resolves an entry point for it.
-        ///
-        /// THE ELEMENT TYPE IS `char const* const`, AND THAT IS A COMPILE-LEVEL FACT RATHER THAN A STYLE
-        /// CHOICE (this was "corrected" to `std::span<char const*>` once and had to be changed back): a
-        /// span's ELEMENT type may be const-qualified - what may not be const is the span itself. The
-        /// backend answers from a container IT OWNS, reached through a const member function, so the span
-        /// is built over a CONST container, and `std::span<char const*>`'s range constructor is
-        /// constrained away for a non-borrowed const range unless `is_const_v<element_type>` holds - the
-        /// non-const-element spelling does not compile at the backend's return statements. The alternative,
-        /// a const_cast, would misstate what the caller may do with the view.
-        ///
-        /// (The INSTANCE half, `enabled_instance_extensions`, was DELETED in abi 38: it had no caller, and
-        /// an instance-level extension is not a device fact any caller of this contract acts on.)
-        [[nodiscard]] virtual std::span<char const* const> enabled_device_extensions() const noexcept = 0;
-
-        /// The native buffer behind a contract `buffer`, as the backend's own handle; nullptr when the
-        /// buffer carries none.
-        ///
-        /// BORROWED, AND VALID ONLY WHILE `resource` HOLDS ITS REFERENCE: this hands out the handle, not
-        /// a share of the object, so a released buffer must not be passed (the contract's ownership note
-        /// says touching a released handle is a caller bug - and this is the call that would make it
-        /// fatal rather than merely wrong).
-        ///
-        /// WHY IT EXISTS: a pass records raw Vulkan through the escape, and the raw calls that take a
-        /// buffer (`vkCmdBindVertexBuffers`, `VkDescriptorBufferInfo`, an acceleration structure's build
-        /// geometry) need the handle itself, which a device ADDRESS cannot stand in for.
-        /// `device_address::buffer_address()` answers the addressable case; this is the escape hatch for
-        /// the rest, and it is why the engine can stop reaching for the allocator's detail map.
-        [[nodiscard]] virtual void* native_buffer(buffer const& resource) const noexcept = 0;
-
-        /// The native image behind a contract `image`; same borrowed-handle rule as `native_buffer`
-        /// (valid only while `resource` holds its reference). APPENDED IN ABI 7 with the image face
-        /// (§17): the engine's raw recording and descriptor writes need the `VkImage` itself.
-        [[nodiscard]] virtual void* native_image(image const& resource) const noexcept = 0;
-
-        /// The native `VkImageView` behind a contract `image_view` - the handle a descriptor write and
-        /// a raw `vkCmdBindDescriptorSets` consume. Same lifetime rule as `native_buffer`: borrowed,
-        /// valid only while the view holds its reference.
-        [[nodiscard]] virtual void* native_image_view(image_view const& resource) const noexcept = 0;
-
-        /// The native `VkSampler` behind a contract `sampler`; same lifetime rule as the two above.
-        [[nodiscard]] virtual void* native_sampler(sampler const& resource) const noexcept = 0;
-
-        // `native_pipeline` AND `native_shader_module` WERE DELETED in abi 38 - both had ZERO callers once
-        // `pass::shader_group_handles` moved to the portable `shader_group_access` and the pipeline/ray-tracing
-        // builders became contract factories. The two slots were APPENDED in abi 8 and are dead vocabulary now;
-        // the escape keeps only the handles something actually asks for.
-
-        /// THE BASIS THIS ESCAPE HANDS OUT (abi 22), as the contract's tagged `api_basis` - see its own note for
-        /// why the base carries no handle and no interface. A caller that has to pass "the device this work
-        /// belongs to" passes THIS, and the method below takes it back. Null before the device exists.
-        [[nodiscard]] virtual api_basis* get_basis() const noexcept = 0;
-
-        // THE `device_proc` SLOT IS GONE (abi 24), AND ITS LAST CALLER IS THE MEASUREMENT: it resolved an
-        // allocated entry point against the basis's device (`vkCmdTraceRaysKHR` above all), and the ray-tracing
-        // launch is the recording face's verb now - the BACKEND resolves that pointer once at startup
-        // (`core::ray_trace_launch`), so nothing in the engine asks a device for an entry point any more. The
-        // engine's own ray-tracing module resolves the acceleration-structure and micromap commands through
-        // `native_device`, which is a raw handle it already holds rather than a basis round trip. Removing it is
-        // an interface change - `shader_group_handles` below shifts down one slot - which is what the abi number
-        // is for; a facility nobody calls is dead vocabulary, and this file has deleted one before
-        // (`pass::native_commands`) rather than keep it "in case".
-
-        /// THE SHADER-BINDING-TABLE GROUPS of a ray-tracing `pipeline`: `group_count` handles starting at
-        /// `first_group`, written into `out` (the device-side query `vkGetRayTracingShaderGroupHandlesKHR`).
-        /// false when the basis carries the wrong tag, the pipeline has no native handle, or the query failed.
-        ///
-        /// APPENDED IN ABI 22 WITH `get_basis` AND `device_proc`, and it is the SBT half of the same escape
-        /// bucket: the group handles are per-pipeline DEVICE data whose layout (size, alignment, the regions a
-        /// launch is given) is exactly what the contract has no vocabulary for. `pass::shader_group_handles` is
-        /// the pass-layer spelling of this call, and it is what let `ray_traced_shadow.cpp` stop naming a
-        /// `VkDevice` - and, with the region and properties types promoted in abi 24, stop including a Vulkan
-        /// header at all.
-        [[nodiscard]] virtual bool shader_group_handles(api_basis& basis, pipeline const& resource, std::uint32_t first_group, std::uint32_t group_count,
-                                                        std::span<std::uint8_t> out) const noexcept = 0;
     };
 
 } // namespace deren::promise::rhi

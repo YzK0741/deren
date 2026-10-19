@@ -231,7 +231,7 @@ namespace deren::engine {
         /// rewritten), and a hook that demanded a raw handle would have forced every primitive to keep
         /// one - i.e. to keep reaching into the backend for exactly the thing the migration removes. The
         /// `owner` void* is the runtime's own state, and the address comes back through
-        /// `native_buffer()` + `device_address::buffer_address()` on that side.
+        /// `device_address::buffer_address()` on that side (no native buffer handle is involved).
         std::uintptr_t (*buffer_address)(void* owner, deren::promise::rhi::buffer const& buffer) = nullptr;
         bool (*push_at)(void* owner, recording_target const& target, uint32_t offset, std::span<std::byte const> bytes) = nullptr;
         bool (*draw_mesh_tasks)(void* owner, recording_target const& target, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z) = nullptr;

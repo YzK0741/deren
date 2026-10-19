@@ -125,9 +125,10 @@ A backend is not asked what it is; it is asked what it can do.
   heap, ...). The engine asks and keeps compiling when an answer is "no".
 * **Extensions** are the optional interfaces behind those bits: `query_extension<T>()` hands one out or
   nothing. The device facts (`device_capabilities`) and the shader-group access are what the engine itself
-  uses; the raw-handle escape (`vulkan_escape`) survives for the GUI plugin's per-frame native command
-  buffer and for the tests' raw verification, and its device handles are gone (abi 40 - the GUI takes them
-  through `rhi::main_context`, abi 39).
+  uses; the escape (`vulkan_escape`) is down to ONE slot - `native_command_buffer`, because the GUI
+  overlay's Dear ImGui Vulkan backend records its own draw data into the frame's command buffer. Its device
+  and resource handles are gone (abi 39 handed the device root over as `rhi::main_context`; abi 40/42
+  deleted the rest with their last test callers).
 * **A fact the engine needs is an answer, not a native query.** A graphics-API concept appearing in the
   engine is a contract gap: it gets an ability or a tier-1 object, never an `escape()` call and never a
   native type.

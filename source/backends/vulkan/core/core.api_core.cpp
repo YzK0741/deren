@@ -2223,26 +2223,6 @@ namespace deren::vulkan {
                 rendering.depthAttachmentFormat = native_image_format(attachment.depth_format, this->owner->depth_attachment_format);
                 rendering.rasterizationSamples = static_cast<VkSampleCountFlagBits>(attachment.samples);
                 rendering.viewMask = attachment.view_mask;
-            } else if (next->s_type == rhi::structure_type::vulkan_command_buffer_inheritance) {
-                // Keep the existing native extension's meaning: these are Vulkan numbers.
-                auto const valid = rhi::validate_structure(*next, next->s_type, sizeof(rhi::vulkan_command_buffer_inheritance_info));
-                if (valid != rhi::error::ok) {
-                    return valid;
-                }
-                auto const& attachment = *reinterpret_cast<rhi::vulkan_command_buffer_inheritance_info const*>(next);
-                if (attachment.color_format_count > native_color_formats.size()) {
-                    return rhi::error::unsupported;
-                }
-                if (attachment.color_format_count != 0 && attachment.color_formats == nullptr) {
-                    return rhi::error::invalid_argument;
-                }
-                for (std::uint32_t index = 0; index < attachment.color_format_count; ++index) {
-                    native_color_formats[index] = static_cast<VkFormat>(attachment.color_formats[index]);
-                }
-                rendering.colorAttachmentCount = attachment.color_format_count;
-                rendering.depthAttachmentFormat = static_cast<VkFormat>(attachment.depth_format);
-                rendering.rasterizationSamples = static_cast<VkSampleCountFlagBits>(attachment.samples);
-                rendering.viewMask = attachment.view_mask;
             } else {
                 if (!this->refused_chain_logged) {
                     this->refused_chain_logged = true;
@@ -4347,101 +4327,6 @@ namespace deren::vulkan {
             }
         }
         return nullptr; // not a list this backend handed out
-    }
-
-    std::span<char const* const> core::frame_escape::enabled_device_extensions() const noexcept {
-        return std::span<char const* const>(this->owner->device_extension_names);
-    }
-
-    void* core::frame_escape::native_buffer(rhi::buffer const& resource) const noexcept {
-        // BORROWED, AND THE SAME PRECONDITION `buffer_address()` STATES: a caller may only ask about a
-        // buffer THIS backend handed out (the contract's own rule for every handle it gives back).
-        // Without RTTI there is no honest way to check that a heap-allocated factory object is one of
-        // ours, so the cast rests on the documented precondition rather than on a hopeful assumption -
-        // and a RELEASED buffer must not reach here at all (touching a released handle is a caller bug
-        // the contract names; this would turn it into a crash instead of a wrong answer).
-        //
-        // THE BORROWED READ-BACK SLOT IS NOT AN `owned_buffer` (it has its own layout and its own concrete
-        // name), so a caller must not ask this escape about it: the same documented precondition covers the
-        // escape's operands, and `rhi::is_concrete(..., concrete::buffer)` is the caller-side test when a
-        // caller does not already know the handle's provenance.
-        auto const* const owned = static_cast<owned_buffer const*>(&resource);
-        return reinterpret_cast<void*>(owned->native);
-    }
-
-    void* core::frame_escape::native_image(rhi::image const& resource) const noexcept {
-        // THE SAME BORROWED-HANDLE RULE native_buffer states (abi 7's image face): the precondition is
-        // the caller's - only images this backend's create_image handed out reach here, and a released
-        // one must not. The VkImage was copied into the owned object at creation, so no detail lookup
-        // runs per call.
-        //
-        // THE FRAME IMAGE IS THE ONE EXCEPTION AND IT IS HANDLED BY IDENTITY (③-D/E step 2): the
-        // borrowed presentation image is not an `owned_image`, so reinterpreting it as one would read a
-        // wrong field - the same pointer-identity test `frame_commands::use` and `fill_heap_bindings`
-        // already use for this object. It answers the image the last acquire returned.
-        if (static_cast<void const*>(&resource) == static_cast<void const*>(&this->owner->frame_image_view)) {
-            return reinterpret_cast<void*>(this->owner->frame_image_view.handle());
-        }
-        auto const* const owned = static_cast<owned_image const*>(&resource);
-        return reinterpret_cast<void*>(owned->native_handle);
-    }
-
-    void* core::frame_escape::native_image_view(rhi::image_view const& resource) const noexcept {
-        auto const* const owned = static_cast<owned_image_view const*>(&resource);
-        return reinterpret_cast<void*>(owned->native_view);
-    }
-
-    void* core::frame_escape::native_sampler(rhi::sampler const& resource) const noexcept {
-        auto const* const owned = static_cast<owned_sampler const*>(&resource);
-        return reinterpret_cast<void*>(owned->native_sampler_handle);
-    }
-
-    // ---- abi 22: the BASIC-HANDLE basis ------------------------------------------------------------
-    //
-    // THE TOKEN CARRIES THE TAG AND NOTHING ELSE (see `api_basis`): what a caller passes is "the device this
-    // work belongs to", and the two escape methods below take it back and read the device from THIS core's own
-    // state. That is the whole reason the base has no interface - the handle never travels in it, so nothing
-    // about it can go stale, and an implementer of the contract owes the type nothing at all.
-    rhi::api_basis* core::get_basis() noexcept {
-        return &this->basis_object;
-    }
-
-    bool core::owns_basis(rhi::api_basis const& basis) const noexcept {
-        // THE CHECK IS THE TAG, NOT A dynamic_cast: this build is `-fno-rtti`, and the tag is the stronger
-        // question anyway (it says "a Vulkan device basis", which is exactly what the methods below need to
-        // know). A token from a NON-Vulkan backend is refused here; a token from another Vulkan core in the same
-        // process is indistinguishable by tag and is resolved against THIS core's device - the engine obtains
-        // the token from the face it is recording with, so a mixed-core call would be a caller bug, and the
-        // failure it can produce is bounded: a device proc resolved on the wrong device, not a mis-cast.
-        return basis.s_type == rhi::structure_type::vulkan_device_basis;
-    }
-
-    rhi::api_basis* core::frame_escape::get_basis() const noexcept {
-        return this->owner != nullptr ? this->owner->get_basis() : nullptr;
-    }
-
-    bool core::frame_escape::shader_group_handles(rhi::api_basis& basis, rhi::pipeline const& resource, std::uint32_t const first_group, std::uint32_t const group_count,
-                                                  std::span<std::uint8_t> const out) const noexcept {
-        core* const self = this->owner;
-        if (self == nullptr || !self->owns_basis(basis) || self->logical_device == VK_NULL_HANDLE) {
-            return false;
-        }
-        // THE HANDLE IS READ IN PLACE: `native_pipeline` was a zero-call public slot (abi 38), but this query
-        // still needs the VkPipeline behind the contract pipeline it was handed.
-        auto const* const owned = static_cast<owned_pipeline const*>(&resource);
-        void* const native = reinterpret_cast<void*>(owned->native_handle);
-        if (native == nullptr || out.empty()) {
-            return false;
-        }
-        auto const query = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(vkGetDeviceProcAddr(self->logical_device, "vkGetRayTracingShaderGroupHandlesKHR"));
-        if (query == nullptr) {
-            return false;
-        }
-        // `out.size()` IS THE QUERY'S dataSize, exactly as Vulkan wants it: the CALLER sized the destination from
-        // the device's own handle size (the pass reads it off `ray_tracing_properties`), so this side needs no
-        // second opinion about the layout - and a caller that sized it wrong gets a failed call rather than a
-        // truncated write.
-        return query(self->logical_device, static_cast<VkPipeline>(native), first_group, group_count, out.size(), out.data()) == VK_SUCCESS;
     }
 
     rhi::error core::frame_shader_group_access::read(rhi::pipeline const& resource, std::uint32_t const first_group,

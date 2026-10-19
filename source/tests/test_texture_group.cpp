@@ -344,16 +344,18 @@ int main(int argc, char** argv) {
     CHECK(output && primary);
     if (!output || !primary)
         return deren::vk_test::finish("test_texture_group");
+    // abi 42: the fill travels through the CONTRACT (a copy from a host-initialised buffer), because the
+    // escape no longer lends a native buffer handle - only the recording target a third-party renderer needs.
+    std::array<std::byte, 4> const source_value{std::byte{0x44}, std::byte{0x33}, std::byte{0x22}, std::byte{0x11}};
+    rhi::object_ptr<rhi::buffer> source{core->create_buffer({.size = 4,
+                                                             .usage = rhi::buffer_usage::storage_coherent,
+                                                             .initial_bytes = std::span<std::byte const>(source_value.data(), source_value.size())})};
+    CHECK(source);
+    if (!source)
+        return deren::vk_test::finish("test_texture_group");
     std::memset(output->mapped().data(), 0, 4);
     CHECK(primary->begin_recording({}) == rhi::error::ok);
-    auto native_primary = static_cast<VkCommandBuffer>(escape->native_command_buffer(*primary));
-    vkCmdFillBuffer(native_primary, static_cast<VkBuffer>(escape->native_buffer(*output)), 0, 4, 0x11223344u);
-    VkMemoryBarrier barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-    vkCmdPipelineBarrier(native_primary, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0,
-                         1, &barrier, 0, nullptr, 0, nullptr);
+    CHECK(primary->copy_buffer(*output, *source, 4u, 0u, 0u) == rhi::error::ok);
     CHECK(primary->end_recording() == rhi::error::ok);
 
     VkSemaphoreTypeCreateInfo type{};

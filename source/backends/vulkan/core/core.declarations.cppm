@@ -903,9 +903,8 @@ namespace deren::vulkan {
         /// THE SAME SHAPE AS `owned_buffer`: heap-allocated by the factory, `release()` is `delete this`,
         /// and the destructor gives the allocator reference back through the `vk_image` RAII owner - which
         /// is the allocator's reference-count decrement, so a content-deduplicated image survives while
-        /// any view or handle still refers to it. The allocation's registry key (the `vk_image` handle,
-        /// a uint64) is what the escape's `native_image()` resolves through `get_image_detail()` - an
-        /// UNLOCKED BORROW whose values are copied out, never whose pointer.
+        /// any view or handle still refers to it. The escape's `native_image()` (deleted in abi 42) was the
+        /// last external reader of the allocation's registry key; the backend reads its members directly.
         struct owned_image final : deren::promise::rhi::image {
             owned_image() noexcept
                 : deren::promise::rhi::image(concrete::image) {
@@ -1045,45 +1044,16 @@ namespace deren::vulkan {
             [[nodiscard]] std::uint64_t buffer_address(deren::promise::rhi::buffer const& resource, std::uint64_t offset) const noexcept override;
         };
 
-        /// tier-2 `vulkan_escape`: the raw handles a pass needs where the contract has no concept.
-        ///
-        /// REQUIRED BY THE ENGINE TODAY, AND THAT IS TRANSITIONAL rather than a designed exception: the
-        /// engine still records its own frame by hand (54 `vkCmdPipelineBarrier2` sites, 17 of them in
-        /// runtime.frames.cppm), so a Vulkan backend that did not announce this bit would make the
-        /// engine fail at startup by name. Once the passes record through the contract, the escape
-        /// shrinks to the few calls the contract has no concept for.
+        /// tier-2 `vulkan_escape`: ONE slot - the frame command buffer the GUI overlay's ImGui backend
+        /// records its own draw data into (abi 42). The engine records through the contract, the GUI device
+        /// root is `rhi::main_context`, and the resource/handle borrows are deleted with their callers.
         struct frame_escape final : deren::promise::rhi::vulkan_escape {
             frame_escape() noexcept
                 : deren::promise::rhi::vulkan_escape(concrete::vulkan_escape) {
             }
+            /// the core that owns this view (set by the constructor; the view is a member of it)
             core* owner = nullptr;
-
             [[nodiscard]] void* native_command_buffer(deren::promise::rhi::command_buffer& commands) const noexcept override;
-            [[nodiscard]] std::span<char const* const> enabled_device_extensions() const noexcept override;
-            /// BORROWED: the `VkBuffer` behind a contract buffer this backend handed out (nullptr when it
-            /// carries none). A released buffer must not be passed - see the contract's note.
-            [[nodiscard]] void* native_buffer(deren::promise::rhi::buffer const& resource) const noexcept override;
-            /// abi 7's image face (§17): the same borrowed-handle rule, for the image a raw recording or
-            /// descriptor write consumes, the `VkImageView` a descriptor binds, and the `VkSampler`.
-            [[nodiscard]] void* native_image(deren::promise::rhi::image const& resource) const noexcept override;
-            [[nodiscard]] void* native_image_view(deren::promise::rhi::image_view const& resource) const noexcept override;
-            [[nodiscard]] void* native_sampler(deren::promise::rhi::sampler const& resource) const noexcept override;
-            /// abi 17 (③-D/E step 2): the swapchain's format as a session-stable fact, asked of the
-            /// CONTEXT because the engine builds its presentation-drawing pipelines before any frame
-            /// exists (see the contract's own note on this accessor). `VK_FORMAT_UNDEFINED` when this
-            /// core has no swapchain format yet.
-
-            /// abi 22's BASIC-HANDLE slots: the tagged basis token this backend hands out, the entry-point
-            /// resolution that takes it back, and the shader-binding-table handle query. All three check the
-            /// token's TAG (`core::owns_basis`) before reading this core's device - this build is `-fno-rtti`,
-            /// so a foreign token is refused rather than cast (see `api_basis`).
-            [[nodiscard]] deren::promise::rhi::api_basis* get_basis() const noexcept override;
-            // `device_proc` STOOD HERE (abi 22) AND IS GONE IN ABI 24: its last caller was the ray-tracing launch,
-            // which is the recording face's verb now - so the BACKEND resolves `vkCmdTraceRaysKHR` once at startup
-            // (`core::ray_trace_launch`) and nothing asks a device for an entry point through a basis any more.
-            // `shader_group_handles` below is what keeps the basis's reason to exist.
-            [[nodiscard]] bool shader_group_handles(deren::promise::rhi::api_basis& basis, deren::promise::rhi::pipeline const& resource, std::uint32_t first_group,
-                                                    std::uint32_t group_count, std::span<std::uint8_t> out) const noexcept override;
         };
 
         /// tier-2 `host_image_copy`: the implementation-side copy out of an image into the app's own
@@ -1378,16 +1348,6 @@ namespace deren::vulkan {
         [[nodiscard]] VkCommandBuffer frame_command_buffer() const noexcept;
 
         VkInstance instance = VK_NULL_HANDLE;
-        // THE BASIS TOKEN (abi 22): empty by design except for its TAG, handed out by `get_basis()` and checked
-        // by tag in `owns_basis()`. It lives beside the handles rather than carrying one, and it is declared
-        // HERE because a data member's type must be complete where the member is declared - the public accessors
-        // are further down, where the rest of the contract's surface is.
-        struct basis_token final : deren::promise::rhi::api_basis {
-            basis_token() noexcept {
-                this->s_type = deren::promise::rhi::structure_type::vulkan_device_basis;
-            }
-        };
-        basis_token basis_object = {};
         // called logical_device, not device: the structured binding of that name in core.constructor.cppm
         // would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         VkDevice logical_device = VK_NULL_HANDLE;
@@ -1521,21 +1481,6 @@ namespace deren::vulkan {
             deren::promise::rhi::texture_group_info const& info, deren::promise::rhi::error* result = nullptr) override;
         [[nodiscard]] deren::promise::rhi::ability_bits abilities() const noexcept override;
         [[nodiscard]] deren::promise::rhi::extension* query_extension(deren::promise::rhi::extension_kind kind) noexcept override;
-
-        /// THE BASIS TOKEN THIS CORE HANDS OUT (abi 22): the empty, tagged `basis_token` declared beside the
-        /// members below (a data member's type must be complete where it is declared, so the type lives there).
-        /// @brief the basis a caller passes back to a method that needs a basic handle (the device above all)
-        ///
-        /// A MEMBER, NOT A BASE, AND NOT A BASE OF `core` ITSELF - that is the ruling this was built under: the
-        /// object that owns the handles stays `core`, and a signature that takes the contract does not also
-        /// take "the thing handles hang off". The token carries NO handle (the device stays in `logical_device`),
-        /// so a caller cannot read one out of it; the backend checks its TAG in `owns_basis()` and reads the
-        /// device from its own state. Not null: this is a member, so it lives as long as the core does.
-        [[nodiscard]] deren::promise::rhi::api_basis* get_basis() noexcept;
-        /// @brief whether @p basis is a basis THIS backend serves - the tag check (`vulkan_device_basis`), which
-        ///        is what `-fno-rtti` leaves instead of a `dynamic_cast`, and the reason a foreign token is
-        ///        refused rather than mis-read
-        [[nodiscard]] bool owns_basis(deren::promise::rhi::api_basis const& basis) const noexcept;
 
         [[nodiscard]] deren::promise::rhi::object_ptr<deren::promise::rhi::swapchain> create_swapchain(deren::promise::rhi::swapchain_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::object_ptr<deren::promise::rhi::buffer> create_buffer(deren::promise::rhi::buffer_desc const& desc) override;

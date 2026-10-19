@@ -413,25 +413,6 @@ namespace {
                     // the one that asked for no address: 0, not a guess
                     CHECK(addresses->buffer_address(*device_local, 0u) == 0u);
                 }
-
-                // ---- THE ESCAPE'S native_buffer(), WHICH IS WHAT MAKES THE ENGINE MIGRATION POSSIBLE
-                // The raw Vulkan calls that take a buffer (`vkCmdBindVertexBuffers`, `VkDescriptorBufferInfo`,
-                // an acceleration structure's build geometry) need the handle itself, and a device address
-                // cannot stand in for it. This is the call that lets those sites stop reading the
-                // allocator's detail map - so the two buffers must answer with two DISTINCT non-null
-                // handles, or the engine would be handed the same VkBuffer for both.
-                //
-                // The escape object is fetched again here because the first one is scoped to its own
-                // block above; both fetches answer the same member, so this is one object, not two.
-                rhi::extension* const escape_extension = core->query_extension(rhi::extension_kind::vulkan_escape);
-                auto* const escape_native = escape_extension != nullptr ? static_cast<rhi::vulkan_escape*>(escape_extension) : nullptr;
-                if (owned && device_local && escape_native != nullptr) {
-                    void* const native_host = escape_native->native_buffer(*owned);
-                    void* const native_device = escape_native->native_buffer(*device_local);
-                    CHECK(native_host != nullptr);
-                    CHECK(native_device != nullptr);
-                    CHECK(native_host != native_device);
-                }
             }
 
             // ---- abi 16: THE SAMPLER DESCRIPTOR'S APPENDED FIELDS, ON THE REAL DEVICE ----------------
@@ -458,16 +439,6 @@ namespace {
             CHECK(static_cast<bool>(compare_sampler));
             CHECK(static_cast<bool>(default_sampler));
             if (compare_sampler && default_sampler) {
-                rhi::extension* const sampler_escape_extension = core->query_extension(rhi::extension_kind::vulkan_escape);
-                auto* const sampler_escape = sampler_escape_extension != nullptr ? static_cast<rhi::vulkan_escape*>(sampler_escape_extension) : nullptr;
-                CHECK(sampler_escape != nullptr);
-                if (sampler_escape != nullptr) {
-                    void* const compare_native = sampler_escape->native_sampler(*compare_sampler);
-                    void* const default_native = sampler_escape->native_sampler(*default_sampler);
-                    CHECK(compare_native != nullptr);
-                    CHECK(default_native != nullptr);
-                    CHECK(compare_native != default_native);
-                }
             }
 
             // frame_image() before any acquire is nullptr by contract; the frame verbs refuse rather
@@ -518,23 +489,6 @@ namespace {
                 rhi::image_view_desc bad_mip{};
                 bad_mip.base_mip = 1u; // the image has one mip
                 CHECK(!image_handle->make_view(bad_mip));
-
-                mark("escape: native_image / native_image_view / native_sampler on real objects");
-                rhi::extension* const image_escape = core->query_extension(rhi::extension_kind::vulkan_escape);
-                if (image_escape != nullptr && full_view) {
-                    auto* const natives = static_cast<rhi::vulkan_escape*>(image_escape);
-                    CHECK(natives->native_image(*image_handle) != nullptr);
-                    CHECK(natives->native_image_view(*full_view) != nullptr);
-
-                    rhi::sampler_desc sampler_desc{};
-                    sampler_desc.address_mode = rhi::sampler_address_mode::clamp_to_edge;
-                    sampler_desc.max_lod = 1.0f;
-                    rhi::object_ptr<rhi::sampler> sampler_handle{core->create_sampler(sampler_desc)};
-                    CHECK(static_cast<bool>(sampler_handle));
-                    if (sampler_handle) {
-                        CHECK(natives->native_sampler(*sampler_handle) != nullptr);
-                    }
-                }
             }
 
             // ---- THE PIPELINE FACE (abi 8): the refusal paths, on the real device ------------------
@@ -678,14 +632,6 @@ namespace {
                 auto continuation = core->make_mergeable_command_buffer({});
                 CHECK(continuation != nullptr);
                 if (continuation) {
-                    rhi::vulkan_command_buffer_inheritance_info const inheritance = {};
-                    rhi::command_buffer_begin_info const continuation_begin{
-                        .usage = rhi::to_bits(rhi::command_buffer_usage::render_pass_continue),
-                        .next = &inheritance.header,
-                    };
-                    CHECK_MSG(continuation->begin_recording(continuation_begin) == rhi::error::ok,
-                              "a render_pass_continue begin carries its inheritance through the tagged chain");
-                    CHECK(continuation->end_recording() == rhi::error::ok);
                     deren::utility::vessel::array<rhi::image_format, 1> const portable_formats{rhi::image_format::rgba8_unorm};
                     rhi::command_buffer_inheritance_info portable_inheritance{
                         .color_format_count = 1u,

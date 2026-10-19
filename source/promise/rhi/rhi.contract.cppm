@@ -334,6 +334,13 @@ export namespace deren::promise::rhi {
     // an APPENDED target (`heap_bind_info::mergeable_commands` / `heap_push_info::mergeable_commands`):
     // a mergeable segment publishes its binding/push data through the same ability as a command_buffer,
     // one target of the two set. Existing fields, slots and meanings do not move.
+    // ABI 42 FINISHES THE ESCAPE: `vulkan_escape` loses `enabled_device_extensions`, `native_buffer`,
+    // `native_image`, `native_image_view`, `native_sampler`, `get_basis` and `shader_group_handles` -
+    // the last of them were test-only once the engine moved to the portable abilities. `api_basis` and
+    // `vulkan_command_buffer_inheritance_info` (and their two structure tags) are deleted with them; the
+    // tags' VALUES stay retired. ONE escape slot survives: `native_command_buffer`, because the Dear ImGui
+    // Vulkan backend records its own draw data into the frame's command buffer. Removing tier-2 virtuals
+    // shifts every later slot: that is the number.
     // ABI 41 puts the RESOURCE FACTORIES behind standard-library ownership: every `create_*` factory
     // (swapchain/buffer/image/acceleration structure/micromap/sampler/shader/pipeline/query/command
     // buffer) and `image::make_view` now RETURN `object_ptr<T>` - a `std::unique_ptr` whose deleter calls the
@@ -370,7 +377,7 @@ export namespace deren::promise::rhi {
     // operation). They live here because EVERY backend needs the same "check the concrete name, then
     // cast to the concrete layout" pair, and one copy is what keeps the next backend from reinventing
     // it (or from weakening the panic/refusal split its own doc states).
-    inline constexpr std::uint32_t abi_version = 41u;
+    inline constexpr std::uint32_t abi_version = 42u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
@@ -620,13 +627,11 @@ export namespace deren::promise::rhi {
         vulkan_heap_image = 0x10000,
         /// RETIRED in abi 34: a recording verb takes a contract command_buffer, never a raw VkCommandBuffer.
         vulkan_command_buffer = 0x10001,
-        /// appended in abi 15: the attachment inheritance a SECONDARY recording declares (see
-        /// `vulkan_command_buffer_inheritance_info`) - a value, not a vtable, so appending it does not
-        /// move `abi_version` (the same rule the appended `error` values follow)
+        /// RETIRED in abi 42: the native attachment-inheritance chain is gone; the portable
+        /// `command_buffer_inheritance_info` is the only spelling. The VALUE stays (values are never reused).
         vulkan_command_buffer_inheritance = 0x10002,
-        /// appended in abi 22: the BASIS a Vulkan backend hands out (see `api_basis`) - the tag that says "the
-        /// basic handles this token stands for belong to a Vulkan logical device". Appending a VALUE moves no
-        /// `abi_version`; the three `vulkan_escape` slots that USE it are what moved the number 21 -> 22.
+        /// RETIRED in abi 42: `api_basis` (and the escape's legacy SBT path) is gone; the portable
+        /// `shader_group_access` answers that data. The VALUE stays.
         vulkan_device_basis = 0x10003,
     };
 

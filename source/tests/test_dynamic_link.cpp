@@ -359,7 +359,12 @@ namespace {
         // instead, and the tests/spike that still submitted raw commands (test_texture_group, the
         // acceleration-structure probe and the boundary spike) cast the same context through the shared Vulkan
         // layout - so the escape keeps only native_command_buffer and the resource-handle borrows.
-        CHECK(rhi::abi_version == 41u);
+        // ABI42 finishes the escape: `enabled_device_extensions`, `native_buffer`, `native_image`,
+        // `native_image_view`, `native_sampler`, `get_basis` and `shader_group_handles` are DELETED, and so are
+        // `api_basis` and the native `vulkan_command_buffer_inheritance_info` (their structure tags stay
+        // retired). ONE escape slot survives: the GUI overlay's ImGui backend records its own draw data into
+        // the frame's command buffer.
+        CHECK(rhi::abi_version == 42u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 

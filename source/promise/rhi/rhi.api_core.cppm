@@ -930,9 +930,9 @@ export namespace deren::promise::rhi {
 
         /// A view of this image: WHERE THE BACKEND MAKES THE `VkImageView`, the caller only says WHICH
         /// RANGE of the image it wants (§17's design: the engine wants "one array layer" and "the whole
-        /// image", not a raw `VkImageViewCreateInfo`). The view is an owned handle like every other
-        /// factory product - `release()` drops it, and the raw `VkImageView` travels only through
-        /// `vulkan_escape::native_image_view()`. The backend refuses a descriptor that asks for a range
+        /// image", not a raw `VkImageViewCreateInfo`). The view is a factory product (`object_ptr<image_view>`,
+        /// released by its container) and no native view crosses the contract: the escape's
+        /// `native_image_view` was deleted in abi 42. The backend refuses a descriptor that asks for a range
         /// the image does not have (a layer past `array_layers`, a mip past `mip_levels`) with
         /// `error::invalid_argument` rather than clamping.
         /// APPENDED IN ABI 7 (§17's image face): a new virtual on an existing interface moves the
@@ -974,7 +974,7 @@ export namespace deren::promise::rhi {
     /// A view of an image, owned by the backend: the contract's substitute for a raw `VkImageView`.
     /// Backends supporting shared parent references retain owned images independently of the factory reference.
     /// Views of borrowed frame images retain no parent and must respect the frame lifetime.
-    /// The raw handle travels through `vulkan_escape::native_image_view()`.
+    /// No native view crosses the contract (the escape's `native_image_view` was deleted in abi 42).
     struct image_view : object {
 
         explicit image_view(std::string_view const name) noexcept
