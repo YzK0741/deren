@@ -1376,7 +1376,7 @@ namespace deren::engine {
         /// Push @p bytes and then @p lanes index lanes (see runtime::push_stage_block). The three endpoints differ
         /// only in that count, because a stage's shader declares exactly as many lanes as it reads: the post chain
         /// three (its source slot included), everything else two, the mask bake none.
-        bool push_with_lanes(rhi::api_core& face, uint32_t const frame_slot, uint32_t const image_index, rhi::command_buffer& command_buffer,
+        bool push_with_lanes(rhi::api_core& face, uint32_t const frame_slot, uint32_t const image_index, recording_target const& target,
                              std::span<std::byte const> const bytes, uint32_t const extra_lane, std::size_t const lanes) {
             constexpr std::size_t window = 256; // maxPushDataSize on this device (see heap_limits)
             deren::utility::vessel::array<std::byte, window> staging = {};
@@ -1389,11 +1389,18 @@ namespace deren::engine {
                 std::memcpy(staging.data(), bytes.data(), bytes.size());
             deren::utility::vessel::array<uint32_t, 3> const indices = {frame_slot, image_index, extra_lane};
             std::memcpy(staging.data() + bytes.size(), indices.data(), lane_bytes);
-            return contract_push_heap_data(face, command_buffer, 0u, std::span<std::byte const>(staging.data(), bytes.size() + lane_bytes));
+            return contract_push_heap_data(face, target.command.get(), target.mergeable.get(), 0u, std::span<std::byte const>(staging.data(), bytes.size() + lane_bytes));
         }
     } // namespace
 
-    bool runtime::push_stage_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
+    // THE PASS LAYER still records into the frame's command buffer (its publishers speak resolved_io), so this
+    // thin spelling adapts a borrowed contract buffer to the environment target the shared implementation takes.
+    bool runtime::push_pass_stage_block(void* const owner, rhi::command_buffer& commands, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
+        std::shared_ptr<rhi::command_buffer> borrowed{&commands, [](rhi::command_buffer*) noexcept {}};
+        return runtime::push_stage_block(owner, recording_target(std::move(borrowed)), bytes, extra_lane);
+    }
+
+    bool runtime::push_stage_block(void* const owner, recording_target const& target, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
         // THE INDICES ARE APPENDED HERE, and that placement is the whole trick: the renderer knows the frame slot and
         // the swapchain image, a pass knows neither, and a converted stage's shader declares them as its block's
         // LAST two fields (see source/shaders/heap_slots.glsl). Doing it here is what keeps every pass's push struct - and
@@ -1410,17 +1417,17 @@ namespace deren::engine {
         uint32_t const source_slot = extra_lane == 0u
                                          ? deren::engine::render_layout::heap_slots::post_color + self->current_image_index
                                          : deren::engine::render_layout::heap_slots::bloom_l0 + (extra_lane - 1u) * deren::engine::render_layout::heap_image_capacity + self->current_image_index;
-        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, command_buffer, bytes, source_slot, 3u);
+        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, target, bytes, source_slot, 3u);
     }
 
     bool runtime::push_index_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
         runtime* const self = static_cast<runtime*>(owner);
-        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, command_buffer, bytes, extra_lane, 2u);
+        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, recording_target(std::shared_ptr<rhi::command_buffer>(&command_buffer, [](rhi::command_buffer*) noexcept {})), bytes, extra_lane, 2u);
     }
 
     bool runtime::push_raw_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes) {
         runtime* const self = static_cast<runtime*>(owner);
-        return push_with_lanes(self->rhi_face(), 0u, 0u, command_buffer, bytes, 0u, 0u);
+        return push_with_lanes(self->rhi_face(), 0u, 0u, recording_target(std::shared_ptr<rhi::command_buffer>(&command_buffer, [](rhi::command_buffer*) noexcept {})), bytes, 0u, 0u);
     }
 
     // ---- the MESH session's endpoints (docs/mesh_shaders.md step 1): what a draw without an input assembler
@@ -1438,16 +1445,16 @@ namespace deren::engine {
         return self->buffer_address(buffer);
     }
 
-    bool runtime::push_geometry_block(void* const owner, rhi::command_buffer& command_buffer, uint32_t const offset, std::span<std::byte const> const bytes) {
+    bool runtime::push_geometry_block(void* const owner, recording_target const& target, uint32_t const offset, std::span<std::byte const> const bytes) {
         runtime* const self = static_cast<runtime*>(owner);
         // A raw push at an offset the STAGE declares (see mesh_geometry_offset): the block `push_stage_block` sends
         // already ends with the three heap index lanes, so the geometry lanes of a mesh stage's block cannot ride
         // along with it - they are appended after them, which is a second push rather than a second block.
         // The descriptor heap validates the contract buffer and resolves its backend recording target.
-        return contract_push_heap_data(self->rhi_face(), command_buffer, offset, bytes);
+        return contract_push_heap_data(self->rhi_face(), target.command.get(), target.mergeable.get(), offset, bytes);
     }
 
-    bool runtime::draw_mesh_tasks(void* const owner, rhi::command_buffer& command_buffer, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
+    bool runtime::draw_mesh_tasks(void* const owner, recording_target const& target, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
         runtime* const self = static_cast<runtime*>(owner);
         // THE CONTRACT VERB RECORDS IT (abi 26's sibling - the verb has existed since abi 15): the two
         // `vkCmdDrawMeshTasks*` entry points are the BACKEND's, resolved at ITS startup and reached through
@@ -1463,7 +1470,7 @@ namespace deren::engine {
             deren::utility::log("mesh dispatch: this device cannot run a mesh pipeline, so the dispatch was skipped");
             return false;
         }
-        command_buffer.draw_mesh_tasks(groups_x, groups_y, groups_z);
+        target.draw_mesh_tasks(groups_x, groups_y, groups_z);
         return true;
     }
 
@@ -1475,11 +1482,11 @@ namespace deren::engine {
     // IT ANSWERS RATHER THAN ASSERTS when the route is unavailable, and the reasons are all logged once: a silent
     // fall-back is a seam nobody tests, which is exactly how the first version of this (entry point resolved,
     // buffer never bound) went unnoticed for a whole round.
-    bool runtime::draw_mesh_tasks_indirect(void* const owner, rhi::command_buffer& command_buffer, uint32_t const command_slot, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
+    bool runtime::draw_mesh_tasks_indirect(void* const owner, recording_target const& target, uint32_t const command_slot, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
         runtime* const self = static_cast<runtime*>(owner);
         auto const direct = [&]() {
             self->mesh_indirect_direct_fallbacks.fetch_add(1u, std::memory_order_relaxed);
-            return runtime::draw_mesh_tasks(owner, command_buffer, groups_x, groups_y, groups_z);
+            return runtime::draw_mesh_tasks(owner, target, groups_x, groups_y, groups_z);
         };
         if (!runtime_detail::mesh_shader_available_of(self->rhi_face()) || self->mesh_indirect_mapped == nullptr || !self->mesh_indirect_buffer) {
             if (!self->mesh_indirect_route_logged) {
@@ -1524,7 +1531,7 @@ namespace deren::engine {
         // is what was written above, `mesh_task_command_size` is the stride, and the buffer is the handle this
         // class already owns. The native triple this used to pass (`native_handle(command_buffer)`, the derived
         // `VkBuffer`, `sizeof(VkDrawMeshTasksIndirectCommandEXT)`) is gone.
-        if (rhi::error const recorded = command_buffer.draw_mesh_tasks_indirect(*self->mesh_indirect_buffer, offset, 1u, rhi::mesh_task_command_size); recorded != rhi::error::ok) {
+        if (rhi::error const recorded = target.draw_mesh_tasks_indirect(*self->mesh_indirect_buffer, offset, 1u, rhi::mesh_task_command_size); recorded != rhi::error::ok) {
             // THE VERB ANSWERS RATHER THAN ASSERTS, and the answer is honoured: the capability check above says
             // the device CAN, so a refusal here is a backend/provenance problem - announced once, then the
             // dispatch goes down the direct call rather than being lost.

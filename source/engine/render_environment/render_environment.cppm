@@ -54,6 +54,77 @@ namespace deren::engine {
      * env.bind_pipeline(this->pipeline_name);
      * @endcode
      */
+    /**
+     * @brief WHERE A SESSION RECORDS: an ordinary command buffer or a mergeable batch segment.
+     *
+     * The engine's multithreaded passes record into `mergeable_command_buffer` segments (their batches are
+     * merged into the frame's primary with `command_buffer::execute(span)`), while the single-threaded passes
+     * still record straight into a `command_buffer`. Every verb the draw path records exists on BOTH contracts
+     * - heap push is the only one that names the target in its request - so the environment carries the target
+     * as this two-armed value and the small helpers below pick the arm.
+     */
+    export struct recording_target {
+        std::shared_ptr<deren::promise::rhi::command_buffer> command = {};
+        deren::promise::rhi::mergeable_command_buffer_ref mergeable = {};
+
+        recording_target() noexcept = default;
+        recording_target(std::shared_ptr<deren::promise::rhi::command_buffer> value) noexcept
+            : command(std::move(value)) {
+        }
+        recording_target(deren::promise::rhi::mergeable_command_buffer_ref value) noexcept
+            : mergeable(std::move(value)) {
+        }
+
+        [[nodiscard]] explicit operator bool() const noexcept {
+            return this->command != nullptr || this->mergeable != nullptr;
+        }
+
+        [[nodiscard]] deren::promise::rhi::error bind_pipeline(deren::promise::rhi::pipeline const& pipeline) const noexcept {
+            return this->command != nullptr ? this->command->bind_pipeline(pipeline) : this->mergeable->bind_pipeline(pipeline);
+        }
+        void set_viewport(deren::promise::rhi::viewport const& viewport) const noexcept {
+            if (this->command != nullptr)
+                this->command->set_viewport(viewport);
+            else
+                this->mergeable->set_viewport(viewport);
+        }
+        void set_scissor(deren::promise::rhi::rect const& scissor) const noexcept {
+            if (this->command != nullptr)
+                this->command->set_scissor(scissor);
+            else
+                this->mergeable->set_scissor(scissor);
+        }
+        void set_depth_write(bool const enabled) const noexcept {
+            if (this->command != nullptr)
+                this->command->set_depth_write(enabled);
+            else
+                this->mergeable->set_depth_write(enabled);
+        }
+        void set_depth_bias(float const constant_factor, float const slope_factor, float const clamp) const noexcept {
+            if (this->command != nullptr)
+                this->command->set_depth_bias(constant_factor, slope_factor, clamp);
+            else
+                this->mergeable->set_depth_bias(constant_factor, slope_factor, clamp);
+        }
+        void set_cull_mode(deren::promise::rhi::cull_mode const mode) const noexcept {
+            if (this->command != nullptr)
+                this->command->set_cull_mode(mode);
+            else
+                this->mergeable->set_cull_mode(mode);
+        }
+        void draw_mesh_tasks(std::uint32_t const groups_x, std::uint32_t const groups_y, std::uint32_t const groups_z) const noexcept {
+            if (this->command != nullptr)
+                this->command->draw_mesh_tasks(groups_x, groups_y, groups_z);
+            else
+                this->mergeable->draw_mesh_tasks(groups_x, groups_y, groups_z);
+        }
+        [[nodiscard]] deren::promise::rhi::error draw_mesh_tasks_indirect(deren::promise::rhi::buffer const& arguments, std::uint64_t const offset,
+                                                                          std::uint32_t const count, std::uint32_t const stride) const noexcept {
+            return this->command != nullptr ? this->command->draw_mesh_tasks_indirect(arguments, offset, count, stride)
+                                            : this->mergeable->draw_mesh_tasks_indirect(arguments, offset, count, stride);
+        }
+    };
+
     export struct render_environment {
         /**
          * THE SESSION'S RECORDING TARGET (abi 21). `std::shared_ptr<deren::promise::rhi::command_buffer>` -
@@ -64,10 +135,10 @@ namespace deren::engine {
          * `push_block` / `push_at` / `draw_mesh_tasks*` endpoints do that themselves, which is why a leaf never
          * spells a `VkCommandBuffer`).
          */
-        std::shared_ptr<deren::promise::rhi::command_buffer> command_buffer = {};                                // session's recording target (contract handle)
-        std::string_view default_name = {};                                                                      // this pass's default
-        std::function<void(std::shared_ptr<deren::promise::rhi::command_buffer>, std::string_view)> bind = {};   // injected binder
-        std::function<void(std::shared_ptr<deren::promise::rhi::command_buffer>, bool)> set_depth_write_fn = {}; // injected depth-write setter
+        recording_target target = {};                                               // session's recording target (command buffer or batch segment)
+        std::string_view default_name = {};                                         // this pass's default
+        std::function<void(recording_target const&, std::string_view)> bind = {};   // injected binder
+        std::function<void(recording_target const&, bool)> set_depth_write_fn = {}; // injected depth-write setter
         /**
          * HOW A DRAW SENDS ITS PUSH BLOCK, now that no pipeline has a layout (see
          * `pass::resolved_io::push_endpoint`, which is the same pair for a pass).
@@ -87,7 +158,7 @@ namespace deren::engine {
          * would put that conversion in `primitive.cpp`, which is exactly where the contract does not belong.
          */
         void* push_owner = nullptr;
-        bool (*push_block)(void* owner, deren::promise::rhi::command_buffer& command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane) = nullptr;
+        bool (*push_block)(void* owner, recording_target const& target, std::span<std::byte const> bytes, uint32_t extra_lane) = nullptr;
         /**
          * MESH RECORDING, in the three pieces a draw without an input assembler needs (docs/mesh_shaders.md
          * step 1). A mesh pipeline replaces the vertex stage AND the input assembler, so `vkCmdDrawIndexed`
@@ -162,8 +233,8 @@ namespace deren::engine {
         /// `owner` void* is the runtime's own state, and the address comes back through
         /// `native_buffer()` + `device_address::buffer_address()` on that side.
         std::uintptr_t (*buffer_address)(void* owner, deren::promise::rhi::buffer const& buffer) = nullptr;
-        bool (*push_at)(void* owner, deren::promise::rhi::command_buffer& command_buffer, uint32_t offset, std::span<std::byte const> bytes) = nullptr;
-        bool (*draw_mesh_tasks)(void* owner, deren::promise::rhi::command_buffer& command_buffer, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z) = nullptr;
+        bool (*push_at)(void* owner, recording_target const& target, uint32_t offset, std::span<std::byte const> bytes) = nullptr;
+        bool (*draw_mesh_tasks)(void* owner, recording_target const& target, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z) = nullptr;
         /**
          * THE SAME DISPATCH, WITH ITS COUNTS IN A BUFFER (docs/mesh_shaders.md step 3, second mechanism). `slot` is
          * the primitive's own command record - its `meshlet_base` - so a COMPUTE culling pass can rewrite that
@@ -171,11 +242,11 @@ namespace deren::engine {
          * `draw_mesh_tasks` wherever a mesh session is built; null means the device has no indirect entry point, and
          * the dispatch then goes through the direct call (which the runtime logs once rather than hiding).
          */
-        bool (*draw_mesh_tasks_indirect)(void* owner, deren::promise::rhi::command_buffer& command_buffer, uint32_t slot, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z) = nullptr;
+        bool (*draw_mesh_tasks_indirect)(void* owner, recording_target const& target, uint32_t slot, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z) = nullptr;
         std::string_view bound = {}; // currently bound name
         // injected cull-mode setter (core dynamic state since Vulkan 1.3, so one pipeline serves
         // single- and double-sided materials)
-        std::function<void(std::shared_ptr<deren::promise::rhi::command_buffer>, deren::promise::rhi::cull_mode)> set_cull_mode_fn = {};
+        std::function<void(recording_target const&, deren::promise::rhi::cull_mode)> set_cull_mode_fn = {};
         // Session-wide two-sided rasterization. The SHADOW pass sets it, and it is not a nicety: a
         // caster must never be dropped for facing it away from the light. A single-sided wall plane
         // whose only face points into the room (Sponza is full of them) is back-facing as seen from
@@ -216,7 +287,7 @@ namespace deren::engine {
         /** @brief bind the session's default pipeline when it is not already bound */
         void bind_default() {
             if (!this->in_default_pipeline()) {
-                this->bind(this->command_buffer, this->default_name);
+                this->bind(this->target, this->default_name);
                 this->bound = this->default_name;
             }
         }
@@ -224,7 +295,7 @@ namespace deren::engine {
         /** @brief bind @p name when it is not the currently bound pipeline */
         void bind_pipeline(std::string_view const name) {
             if (this->bound != name) {
-                this->bind(this->command_buffer, name);
+                this->bind(this->target, name);
                 this->bound = name;
             }
         }
@@ -244,7 +315,7 @@ namespace deren::engine {
             }
             bool const want = enabled;
             if (!this->depth_write_known || this->depth_write_recorded != want) {
-                this->set_depth_write_fn(this->command_buffer, want);
+                this->set_depth_write_fn(this->target, want);
                 this->depth_write_recorded = want;
                 this->depth_write_known = true;
             }
@@ -280,7 +351,7 @@ namespace deren::engine {
                                                             ? deren::promise::rhi::cull_mode::front
                                                             : ((this->two_sided || two_sided_material) ? deren::promise::rhi::cull_mode::none : deren::promise::rhi::cull_mode::back);
             if (!this->cull_mode_known || this->cull_mode_recorded != want) {
-                this->set_cull_mode_fn(this->command_buffer, want);
+                this->set_cull_mode_fn(this->target, want);
                 this->cull_mode_recorded = want;
                 this->cull_mode_known = true;
             }

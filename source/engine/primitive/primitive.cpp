@@ -31,8 +31,8 @@ namespace deren::engine {
         /// no target): dereferencing an empty shared_ptr would be UB where the old null `VkCommandBuffer` was
         /// merely a rejected call. Hence the guard, once, here.
         void push_stage_block(render_environment const& env, auto const& block) {
-            if (env.push_block != nullptr && static_cast<bool>(env.command_buffer)) {
-                [[maybe_unused]] bool const pushed = env.push_block(env.push_owner, *env.command_buffer, std::as_bytes(std::span(&block, 1)), 0u);
+            if (env.push_block != nullptr && static_cast<bool>(env.target)) {
+                [[maybe_unused]] bool const pushed = env.push_block(env.push_owner, env.target, std::as_bytes(std::span(&block, 1)), 0u);
             }
         }
     } // namespace
@@ -119,7 +119,7 @@ namespace deren::engine {
     }
 
     void primitive::push_geometry_lanes_impl(render_environment const& env, primitive const& geometry, uint32_t const first_index, uint32_t const index_count, int32_t const base_vertex, bool const host_culled, bool const backface_legal) const {
-        if (env.push_at == nullptr || env.buffer_address == nullptr || env.mesh_geometry_push_offset == 0u || !static_cast<bool>(env.command_buffer)) {
+        if (env.push_at == nullptr || env.buffer_address == nullptr || env.mesh_geometry_push_offset == 0u || !static_cast<bool>(env.target)) {
             return; // a session that does not use the shared scene block (or a test one) has nothing to fill
         }
         // ---- the geometry lanes: what the input assembler used to consume, as data ----
@@ -174,7 +174,7 @@ namespace deren::engine {
         deren::utility::vessel::array<std::byte, payload_size> payload = {};
         std::memcpy(payload.data() + lanes_at, &lanes, sizeof(lanes));
         std::size_t const bytes = static_cast<std::size_t>(mesh_stage_block_size) - env.mesh_geometry_push_offset;
-        [[maybe_unused]] bool const pushed = env.push_at(env.push_owner, *env.command_buffer, env.mesh_geometry_push_offset, std::span<std::byte const>(payload.data(), bytes));
+        [[maybe_unused]] bool const pushed = env.push_at(env.push_owner, env.target, env.mesh_geometry_push_offset, std::span<std::byte const>(payload.data(), bytes));
     }
 
     void primitive::mesh_dispatch(render_environment const& env, primitive const& geometry, uint32_t const index_count, uint32_t const instance_count, uint32_t const survivors) const {
@@ -192,7 +192,7 @@ namespace deren::engine {
         uint32_t const groups = survivors != not_culled
                                     ? survivors
                                     : (env.meshlets ? geometry.meshlet_count : (triangles + triangles_per_workgroup - 1u) / triangles_per_workgroup);
-        if (groups != 0u && static_cast<bool>(env.command_buffer)) {
+        if (groups != 0u && static_cast<bool>(env.target)) {
             // A MESHLET SESSION DISPATCHES THROUGH THE INDIRECT ENTRY POINT (docs/mesh_shaders.md step 3, second
             // mechanism): the counts travel in the command table at the primitive's OWN slot (`meshlet_base`), so a
             // COMPUTE culling pass can rewrite that record with the counts culling left and the dispatch picks them
@@ -203,9 +203,9 @@ namespace deren::engine {
                 // (the shadow pass) dispatch the same primitive with DIFFERENT counts, so they cannot share a
                 // command - whichever wrote last would be the count both passes got.
                 uint32_t const slot = geometry.meshlet_base + (survivors != not_culled ? deren::engine::meshlet_capacity : 0u);
-                [[maybe_unused]] bool const dispatched = env.draw_mesh_tasks_indirect(env.push_owner, *env.command_buffer, slot, groups, instance_count, 1u);
+                [[maybe_unused]] bool const dispatched = env.draw_mesh_tasks_indirect(env.push_owner, env.target, slot, groups, instance_count, 1u);
             } else {
-                [[maybe_unused]] bool const dispatched = env.draw_mesh_tasks(env.push_owner, *env.command_buffer, groups, instance_count, 1u);
+                [[maybe_unused]] bool const dispatched = env.draw_mesh_tasks(env.push_owner, env.target, groups, instance_count, 1u);
             }
         }
     }
@@ -229,7 +229,7 @@ namespace deren::engine {
     // of the same pass share one bind. Cull mode stays per draw (dynamic state, pipeline
     // independent): double-sided materials keep back faces. Transparent (alphaMode BLEND)
     // leaves disable depth writes so they blend onto whatever is behind them. All commands
-    // record onto env.command_buffer.
+    // record onto env.target.
     void normal_draw_primitive::draw(render_environment& env) const {
         // THE BIND COMES FIRST, and it is what decides `mesh_stage` - the session's bind callback picks the form.
         // Checking the flag before it was a measured mistake: a session built for the transparent pass starts with it

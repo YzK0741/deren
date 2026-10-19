@@ -304,7 +304,8 @@ namespace deren::engine {
     [[nodiscard]] bool contract_write_heap_buffer(rhi::api_core& face, std::uint64_t offset, std::uintptr_t address,
                                                   std::uint64_t size, rhi::descriptor_type type) noexcept;
     void contract_record_heap_bind(rhi::api_core& face, rhi::command_buffer& commands) noexcept;
-    [[nodiscard]] bool contract_push_heap_data(rhi::api_core& face, rhi::command_buffer& commands, std::uint32_t offset,
+    [[nodiscard]] bool contract_push_heap_data(rhi::api_core& face, rhi::command_buffer* commands,
+                                               rhi::mergeable_command_buffer* mergeable_commands, std::uint32_t offset,
                                                std::span<std::byte const> data) noexcept;
 
     // (THE `contract_image_extent` HELPER IS GONE - plan X5 B3.2. It existed because the pass layer held
@@ -1597,7 +1598,7 @@ namespace deren::engine {
         // thread safe, so they may not share one - the same rule the main-pass workers already follow,
         // and now the same mechanism (the wrapper owns the pool). secondary_command_buffers holds the
         // slot-scoped secondaries the primary thread records alone (transparent).
-        deren::utility::vessel::vector<deren::utility::vessel::vector<std::shared_ptr<rhi::command_buffer>>> shadow_recording = {};
+        deren::utility::vessel::vector<deren::utility::vessel::vector<rhi::mergeable_command_buffer_ref>> shadow_recording = {};
         // Reused task scratch: the frame builds its task batches into these vectors every frame, so
         // they are members with clear() (capacity kept) instead of a fresh heap allocation per frame
         // (M9 overhead trim: a per-frame allocation plus one std::function per task is a few
@@ -1764,14 +1765,14 @@ namespace deren::engine {
         // THE CONTRACT'S OWNED HANDLE (abi 15/21), not the backend's RAII type: `std::shared_ptr` is the
         // CALLER-owned spelling the recording face settled on (`api_core::make_command_buffer`), and the control
         // block's deleter IS the contract's one drop (`release()`), so no call site here spells it.
-        deren::utility::vessel::vector<deren::utility::vessel::array<std::shared_ptr<rhi::command_buffer>, static_cast<std::size_t>(secondary_pass::count)>> secondary_command_buffers;
+        deren::utility::vessel::vector<deren::utility::vessel::array<rhi::mergeable_command_buffer_ref, static_cast<std::size_t>(secondary_pass::count)>> secondary_command_buffers;
         // per-slot main-pass parallel segments (stage 3): one secondary buffer per task-pool worker.
         // EVERY ONE OWNS ITS OWN COMMAND POOL (handles/handles.cppm) - a VkCommandPool is not thread
         // safe, so a pool per recording thread was already required, and the wrapper now supplies it
         // instead of the engine carrying a {pool, buffer} pair around. One inner vector per frame slot
         // (the GPU reads the secondaries while the slot's primary executes, so they share the primary's
         // lifetime), index = segment.
-        deren::utility::vessel::vector<deren::utility::vessel::vector<std::shared_ptr<rhi::command_buffer>>> main_segments;
+        deren::utility::vessel::vector<deren::utility::vessel::vector<rhi::mergeable_command_buffer_ref>> main_segments;
         // ---- abi 15: THE TWO BRIDGES FROM A CONTRACT BUFFER TO THE RAW HANDLE THE RECORDING USES -----
         // The contract owns the buffers; the recording (the frame's own begin/end, the passes, the
         // render-environment callbacks) speaks Vulkan's `VkCommandBuffer`, and the contract's own
@@ -2158,7 +2159,9 @@ namespace deren::engine {
          *       two callers that are NOT passes - the mesh sessions `render_environment` builds - speak it too
          *       and the native handle is derived HERE, once, through the escape.
          */
-        static bool push_stage_block(void* owner, rhi::command_buffer& command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane);
+        static bool push_stage_block(void* owner, ::deren::engine::recording_target const& target, std::span<std::byte const> bytes, uint32_t extra_lane);
+        /// the pass-layer endpoint spelling: the resolved_io publisher still hands a contract command buffer.
+        static bool push_pass_stage_block(void* owner, rhi::command_buffer& commands, std::span<std::byte const> bytes, uint32_t extra_lane);
         /**
          * @brief the same append, WITHOUT the post chain's third lane
          * @note the compute skin stage declares the two heap indices and nothing else, and pushing lanes a shader
@@ -2184,12 +2187,12 @@ namespace deren::engine {
          * need is derived inside these two, through the escape.
          */
         static std::uintptr_t mesh_buffer_address(void* owner, rhi::buffer const& buffer);
-        static bool push_geometry_block(void* owner, rhi::command_buffer& command_buffer, uint32_t offset, std::span<std::byte const> bytes);
-        static bool draw_mesh_tasks(void* owner, rhi::command_buffer& command_buffer, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z);
+        static bool push_geometry_block(void* owner, ::deren::engine::recording_target const& target, uint32_t offset, std::span<std::byte const> bytes);
+        static bool draw_mesh_tasks(void* owner, ::deren::engine::recording_target const& target, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z);
         /// the same dispatch through the INDIRECT entry point: `command_slot` names the primitive's own record (its
         /// `meshlet_base`), and the counts are written there before the call - so a compute pass can later rewrite
         /// that record with the counts culling left, without the recording path changing at all
-        static bool draw_mesh_tasks_indirect(void* owner, rhi::command_buffer& command_buffer, uint32_t command_slot, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z);
+        static bool draw_mesh_tasks_indirect(void* owner, ::deren::engine::recording_target const& target, uint32_t command_slot, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z);
         // (THE HEAP-BIND HOOK IS GONE - plan X5 B3.5: `fill_heap_bind`/`contract_heap_bind_infos` existed to
         //  chain the two inherited heap bind infos. The pass layer stopped calling it at abi 20, when a secondary
         //  began going through the contract - whose chain carries the ATTACHMENT inheritance, while the BACKEND
@@ -2835,12 +2838,12 @@ namespace deren::engine {
         /// @param pipeline THE CONTRACT HANDLE the pass resolved (`frame_pass::pipeline_handle`), which this session
         ///        binds with `command_buffer::bind_pipeline` - the raw lane is gone with the pass framework's
         /// @return whether the secondary was recorded (a failed begin must not be executed)
-        static bool record_shadow_cascade(void* owner, rhi::command_buffer& secondary, uint32_t cascade_index, rhi::pipeline* pipeline, bool mesh_stage, bool meshlets);
+        static bool record_shadow_cascade(void* owner, rhi::mergeable_command_buffer_ref const& secondary, uint32_t cascade_index, rhi::pipeline* pipeline, bool mesh_stage, bool meshlets);
         /// @brief the frame loop's scheduler, handed to the pass so one task per cascade records a secondary
         static void run_shadow_tasks(void* owner, std::span<std::function<void()>> tasks);
         /// @brief record the casters of one cascade, with either pipeline: @p mesh_stage says whether they are
         ///        DISPATCHED (the mesh form, see docs/mesh_shaders.md step 1) or drawn with the input assembler
-        void record_shadow_content(std::shared_ptr<deren::promise::rhi::command_buffer> secondary, rhi::pipeline* pipeline, bool mesh_stage, bool meshlets) const;
+        void record_shadow_content(::deren::engine::recording_target secondary, rhi::pipeline* pipeline, bool mesh_stage, bool meshlets) const;
 
         /**
          * @ingroup runtime
@@ -3683,7 +3686,7 @@ namespace deren::engine {
          */
         [[nodiscard]] pass::scene_frame make_scene_frame() noexcept;
         /** @brief build ONE segment's draw state (the renderer owns the pipeline registry and the mode) */
-        static render_environment make_scene_environment(void* owner, std::shared_ptr<rhi::command_buffer> command_buffer, bool gbuffer);
+        static render_environment make_scene_environment(void* owner, ::deren::engine::recording_target target, bool gbuffer);
         /** @brief the renderer's scheduler, handed to the pass so the segment fan-out stays the frame loop's */
         static void run_scene_tasks(void* owner, std::span<std::function<void()>> tasks);
         /**
@@ -3801,7 +3804,7 @@ namespace deren::engine {
         /// the per-cascade secondaries a shadow frame's span points at (see make_shadow_frame).
         /// CONTRACT pointers, not natives: `shadow_frame::cascades` is `std::span<rhi::command_buffer* const>`,
         /// and the caller-owned `shared_ptr`s those pointers borrow live in `shadow_recording`.
-        deren::utility::vessel::array<rhi::command_buffer*, deren::engine::max_shadow_cascades> shadow_secondaries_scratch = {};
+        deren::utility::vessel::array<rhi::mergeable_command_buffer_ref, deren::engine::max_shadow_cascades> shadow_secondaries_scratch = {};
         /// whoever owns this frame's passes; empty until `set_chain_wiring` is called, and a frame with no wiring
         /// gives its passes no frames - which is what makes the seam's absence visible rather than silent
         /// named `frame_wiring` rather than `wiring`: `set_chain_wiring`/`set_pass_chain` take a

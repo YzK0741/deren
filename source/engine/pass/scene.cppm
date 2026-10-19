@@ -59,10 +59,11 @@ export namespace deren::engine::pass {
     ///       pool now (one per buffer, which is what keeps concurrent recording threads off a shared
     ///       pool), and no pass ever read the pool this struct used to carry.
     struct segment_buffer {
-        /// THE CONTRACT HANDLE (abi 20), BORROWED: the frame loop owns the segment buffers (they are its
-        /// per-slot `object_manager<command_buffer>` entries), and the pass only records into them - so this
-        /// is a raw pointer, never a shared pointer, and the pass must not release it.
-        deren::promise::rhi::command_buffer* buffer = nullptr;
+        /// ABI 36: the segment is a BATCH-ONLY command buffer now. The frame loop owns it (one
+        /// `mergeable_command_buffer` per worker per slot) and the pass only records into it and hands the
+        /// refs to the frame primary's recording-time batch merge - so this is the contract's shared handle,
+        /// never a raw pointer.
+        deren::promise::rhi::mergeable_command_buffer_ref buffer = {};
     };
 
     /**
@@ -86,7 +87,7 @@ export namespace deren::engine::pass {
          * the previous segment's state would skip a bind it needs. The renderer builds it because the registry
          * is its, and `gbuffer` says which pass's default a leaf with default semantics wants.
          */
-        render_environment (*make_environment)(void* owner, std::shared_ptr<deren::promise::rhi::command_buffer> command_buffer, bool gbuffer) = nullptr;
+        render_environment (*make_environment)(void* owner, ::deren::engine::recording_target target, bool gbuffer) = nullptr;
         /// record the segments in parallel through the renderer's task pool (same reason as above)
         void (*run_tasks)(void* owner, std::span<std::function<void()>> tasks) = nullptr;
         void* owner = nullptr;
@@ -147,9 +148,9 @@ export namespace deren::engine::pass {
         };
 
         /// begin one secondary with the instance's attachment inheritance, or report that it could not
-        [[nodiscard]] bool begin_segment(deren::promise::rhi::command_buffer& command_buffer) const;
+        [[nodiscard]] bool begin_segment(deren::promise::rhi::mergeable_command_buffer_ref const& segment) const;
         /// one segment's content: every leaf of that segment through its draw path (the heaps are already bound)
-        void record_segment(deren::promise::rhi::command_buffer& command_buffer, std::span<primitive const* const> leaves) const;
+        void record_segment(deren::promise::rhi::mergeable_command_buffer_ref const& segment, std::span<primitive const* const> leaves) const;
 
         // called pass_frame, not frame: set_frame()'s frame parameter in scene.cpp would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).

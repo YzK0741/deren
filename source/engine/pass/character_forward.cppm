@@ -106,7 +106,7 @@ export namespace deren::engine::pass {
          * state. Both are fields of the environment rather than callback arguments, which is what lets this
          * pass state its own raster rules without the renderer having to know them.
          */
-        render_environment (*make_environment)(void* owner, std::shared_ptr<deren::promise::rhi::command_buffer> command_buffer, bool gbuffer) = nullptr;
+        render_environment (*make_environment)(void* owner, ::deren::engine::recording_target target, bool gbuffer) = nullptr;
         void* owner = nullptr;
         /**
          * The pipeline name every leaf of this session binds.

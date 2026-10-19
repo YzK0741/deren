@@ -38,6 +38,16 @@ import deren.engine.frame_constants; // one frame's shared constants (see update
 import deren.promise.rhi;            // the contract's recording surface: the frame's list, image and read-back slot
 
 namespace deren::engine {
+    namespace {
+        /// abi 36: bind a pipeline through whichever contract interface the session records into.
+        void bind_pipeline_on(recording_target const& target, auto const& pipeline) noexcept {
+            if (target.command != nullptr) {
+                pipeline.begin_pipeline(*target.command);
+            } else if (target.mergeable != nullptr) {
+                pipeline.begin_pipeline(*target.mergeable);
+            }
+        }
+    } // namespace
 
     // ---- THE BUFFER-CREATION HELPERS THE CONVERTED SITES SHARE (see their notes in :declarations) ----
     //
@@ -1062,7 +1072,7 @@ namespace deren::engine {
     // (`create_shadow_resources`). What is left here is what the pass genuinely cannot know: which secondaries to
     // record into, and what a caster's draw state is (the scene block, the live depth-bias state, the two-sided
     // policy, the secondary's own begin info) - so that arrives as a callback, and the map's edge with it.
-    bool runtime::record_shadow_cascade(void* const owner, rhi::command_buffer& secondary, uint32_t const cascade_index, rhi::pipeline* const pipeline, bool const mesh_stage, bool const meshlets) {
+    bool runtime::record_shadow_cascade(void* const owner, rhi::mergeable_command_buffer_ref const& secondary, uint32_t const cascade_index, rhi::pipeline* const pipeline, bool const mesh_stage, bool const meshlets) {
         runtime* const self = static_cast<runtime*>(owner);
         // The secondary inherits ONLY the depth attachment (no colour one): dynamic rendering 1.3, single-sampled,
         // viewMask 0 - and the DESCRIPTOR HEAPS, which the BACKEND derives from its own heap state when it
@@ -1088,7 +1098,7 @@ namespace deren::engine {
             .usage = rhi::to_bits(rhi::command_buffer_usage::render_pass_continue),
             .next = &inheritance.header,
         };
-        if (secondary.begin_recording(begin) != rhi::error::ok) {
+        if (secondary->begin_recording(begin) != rhi::error::ok) {
             deren::utility::log("runtime: shadow secondary command buffer begin failed - cascade {} skipped this frame", cascade_index);
             return false;
         }
@@ -1104,17 +1114,17 @@ namespace deren::engine {
         // native handle for, so that derivation is gone with it - `descriptor_heap::push_data` takes the CONTRACT
         // buffer the cascade is being recorded into.
         rhi::descriptor_heap* const heap = rhi::query_extension<rhi::descriptor_heap>(self->rhi_face());
-        rhi::heap_push_info const push_info{.commands = &secondary, .offset = render_resource::shadow_io.push->offset, .data = std::as_bytes(std::span(&index, 1))};
+        rhi::heap_push_info const push_info{.offset = render_resource::shadow_io.push->offset, .data = std::as_bytes(std::span(&index, 1)), .mergeable_commands = secondary.get()};
         [[maybe_unused]] bool const pushed = heap != nullptr && heap->push_data(push_info) == rhi::error::ok;
         // THE SESSION'S BUFFER IS THE CASCADE'S OWN SECONDARY, handed over as a NON-OWNING view: the runtime owns
         // those buffers (`shadow_recording`) and this callback only records into one of them for the duration of the
         // call, so the control block must drop nothing.
-        self->record_shadow_content(std::shared_ptr<rhi::command_buffer>(&secondary, [](rhi::command_buffer*) noexcept {}), pipeline, mesh_stage, meshlets);
+        self->record_shadow_content(recording_target(secondary), pipeline, mesh_stage, meshlets);
         // THE END IS THE CONTRACT'S MATCHING HALF, and it is checked: `end_recording()` on this buffer is the
         // contract's verb (the buffer is CALLER-owned, unlike the frame's own), and a failed end means the
         // secondary is not executable - which is a cascade this frame must not execute (that is a VUID), so
         // the false answer skips it rather than recording a broken execution.
-        if (secondary.end_recording() != rhi::error::ok) {
+        if (secondary->end_recording() != rhi::error::ok) {
             deren::utility::log("runtime: shadow secondary command buffer end failed - cascade {} is not executable this frame", cascade_index);
             return false;
         }
@@ -1247,15 +1257,14 @@ namespace deren::engine {
     // scene casts shadows). Pure bind/push/draw commands - the caller owns the barriers and
     // the depth-only rendering instance around it. Recorded inline today; stage 2 records the
     // same content into a per-slot secondary command buffer for parallel pass recording.
-    void runtime::record_shadow_content(std::shared_ptr<deren::promise::rhi::command_buffer> secondary, deren::promise::rhi::pipeline* const pipeline, bool const mesh_stage, bool const meshlets) const {
+    void runtime::record_shadow_content(recording_target secondary, deren::promise::rhi::pipeline* const pipeline, bool const mesh_stage, bool const meshlets) const {
         // THE SESSION'S BUFFER IS THE CONTRACT HANDLE (abi 20/21), and here it is the CASCADE'S OWN secondary: the
         // shadow pass hands this callback that buffer and everything this session records goes into it - which is
         // why the handle has to be the same object the pass began and will execute. THE PIPELINE IS THE CONTRACT
         // HANDLE TOO, and every command below is a contract verb, so no native handle is derived here at all.
-        if (secondary == nullptr) {
+        if (!static_cast<bool>(secondary)) {
             return; // no session, nothing to record into
         }
-        deren::promise::rhi::command_buffer* const session = secondary.get();
         // NO SET IS BOUND (see the heap bind in begin_recording): the light matrices, the camera and the shadow map
         // are heap slots, and the shadow stage's push block carries the two indices that pick this frame's
         // generation. A secondary records its own state, and the heap bind is made on the buffer it records into.
@@ -1263,7 +1272,7 @@ namespace deren::engine {
         // depth bias is dynamic state on the shadow pipeline: record the live-tunable values
         // (gui-adjustable) before the depth-only draw. THE CONTRACT'S VERB (abi 21), which is `void` - there is
         // nothing for the frame to check - and so the native handle is no longer derived here at all.
-        session->set_depth_bias(this->shadow_depth_bias_constant, this->shadow_depth_bias_slope, this->shadow_depth_bias_clamp);
+        secondary.set_depth_bias(this->shadow_depth_bias_constant, this->shadow_depth_bias_slope, this->shadow_depth_bias_clamp);
         // Shadow pass render_environment: every leaf draws into the DEPTH-ONLY shadow map, so
         // the binder ignores the requested pipeline name and always binds the shadow pipeline -
         // whatever a custom leaf would draw in the main pass, its geometry still casts the same
@@ -1272,31 +1281,31 @@ namespace deren::engine {
         // THE SESSION'S BUFFER IS THE CONTRACT HANDLE (abi 21), and here it is the CASCADE'S OWN secondary:
         // the shadow pass hands this callback that buffer, and everything this session records goes into it
         // - which is why the handle has to be the same object the pass began and will execute.
-        env.command_buffer = std::move(secondary);
+        env.target = std::move(secondary);
         env.default_name = "shadow"; // binder ignores the name; kept for in_default_pipeline()
         // THE BIND, THE VIEWPORT AND THE SCISSOR ARE CONTRACT VERBS (abi 21): the pipeline arrives as the
         // CONTRACT handle the pass resolved (`shadow_frame::record_cascade`), so this session binds it the same
         // way every other session does, and the map-sized viewport/scissor is set from the numbers this frame
         // already holds.
-        env.bind = [this, pipeline](std::shared_ptr<rhi::command_buffer> const& session, std::string_view const /*name*/) {
-            if (pipeline == nullptr || session->bind_pipeline(*pipeline) != deren::promise::rhi::error::ok) {
+        env.bind = [this, pipeline](recording_target const& session, std::string_view const /*name*/) {
+            if (pipeline == nullptr || session.bind_pipeline(*pipeline) != deren::promise::rhi::error::ok) {
                 deren::utility::log("runtime: the shadow session could not bind its pipeline - this cascade's casters are skipped");
                 return;
             }
             constexpr float origin = 0.0f;
-            (void)session->set_viewport(deren::promise::rhi::viewport{
+            session.set_viewport(deren::promise::rhi::viewport{
                 .x = origin, .y = origin, .width = static_cast<float>(this->shadow_map_size), .height = static_cast<float>(this->shadow_map_size), .min_depth = origin, .max_depth = 1.0f});
-            (void)session->set_scissor(deren::promise::rhi::rect{.offset_x = 0, .offset_y = 0, .width = this->shadow_map_size, .height = this->shadow_map_size});
+            session.set_scissor(deren::promise::rhi::rect{.offset_x = 0, .offset_y = 0, .width = this->shadow_map_size, .height = this->shadow_map_size});
         };
         // The shadow pass MUST write depth for every caster: its env always records depth-write
         // ENABLED (VK_TRUE) regardless of what a leaf requests - the first leaf's
         // set_depth_write() emits the one required vkCmdSetDepthWriteEnable and later leaves
         // dedupe against it. (The pipeline declares depth-write as dynamic state, so it must be
         // set at least once even though the value matches the default.)
-        env.set_depth_write_fn = [](std::shared_ptr<rhi::command_buffer> const& session, bool const) {
+        env.set_depth_write_fn = [](recording_target const& session, bool const) {
             // THE CONTRACT'S VERB, and the value is the point of this lambda: the shadow env always forces
             // depth-write ENABLED whatever a leaf asked for, so `true` needs no flag mapping.
-            session->set_depth_write(true);
+            session.set_depth_write(true);
         };
         // ... and it draws every caster TWO-SIDED: a caster is never culled for facing away from
         // the light. A single-sided wall plane whose only face points into the room is back-facing
@@ -1307,8 +1316,8 @@ namespace deren::engine {
         // THE CONTRACT'S OWN ENUM CROSSES HERE (plan X5 B3.4): the lambda used to take `VkCullModeFlags` and
         // map NONE/FRONT/BACK/FRONT_AND_BACK by hand; the environment decides in `rhi::cull_mode` now, so the
         // mapping is gone and `set_cull_mode` gets exactly what was decided.
-        env.set_cull_mode_fn = [](std::shared_ptr<rhi::command_buffer> const& session, rhi::cull_mode const mode) {
-            session->set_cull_mode(mode);
+        env.set_cull_mode_fn = [](recording_target const& session, rhi::cull_mode const mode) {
+            session.set_cull_mode(mode);
         };
         // The shadow session's endpoint (see render_environment::push_block). `this` is const here because the
         // method is; the endpoint only records into the command buffer, so the cast is a formality.
@@ -2129,7 +2138,7 @@ namespace deren::engine {
             // abi 21: the secondary is a CALLER-OWNED contract handle, so the frame carries the BORROWED
             // pointer to it (`scene_frame::segment_buffer::buffer` is `rhi::command_buffer*`); the pass
             // derives the native handle it records with through the escape, exactly as this layer does.
-            this->scene_segment_view.push_back(pass::segment_buffer{.buffer = buffer.get()});
+            this->scene_segment_view.push_back(pass::segment_buffer{.buffer = buffer});
         }
         // the secondaries inherit the instance's attachments: the three surface targets in order, the velocity
         // target, and the scene colour - the same order the pass's declaration lists them in
@@ -2150,14 +2159,14 @@ namespace deren::engine {
 
     /// build ONE segment's draw state; a fresh one per segment, because the pipeline-dedup state is per
     /// recording session (see scene_frame::make_environment)
-    render_environment runtime::make_scene_environment(void* owner, std::shared_ptr<rhi::command_buffer> command_buffer, bool const gbuffer) {
+    render_environment runtime::make_scene_environment(void* owner, recording_target target, bool const gbuffer) {
         runtime& self = *static_cast<runtime*>(owner);
         render_environment env;
         // THE SESSION'S BUFFER IS THE CONTRACT HANDLE (abi 21): the caller hands over the same borrowed
         // shared_ptr the pass records into (`resolved_io::cmd`, or the scene/transparent frame's own
         // secondary). A primitive that needs the raw command buffer - the heap push and the mesh entry
         // points are the two today - derives it through `self.native_handle(*env.command_buffer)`.
-        env.command_buffer = std::move(command_buffer);
+        env.target = std::move(target);
         // The G-buffer pass binds its own pipeline as the pass default (see gbuffer_pipeline_name): same
         // leaves, same draw path, but the fragment stage writes the surface instead of shading.
         // ... AND WHICH FORM OF IT: the MESH pipeline when the device built one (docs/mesh_shaders.md step 2). The
@@ -2172,7 +2181,7 @@ namespace deren::engine {
             gbuffer_mesh = gbuffer && self.gbuffer_pipeline_mesh.has_value();
             gbuffer_meshlet = gbuffer && self.gbuffer_pipeline_meshlet.has_value();
         }
-        env.bind = [&self, &env, gbuffer, gbuffer_mesh, gbuffer_meshlet](std::shared_ptr<rhi::command_buffer> const& session, std::string_view const name) {
+        env.bind = [&self, &env, gbuffer, gbuffer_mesh, gbuffer_meshlet](recording_target const& session, std::string_view const name) {
             // NO NATIVE HANDLE IS DERIVED HERE ANY MORE (this batch): the bind and the stored viewport/scissor are
             // the record series' own verbs (`pipeline_handle::begin_pipeline`), and the session IS the contract
             // buffer they take.
@@ -2182,15 +2191,15 @@ namespace deren::engine {
                         // ONE WORKGROUP PER MESHLET, each culled against the camera before it emits anything
                         // (docs/mesh_shaders.md step 3): the lanes carry the primitive's meshlet run, which is
                         // why the session flag travels with the bind rather than being decided up front.
-                        self.gbuffer_pipeline_meshlet->begin_pipeline(*session);
+                        bind_pipeline_on(session, *self.gbuffer_pipeline_meshlet);
                         env.mesh_stage = true;
                         env.meshlets = true;
                     } else if (gbuffer_mesh) {
-                        self.gbuffer_pipeline_mesh->begin_pipeline(*session);
+                        bind_pipeline_on(session, *self.gbuffer_pipeline_mesh);
                         env.mesh_stage = true;
                         env.meshlets = false;
                     } else {
-                        self.gbuffer_pipeline->begin_pipeline(*session);
+                        bind_pipeline_on(session, *self.gbuffer_pipeline);
                         env.mesh_stage = false;
                         env.meshlets = false;
                     }
@@ -2208,7 +2217,7 @@ namespace deren::engine {
             // flags follow the bind, which is what makes a session that mixes the forms correct rather than merely
             // likely.
             if (auto const meshlet = self.meshlet_pipelines.find(name); meshlet != self.meshlet_pipelines.end()) {
-                meshlet->second.begin_pipeline(*session);
+                bind_pipeline_on(session, meshlet->second);
                 env.mesh_stage = true;
                 env.meshlets = true;
                 static deren::utility::vessel::array<std::string_view, 8> logged_meshlet = {};
@@ -2224,7 +2233,7 @@ namespace deren::engine {
                 return;
             }
             if (auto const mesh = self.mesh_pipelines.find(name); mesh != self.mesh_pipelines.end()) {
-                mesh->second.begin_pipeline(*session);
+                bind_pipeline_on(session, mesh->second);
                 env.mesh_stage = true;
                 // the meshlet form is the answer above; a session that lands here draws one workgroup per 85
                 // triangles, so the flag that says "the lanes carry a meshlet run" has to be cleared, not left over
@@ -2251,20 +2260,20 @@ namespace deren::engine {
             env.mesh_stage = false;
             env.meshlets = false;
             if (auto const it = self.pipelines.find(name); it != self.pipelines.end()) {
-                it->second.begin_pipeline(*session); // a non-geometry named pipeline (none today: kept for the registry's sake)
+                bind_pipeline_on(session, it->second); // a non-geometry named pipeline (none today: kept for the registry's sake)
             } else {
                 deren::utility::log("runtime: main pass references unknown pipeline '{}' - draw skipped", name);
             }
         };
 
         // transparent leaves toggle depth writes off via this (core dynamic state, 1.3)
-        env.set_depth_write_fn = [](std::shared_ptr<rhi::command_buffer> const& session, bool const enabled) {
-            session->set_depth_write(enabled); // the contract's verb takes the bool the environment decided
+        env.set_depth_write_fn = [](recording_target const& session, bool const enabled) {
+            session.set_depth_write(enabled); // the contract's verb takes the bool the environment decided
         };
         // single-sided materials keep back-face culling here (the shadow pass overrides it with env.two_sided;
         // the main pass must not, or double-sided handling would cost fill rate)
-        env.set_cull_mode_fn = [](std::shared_ptr<rhi::command_buffer> const& session, rhi::cull_mode const mode) {
-            session->set_cull_mode(mode);
+        env.set_cull_mode_fn = [](recording_target const& session, rhi::cull_mode const mode) {
+            session.set_cull_mode(mode);
         };
         // THE HEAP PUSH (see render_environment::push_block): every draw in this session sends its block through
         // the same endpoint a converted pass uses; that endpoint is what appends the two heap indices, which is
@@ -2311,7 +2320,7 @@ namespace deren::engine {
         // over (the pass begins, records and executes it through the contract); no native handle is derived
         // here at all any more - the pass has the escape and does that itself, which is what keeps this
         // frame free of the recording mechanism.
-        std::shared_ptr<rhi::command_buffer> const& transparent = secondaries[static_cast<std::size_t>(secondary_pass::transparent)];
+        rhi::mergeable_command_buffer_ref const& transparent = secondaries[static_cast<std::size_t>(secondary_pass::transparent)];
         return pass::transparent_frame{
             .leaves = this->frame_transparent,
             .secondary = transparent,
@@ -2577,12 +2586,12 @@ namespace deren::engine {
             // BORROWED POINTER to it (`shadow_frame::cascades` is `std::span<rhi::command_buffer* const>`):
             // the pass begins, records and executes the buffer through the contract, and the owner of the
             // shared_ptr stays this runtime's `shadow_recording`.
-            this->shadow_secondaries_scratch[cascade] = this->shadow_recording[slot][cascade].get();
+            this->shadow_secondaries_scratch[cascade] = this->shadow_recording[slot][cascade];
         }
         return pass::shadow_frame{.record_cascade = &runtime::record_shadow_cascade,
                                   .run_tasks = &runtime::run_shadow_tasks,
                                   .owner = this,
-                                  .cascades = std::span<rhi::command_buffer* const>(this->shadow_secondaries_scratch.data(), cascades),
+                                  .cascades = std::span<rhi::mergeable_command_buffer_ref const>(this->shadow_secondaries_scratch.data(), cascades),
                                   .map_size = this->shadow_map_size};
     }
 
@@ -2827,7 +2836,7 @@ namespace deren::engine {
         return pass::pass_host{
             // THE HEAP PUSH EVERY CONVERTED STAGE NEEDS (see resolved_io::push_block): a block sent through
             // vkCmdPushDataEXT, because no heap pipeline has a layout to hold push constants.
-            .push_block = {.owner = this, .push = &runtime::push_stage_block},
+            .push_block = {.owner = this, .push = &runtime::push_pass_stage_block},
             .context = this,
             .resolve = [](void* context, pass::frame_pass const& pass, pass::resolved_io& out) { return static_cast<runtime*>(context)->resolve_pass(pass, out); },
             .apply_behaviour = [](void* context, pass::frame_pass const& pass, pass::resolved_io const& io) { static_cast<runtime*>(context)->apply_pass_behaviour(pass, io); },

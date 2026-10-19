@@ -94,6 +94,16 @@ namespace deren::engine::pipelines {
             commands.set_scissor(this->scissor);
         }
 
+        /// abi 36: the same bind for a batch segment (the multithreaded passes record into mergeables now).
+        void begin_pipeline(deren::promise::rhi::mergeable_command_buffer& commands) const noexcept {
+            if (this->contract == nullptr) {
+                return;
+            }
+            (void)commands.bind_pipeline(*this->contract);
+            commands.set_viewport(this->viewport);
+            commands.set_scissor(this->scissor);
+        }
+
     private:
         void release_owned() noexcept;
     };

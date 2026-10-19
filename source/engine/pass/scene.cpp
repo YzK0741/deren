@@ -59,7 +59,7 @@ namespace deren::engine::pass {
         this->pass_frame = frame;
     }
 
-    bool scene_pass::begin_segment(rhi::command_buffer& command_buffer) const {
+    bool scene_pass::begin_segment(rhi::mergeable_command_buffer_ref const& segment) const {
         // The inheritance is built FRESH here, so the chain points at this invocation's stack: a task is moved
         // into the pool and may run later, on another thread.
         //
@@ -88,16 +88,15 @@ namespace deren::engine::pass {
             .usage = rhi::to_bits(rhi::command_buffer_usage::render_pass_continue),
             .next = &inheritance.header,
         };
-        return command_buffer.begin_recording(begin) == rhi::error::ok;
+        return segment->begin_recording(begin) == rhi::error::ok;
     }
 
-    void scene_pass::record_segment(rhi::command_buffer& command_buffer, std::span<primitive const* const> const leaves) const {
+    void scene_pass::record_segment(rhi::mergeable_command_buffer_ref const& segment, std::span<primitive const* const> const leaves) const {
         // THE SESSION'S TARGET: the frame hands a BORROWED contract buffer (the runtime owns this segment's
         // buffer for the whole slot), and the session builder takes the owning handle, so the borrow is spelled
         // with a NON-OWNING shared_ptr - the control block drops nothing (the shape the probe backend's static
         // buffer uses for the same reason).
-        std::shared_ptr<rhi::command_buffer> const session{&command_buffer, [](rhi::command_buffer*) noexcept {}};
-        render_environment env = this->pass_frame.make_environment(this->pass_frame.owner, session, this->pass_frame.gbuffer);
+        render_environment env = this->pass_frame.make_environment(this->pass_frame.owner, recording_target(segment), this->pass_frame.gbuffer);
         // NO DESCRIPTOR SET IS BOUND, and there is nothing left to bind: the frame bound the resource and sampler
         // heaps once for this command buffer, and every slot a scene shader reads - the camera, the lights, the
         // clusters, the material table, the textures, the instance transforms - is a heap slot it names itself,
@@ -172,13 +171,14 @@ namespace deren::engine::pass {
         std::size_t const leaf_count = this->pass_frame.leaves.size();
         std::size_t const segment_count = std::min<std::size_t>(this->pass_frame.segments.size(), std::max<std::size_t>(1, leaf_count));
         if (segment_count == 1 || leaf_count < min_leaves_for_parallel) {
-            rhi::command_buffer* const single = this->pass_frame.segments[0].buffer;
-            if (single != nullptr && this->begin_segment(*single)) {
-                this->record_segment(*single, this->pass_frame.leaves);
+            rhi::mergeable_command_buffer_ref const& single = this->pass_frame.segments[0].buffer;
+            if (single != nullptr && this->begin_segment(single)) {
+                this->record_segment(single, this->pass_frame.leaves);
                 // NEVER EXECUTE A SECONDARY THAT DID NOT END: an ended buffer is what `execute()` requires, and
                 // the raw spelling's failed vkEndCommandBuffer was the same hazard the begin flag guards.
                 if (single->end_recording() == rhi::error::ok) {
-                    if (io.list->execute(*single) != rhi::error::ok) {
+                    rhi::mergeable_command_buffer_ref const batch[] = {single};
+                    if (io.list->execute(std::span<rhi::mergeable_command_buffer_ref const>(batch)) != rhi::error::ok) {
                         result = rhi::error::operation_failed;
                         deren::utility::log("scene pass: executing the main secondary was refused - the frame records no scene content");
                     }
@@ -201,16 +201,16 @@ namespace deren::engine::pass {
             for (std::size_t s = 0; s < segment_count; ++s) {
                 std::size_t const seg_first = leaf_count * s / segment_count;
                 std::size_t const seg_last = leaf_count * (s + 1) / segment_count;
-                rhi::command_buffer* const segment = this->pass_frame.segments[s].buffer;
+                rhi::mergeable_command_buffer_ref const segment = this->pass_frame.segments[s].buffer;
                 std::span<primitive const* const> const segment_leaves(this->pass_frame.leaves.data() + seg_first, seg_last - seg_first);
                 std::atomic<bool>* const recorded = &segment_recorded[s];
                 tasks.emplace_back([this, segment, segment_leaves, recorded] {
-                    if (segment == nullptr || !this->begin_segment(*segment)) {
+                    if (segment == nullptr || !this->begin_segment(segment)) {
                         deren::utility::log("scene pass: main segment secondary begin failed - segment skipped this frame");
                         recorded->store(false, std::memory_order_relaxed);
                         return;
                     }
-                    this->record_segment(*segment, segment_leaves);
+                    this->record_segment(segment, segment_leaves);
                     if (segment->end_recording() != rhi::error::ok) {
                         deren::utility::log("scene pass: main segment secondary end failed - segment skipped this frame");
                         recorded->store(false, std::memory_order_relaxed);
@@ -220,16 +220,18 @@ namespace deren::engine::pass {
                 });
             }
             this->pass_frame.run_tasks(this->pass_frame.owner, tasks);
+            deren::utility::vessel::vector<rhi::mergeable_command_buffer_ref> batch;
+            batch.reserve(segment_count);
             for (std::size_t s = 0; s < segment_count; ++s) {
                 if (!segment_recorded[s].load(std::memory_order_relaxed)) {
                     result = rhi::error::operation_failed;
-                    continue; // never execute a secondary whose begin failed
+                    continue; // never execute a segment whose begin failed
                 }
-                rhi::command_buffer* const segment = this->pass_frame.segments[s].buffer;
-                if (io.list->execute(*segment) != rhi::error::ok) {
-                    result = rhi::error::operation_failed;
-                    deren::utility::log("scene pass: executing segment {} was refused - its content is missing this frame", s);
-                }
+                batch.push_back(this->pass_frame.segments[s].buffer);
+            }
+            if (!batch.empty() && io.list->execute(std::span<rhi::mergeable_command_buffer_ref const>(batch)) != rhi::error::ok) {
+                result = rhi::error::operation_failed;
+                deren::utility::log("scene pass: merging the main segments was refused - their content is missing this frame");
             }
         }
 

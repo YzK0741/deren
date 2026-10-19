@@ -197,11 +197,11 @@ namespace deren::engine::pass {
             tasks.emplace_back([this, cascade, pipeline, mesh_stage, meshlets, &recorded] {
                 // THE CASCADE'S SECONDARY IS A CONTRACT HANDLE NOW (abi 20), BORROWED from the frame: the
                 // callback begins and ends it through the contract, so no raw handle is named here at all.
-                rhi::command_buffer* const secondary = this->pass_frame.cascades[cascade];
+                rhi::mergeable_command_buffer_ref const& secondary = this->pass_frame.cascades[cascade];
                 if (secondary == nullptr) {
                     return;
                 }
-                recorded[cascade] = this->pass_frame.record_cascade(this->pass_frame.owner, *secondary, cascade, pipeline, mesh_stage, meshlets);
+                recorded[cascade] = this->pass_frame.record_cascade(this->pass_frame.owner, secondary, cascade, pipeline, mesh_stage, meshlets);
             });
         }
         this->pass_frame.run_tasks(this->pass_frame.owner, tasks);
@@ -254,9 +254,12 @@ namespace deren::engine::pass {
             // wedge the frame slot, which is what the recorded flags are for (a null buffer or a log line from the
             // callback leaves its flag false).
             if (recorded[cascade]) {
-                rhi::command_buffer* const secondary = this->pass_frame.cascades[cascade];
-                if (io.list->execute(*secondary) != rhi::error::ok) {
-                    deren::utility::log("shadow pass: executing cascade {}'s secondary was refused - the cascade records nothing this frame", cascade);
+                rhi::mergeable_command_buffer_ref const& secondary = this->pass_frame.cascades[cascade];
+                if (secondary != nullptr) {
+                    rhi::mergeable_command_buffer_ref const batch[] = {secondary};
+                    if (io.list->execute(std::span<rhi::mergeable_command_buffer_ref const>(batch)) != rhi::error::ok) {
+                        deren::utility::log("shadow pass: merging cascade {}'s segment was refused - the cascade records nothing this frame", cascade);
+                    }
                 }
             }
             io.list->end_rendering();

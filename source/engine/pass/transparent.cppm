@@ -49,9 +49,9 @@ export namespace deren::engine::pass {
         /// the per-slot secondary command buffer this pass records into (one segment: the leaves are few).
         /// THE CONTRACT HANDLE (abi 20), SHARED: the frame loop owns the buffer and hands this one reference on,
         /// so the pass begins, records and ends it and never releases it.
-        std::shared_ptr<deren::promise::rhi::command_buffer> secondary = {};
+        deren::promise::rhi::mergeable_command_buffer_ref secondary = {};
         /// the draw state builder (see scene_frame::make_environment: the registry is the renderer's)
-        render_environment (*make_environment)(void* owner, std::shared_ptr<deren::promise::rhi::command_buffer> command_buffer, bool gbuffer) = nullptr;
+        render_environment (*make_environment)(void* owner, ::deren::engine::recording_target target, bool gbuffer) = nullptr;
         void* owner = nullptr;
         // (THE HEAP-BIND FIELD IS GONE - plan X5 B3.5: the secondary's descriptor-heap inheritance is derived by
         //  the BACKEND from the heaps it owns, which is why the pass stopped calling the hook at abi 20 - see

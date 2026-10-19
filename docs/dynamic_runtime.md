@@ -111,8 +111,11 @@ validated before anything is queued. The backend owns the merge: the Vulkan back
 backend-owned primary and submits that, while a D3D12 backend can hand the command lists straight to
 `ExecuteCommandLists`. Segments are self-contained (state and render scopes do not cross a boundary), no memory
 barrier is inserted between them, and the backend retains the handles until the submission completes. The
-existing single-buffer submit and `execute()` stay untouched: the renderer still uses them, and migrating the
-frame path onto the batch is a separate batch.
+engine's multithreaded recording paths use EXACTLY this: the main pass's per-worker segments, the shadow
+per-cascade segments and the transparent segment are mergeable buffers, merged into the frame's primary with
+`command_buffer::execute(span)` while its rendering instance is open (the pixel result is unchanged - the same
+`vkCmdExecuteCommands` sequence, one batch call). Single-threaded passes still record straight into the frame
+command buffer, and `submit(span)` stays available for a backend whose merge is submission-time.
 
 ## Capabilities: abilities and extensions
 

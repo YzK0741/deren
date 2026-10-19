@@ -90,6 +90,11 @@ namespace {
             return execute_result;
         }
 
+        [[nodiscard]] deren::promise::rhi::error execute(std::span<deren::promise::rhi::mergeable_command_buffer_ref const>) override {
+            ++this->secondary_executions;
+            return execute_result;
+        }
+
         [[nodiscard]] deren::promise::rhi::error use(deren::promise::rhi::image const&, deren::promise::rhi::image_use, deren::promise::rhi::image_use) noexcept override {
             return deren::promise::rhi::error::ok;
         }
@@ -205,6 +210,107 @@ namespace {
 
         [[nodiscard]] deren::promise::rhi::error clear_color_image(deren::promise::rhi::image const&, deren::utility::vessel::array<float, 4> const&, deren::promise::rhi::subresource_range const&) override {
             return deren::promise::rhi::error::ok;
+        }
+    };
+
+    /// abi 36: the multithreaded passes record into `mergeable_command_buffer` segments now, so the scene-pass
+    /// lifecycle test needs one. Only the two lifecycle verbs carry state (the injected failure results); every
+    /// recording verb is the no-op this fake's whole stance already is.
+    struct contract_mergeable final : deren::promise::rhi::mergeable_command_buffer {
+        deren::promise::rhi::error begin_result = deren::promise::rhi::error::ok;
+        deren::promise::rhi::error end_result = deren::promise::rhi::error::ok;
+        contract_mergeable() noexcept
+            : deren::promise::rhi::mergeable_command_buffer("contract_mergeable") {
+        }
+        void release() noexcept override {
+        }
+        [[nodiscard]] deren::promise::rhi::error begin_recording(deren::promise::rhi::command_buffer_begin_info const&) override {
+            return begin_result;
+        }
+        [[nodiscard]] deren::promise::rhi::error end_recording() noexcept override {
+            return end_result;
+        }
+        [[nodiscard]] deren::promise::rhi::error use(deren::promise::rhi::image const&, deren::promise::rhi::image_use, deren::promise::rhi::image_use) noexcept override {
+            return deren::promise::rhi::error::ok;
+        }
+        [[nodiscard]] deren::promise::rhi::error copy_image_to_buffer(deren::promise::rhi::buffer&, deren::promise::rhi::image const&,
+                                                                      deren::promise::rhi::image_copy_region const&) noexcept override {
+            return deren::promise::rhi::error::unsupported;
+        }
+        [[nodiscard]] deren::promise::rhi::error begin_gpu_timing() noexcept override {
+            return deren::promise::rhi::error::unsupported;
+        }
+        [[nodiscard]] deren::promise::rhi::error mark_gpu_timing(std::uint32_t, std::string_view) noexcept override {
+            return deren::promise::rhi::error::unsupported;
+        }
+        [[nodiscard]] deren::promise::rhi::error begin_rendering(deren::promise::rhi::rendering_info const&) override {
+            return deren::promise::rhi::error::ok;
+        }
+        void end_rendering() noexcept override {
+        }
+        [[nodiscard]] deren::promise::rhi::error bind_pipeline(deren::promise::rhi::pipeline const&) override {
+            return deren::promise::rhi::error::ok;
+        }
+        [[nodiscard]] deren::promise::rhi::error bind_vertex_buffer(deren::promise::rhi::buffer const&, std::uint64_t) override {
+            return deren::promise::rhi::error::ok;
+        }
+        [[nodiscard]] deren::promise::rhi::error bind_index_buffer(deren::promise::rhi::buffer const&, std::uint64_t, deren::promise::rhi::index_type) override {
+            return deren::promise::rhi::error::ok;
+        }
+        void draw(std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t) noexcept override {
+        }
+        void draw_indexed(std::uint32_t, std::uint32_t, std::uint32_t, std::int32_t, std::uint32_t) noexcept override {
+        }
+        [[nodiscard]] deren::promise::rhi::error draw_indirect(deren::promise::rhi::buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override {
+            return deren::promise::rhi::error::ok;
+        }
+        void dispatch(std::uint32_t, std::uint32_t, std::uint32_t) noexcept override {
+        }
+        void draw_mesh_tasks(std::uint32_t, std::uint32_t, std::uint32_t) noexcept override {
+        }
+        [[nodiscard]] deren::promise::rhi::error draw_mesh_tasks_indirect(deren::promise::rhi::buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override {
+            return deren::promise::rhi::error::ok;
+        }
+        void trace_rays(deren::promise::rhi::shader_binding_table_region const&, deren::promise::rhi::shader_binding_table_region const&,
+                        deren::promise::rhi::shader_binding_table_region const&, deren::promise::rhi::shader_binding_table_region const&,
+                        std::uint32_t, std::uint32_t, std::uint32_t) noexcept override {
+        }
+        [[nodiscard]] deren::promise::rhi::error build_acceleration_structure(deren::promise::rhi::acceleration_structure&) override {
+            return deren::promise::rhi::error::unsupported;
+        }
+        [[nodiscard]] deren::promise::rhi::error refit_acceleration_structure(deren::promise::rhi::acceleration_structure&) override {
+            return deren::promise::rhi::error::unsupported;
+        }
+        [[nodiscard]] deren::promise::rhi::error build_micromap(deren::promise::rhi::micromap&) override {
+            return deren::promise::rhi::error::unsupported;
+        }
+        void set_viewport(deren::promise::rhi::viewport const&) noexcept override {
+        }
+        void set_scissor(deren::promise::rhi::rect const&) noexcept override {
+        }
+        void set_cull_mode(deren::promise::rhi::cull_mode) noexcept override {
+        }
+        void set_depth_write(bool) noexcept override {
+        }
+        void set_depth_bias(float, float, float) noexcept override {
+        }
+        [[nodiscard]] deren::promise::rhi::error barrier(deren::promise::rhi::barrier_group const&) override {
+            return deren::promise::rhi::error::ok;
+        }
+        [[nodiscard]] deren::promise::rhi::error barrier(deren::promise::rhi::image_barrier const&) override {
+            return deren::promise::rhi::error::ok;
+        }
+        [[nodiscard]] deren::promise::rhi::error copy_image(deren::promise::rhi::image_copy const&) override {
+            return deren::promise::rhi::error::ok;
+        }
+        [[nodiscard]] deren::promise::rhi::error copy_buffer(deren::promise::rhi::buffer&, deren::promise::rhi::buffer const&, std::uint64_t, std::uint64_t, std::uint64_t) override {
+            return deren::promise::rhi::error::ok;
+        }
+        [[nodiscard]] deren::promise::rhi::error clear_color_image(deren::promise::rhi::image const&, deren::utility::vessel::array<float, 4> const&, deren::promise::rhi::subresource_range const&) override {
+            return deren::promise::rhi::error::ok;
+        }
+        [[nodiscard]] deren::promise::rhi::error load_texture_group(deren::promise::rhi::texture_group_ref const&) override {
+            return deren::promise::rhi::error::unsupported;
         }
     };
 
@@ -455,17 +561,20 @@ int32_t main() {
                 }
             } leaf;
             std::array<deren::engine::primitive const*, 4> leaves{&leaf, &leaf, &leaf, &leaf};
-            contract_command_buffer commands, first, second;
+            contract_command_buffer commands;
+            contract_mergeable first, second;
             if (failure == 1)
                 first.begin_result = rhi::error::operation_failed;
             if (failure == 2)
                 first.end_result = rhi::error::operation_failed;
             if (failure == 3)
                 commands.execute_result = rhi::error::operation_failed;
-            std::array<segment_buffer, 2> segments{{{&first}, {&second}}};
+            rhi::mergeable_command_buffer_ref const first_ref(&first, [](rhi::mergeable_command_buffer*) noexcept {});
+            rhi::mergeable_command_buffer_ref const second_ref(&second, [](rhi::mergeable_command_buffer*) noexcept {});
+            std::array<segment_buffer, 2> segments{{{first_ref}, {second_ref}}};
             scene_frame frame{.leaves = parallel ? std::span<deren::engine::primitive const* const>(leaves) : std::span<deren::engine::primitive const* const>(leaves).first(1),
                               .segments = parallel ? std::span<segment_buffer const>(segments) : std::span<segment_buffer const>(segments).first(1),
-                              .make_environment = [](void*, std::shared_ptr<rhi::command_buffer>, bool) { return deren::engine::render_environment{}; },
+                              .make_environment = [](void*, deren::engine::recording_target, bool) { return deren::engine::render_environment{}; },
                               .run_tasks = [](void*, std::span<std::function<void()>> tasks) { for (auto& task : tasks) task(); },
                               .extent = {16, 16}};
             scene_pass scene;

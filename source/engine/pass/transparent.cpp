@@ -75,7 +75,7 @@ namespace deren::engine::pass {
         };
         bool recorded = false;
         if (this->pass_frame.secondary->begin_recording(secondary_begin) == rhi::error::ok) {
-            render_environment env = this->pass_frame.make_environment(this->pass_frame.owner, this->pass_frame.secondary, /*gbuffer=*/false);
+            render_environment env = this->pass_frame.make_environment(this->pass_frame.owner, recording_target(this->pass_frame.secondary), /*gbuffer=*/false);
             // No set to bind (see scene_pass::record_segment): every slot these leaves read comes from the heaps,
             // which the runtime binds on this same secondary before executing it.
             for (primitive const* const leaf : this->pass_frame.leaves) {
@@ -119,8 +119,9 @@ namespace deren::engine::pass {
             return rhi::error::invalid_argument; // a refused scope would leave the attachments in a state nobody declared
         }
         if (recorded) {
-            if (io.list->execute(*this->pass_frame.secondary) != rhi::error::ok) {
-                deren::utility::log("transparent pass: executing the secondary was refused - the blended leaves are missing this frame");
+            rhi::mergeable_command_buffer_ref const batch[] = {this->pass_frame.secondary};
+            if (io.list->execute(std::span<rhi::mergeable_command_buffer_ref const>(batch)) != rhi::error::ok) {
+                deren::utility::log("transparent pass: merging the segment was refused - the blended leaves are missing this frame");
             }
         }
         io.list->end_rendering();

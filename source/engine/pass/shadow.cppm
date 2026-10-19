@@ -75,7 +75,7 @@ export namespace deren::engine::pass {
         /// @param mesh_stage whether @p pipeline is a MESH pipeline, i.e. whether the casters must be drawn as
         ///        dispatches (vkCmdDrawMeshTasksEXT) instead of indexed draws - the pipeline and the way to feed
         ///        it are one fact, so they travel together (see docs/mesh_shaders.md step 1)
-        bool (*record_cascade)(void* owner, deren::promise::rhi::command_buffer& secondary, uint32_t cascade_index, deren::promise::rhi::pipeline* pipeline, bool mesh_stage, bool meshlets) = nullptr;
+        bool (*record_cascade)(void* owner, deren::promise::rhi::mergeable_command_buffer_ref const& secondary, uint32_t cascade_index, deren::promise::rhi::pipeline* pipeline, bool mesh_stage, bool meshlets) = nullptr;
         /// the frame loop's scheduler: one task per cascade, each recording into its own secondary
         void (*run_tasks)(void* owner, std::span<std::function<void()>> tasks) = nullptr;
         void* owner = nullptr;
@@ -83,7 +83,7 @@ export namespace deren::engine::pass {
         /// THE CONTRACT HANDLES, BORROWED (abi 20): the frame loop owns the buffers (per slot, one per cascade)
         /// and the pass only records into them and executes them - so this is a span of raw pointers and the
         /// pass must not release one.
-        std::span<deren::promise::rhi::command_buffer* const> cascades = {};
+        std::span<deren::promise::rhi::mergeable_command_buffer_ref const> cascades = {};
         /// the shadow map's edge: this pass's rendering-instance size (it does NOT follow the surface)
         uint32_t map_size = 0;
     };

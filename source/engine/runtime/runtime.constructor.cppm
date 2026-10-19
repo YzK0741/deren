@@ -164,13 +164,15 @@ namespace deren::engine {
     //  `VkBindHeapInfoEXT` a secondary used to inherit. The pass layer stopped calling it at abi 20 and the
     //  BACKEND derives that inheritance from its own bound heaps now, so this was a second truth with no reader.)
 
-    bool contract_push_heap_data(rhi::api_core& face, rhi::command_buffer& commands, std::uint32_t const offset,
+    bool contract_push_heap_data(rhi::api_core& face, rhi::command_buffer* const commands,
+                                 rhi::mergeable_command_buffer* const mergeable_commands, std::uint32_t const offset,
                                  std::span<std::byte const> const data) noexcept {
         auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
         if (heap == nullptr)
             return false;
         rhi::heap_push_info info{};
-        info.commands = &commands;
+        info.commands = commands;
+        info.mergeable_commands = mergeable_commands;
         info.offset = offset;
         info.data = data;
         return heap->push_data(info) == rhi::error::ok;
@@ -1159,23 +1161,23 @@ namespace deren::engine {
         for (int32_t slot = 0; slot < static_cast<int32_t>(this->frame_ring().slot_count()); ++slot) {
             // one entry: the alpha-blended pass's secondary (see secondary_pass). The shadow cascades
             // and the main-pass segments own their buffers elsewhere, because they record concurrently.
-            deren::utility::vessel::array<std::shared_ptr<rhi::command_buffer>, static_cast<std::size_t>(secondary_pass::count)> pair = {
-                face.make_command_buffer({.kind = rhi::command_buffer_kind::secondary}), // transparent
+            deren::utility::vessel::array<rhi::mergeable_command_buffer_ref, static_cast<std::size_t>(secondary_pass::count)> pair = {
+                face.make_mergeable_command_buffer({}), // transparent
             };
             this->secondary_command_buffers.push_back(std::move(pair));
 
             // Shadow cascades record on the task pool, so each cascade gets its OWN buffer - and its
             // own pool with it (M9).
-            deren::utility::vessel::vector<std::shared_ptr<rhi::command_buffer>> cascade_recording;
+            deren::utility::vessel::vector<rhi::mergeable_command_buffer_ref> cascade_recording;
             cascade_recording.reserve(deren::engine::max_shadow_cascades);
             for (uint32_t cascade = 0; cascade < deren::engine::max_shadow_cascades; ++cascade) {
-                cascade_recording.push_back(face.make_command_buffer({.kind = rhi::command_buffer_kind::secondary}));
+                cascade_recording.push_back(face.make_mergeable_command_buffer({}));
             }
             this->shadow_recording.push_back(std::move(cascade_recording));
-            deren::utility::vessel::vector<std::shared_ptr<rhi::command_buffer>> segments;
+            deren::utility::vessel::vector<rhi::mergeable_command_buffer_ref> segments;
             segments.reserve(record_workers);
             for (uint32_t s = 0; s < record_workers; ++s) {
-                segments.push_back(face.make_command_buffer({.kind = rhi::command_buffer_kind::secondary})); // one per worker
+                segments.push_back(face.make_mergeable_command_buffer({})); // one per worker
             }
             this->main_segments.push_back(std::move(segments));
         }
