@@ -163,10 +163,11 @@ One contract, and every graphics backend is an implementation of it.
 - **The C ABI is one symbol.** `source/promise/rhi/backend_entry.hpp` declares the single `extern "C"` entry
   the host resolves, `deren_make_api_core`. Its first argument is `rhi::abi_version`, so a mismatched
   backend is refused BEFORE an object exists, with the backend's own number in the returned error; it
-  returns an owning `std::shared_ptr<api_core>`, so there is no second destroy entry.
+  returns an owning `rhi::shared_object<api_core>` (the contract's own shared container), so there is no
+  second destroy entry.
 - **Capabilities are queried, not assumed.** `abilities()` says what the device can do and
   `query_extension<T>()` hands out the optional interfaces - ray tracing, mesh shaders, the descriptor
-  heap, the raw-handle escape. The engine asks for what it needs and keeps compiling when an answer is
+  heap, the device capabilities. The engine asks for what it needs and keeps compiling when an answer is
   "no".
 - **The backends are DLLs resolved BY NAME** out of the executable's own directory, by absolute path
   (`deren.engine.backend_loader` over `deren.utility.dynamic_link`): `deren_vulkan.dll` exports one

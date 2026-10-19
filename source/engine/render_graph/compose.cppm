@@ -73,7 +73,7 @@ export namespace deren::engine::render_graph::execution {
         };
     } // namespace detail
     class builder final {
-        std::shared_ptr<rhi::api_core> core_;
+        rhi::shared_object<rhi::api_core> core_;
         render_graph::builder graph_;
         bool sealed_ = false;
         std::optional<build_error> error_;
@@ -160,7 +160,7 @@ export namespace deren::engine::render_graph::execution {
         }
 
     public:
-        explicit builder(std::shared_ptr<rhi::api_core> core)
+        explicit builder(rhi::shared_object<rhi::api_core> core)
             : core_(std::move(core)) {
         }
         builder(builder const&) = delete;
@@ -242,6 +242,16 @@ export namespace deren::engine::render_graph::execution {
             if (!owner)
                 return std::unexpected(latch({.code = build_error_code::invalid_argument}));
             retained_.push_back(std::move(owner));
+            return {};
+        }
+        /// a SHARED RHI HANDLE is retained too (the post chain keeps the LUT view alive this way)
+        template <typename T>
+        std::expected<void, build_error> retain(deren::promise::rhi::shared_object<T> owner) {
+            if (auto error = blocked())
+                return std::unexpected(*error);
+            if (!owner)
+                return std::unexpected(latch({.code = build_error_code::invalid_argument}));
+            retained_.push_back(std::make_shared<deren::promise::rhi::shared_object<T>>(std::move(owner)));
             return {};
         }
         std::expected<prepared_graph, build_error> prepare() {

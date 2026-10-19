@@ -36,13 +36,13 @@ import deren.utility;
 import deren.engine.frame_constants; // one frame's shared constants (see update_frame_constants)
 
 namespace deren::engine {
-    std::shared_ptr<rhi::command_buffer> runtime::make_probe_commands(std::string_view const what) {
+    rhi::shared_object<rhi::command_buffer> runtime::make_probe_commands(std::string_view const what) {
         // ONE PROBE'S OWN RECORDING SESSION, THROUGH THE CONTRACT (abi 22): a primary command buffer the backend
         // owns, begun with the one-time-submit usage the raw pool's TRANSIENT flag used to spell. The pool, the
         // queue family and the submission are the backend's now - the probe keeps what it always had, which is a
         // buffer of its own that nothing else records into (the mask bake looked isolated too and turned out to
         // record into the frame's buffer; this one really is).
-        std::shared_ptr<rhi::command_buffer> commands = this->rhi_face().make_command_buffer({.kind = rhi::command_buffer_kind::primary});
+        rhi::shared_object<rhi::command_buffer> commands = this->rhi_face().make_command_buffer({.kind = rhi::command_buffer_kind::primary});
         if (commands == nullptr) {
             deren::utility::log("descriptor heap: {} could not allocate a contract command buffer", what);
             return nullptr;
@@ -112,7 +112,7 @@ namespace deren::engine {
         // `VkCommandPool`/`VkCommandBuffer`/`VkFence`/`vkQueueSubmit`/`vkWaitForFences` that stood here named a
         // device and a queue the contract already owns, and the pipeline arrives as the CONTRACT object the
         // builder returned (no `get_pipeline()`).
-        std::shared_ptr<rhi::command_buffer> const commands = this->make_probe_commands("the heap-native probe");
+        rhi::shared_object<rhi::command_buffer> const commands = this->make_probe_commands("the heap-native probe");
         if (commands == nullptr) {
             return;
         }
@@ -229,7 +229,7 @@ namespace deren::engine {
         // through the `descriptor_heap` verbs, the rendering scope / dynamic state / pipeline bind / draw through
         // the record series (the MESH arm is `draw_mesh_tasks`, NOT a resolved entry point - the contract has that
         // verb, so no `vkGetDeviceProcAddr` is involved), and a contract submit + idle.
-        std::shared_ptr<rhi::command_buffer> const commands = this->make_probe_commands(mesh_shader ? "the heap-native MESH probe" : "the heap-native GRAPHICS probe");
+        rhi::shared_object<rhi::command_buffer> const commands = this->make_probe_commands(mesh_shader ? "the heap-native MESH probe" : "the heap-native GRAPHICS probe");
         if (commands == nullptr) {
             return;
         }

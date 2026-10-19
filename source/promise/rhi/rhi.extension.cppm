@@ -218,7 +218,7 @@ export namespace deren::promise::rhi {
         extension_kind kind() const noexcept final {
             return extension_id;
         }
-        [[nodiscard]] virtual std::shared_ptr<image> retain_image() noexcept = 0;
+        [[nodiscard]] virtual shared_object<image> retain_image() noexcept = 0;
     };
     struct scoped_image_info {
         uint32_t mip_levels = 0, array_layers = 0;

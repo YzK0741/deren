@@ -64,11 +64,11 @@ namespace deren::engine {
      * as this two-armed value and the small helpers below pick the arm.
      */
     export struct recording_target {
-        std::shared_ptr<deren::promise::rhi::command_buffer> command = {};
+        deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer> command = {};
         deren::promise::rhi::mergeable_command_buffer_ref mergeable = {};
 
         recording_target() noexcept = default;
-        recording_target(std::shared_ptr<deren::promise::rhi::command_buffer> value) noexcept
+        recording_target(deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer> value) noexcept
             : command(std::move(value)) {
         }
         recording_target(deren::promise::rhi::mergeable_command_buffer_ref value) noexcept
@@ -127,7 +127,7 @@ namespace deren::engine {
 
     export struct render_environment {
         /**
-         * THE SESSION'S RECORDING TARGET (abi 21). `std::shared_ptr<deren::promise::rhi::command_buffer>` -
+         * THE SESSION'S RECORDING TARGET (abi 21). `deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer>` -
          * the same BORROWED handle `resolved_io::cmd` carries, or the caller-owned secondary the pass is
          * recording into. `bind`, `set_depth_write_fn` and `set_cull_mode_fn` take it by value, so a session
          * that was handed a secondary keeps that secondary alive for exactly as long as it can record into it;

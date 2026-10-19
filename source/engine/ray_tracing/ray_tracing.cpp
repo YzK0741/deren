@@ -44,7 +44,7 @@ namespace deren::engine::ray_tracing {
         /// The pair every buffer this module builds a structure FROM carries: an address, and the
         /// acceleration-structure build-input capability (the renderer's own `build_input_usage`).
         constexpr rhi::buffer_flags build_input_flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input);
-        std::shared_ptr<pass::pass_chain> make_bake_storage(rhi::api_core& core, std::shared_ptr<rhi::api_core> const& lease, render_resource::resource_id id, uint64_t bytes) {
+        std::shared_ptr<pass::pass_chain> make_bake_storage(rhi::api_core& core, rhi::shared_object<rhi::api_core> const& lease, render_resource::resource_id id, uint64_t bytes) {
             namespace managed = render_resource::instances;
             auto chain = std::make_shared<pass::pass_chain>();
             auto& provider = chain->emplace<pass::resource_storage_pass>();
@@ -54,7 +54,7 @@ namespace deren::engine::ray_tracing {
             request.life = managed::lifetime::scene;
             request.buffer = {.size = bytes, .usage = rhi::buffer_usage::storage_gpu_only, .flags = build_input_flags};
             provider.configure(std::span{&request, 1});
-            auto root = lease ? lease : std::shared_ptr<rhi::api_core>{&core, [](rhi::api_core*) {}};
+            auto root = lease ? lease : rhi::shared_object<rhi::api_core>::borrow(*&core);
             auto const admit = [&](managed::resource_snapshot const& snapshot) {
                 auto generation = snapshot.find(id);
                 auto* buffer = generation && generation->objects.size() == 1 ? generation->objects[0].buffer.get() : nullptr;
@@ -68,7 +68,7 @@ namespace deren::engine::ray_tracing {
         // CALLER's geometry buffer must carry.
     } // namespace
 
-    structure_set::structure_set(rhi::api_core& face, std::shared_ptr<rhi::api_core> lease) noexcept
+    structure_set::structure_set(rhi::api_core& face, rhi::shared_object<rhi::api_core> lease) noexcept
         : contract(lease && lease.get() != &face ? nullptr : &face)
         , device_lease(std::move(lease)) {
     }
@@ -168,7 +168,7 @@ namespace deren::engine::ray_tracing {
     // alignment, the three setup buffers and their mappings, the size queries, the storage and the scratch.
     // The backend owns all of it, so a caller cannot get the alignment wrong and a second backend can lay the
     // whole thing out differently.
-    std::optional<structure_set::micromap_resource> make_micromap(rhi::api_core& vk, std::shared_ptr<rhi::api_core> const& lease, uint32_t const triangle_count) {
+    std::optional<structure_set::micromap_resource> make_micromap(rhi::api_core& vk, rhi::shared_object<rhi::api_core> const& lease, uint32_t const triangle_count) {
         if (triangle_count == 0 || triangle_count > UINT32_MAX / 4u) {
             return std::nullopt;
         }
@@ -206,7 +206,7 @@ namespace deren::engine::ray_tracing {
         out.resources = std::make_shared<pass::pass_chain>();
         auto& provider = out.resources->emplace<pass::resource_storage_pass>();
         provider.configure(std::span{&request, 1});
-        auto root = lease ? lease : std::shared_ptr<rhi::api_core>{&vk, [](rhi::api_core*) {}};
+        auto root = lease ? lease : rhi::shared_object<rhi::api_core>::borrow(*&vk);
         if (out.resources->prepare_resources(root, {}) != rhi::error::ok)
             return std::nullopt;
         auto generation = out.resources->resources().snapshot().find(request.id);

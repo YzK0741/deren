@@ -15,7 +15,7 @@ namespace deren::engine::gaussian_splatting {
             return std::unexpected(foundation_error{code, message});
         }
     } // namespace
-    std::expected<std::shared_ptr<gpu_frame>, foundation_error> prepare_gpu_frame(rhi::api_core& core, std::span<raster_instance const> inputs, raster_camera const& camera, foundation_limits const& limits, gpu_frame* reuse, std::shared_ptr<rhi::api_core> device_lease) {
+    std::expected<std::shared_ptr<gpu_frame>, foundation_error> prepare_gpu_frame(rhi::api_core& core, std::span<raster_instance const> inputs, raster_camera const& camera, foundation_limits const& limits, gpu_frame* reuse, rhi::shared_object<rhi::api_core> device_lease) {
         if (device_lease && device_lease.get() != &core)
             return failure(error_code::invalid_argument, "GPU device lease belongs to another core");
         auto view = validate_raster_camera(camera);
@@ -161,7 +161,7 @@ namespace deren::engine::gaussian_splatting {
             if (!result->storage_provider)
                 result->storage_provider = &result->storage_chain.emplace<deren::engine::pass::buffer_storage_pass>();
             result->storage_provider->configure(requests);
-            auto root = result->device_lease ? result->device_lease : std::shared_ptr<rhi::api_core>{&core, [](rhi::api_core*) {}};
+            auto root = result->device_lease ? result->device_lease : rhi::shared_object<rhi::api_core>::borrow(*&core);
             if (result->storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok)
                 return failure(admission_code, admission_message);
             pending = result->storage_chain.resources().snapshot();

@@ -66,8 +66,9 @@ function's own note states it. (The raw-handle escape that used to share this ru
 * **`deren_make_api_core` is the only export.** Its FIRST argument is `rhi::abi_version`, so a
   mismatched backend is refused BEFORE an object exists, with the backend's own number in the
   `error_info` it fills.
-* **It returns an owning `std::shared_ptr<api_core>`**, so there is no second destroy entry and no
-  raw-pointer ownership question.
+* **It returns an owning `rhi::shared_object<api_core>`**, the contract's own shared container, so there
+  is no second destroy entry and no raw-pointer ownership question. The container drops the root through
+  `api_core::release()` (for the root that call destroys it), exactly like every other RHI handle.
 * **The object attests its own number too**: the runtime checks `api_core::api_version()` after the
   handshake, because a host may be handed an `api_core` it did not create.
 * **The GUI plugin takes the same shape**: `deren_gui_vulkan.dll` exports one name, `deren_make_gui`.

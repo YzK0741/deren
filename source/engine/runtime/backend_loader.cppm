@@ -153,7 +153,7 @@ namespace deren::engine {
      * back attests its own number through `api_version()`, which `deren::engine::runtime` checks before
      * it uses the object - two sides of one fact, guarded where each can be observed.
      */
-    export [[nodiscard]] std::shared_ptr<rhi::api_core> load_api_core(rhi::create_info const& desc) {
+    export [[nodiscard]] rhi::shared_object<rhi::api_core> load_api_core(rhi::create_info const& desc) {
         deren_make_api_core_fn const entry = backend_entry();
         if (entry == nullptr) {
             return {}; // the diagnosis was reported while the failure was found
@@ -168,7 +168,7 @@ namespace deren::engine {
                                  : nullptr;
 #endif
         rhi::error_info status{};
-        std::shared_ptr<rhi::api_core> core = entry(rhi::abi_version, &wire, &status);
+        rhi::shared_object<rhi::api_core> core = entry(rhi::abi_version, &wire, &status);
         if (!core) {
             report("the backend refused the creation", status.code, status.native_code,
                    status.message.empty() ? std::string_view{"no diagnostic text"} : status.message, status.where);

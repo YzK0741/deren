@@ -152,7 +152,7 @@ void check_initial_upload() {
         request.initial_data_size = payload->size();
         request.initialization_key = std::make_shared<int const>(1);
         provider.configure(std::span{&request, 1});
-        CHECK(chain.prepare_resources(device, {}) == rhi::error::ok);
+        CHECK(chain.prepare_resources(rhi::shared_object<rhi::api_core>{device}, {}) == rhi::error::ok);
         auto old = chain.resources().snapshot();
         CHECK(old.find(request.id)->objects[0].buffer->mapped()[0] == std::byte{0x37});
         request.initial_data.reset();
@@ -160,16 +160,16 @@ void check_initial_upload() {
         provider.configure(std::span{&request, 1});
         CHECK(weak.expired()); // Neither generation metadata nor the producer retains upload bytes.
         auto calls = device->calls;
-        CHECK(chain.prepare_resources(device, {}) == rhi::error::ok);
+        CHECK(chain.prepare_resources(rhi::shared_object<rhi::api_core>{device}, {}) == rhi::error::ok);
         CHECK(chain.resources().snapshot().same(old) && device->calls == calls);
         auto other = std::make_shared<core>();
-        CHECK(chain.prepare_resources(other, {}) != rhi::error::ok);
+        CHECK(chain.prepare_resources(rhi::shared_object<rhi::api_core>{other}, {}) != rhi::error::ok);
         CHECK(chain.resources().snapshot().same(old) && other->calls == 0);
         auto replacement = std::make_shared<deren::utility::vessel::vector<std::byte>>(4, std::byte{0x71});
         request.initialization_key = std::make_shared<int const>(2);
         request.initial_data = std::shared_ptr<std::byte const>{replacement, replacement->data()};
         provider.configure(std::span{&request, 1});
-        CHECK(chain.prepare_resources(device, {}) == rhi::error::ok);
+        CHECK(chain.prepare_resources(rhi::shared_object<rhi::api_core>{device}, {}) == rhi::error::ok);
         CHECK(!chain.resources().snapshot().same(old));
         CHECK(chain.resources().snapshot().find(request.id)->objects[0].buffer->mapped()[0] == std::byte{0x71});
         CHECK(old.find(request.id)->objects[0].buffer->mapped()[0] == std::byte{0x37});
@@ -178,18 +178,18 @@ void check_initial_upload() {
         duplicate[0].initial_data.reset();
         provider.configure(duplicate);
         calls = device->calls;
-        CHECK(chain.prepare_resources(device, {}) == rhi::error::ok && device->calls == calls + 1);
+        CHECK(chain.prepare_resources(rhi::shared_object<rhi::api_core>{device}, {}) == rhi::error::ok && device->calls == calls + 1);
         auto merged = chain.resources().snapshot();
         CHECK(merged.find(request.id)->objects[0].buffer->mapped()[0] == std::byte{0x71});
         request.zero_on_create = true;
         provider.configure(std::span{&request, 1});
         calls = device->calls;
-        CHECK(chain.prepare_resources(device, {}) == rhi::error::invalid_argument);
+        CHECK(chain.prepare_resources(rhi::shared_object<rhi::api_core>{device}, {}) == rhi::error::invalid_argument);
         CHECK(device->calls == calls && chain.resources().snapshot().same(merged));
         request.zero_on_create = false;
         request.initial_data_size = 5;
         provider.configure(std::span{&request, 1});
-        CHECK(chain.prepare_resources(device, {}) == rhi::error::invalid_argument);
+        CHECK(chain.prepare_resources(rhi::shared_object<rhi::api_core>{device}, {}) == rhi::error::invalid_argument);
         CHECK(device->calls == calls && chain.resources().snapshot().same(merged));
     } else {
         CHECK_MSG(false, "Managed uploads need retained initial data and a stable content identity");

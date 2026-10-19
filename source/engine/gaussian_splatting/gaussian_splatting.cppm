@@ -98,8 +98,8 @@ export namespace deren::engine::gaussian_splatting {
 
     private:
         gpu_asset() = default;
-        friend std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core&, std::shared_ptr<packed_asset const>, foundation_limits const&, std::shared_ptr<deren::promise::rhi::api_core>);
-        std::shared_ptr<deren::promise::rhi::api_core> device_lease;
+        friend std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core&, std::shared_ptr<packed_asset const>, foundation_limits const&, deren::promise::rhi::shared_object<deren::promise::rhi::api_core>);
+        deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_lease;
         deren::engine::pass::pass_chain storage_chain;
         render_resource::instances::resource_snapshot storage_view;
         render_resource::instances::borrowed<deren::promise::rhi::buffer> geometry_buffer, sh_buffer;
@@ -110,6 +110,6 @@ export namespace deren::engine::gaussian_splatting {
     [[nodiscard]] std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core& core, packed_asset const& asset, foundation_limits const& limits = {});
     /// Owns packed contents through synchronous upload, then releases its upload aliases.
     /// Reference-only callers keep the device alive; production supplies an owning lease.
-    [[nodiscard]] std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core&, std::shared_ptr<packed_asset const>, foundation_limits const& = {}, std::shared_ptr<deren::promise::rhi::api_core> = {});
+    [[nodiscard]] std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core&, std::shared_ptr<packed_asset const>, foundation_limits const& = {}, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> = {});
 
 } // namespace deren::engine::gaussian_splatting

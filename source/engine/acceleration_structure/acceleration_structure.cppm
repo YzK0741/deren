@@ -202,12 +202,12 @@ namespace deren::engine::acceleration_structure {
         /// THE CONTRACT FACE, NOT THE BACKEND CLASS (③-D/E step 1b): non-const, because creating and
         /// releasing the structures goes through the contract's factories.
         rhi::api_core* contract = nullptr;
-        std::shared_ptr<rhi::api_core> device_lease;
+        rhi::shared_object<rhi::api_core> device_lease;
         deren::utility::vessel::vector<entry> entries = {};
         build_stats stats = {};
 
     public:
-        explicit bottom_level_structures(rhi::api_core& face, std::shared_ptr<rhi::api_core> lease = {});
+        explicit bottom_level_structures(rhi::api_core& face, rhi::shared_object<rhi::api_core> lease = {});
         bottom_level_structures(bottom_level_structures const&) = delete;
         bottom_level_structures& operator=(bottom_level_structures const&) = delete;
         bottom_level_structures(bottom_level_structures&&) = delete;
@@ -320,7 +320,7 @@ namespace deren::engine::acceleration_structure {
         rhi::api_core* contract = nullptr;
         /// the device's instance limit, from `device_capabilities` (the check that used to need a properties
         /// query of this module's own)
-        std::shared_ptr<rhi::api_core> device_lease;
+        rhi::shared_object<rhi::api_core> device_lease;
         std::uint64_t max_instances = 0;
         deren::utility::vessel::vector<slot> slots = {};
         uint32_t current_slot = 0;
@@ -332,7 +332,7 @@ namespace deren::engine::acceleration_structure {
          * @param face the contract face the structures are created and released through
          * @param frame_slot_count how many per-frame slots to allocate (the runtime's frame count)
          */
-        explicit top_level_structure(rhi::api_core& face, uint32_t frame_slot_count, std::shared_ptr<rhi::api_core> lease = {});
+        explicit top_level_structure(rhi::api_core& face, uint32_t frame_slot_count, rhi::shared_object<rhi::api_core> lease = {});
         top_level_structure(top_level_structure const&) = delete;
         top_level_structure& operator=(top_level_structure const&) = delete;
         top_level_structure(top_level_structure&&) = delete;

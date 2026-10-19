@@ -261,7 +261,7 @@ namespace deren::engine {
          * built FROM the root (`vulkan_core` itself, the pass filter, every resource): a check that ran later
          * would already have used it.
          */
-        [[nodiscard]] rhi::api_core& require_core(std::shared_ptr<rhi::api_core> const& core) {
+        [[nodiscard]] rhi::api_core& require_core(rhi::shared_object<rhi::api_core> const& core) {
             if (core == nullptr) {
                 deren::utility::panic(std::source_location::current(),
                                       "runtime: no device root was handed over (an empty shared_ptr<api_core>) - the "
@@ -309,7 +309,7 @@ namespace deren::engine {
     // `vulkan_core` has always implied: the engine's startup path decides what a failed acquisition means
     // (main.cpp reports and exits), and this constructor is where "there is no root" stops being
     // representable.
-    runtime::runtime(std::shared_ptr<rhi::api_core> core, deren::promise::rhi::create_info const& options)
+    runtime::runtime(rhi::shared_object<rhi::api_core> core, deren::promise::rhi::create_info const& options)
         : runtime(options,
                   std::move(core),
                   // THE CLAMP IS APPLIED HERE, BY THE ONE OWNER OF THE RULE: the backend clamps the same
@@ -319,7 +319,7 @@ namespace deren::engine {
                   deren::engine::render_layout::clamp_render_scale(options.render_scale)) {
     }
 
-    runtime::runtime(deren::promise::rhi::create_info const& options, std::shared_ptr<rhi::api_core> shared_core, float const clamped_render_scale)
+    runtime::runtime(deren::promise::rhi::create_info const& options, rhi::shared_object<rhi::api_core> shared_core, float const clamped_render_scale)
         : core_owner{std::move(shared_core)}
         , vulkan_core{require_core(this->core_owner)}
         , create_options{options}
@@ -550,7 +550,7 @@ namespace deren::engine {
                             culled);
     }
 
-    std::pair<std::shared_ptr<rhi::image>, std::shared_ptr<rhi::image_view>> runtime::create_shared_image(render_resource::resource_id id, rhi::image_desc desc) {
+    std::pair<rhi::shared_object<rhi::image>, rhi::shared_object<rhi::image_view>> runtime::create_shared_image(render_resource::resource_id id, rhi::image_desc desc) {
         namespace managed = render_resource::instances;
         auto chain = std::make_shared<pass::pass_chain>();
         auto& provider = chain->emplace<pass::resource_storage_pass>();
@@ -575,10 +575,10 @@ namespace deren::engine {
         request.initial_data.reset();
         request.image.debug_name = nullptr;
         provider.configure(std::span{&request, 1});
-        return {std::shared_ptr<rhi::image>{chain, image}, std::shared_ptr<rhi::image_view>{chain, view}};
+        return {rhi::shared_object<rhi::image>{chain, image}, rhi::shared_object<rhi::image_view>{chain, view}};
     }
 
-    std::shared_ptr<rhi::sampler> runtime::create_shared_sampler(render_resource::resource_id id, rhi::sampler_desc const& desc) {
+    rhi::shared_object<rhi::sampler> runtime::create_shared_sampler(render_resource::resource_id id, rhi::sampler_desc const& desc) {
         namespace managed = render_resource::instances;
         auto chain = std::make_shared<pass::pass_chain>();
         auto& provider = chain->emplace<pass::resource_storage_pass>();
@@ -591,10 +591,10 @@ namespace deren::engine {
         if (chain->prepare_resources(core_owner, {}) != rhi::error::ok)
             return {};
         auto generation = chain->resources().snapshot().find(id);
-        return std::shared_ptr<rhi::sampler>{chain, generation->objects[0].sampler.get()};
+        return rhi::shared_object<rhi::sampler>{chain, generation->objects[0].sampler.get()};
     }
 
-    std::shared_ptr<rhi::buffer> runtime::create_shared_upload(std::span<std::byte const> bytes, rhi::buffer_flags flags) {
+    rhi::shared_object<rhi::buffer> runtime::create_shared_upload(std::span<std::byte const> bytes, rhi::buffer_flags flags) {
         if (bytes.empty())
             return {};
         namespace managed = render_resource::instances;
@@ -615,7 +615,7 @@ namespace deren::engine {
         auto generation = chain->resources().snapshot().find(request.id);
         request.initial_data.reset();
         provider.configure(std::span{&request, 1});
-        return std::shared_ptr<rhi::buffer>{chain, generation->objects[0].buffer.get()};
+        return rhi::shared_object<rhi::buffer>{chain, generation->objects[0].buffer.get()};
     }
 
     void runtime::init_scene_resources() {
@@ -1143,7 +1143,7 @@ namespace deren::engine {
         // One secondary command buffer per frame slot (stage 2/3 of parallel recording),
         // pre-allocated with the primaries so the GPU can read them while this slot's primary
         // executes. Stage 3 additionally gives the main pass one parallel segment per task-pool worker.
-        // EVERY ONE OF THEM IS A CALLER-OWNED `std::shared_ptr<rhi::command_buffer>` (abi 21), MADE BY
+        // EVERY ONE OF THEM IS A CALLER-OWNED `rhi::shared_object<rhi::command_buffer>` (abi 21), MADE BY
         // `api_core::make_command_buffer`: the control block's deleter IS the contract's one drop
         // (`release()`), so no call site here spells it and no second lifetime rule exists. Each buffer
         // also owns its own command pool (handles/handles.cppm): a VkCommandPool is not thread safe, so the
@@ -1793,8 +1793,8 @@ namespace deren::engine {
     void runtime::set_ibl(ibl_input const& info) {
         if (!info.env_size || !info.env_mip_count || !info.irr_size || !info.lut_size)
             return;
-        deren::utility::vessel::vector<std::shared_ptr<rhi::image>> images;
-        deren::utility::vessel::vector<std::shared_ptr<rhi::image_view>> views;
+        deren::utility::vessel::vector<rhi::shared_object<rhi::image>> images;
+        deren::utility::vessel::vector<rhi::shared_object<rhi::image_view>> views;
         auto const upload = [&](render_resource::resource_id id, std::span<uint8_t const> data, uint32_t size, uint32_t mips, rhi::image_format format, bool cube) {
             rhi::image_desc desc{};
             desc.extent = {size, size, 1};

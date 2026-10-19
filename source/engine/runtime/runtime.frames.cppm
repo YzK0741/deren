@@ -129,7 +129,7 @@ namespace deren::engine {
         return *this->rhi_face().walk_frames();
     }
 
-    std::shared_ptr<rhi::command_buffer> runtime::frame_command_buffer() const noexcept {
+    rhi::shared_object<rhi::command_buffer> runtime::frame_command_buffer() const noexcept {
         // THE BORROWED CONTRACT HANDLE OF THE FRAME'S OWN BUFFER (abi 21): `begin_commands()` answers the
         // CORE's stable `commands_view` for the slot in flight, which is why the same object comes back
         // every call - and why the control block below must be NON-OWNING. `frame_commands::release()`
@@ -143,10 +143,9 @@ namespace deren::engine {
         if (list == nullptr) {
             return {};
         }
-        return std::shared_ptr<rhi::command_buffer>(list, [](rhi::command_buffer*) noexcept {
-            // NOTHING IS DROPPED, on purpose: the core owns the frame's buffer and its
-            // `frame_commands::release()` refuses by name (see the note above).
-        });
+        // NOTHING IS DROPPED, on purpose: the core owns the frame's buffer, so the shared handle is a
+        // BORROWED one - its copies share the pointer and never call `release()`.
+        return rhi::shared_object<rhi::command_buffer>::borrow(*list);
     }
 
     // THE FRAME OPEN'S CLASSIFIER (the error mechanism's verdict family): the one place that knows
@@ -491,7 +490,7 @@ namespace deren::engine {
         this->publish_frame_resources();
         // Record the frame into this slot's command buffer (inline recording: no inheritance).
         // Open the frame's borrowed recording target through the portable lifecycle.
-        std::shared_ptr<rhi::command_buffer> const recording_commands = this->frame_command_buffer();
+        rhi::shared_object<rhi::command_buffer> const recording_commands = this->frame_command_buffer();
         if (!recording_commands || recording_commands->begin_recording({}) != rhi::error::ok) {
             return frame_status::begin_recording_failed;
         }
@@ -1664,7 +1663,7 @@ namespace deren::engine {
     render_resource::shared::sampler_set runtime::shared_samplers() const noexcept {
         // The runtime owns all six objects. Passes borrow their contract pointers by hint;
         // no backend handle is needed to identify a sampler or to write it through the heap.
-        auto borrowed = [](std::shared_ptr<rhi::sampler> const& owned) {
+        auto borrowed = [](rhi::shared_object<rhi::sampler> const& owned) {
             return static_cast<rhi::sampler*>(owned.get());
         };
         return {.gbuffer = borrowed(this->gbuffer_sampler),

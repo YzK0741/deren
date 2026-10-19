@@ -750,7 +750,7 @@ namespace {
         }
     };
     struct cpu_image_view final : rhi::image_view {
-        std::shared_ptr<rhi::image> parent;
+        rhi::shared_object<rhi::image> parent;
         cpu_image_view() noexcept
             : rhi::image_view("deren_image_view_cpu_probe") {
         }
@@ -760,16 +760,17 @@ namespace {
     };
     // A snapshot is a different object from the mutable borrowed frame view. The core keeps only
     // a weak cache, while every retained snapshot (and its views) keeps the core alive.
-    struct cpu_frame_snapshot final : rhi::image, std::enable_shared_from_this<cpu_frame_snapshot> {
-        std::shared_ptr<impl> owner;
+    struct cpu_frame_snapshot final : rhi::image {
+        impl* owner = nullptr;
+        rhi::shared_object<rhi::api_core> keep_alive;
+        rhi::shared_object<cpu_frame_snapshot>::weak self;
         std::shared_ptr<cpu_resource_registry> registry;
         std::uint64_t serial;
         rhi::image_extent shape;
         rhi::image_format pixel_format;
-        cpu_frame_snapshot(std::shared_ptr<impl> core, std::shared_ptr<cpu_resource_registry> resources,
+        cpu_frame_snapshot(std::shared_ptr<cpu_resource_registry> resources,
                            std::uint64_t epoch, rhi::image_extent extent, rhi::image_format format)
             : rhi::image("deren_frame_snapshot_cpu_probe")
-            , owner(std::move(core))
             , registry(std::move(resources))
             , serial(epoch)
             , shape(extent)
@@ -782,7 +783,8 @@ namespace {
             std::erase(registry->frame_images, this);
         }
         void release() noexcept override {
-        } // Ownership is the returned shared_ptr's control block.
+            delete this; // the last shared handle drops the snapshot through this call
+        }
         rhi::image_extent extent() const noexcept override {
             return shape;
         }
@@ -797,17 +799,17 @@ namespace {
             if (!current() || desc.base_layer != 0 || desc.base_mip != 0 || desc.layer_count > 1 || desc.mip_count > 1)
                 return nullptr;
             auto view = std::make_unique<cpu_image_view>();
-            view->parent = shared_from_this();
+            view->parent = this->self.lock();
             return rhi::unique_object<rhi::image_view>{view.release()};
         }
     };
     struct cpu_frame_resources final : rhi::frame_resources {
         impl* owner = nullptr;
-        std::weak_ptr<cpu_frame_snapshot> cached;
+        rhi::shared_object<cpu_frame_snapshot>::weak cached;
         cpu_frame_resources() noexcept
             : rhi::frame_resources("deren_frame_resources_cpu_probe") {
         }
-        std::shared_ptr<rhi::image> retain_image() noexcept override;
+        rhi::shared_object<rhi::image> retain_image() noexcept override;
     };
     std::atomic<std::uint64_t> live_cpu_images{0};
     struct cpu_image final : rhi::image {
@@ -1177,7 +1179,15 @@ namespace {
         }
         rhi::error record(rhi::command_buffer&, std::span<rhi::scoped_image_barrier const>, std::span<rhi::scoped_buffer_barrier const>) const noexcept override;
     };
-    struct impl final : rhi::api_core, std::enable_shared_from_this<impl> {
+    struct impl final : rhi::api_core {
+        /// the probe root's own control block (the entry hands it out as a shared_object)
+        rhi::shared_object<rhi::api_core>::weak self_owner;
+        void attach_self(rhi::shared_object<rhi::api_core> const& root) noexcept {
+            this->self_owner = root;
+        }
+        void release() noexcept override {
+            delete this;
+        }
         /// THE CONTRACT'S THIRD HANDSHAKE (abi 19), with a knob: the engine checks this against its
         /// own `rhi::abi_version`, and the injection test needs BOTH answers - the agreeing one and
         /// a deliberately stale one - to prove the check is the thing that fires. `make_core` below
@@ -1305,7 +1315,7 @@ namespace {
                 this->descriptor_space.register_group(*answer);
             if (result != nullptr)
                 *result = rhi::error::ok;
-            return rhi::texture_group_ref(answer, [](rhi::texture_group* group) { group->release(); });
+            return rhi::texture_group_ref(answer);
         }
 
         /// abi 35: the batch-only recording handle. The probe has no device, so the stand-in records nothing;
@@ -1319,11 +1329,7 @@ namespace {
             answer->inner.owner = this;
             answer->inner.frame_scoped = false;
             this->mergeable_buffers.push_back(answer);
-            return rhi::mergeable_command_buffer_ref(answer, [](rhi::mergeable_command_buffer* const handle) noexcept {
-                if (handle != nullptr) {
-                    handle->release();
-                }
-            });
+            return rhi::mergeable_command_buffer_ref(answer);
         }
 
         /// abi 35: the batch submission's CONTRACT rules on the fake: non-empty, every handle ours, no
@@ -1453,12 +1459,12 @@ namespace {
         /// abi 21: the SAME stand-in, handed over as a shared_ptr. The probe buffer is a STATIC
         /// member (a probe has no device to allocate from), so the control block deleter is a no-op -
         /// release() is what the test observes, and the object itself outlives every reference.
-        [[nodiscard]] std::shared_ptr<rhi::command_buffer> make_command_buffer(rhi::command_buffer_desc const& desc) override {
+        [[nodiscard]] rhi::shared_object<rhi::command_buffer> make_command_buffer(rhi::command_buffer_desc const& desc) override {
             rhi::command_buffer* const raw = this->create_command_buffer(desc).release();
             if (raw == nullptr) {
                 return {};
             }
-            return std::shared_ptr<rhi::command_buffer>(raw, [](rhi::command_buffer*) noexcept {});
+            return rhi::shared_object<rhi::command_buffer>::borrow(*raw);
         }
 
         [[nodiscard]] rhi::unique_object<rhi::command_buffer> create_command_buffer(rhi::command_buffer_desc const& desc) override {
@@ -1552,17 +1558,19 @@ namespace {
     bool cpu_frame_snapshot::current() const noexcept {
         return owner->frame_open && owner->frame_serial == serial;
     }
-    std::shared_ptr<rhi::image> cpu_frame_resources::retain_image() noexcept {
+    rhi::shared_object<rhi::image> cpu_frame_resources::retain_image() noexcept {
         if (!owner->frame_open)
             return {};
         if (auto image = cached.lock(); image && image->current())
             return image;
-        auto keep = owner->weak_from_this().lock();
+        auto keep = owner->self_owner.lock();
         if (!keep)
             return {};
-        auto image = std::allocate_shared<cpu_frame_snapshot>(deren::utility::memory::allocator<cpu_frame_snapshot>{},
-                                                              std::move(keep), owner->resource_registry, owner->frame_serial,
-                                                              owner->borrowed_frame_image.extent(), owner->borrowed_frame_image.format());
+        rhi::shared_object<cpu_frame_snapshot> image{new cpu_frame_snapshot(
+            owner->resource_registry, owner->frame_serial, owner->borrowed_frame_image.extent(), owner->borrowed_frame_image.format())};
+        image->owner = owner;
+        image->keep_alive = keep;
+        image->self = image;
         cached = image;
         return image;
     }
@@ -1697,7 +1705,7 @@ namespace {
 
 } // namespace
 
-extern "C" DEREN_API_EXPORT std::shared_ptr<rhi::api_core>
+extern "C" DEREN_API_EXPORT rhi::shared_object<rhi::api_core>
 deren_make_api_core(std::uint32_t abi_version, deren::promise::rhi::create_info const* desc,
                     deren::promise::rhi::error_info* out_error_info) {
     if (abi_version != deren::promise::rhi::abi_version) {
@@ -1735,11 +1743,13 @@ deren_make_api_core(std::uint32_t abi_version, deren::promise::rhi::create_info 
     //
     // OWNERSHIP: `make_shared` puts the deleter in the control block (abi 18), so the probe object is
     // destroyed by whoever drops the last reference - no deleter entry point exists to resolve.
-    auto created = std::make_shared<impl>();
+    auto* const created = new impl();
+    rhi::shared_object<rhi::api_core> root{created};
+    created->attach_self(root);
     created->creation_window_width = static_cast<std::uint32_t>(desc->window_width);
     created->creation_window_height = static_cast<std::uint32_t>(desc->window_height);
     created->reported_api_version = rhi::abi_version; // the C entry never lies about the contract
-    return created;
+    return root;
 }
 
 // ---- THE PROBE AS AN ENGINE-SIDE INJECTION SOURCE (batch ⑥) ----------------------------------
@@ -1814,13 +1824,15 @@ namespace deren::vk_test {
         }
         return {};
     }
-    std::shared_ptr<deren::promise::rhi::api_core> probe_make_core(deren::promise::rhi::create_info const& desc,
-                                                                   std::uint32_t const reported_api_version, bool const portable_mode) {
-        auto created = std::make_shared<impl>();
+    deren::promise::rhi::shared_object<deren::promise::rhi::api_core> probe_make_core(deren::promise::rhi::create_info const& desc,
+                                                                                      std::uint32_t const reported_api_version, bool const portable_mode) {
+        auto* const created = new impl();
+        deren::promise::rhi::shared_object<deren::promise::rhi::api_core> root{created};
+        created->attach_self(root);
         created->creation_window_width = static_cast<std::uint32_t>(desc.window_width);
         created->creation_window_height = static_cast<std::uint32_t>(desc.window_height);
         created->reported_api_version = reported_api_version;
         created->portable_mode = portable_mode;
-        return created;
+        return root;
     }
 } // namespace deren::vk_test

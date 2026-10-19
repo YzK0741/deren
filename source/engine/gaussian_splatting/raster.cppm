@@ -71,7 +71,7 @@ export namespace deren::engine::gaussian_splatting {
 
     private:
         raster_asset() = default;
-        friend std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(deren::promise::rhi::api_core&, deren::gaussian::asset, foundation_limits const&, std::shared_ptr<deren::promise::rhi::api_core>);
+        friend std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(deren::promise::rhi::api_core&, deren::gaussian::asset, foundation_limits const&, deren::promise::rhi::shared_object<deren::promise::rhi::api_core>);
         std::shared_ptr<deren::gaussian::asset const> cpu_asset;
         std::shared_ptr<gpu_asset const> gpu_owner;
         deren::utility::vessel::vector<geometry_record> geometry;
@@ -109,14 +109,14 @@ export namespace deren::engine::gaussian_splatting {
 
     private:
         raster_frame() = default;
-        friend std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const&, raster_frame*, std::shared_ptr<deren::promise::rhi::api_core>);
+        friend std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const&, raster_frame*, deren::promise::rhi::shared_object<deren::promise::rhi::api_core>);
         raster_push push;
         deren::utility::vessel::vector<draw_reference> reference_data;
         deren::utility::vessel::vector<draw_reference> staging_reference_data;
         deren::utility::vessel::vector<instance_record> instance_data;
         deren::promise::rhi::api_core* owner = nullptr;
         // These leases outlive the storage subchain's completion drain.
-        std::shared_ptr<deren::promise::rhi::api_core> device_lease;
+        deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_lease;
         deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> owners;
         deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> staging_owners;
         deren::engine::pass::pass_chain storage_chain;
@@ -126,11 +126,11 @@ export namespace deren::engine::gaussian_splatting {
         std::uint64_t bytes = 0;
         std::uint32_t total = 0, near_omitted = 0, outside = 0;
     };
-    [[nodiscard]] std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(deren::promise::rhi::api_core&, deren::gaussian::asset, foundation_limits const& = {}, std::shared_ptr<deren::promise::rhi::api_core> = {});
+    [[nodiscard]] std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(deren::promise::rhi::api_core&, deren::gaussian::asset, foundation_limits const& = {}, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> = {});
     /// @param reuse an optional frame to REFILL (the caller keeps it alive; the returned pointer is a non-owning
     ///        view of it when it is given), which is how a steady-state frame allocates nothing. @see raster_frame's
     ///        retained buffer capacities and the plan's Task 8.
     /// A reference-only caller retains the core. Production supplies an owning lease initially;
     /// an allocated legacy frame cannot gain an owning lease by reuse. Reuse must be a completed slot.
-    [[nodiscard]] std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const& = {}, raster_frame* = nullptr, std::shared_ptr<deren::promise::rhi::api_core> = {});
+    [[nodiscard]] std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const& = {}, raster_frame* = nullptr, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> = {});
 } // namespace deren::engine::gaussian_splatting

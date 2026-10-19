@@ -64,7 +64,7 @@ int main() {
         CHECK(!shared->create_image_view(*image, invalid_view));
         CHECK(shared->resource_count() == before_bad_view);
         CHECK(!foreign->create_image_view(*image, {}));
-        std::weak_ptr<rhi::api_core> weak_device = device;
+        rhi::shared_object<rhi::api_core>::weak weak_device = device;
         // Views keep their parent image and core alive independently of its creating cluster.
         auto* borrowed_buffer = buffer ? buffer->get() : nullptr;
         buffer = std::unexpected(rhi::error::not_ready);

@@ -93,7 +93,7 @@ namespace deren::vulkan {
         std::lock_guard const lock(owner->contract_images_mutex);
         if (owner->frame_snapshots.contains(&resource)) {
             auto const& image = static_cast<frame_snapshot const&>(resource);
-            if (image.owner.get() != owner || !image.current())
+            if (image.owner != owner || !image.current())
                 return rhi::error::invalid_argument;
             uint32_t usage = bit(scopes::usage::color_attachment);
             if (owner->swapchain_transfer_src_supported)

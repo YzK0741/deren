@@ -45,7 +45,7 @@ export namespace deren::engine::render_graph::execution {
             deren::utility::vessel::vector<rhi::scoped_buffer_barrier> buffers;
         };
         struct state {
-            std::shared_ptr<rhi::api_core> core;
+            rhi::shared_object<rhi::api_core> core;
             compiled_graph graph;
             deren::utility::vessel::vector<resource_binding> bindings;
             deren::utility::vessel::vector<batch> batches;
@@ -102,7 +102,7 @@ export namespace deren::engine::render_graph::execution {
     public:
         prepared_graph() noexcept = default;
         static std::expected<prepared_graph, execution_error> prepare(
-            std::shared_ptr<rhi::api_core> core, compiled_graph graph, std::span<resource_binding const> bindings) {
+            rhi::shared_object<rhi::api_core> core, compiled_graph graph, std::span<resource_binding const> bindings) {
             auto fail = [](rhi::error code, uint32_t pass = invalid_index, uint32_t resource = invalid_index) {
                 return std::unexpected(execution_error{code, pass, resource});
             };
@@ -210,7 +210,7 @@ export namespace deren::engine::render_graph::execution {
 
     private:
         static std::expected<prepared_graph, execution_error> prepare_bound(
-            std::shared_ptr<rhi::api_core> core, compiled_graph graph, std::span<resource_binding const> bindings,
+            rhi::shared_object<rhi::api_core> core, compiled_graph graph, std::span<resource_binding const> bindings,
             deren::utility::vessel::vector<std::shared_ptr<detail::recorder const>> recorders,
             deren::utility::vessel::vector<std::shared_ptr<void const>> retained) {
             for (auto pass : graph.execution_order)
@@ -284,7 +284,7 @@ export namespace deren::engine::render_graph::execution {
         // Internal bridge: the public prepared_graph API does not expose erased actions.
         struct composition_access {
             static std::expected<prepared_graph, execution_error> prepare(
-                std::shared_ptr<rhi::api_core> core, compiled_graph graph, std::span<resource_binding const> bindings,
+                rhi::shared_object<rhi::api_core> core, compiled_graph graph, std::span<resource_binding const> bindings,
                 deren::utility::vessel::vector<std::shared_ptr<recorder const>> recorders,
                 deren::utility::vessel::vector<std::shared_ptr<void const>> retained) {
                 return prepared_graph::prepare_bound(std::move(core), std::move(graph), bindings, std::move(recorders), std::move(retained));

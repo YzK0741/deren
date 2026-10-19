@@ -52,7 +52,7 @@ namespace rhi = deren::promise::rhi;
 #pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
 #endif
 
-extern "C" DEREN_API_EXPORT std::shared_ptr<rhi::api_core>
+extern "C" DEREN_API_EXPORT rhi::shared_object<rhi::api_core>
 deren_make_api_core(std::uint32_t abi_version, rhi::create_info const* desc, rhi::error_info* out_error_info) {
     // THE HANDSHAKE FIRST, BEFORE ANY OBJECT EXISTS (plan §4.2): an engine built against a
     // different contract learns "we disagree" as an empty `shared_ptr`, at the only moment where
@@ -92,7 +92,10 @@ deren_make_api_core(std::uint32_t abi_version, rhi::create_info const* desc, rhi
     // extension, a required feature, a swapchain that cannot be created -
     // core.constructor.cppm's `panic` sites), and the spike confirmed that shape. So a non-empty
     // return means "the context exists"; there is no partially-built context to report on.
-    return std::make_shared<deren::vulkan::core>(*desc);
+    auto* const created = new deren::vulkan::core(*desc);
+    rhi::shared_object<rhi::api_core> root{created};
+    created->attach_self(root);
+    return root;
 }
 
 #if defined(__clang__)

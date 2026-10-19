@@ -435,7 +435,7 @@ namespace {
         std::weak_ptr<raster_probe_core> root = leased;
         auto asset = gs::make_raster_asset(*leased, raster_source());
         deren::utility::vessel::array<gs::raster_instance, 1> one{gs::raster_instance{*asset, glm::mat4{1}, 1}};
-        auto frame = gs::prepare_raster_frame(*leased, one, camera(), {}, nullptr, leased);
+        auto frame = gs::prepare_raster_frame(*leased, one, camera(), {}, nullptr, rhi::shared_object<rhi::api_core>{leased});
         CHECK(frame);
         if (!frame)
             return;
@@ -478,7 +478,7 @@ namespace {
             return;
         auto* reuse = const_cast<gs::raster_frame*>(frame->get());
         auto old = reuse->resources();
-        auto promoted = gs::prepare_raster_frame(*leased, one, camera(), {}, reuse, leased);
+        auto promoted = gs::prepare_raster_frame(*leased, one, camera(), {}, reuse, rhi::shared_object<rhi::api_core>{leased});
         CHECK(!promoted && promoted.error().code == gs::error_code::invalid_argument && reuse->resources().same(old));
         raster_probe_core other;
         auto foreign = gs::prepare_raster_frame(other, one, camera(), {}, reuse);

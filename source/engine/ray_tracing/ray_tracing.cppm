@@ -170,7 +170,7 @@ export namespace deren::engine::ray_tracing {
      */
     class structure_set {
     public:
-        explicit structure_set(rhi::api_core& face, std::shared_ptr<rhi::api_core> lease = {}) noexcept;
+        explicit structure_set(rhi::api_core& face, rhi::shared_object<rhi::api_core> lease = {}) noexcept;
         structure_set(structure_set const&) = delete;
         structure_set& operator=(structure_set const&) = delete;
 
@@ -249,7 +249,7 @@ export namespace deren::engine::ray_tracing {
 
         /// The injected backend-independent device root.
         rhi::api_core* contract = nullptr;
-        std::shared_ptr<rhi::api_core> device_lease;
+        rhi::shared_object<rhi::api_core> device_lease;
         std::optional<acceleration_structure::bottom_level_structures> bottom = {};
         /// named `top_level` rather than `top`: `build` keeps a local `auto& top`, and a member of that name
         /// would be hidden by it - MSVC /W4 reports C4458, which /WX makes an error

@@ -51,6 +51,7 @@ namespace raster_test {
     };
 
     struct raster_probe_core : rhi::api_core {
+    void release() noexcept override {}
         bool supported = true;
         bool pipeline_fail = false;
         int pipeline_releases = 0;
@@ -163,7 +164,7 @@ namespace raster_test {
         rhi::unique_object<rhi::command_buffer> create_command_buffer(rhi::command_buffer_desc const&) override {
             return nullptr;
         }
-        std::shared_ptr<rhi::command_buffer> make_command_buffer(rhi::command_buffer_desc const&) override {
+        rhi::shared_object<rhi::command_buffer> make_command_buffer(rhi::command_buffer_desc const&) override {
             return {};
         }
         std::uint32_t api_version() const noexcept override {

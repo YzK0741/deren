@@ -566,7 +566,7 @@ int main(int argc, char** argv) {
     //      for the life of the process, and performs the creation-side handshake with
     //      `rhi::abi_version`. Every failure is a NAMED diagnosis on the log before it returns, so the
     //      empty answer below is the app's decision to make rather than a mystery.
-    std::shared_ptr<deren::promise::rhi::api_core> core = deren::engine::load_api_core(core_options);
+    deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core = deren::engine::load_api_core(core_options);
     if (core == nullptr) {
         // THE APPLICATION DECIDES WHAT A FAILED ACQUISITION MEANS, and without a backend there is no
         // renderer to build: report the same way the rest of the startup path does and exit non-zero

@@ -194,7 +194,7 @@ export namespace deren::promise::rhi {
     /// NOT coming back.)
     /// 17 -> 18 in the SHARED flip (the last batch of the dynamic-backend migration): the C entry
     /// surface goes from THREE symbols to ONE. `deren_make_api_core` RETURNS a
-    /// `std::shared_ptr<api_core>` instead of a raw pointer, and `deren_destroy_api_core` plus
+    /// `shared_object<api_core>` instead of a raw pointer, and `deren_destroy_api_core` plus
     /// `deren_abi_version()` are DELETED with it: ownership lives in the control block the backend
     /// built (so no host names a deleter and no raw pointer crosses), and the version became the call's
     /// FIRST ARGUMENT - a mismatch is still refused before any object exists, with the backend's own
@@ -240,7 +240,7 @@ export namespace deren::promise::rhi {
     /// untouched. The number moves for an APPENDED tier-1 slot, which this is not.
     /// 20 -> 21 in the RECORDING FACE's owner half (the append the note above anticipated): `api_core`
     /// APPENDED the pure virtual `make_command_buffer(command_buffer_desc) ->
-    /// std::shared_ptr<command_buffer>` - a NEW vtable slot on an existing tier-1 interface, which is
+    /// shared_object<command_buffer>` - a NEW vtable slot on an existing tier-1 interface, which is
     /// exactly the case the number exists for - and `command_list` was DELETED rather than renumbered
     /// (its `interface_type` enumerator and its number stay retired in place, and the series it carried
     /// is declared on `command_buffer` itself). The same batch's PODs are additive and carry NO bump:
@@ -338,6 +338,16 @@ export namespace deren::promise::rhi {
     // an APPENDED target (`heap_bind_info::mergeable_commands` / `heap_push_info::mergeable_commands`):
     // a mergeable segment publishes its binding/push data through the same ability as a command_buffer,
     // one target of the two set. Existing fields, slots and meanings do not move.
+    // ABI 44 PUTS THE SHARED RHI OWNERSHIP ON THE CONTRACT\'S OWN CONTAINER: every shared RHI handle the
+    // contract returns is `shared_object<T>` (one control block; the factory reference dropped exactly once
+    // at the last copy) instead of `std::shared_ptr<T>`: `image::share()`, `image_view::get_image()`,
+    // `frame_resources::retain_image()`, `make_command_buffer()`, `mergeable_command_buffer_ref`,
+    // `texture_group_ref`, and the `deren_make_api_core` entry\'s root. `api_core` gains `release()` so the
+    // root obeys the same contract drop rule as every other handle (for the root that call destroys it).
+    // `shared_object<T>` also answers `weak` (a nested observation handle), `borrow()` (a backend-owned
+    // pointer) and an aliasing constructor (an engine owner keeping a borrowed RHI pointer alive). The
+    // virtual return types move, so this is a number move; the by-value PODs and the factory uniforms do
+    // not move.
     // ABI 43 DELETES THE ESCAPE ENTIRELY: the `vulkan_escape` tier-2 interface (one surviving slot,
     // `native_command_buffer`), its `extension_kind::vulkan_escape` announcement, and the backend/probe/
     // GUI plumbing around it are gone. The GUI overlay receives the contract's `command_buffer` handle and
@@ -389,7 +399,7 @@ export namespace deren::promise::rhi {
     // operation). They live here because EVERY backend needs the same "check the concrete name, then
     // cast to the concrete layout" pair, and one copy is what keeps the next backend from reinventing
     // it (or from weakening the panic/refusal split its own doc states).
-    inline constexpr std::uint32_t abi_version = 43u;
+    inline constexpr std::uint32_t abi_version = 44u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
@@ -640,11 +650,19 @@ export namespace deren::promise::rhi {
         /// a BORROWED handle: it owns no reference and drops nothing), and the weak count keeps the block
         /// alive for the weak handles.
         struct shared_object_control final {
-            explicit shared_object_control(void (*drop_instance)(void*) noexcept) noexcept
-                : drop{drop_instance} {
+            shared_object_control(void (*drop_instance)(void*) noexcept, void* const own_instance) noexcept
+                : owned{own_instance}
+                , drop{drop_instance} {
             }
+            /// the object whose reference the block owns; NOT the alias target (an aliasing handle may
+            /// point at a different object than the one the control block drops)
+            void* owned = nullptr;
             std::atomic<std::uint32_t> strong{1};
             std::atomic<std::uint32_t> weak{0};
+            /// true while the strong-drop runs: the object's destructor may destroy the LAST weak
+            /// reference (one of its members observes this very object), and that weak must not delete
+            /// the control block out from under the drop
+            std::atomic<bool> dropping{false};
             void (*drop)(void*) noexcept = nullptr;
         };
     } // namespace detail
@@ -662,13 +680,15 @@ export namespace deren::promise::rhi {
         class weak;
 
         shared_object() noexcept = default;
+        shared_object(std::nullptr_t) noexcept {
+        }
 
         /// take ownership of the one reference @p instance carries
         explicit shared_object(rhi_object* const instance) noexcept
             : instance{instance} {
             static_assert(object_type<rhi_object>, "shared_object manages only a contract object handle");
             if (instance != nullptr) {
-                this->control = new detail::shared_object_control{&shared_object::drop_reference};
+                this->control = new detail::shared_object_control{&shared_object::drop_reference, instance};
             }
         }
 
@@ -676,7 +696,7 @@ export namespace deren::promise::rhi {
         static shared_object borrow(rhi_object& instance) noexcept {
             shared_object borrowed;
             borrowed.instance = &instance;
-            borrowed.control = new detail::shared_object_control{nullptr};
+            borrowed.control = new detail::shared_object_control{nullptr, nullptr};
             return borrowed;
         }
 
@@ -684,12 +704,58 @@ export namespace deren::promise::rhi {
             : shared_object(owner.release()) {
         }
 
+        /// a handle to a DERIVED object as a handle to the interface: the SAME control block is shared,
+        /// so the one reference is still dropped exactly once.
+        template <typename derived_object>
+            requires std::derived_from<derived_object, rhi_object>
+        shared_object(shared_object<derived_object> const& other) noexcept
+            : instance{static_cast<rhi_object*>(other.get())}
+            , control{other.control}
+            , alias_owner{other.alias_owner} {
+            this->acquire();
+        }
+
+        template <typename derived_object>
+            requires std::derived_from<derived_object, rhi_object>
+        shared_object(shared_object<derived_object>&& other) noexcept
+            : instance{static_cast<rhi_object*>(other.get())}
+            , control{other.control}
+            , alias_owner{std::move(other.alias_owner)} {
+            other.instance = nullptr;
+            other.control = nullptr;
+        }
+
+        template <typename derived_object>
+            requires std::derived_from<derived_object, rhi_object>
+        shared_object(unique_object<derived_object>&& owner) noexcept
+            : shared_object(static_cast<rhi_object*>(owner.release())) {
+        }
+
         /// AN ALIAS TO A BORROWED RHI POINTER tied to an engine owner's lifetime (the engine lease shape):
         /// the owner keeps the resource alive and this handle owns no RHI reference of its own.
+        /// an ENGINE-OWNED handle (a test's std::make_shared<fake_root>, say) adopted as an alias: the
+        /// shared pointer's own reference is the lifetime, so no RHI release runs.
+        template <typename owner_type>
+            requires std::derived_from<owner_type, rhi_object>
+        shared_object(std::shared_ptr<owner_type> owner) noexcept
+            : instance{owner.get()}
+            , alias_owner{std::move(owner)} {
+        }
+
         template <typename owner_type>
         shared_object(std::shared_ptr<owner_type> owner, rhi_object* const pointer) noexcept
             : instance{pointer}
             , alias_owner{std::move(owner)} {
+        }
+
+        /// the same alias with a CONTRACT-OWNED root: shares that handle's control block (so the root
+        /// outlives the borrowed pointer) without dropping an extra reference of its own.
+        template <typename owner_object>
+            requires std::derived_from<owner_object, object>
+        shared_object(shared_object<owner_object> const& owner, rhi_object* const pointer) noexcept
+            : instance{pointer}
+            , control{owner.control} {
+            this->acquire();
         }
 
         shared_object(shared_object const& other) noexcept
@@ -739,9 +805,11 @@ export namespace deren::promise::rhi {
                 return;
             }
             if (this->control->strong.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+                this->control->dropping.store(true, std::memory_order_release);
                 if (this->control->drop != nullptr) {
-                    this->control->drop(this->instance);
+                    this->control->drop(this->control->owned);
                 }
+                this->control->dropping.store(false, std::memory_order_release);
                 if (this->control->weak.load(std::memory_order_acquire) == 0) {
                     delete this->control;
                 }
@@ -782,6 +850,12 @@ export namespace deren::promise::rhi {
         }
         [[nodiscard]] bool unique() const noexcept {
             return this->use_count() == 1u;
+        }
+
+        /// whether @p other shares THIS handle\'s control block (the std::shared_ptr::owner_before identity)
+        [[nodiscard]] bool shares_control(shared_object const& other) const noexcept {
+            return this->control != nullptr ? this->control == other.control
+                                            : this->alias_owner.get() == other.alias_owner.get();
         }
 
         friend bool operator==(shared_object const& value, std::nullptr_t) noexcept {
@@ -914,7 +988,8 @@ export namespace deren::promise::rhi {
     private:
         void release_control() noexcept {
             if (this->control != nullptr) {
-                if (this->control->weak.fetch_sub(1, std::memory_order_acq_rel) == 1 && this->control->strong.load(std::memory_order_acquire) == 0) {
+                if (this->control->weak.fetch_sub(1, std::memory_order_acq_rel) == 1 && this->control->strong.load(std::memory_order_acquire) == 0 &&
+                    !this->control->dropping.load(std::memory_order_acquire)) {
                     delete this->control;
                 }
                 this->control = nullptr;

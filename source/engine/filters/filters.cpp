@@ -17,7 +17,7 @@ namespace deren::engine {
     // the application's view
     // =============================================================================================
 
-    user_filter::user_filter(std::shared_ptr<deren::promise::rhi::api_core> owner) noexcept
+    user_filter::user_filter(deren::promise::rhi::shared_object<deren::promise::rhi::api_core> owner) noexcept
         : owner_share(std::move(owner))
         , core_face(this->owner_share.get()) {
     }

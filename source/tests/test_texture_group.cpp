@@ -197,7 +197,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
                 void release() noexcept override {
                 }
             } foreign;
-            rhi::texture_group_ref wrong(&foreign, [](rhi::texture_group*) {});
+            rhi::texture_group_ref wrong = rhi::shared_object<rhi::texture_group>::borrow(foreign);
             CHECK(commands->load_texture_group(wrong) == rhi::error::invalid_argument);
         }
         if (i == 1)
@@ -221,7 +221,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
     auto extra_image = make_image(0xff00ffffu);
     rhi::texture_group_info extra_info{};
     extra_info.textures[0] = extra_image.get();
-    std::weak_ptr<rhi::texture_group> lifetime_a = group_a, lifetime_b = group_b;
+    rhi::shared_object<rhi::texture_group>::weak lifetime_a = group_a, lifetime_b = group_b;
     queue_gate gate(core, main_context.device, main_context.graphics_queue);
     CHECK(core.submit(*submitted) == rhi::error::ok);
     group_a.reset();

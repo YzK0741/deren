@@ -112,7 +112,7 @@ namespace rhi = deren::promise::rhi;
  *
  * WHY THE GROUP IS NAMED `runtime` AND NOT AFTER AN API: the backend is a `deren_vulkan.dll` whose ONE
  * export (`deren_make_api_core`) the APPLICATION resolves at run time through
- * `deren.engine.backend_loader`; this layer holds the resulting `std::shared_ptr<rhi::api_core>` and
+ * `deren.engine.backend_loader`; this layer holds the resulting `rhi::shared_object<rhi::api_core>` and
  * speaks only the contract's virtuals. A second backend for another API would change the DLL and nothing
  * here, which is exactly what the boundary work buys - so the group name says what the layer IS.
  *
@@ -325,7 +325,7 @@ namespace deren::engine {
          * reference-counted root states it instead, and the device may now outlive this runtime when the caller
          * kept its own reference - which is the point of sharing it.
          */
-        std::shared_ptr<rhi::api_core> core_owner;
+        rhi::shared_object<rhi::api_core> core_owner;
         /// the alias every method and member keeps using: it IS `*core_owner`, and owns nothing of its own
         rhi::api_core& vulkan_core;
 
@@ -477,19 +477,19 @@ namespace deren::engine {
         // an element of it - every use was `.size()`, which is `owned_texture_views.size()` - and its two pushes
         // were the only `native_image_view` reads in the file. A contract handle that is only ever counted is a
         // native cache nobody needed; the contract views beside it are what every consumer takes.
-        deren::utility::vessel::vector<std::shared_ptr<rhi::image_view>> owned_texture_views = {};
-        deren::utility::vessel::vector<std::shared_ptr<rhi::image>> owned_textures = {};
+        deren::utility::vessel::vector<rhi::shared_object<rhi::image_view>> owned_texture_views = {};
+        deren::utility::vessel::vector<rhi::shared_object<rhi::image>> owned_textures = {};
         uint32_t white_texture_index = 0;
         deren::utility::vessel::map<std::tuple<deren::utility::xxh3_digest, rhi::image_format, std::uint32_t, std::uint32_t, std::uint32_t>, uint32_t> texture_slot_cache = {}; // digest (data_block<16>), format, width, height, mip_levels
         // scene-wide IBL (bindings 2-4): prefiltered env / irradiance / BRDF LUT, uploaded once
-        deren::utility::vessel::vector<std::shared_ptr<rhi::image_view>> ibl_views = {};
-        deren::utility::vessel::vector<std::shared_ptr<rhi::image>> ibl_images = {};
+        deren::utility::vessel::vector<rhi::shared_object<rhi::image_view>> ibl_views = {};
+        deren::utility::vessel::vector<rhi::shared_object<rhi::image>> ibl_images = {};
         // THE ARTICLE'S POST LUT (`ZmdLutPost.shader`'s `_LutTex`) IS ITS OWN IMAGE, kept alive here for the same
         // reason the IBL's three are: the heap holds a DESCRIPTOR, and an image the host lets go of leaves that
         // descriptor pointing at nothing. Uploaded once by `set_post_lut`, which the application calls with a baked
         // neutral cube.
-        std::shared_ptr<rhi::image> post_lut_image = {};
-        std::shared_ptr<rhi::image_view> post_lut_view = {};
+        rhi::shared_object<rhi::image> post_lut_image = {};
+        rhi::shared_object<rhi::image_view> post_lut_view = {};
         // THE GOO REFERENCE'S PRE-INTEGRATED FGD LUT (`PreIntegratedFGD_GGXDisneyDiffuse.png`) IS THE SAME KIND OF
         // RESOURCE FOR THE SAME REASON: the heap holds a DESCRIPTOR, so an image the host lets go of leaves that
         // descriptor pointing at nothing. Uploaded ONCE by `set_goo_fgd_lut`, by the application, from the
@@ -500,9 +500,9 @@ namespace deren::engine {
         // the reference's image data-block is `colorspace = 'Non-Color'`, i.e. Blender does NOT linearize it, so
         // the node graph reads the texel's BYTES as the value. An `_SRGB` upload would decode every channel once
         // and move all three outputs of the group (spec §3.1 item 1).
-        std::shared_ptr<rhi::image> goo_fgd_image = {};
-        std::shared_ptr<rhi::image_view> goo_fgd_view = {};
-        std::shared_ptr<rhi::sampler> env_sampler = {};
+        rhi::shared_object<rhi::image> goo_fgd_image = {};
+        rhi::shared_object<rhi::image_view> goo_fgd_view = {};
+        rhi::shared_object<rhi::sampler> env_sampler = {};
         // ---- THE RENDERER'S OWN SAMPLER SET (③-D/E item C, abi 16) ----------------------------------
         // These six used to be the DEVICE ROOT's (`core::create_samplers`), and the engine read them by
         // dereferencing the backend's handles - the last thing that kept `vk_sampler::operator*` on the
@@ -514,12 +514,12 @@ namespace deren::engine {
         //
         // THE BACKEND KEEPS ITS OWN SIX CREATE INFOS for the sampler HEAP: a heap sampler is created by the
         // driver FROM a create info (VK_EXT_descriptor_heap), so the heap's six were never these objects.
-        std::shared_ptr<rhi::sampler> texture_sampler = {};
-        std::shared_ptr<rhi::sampler> gbuffer_sampler = {};
-        std::shared_ptr<rhi::sampler> taa_sampler = {};
-        std::shared_ptr<rhi::sampler> post_sampler = {};
-        std::shared_ptr<rhi::sampler> post_nearest_sampler = {};
-        std::shared_ptr<rhi::sampler> shadow_sampler = {};
+        rhi::shared_object<rhi::sampler> texture_sampler = {};
+        rhi::shared_object<rhi::sampler> gbuffer_sampler = {};
+        rhi::shared_object<rhi::sampler> taa_sampler = {};
+        rhi::shared_object<rhi::sampler> post_sampler = {};
+        rhi::shared_object<rhi::sampler> post_nearest_sampler = {};
+        rhi::shared_object<rhi::sampler> shadow_sampler = {};
         // GPU material table (set 0 binding 5): one material_record per entry (texture indices +
         // factors + flags); primitives only push their material_index. Host-visible, written at
         // registration, read-only for the GPU.
@@ -587,7 +587,7 @@ namespace deren::engine {
         /// Buffers a PASS asked for through `pass_context::create_upload_buffer` (the ray-traced shadow's shader
         /// binding table is the first): the owner keeps them for the generation, because the pass gets a handle
         /// and a device address, not an allocation it could free.
-        deren::utility::vessel::vector<std::shared_ptr<rhi::buffer>> pass_upload_buffers = {};
+        deren::utility::vessel::vector<rhi::shared_object<rhi::buffer>> pass_upload_buffers = {};
         void* instance_mapped = nullptr;
         uint32_t instance_cursor = 0;
         // previous-frame world matrices (scene block slot 13): ONE buffer per frame slot, host
@@ -638,7 +638,7 @@ namespace deren::engine {
         uint32_t active_slot = 0;
         bool ibl_ready = false;
         bool shared_heap_ready = true;
-        deren::utility::vessel::vector<std::shared_ptr<void const>> failed_shared_publication;
+        deren::utility::vessel::vector<deren::promise::rhi::shared_object<deren::promise::rhi::image>> failed_shared_publication;
 
         // ---- GPU pass timing (see gpu_mark / gpu_timing_summary) ----
         // Which pass boundaries a frame marks. The sequence is FIXED: a pass that does not record
@@ -1152,7 +1152,7 @@ namespace deren::engine {
          * `what` names the probe in the failure log (a probe that cannot record is a named line, never a silent
          * skip). Null means the session could not be opened, and the caller returns.
          */
-        [[nodiscard]] std::shared_ptr<rhi::command_buffer> make_probe_commands(std::string_view what);
+        [[nodiscard]] rhi::shared_object<rhi::command_buffer> make_probe_commands(std::string_view what);
         /**
          * @brief hand a PROBE's own command buffer to the queue, and answer whether the submit was accepted
          *
@@ -1393,8 +1393,8 @@ namespace deren::engine {
         // (level 1.0), and the unloaded-IBL path uses it as the type-correct CUBE placeholder. Its view covers
         // ALL SIX faces, which is the range that makes the backend answer a CUBE view for a `cube_compatible`
         // image: the same derivation the heap path uses, so this group adds no contract vocabulary.
-        std::shared_ptr<rhi::image> furnace_cube_image = {};
-        std::shared_ptr<rhi::image_view> furnace_cube_view = {};
+        rhi::shared_object<rhi::image> furnace_cube_image = {};
+        rhi::shared_object<rhi::image_view> furnace_cube_view = {};
         // THE ONE PER-FRAME-SLOT GROUP (③-D/E A1.2): the ray-traced sun visibility, one image per FRAME SLOT
         // - the rays are traced once per frame, not once per swapchain image (that reasoning moves here with
         // the creation). At the frame's render extent, R16F (one visibility factor per pixel), STORAGE for
@@ -1800,7 +1800,7 @@ namespace deren::engine {
          * same buffer in the other spelling would be dead code. The native-handle bridges
          * (`native_frame_commands()` / `native_handle()`) were removed with the escape (abi 42/43).
          */
-        [[nodiscard]] std::shared_ptr<rhi::command_buffer> frame_command_buffer() const noexcept;
+        [[nodiscard]] rhi::shared_object<rhi::command_buffer> frame_command_buffer() const noexcept;
         // per-frame state shared by the split frame steps (the frame steps call them in order,
         // so an external caller can interleave its own work between the same steps)
         uint32_t current_image_index = 0; // swapchain image acquired by pace_and_acquire()
@@ -2359,9 +2359,9 @@ namespace deren::engine {
         /// The six samplers `shared_samplers()` hands out (③-D/E item C): created through the contract, one
         /// `create_sampler()` per sampler, with the filters/compare the renderer's own sites need.
         void init_shared_samplers();
-        std::pair<std::shared_ptr<rhi::image>, std::shared_ptr<rhi::image_view>> create_shared_image(render_resource::resource_id id, rhi::image_desc desc);
-        std::shared_ptr<rhi::sampler> create_shared_sampler(render_resource::resource_id id, rhi::sampler_desc const& desc);
-        std::shared_ptr<rhi::buffer> create_shared_upload(std::span<std::byte const> bytes, rhi::buffer_flags flags);
+        std::pair<rhi::shared_object<rhi::image>, rhi::shared_object<rhi::image_view>> create_shared_image(render_resource::resource_id id, rhi::image_desc desc);
+        rhi::shared_object<rhi::sampler> create_shared_sampler(render_resource::resource_id id, rhi::sampler_desc const& desc);
+        rhi::shared_object<rhi::buffer> create_shared_upload(std::span<std::byte const> bytes, rhi::buffer_flags flags);
         /**
          * @brief reset every per-image flag that describes a swapchain GENERATION
          *
@@ -2665,7 +2665,7 @@ namespace deren::engine {
          *       readback staging buffer) are still created and destroyed by this runtime, in that order - the
          *       shared root only changes WHO owns the device, not who owns those
          */
-        explicit runtime(std::shared_ptr<rhi::api_core> core, deren::promise::rhi::create_info const& options = {});
+        explicit runtime(rhi::shared_object<rhi::api_core> core, deren::promise::rhi::create_info const& options = {});
 
         /**
          * @ingroup runtime
@@ -2709,7 +2709,7 @@ namespace deren::engine {
          * read back from the backend (the contract exposes no "the backend's clamped scale" accessor, and
          * one would be a contract addition for a number the caller already holds).
          */
-        runtime(deren::promise::rhi::create_info const& options, std::shared_ptr<rhi::api_core> shared_core, float clamped_render_scale);
+        runtime(deren::promise::rhi::create_info const& options, rhi::shared_object<rhi::api_core> shared_core, float clamped_render_scale);
 
         /**
          * @ingroup runtime

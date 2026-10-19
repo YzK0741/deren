@@ -106,7 +106,7 @@ namespace deren::engine::gaussian_splatting {
             return std::unexpected(bounds.error());
         return upload_asset(core, std::make_shared<packed_asset const>(asset), limits, {});
     }
-    std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core& core, std::shared_ptr<packed_asset const> source, foundation_limits const& limits, std::shared_ptr<deren::promise::rhi::api_core> device_lease) {
+    std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core& core, std::shared_ptr<packed_asset const> source, foundation_limits const& limits, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_lease) {
         if (!source || (device_lease && device_lease.get() != &core))
             return failure(error_code::invalid_argument, "Invalid Gaussian source or device lease");
         auto const& asset = *source;
@@ -196,7 +196,7 @@ namespace deren::engine::gaussian_splatting {
             }
             return rhi::error::ok;
         };
-        auto root = device_lease ? device_lease : std::shared_ptr<rhi::api_core>{&core, [](rhi::api_core*) {}};
+        auto root = device_lease ? device_lease : rhi::shared_object<rhi::api_core>::borrow(*&core);
         if (result->storage_chain.prepare_resources(root, {}, admit) != rhi::error::ok)
             return failure(admission_code, admission_message);
         result->storage_view = result->storage_chain.resources().snapshot();

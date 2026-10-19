@@ -67,7 +67,7 @@ namespace deren::engine::acceleration_structure {
 
     // ---- bottom level structure ---------------------------------------------------------------------------
 
-    bottom_level_structures::bottom_level_structures(rhi::api_core& face, std::shared_ptr<rhi::api_core> lease)
+    bottom_level_structures::bottom_level_structures(rhi::api_core& face, rhi::shared_object<rhi::api_core> lease)
         : contract(lease && lease.get() != &face ? nullptr : &face)
         , device_lease(std::move(lease)) {
     }
@@ -124,7 +124,7 @@ namespace deren::engine::acceleration_structure {
             structure = generation && generation->objects.size() == 1 ? generation->objects[0].structure.get() : nullptr;
             return structure && structure->device_address() && structure->size_bytes() ? rhi::error::ok : rhi::error::unsupported;
         };
-        auto root = device_lease ? device_lease : std::shared_ptr<rhi::api_core>{contract, [](rhi::api_core*) {}};
+        auto root = device_lease ? device_lease : rhi::shared_object<rhi::api_core>::borrow(*contract);
         if (item.storage_chain.prepare_resources(root, {}, admit) != rhi::error::ok) {
             return std::unexpected(deren::utility::vessel::string("acceleration structure: the backend could not create the bottom level structure "
                                                                   "(see its own log line for why)"));
@@ -178,7 +178,7 @@ namespace deren::engine::acceleration_structure {
     // Spelled exactly as the declaration in the module interface is: doxygen matches a definition against
     // its declaration by the written signature, and `std::uint32_t` here against `uint32_t` there made it
     // report "no matching class member found" for this one constructor (the only warning in the doc build).
-    top_level_structure::top_level_structure(rhi::api_core& face, uint32_t const frame_slot_count, std::shared_ptr<rhi::api_core> lease)
+    top_level_structure::top_level_structure(rhi::api_core& face, uint32_t const frame_slot_count, rhi::shared_object<rhi::api_core> lease)
         : contract(lease && lease.get() != &face ? nullptr : &face)
         , device_lease(std::move(lease))
         , max_instances(max_instances_of(face))
@@ -249,7 +249,7 @@ namespace deren::engine::acceleration_structure {
                     std::memcpy(records->mapped().data(), target.records->mapped().data(), used);
                 return rhi::error::ok;
             };
-            auto root = device_lease ? device_lease : std::shared_ptr<rhi::api_core>{contract, [](rhi::api_core*) {}};
+            auto root = device_lease ? device_lease : rhi::shared_object<rhi::api_core>::borrow(*contract);
             if (target.storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok)
                 return std::unexpected(deren::utility::vessel::string("acceleration structures: top level storage could not be prepared"));
             target.storage_view = target.storage_chain.resources().snapshot();

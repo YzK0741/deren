@@ -1482,17 +1482,15 @@ namespace deren::vulkan {
         return rhi::unique_object<rhi::image_view>{answer.release()};
     }
 
-    std::shared_ptr<deren::promise::rhi::image> core::owned_image::share() {
+    deren::promise::rhi::shared_object<deren::promise::rhi::image> core::owned_image::share() {
         std::lock_guard const lock(this->shared_owner_mutex);
         if (auto retained = this->shared_owner.lock()) {
             return retained;
         }
+        // THE ONE CONTROL BLOCK IS BUILT HERE: the extra reference it will drop is taken FIRST, so the
+        // shared handle's single `release()` balances it exactly; repeated share() calls reuse the block.
         this->references.fetch_add(1, std::memory_order_relaxed);
-        // On control-block allocation failure shared_ptr also calls this deleter,
-        // balancing the retained reference. Destruction stays inside the backend.
-        auto retained = std::shared_ptr<deren::promise::rhi::image>(this, [](deren::promise::rhi::image* value) {
-            value->release();
-        });
+        auto retained = deren::promise::rhi::shared_object<deren::promise::rhi::image>(this);
         this->shared_owner = retained;
         return retained;
     }
@@ -2021,19 +2019,14 @@ namespace deren::vulkan {
         return rhi::unique_object<rhi::command_buffer>{answer};
     }
 
-    std::shared_ptr<rhi::command_buffer> core::make_command_buffer(rhi::command_buffer_desc const& desc) {
+    rhi::shared_object<rhi::command_buffer> core::make_command_buffer(rhi::command_buffer_desc const& desc) {
         rhi::command_buffer* const raw = this->create_command_buffer(desc).release();
         if (raw == nullptr) {
             return {}; // the refusal was named where it happened; an empty shared_ptr is the same answer
         }
-        // THE CONTROL BLOCK OWNS THE DROP, and the drop IS `release()`: this introduces no second
-        // lifetime rule - it is the contract's one-reference drop, called from the deleter instead of
-        // from a call site.
-        return std::shared_ptr<rhi::command_buffer>(raw, [](rhi::command_buffer* const p) noexcept {
-            if (p != nullptr) {
-                p->release();
-            }
-        });
+        // THE CONTROL BLOCK OWNS THE DROP, and the drop IS `release()`: the one factory reference is
+        // the one the last shared copy drops - no second lifetime rule.
+        return rhi::shared_object<rhi::command_buffer>(raw);
     }
 
     // ---- abi 35: the mergeable command buffer (batch-only) -----------------------------------------
@@ -2073,11 +2066,7 @@ namespace deren::vulkan {
             std::lock_guard const lock(this->contract_mergeable_buffers_mutex);
             this->contract_mergeable_buffers.insert(raw_mergeable);
         }
-        return rhi::mergeable_command_buffer_ref(raw_mergeable, [](rhi::mergeable_command_buffer* const p) noexcept {
-            if (p != nullptr) {
-                p->release();
-            }
-        });
+        return rhi::mergeable_command_buffer_ref(raw_mergeable);
     }
 
     rhi::error core::submit(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) {

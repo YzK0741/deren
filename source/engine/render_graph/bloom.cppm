@@ -62,7 +62,7 @@ export namespace deren::engine::render_graph::bloom {
     public:
         using image_lease = resource_lease<execution::rhi::image>;
         [[nodiscard]] static std::expected<prepared_chain, execution::execution_error> prepare(
-            std::shared_ptr<execution::rhi::api_core> core, image_lease const& input,
+            execution::rhi::shared_object<execution::rhi::api_core> core, image_lease const& input,
             std::array<image_lease, level_count> const& levels, resource_state input_state,
             std::array<resource_state, level_count> const& level_states) {
             description desc{execution::identify(input), {}, input_state, level_states};

@@ -89,7 +89,7 @@ export namespace deren::engine::pass {
         render_resource::instances::resource_registry& resources() noexcept {
             return managed_resources;
         }
-        deren::promise::rhi::error prepare_resources(std::shared_ptr<deren::promise::rhi::api_core> const& device, render_resource::instances::resource_context const& context, render_resource::instances::resource_registry::admission const& accept = {}) {
+        deren::promise::rhi::error prepare_resources(deren::promise::rhi::shared_object<deren::promise::rhi::api_core> const& device, render_resource::instances::resource_context const& context, render_resource::instances::resource_registry::admission const& accept = {}) {
             deren::utility::vessel::vector<render_resource::instances::request> requests;
             for (auto* pass : passes)
                 pass->describe_resources(context, requests);

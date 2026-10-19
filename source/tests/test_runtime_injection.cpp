@@ -8,7 +8,7 @@
 // WHY THE HANDED-ROOT PATH IS THE EVIDENCE THE SPLIT IS REAL: before this batch the runtime loaded the
 // backend itself, so "the engine can be given a root" was not expressible - every engine test either
 // loaded the real DLL or could not build a runtime at all. Now the constructor takes
-// `std::shared_ptr<rhi::api_core>` plus the same `create_info`, and this test injects a PROBE core: the
+// `rhi::shared_object<rhi::api_core>` plus the same `create_info`, and this test injects a PROBE core: the
 // first time the engine uses the probe backend for something other than the loader's contract walk.
 //
 // WHAT A PROBE CAN AND CANNOT PROVE, MEASURED RATHER THAN ASSUMED: the constructor's FIRST act is the
@@ -249,7 +249,7 @@ namespace {
     /// the three rules the ability exists for, all observable before any engine material uses them.
     void check_descriptor_space_semantics() {
         rhi::create_info options{};
-        std::shared_ptr<rhi::api_core> core = deren::vk_test::probe_make_core(options, rhi::abi_version, true);
+        rhi::shared_object<rhi::api_core> core = deren::vk_test::probe_make_core(options, rhi::abi_version, true);
         CHECK(core != nullptr);
         if (core == nullptr)
             return;
@@ -1389,11 +1389,11 @@ int main(int const argc, char** const argv) {
         CHECK(chain.resources().snapshot().size() == 0);
         CHECK(chain.begin_frame(0) == rhi::error::ok);
         // Outstanding views keep both their generation and the device alive after callers drop the root.
-        std::weak_ptr<rhi::api_core> device_weak = root;
+        rhi::shared_object<rhi::api_core>::weak device_weak = root;
         root.reset();
         CHECK(!device_weak.expired());
         managed::resource_snapshot survivor;
-        std::weak_ptr<rhi::api_core> orphaned_device;
+        rhi::shared_object<rhi::api_core>::weak orphaned_device;
         {
             auto isolated_root = deren::vk_test::probe_make_core(creation, rhi::abi_version, true);
             orphaned_device = isolated_root;
@@ -1667,7 +1667,7 @@ int main(int const argc, char** const argv) {
     // ---- THE CHILDREN: each must die in the constructor, for its own reason ------------------------
     if (has_flag(argc, argv, mismatch_mode) || has_flag(argc, argv, empty_root_mode) ||
         has_flag(argc, argv, accepted_probe_mode)) {
-        std::shared_ptr<rhi::api_core> root;
+        rhi::shared_object<rhi::api_core> root;
         if (has_flag(argc, argv, mismatch_mode)) {
             root = deren::vk_test::probe_make_core(creation, rhi::abi_version + 1u); // a stale root
         } else if (has_flag(argc, argv, accepted_probe_mode)) {
@@ -1685,7 +1685,7 @@ int main(int const argc, char** const argv) {
     check_descriptor_space_semantics();
 
     // ---- 1. THE AGREEING PATH, IN-PROCESS ---------------------------------------------------------
-    std::shared_ptr<rhi::api_core> probe = deren::vk_test::probe_make_core(creation, rhi::abi_version);
+    rhi::shared_object<rhi::api_core> probe = deren::vk_test::probe_make_core(creation, rhi::abi_version);
     CHECK(probe != nullptr);
     if (probe == nullptr) {
         return deren::vk_test::finish("test_runtime_injection");

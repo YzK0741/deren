@@ -27,7 +27,7 @@
  * THE TWO FILTERS, and the line between them:
  *
  *  * `user_filter` - what the RUNTIME exposes to the application through its `operator->`. It holds a
- *    `std::shared_ptr<rhi::api_core>` (so it keeps the device alive while it exists) and forwards
+ *    `rhi::shared_object<rhi::api_core>` (so it keeps the device alive while it exists) and forwards
  *    `wait_idle()`, the one accessor a consumer actually calls. It used to forward the window, the
  *    swapchain's extent and format, the current frame, the device and the allocator as well; every one of
  *    those had zero callers.
@@ -77,7 +77,7 @@ export namespace deren::engine {
      * @ingroup engine_filters
      * @brief the application's view of the device root, exposed by `runtime::operator->`
      * @note
-     *      - holds a `std::shared_ptr<rhi::api_core>`, so it keeps the device alive while it exists and it
+     *      - holds a `rhi::shared_object<rhi::api_core>`, so it keeps the device alive while it exists and it
      *        is the SAME interface on both sides of the boundary (before the flip the vtable points into
      *        the static archive, after it into the loaded library)
      *      - the runtime exposes it via `operator->`, so external code never sees the raw device root
@@ -88,11 +88,11 @@ export namespace deren::engine {
         // called owner_share, not owner: the owner parameter of the constructor would hide a member of that name and
         // MSVC /W4 reports C4458, an error under /WX
         /// the share that keeps the device alive, and the interface pointer the one forwarded call goes through
-        std::shared_ptr<deren::promise::rhi::api_core> owner_share;
+        deren::promise::rhi::shared_object<deren::promise::rhi::api_core> owner_share;
         deren::promise::rhi::api_core* core_face = nullptr;
 
     public:
-        explicit user_filter(std::shared_ptr<deren::promise::rhi::api_core> owner) noexcept;
+        explicit user_filter(deren::promise::rhi::shared_object<deren::promise::rhi::api_core> owner) noexcept;
 
         /// the ring depth the engine sizes its per-slot arrays by. THIS STAYS, and it is why the contract
         /// import above is not an `export import`: the value is re-exported as this facade's own constant,

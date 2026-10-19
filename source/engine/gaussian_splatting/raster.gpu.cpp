@@ -65,7 +65,7 @@ namespace deren::engine::gaussian_splatting {
             }
         }
     } // namespace
-    std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(rhi::api_core& core, deren::gaussian::asset input, foundation_limits const& limits, std::shared_ptr<rhi::api_core> device_lease) {
+    std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(rhi::api_core& core, deren::gaussian::asset input, foundation_limits const& limits, rhi::shared_object<rhi::api_core> device_lease) {
         if (device_lease && device_lease.get() != &core)
             return failure(error_code::invalid_argument, "Gaussian asset device lease belongs to another core");
         // THE VIEWER'S OWN PROGRESS, at the two stages that can be slow or refuse: a 562,974-splat cloud is
@@ -88,7 +88,7 @@ namespace deren::engine::gaussian_splatting {
         result->geometry = std::move(packed_owner->geometry);
         return std::shared_ptr<raster_asset const>{std::move(result)};
     }
-    std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(rhi::api_core& core, std::span<raster_instance const> inputs, raster_camera const& camera, foundation_limits const& limits, raster_frame* const reuse, std::shared_ptr<rhi::api_core> device_lease) {
+    std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(rhi::api_core& core, std::span<raster_instance const> inputs, raster_camera const& camera, foundation_limits const& limits, raster_frame* const reuse, rhi::shared_object<rhi::api_core> device_lease) {
         if (device_lease && device_lease.get() != &core)
             return failure(error_code::invalid_argument, "Raster device lease belongs to another core");
         if (reuse && reuse->owner != &core)
@@ -313,7 +313,7 @@ namespace deren::engine::gaussian_splatting {
             if (!target->storage_provider)
                 target->storage_provider = &target->storage_chain.emplace<deren::engine::pass::buffer_storage_pass>();
             target->storage_provider->configure(requests);
-            auto root = target->device_lease ? target->device_lease : std::shared_ptr<rhi::api_core>{&core, [](rhi::api_core*) {}};
+            auto root = target->device_lease ? target->device_lease : rhi::shared_object<rhi::api_core>::borrow(*&core);
             if (target->storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok)
                 return failure(admission_code, admission_message);
             pending = target->storage_chain.resources().snapshot();

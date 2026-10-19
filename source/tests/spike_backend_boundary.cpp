@@ -254,7 +254,7 @@ namespace {
         // below, never spelled here, so a renumbering cannot silently pass this file.)
         rhi::create_info const creation{};
         rhi::error_info status{};
-        std::shared_ptr<rhi::api_core> const refused = make_core(rhi::abi_version + 1u, &creation, &status);
+        rhi::shared_object<rhi::api_core> const refused = make_core(rhi::abi_version + 1u, &creation, &status);
         CHECK(!refused); // an EMPTY shared_ptr is the refusal (abi 18), exactly as a null raw pointer was
         CHECK(status.code == rhi::error::abi_mismatch);
         // THE BACKEND'S OWN NUMBER IS THE DIAGNOSTIC'S `native_code` (abi 18): `deren_abi_version()` is
@@ -292,7 +292,7 @@ namespace {
 
         mark("calling deren_make_api_core (instance/device/swapchain/heap are built in here)");
         rhi::error_info status{};
-        std::shared_ptr<rhi::api_core> const core = make_core(rhi::abi_version, &creation, &status);
+        rhi::shared_object<rhi::api_core> const core = make_core(rhi::abi_version, &creation, &status);
         mark("deren_make_api_core returned");
         CHECK(status.code == rhi::error::ok);
         CHECK(core != nullptr);

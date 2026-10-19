@@ -216,7 +216,7 @@ namespace deren::vulkan {
         if (logical_device == VK_NULL_HANDLE)
             return fail(rhi::error::not_ready);
 
-        deren::utility::vessel::array<std::shared_ptr<rhi::image>, 16> images{};
+        deren::utility::vessel::array<rhi::shared_object<rhi::image>, 16> images{};
         {
             std::lock_guard lock(contract_images_mutex);
             // Validate every input before acquiring or allocating any group resources.
@@ -276,7 +276,7 @@ namespace deren::vulkan {
             return fail(status);
         if (result != nullptr)
             *result = rhi::error::ok;
-        return rhi::texture_group_ref(answer.release(), [](rhi::texture_group* group) { group->release(); });
+        return rhi::texture_group_ref(answer.release());
     }
 
     rhi::error core::frame_commands::load_texture_group(rhi::texture_group_ref const& group) {

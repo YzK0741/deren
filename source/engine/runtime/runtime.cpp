@@ -1396,7 +1396,7 @@ namespace deren::engine {
     // THE PASS LAYER still records into the frame's command buffer (its publishers speak resolved_io), so this
     // thin spelling adapts a borrowed contract buffer to the environment target the shared implementation takes.
     bool runtime::push_pass_stage_block(void* const owner, rhi::command_buffer& commands, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
-        std::shared_ptr<rhi::command_buffer> borrowed{&commands, [](rhi::command_buffer*) noexcept {}};
+        rhi::shared_object<rhi::command_buffer> borrowed = rhi::shared_object<rhi::command_buffer>::borrow(commands);
         return runtime::push_stage_block(owner, recording_target(std::move(borrowed)), bytes, extra_lane);
     }
 
@@ -1422,12 +1422,12 @@ namespace deren::engine {
 
     bool runtime::push_index_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
         runtime* const self = static_cast<runtime*>(owner);
-        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, recording_target(std::shared_ptr<rhi::command_buffer>(&command_buffer, [](rhi::command_buffer*) noexcept {})), bytes, extra_lane, 2u);
+        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, recording_target(rhi::shared_object<rhi::command_buffer>::borrow(command_buffer)), bytes, extra_lane, 2u);
     }
 
     bool runtime::push_raw_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes) {
         runtime* const self = static_cast<runtime*>(owner);
-        return push_with_lanes(self->rhi_face(), 0u, 0u, recording_target(std::shared_ptr<rhi::command_buffer>(&command_buffer, [](rhi::command_buffer*) noexcept {})), bytes, 0u, 0u);
+        return push_with_lanes(self->rhi_face(), 0u, 0u, recording_target(rhi::shared_object<rhi::command_buffer>::borrow(command_buffer)), bytes, 0u, 0u);
     }
 
     // ---- the MESH session's endpoints (docs/mesh_shaders.md step 1): what a draw without an input assembler
@@ -1737,7 +1737,7 @@ namespace deren::engine {
     void runtime::structure_record_mask_bake(void* const owner, rhi::command_buffer& command_buffer, pass::mask_bake_request const& request) {
         // Bake and structure commands must target this frame's same contract buffer.
         runtime& self = *static_cast<runtime*>(owner);
-        std::shared_ptr<rhi::command_buffer> const commands = self.frame_command_buffer();
+        rhi::shared_object<rhi::command_buffer> const commands = self.frame_command_buffer();
         if (!commands || commands.get() != &command_buffer) {
             deren::utility::log("mask bake: the structure hook was called with a command buffer that is not this frame's primary - the bake is skipped");
             return;
@@ -1752,7 +1752,7 @@ namespace deren::engine {
     bool runtime::structure_record_skin(void* const owner, rhi::command_buffer& command_buffer, std::span<ray_tracing::caster_level const> const casters) {
         // Skin dispatches must share the structure build's recording target.
         runtime& self = *static_cast<runtime*>(owner);
-        std::shared_ptr<rhi::command_buffer> const commands = self.frame_command_buffer();
+        rhi::shared_object<rhi::command_buffer> const commands = self.frame_command_buffer();
         if (!commands || commands.get() != &command_buffer) {
             deren::utility::log("compute skin: the structure hook was called with a command buffer that is not this frame's primary - the skin dispatches are skipped");
             return false;

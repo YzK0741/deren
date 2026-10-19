@@ -142,7 +142,7 @@ int main() {
         CHECK(!execute::prepared_graph::prepare(core, std::move(buffer_plan), buffer_bindings));
     }
     auto token = ready->retention();
-    std::weak_ptr<rhi::api_core> weak = core;
+    rhi::shared_object<rhi::api_core>::weak weak = core;
     ready = std::unexpected(execute::execution_error{rhi::error::operation_failed});
     bindings[0] = deren::engine::resource_lease<rhi::image>{};
     duplicate = {};

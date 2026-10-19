@@ -87,7 +87,7 @@ export namespace deren::engine::render_resource::instances {
         deren::utility::vessel::vector<rhi::unique_object<rhi::image_view>> layers;
     };
     struct generation {
-        std::shared_ptr<rhi::api_core> device; // destroyed after all owned objects
+        rhi::shared_object<rhi::api_core> device; // destroyed after all owned objects
         uint64_t version = 0;
         request description{};
         deren::utility::vessel::vector<resource_instance> objects;
@@ -124,7 +124,7 @@ export namespace deren::engine::render_resource::instances {
         }
     };
     class resource_registry {
-        std::shared_ptr<rhi::api_core> device_owner;
+        rhi::shared_object<rhi::api_core> device_owner;
         std::shared_ptr<resource_set const> active;
         uint64_t next_version = 1;
 
@@ -139,7 +139,7 @@ export namespace deren::engine::render_resource::instances {
         // Admission inspects a complete, unused candidate before it becomes visible to passes.
         // Rejection preserves the active generations, including the cached-reuse case.
         using admission = std::function<rhi::error(resource_snapshot const&)>;
-        rhi::error reconcile(std::shared_ptr<rhi::api_core> const& device, resource_context const& context, std::span<request const> requests, admission const& accept = {}) {
+        rhi::error reconcile(rhi::shared_object<rhi::api_core> const& device, resource_context const& context, std::span<request const> requests, admission const& accept = {}) {
             if (!device || context.frame_slots == 0 || context.output_images == 0)
                 return rhi::error::invalid_argument;
             deren::utility::vessel::map<resource_id, request> desired;

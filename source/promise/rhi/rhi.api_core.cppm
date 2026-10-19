@@ -23,7 +23,7 @@
 //     call as "the memory is free now" - nor touch the handle afterwards;
 //   - a BORROWED view (`frame_image()`, `frame_readback_buffer()`, `begin_commands()`)
 //     holds no reference at all and must never be managed;
-//   - the engine builds `std::shared_ptr<api_core>(raw, &deren_destroy_api_core)`
+//   - the engine builds `shared_object<api_core>(raw, &deren_destroy_api_core)`
 //     (or the pointer it resolved from the loaded library) - never the default
 //     deleter, which would free DLL memory with the executable's allocator;
 //   - `abilities()` is the tier-2 bit set (source/promise/rhi/rhi.extension.cppm) and
@@ -951,7 +951,7 @@ export namespace deren::promise::rhi {
         /// The api_core and backend library must outlive all strong and weak resource references.
         /// While shared references exist, repeated calls use the same control block.
         /// Use this instead of constructing an independent shared_ptr from a raw image.
-        [[nodiscard]] virtual std::shared_ptr<image> share() {
+        [[nodiscard]] virtual shared_object<image> share() {
             return {};
         }
     };
@@ -969,7 +969,7 @@ export namespace deren::promise::rhi {
         /// Drop the view, including its retained parent reference after native view destruction.
         virtual void release() noexcept = 0;
         /// Copy the parent owner; empty for borrowed swapchain images or unsupported backends.
-        [[nodiscard]] virtual std::shared_ptr<image> get_image() const noexcept {
+        [[nodiscard]] virtual shared_object<image> get_image() const noexcept {
             return {};
         }
     };
@@ -1502,7 +1502,7 @@ export namespace deren::promise::rhi {
     /// The batch-only recording handle (defined after command_buffer): forward-declared here so the
     /// recording interface can name the batch its xecute() merges.
     struct mergeable_command_buffer;
-    using mergeable_command_buffer_ref = std::shared_ptr<mergeable_command_buffer>;
+    using mergeable_command_buffer_ref = shared_object<mergeable_command_buffer>;
 
     /// Immutable sampled 2D slots. The device and backend must outlive all references.
     struct texture_group : object {
@@ -1512,7 +1512,7 @@ export namespace deren::promise::rhi {
         virtual ~texture_group() noexcept = default;
         virtual void release() noexcept = 0;
     };
-    using texture_group_ref = std::shared_ptr<texture_group>;
+    using texture_group_ref = shared_object<texture_group>;
 
     struct command_buffer : object {
 
@@ -1906,7 +1906,7 @@ export namespace deren::promise::rhi {
         }
     };
 
-    using mergeable_command_buffer_ref = std::shared_ptr<mergeable_command_buffer>;
+    using mergeable_command_buffer_ref = shared_object<mergeable_command_buffer>;
     /// What starting a frame hands back.
     ///
     /// §3.3 fixes the name and the fact that it is a value, not a handle; the fields the
@@ -2045,6 +2045,10 @@ export namespace deren::promise::rhi {
             : object(name) {
         }
         virtual ~api_core() noexcept = default;
+
+        /// DROP THE CALLER'S ONE REFERENCE TO THE ROOT (abi 44): the entry hands the root over as a
+        /// `shared_object<api_core>`, whose last copy performs this call (for the root, destruction).
+        virtual void release() noexcept = 0;
 
         /// tier-2: the abilities this backend SERVES THROUGH THIS CONTRACT, as `extension_kind`
         /// bits. Queried once at startup, then compared against what the passes need (§3.6).
@@ -2185,7 +2189,7 @@ export namespace deren::promise::rhi {
         /// deleter, so the last reference destroys the session inside the backend and NO call site needs
         /// a `release()`. An EMPTY pointer is the named refusal (the descriptor this backend cannot
         /// serve), exactly as `create_command_buffer` answers `nullptr`.
-        [[nodiscard]] virtual std::shared_ptr<command_buffer> make_command_buffer(command_buffer_desc const& desc) = 0;
+        [[nodiscard]] virtual shared_object<command_buffer> make_command_buffer(command_buffer_desc const& desc) = 0;
 
         /// THE OBJECT'S OWN ABI NUMBER, ASKED OF THE OBJECT (abi 19).
         ///

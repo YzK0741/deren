@@ -52,7 +52,7 @@ namespace {
     }
 
     /// THE COMMAND BUFFER'S STAND-IN (the merged recording face): `resolved_io::cmd` is a
-    /// `std::shared_ptr<rhi::command_buffer>` now, and the one thing this test asserts about it is
+    /// `rhi::shared_object<rhi::command_buffer>` now, and the one thing this test asserts about it is
     /// IDENTITY - the host hands the frame's buffer down and the pass reads back what it was given -
     /// so the stand-in exists to BE that object and records nothing. It is not a device, and every
     /// verb that would need one is a no-op; the two timing verbs answer `unsupported`, the honest
@@ -311,7 +311,7 @@ namespace {
 
     /// fake handles, so a resolved pass can be told apart from an unresolved one without a device
     /// (not `constexpr`: a handle comes from `reinterpret_cast`, which is not a constant expression)
-    std::shared_ptr<deren::promise::rhi::command_buffer> const fake_cmd = std::make_shared<contract_command_buffer>();
+    deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer> const fake_cmd = std::make_shared<contract_command_buffer>();
     class contract_sampler final : public deren::promise::rhi::sampler {
     public:
         contract_sampler() noexcept
@@ -421,7 +421,7 @@ namespace {
             state_ptr->log.emplace_back(deren::utility::vessel::string("recreate:") + deren::utility::vessel::string(io_decl.name));
         }
 
-        std::shared_ptr<deren::promise::rhi::command_buffer> last_cmd = {};
+        deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer> last_cmd = {};
         std::size_t last_pipelines = 0;
         std::size_t last_push_size = 0;
         deren::promise::rhi::image_extent last_extent = {};
@@ -564,8 +564,8 @@ int32_t main() {
                 first.end_result = rhi::error::operation_failed;
             if (failure == 3)
                 commands.execute_result = rhi::error::operation_failed;
-            rhi::mergeable_command_buffer_ref const first_ref(&first, [](rhi::mergeable_command_buffer*) noexcept {});
-            rhi::mergeable_command_buffer_ref const second_ref(&second, [](rhi::mergeable_command_buffer*) noexcept {});
+            rhi::mergeable_command_buffer_ref const first_ref = rhi::shared_object<rhi::mergeable_command_buffer>::borrow(first);
+            rhi::mergeable_command_buffer_ref const second_ref = rhi::shared_object<rhi::mergeable_command_buffer>::borrow(second);
             std::array<segment_buffer, 2> segments{{{first_ref}, {second_ref}}};
             scene_frame frame{.leaves = parallel ? std::span<deren::engine::primitive const* const>(leaves) : std::span<deren::engine::primitive const* const>(leaves).first(1),
                               .segments = parallel ? std::span<segment_buffer const>(segments) : std::span<segment_buffer const>(segments).first(1),

@@ -319,10 +319,19 @@ namespace deren::vulkan {
      * created through it, so a creation site can hand out a reference-counted handle to the device it is
      * building on. It does NOT mean a `core` must be heap-allocated: nothing calls `shared_from_this()` yet.
      */
-    export struct core : deren::promise::rhi::api_core, deren::utility::enable_stack_destruct, std::enable_shared_from_this<core> {
+    export struct core : deren::promise::rhi::api_core, deren::utility::enable_stack_destruct {
         // creation options this core was built with (window size, vsync); the window and the
         // swap chain honor them
         deren::promise::rhi::create_info create_options = {};
+        /// THE ROOT'S OWN SHARED CONTROL (abi 44): the entry hands the root out as a
+        /// `shared_object<api_core>`; frame-owned state keeps the root alive by locking this weak handle.
+        deren::promise::rhi::shared_object<deren::promise::rhi::api_core>::weak self_owner;
+        /// the entry's hand-off: remember the control block the root was handed out under
+        void attach_self(deren::promise::rhi::shared_object<deren::promise::rhi::api_core> const& root) noexcept {
+            this->self_owner = root;
+        }
+        /// DROP THE ROOT (abi 44): the last shared handle destroys the object the entry allocated.
+        void release() noexcept override;
 
         // ---- S2 BATCH 2: THE RECORDING SURFACE, THE FRAME'S VIEWS AND THE ESCAPE --------------------
         //
@@ -653,11 +662,16 @@ namespace deren::vulkan {
         };
 
         // A snapshot owns its core, while the core only caches a weak reference to it.
-        struct frame_snapshot final : deren::promise::rhi::image, std::enable_shared_from_this<frame_snapshot> {
+        struct frame_snapshot final : deren::promise::rhi::image {
             frame_snapshot() noexcept
                 : deren::promise::rhi::image(concrete::frame_snapshot) {
             }
-            std::shared_ptr<core> owner;
+            /// the concrete core (its frame state is what `current()` asks about)...
+            core* owner = nullptr;
+            /// ...kept alive by the root handle this snapshot was made under
+            deren::promise::rhi::shared_object<deren::promise::rhi::api_core> keep_alive;
+            /// this snapshot's own control block, so `share()` hands out the SAME one
+            deren::promise::rhi::shared_object<frame_snapshot>::weak self;
             VkImage native_handle = VK_NULL_HANDLE;
             deren::promise::rhi::image_extent captured_extent{};
             deren::promise::rhi::image_format captured_format = deren::promise::rhi::image_format::unknown;
@@ -672,8 +686,8 @@ namespace deren::vulkan {
                 return captured_format;
             }
             [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::image_view> make_view(deren::promise::rhi::image_view_desc const&) override;
-            [[nodiscard]] std::shared_ptr<deren::promise::rhi::image> share() override {
-                return shared_from_this();
+            [[nodiscard]] deren::promise::rhi::shared_object<deren::promise::rhi::image> share() override {
+                return this->self.lock();
             }
             [[nodiscard]] std::expected<deren::promise::rhi::image_content, deren::promise::rhi::error> get_content(deren::promise::rhi::image_copy_region const&) const override;
             void release() noexcept override;
@@ -683,10 +697,10 @@ namespace deren::vulkan {
                 : deren::promise::rhi::frame_resources(concrete::frame_resources) {
             }
             core* owner = nullptr;
-            [[nodiscard]] std::shared_ptr<deren::promise::rhi::image> retain_image() noexcept override;
+            [[nodiscard]] deren::promise::rhi::shared_object<deren::promise::rhi::image> retain_image() noexcept override;
         };
         frame_resources_view frame_resources;
-        std::weak_ptr<frame_snapshot> frame_snapshot_cache;
+        deren::promise::rhi::shared_object<frame_snapshot>::weak frame_snapshot_cache;
         deren::utility::vessel::unordered_set<deren::promise::rhi::image const*> frame_snapshots;
         std::uint64_t frame_acquire_epoch = 0;
 
@@ -918,7 +932,7 @@ namespace deren::vulkan {
             }
             std::atomic<std::uint32_t> references{1}; // factory ownership + shared control blocks
             std::mutex shared_owner_mutex;
-            std::weak_ptr<deren::promise::rhi::image> shared_owner;
+            deren::promise::rhi::shared_object<deren::promise::rhi::image>::weak shared_owner;
             /// the core that created this image: `make_view()` needs the device, and every owned
             /// object that calls back into the backend carries its owner (the shape `frame_escape`
             /// and `buffer_address_view` use)
@@ -948,7 +962,7 @@ namespace deren::vulkan {
             [[nodiscard]] ::deren::promise::rhi::image_extent extent() const noexcept override;
             [[nodiscard]] deren::promise::rhi::image_format format() const noexcept override;
             [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::image_view> make_view(deren::promise::rhi::image_view_desc const& desc) override;
-            [[nodiscard]] std::shared_ptr<deren::promise::rhi::image> share() override;
+            [[nodiscard]] deren::promise::rhi::shared_object<deren::promise::rhi::image> share() override;
             /// abi 25's read-back: the image's CONTENT in host memory, performed by the IMPLEMENTATION
             /// (`vkCopyImageToMemoryEXT`) - no staging buffer, no copy command, no submission. It refuses with
             /// the contract's named `unsupported` when the descriptor did not declare
@@ -966,7 +980,7 @@ namespace deren::vulkan {
             owned_image_view() noexcept
                 : deren::promise::rhi::image_view(concrete::image_view) {
             }
-            std::shared_ptr<deren::promise::rhi::image> parent_image;
+            deren::promise::rhi::shared_object<deren::promise::rhi::image> parent_image;
             VkImageView native_view = VK_NULL_HANDLE;
             /// the device the view was created on; the destructor needs it and the object must not
             /// outlive the core it came from (the core's own cleanup order guarantees that)
@@ -975,7 +989,7 @@ namespace deren::vulkan {
             /// the `VkImageView` is a raw handle with no RAII owner of its own, so the view's
             /// destruction is this object's destructor
             ~owned_image_view() noexcept override;
-            [[nodiscard]] std::shared_ptr<deren::promise::rhi::image> get_image() const noexcept override {
+            [[nodiscard]] deren::promise::rhi::shared_object<deren::promise::rhi::image> get_image() const noexcept override {
                 return parent_image;
             }
             /// give the view back: `delete this`, whose destructor destroys the `VkImageView`
@@ -1548,7 +1562,7 @@ namespace deren::vulkan {
         /// abi 21: THE SAME OWNED HANDLE, handed over as a `shared_ptr` - the control block owns the
         /// deleter, so no call site spells `release()`. Empty = the same refusal
         /// `create_command_buffer()` reports as `nullptr` (logged there, once per call site).
-        [[nodiscard]] std::shared_ptr<deren::promise::rhi::command_buffer> make_command_buffer(deren::promise::rhi::command_buffer_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer> make_command_buffer(deren::promise::rhi::command_buffer_desc const& desc) override;
 
         VkSurfaceKHR surface = VK_NULL_HANDLE;
 

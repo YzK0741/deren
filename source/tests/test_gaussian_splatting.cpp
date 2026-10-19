@@ -292,6 +292,8 @@ struct probe_address : rhi::device_address {
     }
 };
 struct upload_probe : rhi::api_core {
+    void release() noexcept override {
+    }
     bool supported = true;
     unsigned fail_at = 0, calls = 0, undersized_at = 0;
     int releases = 0;
@@ -387,7 +389,7 @@ struct upload_probe : rhi::api_core {
     rhi::unique_object<rhi::command_buffer> create_command_buffer(rhi::command_buffer_desc const&) override {
         return nullptr;
     }
-    std::shared_ptr<rhi::command_buffer> make_command_buffer(rhi::command_buffer_desc const&) override {
+    rhi::shared_object<rhi::command_buffer> make_command_buffer(rhi::command_buffer_desc const&) override {
         return {};
     }
     std::uint32_t api_version() const noexcept override {
@@ -571,7 +573,7 @@ void test_owned_upload() {
     std::weak_ptr<upload_probe> root = device;
     auto packed = std::make_shared<gs::packed_asset const>(*gs::pack_asset(sample()));
     std::weak_ptr<gs::packed_asset const> source = packed;
-    auto asset = gs::upload_asset(*device, packed, {}, device);
+    auto asset = gs::upload_asset(*device, packed, {}, rhi::shared_object<rhi::api_core>{device});
     CHECK(asset);
     if (!asset)
         return;
@@ -594,7 +596,7 @@ void test_owned_upload() {
     upload_probe other;
     auto unrelated = std::make_shared<upload_probe>();
     auto input = std::make_shared<gs::packed_asset const>(*gs::pack_asset(sample()));
-    auto refused = gs::upload_asset(other, input, {}, unrelated);
+    auto refused = gs::upload_asset(other, input, {}, rhi::shared_object<rhi::api_core>{unrelated});
     CHECK(!refused && refused.error().code == gs::error_code::invalid_argument && other.calls == 0);
     auto missing = gs::upload_asset(other, std::shared_ptr<gs::packed_asset const>{});
     CHECK(!missing && missing.error().code == gs::error_code::invalid_argument && other.calls == 0);

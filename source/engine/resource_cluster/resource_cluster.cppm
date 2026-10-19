@@ -13,13 +13,18 @@ export namespace deren::engine {
     namespace resource_cluster_detail {
         template <typename T>
         struct owner {
-            std::shared_ptr<deren::promise::rhi::api_core> device;
+            deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device;
             std::shared_ptr<void const> dependency;
             deren::promise::rhi::unique_object<T> object; // Release before dependency and device.
-            owner(std::shared_ptr<deren::promise::rhi::api_core> core, T* resource, std::shared_ptr<void const> parent)
+            deren::promise::rhi::shared_object<T> shared; // The shared handle this lease aliases.
+            owner(deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core, T* resource, std::shared_ptr<void const> parent)
                 : device(std::move(core))
                 , dependency(std::move(parent))
                 , object(resource) {
+            }
+            owner(deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core, deren::promise::rhi::shared_object<T> handle)
+                : device(std::move(core))
+                , shared(std::move(handle)) {
             }
         };
     } // namespace resource_cluster_detail
@@ -45,13 +50,13 @@ export namespace deren::engine {
         /// Retain an existing shared owner (including an aliasing generation owner).
         /// The caller supplies the owning core; consumers still validate resource provenance.
         [[nodiscard]] static resource_lease from_shared(
-            std::shared_ptr<deren::promise::rhi::api_core> core, std::shared_ptr<T> owned) {
+            deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core, deren::promise::rhi::shared_object<T> owned) {
             if (!core || !owned)
                 return {};
             resource_lease result;
             result.resource = owned.get();
             result.value = std::allocate_shared<resource_cluster_detail::owner<T>>(
-                deren::utility::memory::allocator<resource_cluster_detail::owner<T>>{}, std::move(core), nullptr, std::move(owned));
+                deren::utility::memory::allocator<resource_cluster_detail::owner<T>>{}, std::move(core), std::move(owned));
             return result;
         }
         [[nodiscard]] deren::promise::rhi::api_core* device() const noexcept {
@@ -71,7 +76,7 @@ export namespace deren::engine {
         struct construction_key {
             explicit construction_key() = default;
         };
-        std::shared_ptr<deren::promise::rhi::api_core> core;
+        deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core;
         deren::utility::vessel::string label;
         deren::utility::vessel::vector<std::shared_ptr<void const>> members;
 
@@ -87,7 +92,7 @@ export namespace deren::engine {
 
     public:
         // Pass-key constructor is public only for allocate_shared; creation checks the device first.
-        resource_cluster(construction_key, std::shared_ptr<deren::promise::rhi::api_core> device, std::string_view name)
+        resource_cluster(construction_key, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device, std::string_view name)
             : core(std::move(device))
             , label(name) {
         }
@@ -100,7 +105,7 @@ export namespace deren::engine {
                 members.pop_back();
         }
         [[nodiscard]] static std::shared_ptr<resource_cluster> create(
-            std::shared_ptr<deren::promise::rhi::api_core> device, std::string_view name = {}) {
+            deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device, std::string_view name = {}) {
             if (!device)
                 return {};
             return std::allocate_shared<resource_cluster>(deren::utility::memory::allocator<resource_cluster>{},

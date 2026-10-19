@@ -90,7 +90,7 @@ int main() {
         return deren::vk_test::finish("test_render_graph_bloom");
     (void)core->frame_begin();
     auto commands = core->begin_commands();
-    auto command_owner = std::shared_ptr<rhi::command_buffer>(core, commands);
+    auto command_owner = rhi::shared_object<rhi::command_buffer>(core, commands);
     test_pipeline pipeline;
     std::array<rhi::pipeline*, 1> pipelines{&pipeline};
     unsigned calls = 0;

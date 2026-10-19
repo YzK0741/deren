@@ -89,7 +89,7 @@ namespace deren::engine {
         if (index >= rhi::max_swapchain_images)
             return rhi::error::invalid_argument;
         auto frames = rhi::query_extension<rhi::frame_resources>(this->rhi_face());
-        auto frame = frames ? frames->retain_image() : nullptr;
+        rhi::shared_object<rhi::image> frame = frames ? frames->retain_image() : rhi::shared_object<rhi::image>{};
         if (!frame)
             return rhi::error::not_ready;
         this->post_graph_output = lease::from_shared(this->core_owner, frame);
@@ -134,7 +134,7 @@ namespace deren::engine {
                              graph::memory_access::read | graph::memory_access::write};
                 this->bloom_graph_pending_generations[pending] = generation;
             }
-            return lease::from_shared(this->core_owner, std::shared_ptr<rhi::image>{std::move(generation), image});
+            return lease::from_shared(this->core_owner, rhi::shared_object<rhi::image>{std::move(generation), image});
         };
         auto input = retain(0, graph::invalid_index, input_state);
         if (!input || input.get() != this->hdr_images[index].get())
@@ -325,7 +325,7 @@ namespace deren::engine {
                 auto* indices = indices_generation->objects[slot].buffer.get();
                 if (!counts || !indices)
                     return rhi::error::not_ready;
-                auto counts_lease = resource_lease<rhi::buffer>::from_shared(this->core_owner, std::shared_ptr<rhi::buffer>{std::move(counts_generation), counts});
+                auto counts_lease = resource_lease<rhi::buffer>::from_shared(this->core_owner, rhi::shared_object<rhi::buffer>{std::move(counts_generation), counts});
                 auto counts_import =
                     build.import_buffer(counts_lease,
                                         {graph::initial_contents::defined,
@@ -333,7 +333,7 @@ namespace deren::engine {
                                         "cluster counts");
                 if (!counts_import)
                     return post_build_error(counts_import.error());
-                auto indices_lease = resource_lease<rhi::buffer>::from_shared(this->core_owner, std::shared_ptr<rhi::buffer>{std::move(indices_generation), indices});
+                auto indices_lease = resource_lease<rhi::buffer>::from_shared(this->core_owner, rhi::shared_object<rhi::buffer>{std::move(indices_generation), indices});
                 auto indices_import = build.import_buffer(indices_lease, {}, "cluster indices");
                 if (!indices_import)
                     return post_build_error(indices_import.error());
@@ -353,7 +353,7 @@ namespace deren::engine {
                 if (shadow_generation && shadow_generation->device.get() == this->core_owner.get() && slot < shadow_generation->objects.size()) {
                     auto* shadow_image = shadow_generation->objects[slot].image.get();
                     if (shadow_image) {
-                        auto shadow_lease = lease::from_shared(this->core_owner, std::shared_ptr<rhi::image>{std::move(shadow_generation), shadow_image});
+                        auto shadow_lease = lease::from_shared(this->core_owner, rhi::shared_object<rhi::image>{std::move(shadow_generation), shadow_image});
                         graph::execution::import_state const shadow_import =
                             this->graph_shadow_frame
                                 ? graph::execution::import_state{graph::initial_contents::undefined, {}}
@@ -415,7 +415,7 @@ namespace deren::engine {
                 auto* buffer = generation->objects[entry.instance].buffer.get();
                 if (!buffer || buffer != entry.expected)
                     return rhi::error::invalid_argument;
-                auto retained_buffer = resource_lease<rhi::buffer>::from_shared(this->core_owner, std::shared_ptr<rhi::buffer>{std::move(generation), buffer});
+                auto retained_buffer = resource_lease<rhi::buffer>::from_shared(this->core_owner, rhi::shared_object<rhi::buffer>{std::move(generation), buffer});
                 auto imported = build.import_buffer(retained_buffer, {graph::initial_contents::defined, {graph::resource_layout::general, entry.stages, entry.access}}, entry.name);
                 if (!imported)
                     return post_build_error(imported.error());
@@ -439,7 +439,7 @@ namespace deren::engine {
                 auto* rt_image = rt_generation->objects[rt_slot].image.get();
                 if (!rt_image || !this->rt_shadow_image_views[rt_slot] || rt_image != this->rt_shadow_images[rt_slot].get())
                     return rhi::error::not_ready;
-                auto rt_lease = lease::from_shared(this->core_owner, std::shared_ptr<rhi::image>{std::move(rt_generation), rt_image});
+                auto rt_lease = lease::from_shared(this->core_owner, rhi::shared_object<rhi::image>{std::move(rt_generation), rt_image});
                 if (!rt_lease)
                     return rhi::error::not_ready;
                 graph::execution::import_state const rt_import{

@@ -202,6 +202,10 @@ namespace deren::vulkan {
         return result;
     }
 
+    void core::release() noexcept {
+        delete this; // the entry allocated the root; the last shared handle destroys it
+    }
+
     void core::to_next_frame() noexcept {
         frame_in_flight = false;
         this->commands_view.set_target(VK_NULL_HANDLE);

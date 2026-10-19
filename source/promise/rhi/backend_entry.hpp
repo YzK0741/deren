@@ -94,7 +94,7 @@ extern "C" {
 /// inside the image that made it, whenever the last reference goes - the engine holds it as its
 /// runtime's device root. A null return is the contract's "no context for you" and never a half-built
 /// one: an internal failure is the backend's own named panic (its startup rule).
-DEREN_API_EXPORT std::shared_ptr<deren::promise::rhi::api_core>
+DEREN_API_EXPORT deren::promise::rhi::shared_object<deren::promise::rhi::api_core>
 deren_make_api_core(std::uint32_t abi_version, deren::promise::rhi::create_info const* desc,
                     deren::promise::rhi::error_info* out_error_info);
 
@@ -103,9 +103,9 @@ deren_make_api_core(std::uint32_t abi_version, deren::promise::rhi::create_info 
 /// The entry's C++ type, so a host that resolves the symbol BY NAME can name what it resolved
 /// (the runtime's loader does: `reinterpret_cast<deren_make_api_core_fn>(address)`). Kept in this
 /// header, beside the declaration it must match - a second spelling elsewhere would drift silently.
-using deren_make_api_core_fn = std::shared_ptr<deren::promise::rhi::api_core> (*)(std::uint32_t,
-                                                                                  deren::promise::rhi::create_info const*,
-                                                                                  deren::promise::rhi::error_info*);
+using deren_make_api_core_fn = deren::promise::rhi::shared_object<deren::promise::rhi::api_core> (*)(std::uint32_t,
+                                                                                                     deren::promise::rhi::create_info const*,
+                                                                                                     deren::promise::rhi::error_info*);
 
 #if defined(__clang__)
 #pragma clang diagnostic pop
