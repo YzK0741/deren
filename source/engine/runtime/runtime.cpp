@@ -381,7 +381,8 @@ namespace deren::engine {
             if (profiler.get_stage_info(interval, nullptr, &duration_ns) != rhi::error::ok) {
                 break; // a read-back failure answers device_lost: report what measured, nothing fake
             }
-            this->gpu_timing_sum[interval] += static_cast<double>(duration_ns) * 1.0e-6; // ns -> ms
+            this->gpu_timing_sum[interval] += static_cast<double>(duration_ns) * 1.0e-6;   // ns -> ms
+            this->gpu_timing_total[interval] += static_cast<double>(duration_ns) * 1.0e-6; // ns -> ms
             sample[interval] = static_cast<double>(duration_ns) * 1.0e-6;
             ++measured;
         }
@@ -389,6 +390,7 @@ namespace deren::engine {
         if (measured == 0) {
             return; // the same no-data early return the raw VkResult path had: no window accounting
         }
+        ++this->gpu_timing_total_frames; // a measured frame, for the shutdown average
         if (auto const* path = std::getenv("DEREN_GAUSSIAN_BENCHMARK")) {
             if (!this->gaussian_benchmark.is_open()) {
                 this->gaussian_benchmark.open(path);
@@ -405,28 +407,37 @@ namespace deren::engine {
                 this->gaussian_benchmark << '\n';
             }
         }
-        if (++this->gpu_timing_window_frames < GPU_TIMING_WINDOW) {
+        if (this->gpu_timing_window_frames++ == 0) {
+            this->gpu_timing_window_start = std::chrono::steady_clock::now();
+        }
+        double const window_seconds =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - this->gpu_timing_window_start).count();
+        if (window_seconds < GPU_TIMING_WINDOW_SECONDS) {
             return;
         }
+        uint32_t const window_frames = this->gpu_timing_window_frames;
 
         // window complete: report the means (the label keeps reading the running mean, so this only
         // snapshots and resets) and start over
         double total = 0.0;
-        deren::utility::vessel::string report = deren::utility::vessel::format("gpu pass timings (avg of {} frames):", GPU_TIMING_WINDOW);
+        deren::utility::vessel::string report = deren::utility::vessel::format(
+            "gpu pass timings (avg of {} frames over {:.2f} s):", window_frames, window_seconds);
         // The OVERLAY line is built here as well, and deliberately not every frame: every value is a
         // fixed-width field, because a label whose text width changes re-wraps against the panel edge
         // and the whole overlay appears to twitch (the numbers of a live running mean change in width
         // frame by frame: 0.25 -> 10.25). Fixed fields + a report that changes once per window make
         // the panel layout stable between updates.
-        deren::utility::vessel::string label = deren::utility::vessel::format("gpu ({}f):", GPU_TIMING_WINDOW);
+        // a FIXED-width label (about one second, every second): the panel must not twitch between windows
+        deren::utility::vessel::string label = "gpu (1s):";
         for (uint32_t interval = 0; interval < intervals; ++interval) {
-            double const mean = this->gpu_timing_sum[interval] / static_cast<double>(GPU_TIMING_WINDOW);
+            double const mean = this->gpu_timing_sum[interval] / static_cast<double>(window_frames);
             report += deren::utility::vessel::format(" {} {:.2f} ms |", gpu_timing_labels[interval].name, mean);
             label += deren::utility::vessel::format("{} {:>5.2f}", gpu_timing_labels[interval].new_line ? "\n     " : " |", mean);
             total += mean; // GPU intervals have no sub-phases: every mark interval counts once
             this->gpu_timing_sum[interval] = 0.0;
         }
         this->gpu_timing_window_frames = 0;
+        this->gpu_timing_window_start = std::chrono::steady_clock::now();
         report += deren::utility::vessel::format(" total {:.2f} ms", total);
         this->gpu_timing_report_label = label + deren::utility::vessel::format("\n     total {:>5.2f} ms", total);
         deren::utility::log("{}", report);
@@ -447,6 +458,22 @@ namespace deren::engine {
         // report construction above). It refreshes once per GPU_TIMING_WINDOW frames, which is also
         // what the log line reports - so the overlay and the log always agree.
         return this->gpu_timing_report_label;
+    }
+
+    void runtime::log_gpu_timing_average() const {
+        if (!this->gpu_timings_enabled || this->gpu_timing_total_frames == 0) {
+            return;
+        }
+        double total = 0.0;
+        deren::utility::vessel::string report = deren::utility::vessel::format(
+            "gpu pass timings (session avg of {} frames):", this->gpu_timing_total_frames);
+        for (uint32_t interval = 0; interval < this->gpu_timing_marks_measured && interval < gpu_timing_labels.size(); ++interval) {
+            double const mean = this->gpu_timing_total[interval] / static_cast<double>(this->gpu_timing_total_frames);
+            report += deren::utility::vessel::format(" {} {:.2f} ms |", gpu_timing_labels[interval].name, mean);
+            total += mean;
+        }
+        report += deren::utility::vessel::format(" total {:.2f} ms", total);
+        deren::utility::log("{}", report);
     }
 
     bool runtime::enable_debug_gui() {

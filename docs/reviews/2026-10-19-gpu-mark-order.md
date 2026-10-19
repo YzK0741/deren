@@ -63,3 +63,23 @@ GPU 标记是**位置**语义的：后端只接受"下一个期望的下标"，�
 - `ctest` 50/51：`test_stacktrace` 的 symbolizer 断言失败与本改动无链接关系
   （`test_stacktrace.exe` 不链接 engine/runtime，且直接运行复现），属环境/符号化侧问题，
   单独跟踪。
+
+## 后续：输出频率改为每秒一次 + 退出时整场平均
+
+修复后每帧刷新的问题解决了，但报告窗口仍按 FRAME COUNT 计（`GPU_TIMING_WINDOW = 60`）：
+60 fps 时 1 行/秒，但无上限（`max_fps = 0`）时实测 3 行/1.5 s、172~226 帧/窗口——仍然刷屏。
+
+改为时间窗口：
+
+- `GPU_TIMING_WINDOW_SECONDS = 1.0`：每积累 1 秒**墙钟时间**报告一次均值（窗口帧数随帧率自然变化，
+  日志写成 `avg of N frames over 1.00 s`）；
+- overlay 文本固定为 `gpu (1s):`（固定宽度，不随帧数变化而抖）；
+- 整场平均保留在 `gpu_timing_total` 里，由 `runtime::~runtime()` 在 `wait_idle()` 之后、与 meshlet
+  统计同一收尾点输出一次：`gpu pass timings (session avg of N frames): ...`；
+- 每帧的采样不变（每帧仍写一组 timestamp），只是**输出**频率变了。
+
+实测（`gaussian_ribbon.ply`，`max_fps = 0`，600 帧，validation on，2.5 s 内）：
+
+- 输出 3 行窗口报告（`avg of 172/186/226 frames over 1.00 s`）+ 1 行 `session avg of 599 frames`；
+- 2 帧的 capture 只在退出时输出 1 行整场平均；
+- 无 `GPU timing mark ... was refused`、无 VUID/panic，exit 0。

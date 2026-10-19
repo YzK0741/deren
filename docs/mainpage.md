@@ -272,9 +272,9 @@ Dear ImGui debug overlay that is on by default (`[gui] show = false` in config d
 
 The frame is also **measured**: with `[render] gpu_timings` (on by default) each pass
 boundary writes a GPU timestamp into a per-frame-slot query pool, and the values are read
-back after the slot completed and averaged over a 60-frame window (logged and shown in the
-overlay). Every rendering feature below is steered by those numbers rather than by
-guesswork.
+back after the slot completed and averaged over one wall second (logged once per window and
+shown in the overlay); a whole-session average is logged when the runtime shuts down. Every
+rendering feature below is steered by those numbers rather than by guesswork.
 
 The renderer was evolved to a deferred pipeline one milestone at a time, and **the G-buffer
 path is now the ONLY scene path** - the forward one was removed in commit `78b6737` ("the

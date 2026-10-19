@@ -721,12 +721,17 @@ namespace deren::engine {
         // whether to collect pass timings at all ([render] gpu_timings); the device must be able
         // to timestamp as well, which gpu_timings_available() reports
         bool gpu_timings_enabled = true;
-        // rolling window of measured intervals: every GPU_TIMING_WINDOW frames the collected
-        // samples are averaged, logged, and the window starts over (the GUI label reads the
-        // window's running mean, so it stays live instead of dropping to 0 on the reset)
-        static constexpr uint32_t GPU_TIMING_WINDOW = 60;
+        // rolling window of measured intervals: the samples are averaged over ONE WALL SECOND, logged
+        // once, and the window starts over (the GUI label reads the window mean, so it stays live
+        // instead of dropping to 0 on the reset). TIME-based, not a frame count: 60 frames was one
+        // second at 60 fps but four lines per second on an uncapped frame loop.
+        static constexpr double GPU_TIMING_WINDOW_SECONDS = 1.0;
         deren::utility::vessel::array<double, gpu_mark_count - 1> gpu_timing_sum = {}; // current window's summed ms
         uint32_t gpu_timing_window_frames = 0;                                         // frames sampled in the current window
+        std::chrono::steady_clock::time_point gpu_timing_window_start{};               // first sample of the current window
+        // the WHOLE session, for the one average the runtime logs when it shuts down
+        deren::utility::vessel::array<double, gpu_mark_count - 1> gpu_timing_total = {};
+        std::uint64_t gpu_timing_total_frames = 0;
         // The overlay's copy of the last COMPLETED timing window (gpu_timing_summary): a label whose
         // text changes width every frame re-wraps against the panel edge and makes the whole overlay
         // twitch, so this is refreshed once per window and every number is a fixed-width field.
@@ -3481,8 +3486,9 @@ namespace deren::engine {
          * @ingroup runtime
          * @brief enable/disable the GPU pass timing read-back
          * @param enabled when true (the default) every frame records one timestamp per pass
-         *        boundary and the completed measurements are averaged over a 60-frame window,
-         *        logged and exposed through gpu_timing_summary(); when false no timestamp is
+         *        boundary and the completed measurements are averaged over one second of wall time,
+         *        logged once per window and exposed through gpu_timing_summary(); the whole-session
+         *        average is logged when the runtime shuts down; when false no timestamp is
          *        written and nothing is read back
          * @note the switch only matters on devices that can timestamp at all
          *       (core::gpu_timing_available()); the marks themselves are a handful of
@@ -3510,10 +3516,12 @@ namespace deren::engine {
          * @return e.g. "gpu:  shadow 0.11  main 0.24  bloom 0.01\n     composite 0.08  fxaa 0.00
          *         tail 0.00\n     total 0.43 ms" (broken over lines to fit the narrow overlay
          *         panel), or a short "off"/"unavailable"/"collecting" note
-         * @note safe to call every frame (it formats a string from the running window mean) - the
-         *       debug overlay binds a label to it
+         * @note safe to call every frame (it returns the last completed window's text, which
+         *       changes once per window, about once a second) - the debug overlay binds a label to it
          */
         [[nodiscard]] deren::utility::vessel::string gpu_timing_summary() const;
+        /// log the WHOLE-SESSION average once, from the destructor (the point where the GPU has finished)
+        void log_gpu_timing_average() const;
 
         /**
          * @ingroup runtime

@@ -470,6 +470,10 @@ namespace deren::engine {
         // the one point where the GPU has finished (wait_idle above) and the numbers are final - so a run of any
         // length reports exactly what the meshlet path did, without a read-back inside the frame loop.
         this->log_meshlet_stats();
+        // THE SESSION'S GPU TIMING AVERAGE, printed HERE for the same reason as the meshlet totals: the GPU has
+        // finished (wait_idle above), so this is the one point where a whole-run average is final. The per-window
+        // reports during the run are once per wall second (see collect_gpu_timings), not once per 60 frames.
+        this->log_gpu_timing_average();
 
         // post-process objects: the FXAA pipeline and the two samplers are RAII members, and the post chain's
         // two pipelines belong to the post composite PASS (vulkan.pass.post::release_owned), the same rule
