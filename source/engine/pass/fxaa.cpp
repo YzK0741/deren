@@ -7,11 +7,9 @@
 
 module;
 
-#include <array>
 #include <cstdint>
 #include <cstring>
 #include <span>
-#include <string>
 
 module deren.engine.pass.fxaa;
 import deren.utility.shared;

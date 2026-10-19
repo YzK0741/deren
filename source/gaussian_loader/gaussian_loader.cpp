@@ -1,6 +1,5 @@
 module;
 #include <algorithm>
-#include <array>
 #include <bit>
 #include <charconv>
 #include <cmath>
@@ -12,7 +11,6 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
-#include <vector>
 module deren.gaussian_loader;
 import deren.utility.shared;
 namespace deren::gaussian {

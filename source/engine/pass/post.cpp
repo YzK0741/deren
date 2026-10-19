@@ -12,7 +12,6 @@ module;
 #include <cstdint>
 #include <cstring>
 #include <span>
-#include <string>
 
 module deren.engine.pass.post;
 import deren.utility.shared;

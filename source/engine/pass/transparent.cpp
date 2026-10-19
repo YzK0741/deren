@@ -5,7 +5,6 @@
 
 module;
 
-#include <array>
 #include <cstdint>
 #include <memory> // std::shared_ptr: the frame's secondary is the contract handle
 #include <span>

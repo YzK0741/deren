@@ -6,7 +6,6 @@
 module;
 
 #include <cstdint>
-#include <memory>
 #include <utility>
 
 module deren.engine.filters;

@@ -1,6 +1,5 @@
 module;
 #include <cstdint>
-#include <limits>
 #include <mutex>
 #include <span>
 #include <vulkan/vulkan.h>

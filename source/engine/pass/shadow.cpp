@@ -8,10 +8,8 @@
 
 module;
 
-#include <array>
 #include <cstdint>
 #include <span>
-#include <string>
 #include <vector>
 
 module deren.engine.pass.shadow;

@@ -11,7 +11,6 @@ module;
 #include <span>
 #include <string>
 #include <utility>
-#include <vector>
 
 module deren.engine.pass.compute_skin;
 import deren.utility.shared;

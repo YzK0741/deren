@@ -37,7 +37,6 @@
 // `call to 'operator new' is ambiguous` (candidate list printed twice at
 // __new/global_new_delete.h) - the same class of failure
 // source/utility/utility.cpp, toon_screen_rim.cpp and upscale.cpp carry this include for.
-#include <new>
 
 import deren.promise.rhi;
 import deren.vulkan.core;

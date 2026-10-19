@@ -9,8 +9,6 @@
 
 module;
 
-#include <array>
-#include <cstdint>
 #include <span>
 // NO VULKAN HEADER: every barrier, scope and handle in this file is the contract's now (the boundary
 // sweep names the remaining files that still need one, and why).

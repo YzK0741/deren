@@ -9,7 +9,6 @@
 
 module;
 
-#include <array>
 #include <cstdint>
 #include <glm/glm.hpp> // the push block's inverse view-projection (`io.constants.inv_view_proj`)
 #include <span>

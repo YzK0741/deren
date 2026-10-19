@@ -13,7 +13,6 @@ module;
 #include <glm/gtc/packing.hpp>
 #include <numeric>
 #include <span>
-#include <string>
 #include <vector>
 module deren.engine.gaussian_splatting.probe;
 import deren.utility.shared;

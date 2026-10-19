@@ -8,7 +8,6 @@ module;
 #include <glm/glm.hpp>
 #include <limits>
 #include <span>
-#include <string>
 #include <thread>
 #include <utility>
 #include <vector>

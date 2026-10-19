@@ -8,7 +8,6 @@ module;
 #include <limits>
 #include <memory>
 #include <span>
-#include <string>
 #include <utility>
 module deren.engine.gaussian_splatting;
 import deren.utility.shared;

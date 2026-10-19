@@ -6,9 +6,7 @@ module;
 #include <source_location>
 #include <span>
 #include <string_view>
-#include <thread>
 #include <utility>
-#include <vector>
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.init_utils;

@@ -7,7 +7,6 @@ module;
 // this TU. Without <new> the frontend dies with `clang frontend command failed due to signal` while
 // instantiating the `std::format` / `deren::utility::vessel::string` constructors in write_png below - the same measured
 // crash class that toon_screen_rim.cpp and upscale.cpp carry this include for (see their comments).
-#include <new>
 // The three platform entry points are declared in a HEADER rather than here: a global module fragment
 // may only carry preprocessing directives, and MSVC enforces that (C5202 at /W4, fatal under /WX -
 // clang accepts a declaration in this position, which is why it lived here until MSVC was built).

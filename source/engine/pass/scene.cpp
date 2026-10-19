@@ -14,7 +14,6 @@ module;
 #include <functional>
 #include <memory> // std::shared_ptr: the session's target is the contract buffer the frame borrowed
 #include <span>
-#include <vector>
 
 module deren.engine.pass.scene;
 import deren.utility.shared;

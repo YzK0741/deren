@@ -7,7 +7,6 @@ module;
 #include <limits>
 #include <span>
 #include <utility>
-#include <vector>
 
 module deren.engine.shadow_fit;
 import deren.utility.shared;

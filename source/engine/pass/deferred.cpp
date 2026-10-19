@@ -7,12 +7,10 @@
 module;
 
 #include <algorithm> // std::clamp / std::max in set_ssao's clamps
-#include <array>
 #include <cstdint>
 #include <cstring>
 #include <glm/glm.hpp> // the push block's ssao lane and the frame's inverse view-projection
 #include <span>
-#include <string>
 
 module deren.engine.pass.deferred;
 import deren.utility.shared;

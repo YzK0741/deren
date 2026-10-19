@@ -1,8 +1,7 @@
 module;
 
 #include <algorithm> // std::clamp / std::max in orbit_camera_pan_delta
-#include <array>
-#include <cmath> // std::sin / std::cos in the orbit camera maths
+#include <cmath>     // std::sin / std::cos in the orbit camera maths
 #include <cstddef>
 #include <cstdio>
 #include <cstring>

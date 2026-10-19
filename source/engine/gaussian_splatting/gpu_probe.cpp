@@ -1,6 +1,5 @@
 module;
 #include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -8,7 +7,6 @@ module;
 #include <numeric>
 #include <span>
 #include <string>
-#include <vector>
 module deren.engine.gaussian_splatting.probe;
 import deren.utility.shared;
 namespace deren::engine::gaussian_splatting {

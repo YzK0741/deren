@@ -45,7 +45,6 @@ module;
 #include <memory> // std::shared_ptr: the backend's INTERNAL retain of an owned command buffer (the contract hands out shared_object)
 #include <optional>
 #include <span>
-#include <string>
 #include <vector>
 #include <vulkan/vulkan.h>
 

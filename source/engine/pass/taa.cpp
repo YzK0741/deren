@@ -9,7 +9,6 @@ module;
 #include <cstdint>
 #include <cstring>
 #include <span>
-#include <string>
 #include <vector>
 
 module deren.engine.pass.taa;

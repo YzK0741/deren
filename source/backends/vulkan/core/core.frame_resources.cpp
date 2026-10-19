@@ -1,6 +1,5 @@
 module;
 #include <expected>
-#include <memory>
 #include <mutex>
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;

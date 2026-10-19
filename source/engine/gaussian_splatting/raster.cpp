@@ -1,6 +1,5 @@
 module;
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <expected>
 #include <glm/glm.hpp>

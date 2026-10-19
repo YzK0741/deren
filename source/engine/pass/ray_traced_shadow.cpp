@@ -13,12 +13,9 @@
 
 module;
 
-#include <array>
 #include <cstdint>
 #include <cstring>
 #include <span>
-#include <string>
-#include <vector>
 
 module deren.engine.pass.ray_traced_shadow;
 import deren.utility.shared;

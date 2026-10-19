@@ -3,7 +3,6 @@ module;
 #include <array>
 #include <cstring>
 #include <glm/glm.hpp>
-#include <limits>
 #include <numeric>
 #include <utility>
 module deren.engine.gaussian_splatting.gpu_frame;

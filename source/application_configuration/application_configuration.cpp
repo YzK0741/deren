@@ -1,7 +1,6 @@
 module;
 
 #include <cmath>
-#include <sstream>
 #include <toml++/toml.hpp>
 
 module deren.application_configuration;

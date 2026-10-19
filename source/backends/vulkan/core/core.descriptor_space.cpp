@@ -3,7 +3,6 @@
 // this file is the vocabulary layer over it, so the two semantics ("write into the space" and "where the group
 // is") have ONE implementation each.
 module;
-#include <cstdint>
 #include <mutex>
 
 module deren.vulkan.core;
