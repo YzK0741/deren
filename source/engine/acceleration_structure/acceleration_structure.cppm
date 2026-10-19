@@ -25,7 +25,7 @@ module;
 export module deren.engine.acceleration_structure;
 export import deren.utility.shared;
 
-import deren.promise.rhi; // the contract's buffer handle + object_manager: the storage/scratch owners
+import deren.promise.rhi; // the contract's buffer handle + object_ptr: the storage/scratch owners
 import deren.engine.pass.chain;
 import deren.engine.pass.buffer_storage;
 import deren.engine.render_resource;

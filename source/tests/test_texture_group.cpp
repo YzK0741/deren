@@ -94,7 +94,7 @@ void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, deren::
     desc.first_stage = rhi::shader_stage::compute;
     desc.compute_code = code;
     desc.texture_group = {.enabled = true, .push_byte_offset = 8, .shader_stage_bits = 4};
-    rhi::object_manager<rhi::pipeline> pipeline{core.create_pipeline(desc)};
+    rhi::object_ptr<rhi::pipeline> pipeline{core.create_pipeline(desc)};
     CHECK(pipeline);
     auto wrong = desc;
     wrong.texture_group.push_byte_offset = 0; // destination is uint64, not the group token
@@ -107,7 +107,7 @@ void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, deren::
         info.format = rhi::image_format::rgba8_unorm;
         info.flags = rhi::to_bits(rhi::image_flag::sampled);
         info.initial_bytes = std::as_bytes(std::span(&pixel, 1));
-        return rhi::object_manager<rhi::image>(core.create_image(info));
+        return rhi::object_ptr<rhi::image>(core.create_image(info));
     };
     auto red = make_image(0xff0000ffu), blue = make_image(0xffff0000u), green = make_image(0xff00ff00u);
     CHECK(red && blue && green);
@@ -127,7 +127,7 @@ void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, deren::
     red.reset();
     blue.reset();
     green.reset();
-    rhi::object_manager<rhi::buffer> output{core.create_buffer({.size = 60, .usage = rhi::buffer_usage::storage_coherent, .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
+    rhi::object_ptr<rhi::buffer> output{core.create_buffer({.size = 60, .usage = rhi::buffer_usage::storage_coherent, .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
     auto commands = core.make_command_buffer({});
     auto* heap = rhi::query_extension<rhi::descriptor_heap>(core);
     auto* addresses = rhi::query_extension<rhi::device_address>(core);
@@ -252,18 +252,18 @@ void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, deren::
     // Two independent segments copy one value each into two halves of a host-visible buffer; ONE batch
     // submission executes both, and the mapped read-back shows both writes - the minimal observable
     // difference between "the batch ran" and "the handles were accepted".
-    rhi::object_manager<rhi::buffer> batch_output{core.create_buffer({.size = 8u,
-                                                                      .usage = rhi::buffer_usage::storage_coherent,
-                                                                      .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
+    rhi::object_ptr<rhi::buffer> batch_output{core.create_buffer({.size = 8u,
+                                                                  .usage = rhi::buffer_usage::storage_coherent,
+                                                                  .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
     std::uint32_t const first_value = 0x11111111u, second_value = 0x22222222u;
-    rhi::object_manager<rhi::buffer> first_source{core.create_buffer({.size = 4u,
-                                                                      .usage = rhi::buffer_usage::storage_coherent,
-                                                                      .flags = rhi::to_bits(rhi::buffer_flag::device_address),
-                                                                      .initial_bytes = std::as_bytes(std::span(&first_value, 1))})};
-    rhi::object_manager<rhi::buffer> second_source{core.create_buffer({.size = 4u,
-                                                                       .usage = rhi::buffer_usage::storage_coherent,
-                                                                       .flags = rhi::to_bits(rhi::buffer_flag::device_address),
-                                                                       .initial_bytes = std::as_bytes(std::span(&second_value, 1))})};
+    rhi::object_ptr<rhi::buffer> first_source{core.create_buffer({.size = 4u,
+                                                                  .usage = rhi::buffer_usage::storage_coherent,
+                                                                  .flags = rhi::to_bits(rhi::buffer_flag::device_address),
+                                                                  .initial_bytes = std::as_bytes(std::span(&first_value, 1))})};
+    rhi::object_ptr<rhi::buffer> second_source{core.create_buffer({.size = 4u,
+                                                                   .usage = rhi::buffer_usage::storage_coherent,
+                                                                   .flags = rhi::to_bits(rhi::buffer_flag::device_address),
+                                                                   .initial_bytes = std::as_bytes(std::span(&second_value, 1))})};
     CHECK(batch_output && first_source && second_source);
     rhi::mergeable_command_buffer_ref mergeable_a = core.make_mergeable_command_buffer({});
     rhi::mergeable_command_buffer_ref mergeable_b = core.make_mergeable_command_buffer({});
@@ -286,9 +286,9 @@ void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, deren::
         // ---- ABI 36: THE RECORDING-TIME BATCH MERGE on the real backend --------------------------------
         // The same two segments, merged into an ORDINARY primary while recording (the shape the engine's
         // multithreaded passes use): one execute(span) call, then the normal single-buffer submit.
-        rhi::object_manager<rhi::buffer> merged_output{core.create_buffer({.size = 8u,
-                                                                           .usage = rhi::buffer_usage::storage_coherent,
-                                                                           .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
+        rhi::object_ptr<rhi::buffer> merged_output{core.create_buffer({.size = 8u,
+                                                                       .usage = rhi::buffer_usage::storage_coherent,
+                                                                       .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
         CHECK(merged_output);
         if (merged_output) {
             CHECK(mergeable_a->begin_recording({}) == rhi::error::ok);
@@ -339,7 +339,7 @@ int main(int argc, char** argv) {
     VkDevice const device = main_context->device;
     VkQueue const queue = main_context->graphics_queue;
     test_heap_sampling(*core, *escape, *main_context);
-    rhi::object_manager<rhi::buffer> output{core->create_buffer({.size = 4, .usage = rhi::buffer_usage::readback_coherent})};
+    rhi::object_ptr<rhi::buffer> output{core->create_buffer({.size = 4, .usage = rhi::buffer_usage::readback_coherent})};
     auto primary = core->make_command_buffer({});
     CHECK(output && primary);
     if (!output || !primary)

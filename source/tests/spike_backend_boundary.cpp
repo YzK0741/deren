@@ -366,7 +366,7 @@ namespace {
             host_visible.flags = rhi::to_bits(rhi::buffer_flag::device_address);
             host_visible.initial_bytes = std::span<std::byte const>(initial_bytes.data(), initial_bytes.size());
 
-            rhi::object_manager<rhi::buffer> owned{core->create_buffer(host_visible)};
+            rhi::object_ptr<rhi::buffer> owned{core->create_buffer(host_visible)};
             CHECK(static_cast<bool>(owned));
             if (owned) {
                 CHECK(owned->size() == 64u);
@@ -380,7 +380,7 @@ namespace {
             rhi::buffer_desc gpu_only{};
             gpu_only.size = 256u;
             gpu_only.usage = rhi::buffer_usage::storage_gpu_only;
-            rhi::object_manager<rhi::buffer> device_local{core->create_buffer(gpu_only)};
+            rhi::object_ptr<rhi::buffer> device_local{core->create_buffer(gpu_only)};
             CHECK(static_cast<bool>(device_local));
             if (device_local) {
                 CHECK(device_local->size() == 256u);
@@ -389,7 +389,7 @@ namespace {
 
             mark("create_buffer: a zero-byte descriptor is refused by name-less nullptr (no buffer asked for)");
             rhi::buffer_desc nothing{};
-            CHECK(core->create_buffer(nothing) == nullptr);
+            CHECK(!core->create_buffer(nothing));
 
             // ---- THE device_address ABILITY, ON A REAL ALLOCATION ---------------------------------
             // The descriptor asked for `buffer_flag::device_address`, so the ability has to answer with
@@ -453,8 +453,8 @@ namespace {
             rhi::sampler_desc default_desc{};
             default_desc.address_mode = rhi::sampler_address_mode::repeat;
             default_desc.max_lod = 12.0f;
-            rhi::object_manager<rhi::sampler> compare_sampler{core->create_sampler(compare_desc)};
-            rhi::object_manager<rhi::sampler> default_sampler{core->create_sampler(default_desc)};
+            rhi::object_ptr<rhi::sampler> compare_sampler{core->create_sampler(compare_desc)};
+            rhi::object_ptr<rhi::sampler> default_sampler{core->create_sampler(default_desc)};
             CHECK(static_cast<bool>(compare_sampler));
             CHECK(static_cast<bool>(default_sampler));
             if (compare_sampler && default_sampler) {
@@ -490,7 +490,7 @@ namespace {
             }
             image_desc.initial_bytes = std::span<std::byte const>(texels.data(), texels.size());
 
-            rhi::object_manager<rhi::image> image_handle{core->create_image(image_desc)};
+            rhi::object_ptr<rhi::image> image_handle{core->create_image(image_desc)};
             CHECK(static_cast<bool>(image_handle));
             if (image_handle) {
                 CHECK(image_handle->extent().width == 4u);
@@ -501,7 +501,7 @@ namespace {
                 rhi::image_view_desc whole{};
                 whole.layer_count = 0; // "all remaining layers"
                 whole.mip_count = 0;   // "all remaining mips"
-                rhi::object_manager<rhi::image_view> full_view{image_handle->make_view(whole)};
+                rhi::object_ptr<rhi::image_view> full_view{image_handle->make_view(whole)};
                 CHECK(static_cast<bool>(full_view));
 
                 rhi::image_view_desc range{};
@@ -509,15 +509,15 @@ namespace {
                 range.layer_count = 1u;
                 range.base_mip = 0u;
                 range.mip_count = 1u;
-                rhi::object_manager<rhi::image_view> layer_view{image_handle->make_view(range)};
+                rhi::object_ptr<rhi::image_view> layer_view{image_handle->make_view(range)};
                 CHECK(static_cast<bool>(layer_view));
 
                 rhi::image_view_desc bad_layer{};
                 bad_layer.base_layer = 4u; // the image has one layer
-                CHECK(image_handle->make_view(bad_layer) == nullptr);
+                CHECK(!image_handle->make_view(bad_layer));
                 rhi::image_view_desc bad_mip{};
                 bad_mip.base_mip = 1u; // the image has one mip
-                CHECK(image_handle->make_view(bad_mip) == nullptr);
+                CHECK(!image_handle->make_view(bad_mip));
 
                 mark("escape: native_image / native_image_view / native_sampler on real objects");
                 rhi::extension* const image_escape = core->query_extension(rhi::extension_kind::vulkan_escape);
@@ -529,7 +529,7 @@ namespace {
                     rhi::sampler_desc sampler_desc{};
                     sampler_desc.address_mode = rhi::sampler_address_mode::clamp_to_edge;
                     sampler_desc.max_lod = 1.0f;
-                    rhi::object_manager<rhi::sampler> sampler_handle{core->create_sampler(sampler_desc)};
+                    rhi::object_ptr<rhi::sampler> sampler_handle{core->create_sampler(sampler_desc)};
                     CHECK(static_cast<bool>(sampler_handle));
                     if (sampler_handle) {
                         CHECK(natives->native_sampler(*sampler_handle) != nullptr);
@@ -546,13 +546,13 @@ namespace {
             rhi::shader_desc empty_shader{};
             empty_shader.stage = rhi::shader_stage::vertex;
             empty_shader.debug_name = "spike empty shader";
-            CHECK(core->create_shader(empty_shader) == nullptr);
+            CHECK(!core->create_shader(empty_shader));
             rhi::image_format const bad_formats[] = {rhi::image_format::unknown};
             rhi::pipeline_desc bad_pipeline{};
             bad_pipeline.color_formats = std::span<rhi::image_format const>(bad_formats);
             bad_pipeline.vertex_code = std::span<std::byte const>();
             bad_pipeline.debug_name = "spike unknown-format pipeline";
-            CHECK(core->create_pipeline(bad_pipeline) == nullptr);
+            CHECK(!core->create_pipeline(bad_pipeline));
 
             // ---- THE FRAME FACE (abi 13): the two borrowed views, on the real device --------------
             // STRUCTURE ONLY, ON PURPOSE: the contract has no submit verb yet, so a frame this test
@@ -632,14 +632,14 @@ namespace {
             // primary executes the secondary and submits without a frame. Presentation is covered
             // by the engine's frame path and the render gate.
             mark("create_command_buffer: an owned primary, recorded and merged with a mergeable batch");
-            rhi::object_manager<rhi::command_buffer> primary{core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::primary})};
+            rhi::object_ptr<rhi::command_buffer> primary{core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::primary})};
             auto secondary = core->make_mergeable_command_buffer({});
             CHECK(static_cast<bool>(primary));
             CHECK(secondary != nullptr);
             // abi 37: the secondary KIND is retired - the factory refuses it by name, and any kind outside
             // the one remaining contract role is the factory's refusal too.
-            CHECK(core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary}) == nullptr);
-            CHECK(core->create_command_buffer(rhi::command_buffer_desc{.kind = static_cast<rhi::command_buffer_kind>(99u)}) == nullptr);
+            CHECK(!core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary}));
+            CHECK(!core->create_command_buffer(rhi::command_buffer_desc{.kind = static_cast<rhi::command_buffer_kind>(99u)}));
             if (primary && secondary != nullptr) {
                 CHECK(primary->type == "deren_command_buffer_vulkan");
                 // THE BORROWED RECORDING VIEW IS GONE WITH `command_list` (its `recording()` and the

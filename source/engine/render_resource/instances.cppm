@@ -78,13 +78,13 @@ export namespace deren::engine::render_resource::instances {
         }
     };
     struct resource_instance {
-        rhi::object_manager<rhi::image> image;
-        rhi::object_manager<rhi::buffer> buffer;
-        rhi::object_manager<rhi::acceleration_structure> structure;
-        rhi::object_manager<rhi::micromap> micromap;
-        rhi::object_manager<rhi::sampler> sampler;
-        rhi::object_manager<rhi::image_view> array_view;
-        deren::utility::vessel::vector<rhi::object_manager<rhi::image_view>> layers;
+        rhi::object_ptr<rhi::image> image;
+        rhi::object_ptr<rhi::buffer> buffer;
+        rhi::object_ptr<rhi::acceleration_structure> structure;
+        rhi::object_ptr<rhi::micromap> micromap;
+        rhi::object_ptr<rhi::sampler> sampler;
+        rhi::object_ptr<rhi::image_view> array_view;
+        deren::utility::vessel::vector<rhi::object_ptr<rhi::image_view>> layers;
     };
     struct generation {
         std::shared_ptr<rhi::api_core> device; // destroyed after all owned objects
@@ -193,13 +193,13 @@ export namespace deren::engine::render_resource::instances {
                             auto desc = value.image;
                             if (value.initial_data)
                                 desc.initial_bytes = {value.initial_data.get(), value.initial_data_size};
-                            object.image = rhi::object_manager<rhi::image>{device->create_image(desc)};
+                            object.image = rhi::object_ptr<rhi::image>{device->create_image(desc)};
                             if (!object.image)
                                 return rhi::error::initialization_failed;
                             rhi::image_view_desc array{};
                             array.layer_count = 0;
                             array.mip_count = 0;
-                            object.array_view = rhi::object_manager<rhi::image_view>{object.image->make_view(array)};
+                            object.array_view = rhi::object_ptr<rhi::image_view>{object.image->make_view(array)};
                             if (!object.array_view)
                                 return rhi::error::initialization_failed;
                             object.layers.reserve(value.layer_views ? value.image.array_layers : 0);
@@ -212,7 +212,7 @@ export namespace deren::engine::render_resource::instances {
                                     return rhi::error::initialization_failed;
                             }
                         } else if (value.type == kind::sampler) {
-                            object.sampler = rhi::object_manager<rhi::sampler>{device->create_sampler(value.sampler)};
+                            object.sampler = rhi::object_ptr<rhi::sampler>{device->create_sampler(value.sampler)};
                             if (!object.sampler)
                                 return rhi::error::initialization_failed;
                         } else if (value.type == kind::micromap) {
@@ -222,14 +222,14 @@ export namespace deren::engine::render_resource::instances {
                             desc.data = value.micromap_data->data;
                             desc.triangles = value.micromap_data->triangles;
                             desc.indices = value.micromap_data->indices;
-                            object.micromap = rhi::object_manager<rhi::micromap>{device->create_micromap(desc)};
+                            object.micromap = rhi::object_ptr<rhi::micromap>{device->create_micromap(desc)};
                             if (!object.micromap)
                                 return rhi::error::initialization_failed;
                         } else if (value.type == kind::acceleration_structure) {
                             auto desc = value.structure;
                             desc.geometries = value.geometries.empty() ? nullptr : value.geometries.data();
                             desc.geometry_count = static_cast<uint32_t>(value.geometries.size());
-                            object.structure = rhi::object_manager<rhi::acceleration_structure>{device->create_acceleration_structure(desc)};
+                            object.structure = rhi::object_ptr<rhi::acceleration_structure>{device->create_acceleration_structure(desc)};
                             if (!object.structure)
                                 return rhi::error::initialization_failed;
                         } else {
@@ -240,7 +240,7 @@ export namespace deren::engine::render_resource::instances {
                             auto desc = value.buffer;
                             if (value.initial_data)
                                 desc.initial_bytes = {value.initial_data.get(), value.initial_data_size};
-                            object.buffer = rhi::object_manager<rhi::buffer>{device->create_buffer(desc)};
+                            object.buffer = rhi::object_ptr<rhi::buffer>{device->create_buffer(desc)};
                             if (!object.buffer)
                                 return rhi::error::initialization_failed;
                             if ((value.zero_on_frame || value.zero_on_create) && object.buffer->mapped().size() < value.buffer.size)

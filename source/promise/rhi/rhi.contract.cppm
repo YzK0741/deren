@@ -334,6 +334,14 @@ export namespace deren::promise::rhi {
     // an APPENDED target (`heap_bind_info::mergeable_commands` / `heap_push_info::mergeable_commands`):
     // a mergeable segment publishes its binding/push data through the same ability as a command_buffer,
     // one target of the two set. Existing fields, slots and meanings do not move.
+    // ABI 41 puts the RESOURCE FACTORIES behind standard-library ownership: every `create_*` factory
+    // (swapchain/buffer/image/acceleration structure/micromap/sampler/shader/pipeline/query/command
+    // buffer) and `image::make_view` now RETURN `object_ptr<T>` - a `std::unique_ptr` whose deleter calls the
+    // contract's `release()`. A caller that wants shared ownership converts it with
+    // `std::shared_ptr(std::move(owned))`; the contract carries no second ownership vocabulary, and views
+    // (frame image/buffer/command list) are NOT releasable: releasing one is a precondition violation that
+    // panics. A virtual's return type is part of its ABI, so this is a number move; no by-value POD changes
+    // shape and no slot moves.
     // ABI 40 RETIRES THE ESCAPE'S DEVICE HANDLES: `native_instance()` / `native_physical_device()` /
     // `native_device()` / `native_queue()` / `native_swapchain_image_format()` are DELETED. Their last
     // non-test caller was the GUI plugin, which now receives the OPAQUE `rhi::main_context` (abi 39) and
@@ -362,7 +370,7 @@ export namespace deren::promise::rhi {
     // operation). They live here because EVERY backend needs the same "check the concrete name, then
     // cast to the concrete layout" pair, and one copy is what keeps the next backend from reinventing
     // it (or from weakening the panic/refusal split its own doc states).
-    inline constexpr std::uint32_t abi_version = 40u;
+    inline constexpr std::uint32_t abi_version = 41u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

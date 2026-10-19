@@ -138,8 +138,8 @@ namespace {
         rhi::image_format format() const noexcept override {
             return description.format;
         }
-        rhi::image_view* make_view(rhi::image_view_desc const&) override {
-            return new managed_view;
+        rhi::object_ptr<rhi::image_view> make_view(rhi::image_view_desc const&) override {
+            return rhi::object_ptr<rhi::image_view>{new managed_view};
         }
         std::expected<rhi::image_content, rhi::error> get_content(rhi::image_copy_region const&) const override {
             return std::unexpected(rhi::error::unsupported);
@@ -157,27 +157,27 @@ namespace {
         int image_calls = 0, sampler_calls = 0;
         bool image_fail = false, sampler_fail = false;
         deren::utility::vessel::vector<std::byte> image_upload;
-        rhi::image* create_image(rhi::image_desc const& desc) override {
+        rhi::object_ptr<rhi::image> create_image(rhi::image_desc const& desc) override {
             ++image_calls;
             image_upload.assign(desc.initial_bytes.begin(), desc.initial_bytes.end());
-            return image_fail ? nullptr : new managed_image(desc);
+            return rhi::object_ptr<rhi::image>{image_fail ? nullptr : new managed_image(desc)};
         }
-        rhi::sampler* create_sampler(rhi::sampler_desc const&) override {
+        rhi::object_ptr<rhi::sampler> create_sampler(rhi::sampler_desc const&) override {
             ++sampler_calls;
-            return sampler_fail ? nullptr : new managed_sampler;
+            return rhi::object_ptr<rhi::sampler>{sampler_fail ? nullptr : new managed_sampler};
         }
-        rhi::micromap* create_micromap(rhi::micromap_desc const& desc) override {
+        rhi::object_ptr<rhi::micromap> create_micromap(rhi::micromap_desc const& desc) override {
             CHECK(desc.triangle_count == desc.triangles.size());
             CHECK(desc.data.size() == desc.triangle_count * desc.data_stride);
             CHECK(desc.indices.size() == desc.triangle_count);
-            return new managed_micromap;
+            return rhi::object_ptr<rhi::micromap>{new managed_micromap};
         }
         int structure_releases = 0;
         int structure_calls = 0, fail_structure_at = 0;
-        rhi::acceleration_structure* create_acceleration_structure(rhi::acceleration_structure_desc const& desc) override {
+        rhi::object_ptr<rhi::acceleration_structure> create_acceleration_structure(rhi::acceleration_structure_desc const& desc) override {
             if (++structure_calls == fail_structure_at)
                 return nullptr;
-            return new managed_structure{structure_releases, desc.instance_capacity};
+            return rhi::object_ptr<rhi::acceleration_structure>{new managed_structure{structure_releases, desc.instance_capacity}};
         }
     };
     template <typename Buffer>
@@ -335,8 +335,8 @@ namespace {
                 return true;
             }
         } caster;
-        caster.vertex_buffer = rhi::object_manager<rhi::buffer>{device.create_buffer({.size = 192, .usage = rhi::buffer_usage::storage_gpu_only})};
-        caster.index_buffer = rhi::object_manager<rhi::buffer>{device.create_buffer({.size = 12, .usage = rhi::buffer_usage::storage_gpu_only})};
+        caster.vertex_buffer = rhi::object_ptr<rhi::buffer>{device.create_buffer({.size = 192, .usage = rhi::buffer_usage::storage_gpu_only})};
+        caster.index_buffer = rhi::object_ptr<rhi::buffer>{device.create_buffer({.size = 12, .usage = rhi::buffer_usage::storage_gpu_only})};
         caster.vertex_stride = 32;
         caster.vertex_count = caster.draw_index_count = 3;
         deren::utility::vessel::array<deren::engine::primitive const*, 1> casters{&caster};
@@ -590,13 +590,13 @@ int main(int const argc, char** const argv) {
     {
         managed_core device;
         deren::engine::normal_draw_primitive leaf;
-        leaf.vertex_buffer = rhi::object_manager<rhi::buffer>{device.create_buffer({.size = 96})};
+        leaf.vertex_buffer = rhi::object_ptr<rhi::buffer>{device.create_buffer({.size = 96})};
         check_geometry_lease(leaf.vertex_buffer);
     }
     deren::vk_test::write_line("as_probe: this executable compiled abi {}", rhi::abi_version);
     // ABI34: the native-vocabulary cleanup removed a virtual from vulkan_escape (vtable shift), so the
     // handshake number moved with it.
-    CHECK(rhi::abi_version == 40u);
+    CHECK(rhi::abi_version == 41u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("as_probe: device path skipped (pass --with-device to run the real instrument)");
@@ -659,9 +659,9 @@ int main(int const argc, char** const argv) {
         vertices.resize(triangle_vertices);
     }
     auto const index_data = std::span<std::uint32_t const>(indices).first(multi_geometry ? 6u : triangle_vertices);
-    rhi::buffer* const vertex_buffer = core->create_buffer(rhi::buffer_desc{
+    rhi::object_ptr<rhi::buffer> vertex_buffer = core->create_buffer(rhi::buffer_desc{
         .size = vertices.size() * sizeof(vertex), .usage = rhi::buffer_usage::storage_coherent, .flags = build_input_flags});
-    rhi::buffer* const index_buffer = core->create_buffer(rhi::buffer_desc{
+    rhi::object_ptr<rhi::buffer> index_buffer = core->create_buffer(rhi::buffer_desc{
         .size = index_data.size_bytes(), .usage = rhi::buffer_usage::storage_coherent, .flags = build_input_flags});
     CHECK(vertex_buffer != nullptr);
     CHECK(index_buffer != nullptr);
@@ -686,7 +686,7 @@ int main(int const argc, char** const argv) {
 
     // ---- 3. THE COMMAND BUFFER THE PROBE OWNS (see the header): the contract made it, the escape turns it
     //         into the native handle the module's recording takes, and the probe submits it itself.
-    rhi::command_buffer* const commands = core->create_command_buffer({});
+    rhi::object_ptr<rhi::command_buffer> commands = core->create_command_buffer({});
     CHECK(commands != nullptr);
     if (commands == nullptr) {
         return deren::vk_test::finish("test_acceleration_structures");
@@ -718,20 +718,20 @@ int main(int const argc, char** const argv) {
     auto hit_geometry = geometry;
     hit_geometry.index_count = 6u;
     deren::utility::vessel::array<rhi::acceleration_structure_geometry, 2> const geometries{away_geometry, hit_geometry};
-    rhi::acceleration_structure* const blas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
+    rhi::object_ptr<rhi::acceleration_structure> blas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
         .type = rhi::acceleration_structure_type::bottom_level,
         .flags = rhi::to_bits(rhi::acceleration_structure_flag::allow_update),
         .geometries = multi_geometry ? geometries.data() : &geometry,
         .geometry_count = multi_geometry ? static_cast<std::uint32_t>(geometries.size()) : 1u,
     });
     CHECK(blas != nullptr);
-    rhi::acceleration_structure* const static_blas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
+    rhi::object_ptr<rhi::acceleration_structure> static_blas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
         .type = rhi::acceleration_structure_type::bottom_level,
         .geometries = &geometry,
         .geometry_count = 1u,
     });
     CHECK(static_blas != nullptr);
-    rhi::acceleration_structure* const tlas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
+    rhi::object_ptr<rhi::acceleration_structure> tlas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
         .type = rhi::acceleration_structure_type::top_level,
         .instance_capacity = 1u,
     });
@@ -770,7 +770,7 @@ int main(int const argc, char** const argv) {
     //          keep the vocabulary honest (no resource / a use nobody defined). It is recorded through the same
     //          batch the images and buffers use, which is the point: one dependency info carries all three.
     rhi::acceleration_structure_barrier const traversable{
-        .resource = tlas,
+        .resource = tlas.get(),
         .from = rhi::acceleration_structure_use::build_write,
         .to = rhi::acceleration_structure_use::shader_read,
     };
@@ -788,7 +788,7 @@ int main(int const argc, char** const argv) {
               .acceleration_structures = std::span<rhi::acceleration_structure_barrier const>(&without_resource, 1u),
           }) == rhi::error::invalid_argument);
     rhi::acceleration_structure_barrier const undefined_use{
-        .resource = tlas,
+        .resource = tlas.get(),
         .from = rhi::acceleration_structure_use::undefined,
         .to = rhi::acceleration_structure_use::shader_read,
     };
@@ -802,16 +802,16 @@ int main(int const argc, char** const argv) {
     //          geometry, records its build and a refit, and hands back the object the runtime binds.
     // Recorded commands borrow their structures and inputs until submission has completed.
     as::bottom_level_structures levels{*core};
-    rhi::object_manager<rhi::micromap> micromap_owner;
-    rhi::object_manager<rhi::acceleration_structure> shaded_owner;
-    rhi::object_manager<rhi::acceleration_structure> triangle_soup;
+    rhi::object_ptr<rhi::micromap> micromap_owner;
+    rhi::object_ptr<rhi::acceleration_structure> shaded_owner;
+    rhi::object_ptr<rhi::acceleration_structure> triangle_soup;
     {
         rhi::acceleration_structure_geometry const unindexed{
             .vertex_address = source.vertex_address,
             .vertex_stride = source.vertex_stride,
             .vertex_count = triangle_vertices,
         };
-        triangle_soup = rhi::object_manager<rhi::acceleration_structure>{core->create_acceleration_structure(rhi::acceleration_structure_desc{
+        triangle_soup = rhi::object_ptr<rhi::acceleration_structure>{core->create_acceleration_structure(rhi::acceleration_structure_desc{
             .type = rhi::acceleration_structure_type::bottom_level,
             .geometries = &unindexed,
             .geometry_count = 1u,
@@ -849,7 +849,7 @@ int main(int const argc, char** const argv) {
                 .format = static_cast<std::uint16_t>(rhi::micromap_format::four_state),
             };
             std::uint32_t const micro_index = 0u;
-            rhi::micromap* const micromap = core->create_micromap(rhi::micromap_desc{
+            rhi::object_ptr<rhi::micromap> micromap = core->create_micromap(rhi::micromap_desc{
                 .triangle_count = 1u,
                 .data = attributes,
                 .data_stride = 4u,
@@ -859,7 +859,7 @@ int main(int const argc, char** const argv) {
             });
             CHECK(micromap != nullptr); // a device without VK_EXT_opacity_micromap answers null with a named log
             if (micromap != nullptr) {
-                micromap_owner = rhi::object_manager<rhi::micromap>{micromap};
+                micromap_owner = std::move(micromap);
                 rhi::acceleration_structure_geometry const with_micromap{
                     .vertex_address = source.vertex_address,
                     .vertex_stride = source.vertex_stride,
@@ -867,22 +867,22 @@ int main(int const argc, char** const argv) {
                     .index_address = source.index_address,
                     .index_format = rhi::index_type::uint32,
                     .index_count = triangle_vertices,
-                    .opacity_micromap = micromap,
+                    .opacity_micromap = micromap_owner.get(),
                 };
-                rhi::acceleration_structure* const shaded = core->create_acceleration_structure(rhi::acceleration_structure_desc{
+                rhi::object_ptr<rhi::acceleration_structure> shaded = core->create_acceleration_structure(rhi::acceleration_structure_desc{
                     .type = rhi::acceleration_structure_type::bottom_level,
                     .geometries = &with_micromap,
                     .geometry_count = 1u,
                 });
                 CHECK(shaded != nullptr);
                 if (shaded != nullptr) {
-                    shaded_owner = rhi::object_manager<rhi::acceleration_structure>{shaded};
-                    CHECK(commands->build_micromap(*micromap) == rhi::error::ok); // ... the micromap FIRST
+                    shaded_owner = std::move(shaded);
+                    CHECK(commands->build_micromap(*micromap_owner) == rhi::error::ok); // ... the micromap FIRST
                     CHECK(commands->barrier(rhi::barrier_group{
                               .has_memory = true,
                               .memory = rhi::memory_barrier{.from = rhi::buffer_use::micromap_write, .to = rhi::buffer_use::micromap_read},
                           }) == rhi::error::ok);
-                    CHECK(commands->build_acceleration_structure(*shaded) == rhi::error::ok);
+                    CHECK(commands->build_acceleration_structure(*shaded_owner) == rhi::error::ok);
                 }
             }
             deren::vk_test::write_line("as_probe: an opacity micromap was created, built and consulted by a geometry");
@@ -925,12 +925,6 @@ int main(int const argc, char** const argv) {
         check_rt_traversal(*core, *escape, *main_context, *addresses, *capabilities, *blas, *tlas, argv[0], native_heap);
     }
 
-    blas->release();
-    static_blas->release();
-    tlas->release();
-    commands->release();
-    vertex_buffer->release();
-    index_buffer->release();
     deren::vk_test::write_line("as_probe: done (validation was ON: any VUID appears above)");
     return deren::vk_test::finish("test_acceleration_structures");
 }

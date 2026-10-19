@@ -103,7 +103,7 @@ int main(int const argc, char** const argv) {
     deren::vk_test::write_line("runtime_dyn: this executable compiled abi {} (the entry takes it as its first argument)", rhi::abi_version);
     // ABI34: the native-vocabulary cleanup removed a virtual from vulkan_escape (vtable shift), so the
     // handshake number moved with it.
-    CHECK(rhi::abi_version == 40u);
+    CHECK(rhi::abi_version == 41u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("runtime_dyn: device path skipped (pass --with-device to construct the runtime)");
@@ -205,7 +205,7 @@ int main(int const argc, char** const argv) {
         parent_desc.extent = {.width = 4u, .height = 4u, .depth = 1u};
         parent_desc.format = rhi::image_format::rgba8_unorm;
         parent_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
-        rhi::object_manager<rhi::image> original{face.create_image(parent_desc)};
+        rhi::object_ptr<rhi::image> original{face.create_image(parent_desc)};
         CHECK(original);
         for (auto shape : {0u, 1u, 2u}) {
             auto invalid_desc = parent_desc;
@@ -217,7 +217,7 @@ int main(int const argc, char** const argv) {
             }
             if (shape == 2)
                 invalid_desc.flags = rhi::to_bits(rhi::image_flag::storage);
-            rhi::object_manager<rhi::image> invalid{face.create_image(invalid_desc)};
+            rhi::object_ptr<rhi::image> invalid{face.create_image(invalid_desc)};
             CHECK(invalid);
             if (invalid) {
                 rhi::texture_group_info info{};
@@ -242,9 +242,9 @@ int main(int const argc, char** const argv) {
             }
             {
                 rhi::texture_group_info info{};
-                deren::utility::vessel::array<rhi::object_manager<rhi::image>, 16> inputs{};
+                deren::utility::vessel::array<rhi::object_ptr<rhi::image>, 16> inputs{};
                 for (std::size_t i = 0; i < inputs.size(); ++i) {
-                    inputs[i] = rhi::object_manager<rhi::image>(face.create_image(parent_desc));
+                    inputs[i] = rhi::object_ptr<rhi::image>(face.create_image(parent_desc));
                     CHECK(inputs[i]);
                     info.textures[i] = inputs[i].get();
                 }
@@ -264,7 +264,7 @@ int main(int const argc, char** const argv) {
                 auto other_device = deren::engine::load_api_core(creation);
                 CHECK(other_device);
                 if (other_device) {
-                    rhi::object_manager<rhi::image> foreign{other_device->create_image(parent_desc)};
+                    rhi::object_ptr<rhi::image> foreign{other_device->create_image(parent_desc)};
                     CHECK(foreign);
                     rhi::texture_group_info info{};
                     info.textures[0] = foreign.get();
@@ -273,7 +273,7 @@ int main(int const argc, char** const argv) {
                 }
             }
             {
-                rhi::object_manager<rhi::image> released{face.create_image(parent_desc)};
+                rhi::object_ptr<rhi::image> released{face.create_image(parent_desc)};
                 auto retained = released->share();
                 std::weak_ptr<rhi::image> lifetime = retained;
                 rhi::texture_group_info info{};
@@ -294,7 +294,7 @@ int main(int const argc, char** const argv) {
             first_owner.reset();
             CHECK(first_lifetime.expired());
             CHECK(original->extent().width == 4u); // factory reference is independent
-            rhi::object_manager<rhi::image_view> view{original->make_view({})};
+            rhi::object_ptr<rhi::image_view> view{original->make_view({})};
             CHECK(view);
             if (view) {
                 CHECK(view->type == "deren_image_view_vulkan");
@@ -314,7 +314,7 @@ int main(int const argc, char** const argv) {
                     view.reset();
                     CHECK(parent->extent().width == 4u);
                     CHECK(parent->format() == rhi::image_format::rgba8_unorm);
-                    rhi::object_manager<rhi::image_view> sibling{parent->make_view({})};
+                    rhi::object_ptr<rhi::image_view> sibling{parent->make_view({})};
                     CHECK(sibling);
                     parent.reset();
                     CHECK(!lifetime.expired());
@@ -329,15 +329,15 @@ int main(int const argc, char** const argv) {
         std::fill(bytes.begin(), bytes.end(), std::byte{0x5A});
         auto const short_input = std::span<std::byte const>(bytes).first(16);
         for (auto const usage : {rhi::buffer_usage::storage_coherent, rhi::buffer_usage::vertex, rhi::buffer_usage::index}) {
-            rhi::object_manager<rhi::buffer> invalid{face.create_buffer({.size = bytes.size(), .usage = usage, .initial_bytes = short_input})};
+            rhi::object_ptr<rhi::buffer> invalid{face.create_buffer({.size = bytes.size(), .usage = usage, .initial_bytes = short_input})};
             CHECK_MSG(!invalid, "a nonempty initialization span shorter than the allocation must be refused");
         }
-        rhi::object_manager<rhi::buffer> initialized{face.create_buffer({.size = short_input.size(), .usage = rhi::buffer_usage::storage_coherent, .initial_bytes = short_input})};
+        rhi::object_ptr<rhi::buffer> initialized{face.create_buffer({.size = short_input.size(), .usage = rhi::buffer_usage::storage_coherent, .initial_bytes = short_input})};
         CHECK(initialized);
         if (initialized) {
             CHECK(std::equal(short_input.begin(), short_input.end(), initialized->mapped().begin()));
         }
-        rhi::object_manager<rhi::buffer> allocation_only{face.create_buffer({.size = bytes.size(), .usage = rhi::buffer_usage::storage_coherent})};
+        rhi::object_ptr<rhi::buffer> allocation_only{face.create_buffer({.size = bytes.size(), .usage = rhi::buffer_usage::storage_coherent})};
         CHECK(allocation_only);
         std::fflush(stdout); // retain preceding failures if an invalid heap call crashes the old backend
 
@@ -375,7 +375,7 @@ int main(int const argc, char** const argv) {
             CHECK(group_error == rhi::error::invalid_argument);
             CHECK(borrowed_image->type == "deren_frame_image_vulkan");
             CHECK(!borrowed_image->share());
-            rhi::object_manager<rhi::image_view> borrowed_view{borrowed_image->make_view({})};
+            rhi::object_ptr<rhi::image_view> borrowed_view{borrowed_image->make_view({})};
             CHECK(borrowed_view);
             if (borrowed_view) {
                 CHECK(!borrowed_view->get_image());

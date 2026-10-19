@@ -257,12 +257,12 @@ namespace {
         image_desc.extent = {.width = 4, .height = 4, .depth = 1};
         image_desc.format = rhi::image_format::rgba8_unorm;
         image_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
-        rhi::image* const image = core->create_image(image_desc);
-        CHECK(image != nullptr);
-        if (image == nullptr)
+        rhi::object_ptr<rhi::image> image = core->create_image(image_desc);
+        CHECK(image);
+        if (!image)
             return;
         rhi::texture_group_info info{};
-        info.textures[2] = image;
+        info.textures[2] = image.get();
         rhi::error assign_error = rhi::error::ok;
         rhi::texture_group_ref group = core->assign_texture_group(info, &assign_error);
         CHECK(group != nullptr);
@@ -279,7 +279,7 @@ namespace {
             rhi::descriptor_write write{};
             write.where = position;
             write.index = 0u;
-            write.resource = image;
+            write.resource = image.get();
             CHECK(space->write(write) == rhi::error::ok);
             rhi::descriptor_write out_of_range = write;
             out_of_range.index = rhi::texture_group_capacity;
@@ -293,7 +293,6 @@ namespace {
             CHECK(space->write(write) == rhi::error::invalid_argument);
             (void)stale;
         }
-        image->release();
     }
 
 } // namespace
@@ -358,7 +357,7 @@ int main(int const argc, char** const argv) {
         own[2].image_handle = const_cast<rhi::image*>(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::gbuffer_velocity)));
         own[3].image_handle = const_cast<rhi::image*>(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::gbuffer_depth)));
         auto* hdr = const_cast<rhi::image*>(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::post_color)));
-        rhi::object_manager<rhi::image_view> hdr_view{hdr->make_view({})};
+        rhi::object_ptr<rhi::image_view> hdr_view{hdr->make_view({})};
         deren::utility::vessel::array<pass::resolved_binding, 1> targets{pass::resolved_binding{.image_handle = hdr, .view_handle = hdr_view.get()}};
         io.targets = targets;
         io.push_block.owner = &observed_history;

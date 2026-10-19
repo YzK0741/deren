@@ -359,7 +359,7 @@ namespace {
         // instead, and the tests/spike that still submitted raw commands (test_texture_group, the
         // acceleration-structure probe and the boundary spike) cast the same context through the shared Vulkan
         // layout - so the escape keeps only native_command_buffer and the resource-handle borrows.
-        CHECK(rhi::abi_version == 40u);
+        CHECK(rhi::abi_version == 41u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
@@ -544,9 +544,9 @@ namespace {
         // handle the caller can only see through the base. The other factories take descriptors
         // that are still forward-declared, so they cannot even be called yet (S1 defines them) -
         // which is exactly what "the shape can be reviewed before the shapes it carries" means.
-        rhi::buffer* const buffer = core->create_buffer(rhi::buffer_desc{.size = 64u});
-        CHECK(buffer != nullptr);
-        if (buffer != nullptr) {
+        rhi::object_ptr<rhi::buffer> buffer = core->create_buffer(rhi::buffer_desc{.size = 64u});
+        CHECK(buffer);
+        if (buffer) {
             CHECK(buffer->type == "deren_buffer_probe");
             CHECK(buffer->size() == 64u);
             if (address_ability != nullptr) {
@@ -562,20 +562,20 @@ namespace {
         }
 
         // ---- tier-1: THE OWNED REFERENCE IS RELEASED THROUGH THE CONTRACT ---------------------
-        // `rhi::object_manager<T>` is the owner spelling added with `release()` (abi 3 -> 4): the
+        // `rhi::object_ptr<T>` is the owner spelling added with `release()` (abi 3 -> 4): the
         // destructor (or `reset()`) calls the handle's `release()`, which runs INSIDE the backend and
         // drops ONE reference - it is deliberately not called `destroy()`, because a backend may serve
         // the same resource to several callers and then the object outlives the call. The proof here is
         // a round trip: the probe's `release()` zeroes the size its descriptor wrote into the buffer,
         // so a release that never crossed cannot show up as `size() == 0`.
         {
-            rhi::object_manager<rhi::buffer> owned{core->create_buffer(rhi::buffer_desc{.size = 128u})};
+            rhi::object_ptr<rhi::buffer> owned{core->create_buffer(rhi::buffer_desc{.size = 128u})};
             CHECK(static_cast<bool>(owned));
             CHECK(owned->size() == 128u);
 
             // move-only: the reference is transferred, and the source is left empty rather than
             // aliasing the same object (which would release it twice)
-            rhi::object_manager<rhi::buffer> moved{std::move(owned)};
+            rhi::object_ptr<rhi::buffer> moved{std::move(owned)};
             CHECK(!static_cast<bool>(owned));
             CHECK(moved->size() == 128u);
 
@@ -589,7 +589,7 @@ namespace {
 
             // an empty manager is free: reset() twice is a no-op, and the object above is untouched
             // (the probe's buffer is static, so this is about the manager, not about the object)
-            rhi::object_manager<rhi::buffer> empty{};
+            rhi::object_ptr<rhi::buffer> empty{};
             empty.reset();
             empty.reset();
             CHECK(!static_cast<bool>(empty));
@@ -666,9 +666,9 @@ namespace {
         // `create_command_buffer()` hands out ONE reference; the probe answers with its static
         // stand-in (the same shape its buffer has), reset on every creation - so a second create
         // answers with the SAME pointer, and what this block measures is the LIFE CYCLE, not identity.
-        rhi::command_buffer* const recorded = core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::primary});
-        CHECK_MSG(recorded != nullptr, which_half);
-        if (recorded != nullptr) {
+        rhi::object_ptr<rhi::command_buffer> recorded = core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::primary});
+        CHECK_MSG(static_cast<bool>(recorded), which_half);
+        if (recorded) {
             CHECK(recorded->type == "deren_command_buffer_probe");
             // THE FRAME-SCOPED VERBS REFUSE A BUFFER THAT IS NOT THE FRAME'S (the contract's own window
             // for `use` and the timing pair): `recording()` and its borrowed view are GONE with
@@ -682,13 +682,15 @@ namespace {
             // ABI 37: THE SECONDARY KIND IS RETIRED. The factory refuses it by name (nullptr, the contract's
             // rule) - the multithreaded recording paths use mergeable segments and their batch merge instead,
             // which the mergeable blocks above drive end to end.
-            CHECK_MSG(core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary}) == nullptr, which_half);
-            // RELEASE drops the one reference, and the probe echoes it: every later verb is not_ready
-            recorded->release();
-            CHECK(recorded->begin_recording(rhi::command_buffer_begin_info{}) == rhi::error::not_ready);
+            CHECK_MSG(!core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary}), which_half);
+            // DROPPING the container drops the one reference, and the probe echoes it: every later verb is
+            // not_ready. The raw pointer stays valid because the probe's stand-in is static.
+            rhi::command_buffer* const released = recorded.get();
+            recorded.reset();
+            CHECK(released->begin_recording(rhi::command_buffer_begin_info{}) == rhi::error::not_ready);
         }
         // a kind outside the two roles is the factory's one refusal (`nullptr`, the contract's rule)
-        CHECK(core->create_command_buffer(rhi::command_buffer_desc{.kind = static_cast<rhi::command_buffer_kind>(99u)}) == nullptr);
+        CHECK(!core->create_command_buffer(rhi::command_buffer_desc{.kind = static_cast<rhi::command_buffer_kind>(99u)}));
 
         // ---- the abi 16 surface: THE WIDENED SAMPLER DESCRIPTOR -----------------------------------
         // What the probe CAN witness is the factory's own contract: one reference handed out, the right
@@ -707,11 +709,10 @@ namespace {
             desc.mipmap_mode = rhi::sampler_mipmap_mode::nearest;
             desc.compare_enable = true;
             desc.compare_op = rhi::sampler_compare_op::less_or_equal;
-            rhi::sampler* const made = core->create_sampler(desc);
-            CHECK_MSG(made != nullptr, which_half);
-            if (made != nullptr) {
+            rhi::object_ptr<rhi::sampler> made = core->create_sampler(desc);
+            CHECK_MSG(static_cast<bool>(made), which_half);
+            if (made) {
                 CHECK(made->type == "deren_sampler_probe");
-                made->release();
             }
             // ... and a descriptor spelled with the DEFAULTS is the old behaviour exactly, which is what
             // lets a caller built against abi 15 keep the samplers it was compiled against.
@@ -747,20 +748,17 @@ namespace {
             rhi::image* const frame = core->frame_image();
             CHECK_MSG(frame != nullptr, which_half); // a frame is open at this point in the probe's fiction
             if (frame != nullptr) {
-                rhi::image_view* const whole = frame->make_view(rhi::image_view_desc{});
-                CHECK_MSG(whole != nullptr, which_half);
-                if (whole != nullptr) {
+                rhi::object_ptr<rhi::image_view> whole = frame->make_view(rhi::image_view_desc{});
+                CHECK_MSG(static_cast<bool>(whole), which_half);
+                if (whole) {
                     CHECK(whole->type == "deren_image_view_probe");
-                    whole->release(); // the OWNED view: this is the call that has to arrive
                 }
                 rhi::image_view_desc outside{};
                 outside.layer_count = 2; // a swapchain image has one layer
-                CHECK(frame->make_view(outside) == nullptr);
+                CHECK(!frame->make_view(outside));
                 rhi::image_view_desc wrong_mip{};
                 wrong_mip.base_mip = 1;
-                CHECK(frame->make_view(wrong_mip) == nullptr);
-                // ... and releasing the IMAGE ITSELF is the borrowed no-op: it carries no reference.
-                frame->release();
+                CHECK(!frame->make_view(wrong_mip));
             }
         }
 

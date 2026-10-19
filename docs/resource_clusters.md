@@ -33,7 +33,8 @@ if (!view) return view.error();
 
 `resource_lease<T>` is an owning reference. Copies share a single RHI factory
 reference; `get()` and `operator->` borrow that object. Do not call release on
-the borrowed pointer or wrap it in another object_manager. An escaped lease can
+the borrowed pointer or wrap it in another `object_ptr` (RHI factories already return
+one; a view is not a factory product). An escaped lease can
 outlive the cluster; the final owning reference releases the RHI object exactly
 once, before releasing its core dependency. Image views retain the parent image.
 

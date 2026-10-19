@@ -72,7 +72,7 @@ namespace deren::engine::acceleration_structure {
         , device_lease(std::move(lease)) {
     }
 
-    // The entries hold `object_manager<rhi::acceleration_structure>`, so the reference each structure carries is
+    // The entries hold `object_ptr<rhi::acceleration_structure>`, so the reference each structure carries is
     // given back here - and the BACKEND's `release()` is what destroys the driver's object, in the order its own
     // destructor documents.
     bottom_level_structures::~bottom_level_structures() = default;

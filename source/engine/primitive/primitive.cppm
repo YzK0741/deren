@@ -39,7 +39,7 @@ module;
 
 export module deren.engine.primitive;
 export import deren.utility.shared;
-import deren.promise.rhi; // the contract's buffer handle + object_manager: this module's geometry owners
+import deren.promise.rhi; // the contract's buffer handle + object_ptr: this module's geometry owners
 // The scene push block's size (a shared-module constant, like the formats and the bloom level count): this
 // module `static_assert`s its own material block against it and derives its exported push-block offsets from
 // it, which is exactly why it lives where BOTH halves compile it rather than in the backend's class.
@@ -70,8 +70,8 @@ namespace deren::engine {
             }
             return *this;
         }
-        geometry_buffer& operator=(deren::promise::rhi::object_manager<deren::promise::rhi::buffer>&& value) {
-            auto held = std::make_shared<deren::promise::rhi::object_manager<deren::promise::rhi::buffer>>(std::move(value));
+        geometry_buffer& operator=(deren::promise::rhi::object_ptr<deren::promise::rhi::buffer>&& value) {
+            auto held = std::make_shared<deren::promise::rhi::object_ptr<deren::promise::rhi::buffer>>(std::move(value));
             bind(held->get(), held);
             return *this;
         }
@@ -2077,7 +2077,7 @@ namespace deren::engine {
         /// THE ALLOCATOR IS GONE FROM THIS HOOK (the boundary batch's import cleanup): it took a
         /// `vma_allocator&`, which was the ONLY reason this module imported `deren.vulkan.core` - and every
         /// implementation already ignored it, because the geometry is owned by CONTRACT handles
-        /// (`rhi::object_manager<rhi::buffer>`) whose `reset()` is the whole of what this does. No caller
+        /// (`rhi::object_ptr<rhi::buffer>`) whose `reset()` is the whole of what this does. No caller
         /// anywhere passed one either. The hook itself now depends on no backend type.
         virtual void destroy() noexcept = 0;
         [[nodiscard]] virtual bool is_valid() const noexcept = 0;
@@ -2210,8 +2210,8 @@ namespace deren::engine {
     export class static_draw_primitive final : public primitive {
     public:
         // merged geometry: owned the same way normal_draw owns its two buffers (see the note there)
-        deren::promise::rhi::object_manager<deren::promise::rhi::buffer> vertex_buffer = {};
-        deren::promise::rhi::object_manager<deren::promise::rhi::buffer> index_buffer = {};
+        deren::promise::rhi::object_ptr<deren::promise::rhi::buffer> vertex_buffer = {};
+        deren::promise::rhi::object_ptr<deren::promise::rhi::buffer> index_buffer = {};
         deren::promise::rhi::index_type index_type = deren::promise::rhi::index_type::uint32;
         uint32_t index_count = 0; // whole merged index count (upper bound for chunk validation)
         uint32_t vertex_count = 0;

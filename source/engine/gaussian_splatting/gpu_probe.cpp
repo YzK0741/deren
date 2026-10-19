@@ -19,7 +19,7 @@ namespace deren::engine::gaussian_splatting {
         if (!ability) {
             return fail("GPU sorting capability unavailable");
         }
-        rhi::object_manager<rhi::radix_sorter> sorter{ability->create_radix_sorter()};
+        rhi::object_ptr<rhi::radix_sorter> sorter{ability->create_radix_sorter()};
         if (!sorter) {
             return fail("GPU sorter creation failed");
         }
@@ -57,7 +57,7 @@ namespace deren::engine::gaussian_splatting {
                     desc.usage = rhi::buffer_usage::storage_coherent;
                     desc.flags = flags;
                     desc.initial_bytes = std::as_bytes(data);
-                    return rhi::object_manager<rhi::buffer>{core.create_buffer(desc)};
+                    return rhi::object_ptr<rhi::buffer>{core.create_buffer(desc)};
                 };
                 auto requirements = sorter->requirements(count);
                 auto kb = make(keys, static_cast<std::uint64_t>(count) * 4u, rhi::to_bits(rhi::buffer_flag::storage) | rhi::to_bits(rhi::buffer_flag::indirect));

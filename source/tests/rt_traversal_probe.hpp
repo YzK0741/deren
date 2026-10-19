@@ -59,19 +59,19 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
         auto invalid = bindings;
         invalid[0].byte_offset = static_cast<std::uint32_t>(heap->properties().resource_size - 64);
         desc.acceleration_structure_bindings = invalid;
-        rhi::object_manager<rhi::pipeline> out_of_range{core.create_pipeline(desc)};
+        rhi::object_ptr<rhi::pipeline> out_of_range{core.create_pipeline(desc)};
         CHECK(!out_of_range); // second array element must fit too
         invalid = bindings;
         invalid[0].array_count = 0xFFFFFFFFu;
-        rhi::object_manager<rhi::pipeline> overflowing{core.create_pipeline(desc)};
+        rhi::object_ptr<rhi::pipeline> overflowing{core.create_pipeline(desc)};
         CHECK(!overflowing);
         deren::utility::vessel::array<rhi::acceleration_structure_heap_binding, 2> const duplicates{bindings[0], bindings[0]};
         desc.acceleration_structure_bindings = duplicates;
-        rhi::object_manager<rhi::pipeline> duplicate{core.create_pipeline(desc)};
+        rhi::object_ptr<rhi::pipeline> duplicate{core.create_pipeline(desc)};
         CHECK(!duplicate);
         desc.acceleration_structure_bindings = bindings;
     }
-    rhi::object_manager<rhi::pipeline> pipeline{core.create_pipeline(desc)};
+    rhi::object_ptr<rhi::pipeline> pipeline{core.create_pipeline(desc)};
     CHECK(pipeline);
     if (!pipeline) { return; }
 
@@ -99,15 +99,15 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
     auto* const basis = escape.get_basis();
     CHECK(basis != nullptr && escape.shader_group_handles(*basis, *pipeline, 0, 3, legacy_handles));
     CHECK(handles == legacy_handles);
-    rhi::object_manager<rhi::buffer> table{core.create_buffer({
+    rhi::object_ptr<rhi::buffer> table{core.create_buffer({
         .size = 3u * stride + properties.base_alignment - 1u, .usage = rhi::buffer_usage::storage_coherent,
         .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::shader_binding_table),
     })};
-    rhi::object_manager<rhi::buffer> output{core.create_buffer({
+    rhi::object_ptr<rhi::buffer> output{core.create_buffer({
         .size = 6u * sizeof(std::uint32_t), .usage = rhi::buffer_usage::storage_coherent,
         .flags = rhi::to_bits(rhi::buffer_flag::device_address),
     })};
-    rhi::object_manager<rhi::acceleration_structure> second_tlas{core.create_acceleration_structure({
+    rhi::object_ptr<rhi::acceleration_structure> second_tlas{core.create_acceleration_structure({
         .type = rhi::acceleration_structure_type::top_level, .instance_capacity = 1,
     })};
     CHECK(table && output && second_tlas);
@@ -129,7 +129,7 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
                               .type = rhi::descriptor_type::acceleration_structure}))) { return; }
     if (!checked(heap->write_buffer({.offset = offset + 64, .address = second_tlas->device_address(), .size = second_tlas->size_bytes(),
                               .type = rhi::descriptor_type::acceleration_structure}))) { return; }
-    rhi::object_manager<rhi::command_buffer> commands{core.create_command_buffer({})};
+    rhi::object_ptr<rhi::command_buffer> commands{core.create_command_buffer({})};
     CHECK(commands);
     if (!commands) { return; }
     if (!checked(commands->begin_recording({}))) { return; }

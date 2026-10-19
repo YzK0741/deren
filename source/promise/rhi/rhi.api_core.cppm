@@ -16,7 +16,7 @@
 //     data or non-inline definition crosses this interface: the vtable is the boundary,
 //     and destruction has to reach the backend's own `operator delete`;
 //   - an OWNED handle carries ONE REFERENCE, dropped by `release()`, once, inside the
-//     backend; `object_manager<T>` is the owner spelling of that call (RAII, move-only).
+//     backend; `object_ptr<T>` is the owner spelling of that call (RAII, move-only).
 //     RELEASE IS NOT NECESSARILY DESTRUCTION: the backend may serve the same resource to
 //     several callers (a content-keyed registry + a reference count sit behind these
 //     handles), so the object dies with its LAST reference and a caller must not read the
@@ -46,6 +46,7 @@
 module;
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <expected> // std::expected: `image::get_content()` answers the bytes OR the named reason
 #include <memory>   // std::shared_ptr: the ownership `make_command_buffer` hands over
@@ -76,6 +77,21 @@ import :extension;
  */
 
 export namespace deren::promise::rhi {
+
+    /// THE FACTORIES' RAII RETURN TYPE: a `std::unique_ptr` whose deleter drops the caller's reference through
+    /// the contract's `release()` (release is not `delete` - the backend answers reference counting itself, and
+    /// a shared resource may outlive the call). A caller that needs SHARED ownership converts it with the
+    /// standard library's own `std::shared_ptr<object>(std::move(owned))`; no second ownership vocabulary.
+    template <typename object>
+    struct release_deleter {
+        void operator()(object* const handle) const noexcept {
+            if (handle != nullptr) {
+                handle->release();
+            }
+        }
+    };
+    template <typename object>
+    using object_ptr = std::unique_ptr<object, release_deleter<object>>;
 
     /// WHAT A BUFFER IS FOR, as the contract names it: the memory intent, not a Vulkan memory property.
     ///
@@ -658,22 +674,14 @@ export namespace deren::promise::rhi {
     // A BORROWED VIEW IS NOT AN OWNED HANDLE, and this is the other half of the ownership model.
     // `api_core::frame_image()`, `api_core::frame_readback_buffer()` and `api_core::begin_commands()`
     // answer with objects the BACKEND owns and lends for a window (a frame, or until the next
-    // acquire). Those answer `release()` with a ONE-TIME NAMED LOG and release nothing - the
-    // alternative, a silent no-op, would hide a caller that thinks it holds a reference it does not.
-    // `command_buffer` therefore carries no `release()` at all: it is only ever a borrowed view.
+    // acquire). Those are VIEWS, not factory products: they carry no reference, and `release()` on one is a
+    // lifecycle PRECONDITION violation that TERMINATES (the container-based ownership introduced in abi 41 is
+    // what makes "who releases" unambiguous; a caller that reaches a view's release ignored it).
     //
-    // WHAT A BORROWED IMAGE MAY STILL HAND OUT, AND THE RULE THAT COMES WITH IT (③-D/E item B, abi 16):
-    // `frame_image()->make_view(desc)` answers an OWNED view - the image is borrowed, the view is a new
-    // backend object created for the caller and released like any other factory product. The rule is a
-    // lifetime one: a view made over a swapchain image dies with that image, so the caller MUST release
-    // every such view BEFORE `swapchain::recreate()` (the backend does not track the caller's views, and a
-    // view that outlives its image is what the validation layer reports). The range is the swapchain
-    // image's own shape - one layer, one mip - and anything outside it is REFUSED, not clamped.
-    //
-    // WHY A VIRTUAL AND NOT JUST THE VIRTUAL DESTRUCTOR: `delete p` through these bases is already a
-    // vtable dispatch into the backend, so it *works* (measured on `core`: the engine references no
-    // destructor symbol for it at all). What `delete` cannot express is RELEASE WITHOUT DESTRUCTION,
-    // and what the C ABI cannot express is a `delete` at all. `release()` is the entry that both can.
+    // A BORROWED IMAGE MAY STILL HAND OUT AN OWNED VIEW: `frame_image()->make_view(desc)` answers a new factory
+    // product, released like any other. The rule is a lifetime one: a view made over a swapchain image dies
+    // with that image, so the caller releases every such view before `swapchain::recreate()` - and the range is
+    // the swapchain image's own shape (one layer, one mip); anything outside it is REFUSED, not clamped.
     // ----------------------------------------------------------------------------------------------
 
     /// A buffer, owned by the backend and released by the caller through `release()`.
@@ -929,7 +937,7 @@ export namespace deren::promise::rhi {
         /// `error::invalid_argument` rather than clamping.
         /// APPENDED IN ABI 7 (§17's image face): a new virtual on an existing interface moves the
         /// vtable's shape, which is exactly the case `abi_version` exists to number.
-        [[nodiscard]] virtual image_view* make_view(image_view_desc const& desc) = 0;
+        [[nodiscard]] virtual object_ptr<image_view> make_view(image_view_desc const& desc) = 0;
 
         /// READ THIS IMAGE BACK INTO HOST MEMORY - the image's CONTENT, not a handle to it.
         ///
@@ -1354,106 +1362,6 @@ export namespace deren::promise::rhi {
         virtual void release() noexcept = 0;
     };
 
-    /// The OWNER SPELLING of a contract handle: one reference, released through the contract.
-    ///
-    /// `object_manager<T>` is RAII for the handles above and nothing else - its destructor calls
-    /// `release()`, so a scope that holds a created resource drops its reference on every path out,
-    /// including the early returns. It is move-only and null-on-move, so the ownership transfer is
-    /// visible in the type rather than in a comment.
-    ///
-    /// IT OWNS A REFERENCE, NOT NECESSARILY THE OBJECT. Two managers may point at the same object
-    /// (that is what a factory answering with a shared, content-keyed resource produces), and that is
-    /// correct: each holds one reference, each releases one, and the object dies with the last. What a
-    /// manager must never be given is a BORROWED view - `frame_image()`, `frame_readback_buffer()` and
-    /// `begin_commands()` answer with objects the backend owns and lends, and wrapping one here drops a
-    /// reference the caller never had (the borrowed views answer that with a one-time named log).
-    /// `command_buffer` has no `release()`, so it cannot even be managed: the type system refuses it.
-    ///
-    /// WHY IT IS HERE RATHER THAN WRITTEN OUT IN THE ENGINE: `release()` is a contract virtual and this
-    /// wrapper is a dozen inline lines, so both sides compiling it costs nothing and the engine gets one
-    /// correct RAII spelling instead of one per call site. It is deliberately NOT `std::shared_ptr`: a
-    /// shared owner would have to answer "which of us destroys it", which is the reference-count
-    /// question the backend answers behind the contract, and the shared_ptr control block would not
-    /// survive the boundary anyway. Nor `std::unique_ptr`: that spells the release as `delete`, the one
-    /// spelling that cannot cross the C ABI and cannot express release-without-destruction.
-    ///
-    /// THE NAME IS PENDING (this is the "template rhi_object_manager, name TBD" of the plan): the
-    /// candidates were `object_manager`, `object_ptr` (mirrors `unique_ptr`) and `owned`. Renaming it is
-    /// a find-and-replace in this partition plus its call sites, so the choice is cheap to make later.
-    template <typename object>
-    class object_manager {
-    public:
-        object_manager() noexcept = default;
-
-        /// take the reference @p owned carries (null is allowed: a factory that refused hands back null)
-        explicit object_manager(object* const handle) noexcept
-            : owned{handle} {
-        }
-
-        object_manager(object_manager&& other) noexcept
-            : owned{other.owned} {
-            other.owned = nullptr;
-        }
-
-        object_manager& operator=(object_manager&& other) noexcept {
-            if (this != &other) {
-                this->reset();
-                this->owned = other.owned;
-                other.owned = nullptr;
-            }
-            return *this;
-        }
-
-        object_manager(object_manager const&) = delete;
-        object_manager& operator=(object_manager const&) = delete;
-
-        ~object_manager() noexcept {
-            this->reset();
-        }
-
-        /// RELEASE THE REFERENCE, ONCE (idempotent): calls the handle's `release()` when it still holds
-        /// one. **The object may outlive this call** - release is not destruction when the resource is
-        /// shared (see the ownership note above).
-        void reset() noexcept {
-            if (this->owned != nullptr) {
-                this->owned->release();
-                this->owned = nullptr;
-            }
-        }
-
-        /// give up the reference WITHOUT releasing it (the caller takes over the `release()`)
-        [[nodiscard]] object* release() noexcept {
-            object* const released = this->owned;
-            this->owned = nullptr;
-            return released;
-        }
-
-        void swap(object_manager& other) noexcept {
-            object* const temporary = this->owned;
-            this->owned = other.owned;
-            other.owned = temporary;
-        }
-
-        [[nodiscard]] object* get() const noexcept {
-            return this->owned;
-        }
-
-        [[nodiscard]] object* operator->() const noexcept {
-            return this->owned;
-        }
-
-        [[nodiscard]] object& operator*() const noexcept {
-            return *this->owned;
-        }
-
-        [[nodiscard]] explicit operator bool() const noexcept {
-            return this->owned != nullptr;
-        }
-
-    private:
-        object* owned = nullptr;
-    };
-
     // ---- THE COMMAND BUFFER: THE OWNED RECORDING HANDLE (abi 15) ------------------------------------
     //
     // `command_buffer` is a BORROWED view of a recording (abi 1/2/14: it has no `release()`, and the
@@ -1462,7 +1370,7 @@ export namespace deren::promise::rhi {
     // per-slot primaries, its per-cascade and per-worker secondaries and the read-back's one-shot
     // buffer need. `command_buffer` is that resource, in the ownership shape `buffer` / `image`
     // established: the factory hands out ONE reference, `release()` drops it inside the backend, and
-    // `rhi::object_manager<T>` is the owner spelling.
+    // `rhi::object_ptr<T>` is the owner spelling.
     //
     // WHAT DOES NOT CROSS THIS BOUNDARY, and it is the decision this type rests on: the ALLOCATOR. A
     // command buffer is allocated from an API-specific pool/allocator whose lifetime is entangled with
@@ -2073,7 +1981,7 @@ export namespace deren::promise::rhi {
     inline constexpr std::uint32_t max_swapchain_images = 4u;
 
     /// The frame ring's cursor, as a BORROWED VIEW - the `command_buffer` shape, not the owned-handle
-    /// one: no `release()`, so `object_manager` cannot wrap it (the type system refuses), and the
+    /// one: a view carries no reference, so `object_ptr` must not wrap it (its release panics).
     /// `api_core` hands out the same object every call.
     ///
     /// WHY THE RING IS A CONTRACT FACE AT ALL: the cursor's one home is the backend's own frame
@@ -2173,27 +2081,29 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual extension* query_extension(extension_kind kind) noexcept = 0;
 
         // ---- factories ---------------------------------------------------------
-        // A factory returns nullptr when it cannot honour the descriptor: the plan has
-        // no throwing path across the boundary (§4.2), and the caller is expected to
-        // have checked `abilities()` before asking for something optional (§3.6).
-        [[nodiscard]] virtual swapchain* create_swapchain(swapchain_desc const& desc) = 0;
-        [[nodiscard]] virtual buffer* create_buffer(buffer_desc const& desc) = 0;
-        [[nodiscard]] virtual image* create_image(image_desc const& desc) = 0;
+        // A factory returns an EMPTY object_ptr when it cannot honour the descriptor: the plan has
+        // no throwing path across the boundary (§4.2), and the caller is expected to have checked
+        // `abilities()` before asking for something optional (§3.6). The return container IS the
+        // lifetime: hold it and the resource is released on scope exit - there is no separate ownership
+        // vocabulary to learn and no call site spells `release()` for a factory product.
+        [[nodiscard]] virtual object_ptr<swapchain> create_swapchain(swapchain_desc const& desc) = 0;
+        [[nodiscard]] virtual object_ptr<buffer> create_buffer(buffer_desc const& desc) = 0;
+        [[nodiscard]] virtual object_ptr<image> create_image(image_desc const& desc) = 0;
         /// APPENDED IN ABI 26: allocate an acceleration structure (see the type's own note for why this is
         /// tier-1 furniture rather than an ability). The BACKEND owns the storage and the scratch a build needs;
         /// `desc` carries what the structure IS - its level, whether it may be refitted, and its geometries or
         /// its instance capacity - and is borrowed only until the call returns. `nullptr` = this backend cannot
         /// serve it, with its own named diagnosis logged, exactly as the other factories answer.
-        [[nodiscard]] virtual acceleration_structure* create_acceleration_structure(acceleration_structure_desc const& desc) = 0;
+        [[nodiscard]] virtual object_ptr<acceleration_structure> create_acceleration_structure(acceleration_structure_desc const& desc) = 0;
         /// APPENDED IN ABI 27: allocate an opacity micromap (see the type's own note). The backend owns the
         /// storage, the scratch AND the setup buffers the build reads - including the 256-byte address alignment
         /// the API requires of them, which is a requirement on an address and therefore cannot be a caller's
         /// problem. `nullptr` = this backend cannot serve it, with its own named diagnosis logged.
-        [[nodiscard]] virtual micromap* create_micromap(micromap_desc const& desc) = 0;
-        [[nodiscard]] virtual sampler* create_sampler(sampler_desc const& desc) = 0;
-        [[nodiscard]] virtual shader* create_shader(shader_desc const& desc) = 0;
-        [[nodiscard]] virtual pipeline* create_pipeline(pipeline_desc const& desc) = 0;
-        [[nodiscard]] virtual query* create_query(query_desc const& desc) = 0;
+        [[nodiscard]] virtual object_ptr<micromap> create_micromap(micromap_desc const& desc) = 0;
+        [[nodiscard]] virtual object_ptr<sampler> create_sampler(sampler_desc const& desc) = 0;
+        [[nodiscard]] virtual object_ptr<shader> create_shader(shader_desc const& desc) = 0;
+        [[nodiscard]] virtual object_ptr<pipeline> create_pipeline(pipeline_desc const& desc) = 0;
+        [[nodiscard]] virtual object_ptr<query> create_query(query_desc const& desc) = 0;
 
         // ---- frame -------------------------------------------------------------
         /// The RECORDING VIEW of the frame in flight, or nullptr when no frame is being recorded.
@@ -2278,11 +2188,11 @@ export namespace deren::promise::rhi {
 
         /// Create a command buffer the caller OWNS (abi 15). `nullptr` = this backend cannot serve the
         /// descriptor (a kind it does not have; the reason is on the record, the contract's named-
-        /// refusal rule). The handle carries ONE reference - `rhi::object_manager<command_buffer>` is
+        /// refusal rule). The handle carries ONE reference - `rhi::object_ptr<command_buffer>` is
         /// the owner spelling and `release()` drops it inside the backend - and the allocation behind
         /// it (the API's own pool/allocator) stays the backend's, so nothing but the handle crosses
         /// this boundary.
-        [[nodiscard]] virtual command_buffer* create_command_buffer(command_buffer_desc const& desc) = 0;
+        [[nodiscard]] virtual object_ptr<command_buffer> create_command_buffer(command_buffer_desc const& desc) = 0;
 
         /// CREATE A COMMAND BUFFER THE CALLER OWNS, AS A `std::shared_ptr` (abi 21).
         ///

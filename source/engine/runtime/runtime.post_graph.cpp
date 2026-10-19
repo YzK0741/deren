@@ -960,7 +960,7 @@ namespace deren::engine {
             rhi::buffer_desc desc;
             desc.size = static_cast<std::uint64_t>(extent.width) * extent.height * 8u;
             desc.usage = rhi::buffer_usage::readback_coherent;
-            this->gaussian_hdr_readback = rhi::object_manager<rhi::buffer>{this->rhi_face().create_buffer(desc)};
+            this->gaussian_hdr_readback = rhi::object_ptr<rhi::buffer>{this->rhi_face().create_buffer(desc)};
             // THE PAIR IS THE LEGACY ONE ON PURPOSE: the contract's transition vocabulary has a
             // (color_attachment -> transfer_source) recipe and no (sampled-read -> transfer_source) one, because
             // nothing in the frame pipeline copies out of an image it just sampled. A copy after a sampled read
@@ -994,7 +994,7 @@ namespace deren::engine {
             rhi::buffer_desc desc;
             desc.size = static_cast<std::uint64_t>(extent.width) * extent.height * 4u;
             desc.usage = rhi::buffer_usage::readback_coherent;
-            this->depth_probe_readback = rhi::object_manager<rhi::buffer>{this->rhi_face().create_buffer(desc)};
+            this->depth_probe_readback = rhi::object_ptr<rhi::buffer>{this->rhi_face().create_buffer(desc)};
             // THE PAIR IS THE LEGACY ONE, deliberately (same reasoning as the Gaussian HDR copy above): unified
             // image layouts make every state GENERAL, so this pair is a synchronization recipe, and the depth is
             // re-imported with undefined contents by the next frame.

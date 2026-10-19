@@ -15,7 +15,7 @@ export namespace deren::engine {
         struct owner {
             std::shared_ptr<deren::promise::rhi::api_core> device;
             std::shared_ptr<void const> dependency;
-            deren::promise::rhi::object_manager<T> object; // Release before dependency and device.
+            deren::promise::rhi::object_ptr<T> object; // Release before dependency and device.
             owner(std::shared_ptr<deren::promise::rhi::api_core> core, T* resource, std::shared_ptr<void const> parent)
                 : device(std::move(core))
                 , dependency(std::move(parent))
@@ -120,19 +120,19 @@ export namespace deren::engine {
         }
 
         [[nodiscard]] auto create_buffer(deren::promise::rhi::buffer_desc const& desc) {
-            return keep(core->create_buffer(desc));
+            return keep(core->create_buffer(desc).release());
         }
         [[nodiscard]] auto create_image(deren::promise::rhi::image_desc const& desc) {
-            return keep(core->create_image(desc));
+            return keep(core->create_image(desc).release());
         }
         [[nodiscard]] auto create_sampler(deren::promise::rhi::sampler_desc const& desc) {
-            return keep(core->create_sampler(desc));
+            return keep(core->create_sampler(desc).release());
         }
         [[nodiscard]] std::expected<resource_lease<deren::promise::rhi::image_view>, deren::promise::rhi::error>
         create_image_view(resource_lease<deren::promise::rhi::image> const& image, deren::promise::rhi::image_view_desc const& desc) {
             if (!image || image.value->device.get() != core.get())
                 return std::unexpected(deren::promise::rhi::error::invalid_argument);
-            return keep(image->make_view(desc), image.value);
+            return keep(image->make_view(desc).release(), image.value);
         }
         template <typename T>
         [[nodiscard]] deren::promise::rhi::error share(resource_lease<T> const& resource) {

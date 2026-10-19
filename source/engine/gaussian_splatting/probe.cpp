@@ -118,15 +118,15 @@ namespace deren::engine::gaussian_splatting {
             desc.extent = camera.extent;
             desc.format = rhi::image_format::r16g16b16a16_sfloat;
             desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::host_transfer);
-            rhi::object_manager<rhi::image> color{core.create_image(desc)};
+            rhi::object_ptr<rhi::image> color{core.create_image(desc)};
             desc.format = rhi::image_format::depth;
             desc.flags = rhi::to_bits(rhi::image_flag::depth_attachment) | rhi::to_bits(rhi::image_flag::sampled);
-            rhi::object_manager<rhi::image> depth{core.create_image(desc)};
+            rhi::object_ptr<rhi::image> depth{core.create_image(desc)};
             if (!color || !depth) {
                 return failure("Gaussian probe target creation failed", error_code::allocation_failure);
             }
-            rhi::object_manager<rhi::image_view> color_view{color->make_view({.role = rhi::view_role::color_attachment})};
-            rhi::object_manager<rhi::image_view> depth_view{depth->make_view({.role = rhi::view_role::depth_attachment})};
+            rhi::object_ptr<rhi::image_view> color_view{color->make_view({.role = rhi::view_role::color_attachment})};
+            rhi::object_ptr<rhi::image_view> depth_view{depth->make_view({.role = rhi::view_role::depth_attachment})};
             auto commands = core.make_command_buffer({.kind = rhi::command_buffer_kind::primary});
             if (!color_view || !depth_view || !commands) {
                 return failure("Gaussian probe recording resources failed", error_code::allocation_failure);
@@ -203,7 +203,7 @@ namespace deren::engine::gaussian_splatting {
             rhi::buffer_desc desc;
             desc.size = lane_bytes * 4u + 16u;
             desc.usage = rhi::buffer_usage::readback_coherent;
-            rhi::object_manager<rhi::buffer> readback{core.create_buffer(desc)};
+            rhi::object_ptr<rhi::buffer> readback{core.create_buffer(desc)};
             auto list = core.make_command_buffer({.kind = rhi::command_buffer_kind::primary});
             if (!readback || !list || list->begin_recording({.usage = rhi::to_bits(rhi::command_buffer_usage::one_time_submit)}) != rhi::error::ok) {
                 return failure("GPU reference readback allocation failed");

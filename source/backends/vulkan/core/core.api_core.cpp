@@ -1122,11 +1122,15 @@ namespace deren::vulkan {
         return nullptr;
     }
 
-    rhi::swapchain* core::create_swapchain(rhi::swapchain_desc const& /*desc*/) {
+    rhi::object_ptr<rhi::swapchain> core::create_swapchain(rhi::swapchain_desc const& /*desc*/) {
         return nullptr;
     }
 
-    rhi::buffer* core::create_buffer(rhi::buffer_desc const& declared_desc) {
+    rhi::buffer* core::create_buffer_raw(rhi::buffer_desc const& desc) {
+        return this->create_buffer(desc).release();
+    }
+
+    rhi::object_ptr<rhi::buffer> core::create_buffer(rhi::buffer_desc const& declared_desc) {
         // ---- THE ABI GUARD, THEN THE DESCRIPTOR ------------------------------------------------
         // Same rule the context's descriptor follows (core.constructor.cppm): the caller declares how
         // many bytes of the structure IT compiled, and a field whose whole extent is not inside them
@@ -1269,7 +1273,7 @@ namespace deren::vulkan {
             std::lock_guard const lock(this->contract_buffers_mutex);
             this->contract_buffers.insert(answer);
         }
-        return answer;
+        return rhi::object_ptr<rhi::buffer>{answer};
     }
 
     std::uint64_t core::owned_buffer::size() const noexcept {
@@ -1299,7 +1303,7 @@ namespace deren::vulkan {
         delete this;
     }
 
-    rhi::image* core::create_image(rhi::image_desc const& declared_desc) {
+    rhi::object_ptr<rhi::image> core::create_image(rhi::image_desc const& declared_desc) {
         // ---- THE ABI GUARD, THEN THE DESCRIPTOR ------------------------------------------------
         // Same rule create_buffer runs: only the caller's declared prefix is read.
         rhi::image_desc const desc = sanitize_image_desc(declared_desc);
@@ -1380,10 +1384,10 @@ namespace deren::vulkan {
         }
         deren::utility::log("rhi: create_image {} {}x{} layers {} mips {} -> handle {:#x}",
                             what, create_info.width, create_info.height, create_info.array_layers, create_info.mip_levels, owned.handle());
-        return answer;
+        return rhi::object_ptr<rhi::image>{answer};
     }
 
-    rhi::sampler* core::create_sampler(rhi::sampler_desc const& declared_desc) {
+    rhi::object_ptr<rhi::sampler> core::create_sampler(rhi::sampler_desc const& declared_desc) {
         rhi::sampler_desc const desc = sanitize_sampler_desc(declared_desc);
 
         // The contract's four modes are exactly VkSamplerAddressMode's common four, written out per
@@ -1423,7 +1427,7 @@ namespace deren::vulkan {
         auto* const answer = new owned_sampler();
         answer->native_sampler_handle = handle;
         answer->device = this->logical_device;
-        return answer;
+        return rhi::object_ptr<rhi::sampler>{answer};
     }
 
     // ---- THE OWNED IMAGE FACE'S OBJECTS (abi 7, §17's design) --------------------------------------
@@ -1436,7 +1440,7 @@ namespace deren::vulkan {
         return this->declared_format;
     }
 
-    rhi::image_view* core::owned_image::make_view(rhi::image_view_desc const& declared_desc) {
+    rhi::object_ptr<rhi::image_view> core::owned_image::make_view(rhi::image_view_desc const& declared_desc) {
         // The range is validated against THIS image's shape, per the contract's rule: a range the
         // image does not have is refused, not clamped - a clamped view would sample the wrong mip and
         // say nothing.
@@ -1485,7 +1489,7 @@ namespace deren::vulkan {
             return nullptr;
         }
         answer->native_view = handle;
-        return answer.release();
+        return rhi::object_ptr<rhi::image_view>{answer.release()};
     }
 
     std::shared_ptr<deren::promise::rhi::image> core::owned_image::share() {
@@ -1551,7 +1555,7 @@ namespace deren::vulkan {
         delete this;
     }
 
-    rhi::shader* core::create_shader(rhi::shader_desc const& declared_desc) {
+    rhi::object_ptr<rhi::shader> core::create_shader(rhi::shader_desc const& declared_desc) {
         rhi::shader_desc const desc = sanitize_shader_desc(declared_desc);
         char const* const what = desc.debug_name != nullptr ? desc.debug_name : "unnamed shader";
 
@@ -1600,10 +1604,10 @@ namespace deren::vulkan {
         auto* const answer = new owned_shader();
         answer->owned.emplace(std::move(module.value()));
         answer->native_handle = answer->owned->get();
-        return answer;
+        return rhi::object_ptr<rhi::shader>{answer};
     }
 
-    rhi::pipeline* core::create_pipeline(rhi::pipeline_desc const& declared_desc) {
+    rhi::object_ptr<rhi::pipeline> core::create_pipeline(rhi::pipeline_desc const& declared_desc) {
         rhi::pipeline_desc const desc = sanitize_pipeline_desc(declared_desc);
         if (desc.texture_group.enabled && validate_texture_group_pipeline(desc) != rhi::error::ok) {
             deren::utility::log("rhi: incompatible texture-group pipeline binding");
@@ -1623,14 +1627,14 @@ namespace deren::vulkan {
             return nullptr;
         }
         if (desc.first_stage == rhi::shader_stage::compute) {
-            return this->create_compute_pipeline(desc, what);
+            return rhi::object_ptr<rhi::pipeline>{this->create_compute_pipeline(desc, what)};
         }
         // ---- AND THE RAY-TRACING SPELLING (abi 21) ------------------------------------------------
         // The switch is the STAGES, not a first stage: a ray-tracing pipeline is the only kind built from
         // several named entry points and a group table (see the descriptor's own note), so their presence is
         // what says which path this is.
         if (!desc.ray_tracing_stages.empty()) {
-            return this->create_ray_tracing_pipeline(desc, what);
+            return rhi::object_ptr<rhi::pipeline>{this->create_ray_tracing_pipeline(desc, what)};
         }
 
         // ---- THE CONTRACT'S VOCABULARY IN THE BACKEND'S ------------------------------------------
@@ -1703,7 +1707,7 @@ namespace deren::vulkan {
         answer->owned.emplace(std::move(pipeline.value()));
         answer->group_binding = desc.texture_group;
         answer->native_handle = answer->owned->get_pipeline();
-        return answer;
+        return rhi::object_ptr<rhi::pipeline>{answer};
     }
 
     /// THE COMPUTE PIPELINE, in the shape the engine's raw builders had (pipelines.cppm's
@@ -1960,7 +1964,7 @@ namespace deren::vulkan {
         return answer;
     }
 
-    rhi::query* core::create_query(rhi::query_desc const& /*desc*/) {
+    rhi::object_ptr<rhi::query> core::create_query(rhi::query_desc const& /*desc*/) {
         return nullptr;
     }
 
@@ -2002,7 +2006,7 @@ namespace deren::vulkan {
         return answer;
     }
 
-    rhi::command_buffer* core::create_command_buffer(rhi::command_buffer_desc const& declared_desc) {
+    rhi::object_ptr<rhi::command_buffer> core::create_command_buffer(rhi::command_buffer_desc const& declared_desc) {
         // THE ABI GUARD, the same rule every factory descriptor follows: only the prefix the caller
         // declares is read, so an older caller's structure keeps this build's default.
         rhi::command_buffer_kind kind = rhi::command_buffer_kind::primary;
@@ -2023,11 +2027,11 @@ namespace deren::vulkan {
         }
         deren::utility::log("rhi: create_command_buffer primary -> native {:#x} (its own command pool)",
                             reinterpret_cast<std::uintptr_t>(*answer->buffer));
-        return answer;
+        return rhi::object_ptr<rhi::command_buffer>{answer};
     }
 
     std::shared_ptr<rhi::command_buffer> core::make_command_buffer(rhi::command_buffer_desc const& desc) {
-        rhi::command_buffer* const raw = this->create_command_buffer(desc);
+        rhi::command_buffer* const raw = this->create_command_buffer(desc).release();
         if (raw == nullptr) {
             return {}; // the refusal was named where it happened; an empty shared_ptr is the same answer
         }
@@ -2124,7 +2128,7 @@ namespace deren::vulkan {
         // does not need a second submission mechanism.
         rhi::command_buffer_desc primary_desc{};
         primary_desc.kind = rhi::command_buffer_kind::primary;
-        rhi::command_buffer* const raw_primary = this->create_command_buffer(primary_desc);
+        rhi::command_buffer* const raw_primary = this->create_command_buffer(primary_desc).release();
         if (raw_primary == nullptr) {
             return rhi::error::not_ready;
         }
@@ -2338,13 +2342,15 @@ namespace deren::vulkan {
 
     // ---- THE FRAME'S BORROWED BUFFER: the four lifecycle verbs, refused BY NAME (see the note in
     //      core.declarations.cppm). release() is the one that must not be silent - a caller that wrapped
-    //      this view in object_manager<> has a bug - so it says so once, exactly as frame_image_slot does.
+    //      this view in object_ptr<> has a bug - so it says so once, exactly as frame_image_slot does.
 
     void core::frame_commands::release() noexcept {
-        if (!this->borrowed_lifecycle_logged) {
-            this->borrowed_lifecycle_logged = true;
-            deren::utility::log("core: release() on the FRAME's command buffer - the core owns it and this view carries no reference to drop (logged once)");
-        }
+        // A VIEW IS NOT A FACTORY PRODUCT: the core owns the frame's list, the view carries no reference, and
+        // there is nothing to drop. Reaching here is a lifecycle PRECONDITION violation, so it terminates
+        // loudly instead of being tolerated with a log - the container-based ownership in this batch is what
+        // makes "who releases" unambiguous; this branch is the caller ignoring it.
+        deren::utility::panic("rhi: release() on the FRAME's command buffer - it is a borrowed view owned by the core, "
+                              "and only factory products carry a reference to drop");
     }
 
     rhi::error core::frame_commands::begin_recording(rhi::command_buffer_begin_info const& declared_info) {
@@ -2552,7 +2558,7 @@ namespace deren::vulkan {
         return rhi::image_extent{.width = extent.width, .height = extent.height, .depth = 1};
     }
 
-    rhi::image_view* core::frame_image_slot::make_view(rhi::image_view_desc const& declared_desc) {
+    rhi::object_ptr<rhi::image_view> core::frame_image_slot::make_view(rhi::image_view_desc const& declared_desc) {
         // A BORROWED IMAGE HANDS OUT OWNED VIEWS (③-D/E item B, abi 16). What is borrowed is the IMAGE -
         // the swapchain image, owned by the presentation path - but a VIEW is a NEW backend object created
         // right here, so `release()` on it is real and the contract's ownership rule applies to it exactly
@@ -2598,22 +2604,15 @@ namespace deren::vulkan {
         auto* const answer = new owned_image_view();
         answer->native_view = handle;
         answer->device = this->owner->logical_device;
-        return answer;
+        return rhi::object_ptr<rhi::image_view>{answer};
     }
 
     void core::frame_image_slot::release() noexcept {
-        // A BORROWED VIEW CARRIES NO REFERENCE, SO THERE IS NOTHING TO RELEASE - AND SAYING SO IS THE WHOLE
-        // ANSWER. This object is a member of the core; the swapchain image behind it belongs to the core and
-        // dies with the core's own teardown. A caller that reached `release()` here has wrapped something it
-        // never held a reference to in `object_manager` - a bug in the caller rather than a leak - so the
-        // answer is a ONE-TIME NAMED LOG, not a panic and not a silent no-op (rhi.api_core.cppm's ownership
-        // note; the one-time shape is the one `frame_commands::use` already uses for an image this backend
-        // did not hand out).
-        if (!this->borrowed_release_logged) {
-            this->borrowed_release_logged = true;
-            deren::utility::log("rhi: release() on the frame image view - it is BORROWED from the backend and carries no reference, so nothing was released; "
-                                "only factory-created handles hold a reference the caller may drop");
-        }
+        // A VIEW IS NOT A FACTORY PRODUCT: this object is a member of the core, the swapchain image behind it
+        // belongs to the swapchain, and the view carries no reference. Reaching here is a lifecycle
+        // PRECONDITION violation and terminates loudly (see `frame_commands::release`).
+        deren::utility::panic("rhi: release() on a borrowed frame image view - it is owned by the core and carries no reference; "
+                              "only factory products carry a reference to drop");
     }
 
     rhi::image_format core::frame_image_slot::format() const noexcept {
@@ -2631,14 +2630,10 @@ namespace deren::vulkan {
     }
 
     void core::frame_readback_slot::release() noexcept {
-        // BORROWED, same answer as the frame image view's: the read-back slot is the core's own allocation
-        // (grown on demand by frame_readback_buffer(), released by the core's teardown), so a caller's
-        // `release()` here drops a reference the caller never held and gets one named log.
-        if (!this->borrowed_release_logged) {
-            this->borrowed_release_logged = true;
-            deren::utility::log("rhi: release() on the frame read-back buffer view - it is BORROWED from the backend and carries no reference, so nothing was released; "
-                                "only factory-created handles hold a reference the caller may drop");
-        }
+        // BORROWED, same answer as the frame image view's: the read-back slot is the core's own allocation,
+        // so a release here is a lifecycle precondition violation and terminates.
+        deren::utility::panic("rhi: release() on a borrowed frame read-back buffer - it is owned by the core and carries no "
+                              "reference; only factory products carry a reference to drop");
     }
 
     std::span<std::byte> core::frame_readback_slot::mapped() noexcept {
@@ -3432,7 +3427,7 @@ namespace deren::vulkan {
         self->ray_trace_launch(command_buffer, &native_raygen, &native_miss, &native_hit, &native_callable, width, height, depth);
     }
 
-    rhi::micromap* core::create_micromap(rhi::micromap_desc const& declared_desc) {
+    rhi::object_ptr<rhi::micromap> core::create_micromap(rhi::micromap_desc const& declared_desc) {
         // ---- THE CONTRACT'S LAYOUTS ARE THE API'S, AND THIS IS WHERE THAT IS PROVEN --------------------
         static_assert(static_cast<std::uint32_t>(rhi::micromap_format::four_state) == VK_OPACITY_MICROMAP_FORMAT_4_STATE_EXT,
                       "the contract's four-state format IS the API's");
@@ -3505,7 +3500,7 @@ namespace deren::vulkan {
         constexpr rhi::buffer_flags setup_flags =
             rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::micromap_build_input);
         auto const setup = [this](std::span<std::byte const> const bytes, std::uintptr_t& address) -> rhi::buffer* {
-            rhi::buffer* const buffer = this->create_buffer(rhi::buffer_desc{
+            rhi::buffer* const buffer = this->create_buffer_raw(rhi::buffer_desc{
                 .size = static_cast<std::uint64_t>(bytes.size()) + address_alignment,
                 .usage = rhi::buffer_usage::storage_coherent,
                 .flags = setup_flags});
@@ -3556,7 +3551,7 @@ namespace deren::vulkan {
             delete out;
             return nullptr;
         }
-        out->storage = this->create_buffer(rhi::buffer_desc{
+        out->storage = this->create_buffer_raw(rhi::buffer_desc{
             .size = sizes.micromapSize,
             .usage = rhi::buffer_usage::storage_gpu_only,
             .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::micromap_storage)});
@@ -3567,7 +3562,7 @@ namespace deren::vulkan {
         }
         if (sizes.buildScratchSize != 0) {
             // only its ADDRESS is read (by the build), so the device-address flag is the whole requirement
-            out->scratch = this->create_buffer(rhi::buffer_desc{
+            out->scratch = this->create_buffer_raw(rhi::buffer_desc{
                 .size = sizes.buildScratchSize,
                 .usage = rhi::buffer_usage::storage_gpu_only,
                 .flags = rhi::to_bits(rhi::buffer_flag::device_address)});
@@ -3596,10 +3591,10 @@ namespace deren::vulkan {
         }
         deren::utility::log("rhi: create_micromap: {} micro-triangles, {} bytes of storage, {} bytes of scratch",
                             out->triangle_count, sizes.micromapSize, sizes.buildScratchSize);
-        return out;
+        return rhi::object_ptr<rhi::micromap>{out};
     }
 
-    rhi::acceleration_structure* core::create_acceleration_structure(rhi::acceleration_structure_desc const& declared_desc) {
+    rhi::object_ptr<rhi::acceleration_structure> core::create_acceleration_structure(rhi::acceleration_structure_desc const& declared_desc) {
         // ---- THE ABI GUARD, THEN WHAT A CREATE ACTUALLY IS (tier-1 since abi 26) ------------------------
         //
         //   1. THE GEOMETRY, in the driver's words, built ONCE: the caller's records are PODs of the CONTRACT's
@@ -3664,7 +3659,7 @@ namespace deren::vulkan {
 
         // ---- 1. THE GEOMETRY ---------------------------------------------------------------------------
         if (top_level) {
-            rhi::buffer* const records = this->create_buffer(rhi::buffer_desc{
+            rhi::buffer* const records = this->create_buffer_raw(rhi::buffer_desc{
                 .size = static_cast<std::uint64_t>(instance_capacity) * sizeof(rhi::acceleration_structure_instance),
                 .usage = rhi::buffer_usage::storage_coherent,
                 .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input)});
@@ -3786,7 +3781,7 @@ namespace deren::vulkan {
             return nullptr;
         }
 
-        structure->storage = this->create_buffer(
+        structure->storage = this->create_buffer_raw(
             rhi::buffer_desc{.size = sizes.accelerationStructureSize, .usage = rhi::buffer_usage::acceleration_structure_storage});
         if (structure->storage == nullptr) {
             deren::utility::log("rhi: create_acceleration_structure refused: the structure's storage could not be allocated ({} bytes)", sizes.accelerationStructureSize);
@@ -3798,9 +3793,9 @@ namespace deren::vulkan {
         std::uint64_t const scratch_size = std::max(sizes.buildScratchSize, structure->refittable ? sizes.updateScratchSize : 0u);
         if (scratch_size != 0) {
             std::uint64_t const alignment = std::max<std::uint64_t>(this->acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment, 1u);
-            structure->scratch = this->create_buffer(rhi::buffer_desc{.size = scratch_size + alignment - 1u,
-                                                                      .usage = rhi::buffer_usage::acceleration_structure_scratch,
-                                                                      .flags = rhi::to_bits(rhi::buffer_flag::device_address)});
+            structure->scratch = this->create_buffer_raw(rhi::buffer_desc{.size = scratch_size + alignment - 1u,
+                                                                          .usage = rhi::buffer_usage::acceleration_structure_scratch,
+                                                                          .flags = rhi::to_bits(rhi::buffer_flag::device_address)});
             if (structure->scratch == nullptr) {
                 deren::utility::log("rhi: create_acceleration_structure refused: the build scratch could not be allocated ({} bytes)", scratch_size);
                 delete structure;
@@ -3840,7 +3835,7 @@ namespace deren::vulkan {
         deren::utility::log("rhi: create_acceleration_structure: {} level, {} geometries, {} bytes of storage, {} bytes of scratch, address {:#x}",
                             top_level ? "top" : "bottom", structure->geometries.size(), structure->structure_size,
                             structure->scratch_size, static_cast<std::uint64_t>(structure->address));
-        return structure;
+        return rhi::object_ptr<rhi::acceleration_structure>{structure};
     }
 
     rhi::error core::frame_commands::build_micromap(rhi::micromap& target) {

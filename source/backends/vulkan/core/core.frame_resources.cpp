@@ -46,12 +46,12 @@ namespace deren::vulkan {
         return result;
     }
 
-    rhi::image_view* core::frame_snapshot::make_view(rhi::image_view_desc const& desc) {
+    rhi::object_ptr<rhi::image_view> core::frame_snapshot::make_view(rhi::image_view_desc const& desc) {
         if (!current())
             return nullptr;
-        auto* result = owner->frame_image_view.make_view(desc);
+        rhi::object_ptr<rhi::image_view> result = owner->frame_image_view.make_view(desc);
         if (result)
-            static_cast<owned_image_view*>(result)->parent_image = weak_from_this().lock();
+            static_cast<owned_image_view*>(result.get())->parent_image = weak_from_this().lock();
         return result;
     }
 
@@ -60,9 +60,8 @@ namespace deren::vulkan {
     }
 
     void core::frame_snapshot::release() noexcept {
-        if (!release_logged) {
-            release_logged = true;
-            deren::utility::log("rhi: release() on {} refused: shared-owner image; reset its shared_ptr instead", concrete::frame_snapshot);
-        }
+        // THE SNAPSHOT IS HANDED OUT AS A shared_ptr (`frame_resources::retain_image()`), so the caller's
+        // lifetime handle is that container, never `release()`. Reaching here is a precondition violation.
+        deren::utility::panic("rhi: release() on a frame-resource snapshot - it is shared-owner; reset its shared_ptr instead");
     }
 } // namespace deren::vulkan
