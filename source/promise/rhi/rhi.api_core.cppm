@@ -16,7 +16,7 @@
 //     data or non-inline definition crosses this interface: the vtable is the boundary,
 //     and destruction has to reach the backend's own `operator delete`;
 //   - an OWNED handle carries ONE REFERENCE, dropped by `release()`, once, inside the
-//     backend; `object_ptr<T>` is the owner spelling of that call (RAII, move-only).
+//     backend; `unique_object<T>` is the owner spelling of that call (RAII, move-only).
 //     RELEASE IS NOT NECESSARILY DESTRUCTION: the backend may serve the same resource to
 //     several callers (a content-keyed registry + a reference count sit behind these
 //     handles), so the object dies with its LAST reference and a caller must not read the
@@ -77,21 +77,6 @@ import :extension;
  */
 
 export namespace deren::promise::rhi {
-
-    /// THE FACTORIES' RAII RETURN TYPE: a `std::unique_ptr` whose deleter drops the caller's reference through
-    /// the contract's `release()` (release is not `delete` - the backend answers reference counting itself, and
-    /// a shared resource may outlive the call). A caller that needs SHARED ownership converts it with the
-    /// standard library's own `std::shared_ptr<object>(std::move(owned))`; no second ownership vocabulary.
-    template <typename object>
-    struct release_deleter {
-        void operator()(object* const handle) const noexcept {
-            if (handle != nullptr) {
-                handle->release();
-            }
-        }
-    };
-    template <typename object>
-    using object_ptr = std::unique_ptr<object, release_deleter<object>>;
 
     /// WHAT A BUFFER IS FOR, as the contract names it: the memory intent, not a Vulkan memory property.
     ///
@@ -930,14 +915,14 @@ export namespace deren::promise::rhi {
 
         /// A view of this image: WHERE THE BACKEND MAKES THE `VkImageView`, the caller only says WHICH
         /// RANGE of the image it wants (§17's design: the engine wants "one array layer" and "the whole
-        /// image", not a raw `VkImageViewCreateInfo`). The view is a factory product (`object_ptr<image_view>`,
+        /// image", not a raw `VkImageViewCreateInfo`). The view is a factory product (`unique_object<image_view>`,
         /// released by its container) and no native view crosses the contract: the escape's
         /// `native_image_view` was deleted in abi 42. The backend refuses a descriptor that asks for a range
         /// the image does not have (a layer past `array_layers`, a mip past `mip_levels`) with
         /// `error::invalid_argument` rather than clamping.
         /// APPENDED IN ABI 7 (§17's image face): a new virtual on an existing interface moves the
         /// vtable's shape, which is exactly the case `abi_version` exists to number.
-        [[nodiscard]] virtual object_ptr<image_view> make_view(image_view_desc const& desc) = 0;
+        [[nodiscard]] virtual unique_object<image_view> make_view(image_view_desc const& desc) = 0;
 
         /// READ THIS IMAGE BACK INTO HOST MEMORY - the image's CONTENT, not a handle to it.
         ///
@@ -1370,7 +1355,7 @@ export namespace deren::promise::rhi {
     // per-slot primaries, its per-cascade and per-worker secondaries and the read-back's one-shot
     // buffer need. `command_buffer` is that resource, in the ownership shape `buffer` / `image`
     // established: the factory hands out ONE reference, `release()` drops it inside the backend, and
-    // `rhi::object_ptr<T>` is the owner spelling.
+    // `rhi::unique_object<T>` is the owner spelling.
     //
     // WHAT DOES NOT CROSS THIS BOUNDARY, and it is the decision this type rests on: the ALLOCATOR. A
     // command buffer is allocated from an API-specific pool/allocator whose lifetime is entangled with
@@ -1981,7 +1966,7 @@ export namespace deren::promise::rhi {
     inline constexpr std::uint32_t max_swapchain_images = 4u;
 
     /// The frame ring's cursor, as a BORROWED VIEW - the `command_buffer` shape, not the owned-handle
-    /// one: a view carries no reference, so `object_ptr` must not wrap it (its release panics).
+    /// one: a view carries no reference, so `unique_object` must not wrap it (its release panics).
     /// `api_core` hands out the same object every call.
     ///
     /// WHY THE RING IS A CONTRACT FACE AT ALL: the cursor's one home is the backend's own frame
@@ -2081,29 +2066,29 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual extension* query_extension(extension_kind kind) noexcept = 0;
 
         // ---- factories ---------------------------------------------------------
-        // A factory returns an EMPTY object_ptr when it cannot honour the descriptor: the plan has
+        // A factory returns an EMPTY unique_object when it cannot honour the descriptor: the plan has
         // no throwing path across the boundary (§4.2), and the caller is expected to have checked
         // `abilities()` before asking for something optional (§3.6). The return container IS the
         // lifetime: hold it and the resource is released on scope exit - there is no separate ownership
         // vocabulary to learn and no call site spells `release()` for a factory product.
-        [[nodiscard]] virtual object_ptr<swapchain> create_swapchain(swapchain_desc const& desc) = 0;
-        [[nodiscard]] virtual object_ptr<buffer> create_buffer(buffer_desc const& desc) = 0;
-        [[nodiscard]] virtual object_ptr<image> create_image(image_desc const& desc) = 0;
+        [[nodiscard]] virtual unique_object<swapchain> create_swapchain(swapchain_desc const& desc) = 0;
+        [[nodiscard]] virtual unique_object<buffer> create_buffer(buffer_desc const& desc) = 0;
+        [[nodiscard]] virtual unique_object<image> create_image(image_desc const& desc) = 0;
         /// APPENDED IN ABI 26: allocate an acceleration structure (see the type's own note for why this is
         /// tier-1 furniture rather than an ability). The BACKEND owns the storage and the scratch a build needs;
         /// `desc` carries what the structure IS - its level, whether it may be refitted, and its geometries or
         /// its instance capacity - and is borrowed only until the call returns. `nullptr` = this backend cannot
         /// serve it, with its own named diagnosis logged, exactly as the other factories answer.
-        [[nodiscard]] virtual object_ptr<acceleration_structure> create_acceleration_structure(acceleration_structure_desc const& desc) = 0;
+        [[nodiscard]] virtual unique_object<acceleration_structure> create_acceleration_structure(acceleration_structure_desc const& desc) = 0;
         /// APPENDED IN ABI 27: allocate an opacity micromap (see the type's own note). The backend owns the
         /// storage, the scratch AND the setup buffers the build reads - including the 256-byte address alignment
         /// the API requires of them, which is a requirement on an address and therefore cannot be a caller's
         /// problem. `nullptr` = this backend cannot serve it, with its own named diagnosis logged.
-        [[nodiscard]] virtual object_ptr<micromap> create_micromap(micromap_desc const& desc) = 0;
-        [[nodiscard]] virtual object_ptr<sampler> create_sampler(sampler_desc const& desc) = 0;
-        [[nodiscard]] virtual object_ptr<shader> create_shader(shader_desc const& desc) = 0;
-        [[nodiscard]] virtual object_ptr<pipeline> create_pipeline(pipeline_desc const& desc) = 0;
-        [[nodiscard]] virtual object_ptr<query> create_query(query_desc const& desc) = 0;
+        [[nodiscard]] virtual unique_object<micromap> create_micromap(micromap_desc const& desc) = 0;
+        [[nodiscard]] virtual unique_object<sampler> create_sampler(sampler_desc const& desc) = 0;
+        [[nodiscard]] virtual unique_object<shader> create_shader(shader_desc const& desc) = 0;
+        [[nodiscard]] virtual unique_object<pipeline> create_pipeline(pipeline_desc const& desc) = 0;
+        [[nodiscard]] virtual unique_object<query> create_query(query_desc const& desc) = 0;
 
         // ---- frame -------------------------------------------------------------
         /// The RECORDING VIEW of the frame in flight, or nullptr when no frame is being recorded.
@@ -2188,11 +2173,11 @@ export namespace deren::promise::rhi {
 
         /// Create a command buffer the caller OWNS (abi 15). `nullptr` = this backend cannot serve the
         /// descriptor (a kind it does not have; the reason is on the record, the contract's named-
-        /// refusal rule). The handle carries ONE reference - `rhi::object_ptr<command_buffer>` is
+        /// refusal rule). The handle carries ONE reference - `rhi::unique_object<command_buffer>` is
         /// the owner spelling and `release()` drops it inside the backend - and the allocation behind
         /// it (the API's own pool/allocator) stays the backend's, so nothing but the handle crosses
         /// this boundary.
-        [[nodiscard]] virtual object_ptr<command_buffer> create_command_buffer(command_buffer_desc const& desc) = 0;
+        [[nodiscard]] virtual unique_object<command_buffer> create_command_buffer(command_buffer_desc const& desc) = 0;
 
         /// CREATE A COMMAND BUFFER THE CALLER OWNS, AS A `std::shared_ptr` (abi 21).
         ///

@@ -546,7 +546,7 @@ namespace {
         // handle the caller can only see through the base. The other factories take descriptors
         // that are still forward-declared, so they cannot even be called yet (S1 defines them) -
         // which is exactly what "the shape can be reviewed before the shapes it carries" means.
-        rhi::object_ptr<rhi::buffer> buffer = core->create_buffer(rhi::buffer_desc{.size = 64u});
+        rhi::unique_object<rhi::buffer> buffer = core->create_buffer(rhi::buffer_desc{.size = 64u});
         CHECK(buffer);
         if (buffer) {
             CHECK(buffer->type == "deren_buffer_probe");
@@ -564,20 +564,20 @@ namespace {
         }
 
         // ---- tier-1: THE OWNED REFERENCE IS RELEASED THROUGH THE CONTRACT ---------------------
-        // `rhi::object_ptr<T>` is the owner spelling added with `release()` (abi 3 -> 4): the
+        // `rhi::unique_object<T>` is the owner spelling added with `release()` (abi 3 -> 4): the
         // destructor (or `reset()`) calls the handle's `release()`, which runs INSIDE the backend and
         // drops ONE reference - it is deliberately not called `destroy()`, because a backend may serve
         // the same resource to several callers and then the object outlives the call. The proof here is
         // a round trip: the probe's `release()` zeroes the size its descriptor wrote into the buffer,
         // so a release that never crossed cannot show up as `size() == 0`.
         {
-            rhi::object_ptr<rhi::buffer> owned{core->create_buffer(rhi::buffer_desc{.size = 128u})};
+            rhi::unique_object<rhi::buffer> owned{core->create_buffer(rhi::buffer_desc{.size = 128u})};
             CHECK(static_cast<bool>(owned));
             CHECK(owned->size() == 128u);
 
             // move-only: the reference is transferred, and the source is left empty rather than
             // aliasing the same object (which would release it twice)
-            rhi::object_ptr<rhi::buffer> moved{std::move(owned)};
+            rhi::unique_object<rhi::buffer> moved{std::move(owned)};
             CHECK(!static_cast<bool>(owned));
             CHECK(moved->size() == 128u);
 
@@ -591,7 +591,7 @@ namespace {
 
             // an empty manager is free: reset() twice is a no-op, and the object above is untouched
             // (the probe's buffer is static, so this is about the manager, not about the object)
-            rhi::object_ptr<rhi::buffer> empty{};
+            rhi::unique_object<rhi::buffer> empty{};
             empty.reset();
             empty.reset();
             CHECK(!static_cast<bool>(empty));
@@ -668,7 +668,7 @@ namespace {
         // `create_command_buffer()` hands out ONE reference; the probe answers with its static
         // stand-in (the same shape its buffer has), reset on every creation - so a second create
         // answers with the SAME pointer, and what this block measures is the LIFE CYCLE, not identity.
-        rhi::object_ptr<rhi::command_buffer> recorded = core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::primary});
+        rhi::unique_object<rhi::command_buffer> recorded = core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::primary});
         CHECK_MSG(static_cast<bool>(recorded), which_half);
         if (recorded) {
             CHECK(recorded->type == "deren_command_buffer_probe");
@@ -711,7 +711,7 @@ namespace {
             desc.mipmap_mode = rhi::sampler_mipmap_mode::nearest;
             desc.compare_enable = true;
             desc.compare_op = rhi::sampler_compare_op::less_or_equal;
-            rhi::object_ptr<rhi::sampler> made = core->create_sampler(desc);
+            rhi::unique_object<rhi::sampler> made = core->create_sampler(desc);
             CHECK_MSG(static_cast<bool>(made), which_half);
             if (made) {
                 CHECK(made->type == "deren_sampler_probe");
@@ -750,7 +750,7 @@ namespace {
             rhi::image* const frame = core->frame_image();
             CHECK_MSG(frame != nullptr, which_half); // a frame is open at this point in the probe's fiction
             if (frame != nullptr) {
-                rhi::object_ptr<rhi::image_view> whole = frame->make_view(rhi::image_view_desc{});
+                rhi::unique_object<rhi::image_view> whole = frame->make_view(rhi::image_view_desc{});
                 CHECK_MSG(static_cast<bool>(whole), which_half);
                 if (whole) {
                     CHECK(whole->type == "deren_image_view_probe");

@@ -91,10 +91,10 @@ namespace deren::engine {
         }
 
         // The answer's buffer: 16 bytes, host-visible, and ADDRESSABLE because the push carries its address.
-        // THE CONTRACT OWNS IT (object_ptr releases the reference on every path out of this function,
+        // THE CONTRACT OWNS IT (unique_object releases the reference on every path out of this function,
         // including the two early returns below), and `mapped()` is the byte view `create_buffer` threw away
         // for everything that is not host-visible.
-        rhi::object_ptr<rhi::buffer> answer{this->vulkan_core.create_buffer(rhi::buffer_desc{
+        rhi::unique_object<rhi::buffer> answer{this->vulkan_core.create_buffer(rhi::buffer_desc{
             .size = 16u,
             .usage = rhi::buffer_usage::storage_coherent,
             .flags = rhi::to_bits(rhi::buffer_flag::device_address),
@@ -210,7 +210,7 @@ namespace deren::engine {
         target_desc.format = probe_format;
         target_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::host_transfer);
         target_desc.debug_name = "heap probe target";
-        rhi::object_ptr<rhi::image> target{this->rhi_face().create_image(target_desc)};
+        rhi::unique_object<rhi::image> target{this->rhi_face().create_image(target_desc)};
         if (!static_cast<bool>(target)) {
             deren::utility::log("descriptor heap: the heap-native graphics probe could not allocate its target");
             return;
@@ -218,7 +218,7 @@ namespace deren::engine {
         rhi::image_view_desc target_view_range{};
         target_view_range.layer_count = 0;
         target_view_range.mip_count = 0;
-        rhi::object_ptr<rhi::image_view> target_view{target->make_view(target_view_range)};
+        rhi::unique_object<rhi::image_view> target_view{target->make_view(target_view_range)};
         if (!static_cast<bool>(target_view)) {
             deren::utility::log("descriptor heap: the heap-native graphics probe could not prepare its target view");
             return;

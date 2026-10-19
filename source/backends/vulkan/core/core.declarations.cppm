@@ -621,7 +621,7 @@ namespace deren::vulkan {
         /// swapchain image behind it, and the contract's `release()` must never drop a reference for it
         /// (the caller never held one). That is why the override below answers with a ONE-TIME NAMED LOG
         /// instead of a silent no-op (rhi.api_core.cppm's ownership note): a caller that wrapped a
-        /// borrowed view in `object_ptr` has a bug, and the log is the only place that bug can be
+        /// borrowed view in `unique_object` has a bug, and the log is the only place that bug can be
         /// said out loud.
         struct frame_image_slot final : deren::promise::rhi::image {
             frame_image_slot() noexcept
@@ -639,7 +639,7 @@ namespace deren::vulkan {
             /// abi 7's make_view on a BORROWED view: the swapchain image's views belong to the backend's
             /// own presentation path, so the contract's one borrowed-view rule applies - a one-time log
             /// and nullptr, never a handle
-            [[nodiscard]] deren::promise::rhi::object_ptr<deren::promise::rhi::image_view> make_view(deren::promise::rhi::image_view_desc const& desc) override;
+            [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::image_view> make_view(deren::promise::rhi::image_view_desc const& desc) override;
             /// BORROWED: logs once and drops no reference (see the note above)
             void release() noexcept override;
             /// abi 25's read-back on a BORROWED view: a swapchain image can only be host-copied when the
@@ -671,7 +671,7 @@ namespace deren::vulkan {
             [[nodiscard]] deren::promise::rhi::image_format format() const noexcept override {
                 return captured_format;
             }
-            [[nodiscard]] deren::promise::rhi::object_ptr<deren::promise::rhi::image_view> make_view(deren::promise::rhi::image_view_desc const&) override;
+            [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::image_view> make_view(deren::promise::rhi::image_view_desc const&) override;
             [[nodiscard]] std::shared_ptr<deren::promise::rhi::image> share() override {
                 return shared_from_this();
             }
@@ -711,7 +711,7 @@ namespace deren::vulkan {
         /// The frame ring's cursor, as the contract's `frame_walker` (abi 13).
         ///
         /// A BORROWED VIEW like the two above - a member of the core, handed out by `walk_frames()`,
-        /// never released by the caller (the type has no `release()`, so `object_ptr` refuses it).
+        /// never released by the caller (the type has no `release()`, so `unique_object` refuses it).
         /// `wait_and_acquire()` composes the frame prologue this class already owned: wait the slot's
         /// timeline, LATCH the slot's last completed frame's GPU timings (the step between wait and
         /// acquire, so an OUT_OF_DATE-skipped frame is still collected - today's order, now the
@@ -947,7 +947,7 @@ namespace deren::vulkan {
 
             [[nodiscard]] ::deren::promise::rhi::image_extent extent() const noexcept override;
             [[nodiscard]] deren::promise::rhi::image_format format() const noexcept override;
-            [[nodiscard]] deren::promise::rhi::object_ptr<deren::promise::rhi::image_view> make_view(deren::promise::rhi::image_view_desc const& desc) override;
+            [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::image_view> make_view(deren::promise::rhi::image_view_desc const& desc) override;
             [[nodiscard]] std::shared_ptr<deren::promise::rhi::image> share() override;
             /// abi 25's read-back: the image's CONTENT in host memory, performed by the IMPLEMENTATION
             /// (`vkCopyImageToMemoryEXT`) - no staging buffer, no copy command, no submission. It refuses with
@@ -1198,16 +1198,16 @@ namespace deren::vulkan {
             /// bumped for every group registration; 0 is "no group", so a default position is never valid.
             std::uint32_t next_generation = 0;
             VkDeviceSize reserved_offset = VK_WHOLE_SIZE;
-            deren::promise::rhi::object_ptr<deren::promise::rhi::buffer> records;
-            deren::promise::rhi::object_ptr<deren::promise::rhi::image> dummy_image;
-            deren::promise::rhi::object_ptr<deren::promise::rhi::image_view> dummy_view;
+            deren::promise::rhi::unique_object<deren::promise::rhi::buffer> records;
+            deren::promise::rhi::unique_object<deren::promise::rhi::image> dummy_image;
+            deren::promise::rhi::unique_object<deren::promise::rhi::image_view> dummy_view;
             deren::utility::vessel::array<bool, group_capacity> groups{};
             // Slot 0 is reserved for the dummy descriptor.
             deren::utility::vessel::array<bool, texture_capacity> views{};
             struct sampled_view_lease {
                 texture_group_state* state = nullptr;
                 std::uint32_t slot = 0;
-                deren::promise::rhi::object_ptr<deren::promise::rhi::image_view> view;
+                deren::promise::rhi::unique_object<deren::promise::rhi::image_view> view;
                 ~sampled_view_lease() noexcept;
             };
             deren::utility::vessel::unordered_map<deren::promise::rhi::image const*, std::weak_ptr<sampled_view_lease>> cache;
@@ -1480,22 +1480,22 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::ability_bits abilities() const noexcept override;
         [[nodiscard]] deren::promise::rhi::extension* query_extension(deren::promise::rhi::extension_kind kind) noexcept override;
 
-        [[nodiscard]] deren::promise::rhi::object_ptr<deren::promise::rhi::swapchain> create_swapchain(deren::promise::rhi::swapchain_desc const& desc) override;
-        [[nodiscard]] deren::promise::rhi::object_ptr<deren::promise::rhi::buffer> create_buffer(deren::promise::rhi::buffer_desc const& desc) override;
-        /// THE BACKEND'S OWN SPELLING of `create_buffer`: the factories hand CALLERS an object_ptr, but the
+        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::swapchain> create_swapchain(deren::promise::rhi::swapchain_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::buffer> create_buffer(deren::promise::rhi::buffer_desc const& desc) override;
+        /// THE BACKEND'S OWN SPELLING of `create_buffer`: the factories hand CALLERS an unique_object, but the
         /// backend's storage fields keep the raw handle and release it in their own teardown (it is the owner
         /// either way). Not part of the override surface.
         [[nodiscard]] deren::promise::rhi::buffer* create_buffer_raw(deren::promise::rhi::buffer_desc const& desc);
-        [[nodiscard]] deren::promise::rhi::object_ptr<deren::promise::rhi::image> create_image(deren::promise::rhi::image_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::image> create_image(deren::promise::rhi::image_desc const& desc) override;
         /// TIER-1 SINCE ABI 26 AND REFUSED BY NAME BY THIS BACKEND UNTIL PLAN S1's P1b: the shape exists (see
         /// the definition's note for what landing it takes), so a caller gets a logged `nullptr` - the same
         /// answer `create_swapchain` gives - rather than a silent absence.
-        [[nodiscard]] deren::promise::rhi::object_ptr<deren::promise::rhi::acceleration_structure> create_acceleration_structure(deren::promise::rhi::acceleration_structure_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::acceleration_structure> create_acceleration_structure(deren::promise::rhi::acceleration_structure_desc const& desc) override;
         /// TIER-1 SINCE ABI 27 (plan S1's P4), refused by name on a device without VK_EXT_opacity_micromap
-        [[nodiscard]] deren::promise::rhi::object_ptr<deren::promise::rhi::micromap> create_micromap(deren::promise::rhi::micromap_desc const& desc) override;
-        [[nodiscard]] deren::promise::rhi::object_ptr<deren::promise::rhi::sampler> create_sampler(deren::promise::rhi::sampler_desc const& desc) override;
-        [[nodiscard]] deren::promise::rhi::object_ptr<deren::promise::rhi::shader> create_shader(deren::promise::rhi::shader_desc const& desc) override;
-        [[nodiscard]] deren::promise::rhi::object_ptr<deren::promise::rhi::pipeline> create_pipeline(deren::promise::rhi::pipeline_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::micromap> create_micromap(deren::promise::rhi::micromap_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::sampler> create_sampler(deren::promise::rhi::sampler_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::shader> create_shader(deren::promise::rhi::shader_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::pipeline> create_pipeline(deren::promise::rhi::pipeline_desc const& desc) override;
         /**
          * THE COMPUTE SPELLING OF `create_pipeline` (abi 21), split out because it shares NOTHING with the
          * graphics path but the descriptor: one stage from `compute_code`, a NULL layout with the heap flag,
@@ -1510,7 +1510,7 @@ namespace deren::vulkan {
          * `bind_point` it sets - the ray-tracing one, which is what makes `bind_pipeline` work for it.
          */
         [[nodiscard]] deren::promise::rhi::pipeline* create_ray_tracing_pipeline(deren::promise::rhi::pipeline_desc const& desc, char const* what);
-        [[nodiscard]] deren::promise::rhi::object_ptr<deren::promise::rhi::query> create_query(deren::promise::rhi::query_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::query> create_query(deren::promise::rhi::query_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::command_buffer* begin_commands() override;
         // ---- S2 batch 2: the recording surface's frame-domain views --------------------------------
         // `begin_commands()` now hands out a REAL list (the frame's primary command buffer, which this
@@ -1539,7 +1539,7 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::mergeable_command_buffer_ref make_mergeable_command_buffer(deren::promise::rhi::command_buffer_desc const& desc) override;
         /// abi 15: the owned recording handle. The result is heap-allocated here and destroyed by the
         /// contract's `release()` (which is also what removes it from the registry below).
-        [[nodiscard]] deren::promise::rhi::object_ptr<deren::promise::rhi::command_buffer> create_command_buffer(deren::promise::rhi::command_buffer_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::command_buffer> create_command_buffer(deren::promise::rhi::command_buffer_desc const& desc) override;
         /// THE OWNED-BUFFER ALLOCATION, without the contract kind: the contract factory only makes a
         /// PRIMARY now (abi 37 retired the secondary kind), and `make_mergeable_command_buffer` calls this
         /// directly to allocate the secondary it executes in its batches. `level` is the API level, not a

@@ -74,7 +74,7 @@ namespace deren::engine::gaussian_splatting {
             return failure(error_code::unsupported, "GPU frame needs sorting and device addresses");
         }
         if (!result->sorter) {
-            result->sorter = rhi::object_ptr<rhi::radix_sorter>{sorting->create_radix_sorter()};
+            result->sorter = rhi::unique_object<rhi::radix_sorter>{sorting->create_radix_sorter()};
         }
         if (!result->sorter) {
             return failure(error_code::unsupported, "GPU sorter initialization failed");

@@ -123,8 +123,8 @@ namespace {
         rhi::image_format format() const noexcept override {
             return description.format;
         }
-        rhi::object_ptr<rhi::image_view> make_view(rhi::image_view_desc const&) override {
-            return rhi::object_ptr<rhi::image_view>{new managed_view};
+        rhi::unique_object<rhi::image_view> make_view(rhi::image_view_desc const&) override {
+            return rhi::unique_object<rhi::image_view>{new managed_view};
         }
         std::expected<rhi::image_content, rhi::error> get_content(rhi::image_copy_region const&) const override {
             return std::unexpected(rhi::error::unsupported);
@@ -142,27 +142,27 @@ namespace {
         int image_calls = 0, sampler_calls = 0;
         bool image_fail = false, sampler_fail = false;
         deren::utility::vessel::vector<std::byte> image_upload;
-        rhi::object_ptr<rhi::image> create_image(rhi::image_desc const& desc) override {
+        rhi::unique_object<rhi::image> create_image(rhi::image_desc const& desc) override {
             ++image_calls;
             image_upload.assign(desc.initial_bytes.begin(), desc.initial_bytes.end());
-            return rhi::object_ptr<rhi::image>{image_fail ? nullptr : new managed_image(desc)};
+            return rhi::unique_object<rhi::image>{image_fail ? nullptr : new managed_image(desc)};
         }
-        rhi::object_ptr<rhi::sampler> create_sampler(rhi::sampler_desc const&) override {
+        rhi::unique_object<rhi::sampler> create_sampler(rhi::sampler_desc const&) override {
             ++sampler_calls;
-            return rhi::object_ptr<rhi::sampler>{sampler_fail ? nullptr : new managed_sampler};
+            return rhi::unique_object<rhi::sampler>{sampler_fail ? nullptr : new managed_sampler};
         }
-        rhi::object_ptr<rhi::micromap> create_micromap(rhi::micromap_desc const& desc) override {
+        rhi::unique_object<rhi::micromap> create_micromap(rhi::micromap_desc const& desc) override {
             CHECK(desc.triangle_count == desc.triangles.size());
             CHECK(desc.data.size() == desc.triangle_count * desc.data_stride);
             CHECK(desc.indices.size() == desc.triangle_count);
-            return rhi::object_ptr<rhi::micromap>{new managed_micromap};
+            return rhi::unique_object<rhi::micromap>{new managed_micromap};
         }
         int structure_releases = 0;
         int structure_calls = 0, fail_structure_at = 0;
-        rhi::object_ptr<rhi::acceleration_structure> create_acceleration_structure(rhi::acceleration_structure_desc const& desc) override {
+        rhi::unique_object<rhi::acceleration_structure> create_acceleration_structure(rhi::acceleration_structure_desc const& desc) override {
             if (++structure_calls == fail_structure_at)
                 return nullptr;
-            return rhi::object_ptr<rhi::acceleration_structure>{new managed_structure{structure_releases, desc.instance_capacity}};
+            return rhi::unique_object<rhi::acceleration_structure>{new managed_structure{structure_releases, desc.instance_capacity}};
         }
     };
     template <typename Buffer>
@@ -320,8 +320,8 @@ namespace {
                 return true;
             }
         } caster;
-        caster.vertex_buffer = rhi::object_ptr<rhi::buffer>{device.create_buffer({.size = 192, .usage = rhi::buffer_usage::storage_gpu_only})};
-        caster.index_buffer = rhi::object_ptr<rhi::buffer>{device.create_buffer({.size = 12, .usage = rhi::buffer_usage::storage_gpu_only})};
+        caster.vertex_buffer = rhi::unique_object<rhi::buffer>{device.create_buffer({.size = 192, .usage = rhi::buffer_usage::storage_gpu_only})};
+        caster.index_buffer = rhi::unique_object<rhi::buffer>{device.create_buffer({.size = 12, .usage = rhi::buffer_usage::storage_gpu_only})};
         caster.vertex_stride = 32;
         caster.vertex_count = caster.draw_index_count = 3;
         deren::utility::vessel::array<deren::engine::primitive const*, 1> casters{&caster};
@@ -575,7 +575,7 @@ int main(int const argc, char** const argv) {
     {
         managed_core device;
         deren::engine::normal_draw_primitive leaf;
-        leaf.vertex_buffer = rhi::object_ptr<rhi::buffer>{device.create_buffer({.size = 96})};
+        leaf.vertex_buffer = rhi::unique_object<rhi::buffer>{device.create_buffer({.size = 96})};
         check_geometry_lease(leaf.vertex_buffer);
     }
     deren::vk_test::write_line("as_probe: this executable compiled abi {}", rhi::abi_version);
@@ -631,9 +631,9 @@ int main(int const argc, char** const argv) {
         vertices.resize(triangle_vertices);
     }
     auto const index_data = std::span<std::uint32_t const>(indices).first(multi_geometry ? 6u : triangle_vertices);
-    rhi::object_ptr<rhi::buffer> vertex_buffer = core->create_buffer(rhi::buffer_desc{
+    rhi::unique_object<rhi::buffer> vertex_buffer = core->create_buffer(rhi::buffer_desc{
         .size = vertices.size() * sizeof(vertex), .usage = rhi::buffer_usage::storage_coherent, .flags = build_input_flags});
-    rhi::object_ptr<rhi::buffer> index_buffer = core->create_buffer(rhi::buffer_desc{
+    rhi::unique_object<rhi::buffer> index_buffer = core->create_buffer(rhi::buffer_desc{
         .size = index_data.size_bytes(), .usage = rhi::buffer_usage::storage_coherent, .flags = build_input_flags});
     CHECK(vertex_buffer != nullptr);
     CHECK(index_buffer != nullptr);
@@ -658,7 +658,7 @@ int main(int const argc, char** const argv) {
 
     // ---- 3. THE COMMAND BUFFER THE PROBE OWNS (see the header): the contract made it, the escape turns it
     //         into the native handle the module's recording takes, and the probe submits it itself.
-    rhi::object_ptr<rhi::command_buffer> commands = core->create_command_buffer({});
+    rhi::unique_object<rhi::command_buffer> commands = core->create_command_buffer({});
     CHECK(commands != nullptr);
     if (commands == nullptr) {
         return deren::vk_test::finish("test_acceleration_structures");
@@ -688,7 +688,7 @@ int main(int const argc, char** const argv) {
     auto hit_geometry = geometry;
     hit_geometry.index_count = 6u;
     deren::utility::vessel::array<rhi::acceleration_structure_geometry, 2> const geometries{away_geometry, hit_geometry};
-    rhi::object_ptr<rhi::acceleration_structure> blas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
+    rhi::unique_object<rhi::acceleration_structure> blas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
         .type = rhi::acceleration_structure_type::bottom_level,
         .flags = rhi::to_bits(rhi::acceleration_structure_flag::allow_update),
         .geometries = multi_geometry ? geometries.data() : &geometry,
@@ -698,13 +698,13 @@ int main(int const argc, char** const argv) {
         deren::vk_test::write_line("as_probe: this device cannot create an acceleration structure - skipping");
         return deren::vk_test::finish("test_acceleration_structures");
     }
-    rhi::object_ptr<rhi::acceleration_structure> static_blas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
+    rhi::unique_object<rhi::acceleration_structure> static_blas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
         .type = rhi::acceleration_structure_type::bottom_level,
         .geometries = &geometry,
         .geometry_count = 1u,
     });
     CHECK(static_blas != nullptr);
-    rhi::object_ptr<rhi::acceleration_structure> tlas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
+    rhi::unique_object<rhi::acceleration_structure> tlas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
         .type = rhi::acceleration_structure_type::top_level,
         .instance_capacity = 1u,
     });
@@ -775,16 +775,16 @@ int main(int const argc, char** const argv) {
     //          geometry, records its build and a refit, and hands back the object the runtime binds.
     // Recorded commands borrow their structures and inputs until submission has completed.
     as::bottom_level_structures levels{*core};
-    rhi::object_ptr<rhi::micromap> micromap_owner;
-    rhi::object_ptr<rhi::acceleration_structure> shaded_owner;
-    rhi::object_ptr<rhi::acceleration_structure> triangle_soup;
+    rhi::unique_object<rhi::micromap> micromap_owner;
+    rhi::unique_object<rhi::acceleration_structure> shaded_owner;
+    rhi::unique_object<rhi::acceleration_structure> triangle_soup;
     {
         rhi::acceleration_structure_geometry const unindexed{
             .vertex_address = source.vertex_address,
             .vertex_stride = source.vertex_stride,
             .vertex_count = triangle_vertices,
         };
-        triangle_soup = rhi::object_ptr<rhi::acceleration_structure>{core->create_acceleration_structure(rhi::acceleration_structure_desc{
+        triangle_soup = rhi::unique_object<rhi::acceleration_structure>{core->create_acceleration_structure(rhi::acceleration_structure_desc{
             .type = rhi::acceleration_structure_type::bottom_level,
             .geometries = &unindexed,
             .geometry_count = 1u,
@@ -822,7 +822,7 @@ int main(int const argc, char** const argv) {
                 .format = static_cast<std::uint16_t>(rhi::micromap_format::four_state),
             };
             std::uint32_t const micro_index = 0u;
-            rhi::object_ptr<rhi::micromap> micromap = core->create_micromap(rhi::micromap_desc{
+            rhi::unique_object<rhi::micromap> micromap = core->create_micromap(rhi::micromap_desc{
                 .triangle_count = 1u,
                 .data = attributes,
                 .data_stride = 4u,
@@ -842,7 +842,7 @@ int main(int const argc, char** const argv) {
                     .index_count = triangle_vertices,
                     .opacity_micromap = micromap_owner.get(),
                 };
-                rhi::object_ptr<rhi::acceleration_structure> shaded = core->create_acceleration_structure(rhi::acceleration_structure_desc{
+                rhi::unique_object<rhi::acceleration_structure> shaded = core->create_acceleration_structure(rhi::acceleration_structure_desc{
                     .type = rhi::acceleration_structure_type::bottom_level,
                     .geometries = &with_micromap,
                     .geometry_count = 1u,

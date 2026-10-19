@@ -257,7 +257,7 @@ namespace {
         image_desc.extent = {.width = 4, .height = 4, .depth = 1};
         image_desc.format = rhi::image_format::rgba8_unorm;
         image_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
-        rhi::object_ptr<rhi::image> image = core->create_image(image_desc);
+        rhi::unique_object<rhi::image> image = core->create_image(image_desc);
         CHECK(image);
         if (!image)
             return;
@@ -357,7 +357,7 @@ int main(int const argc, char** const argv) {
         own[2].image_handle = const_cast<rhi::image*>(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::gbuffer_velocity)));
         own[3].image_handle = const_cast<rhi::image*>(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::gbuffer_depth)));
         auto* hdr = const_cast<rhi::image*>(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::post_color)));
-        rhi::object_ptr<rhi::image_view> hdr_view{hdr->make_view({})};
+        rhi::unique_object<rhi::image_view> hdr_view{hdr->make_view({})};
         deren::utility::vessel::array<pass::resolved_binding, 1> targets{pass::resolved_binding{.image_handle = hdr, .view_handle = hdr_view.get()}};
         io.targets = targets;
         io.push_block.owner = &observed_history;

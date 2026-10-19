@@ -15,7 +15,7 @@ export namespace deren::engine {
         struct owner {
             std::shared_ptr<deren::promise::rhi::api_core> device;
             std::shared_ptr<void const> dependency;
-            deren::promise::rhi::object_ptr<T> object; // Release before dependency and device.
+            deren::promise::rhi::unique_object<T> object; // Release before dependency and device.
             owner(std::shared_ptr<deren::promise::rhi::api_core> core, T* resource, std::shared_ptr<void const> parent)
                 : device(std::move(core))
                 , dependency(std::move(parent))

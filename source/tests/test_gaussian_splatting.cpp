@@ -308,7 +308,7 @@ struct upload_probe : rhi::api_core {
     rhi::extension* query_extension(rhi::extension_kind kind) noexcept override {
         return supported && kind == rhi::extension_kind::device_address ? &address : nullptr;
     }
-    rhi::object_ptr<rhi::buffer> create_buffer(rhi::buffer_desc const& desc) override {
+    rhi::unique_object<rhi::buffer> create_buffer(rhi::buffer_desc const& desc) override {
         ++calls;
         // The published storage_gpu_only intent is allocate-only.
         if (desc.usage == rhi::buffer_usage::storage_gpu_only && !desc.initial_bytes.empty()) {
@@ -320,7 +320,7 @@ struct upload_probe : rhi::api_core {
         copy.initial_bytes = {};
         descriptors.push_back(copy);
         bytes.emplace_back(desc.initial_bytes.begin(), desc.initial_bytes.end());
-        return rhi::object_ptr<rhi::buffer>{new probe_buffer(calls, releases, calls == undersized_at ? desc.size - 1 : desc.size)};
+        return rhi::unique_object<rhi::buffer>{new probe_buffer(calls, releases, calls == undersized_at ? desc.size - 1 : desc.size)};
     }
     /// abi 35: this probe records no batches - the two slots exist so the class stays concrete; the
     /// probe's own batch semantics live in source/tests/probe_backend.cpp.
@@ -330,28 +330,28 @@ struct upload_probe : rhi::api_core {
     [[nodiscard]] rhi::error submit(std::span<rhi::mergeable_command_buffer_ref const>) override {
         return rhi::error::unsupported;
     }
-    rhi::object_ptr<rhi::swapchain> create_swapchain(rhi::swapchain_desc const&) override {
+    rhi::unique_object<rhi::swapchain> create_swapchain(rhi::swapchain_desc const&) override {
         return nullptr;
     }
-    rhi::object_ptr<rhi::image> create_image(rhi::image_desc const&) override {
+    rhi::unique_object<rhi::image> create_image(rhi::image_desc const&) override {
         return nullptr;
     }
-    rhi::object_ptr<rhi::acceleration_structure> create_acceleration_structure(rhi::acceleration_structure_desc const&) override {
+    rhi::unique_object<rhi::acceleration_structure> create_acceleration_structure(rhi::acceleration_structure_desc const&) override {
         return nullptr;
     }
-    rhi::object_ptr<rhi::micromap> create_micromap(rhi::micromap_desc const&) override {
+    rhi::unique_object<rhi::micromap> create_micromap(rhi::micromap_desc const&) override {
         return nullptr;
     }
-    rhi::object_ptr<rhi::sampler> create_sampler(rhi::sampler_desc const&) override {
+    rhi::unique_object<rhi::sampler> create_sampler(rhi::sampler_desc const&) override {
         return nullptr;
     }
-    rhi::object_ptr<rhi::shader> create_shader(rhi::shader_desc const&) override {
+    rhi::unique_object<rhi::shader> create_shader(rhi::shader_desc const&) override {
         return nullptr;
     }
-    rhi::object_ptr<rhi::pipeline> create_pipeline(rhi::pipeline_desc const&) override {
+    rhi::unique_object<rhi::pipeline> create_pipeline(rhi::pipeline_desc const&) override {
         return nullptr;
     }
-    rhi::object_ptr<rhi::query> create_query(rhi::query_desc const&) override {
+    rhi::unique_object<rhi::query> create_query(rhi::query_desc const&) override {
         return nullptr;
     }
     rhi::command_buffer* begin_commands() override {
@@ -384,7 +384,7 @@ struct upload_probe : rhi::api_core {
     rhi::error submit(rhi::command_buffer&) override {
         return rhi::error::unsupported;
     }
-    rhi::object_ptr<rhi::command_buffer> create_command_buffer(rhi::command_buffer_desc const&) override {
+    rhi::unique_object<rhi::command_buffer> create_command_buffer(rhi::command_buffer_desc const&) override {
         return nullptr;
     }
     std::shared_ptr<rhi::command_buffer> make_command_buffer(rhi::command_buffer_desc const&) override {

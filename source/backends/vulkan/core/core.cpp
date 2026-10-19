@@ -353,7 +353,7 @@ namespace deren::vulkan {
         // the answer is a ONE-TIME NAMED LOG, not a panic and not a silent no-op.
         if (!this->borrowed_release_logged) {
             this->borrowed_release_logged = true;
-            deren::utility::log("rhi: release() on the swapchain view - it is BORROWED from the backend and carries no reference, so nothing was released; the object_ptr that wrapped it is the bug");
+            deren::utility::log("rhi: release() on the swapchain view - it is BORROWED from the backend and carries no reference, so nothing was released; the unique_object that wrapped it is the bug");
         }
     }
 

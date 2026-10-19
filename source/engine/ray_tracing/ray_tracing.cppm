@@ -36,7 +36,7 @@ module;
 export module deren.engine.ray_tracing;
 export import deren.utility.shared;
 
-import deren.promise.rhi; // the contract's buffer handle + object_ptr: the copies this phase owns
+import deren.promise.rhi; // the contract's buffer handle + unique_object: the copies this phase owns
 import deren.engine.pass.chain;
 import deren.engine.pass.buffer_storage;
 import deren.engine.render_resource;

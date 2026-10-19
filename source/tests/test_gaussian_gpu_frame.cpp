@@ -87,8 +87,8 @@ namespace {
         rhi::extension* query_extension(rhi::extension_kind kind) noexcept override {
             return kind == rhi::extension_kind::gpu_sorting ? &sorting_view : raster_probe_core::query_extension(kind);
         }
-        rhi::object_ptr<rhi::buffer> create_buffer(rhi::buffer_desc const& desc) override {
-            rhi::object_ptr<rhi::buffer> owned = raster_probe_core::create_buffer(desc);
+        rhi::unique_object<rhi::buffer> create_buffer(rhi::buffer_desc const& desc) override {
+            rhi::unique_object<rhi::buffer> owned = raster_probe_core::create_buffer(desc);
             auto* buffer = static_cast<raster_test::raster_probe_buffer*>(owned.release());
             if (buffer) {
                 buffer->host_enabled = desc.usage == rhi::buffer_usage::storage_coherent;
@@ -96,7 +96,7 @@ namespace {
                     buffer->storage.resize(static_cast<std::size_t>(desc.size));
                 allocated.push_back(buffer);
             }
-            return rhi::object_ptr<rhi::buffer>{buffer};
+            return rhi::unique_object<rhi::buffer>{buffer};
         }
     };
     gs::raster_camera camera() {

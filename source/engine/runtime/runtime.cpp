@@ -179,7 +179,7 @@ namespace deren::engine {
         if (any) {
             this->rhi_face().wait_idle();
         }
-        // `object_ptr`'s assignment drops the reference, which for an `owned_image_view` is
+        // `unique_object`'s assignment drops the reference, which for an `owned_image_view` is
         // `vkDestroyImageView` - the destruction the contract's ownership note promises.
         this->frame_swapchain_views = {};
     }
@@ -1436,7 +1436,7 @@ namespace deren::engine {
     std::uintptr_t runtime::mesh_buffer_address(void* const owner, rhi::buffer const& buffer) {
         runtime* const self = static_cast<runtime*>(owner);
         // THE HOOK TAKES A CONTRACT BUFFER (render_environment's own note says why: the primitive's geometry is
-        // `object_ptr` members now, and a hook that demanded a raw handle would force every primitive to keep
+        // `unique_object` members now, and a hook that demanded a raw handle would force every primitive to keep
         // one - i.e. to keep reaching into the backend for exactly what this migration removes).
         //
         // A buffer carries an address only when it was created with `buffer_flag::device_address`, which the

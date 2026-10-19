@@ -355,7 +355,7 @@ namespace {
             host_visible.flags = rhi::to_bits(rhi::buffer_flag::device_address);
             host_visible.initial_bytes = std::span<std::byte const>(initial_bytes.data(), initial_bytes.size());
 
-            rhi::object_ptr<rhi::buffer> owned{core->create_buffer(host_visible)};
+            rhi::unique_object<rhi::buffer> owned{core->create_buffer(host_visible)};
             CHECK(static_cast<bool>(owned));
             if (owned) {
                 CHECK(owned->size() == 64u);
@@ -369,7 +369,7 @@ namespace {
             rhi::buffer_desc gpu_only{};
             gpu_only.size = 256u;
             gpu_only.usage = rhi::buffer_usage::storage_gpu_only;
-            rhi::object_ptr<rhi::buffer> device_local{core->create_buffer(gpu_only)};
+            rhi::unique_object<rhi::buffer> device_local{core->create_buffer(gpu_only)};
             CHECK(static_cast<bool>(device_local));
             if (device_local) {
                 CHECK(device_local->size() == 256u);
@@ -423,8 +423,8 @@ namespace {
             rhi::sampler_desc default_desc{};
             default_desc.address_mode = rhi::sampler_address_mode::repeat;
             default_desc.max_lod = 12.0f;
-            rhi::object_ptr<rhi::sampler> compare_sampler{core->create_sampler(compare_desc)};
-            rhi::object_ptr<rhi::sampler> default_sampler{core->create_sampler(default_desc)};
+            rhi::unique_object<rhi::sampler> compare_sampler{core->create_sampler(compare_desc)};
+            rhi::unique_object<rhi::sampler> default_sampler{core->create_sampler(default_desc)};
             CHECK(static_cast<bool>(compare_sampler));
             CHECK(static_cast<bool>(default_sampler));
             if (compare_sampler && default_sampler) {
@@ -450,7 +450,7 @@ namespace {
             }
             image_desc.initial_bytes = std::span<std::byte const>(texels.data(), texels.size());
 
-            rhi::object_ptr<rhi::image> image_handle{core->create_image(image_desc)};
+            rhi::unique_object<rhi::image> image_handle{core->create_image(image_desc)};
             CHECK(static_cast<bool>(image_handle));
             if (image_handle) {
                 CHECK(image_handle->extent().width == 4u);
@@ -461,7 +461,7 @@ namespace {
                 rhi::image_view_desc whole{};
                 whole.layer_count = 0; // "all remaining layers"
                 whole.mip_count = 0;   // "all remaining mips"
-                rhi::object_ptr<rhi::image_view> full_view{image_handle->make_view(whole)};
+                rhi::unique_object<rhi::image_view> full_view{image_handle->make_view(whole)};
                 CHECK(static_cast<bool>(full_view));
 
                 rhi::image_view_desc range{};
@@ -469,7 +469,7 @@ namespace {
                 range.layer_count = 1u;
                 range.base_mip = 0u;
                 range.mip_count = 1u;
-                rhi::object_ptr<rhi::image_view> layer_view{image_handle->make_view(range)};
+                rhi::unique_object<rhi::image_view> layer_view{image_handle->make_view(range)};
                 CHECK(static_cast<bool>(layer_view));
 
                 rhi::image_view_desc bad_layer{};
@@ -575,7 +575,7 @@ namespace {
             // primary executes the secondary and submits without a frame. Presentation is covered
             // by the engine's frame path and the render gate.
             mark("create_command_buffer: an owned primary, recorded and merged with a mergeable batch");
-            rhi::object_ptr<rhi::command_buffer> primary{core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::primary})};
+            rhi::unique_object<rhi::command_buffer> primary{core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::primary})};
             auto secondary = core->make_mergeable_command_buffer({});
             CHECK(static_cast<bool>(primary));
             CHECK(secondary != nullptr);

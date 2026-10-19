@@ -46,10 +46,10 @@ namespace deren::vulkan {
         return result;
     }
 
-    rhi::object_ptr<rhi::image_view> core::frame_snapshot::make_view(rhi::image_view_desc const& desc) {
+    rhi::unique_object<rhi::image_view> core::frame_snapshot::make_view(rhi::image_view_desc const& desc) {
         if (!current())
             return nullptr;
-        rhi::object_ptr<rhi::image_view> result = owner->frame_image_view.make_view(desc);
+        rhi::unique_object<rhi::image_view> result = owner->frame_image_view.make_view(desc);
         if (result)
             static_cast<owned_image_view*>(result.get())->parent_image = weak_from_this().lock();
         return result;

@@ -38,9 +38,9 @@
 //     the engine has nothing to free - releasing a resource through the backend
 //     (plan §4.2) is S1's, and this round does not pretend to answer it.
 //   - `probe_buffer::release()` completes the owned-handle path the contract now spells
-//     (`rhi::buffer::release()` + `rhi::object_ptr<T>`): there is no reference count to drop
+//     (`rhi::buffer::release()` + `rhi::unique_object<T>`): there is no reference count to drop
 //     on a static buffer, but the CALL has to arrive, so `release()` zeroes the size the
-//     descriptor wrote. The test drives it through `object_ptr` and reads `size()`
+//     descriptor wrote. The test drives it through `unique_object` and reads `size()`
 //     back - the same round-trip shape as the descriptor echo below.
 //   - `frame_begin()` counts frames AND echoes the creation descriptor's `window_width`
 //     in its by-value POD result, so a cross-boundary virtual call with a by-value POD
@@ -101,7 +101,7 @@ namespace {
         }
         /// THE PROBE'S `release()` IS OBSERVABLE ON PURPOSE, which is what makes the owned-handle path
         /// testable at all: the buffer is statically allocated, so there is no reference count to drop,
-        /// but the call still has to ARRIVE (the test releases through `object_ptr`, then reads
+        /// but the call still has to ARRIVE (the test releases through `unique_object`, then reads
         /// `size()` - a released probe buffer answers 0, so a `release()` that never crossed cannot pass
         /// for one that did). `size()` is the channel because it is already this object's observable
         /// field: the `create_buffer` descriptor's size goes in, `release()` takes it away.
@@ -166,14 +166,14 @@ namespace {
             return std::unexpected(rhi::error::unsupported);
         }
 
-        [[nodiscard]] rhi::object_ptr<rhi::image_view> make_view(rhi::image_view_desc const& desc) override {
+        [[nodiscard]] rhi::unique_object<rhi::image_view> make_view(rhi::image_view_desc const& desc) override {
             uint32_t const layers = desc.layer_count == 0 ? 1u : desc.layer_count;
             uint32_t const mips = desc.mip_count == 0 ? 1u : desc.mip_count;
             if (desc.base_layer != 0u || layers != 1u || desc.base_mip != 0u || mips != 1u) {
                 return nullptr; // a swapchain image is one layer, one mip: refused, not clamped
             }
             this->view.released = false;
-            return rhi::object_ptr<rhi::image_view>{&this->view};
+            return rhi::unique_object<rhi::image_view>{&this->view};
         }
 
         probe_image_view view{};
@@ -793,12 +793,12 @@ namespace {
             return std::unexpected(rhi::error::unsupported);
         }
         bool current() const noexcept;
-        rhi::object_ptr<rhi::image_view> make_view(rhi::image_view_desc const& desc) override {
+        rhi::unique_object<rhi::image_view> make_view(rhi::image_view_desc const& desc) override {
             if (!current() || desc.base_layer != 0 || desc.base_mip != 0 || desc.layer_count > 1 || desc.mip_count > 1)
                 return nullptr;
             auto view = std::make_unique<cpu_image_view>();
             view->parent = shared_from_this();
-            return rhi::object_ptr<rhi::image_view>{view.release()};
+            return rhi::unique_object<rhi::image_view>{view.release()};
         }
     };
     struct cpu_frame_resources final : rhi::frame_resources {
@@ -859,12 +859,12 @@ namespace {
         std::expected<rhi::image_content, rhi::error> get_content(rhi::image_copy_region const&) const override {
             return std::unexpected(rhi::error::unsupported);
         }
-        rhi::object_ptr<rhi::image_view> make_view(rhi::image_view_desc const& desc) override {
+        rhi::unique_object<rhi::image_view> make_view(rhi::image_view_desc const& desc) override {
             if (desc.base_layer >= layers || desc.base_mip >= mips ||
                 (desc.layer_count != 0 && desc.layer_count > layers - desc.base_layer) ||
                 (desc.mip_count != 0 && desc.mip_count > mips - desc.base_mip))
                 return nullptr;
-            return rhi::object_ptr<rhi::image_view>{new cpu_image_view};
+            return rhi::unique_object<rhi::image_view>{new cpu_image_view};
         }
     };
     struct cpu_sampler final : rhi::sampler {
@@ -1219,11 +1219,11 @@ namespace {
             }
         }
 
-        [[nodiscard]] rhi::object_ptr<rhi::swapchain> create_swapchain(rhi::swapchain_desc const&) override {
+        [[nodiscard]] rhi::unique_object<rhi::swapchain> create_swapchain(rhi::swapchain_desc const&) override {
             return nullptr;
         }
 
-        [[nodiscard]] rhi::object_ptr<rhi::buffer> create_buffer(rhi::buffer_desc const& desc) override {
+        [[nodiscard]] rhi::unique_object<rhi::buffer> create_buffer(rhi::buffer_desc const& desc) override {
             if (!accept_resource_creation())
                 return nullptr;
             if (portable_mode) {
@@ -1232,47 +1232,47 @@ namespace {
                 auto* result = new cpu_buffer(desc, resource_registry);
                 if (desc.initial_bytes.empty())
                     std::fill(result->content.begin(), result->content.end(), std::byte{buffer_allocation_fill});
-                return rhi::object_ptr<rhi::buffer>{result};
+                return rhi::unique_object<rhi::buffer>{result};
             }
             this->buffer.size_bytes = desc.size;
-            return rhi::object_ptr<rhi::buffer>{&this->buffer};
+            return rhi::unique_object<rhi::buffer>{&this->buffer};
         }
 
-        [[nodiscard]] rhi::object_ptr<rhi::image> create_image(rhi::image_desc const& desc) override {
+        [[nodiscard]] rhi::unique_object<rhi::image> create_image(rhi::image_desc const& desc) override {
             if (!accept_resource_creation())
                 return nullptr;
-            return rhi::object_ptr<rhi::image>{portable_mode && desc.extent.width != 0 && desc.extent.height != 0 && desc.array_layers != 0 && desc.format != rhi::image_format::unknown ? new cpu_image(desc, resource_registry) : nullptr};
+            return rhi::unique_object<rhi::image>{portable_mode && desc.extent.width != 0 && desc.extent.height != 0 && desc.array_layers != 0 && desc.format != rhi::image_format::unknown ? new cpu_image(desc, resource_registry) : nullptr};
         }
 
         /// TIER-1 SINCE ABI 26 AND NULL HERE, which is this fake's whole stance: it has no device, so an
         /// acceleration structure is exactly what it cannot hand out - the same answer `create_image` gives
         /// (and the answer the retired `ray_tracing` ability got from it: "an engine that asks for ray_tracing
         /// gets a null, not a stub").
-        [[nodiscard]] rhi::object_ptr<rhi::acceleration_structure> create_acceleration_structure(rhi::acceleration_structure_desc const&) override {
+        [[nodiscard]] rhi::unique_object<rhi::acceleration_structure> create_acceleration_structure(rhi::acceleration_structure_desc const&) override {
             return nullptr;
         }
 
         /// ABI 27: A MICROMAP IS NULL HERE FOR THE SAME REASON - no device, so nothing to build one in.
-        [[nodiscard]] rhi::object_ptr<rhi::micromap> create_micromap(rhi::micromap_desc const&) override {
+        [[nodiscard]] rhi::unique_object<rhi::micromap> create_micromap(rhi::micromap_desc const&) override {
             return nullptr;
         }
 
-        [[nodiscard]] rhi::object_ptr<rhi::sampler> create_sampler(rhi::sampler_desc const& desc) override {
+        [[nodiscard]] rhi::unique_object<rhi::sampler> create_sampler(rhi::sampler_desc const& desc) override {
             if (portable_mode)
-                return rhi::object_ptr<rhi::sampler>{new cpu_sampler};
+                return rhi::unique_object<rhi::sampler>{new cpu_sampler};
             // abi 16: the descriptor's new fields have to CROSS, so the probe keeps it and the test reads it
             // back (a nullptr answer would make the crossing untestable - the same reason create_buffer
             // returns its stand-in rather than nothing).
             this->sampler.seen = desc;
             this->sampler.released = false;
-            return rhi::object_ptr<rhi::sampler>{&this->sampler};
+            return rhi::unique_object<rhi::sampler>{&this->sampler};
         }
 
-        [[nodiscard]] rhi::object_ptr<rhi::shader> create_shader(rhi::shader_desc const&) override {
+        [[nodiscard]] rhi::unique_object<rhi::shader> create_shader(rhi::shader_desc const&) override {
             return nullptr;
         }
 
-        [[nodiscard]] rhi::object_ptr<rhi::pipeline> create_pipeline(rhi::pipeline_desc const&) override {
+        [[nodiscard]] rhi::unique_object<rhi::pipeline> create_pipeline(rhi::pipeline_desc const&) override {
             struct stub_pipeline final : rhi::pipeline {
                 stub_pipeline()
                     : rhi::pipeline("CPU graphics probe") {
@@ -1281,7 +1281,7 @@ namespace {
                     delete this;
                 }
             };
-            return rhi::object_ptr<rhi::pipeline>{cpu_caps.graphics_enabled ? new stub_pipeline : nullptr};
+            return rhi::unique_object<rhi::pipeline>{cpu_caps.graphics_enabled ? new stub_pipeline : nullptr};
         }
 
         /// abi 33 (descriptor space): the probe's texture groups. A group that carries at least one
@@ -1361,7 +1361,7 @@ namespace {
             return rhi::error::ok;
         }
 
-        [[nodiscard]] rhi::object_ptr<rhi::query> create_query(rhi::query_desc const&) override {
+        [[nodiscard]] rhi::unique_object<rhi::query> create_query(rhi::query_desc const&) override {
             return nullptr;
         }
 
@@ -1461,7 +1461,7 @@ namespace {
             return std::shared_ptr<rhi::command_buffer>(raw, [](rhi::command_buffer*) noexcept {});
         }
 
-        [[nodiscard]] rhi::object_ptr<rhi::command_buffer> create_command_buffer(rhi::command_buffer_desc const& desc) override {
+        [[nodiscard]] rhi::unique_object<rhi::command_buffer> create_command_buffer(rhi::command_buffer_desc const& desc) override {
             if (desc.kind != rhi::command_buffer_kind::primary) {
                 return nullptr; // abi 37: the secondary kind is retired
             }
@@ -1473,7 +1473,7 @@ namespace {
             this->command_buffer.released = false;
             this->command_buffer.recording = false;
             this->command_buffer.rendering_active = false;
-            return rhi::object_ptr<rhi::command_buffer>{&this->command_buffer};
+            return rhi::unique_object<rhi::command_buffer>{&this->command_buffer};
         }
 
         bool portable_mode = false;

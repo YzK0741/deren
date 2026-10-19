@@ -139,7 +139,7 @@ namespace deren::engine::pipelines {
         desc.blend_modes = blend_modes;
         desc.compare = compare;
         desc.debug_name = what;
-        rhi::object_ptr<rhi::pipeline> built = face.create_pipeline(desc);
+        rhi::unique_object<rhi::pipeline> built = face.create_pipeline(desc);
         if (!built) {
             return std::unexpected(deren::utility::vessel::string(what) + ": the contract's pipeline factory refused the descriptor");
         }
@@ -365,7 +365,7 @@ namespace deren::engine::pipelines {
         desc.first_stage = rhi::shader_stage::compute;
         desc.compute_code = std::as_bytes(compute_shader_code);
         desc.debug_name = "mask bake";
-        rhi::object_ptr<rhi::pipeline> built = face.create_pipeline(desc);
+        rhi::unique_object<rhi::pipeline> built = face.create_pipeline(desc);
         if (!built) {
             return fail("mask bake: the contract's compute pipeline factory refused the descriptor");
         }
@@ -384,7 +384,7 @@ namespace deren::engine::pipelines {
         desc.first_stage = rhi::shader_stage::compute;
         desc.compute_code = std::as_bytes(compute_shader_code);
         desc.debug_name = "compute skin";
-        rhi::object_ptr<rhi::pipeline> built = face.create_pipeline(desc);
+        rhi::unique_object<rhi::pipeline> built = face.create_pipeline(desc);
         if (!built) {
             return fail("compute skin: the contract's compute pipeline factory refused the descriptor");
         }
@@ -405,7 +405,7 @@ namespace deren::engine::pipelines {
         desc.first_stage = rhi::shader_stage::compute;
         desc.compute_code = std::as_bytes(compute_shader_code);
         desc.debug_name = "cluster";
-        rhi::object_ptr<rhi::pipeline> built = face.create_pipeline(desc);
+        rhi::unique_object<rhi::pipeline> built = face.create_pipeline(desc);
         if (!built) {
             return fail("cluster: the contract's compute pipeline factory refused the descriptor");
         }
@@ -425,7 +425,7 @@ namespace deren::engine::pipelines {
         desc.first_stage = rhi::shader_stage::compute;
         desc.compute_code = std::as_bytes(compute_shader_code);
         desc.debug_name = "visibility resolve";
-        rhi::object_ptr<rhi::pipeline> built = face.create_pipeline(desc);
+        rhi::unique_object<rhi::pipeline> built = face.create_pipeline(desc);
         if (!built) {
             return fail("visibility resolve: the contract's compute pipeline factory refused the descriptor");
         }
@@ -442,7 +442,7 @@ namespace deren::engine::pipelines {
         desc.first_stage = rhi::shader_stage::compute;
         desc.compute_code = std::as_bytes(compute_shader_code);
         desc.debug_name = "heap probe";
-        rhi::object_ptr<rhi::pipeline> built = face.create_pipeline(desc);
+        rhi::unique_object<rhi::pipeline> built = face.create_pipeline(desc);
         if (!built) {
             return fail("heap probe: the contract's compute pipeline factory refused the descriptor");
         }
@@ -495,7 +495,7 @@ namespace deren::engine::pipelines {
         desc.first_stage = rhi::shader_stage::compute;
         desc.compute_code = std::as_bytes(compute_shader_code);
         desc.debug_name = "rt shadow";
-        rhi::object_ptr<rhi::pipeline> built = face.create_pipeline(desc);
+        rhi::unique_object<rhi::pipeline> built = face.create_pipeline(desc);
         if (!built) {
             return fail("rt shadow: the contract's compute pipeline factory refused the descriptor");
         }
@@ -571,7 +571,7 @@ namespace deren::engine::pipelines {
             },
         };
         desc.acceleration_structure_bindings = bindings;
-        rhi::object_ptr<rhi::pipeline> built = face.create_pipeline(desc);
+        rhi::unique_object<rhi::pipeline> built = face.create_pipeline(desc);
         if (!built) {
             return fail("rt shadow: the contract's ray-tracing pipeline factory refused the descriptor");
         }
@@ -591,7 +591,7 @@ namespace deren::engine::pipelines {
         desc.first_stage = rhi::shader_stage::compute;
         desc.compute_code = std::as_bytes(compute_shader_code);
         desc.debug_name = "temporal resolve";
-        rhi::object_ptr<rhi::pipeline> built = face.create_pipeline(desc);
+        rhi::unique_object<rhi::pipeline> built = face.create_pipeline(desc);
         if (!built) {
             return fail("temporal resolve: the contract's compute pipeline factory refused the descriptor");
         }

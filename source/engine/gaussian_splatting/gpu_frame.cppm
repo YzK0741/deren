@@ -102,7 +102,7 @@ export namespace deren::engine::gaussian_splatting {
         // The device and asset leases outlive the subchain's drain and all owned allocations.
         std::shared_ptr<deren::promise::rhi::api_core> device_lease;
         deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> owners;
-        deren::promise::rhi::object_ptr<deren::promise::rhi::radix_sorter> sorter;
+        deren::promise::rhi::unique_object<deren::promise::rhi::radix_sorter> sorter;
         deren::engine::pass::pass_chain storage_chain;
         deren::engine::pass::buffer_storage_pass* storage_provider = nullptr;
         render_resource::instances::resource_snapshot storage_view;

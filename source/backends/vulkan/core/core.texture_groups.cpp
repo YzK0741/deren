@@ -29,9 +29,9 @@ namespace deren::vulkan {
                 return rhi::error::unsupported;
             texture_groups.reserved_offset = offset;
         }
-        rhi::object_ptr<rhi::buffer> records{create_buffer({.size = 1025u * 80u,
-                                                            .usage = rhi::buffer_usage::storage_coherent,
-                                                            .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
+        rhi::unique_object<rhi::buffer> records{create_buffer({.size = 1025u * 80u,
+                                                               .usage = rhi::buffer_usage::storage_coherent,
+                                                               .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
         if (!records || records->mapped().size() < 1025u * 80u)
             return rhi::error::out_of_device_memory;
         std::memset(records->mapped().data(), 0, records->mapped().size());
@@ -41,10 +41,10 @@ namespace deren::vulkan {
         desc.format = rhi::image_format::rgba8_unorm;
         desc.flags = rhi::to_bits(rhi::image_flag::sampled);
         desc.initial_bytes = std::as_bytes(std::span(&pixel, 1));
-        rhi::object_ptr<rhi::image> dummy{create_image(desc)};
+        rhi::unique_object<rhi::image> dummy{create_image(desc)};
         if (!dummy)
             return rhi::error::out_of_device_memory;
-        rhi::object_ptr<rhi::image_view> view{dummy->make_view({})};
+        rhi::unique_object<rhi::image_view> view{dummy->make_view({})};
         if (!view)
             return rhi::error::operation_failed;
         auto const& image = *static_cast<owned_image const*>(dummy.get());
@@ -149,7 +149,7 @@ namespace deren::vulkan {
                 new (std::nothrow) texture_group_state::sampled_view_lease);
             if (!fresh)
                 return rhi::error::out_of_host_memory;
-            fresh->view = rhi::object_ptr<rhi::image_view>(texture.make_view({.mip_count = 0}));
+            fresh->view = rhi::unique_object<rhi::image_view>(texture.make_view({.mip_count = 0}));
             if (!fresh->view)
                 return rhi::error::operation_failed;
             fresh->slot = static_cast<std::uint32_t>(free - texture_groups.views.begin());

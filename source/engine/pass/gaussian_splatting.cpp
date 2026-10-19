@@ -44,7 +44,7 @@ namespace deren::engine::pass {
         desc.compare = rhi::depth_compare::less_or_equal;
         desc.blend_modes = blend;
         desc.debug_name = "gaussian raster";
-        pipeline = rhi::object_ptr<rhi::pipeline>{context.face->create_pipeline(desc)};
+        pipeline = rhi::unique_object<rhi::pipeline>{context.face->create_pipeline(desc)};
         if (rhi::query_extension<rhi::gpu_sorting>(*context.face)) {
             deren::utility::vessel::array<std::string_view, 3> const names = {"gaussian_reset.comp.spv", "gaussian_prepare.comp.spv", "gaussian_finalize.comp.spv"};
             for (std::size_t i = 0; i < names.size(); ++i) {
@@ -56,7 +56,7 @@ namespace deren::engine::pass {
                 compute_desc.first_stage = rhi::shader_stage::compute;
                 compute_desc.compute_code = std::as_bytes(code);
                 compute_desc.debug_name = names[i].data();
-                compute[i] = rhi::object_ptr<rhi::pipeline>{context.face->create_pipeline(compute_desc)};
+                compute[i] = rhi::unique_object<rhi::pipeline>{context.face->create_pipeline(compute_desc)};
                 if (!compute[i]) {
                     return;
                 }

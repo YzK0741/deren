@@ -95,7 +95,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
     desc.first_stage = rhi::shader_stage::compute;
     desc.compute_code = code;
     desc.texture_group = {.enabled = true, .push_byte_offset = 8, .shader_stage_bits = 4};
-    rhi::object_ptr<rhi::pipeline> pipeline{core.create_pipeline(desc)};
+    rhi::unique_object<rhi::pipeline> pipeline{core.create_pipeline(desc)};
     CHECK(pipeline);
     auto wrong = desc;
     wrong.texture_group.push_byte_offset = 0; // destination is uint64, not the group token
@@ -108,7 +108,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
         info.format = rhi::image_format::rgba8_unorm;
         info.flags = rhi::to_bits(rhi::image_flag::sampled);
         info.initial_bytes = std::as_bytes(std::span(&pixel, 1));
-        return rhi::object_ptr<rhi::image>(core.create_image(info));
+        return rhi::unique_object<rhi::image>(core.create_image(info));
     };
     auto red = make_image(0xff0000ffu), blue = make_image(0xffff0000u), green = make_image(0xff00ff00u);
     CHECK(red && blue && green);
@@ -128,7 +128,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
     red.reset();
     blue.reset();
     green.reset();
-    rhi::object_ptr<rhi::buffer> output{core.create_buffer({.size = 60, .usage = rhi::buffer_usage::storage_coherent, .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
+    rhi::unique_object<rhi::buffer> output{core.create_buffer({.size = 60, .usage = rhi::buffer_usage::storage_coherent, .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
     auto commands = core.make_command_buffer({});
     auto* heap = rhi::query_extension<rhi::descriptor_heap>(core);
     auto* addresses = rhi::query_extension<rhi::device_address>(core);
@@ -255,18 +255,18 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
     // Two independent segments copy one value each into two halves of a host-visible buffer; ONE batch
     // submission executes both, and the mapped read-back shows both writes - the minimal observable
     // difference between "the batch ran" and "the handles were accepted".
-    rhi::object_ptr<rhi::buffer> batch_output{core.create_buffer({.size = 8u,
-                                                                  .usage = rhi::buffer_usage::storage_coherent,
-                                                                  .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
+    rhi::unique_object<rhi::buffer> batch_output{core.create_buffer({.size = 8u,
+                                                                     .usage = rhi::buffer_usage::storage_coherent,
+                                                                     .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
     std::uint32_t const first_value = 0x11111111u, second_value = 0x22222222u;
-    rhi::object_ptr<rhi::buffer> first_source{core.create_buffer({.size = 4u,
-                                                                  .usage = rhi::buffer_usage::storage_coherent,
-                                                                  .flags = rhi::to_bits(rhi::buffer_flag::device_address),
-                                                                  .initial_bytes = std::as_bytes(std::span(&first_value, 1))})};
-    rhi::object_ptr<rhi::buffer> second_source{core.create_buffer({.size = 4u,
-                                                                   .usage = rhi::buffer_usage::storage_coherent,
-                                                                   .flags = rhi::to_bits(rhi::buffer_flag::device_address),
-                                                                   .initial_bytes = std::as_bytes(std::span(&second_value, 1))})};
+    rhi::unique_object<rhi::buffer> first_source{core.create_buffer({.size = 4u,
+                                                                     .usage = rhi::buffer_usage::storage_coherent,
+                                                                     .flags = rhi::to_bits(rhi::buffer_flag::device_address),
+                                                                     .initial_bytes = std::as_bytes(std::span(&first_value, 1))})};
+    rhi::unique_object<rhi::buffer> second_source{core.create_buffer({.size = 4u,
+                                                                      .usage = rhi::buffer_usage::storage_coherent,
+                                                                      .flags = rhi::to_bits(rhi::buffer_flag::device_address),
+                                                                      .initial_bytes = std::as_bytes(std::span(&second_value, 1))})};
     CHECK(batch_output && first_source && second_source);
     rhi::mergeable_command_buffer_ref mergeable_a = core.make_mergeable_command_buffer({});
     rhi::mergeable_command_buffer_ref mergeable_b = core.make_mergeable_command_buffer({});
@@ -289,9 +289,9 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
         // ---- ABI 36: THE RECORDING-TIME BATCH MERGE on the real backend --------------------------------
         // The same two segments, merged into an ORDINARY primary while recording (the shape the engine's
         // multithreaded passes use): one execute(span) call, then the normal single-buffer submit.
-        rhi::object_ptr<rhi::buffer> merged_output{core.create_buffer({.size = 8u,
-                                                                       .usage = rhi::buffer_usage::storage_coherent,
-                                                                       .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
+        rhi::unique_object<rhi::buffer> merged_output{core.create_buffer({.size = 8u,
+                                                                          .usage = rhi::buffer_usage::storage_coherent,
+                                                                          .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
         CHECK(merged_output);
         if (merged_output) {
             CHECK(mergeable_a->begin_recording({}) == rhi::error::ok);
@@ -340,7 +340,7 @@ int main(int argc, char** argv) {
     VkDevice const device = main_context->device;
     VkQueue const queue = main_context->graphics_queue;
     test_heap_sampling(*core, *main_context);
-    rhi::object_ptr<rhi::buffer> output{core->create_buffer({.size = 4, .usage = rhi::buffer_usage::readback_coherent})};
+    rhi::unique_object<rhi::buffer> output{core->create_buffer({.size = 4, .usage = rhi::buffer_usage::readback_coherent})};
     auto primary = core->make_command_buffer({});
     CHECK(output && primary);
     if (!output || !primary)
@@ -348,9 +348,9 @@ int main(int argc, char** argv) {
     // abi 42: the fill travels through the CONTRACT (a copy from a host-initialised buffer), because the
     // escape no longer lends a native buffer handle - only the recording target a third-party renderer needs.
     std::array<std::byte, 4> const source_value{std::byte{0x44}, std::byte{0x33}, std::byte{0x22}, std::byte{0x11}};
-    rhi::object_ptr<rhi::buffer> source{core->create_buffer({.size = 4,
-                                                             .usage = rhi::buffer_usage::storage_coherent,
-                                                             .initial_bytes = std::span<std::byte const>(source_value.data(), source_value.size())})};
+    rhi::unique_object<rhi::buffer> source{core->create_buffer({.size = 4,
+                                                                .usage = rhi::buffer_usage::storage_coherent,
+                                                                .initial_bytes = std::span<std::byte const>(source_value.data(), source_value.size())})};
     CHECK(source);
     if (!source)
         return deren::vk_test::finish("test_texture_group");

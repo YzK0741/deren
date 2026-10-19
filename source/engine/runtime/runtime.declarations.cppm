@@ -100,7 +100,7 @@ import deren.utility;
 
 // THE CONTRACT, UNDER THE SHORT NAME EVERY SITE BELOW USES. The module `deren.promise.rhi` declares
 // `deren::promise::rhi`, and every member this file converted to a contract handle (the buffers held in
-// `object_ptr`) names it - so the alias is here rather than repeated per member.
+// `unique_object`) names it - so the alias is here rather than repeated per member.
 namespace rhi = deren::promise::rhi;
 
 /**
@@ -453,7 +453,7 @@ namespace deren::engine {
 
         // ---- shared scene resources (the heap's per-frame-slot slots; see core::heap_slots) ----
         //
-        // Legacy buffers below are contract `object_ptr`s, while migrated buffers borrow a chain snapshot.
+        // Legacy buffers below are contract `unique_object`s, while migrated buffers borrow a chain snapshot.
         // For the legacy buffers, release order is the one fact
         // THIS SECTION RELIES ON: a manager's destructor calls `buffer::release()`, which runs INSIDE the
         // backend and may decrement the allocator's reference count - so the core that owns that allocator
@@ -1036,11 +1036,11 @@ namespace deren::engine {
         std::ofstream gaussian_benchmark;
         std::uint64_t gaussian_benchmark_rows = 0;
         std::uint64_t gaussian_trace_frames = 0;
-        rhi::object_ptr<rhi::buffer> gaussian_hdr_readback;
+        rhi::unique_object<rhi::buffer> gaussian_hdr_readback;
         rhi::image_extent gaussian_hdr_extent = {};
         /// THE DEPTH-PROBE CAPTURE (visibility-buffer root-cause measurement): the shared G-buffer depth copied
         /// out on the screenshot frame when DEREN_DEPTH_PROBE_CAPTURE names a file (written by runtime.readback.cppm).
-        rhi::object_ptr<rhi::buffer> depth_probe_readback;
+        rhi::unique_object<rhi::buffer> depth_probe_readback;
         rhi::image_extent depth_probe_extent = {};
         // Enable only after the image and performance acceptance checks pass.
         static constexpr bool gaussian_gpu_auto_enabled = true;
@@ -1378,7 +1378,7 @@ namespace deren::engine {
          * rebuild: a view of a presentation image must not outlive it, and the rebuild destroys the
          * images.
          */
-        deren::utility::vessel::array<rhi::object_ptr<rhi::image_view>, rhi::max_frames_in_flight> frame_swapchain_views = {};
+        deren::utility::vessel::array<rhi::unique_object<rhi::image_view>, rhi::max_frames_in_flight> frame_swapchain_views = {};
         // THE HALF-RESOLUTION CHAIN, one set per swapchain image (③-D/E A1.5): the stochastic punctual
         // lighting trio - the raw estimate (STORAGE for the compute pass that writes it, SAMPLED for the
         // lighting stage that adds it) and the temporal accumulation (the same pair PLUS TRANSFER_SRC, because
@@ -2171,7 +2171,7 @@ namespace deren::engine {
          *       through `vkGetDeviceProcAddr` once and the answer is cached (see `mesh_dispatch`).
          *
          * IT TAKES A CONTRACT BUFFER because that is what the caller's lanes hold (the primitive's geometry is
-         * `object_ptr` members now), which is why the hook in `render_environment` narrowed to this shape -
+         * `unique_object` members now), which is why the hook in `render_environment` narrowed to this shape -
          * and the two DISPATCH entries take the contract `command_buffer&` for the same reason one resource class
          * over: the session holds the contract handle, and the backend's `draw_mesh_tasks()` verbs resolve their
          * own entry points - no engine-side native handle is involved.
@@ -4465,7 +4465,7 @@ namespace deren::engine {
      *        which only the GPU ever fills)
      * @note panics when the factory refuses - the same failure mode `init_utils::create_host_buffer` had
      */
-    void create_buffer(rhi::api_core& device, rhi::buffer_usage usage, rhi::buffer_flags flags, std::span<std::byte const> initial_bytes, std::string_view what, rhi::object_ptr<rhi::buffer>& output, void** mapped);
+    void create_buffer(rhi::api_core& device, rhi::buffer_usage usage, rhi::buffer_flags flags, std::span<std::byte const> initial_bytes, std::string_view what, rhi::unique_object<rhi::buffer>& output, void** mapped);
 
     /**
      * @brief the per-frame-slot form: create ONE buffer per frame slot of a shape the whole family shares,
@@ -4473,7 +4473,7 @@ namespace deren::engine {
      * @param outputs the family; APPENDED to (one handle per slot), so its size is the slot count on return
      * @param mapped the mappings to appends to; pass nullptr for a family the host never writes through
      */
-    void create_buffers(rhi::api_core& device, deren::utility::vessel::vector<rhi::object_ptr<rhi::buffer>>& outputs, rhi::buffer_usage usage, rhi::buffer_flags flags, std::span<std::byte const> initial_bytes, std::string_view what, deren::utility::vessel::vector<void*>* mapped = nullptr);
+    void create_buffers(rhi::api_core& device, deren::utility::vessel::vector<rhi::unique_object<rhi::buffer>>& outputs, rhi::buffer_usage usage, rhi::buffer_flags flags, std::span<std::byte const> initial_bytes, std::string_view what, deren::utility::vessel::vector<void*>* mapped = nullptr);
 
     /**
      * @brief THE DEVICE ADDRESS OF A CONTRACT BUFFER, through the `device_address` ability.

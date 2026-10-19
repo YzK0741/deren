@@ -74,16 +74,16 @@ namespace deren::engine {
         };
     }
 
-    void create_buffer(rhi::api_core& device, rhi::buffer_usage const usage, rhi::buffer_flags const flags, std::span<std::byte const> const initial_bytes, std::string_view const what, rhi::object_ptr<rhi::buffer>& output, void** const mapped) {
+    void create_buffer(rhi::api_core& device, rhi::buffer_usage const usage, rhi::buffer_flags const flags, std::span<std::byte const> const initial_bytes, std::string_view const what, rhi::unique_object<rhi::buffer>& output, void** const mapped) {
         // THE FACTORY IS CALLED THROUGH THE CONTRACT INTERFACE, not through `core`: a call on the concrete
         // class emits an undefined symbol in this half that the backend defines (it JOINS the boundary
         // worklist), while a virtual call through `rhi::api_core&` loads the vptr and emits none. `core`
         // derives from `api_core`, so the cast is the upcast the interface was built for.
         //
-        // THE OUTPUT IS THE OWNER, not the handle: an `object_ptr` is move-only and null-on-move, so the
+        // THE OUTPUT IS THE OWNER, not the handle: an `unique_object` is move-only and null-on-move, so the
         // reference the factory hands over is taken by the manager and released by ITS destructor - on every
         // path out, which is the whole reason the type exists.
-        output = rhi::object_ptr<rhi::buffer>{static_cast<rhi::api_core&>(device).create_buffer(make_buffer_desc(initial_bytes.size(), usage, flags, initial_bytes))};
+        output = rhi::unique_object<rhi::buffer>{static_cast<rhi::api_core&>(device).create_buffer(make_buffer_desc(initial_bytes.size(), usage, flags, initial_bytes))};
         if (!output) {
             deren::utility::panic(std::source_location::current(), "failed to create {}", what);
         }
@@ -92,7 +92,7 @@ namespace deren::engine {
         }
     }
 
-    void create_buffers(rhi::api_core& device, deren::utility::vessel::vector<rhi::object_ptr<rhi::buffer>>& outputs, rhi::buffer_usage const usage, rhi::buffer_flags const flags, std::span<std::byte const> const initial_bytes, std::string_view const what, deren::utility::vessel::vector<void*>* const mapped) {
+    void create_buffers(rhi::api_core& device, deren::utility::vessel::vector<rhi::unique_object<rhi::buffer>>& outputs, rhi::buffer_usage const usage, rhi::buffer_flags const flags, std::span<std::byte const> const initial_bytes, std::string_view const what, deren::utility::vessel::vector<void*>* const mapped) {
         for (int32_t slot = 0; slot < static_cast<int32_t>(device.walk_frames()->slot_count()); ++slot) {
             outputs.emplace_back();
             void* slot_mapped = nullptr;
@@ -1753,7 +1753,7 @@ namespace deren::engine {
                 if (out_address != nullptr) {
                     *out_address = self->buffer_address(*self->pass_upload_buffers.back());
                 }
-                // the CONTRACT handle, which the pass borrows and never destroys (`object_ptr::get()` is the
+                // the CONTRACT handle, which the pass borrows and never destroys (`unique_object::get()` is the
                 // pointer it holds): `pass_upload_buffers` is this class's and lives with the generation (see its
                 // own note).
                 return self->pass_upload_buffers.back().get();
@@ -1858,7 +1858,7 @@ namespace deren::engine {
         // ONE ENGINE-OWNED PER-IMAGE FAMILY (③-D/E A1): the engine holds the generation's handles, so the
         // run the table needs is assembled here, instance by instance, each handle through the contract's
         // escape. `find()` answers exactly what the family form answered; the family form itself needs a
-        // CONTIGUOUS run of `VkImageView`s, which an array of `object_ptr`s is not - and a local run
+        // CONTIGUOUS run of `VkImageView`s, which an array of `unique_object`s is not - and a local run
         // would dangle, because the table stores the span rather than copying it.
         auto const owned_family = [&table](render_resource::resource_id const id, uint32_t const element, auto const& images, auto const& views) {
             for (std::size_t instance = 0; instance < rhi::max_swapchain_images; ++instance) {
@@ -1882,7 +1882,7 @@ namespace deren::engine {
         if (rhi::image* const frame_image = this->rhi_face().frame_image(); frame_image != nullptr) {
             std::size_t const slot = static_cast<std::size_t>(this->frame_ring().position());
             if (slot < this->frame_swapchain_views.size()) {
-                this->frame_swapchain_views[slot] = rhi::object_ptr<rhi::image_view>{frame_image->make_view(rhi::image_view_desc{})};
+                this->frame_swapchain_views[slot] = rhi::unique_object<rhi::image_view>{frame_image->make_view(rhi::image_view_desc{})};
                 if (this->frame_swapchain_views[slot]) {
                     single(render_resource::resource_id::swapchain_image, 0, this->current_image_index,
                            pass::resolved_binding{.image_handle = frame_image, .view_handle = &*this->frame_swapchain_views[slot]});
@@ -1962,7 +1962,7 @@ namespace deren::engine {
         // THE ENGINE'S OWN IMAGE NOW (③-D/E A1.2), and published instance by instance because THIS GROUP HAS
         // NO FAMILY-SPAN CONSUMER: `rt_shadow_visibility` is scoped PER FRAME SLOT, and `resolve_declaration`
         // only fills `own_per_image` for `resource_scope::per_swapchain_image` - so no `views_of` run is owed
-        // here, and the engine's `deren::utility::vessel::array<object_ptr>` needs no parallel contiguous native array.
+        // here, and the engine's `deren::utility::vessel::array<unique_object>` needs no parallel contiguous native array.
         for (std::size_t slot = 0; slot < rhi::max_frames_in_flight; ++slot) {
             if (!static_cast<bool>(this->rt_shadow_image_views[slot]) || !static_cast<bool>(this->rt_shadow_images[slot])) {
                 continue;

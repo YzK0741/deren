@@ -63,10 +63,10 @@ export namespace deren::engine::pass {
 
     private:
         deren::promise::rhi::image_format color_format;
-        deren::promise::rhi::object_ptr<deren::promise::rhi::pipeline> pipeline;
+        deren::promise::rhi::unique_object<deren::promise::rhi::pipeline> pipeline;
         std::shared_ptr<gaussian_splatting::raster_frame const> frame;
         std::shared_ptr<gaussian_splatting::gpu_frame const> gpu_snapshot;
-        deren::utility::vessel::array<deren::promise::rhi::object_ptr<deren::promise::rhi::pipeline>, 3> compute;
+        deren::utility::vessel::array<deren::promise::rhi::unique_object<deren::promise::rhi::pipeline>, 3> compute;
         gaussian_splatting::gpu_frame_timing timing;
         deren::promise::rhi::error record_error = deren::promise::rhi::error::ok;
     };
