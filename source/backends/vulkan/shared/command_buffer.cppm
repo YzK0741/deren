@@ -62,6 +62,37 @@ export namespace deren::vulkan {
         VkCommandBuffer native = VK_NULL_HANDLE;
     };
 
+    /// THE VULKAN CLASS A CONTRACT `mergeable_command_buffer` IS. The GUI overlay records its own ImGui draw
+    /// data into one of these, and `get()` is how the recording target is read - the same opaque-handle +
+    /// concrete-tag + shared-layout rule the primary `command_buffer` class follows. The backend keeps the
+    /// native handle current (a mergeable's target is the secondary buffer it was allocated with).
+    struct mergeable_command_buffer : deren::promise::rhi::mergeable_command_buffer {
+        explicit mergeable_command_buffer(std::string_view const name) noexcept
+            : deren::promise::rhi::mergeable_command_buffer(name) {
+        }
+
+        /// @brief the native recording target (VK_NULL_HANDLE = not allocated / released)
+        [[nodiscard]] VkCommandBuffer get() const noexcept {
+            return this->native;
+        }
+
+        /// @brief backend only: publish the recording target
+        void set_target(VkCommandBuffer const target) noexcept {
+            this->native = target;
+        }
+
+    private:
+        VkCommandBuffer native = VK_NULL_HANDLE;
+    };
+
+    /// The concrete identity the backend constructs a mergeable recording target with.
+    inline constexpr std::string_view mergeable_command_buffer_name = "deren_mergeable_command_buffer_vulkan";
+
+    /// @brief whether @p commands is one of THIS backend's mergeable recording targets
+    [[nodiscard]] inline bool is_mergeable_command_buffer(deren::promise::rhi::mergeable_command_buffer const& commands) noexcept {
+        return deren::promise::rhi::is_concrete(commands, mergeable_command_buffer_name);
+    }
+
     /// @brief whether @p commands is one of THIS backend's command buffers (the cast's precondition)
     [[nodiscard]] inline bool is_command_buffer(deren::promise::rhi::command_buffer const& commands) noexcept {
         return deren::promise::rhi::is_concrete(commands, frame_command_buffer_name) ||

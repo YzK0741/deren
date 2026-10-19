@@ -494,7 +494,7 @@ namespace deren::vulkan {
         /// hands that primary to the EXISTING owned-primary submission path: retention, fences, pending
         /// counters and the one-shot rules are therefore the same machinery a caller-owned primary already
         /// uses, and nothing about the frame path moves.
-        struct owned_mergeable_command_buffer final : deren::promise::rhi::mergeable_command_buffer {
+        struct owned_mergeable_command_buffer final : deren::vulkan::mergeable_command_buffer {
             using rhi_error = deren::promise::rhi::error;
             using rhi_begin_info = deren::promise::rhi::command_buffer_begin_info;
             using rhi_image = deren::promise::rhi::image;
@@ -518,7 +518,7 @@ namespace deren::vulkan {
             using rhi_array4f = deren::utility::vessel::array<float, 4>;
 
             owned_mergeable_command_buffer() noexcept
-                : deren::promise::rhi::mergeable_command_buffer(concrete::mergeable_command_buffer) {
+                : deren::vulkan::mergeable_command_buffer(deren::vulkan::mergeable_command_buffer_name) {
             }
             core* owner = nullptr;
             /// the secondary this mergeable records into (shared, so the batch can retain it)

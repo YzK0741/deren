@@ -2057,6 +2057,7 @@ namespace deren::vulkan {
             return {};
         }
         raw_mergeable->owner = this;
+        raw_mergeable->set_target(*static_cast<owned_command_buffer*>(raw)->buffer);
         raw_mergeable->inner = std::shared_ptr<owned_command_buffer>(static_cast<owned_command_buffer*>(raw), [](owned_command_buffer* const p) noexcept {
             if (p != nullptr) {
                 p->release();
