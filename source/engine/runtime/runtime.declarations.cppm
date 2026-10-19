@@ -741,6 +741,12 @@ namespace deren::engine {
         /// enforce (it answers `invalid_argument`). What is left here is the engine's own half: which
         /// boundary this mark is, and the static label that boundary opens (`gpu_timing_labels`).
         void gpu_mark(gpu_mark_id mark) noexcept;
+        /// how many marks this frame has ACCEPTED so far (the backend's positional check makes this the plan)
+        std::uint32_t gpu_marks_written = 0;
+        /// emit placeholder marks from the next expected one THROUGH @p last (inclusive). The frame's marks are
+        /// positional, so a pass that does not run still needs its mark (0 ms interval); this fills whatever the
+        /// real emitters (Gaussian GPU timing, the stage callbacks) left, without guessing an index.
+        void gpu_mark_through(gpu_mark_id last) noexcept;
 
         // ---- CPU frame phase timing (same 60-frame window as the GPU marks) ----
         // A scope timer rather than manual marks: every phase function has early returns

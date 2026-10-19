@@ -334,6 +334,9 @@ namespace deren::engine {
         // self-described, and the engine's stage vocabulary never entered the contract. The frame's
         // last mark (frame_end) opens no stage and carries an empty name.
         rhi::error const marked = commands->mark_gpu_timing(mark_index, mark_index < gpu_timing_labels.size() ? gpu_timing_labels[mark_index].name : std::string_view{});
+        if (marked == rhi::error::ok) {
+            ++this->gpu_marks_written;
+        }
         if (marked != rhi::error::ok) {
             // The verb answers, and the answer is on the record: a refused mark (a device that
             // cannot timestamp, or an out-of-order index) would mislabel the pass report, so it is
@@ -341,6 +344,19 @@ namespace deren::engine {
             deren::utility::log("runtime: GPU timing mark {} was refused ({}) - the pass report is mislabeled",
                                 mark_index,
                                 static_cast<std::uint32_t>(marked));
+        }
+    }
+
+    void runtime::gpu_mark_through(gpu_mark_id const last) noexcept {
+        if (!this->gpu_timings_enabled) {
+            return;
+        }
+        for (std::uint32_t index = this->gpu_marks_written; index <= static_cast<std::uint32_t>(last) && index < gpu_mark_count; ++index) {
+            std::uint32_t const before = this->gpu_marks_written;
+            this->gpu_mark(static_cast<gpu_mark_id>(index));
+            if (this->gpu_marks_written == before) {
+                return; // refused (not our slot, no list, out of order): do not spin
+            }
         }
     }
 

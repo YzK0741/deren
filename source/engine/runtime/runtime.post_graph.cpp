@@ -698,13 +698,6 @@ namespace deren::engine {
                                                                               if (error != rhi::error::ok)
                                                                                   return error;
                                                                               this->gpu_mark(gpu_mark_id::lighting_end);
-                                                                              this->gpu_mark(gpu_mark_id::gaussian_prepare_end);
-                                                                              this->gpu_mark(gpu_mark_id::gaussian_sort_end);
-                                                                              this->gpu_mark(gpu_mark_id::gaussian_finalize_end);
-                                                                              this->gpu_mark(gpu_mark_id::gaussian_raster_end);
-                                                                              this->gpu_mark(gpu_mark_id::transparent_end);
-                                                                              this->gpu_mark(gpu_mark_id::taa_end);
-                                                                              this->gpu_mark(gpu_mark_id::main_end);
                                                                               return rhi::error::ok;
                                                                           });
                 if (!bound)
@@ -749,7 +742,13 @@ namespace deren::engine {
                 if (!gaussian_added)
                     return post_build_error(gaussian_added.error());
                 auto gaussian_bound = build.bind_pass<graph::gaussian::parameters>(
-                    gaussian_added->pass, [payload](graph::gaussian::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(17); });
+                    gaussian_added->pass, [this, payload](graph::gaussian::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                        // the pass's own GPU timing callback writes 7/8/9 INSIDE this record; the raster mark (10) is
+                        // the zero-interval placeholder after it (or the whole 7..10 range when it did not record)
+                        auto const recorded = payload->record(17);
+                        this->gpu_mark_through(gpu_mark_id::gaussian_raster_end);
+                        return recorded;
+                    });
                 if (!gaussian_bound)
                     return post_build_error(gaussian_bound.error());
             }
@@ -770,7 +769,11 @@ namespace deren::engine {
                 if (!transparent_added)
                     return post_build_error(transparent_added.error());
                 auto transparent_bound = build.bind_pass<graph::transparent::parameters>(
-                    transparent_added->pass, [payload](graph::transparent::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(13); });
+                    transparent_added->pass, [this, payload](graph::transparent::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                        auto const recorded = payload->record(13);
+                        this->gpu_mark_through(gpu_mark_id::transparent_end);
+                        return recorded;
+                    });
                 if (!transparent_bound)
                     return post_build_error(transparent_bound.error());
             }
@@ -869,8 +872,10 @@ namespace deren::engine {
                 if (auto exported = build.export_resource(*taa_history); !exported)
                     return post_build_error(exported.error());
                 auto copy_bound = build.bind_pass<graph::taa::copy_parameters>(
-                    copy_added->pass, [payload](graph::taa::copy_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
-                        return static_cast<pass::taa_pass*>(payload->passes[11])->record_copy(payload->ios[11]);
+                    copy_added->pass, [this, payload](graph::taa::copy_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                        auto const recorded = static_cast<pass::taa_pass*>(payload->passes[11])->record_copy(payload->ios[11]);
+                        this->gpu_mark_through(gpu_mark_id::taa_end);
+                        return recorded;
                     });
                 if (!copy_bound)
                     return post_build_error(copy_bound.error());
@@ -909,6 +914,9 @@ namespace deren::engine {
         }
         auto composite_bound = build.bind_pass<graph::post::composite_parameters>(output->composite,
                                                                                   [this, payload](graph::post::composite_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                                                                                      // the scene side is over here: fill any stage mark whose real emitter did
+                                                                                      // not run (debug-view frames, no lighting, disabled optional stages)
+                                                                                      this->gpu_mark_through(gpu_mark_id::main_end);
                                                                                       this->gpu_mark(gpu_mark_id::bloom_end);
                                                                                       return payload->record(4);
                                                                                   });

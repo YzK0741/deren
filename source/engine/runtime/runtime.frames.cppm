@@ -520,6 +520,7 @@ namespace deren::engine {
         // not in flight has no list at all. The answer is read rather than dropped: `unsupported` is
         // the device's honest state and is already reported by gpu_timing_summary(), while any other
         // refusal means the range did not open and is worth a line.
+        this->gpu_marks_written = 0;
         if (rhi::command_buffer* const frame_commands = this->rhi_face().begin_commands(); frame_commands != nullptr) {
             rhi::error const opened = frame_commands->begin_gpu_timing();
             if (opened != rhi::error::ok && opened != rhi::error::unsupported) {
