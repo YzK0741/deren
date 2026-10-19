@@ -131,9 +131,6 @@ namespace {
         [[nodiscard]] rhi::error end_recording() noexcept override {
             return rhi::error::invalid_argument;
         }
-        [[nodiscard]] rhi::error execute(rhi::command_buffer&) override {
-            return rhi::error::invalid_argument;
-        }
         [[nodiscard]] rhi::error use(rhi::image const&, rhi::image_use, rhi::image_use) noexcept override {
             return rhi::error::invalid_argument;
         }
@@ -618,14 +615,16 @@ namespace {
             // to end: two buffers are created (each with its own command pool), both are recorded, the
             // primary executes the secondary and submits without a frame. Presentation is covered
             // by the engine's frame path and the render gate.
-            mark("create_command_buffer: an owned primary and secondary, recorded and executed");
+            mark("create_command_buffer: an owned primary, recorded and merged with a mergeable batch");
             rhi::object_manager<rhi::command_buffer> primary{core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::primary})};
-            rhi::object_manager<rhi::command_buffer> secondary{core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary})};
+            auto secondary = core->make_mergeable_command_buffer({});
             CHECK(static_cast<bool>(primary));
-            CHECK(static_cast<bool>(secondary));
-            // a kind outside the two roles the contract names is the factory's one refusal
+            CHECK(secondary != nullptr);
+            // abi 37: the secondary KIND is retired - the factory refuses it by name, and any kind outside
+            // the one remaining contract role is the factory's refusal too.
+            CHECK(core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary}) == nullptr);
             CHECK(core->create_command_buffer(rhi::command_buffer_desc{.kind = static_cast<rhi::command_buffer_kind>(99u)}) == nullptr);
-            if (primary && secondary) {
+            if (primary && secondary != nullptr) {
                 CHECK(primary->type == "deren_command_buffer_vulkan");
                 // THE BORROWED RECORDING VIEW IS GONE WITH `command_list` (its `recording()` and the
                 // view it returned): the owned buffer IS the recording face now, so the distinction
@@ -651,9 +650,8 @@ namespace {
                               "an owned buffer's raw handle answers through the escape outside a frame");
                 }
 
-                // THE SECONDARY, the executable path: recorded with no usage flags (so executing it
-                // outside a render pass instance is legal) and ended - only an ended secondary may be
-                // executed.
+                // THE SEGMENT, the executable path: recorded with no usage flags (so executing it
+                // outside a render pass instance is legal) and ended - only an ended segment may be merged.
                 CHECK(secondary->begin_recording(rhi::command_buffer_begin_info{}) == rhi::error::ok);
                 CHECK(secondary->end_recording() == rhi::error::ok);
 
@@ -661,8 +659,8 @@ namespace {
                 // inheritance, and that rides the tagged structure - the portable begin info stays free
                 // of Vulkan's attachment model. Here the inheritance is EMPTY (no colour, no depth) and
                 // a chain this backend does not serve is refused BY NAME, never dropped.
-                rhi::object_manager<rhi::command_buffer> continuation{core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary})};
-                CHECK(static_cast<bool>(continuation));
+                auto continuation = core->make_mergeable_command_buffer({});
+                CHECK(continuation != nullptr);
                 if (continuation) {
                     rhi::vulkan_command_buffer_inheritance_info const inheritance = {};
                     rhi::command_buffer_begin_info const continuation_begin{
@@ -699,14 +697,14 @@ namespace {
                               "a chain type this backend does not serve is refused by name, not dropped");
                 }
 
-                // THE PRIMARY: begun, hands the ended secondary over, ended. The foreign buffer is the
-                // provenance refusal (a pointer this backend did not hand out).
-                foreign_command_buffer foreign{};
+                // THE PRIMARY: begun, merges the ended segment batch, ended. An EMPTY batch is the
+                // recording-time merge's argument refusal (the provenance check is covered by the probe).
                 CHECK(primary->begin_recording({.usage = rhi::to_bits(rhi::command_buffer_usage::one_time_submit)}) == rhi::error::ok);
-                CHECK_MSG(primary->execute(foreign) == rhi::error::invalid_argument,
-                          "a command buffer this backend did not hand out is refused by name");
-                CHECK_MSG(primary->execute(*secondary) == rhi::error::ok,
-                          "an ended secondary is executed by the recording primary");
+                CHECK_MSG(primary->execute(std::span<rhi::mergeable_command_buffer_ref const>{}) == rhi::error::invalid_argument,
+                          "an empty batch is refused by name");
+                rhi::mergeable_command_buffer_ref const batch[] = {secondary};
+                CHECK_MSG(primary->execute(std::span<rhi::mergeable_command_buffer_ref const>(batch)) == rhi::error::ok,
+                          "an ended mergeable segment is merged by the recording primary");
                 CHECK(primary->end_recording() == rhi::error::ok);
                 CHECK_MSG(core->submit(*primary) == rhi::error::ok,
                           "a recorded owned primary submits without acquiring a frame");

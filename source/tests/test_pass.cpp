@@ -85,11 +85,6 @@ namespace {
             return end_result;
         }
 
-        [[nodiscard]] deren::promise::rhi::error execute(deren::promise::rhi::command_buffer&) override {
-            ++this->secondary_executions;
-            return execute_result;
-        }
-
         [[nodiscard]] deren::promise::rhi::error execute(std::span<deren::promise::rhi::mergeable_command_buffer_ref const>) override {
             ++this->secondary_executions;
             return execute_result;

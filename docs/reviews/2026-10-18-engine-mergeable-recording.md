@@ -35,7 +35,8 @@ mesh dispatch）在 `recording_target` 的小 helper 里二选一。`pipeline_ha
   （heap 端点写 `commands` 或 `mergeable_commands`；mesh dispatch 走双方同签名的 contract verb）；
   pass 层仍然收 `command_buffer&` 的 `push_pass_stage_block` 作为薄适配。
 - `contract_push_heap_data` 改为 `(command_buffer*, mergeable_command_buffer*)` 二选一。
-- 老 `execute(command_buffer&)` 保留（transparent/shadow/scene 之外没有其它使用者），不删除。
+- 老 `execute(command_buffer&)` 在本批保留（transparent/shadow/scene 之外没有其它使用者）；ABI 37 已将它
+  与 `command_buffer_kind::secondary` 一起退役（见 `2026-10-18-retire-secondary-command-buffers.md`）。
 
 ## 验证
 
@@ -50,4 +51,6 @@ mesh dispatch）在 `recording_target` 的小 helper 里二选一。`pipeline_ha
 - 单线程 pass 仍直接记到 frame primary 的 command_buffer（`io.list`），这是预期：它们不是多线程录制。
 - pass 框架的 `resolved_io::push_block` 等 pass 级 endpoint 仍收 `command_buffer&`；只有 `render_environment`
   这层支持 mergeable。若将来把整个 pass 录制都 batch 化，再迁移这一层。
-- `command_buffer_kind::secondary` 的普通 command buffer 仍可创建（测试/其它调用方），不删除。
+- `command_buffer_kind::secondary` 的普通 command buffer 仍可创建（测试/其它调用方），不删除。</br>
+  **已被 ABI 37 取代**：该 kind  retire、factory 拒绝创建（见
+  `2026-10-18-retire-secondary-command-buffers.md`）。

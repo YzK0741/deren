@@ -381,7 +381,6 @@ namespace deren::vulkan {
             void release() noexcept override;
             [[nodiscard]] deren::promise::rhi::error begin_recording(deren::promise::rhi::command_buffer_begin_info const& info) override;
             [[nodiscard]] deren::promise::rhi::error end_recording() noexcept override;
-            [[nodiscard]] deren::promise::rhi::error execute(deren::promise::rhi::command_buffer& secondary) override;
             /// abi 36: merge a batch of mergeable segments into this recording buffer.
             [[nodiscard]] deren::promise::rhi::error execute(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) override;
             /// abi 36: merge a batch of mergeable segments into this recording buffer.
@@ -462,7 +461,6 @@ namespace deren::vulkan {
             void release() noexcept override;
             [[nodiscard]] deren::promise::rhi::error begin_recording(deren::promise::rhi::command_buffer_begin_info const& info) override;
             [[nodiscard]] deren::promise::rhi::error end_recording() noexcept override;
-            [[nodiscard]] deren::promise::rhi::error execute(deren::promise::rhi::command_buffer& secondary) override;
             /// abi 36: the owned primary is a merge target too (only a primary); the base implementation records
             /// the batch, this override adds the kind guard the API requires.
             [[nodiscard]] deren::promise::rhi::error execute(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) override;
@@ -1593,6 +1591,11 @@ namespace deren::vulkan {
         /// abi 15: the owned recording handle. The result is heap-allocated here and destroyed by the
         /// contract's `release()` (which is also what removes it from the registry below).
         [[nodiscard]] deren::promise::rhi::command_buffer* create_command_buffer(deren::promise::rhi::command_buffer_desc const& desc) override;
+        /// THE OWNED-BUFFER ALLOCATION, without the contract kind: the contract factory only makes a
+        /// PRIMARY now (abi 37 retired the secondary kind), and `make_mergeable_command_buffer` calls this
+        /// directly to allocate the secondary it executes in its batches. `level` is the API level, not a
+        /// contract vocabulary: no caller can name it.
+        [[nodiscard]] owned_command_buffer* allocate_owned_command_buffer(VkCommandBufferLevel level);
         /// abi 21: THE SAME OWNED HANDLE, handed over as a `shared_ptr` - the control block owns the
         /// deleter, so no call site spells `release()`. Empty = the same refusal
         /// `create_command_buffer()` reports as `nullptr` (logged there, once per call site).

@@ -103,7 +103,7 @@ int main(int const argc, char** const argv) {
     deren::vk_test::write_line("runtime_dyn: this executable compiled abi {} (the entry takes it as its first argument)", rhi::abi_version);
     // ABI34: the native-vocabulary cleanup removed a virtual from vulkan_escape (vtable shift), so the
     // handshake number moved with it.
-    CHECK(rhi::abi_version == 36u);
+    CHECK(rhi::abi_version == 37u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("runtime_dyn: device path skipped (pass --with-device to construct the runtime)");
@@ -144,16 +144,20 @@ int main(int const argc, char** const argv) {
 
         rhi::api_core& face = dynamic.rhi_face();
         {
-            auto secondary = face.make_command_buffer({.kind = rhi::command_buffer_kind::secondary});
+            // ABI 37: the multithreaded recording paths use mergeable segments merged in batches; the
+            // retention rule (a recorded primary keeps the merged segment alive until it is released) is
+            // measured on the same real device here.
+            auto secondary = face.make_mergeable_command_buffer({});
             auto primary = face.make_command_buffer({});
             CHECK(secondary && primary);
             if (secondary && primary) {
                 CHECK(secondary->begin_recording({}) == rhi::error::ok);
                 CHECK(secondary->end_recording() == rhi::error::ok);
                 CHECK(primary->begin_recording({}) == rhi::error::ok);
-                CHECK(primary->execute(*secondary) == rhi::error::ok);
+                rhi::mergeable_command_buffer_ref const batch[] = {secondary};
+                CHECK(primary->execute(std::span<rhi::mergeable_command_buffer_ref const>(batch)) == rhi::error::ok);
                 CHECK_MSG(secondary->begin_recording({}) == rhi::error::not_ready,
-                          "a secondary retained by a recorded primary must not be overwritten");
+                          "a segment retained by a recorded primary must not be overwritten");
                 primary.reset();
                 CHECK(secondary->begin_recording({}) == rhi::error::ok);
                 CHECK(secondary->end_recording() == rhi::error::ok);

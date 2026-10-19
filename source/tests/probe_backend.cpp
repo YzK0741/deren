@@ -356,7 +356,6 @@ namespace {
         void release() noexcept override;
         [[nodiscard]] rhi::error begin_recording(rhi::command_buffer_begin_info const& info) override;
         [[nodiscard]] rhi::error end_recording() noexcept override;
-        [[nodiscard]] rhi::error execute(rhi::command_buffer& secondary) override;
         /// abi 36: the recording-time batch merge on the probe. The fake records no commands; what it
         /// validates is the batch rules (non-empty, every handle this probe handed out, none still
         /// recording), so `test_dynamic_link` can drive the real refusal paths without a device.
@@ -1400,7 +1399,6 @@ namespace {
             answer->owner = this;
             answer->inner.owner = this;
             answer->inner.frame_scoped = false;
-            answer->inner.kind_echo = rhi::command_buffer_kind::secondary;
             this->mergeable_buffers.push_back(answer);
             return rhi::mergeable_command_buffer_ref(answer, [](rhi::mergeable_command_buffer* const handle) noexcept {
                 if (handle != nullptr) {
@@ -1545,8 +1543,8 @@ namespace {
         }
 
         [[nodiscard]] rhi::command_buffer* create_command_buffer(rhi::command_buffer_desc const& desc) override {
-            if (desc.kind != rhi::command_buffer_kind::primary && desc.kind != rhi::command_buffer_kind::secondary) {
-                return nullptr;
+            if (desc.kind != rhi::command_buffer_kind::primary) {
+                return nullptr; // abi 37: the secondary kind is retired
             }
             // RESET ON CREATION, like probe_buffer's size: the one reference the factory hands out starts
             // here, so a released object becomes live again exactly as a fresh one would be.
@@ -1767,19 +1765,6 @@ namespace {
             if (mergeable->inner.recording || mergeable->inner.released) {
                 return rhi::error::not_ready;
             }
-        }
-        ++this->executions;
-        return rhi::error::ok;
-    }
-
-    rhi::error probe_command_buffer::execute(rhi::command_buffer& secondary) {
-        if (this->released) {
-            return rhi::error::not_ready;
-        }
-        // THE SAME PROVENANCE RULE THE REAL BACKEND APPLIES: a buffer this factory did not hand out is
-        // refused by name (the probe has exactly one, so "ours" is an identity comparison).
-        if (&secondary != static_cast<rhi::command_buffer*>(&this->owner->command_buffer)) {
-            return rhi::error::invalid_argument;
         }
         ++this->executions;
         return rhi::error::ok;

@@ -1475,13 +1475,16 @@ export namespace deren::promise::rhi {
 
     /// HOW A COMMAND BUFFER IS USED BY ITS OWNER (abi 15).
     ///
-    /// The two roles every API in this family names: a PRIMARY buffer is handed to the device as a
-    /// unit of work, a SECONDARY one is recorded inside a primary's rendering instance and executed by
-    /// it (Vulkan secondary command buffers, D3D12 bundles, WebGPU render bundles). The contract names
-    /// the ROLE, not the level: `VK_COMMAND_BUFFER_LEVEL_*` is one backend's spelling of it.
+    /// A PRIMARY buffer is handed to the device as a unit of work; it is the ONLY role a caller can
+    /// create in abi 37 (the secondary role is retired - see the VALUE below). The multithreaded
+    /// recording paths record into `mergeable_command_buffer` segments instead and merge them in
+    /// batches; those segments are backend-internal allocations, not contract `command_buffer`s.
     enum class command_buffer_kind : std::uint32_t {
-        primary = 0,   ///< submitted by the frame itself
-        secondary = 1, ///< recorded inside a rendering instance and executed by a primary
+        primary = 0, ///< submitted by the frame itself
+        /// RETIRED in abi 37: a secondary `command_buffer` is no longer creatable - the multithreaded
+        /// recording paths use `mergeable_command_buffer` segments, merged in batches. The VALUE stays
+        /// (enum values are ABI, never reused); both factories refuse it by name.
+        secondary = 1,
     };
 
     /// How a command buffer is created (abi 15).
@@ -1500,7 +1503,7 @@ export namespace deren::promise::rhi {
     enum class command_buffer_usage : std::uint32_t {
         none = 0,
         one_time_submit = 1u << 0,      ///< recorded once and submitted once: the backend may optimise
-        render_pass_continue = 1u << 1, ///< recorded INSIDE a rendering instance (secondary only)
+        render_pass_continue = 1u << 1, ///< recorded INSIDE a rendering instance (mergeable segments only)
         simultaneous_use = 1u << 2,     ///< may be recorded from more than one thread at once
     };
 
@@ -1637,19 +1640,9 @@ export namespace deren::promise::rhi {
         /// (`device_lost`, `out_of_*_memory`) travel as themselves.
         [[nodiscard]] virtual error begin_recording(command_buffer_begin_info const& info) = 0;
 
-        /// Close the recording session: the buffer becomes executable - by `api_core::submit()`
-        /// (a primary) or by `execute()` (a secondary).
+        /// Close the recording session: the buffer becomes executable by `api_core::submit()`. A
+        /// `mergeable_command_buffer` segment becomes executable through `execute(span)` instead.
         [[nodiscard]] virtual error end_recording() noexcept = 0;
-
-        /// Record @p secondary's commands into THIS buffer, which must be recording.
-        ///
-        /// ONE secondary per call: that is the unit every API in this family executes (Vulkan
-        /// `vkCmdExecuteCommands`, D3D12 `ExecuteBundle`, WebGPU `executeBundles`). `secondary` is an
-        /// object THIS backend handed out and must already be executable (`end_recording()`);
-        /// `invalid_argument` = it is not one of ours, `not_ready` = this buffer is not recording or
-        /// holds no reference. The backend owns the compatibility rules (inheritance, layouts) and
-        /// reports what it cannot serve.
-        [[nodiscard]] virtual error execute(command_buffer& secondary) = 0;
 
         // ---- THE RECORDING SERIES, NOW ON THE OWNER (user's ruling) ------------------------------
         // command_list is GONE: the recording verbs live on the one handle a caller holds, so a
@@ -2205,8 +2198,8 @@ export namespace deren::promise::rhi {
         // ---- frame -------------------------------------------------------------
         /// The RECORDING VIEW of the frame in flight, or nullptr when no frame is being recorded.
         ///
-        /// ONE per frame, wrapping the frame's PRIMARY command buffer (secondary buffers stay the
-        /// backend's). OWNERSHIP: the backend's - the caller borrows it, never deletes it, and must not
+        /// ONE per frame, wrapping the frame's PRIMARY command buffer (mergeable segments are the
+        /// backend's own allocations). OWNERSHIP: the backend's - the caller borrows it, never deletes it, and must not
         /// touch it after the frame has been submitted. The backend may hand back the same object every
         /// frame. LIFETIME: from the moment the frame starts recording until that frame is submitted.
         /// THREADING: single-threaded; recording is the primary thread's (the repository's rule).

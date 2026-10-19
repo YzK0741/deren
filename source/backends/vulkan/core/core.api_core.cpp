@@ -1963,6 +1963,30 @@ namespace deren::vulkan {
 
     // ---- THE OWNED COMMAND BUFFER (abi 15) ----------------------------------------------------------
 
+    core::owned_command_buffer* core::allocate_owned_command_buffer(VkCommandBufferLevel const level) {
+        auto* const answer = new owned_command_buffer();
+        answer->owner = this;
+        // ONE POOL PER BUFFER, created and owned by the wrapper (handles/handles.cppm): the handle is a
+        // self-contained device resource and the recording thread that owns it never shares a pool.
+        answer->buffer = ::deren::vulkan::make_command_buffer(this->logical_device, this->graphics_queue_family_index, level);
+        if (*answer->buffer == VK_NULL_HANDLE) {
+            delete answer;
+            deren::utility::log("rhi: command buffer allocation failed (level {})", static_cast<int>(level));
+            return nullptr;
+        }
+        answer->target = *answer->buffer;
+        answer->kind = level == VK_COMMAND_BUFFER_LEVEL_SECONDARY ? rhi::command_buffer_kind::secondary
+                                                                  : rhi::command_buffer_kind::primary;
+        {
+            // THE PROVENANCE REGISTRY, the same shape `contract_images` uses: the batch merge and the escape's
+            // native-handle answer must tell a buffer this backend made from a pointer a caller holds, and the
+            // cast that reads it is only defined once that is known.
+            std::lock_guard const lock(this->contract_command_buffers_mutex);
+            this->contract_command_buffers.insert(answer);
+        }
+        return answer;
+    }
+
     rhi::command_buffer* core::create_command_buffer(rhi::command_buffer_desc const& declared_desc) {
         // THE ABI GUARD, the same rule every factory descriptor follows: only the prefix the caller
         // declares is read, so an older caller's structure keeps this build's default.
@@ -1970,41 +1994,19 @@ namespace deren::vulkan {
         if (covered_by(declared_desc.struct_size, offsetof(rhi::command_buffer_desc, kind), sizeof(rhi::command_buffer_desc::kind))) {
             kind = declared_desc.kind;
         }
-        // THE KIND IS THE ONE REFUSAL THIS FACTORY HAS: a value outside the two roles the contract
-        // names is a caller bug, and the answer is nullptr plus the reason on the record (§4.2: no
-        // throwing path).
-        if (kind != rhi::command_buffer_kind::primary && kind != rhi::command_buffer_kind::secondary) {
-            deren::utility::log("rhi: create_command_buffer refused: unknown command_buffer_kind {}", static_cast<std::uint32_t>(kind));
+        // abi 37: PRIMARY IS THE ONLY CONTRACT KIND LEFT. A secondary `command_buffer` is retired (the
+        // multithreaded passes record into `mergeable_command_buffer` segments); the value is still REFUSED
+        // by name rather than silently promoted, so a caller that asks for the retired shape hears about it.
+        if (kind != rhi::command_buffer_kind::primary) {
+            deren::utility::log("rhi: create_command_buffer refused: kind {} is retired (primary only; mergeable segments are a separate factory)",
+                                static_cast<std::uint32_t>(kind));
             return nullptr;
         }
-
-        auto* const answer = new owned_command_buffer();
-        answer->owner = this;
-        // ONE POOL PER BUFFER, created and owned by the wrapper (handles/handles.cppm): the handle is a
-        // self-contained device resource and the recording thread that owns it never shares a pool.
-        answer->buffer = ::deren::vulkan::make_command_buffer(this->logical_device, this->graphics_queue_family_index,
-                                                              kind == rhi::command_buffer_kind::secondary ? VK_COMMAND_BUFFER_LEVEL_SECONDARY
-                                                                                                          : VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-        if (*answer->buffer == VK_NULL_HANDLE) {
-            delete answer;
-            deren::utility::log("rhi: create_command_buffer refused: the backend could not allocate the buffer");
+        auto* const answer = allocate_owned_command_buffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+        if (answer == nullptr) {
             return nullptr;
         }
-        // ITS RECORDING VIEW IS THIS BUFFER'S OWN (abi 15): the list the contract hands back knows which
-        // buffer it records into, which is what keeps one `command_buffer` type serving both the frame's
-        // list and every owned buffer.
-        answer->owner = this;
-        answer->target = *answer->buffer;
-        answer->kind = kind;
-        {
-            // THE PROVENANCE REGISTRY, the same shape `contract_images` uses: `execute()` and the
-            // escape's native-handle answer must tell a buffer this backend made from a pointer a
-            // caller holds, and the cast that reads it is only defined once that is known.
-            std::lock_guard const lock(this->contract_command_buffers_mutex);
-            this->contract_command_buffers.insert(answer);
-        }
-        deren::utility::log("rhi: create_command_buffer {} -> native {:#x} (its own command pool)",
-                            kind == rhi::command_buffer_kind::secondary ? "secondary" : "primary",
+        deren::utility::log("rhi: create_command_buffer primary -> native {:#x} (its own command pool)",
                             reinterpret_cast<std::uintptr_t>(*answer->buffer));
         return answer;
     }
@@ -2041,9 +2043,8 @@ namespace deren::vulkan {
         // THE KIND IS THE FACTORY'S, not the descriptor's: a mergeable is recorded as a SECONDARY in Vulkan
         // terms (the backend owns the primary that executes the batch), so a caller's `primary` value is
         // replaced rather than refused - the TYPE already says which submission rule applies.
-        rhi::command_buffer_desc desc = declared_desc;
-        desc.kind = rhi::command_buffer_kind::secondary;
-        rhi::command_buffer* const raw = this->create_command_buffer(desc);
+        (void)declared_desc; // a mergeable's descriptor carries nothing the allocation needs today
+        rhi::command_buffer* const raw = allocate_owned_command_buffer(VK_COMMAND_BUFFER_LEVEL_SECONDARY);
         if (raw == nullptr) {
             return {};
         }
@@ -2397,49 +2398,12 @@ namespace deren::vulkan {
         return result;
     }
 
-    rhi::error core::frame_commands::execute(rhi::command_buffer& secondary) {
-        if (!recording)
-            return rhi::error::not_ready;
-        // THE FRAME'S OWN RECORDING EXECUTES SECONDARIES TOO, AND THAT IS THE PASS LAYER'S `execute`: the
-        // borrowed frame buffer IS a recording buffer, so `io.list->execute(*secondary)` (scene, shadow,
-        // transparent) arrives here. Only begin/end/submit stay the frame loop's (the three verbs above);
-        // the provenance rule and the one-secondary-per-call unit are the same as
-        // `owned_command_buffer::execute` below.
-        VkCommandBuffer const command_buffer = this->native();
-        if (command_buffer == VK_NULL_HANDLE) {
-            return rhi::error::not_ready; // no frame is in flight: the window `begin_commands()` answers in
-        }
-        {
-            // PROVENANCE FIRST, exactly as the owned form: a buffer this backend did not hand out is a
-            // caller bug refused by name, and no pointer is cast before that is known.
-            std::lock_guard const lock(this->owner->contract_command_buffers_mutex);
-            if (!this->owner->contract_command_buffers.contains(&secondary)) {
-                return rhi::error::invalid_argument;
-            }
-        }
-        auto& other = *rhi::do_concrete<core::owned_command_buffer>(secondary, concrete::command_buffer);
-        if (!other.simultaneous_use && other.recording_users.load(std::memory_order_acquire))
-            return rhi::error::not_ready;
-        if (other.kind != rhi::command_buffer_kind::secondary)
-            return rhi::error::invalid_argument;
-        if (!other.executable || other.recording || other.pending.load(std::memory_order_acquire))
-            return rhi::error::not_ready;
-        VkCommandBuffer const native_secondary = *other.buffer;
-        if (native_secondary == VK_NULL_HANDLE) {
-            return rhi::error::not_ready; // the secondary was released
-        }
-        secondary_refs.push_back(owner->retain_command(other, true));
-        vkCmdExecuteCommands(command_buffer, 1, &native_secondary);
-        return rhi::error::ok;
-    }
-
     namespace {
         /// THE ONE RECORDING-TIME MERGE (abi 36): validate the whole batch, then record the segments into
         /// `target`'s native buffer in span order. The segments are retained through the target's
-        /// `secondary_refs`, which is what keeps their recordings alive for the submission that follows - the
-        /// same retention an `execute(command_buffer&)` of one secondary already uses.
+        /// `secondary_refs`, which is what keeps their recordings alive for the submission that follows.
         [[nodiscard]] rhi::error execute_mergeable_batch(core& owner, core::frame_commands& target,
-                                                         std::span<rhi::mergeable_command_buffer_ref const> batch) {
+                                                         std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) {
             if (batch.empty()) {
                 return rhi::error::invalid_argument;
             }
@@ -2483,41 +2447,6 @@ namespace deren::vulkan {
             return rhi::error::ok;
         }
     } // namespace
-
-    rhi::error core::owned_command_buffer::execute(rhi::command_buffer& secondary) {
-        if (!recording)
-            return rhi::error::not_ready;
-        if (kind != rhi::command_buffer_kind::primary)
-            return rhi::error::invalid_argument;
-        if (*this->buffer == VK_NULL_HANDLE) {
-            return rhi::error::not_ready;
-        }
-        {
-            // PROVENANCE FIRST (the registry, so no pointer is cast before it is known to be ours):
-            // a command buffer this backend did not hand out is a caller bug, refused by name.
-            std::lock_guard const lock(this->owner->contract_command_buffers_mutex);
-            if (!this->owner->contract_command_buffers.contains(&secondary)) {
-                return rhi::error::invalid_argument;
-            }
-        }
-        auto& other = *rhi::do_concrete<core::owned_command_buffer>(secondary, concrete::command_buffer);
-        if (!other.simultaneous_use && other.recording_users.load(std::memory_order_acquire))
-            return rhi::error::not_ready;
-        if (other.kind != rhi::command_buffer_kind::secondary)
-            return rhi::error::invalid_argument;
-        if (!other.executable || other.recording || other.pending.load(std::memory_order_acquire))
-            return rhi::error::not_ready;
-        VkCommandBuffer const native = *other.buffer;
-        if (native == VK_NULL_HANDLE) {
-            return rhi::error::not_ready; // the secondary was released
-        }
-        // ONE SECONDARY PER CALL: vkCmdExecuteCommands takes an array, and the contract's unit is the
-        // single secondary every API in this family executes. This records into THIS buffer, which the
-        // caller promised is recording (the state itself is not queryable through Vulkan).
-        secondary_refs.push_back(owner->retain_command(other, true));
-        vkCmdExecuteCommands(*this->buffer, 1, &native);
-        return rhi::error::ok;
-    }
 
     rhi::error core::frame_commands::execute(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) {
         return execute_mergeable_batch(*this->owner, *this, batch);

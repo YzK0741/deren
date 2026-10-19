@@ -334,13 +334,18 @@ export namespace deren::promise::rhi {
     // an APPENDED target (`heap_bind_info::mergeable_commands` / `heap_push_info::mergeable_commands`):
     // a mergeable segment publishes its binding/push data through the same ability as a command_buffer,
     // one target of the two set. Existing fields, slots and meanings do not move.
+    // ABI 37 RETIRES THE SECONDARY COMMAND BUFFER: `command_buffer_kind::secondary` becomes a reserved value
+    // the factories refuse by name, and `command_buffer::execute(command_buffer&)` is DELETED - the last
+    // single-secondary recording-time merge, replaced by the batch `execute(span)` the multithreaded passes
+    // use. Removing a virtual from an existing tier-1 interface shifts every slot after it (the case the
+    // number exists for); the enum VALUE stays and is never reused. No by-value POD changes shape.
     // NOT A BUMP (the validate-and-cast helpers): `is_concrete()` / `do_concrete()` below are inline and
     // template FREE functions over the existing `object::type` field - no vtable slot, no by-value POD,
     // no entry-point signature moved, and the NAMES stay the backend's (the contract owns only the
     // operation). They live here because EVERY backend needs the same "check the concrete name, then
     // cast to the concrete layout" pair, and one copy is what keeps the next backend from reinventing
     // it (or from weakening the panic/refusal split its own doc states).
-    inline constexpr std::uint32_t abi_version = 36u;
+    inline constexpr std::uint32_t abi_version = 37u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

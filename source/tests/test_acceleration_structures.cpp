@@ -581,7 +581,7 @@ int main(int const argc, char** const argv) {
     deren::vk_test::write_line("as_probe: this executable compiled abi {}", rhi::abi_version);
     // ABI34: the native-vocabulary cleanup removed a virtual from vulkan_escape (vtable shift), so the
     // handshake number moved with it.
-    CHECK(rhi::abi_version == 36u);
+    CHECK(rhi::abi_version == 37u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("as_probe: device path skipped (pass --with-device to run the real instrument)");

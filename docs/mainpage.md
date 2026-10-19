@@ -203,10 +203,10 @@ you are free to recombine or rewire them.
   phases: poll_events -> recreate_if_minimized -> pace_and_acquire -> begin_recording ->
   record_main_drawcalls -> end_recording -> submit_and_present, plus one-call
   render_frame()), drives the peer scene_tree / primitive modules, debug GUI overlay.
-  Shadow + main pass commands are recorded into per-slot secondary command buffers and the
-  main pass fans its leaf recording out over the shared task pool (task_pool batches); each
-  recording worker gets its own render_environment (thread-local
-  pipeline-bind state)
+  Shadow + main pass commands are recorded into per-slot `mergeable_command_buffer` segments and
+  merged into the frame's primary in one `command_buffer::execute(span)` batch; the main pass
+  fans its leaf recording out over the shared task pool (task_pool batches), each recording
+  worker getting its own render_environment (thread-local pipeline-bind state)
 - `deren.engine.render_environment` - per-recording-session render state: the session's command
   buffer, the available named pipelines (pointer to the runtime's stable name table), the
   session's default pipeline and a deduplicated binder (std::function, injected by the

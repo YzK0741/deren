@@ -163,9 +163,6 @@ namespace {
         [[nodiscard]] rhi::error end_recording() noexcept override {
             return rhi::error::invalid_argument;
         }
-        [[nodiscard]] rhi::error execute(rhi::command_buffer&) override {
-            return rhi::error::invalid_argument;
-        }
         [[nodiscard]] rhi::error use(rhi::image const&, rhi::image_use, rhi::image_use) noexcept override {
             return rhi::error::invalid_argument;
         }
@@ -348,7 +345,7 @@ namespace {
         // number exists for. The three transition structures (vulkan_heap_image_desc / vulkan_heap_image_info /
         // vulkan_command_buffer_info) are deleted with it, their `structure_type` values are retired and never
         // reused, and a heap request that still chains one is refused with `unsupported`.
-        CHECK(rhi::abi_version == 36u);
+        CHECK(rhi::abi_version == 37u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
@@ -662,15 +659,11 @@ namespace {
             // the recording lifecycle, portable usage bits and all
             CHECK(recorded->begin_recording(rhi::command_buffer_begin_info{.usage = rhi::to_bits(rhi::command_buffer_usage::one_time_submit)}) == rhi::error::ok);
             CHECK(recorded->end_recording() == rhi::error::ok);
-            // A SECONDARY comes back as the probe's one stand-in (documented above), which is enough
-            // for the provenance rule the next two lines measure: a foreign buffer is refused by name,
-            // this backend's own is accepted.
-            rhi::command_buffer* const secondary = core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary});
-            CHECK(secondary == recorded); // one static stand-in per probe, reset on each create
-            foreign_command_buffer foreign_buffer_stand_in{};
             CHECK_MSG(recorded->begin_gpu_timing() == rhi::error::not_ready, which_half); // the frame's range is not this buffer's
-            CHECK_MSG(recorded->execute(foreign_buffer_stand_in) == rhi::error::invalid_argument, which_half);
-            CHECK_MSG(recorded->execute(*recorded) == rhi::error::ok, which_half);
+            // ABI 37: THE SECONDARY KIND IS RETIRED. The factory refuses it by name (nullptr, the contract's
+            // rule) - the multithreaded recording paths use mergeable segments and their batch merge instead,
+            // which the mergeable blocks above drive end to end.
+            CHECK_MSG(core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary}) == nullptr, which_half);
             // RELEASE drops the one reference, and the probe echoes it: every later verb is not_ready
             recorded->release();
             CHECK(recorded->begin_recording(rhi::command_buffer_begin_info{}) == rhi::error::not_ready);

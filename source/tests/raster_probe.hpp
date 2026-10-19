@@ -198,10 +198,6 @@ namespace raster_test {
         rhi::error end_recording() noexcept override {
             return rhi::error::ok;
         }
-        rhi::error execute(command_buffer& secondary) override {
-            (void)secondary;
-            return rhi::error::ok;
-        }
         rhi::error use(image const& resource, image_use from, image_use to) noexcept override {
             (void)resource;
             (void)from;

@@ -64,7 +64,7 @@ struct queue_gate {
     }
 };
 
-void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, bool use_secondary) {
+void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape) {
     std::ifstream input(VR_TEXTURE_GROUP_SHADER_PATH, std::ios::binary | std::ios::ate);
     CHECK(input.good());
     if (!input.good())
@@ -110,7 +110,7 @@ void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, bool us
     blue.reset();
     green.reset();
     rhi::object_manager<rhi::buffer> output{core.create_buffer({.size = 60, .usage = rhi::buffer_usage::storage_coherent, .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
-    auto commands = core.make_command_buffer({.kind = use_secondary ? rhi::command_buffer_kind::secondary : rhi::command_buffer_kind::primary});
+    auto commands = core.make_command_buffer({});
     auto* heap = rhi::query_extension<rhi::descriptor_heap>(core);
     auto* addresses = rhi::query_extension<rhi::device_address>(core);
     CHECK(output && commands && heap && addresses);
@@ -197,12 +197,6 @@ void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, bool us
     vkCmdPipelineBarrier(native, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
     CHECK(commands->end_recording() == rhi::error::ok);
     auto submitted = commands;
-    if (use_secondary) {
-        submitted = core.make_command_buffer({});
-        CHECK(submitted->begin_recording({}) == rhi::error::ok);
-        CHECK(submitted->execute(*commands) == rhi::error::ok);
-        CHECK(submitted->end_recording() == rhi::error::ok);
-    }
     auto extra_image = make_image(0xff00ffffu);
     rhi::texture_group_info extra_info{};
     extra_info.textures[0] = extra_image.get();
@@ -324,28 +318,22 @@ int main(int argc, char** argv) {
         return deren::vk_test::finish("test_texture_group");
     auto device = static_cast<VkDevice>(escape->native_device());
     auto queue = static_cast<VkQueue>(escape->native_queue());
-    test_heap_sampling(*core, *escape, false);
-    test_heap_sampling(*core, *escape, true);
+    test_heap_sampling(*core, *escape);
     rhi::object_manager<rhi::buffer> output{core->create_buffer({.size = 4, .usage = rhi::buffer_usage::readback_coherent})};
-    auto secondary = core->make_command_buffer({.kind = rhi::command_buffer_kind::secondary});
     auto primary = core->make_command_buffer({});
-    CHECK(output && secondary && primary);
-    if (!output || !secondary || !primary)
+    CHECK(output && primary);
+    if (!output || !primary)
         return deren::vk_test::finish("test_texture_group");
     std::memset(output->mapped().data(), 0, 4);
-    CHECK(secondary->begin_recording({}) == rhi::error::ok);
-    auto native_secondary = static_cast<VkCommandBuffer>(escape->native_command_buffer(*secondary));
-    vkCmdFillBuffer(native_secondary, static_cast<VkBuffer>(escape->native_buffer(*output)), 0, 4, 0x11223344u);
+    CHECK(primary->begin_recording({}) == rhi::error::ok);
+    auto native_primary = static_cast<VkCommandBuffer>(escape->native_command_buffer(*primary));
+    vkCmdFillBuffer(native_primary, static_cast<VkBuffer>(escape->native_buffer(*output)), 0, 4, 0x11223344u);
     VkMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-    vkCmdPipelineBarrier(native_secondary, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0,
+    vkCmdPipelineBarrier(native_primary, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0,
                          1, &barrier, 0, nullptr, 0, nullptr);
-    CHECK(secondary->end_recording() == rhi::error::ok);
-    CHECK(primary->begin_recording({}) == rhi::error::ok);
-    CHECK(primary->execute(*secondary) == rhi::error::ok);
-    CHECK(secondary->begin_recording({}) == rhi::error::not_ready);
     CHECK(primary->end_recording() == rhi::error::ok);
 
     VkSemaphoreTypeCreateInfo type{};
@@ -374,8 +362,7 @@ int main(int argc, char** argv) {
     CHECK(core->submit(*primary) == rhi::error::ok);
     CHECK(primary->begin_recording({}) == rhi::error::not_ready);
     CHECK(core->submit(*primary) == rhi::error::not_ready);
-    secondary.reset();
-    primary.reset(); // both command pools must survive the caller until completion
+    primary.reset(); // its command pool must survive the caller until completion
     VkSemaphoreSignalInfo signal{};
     signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
     signal.semaphore = gate;
