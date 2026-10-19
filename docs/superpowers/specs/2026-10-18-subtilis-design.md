@@ -254,6 +254,18 @@ M2 复用已经证明正确的 run 协议：compute select 产生可见表与每
 
 实际接线补充了两条共享表约束：同帧已发布区间不能被后续 alias item 覆写；启用的 visibility 帧禁止其它 camera host-cull 写者覆写该表，toon 仍以 LOD0 做 exact-depth 重着色。图的 raster/resolve 分别声明可选 culled-table 的 mesh/compute 读取。OFF 不增加这两个可选读取。
 
-当前交付是 LOD0 选择/记录通路，尚无真实层级资产、简化器、误差 LOD cut 或 GPU select。M1b 将继续按 §11 校验覆盖、边界与最坏 cut 容量。配置需要同时开启 `visibility_buffer = true` 和 `subtilis = true`；不满足 admission 的帧仍整体使用几何 lane。
+当前运行时交付是 LOD0 选择/记录通路，尚无真实层级资产上传、简化器或 GPU select。M1b 的独立 CPU 基础见 §13，尚未改变运行时选层。配置需要同时开启 `visibility_buffer = true` 和 `subtilis = true`；不满足 admission 的帧仍整体使用几何 lane。
 
 证据与限制见 [M1a 记录](../../reviews/2026-10-19-subtilis-m1a.md)，执行进度见 [实施计划](../plans/2026-10-19-subtilis-m1a.md)。
+
+## 13. M1b CPU 基础（2026-10-20）
+
+`geometry/subtilis_asset.cppm` 提供拥有数据的只读 `asset`：底向上 group 顺序、唯一父树、多根完整覆盖；每组拥有一段完整 coarse records，并引用一段完整 children。工厂校验记录窗口、重复归属、非法边、根遗漏、非有限/非单调误差、叶层对规范化 LOD0 索引前缀的精确覆盖，以及 forest 最坏 cut 不超过 LOD0 reservation 和 14-bit 容量。空资产合法；失败返回错误，不发布半个资产。
+
+此阶段要求所有记录 `base_vertex = 0`，各层共享同一索引缓冲的有效窗口。它校验结构和元数据；记录球体是否包住实际顶点、父子几何是否等价、接缝是否锁住，以及几何误差的真实性仍由后续 builder 负责。规范化索引前缀不代表已验证几何无裂缝。
+
+`geometry/subtilis_lod.cppm` 提供无历史的 CPU reference cut：按根和孩子顺序确定性遍历，整组选粗层或完整细化，不混用同一组的父子表示。保守包围球含自身 coarse 与全部后代；视锥直接在物体空间测试，误差经 model/view 线性部分的 Frobenius 上界和投影尺度换算。透视使用最近球体深度，正交不除距离。近裁面强制细节的状态沿后代传递；无效视图使用全量最细层并跳过剔除。有效视图采用项目的右手视空间（前方为 -Z）及 Vulkan [0,w] 深度约定。
+
+选择器有显式 `force_finest`，供后续 MASK、toon exact-depth 和阴影策略接入；本轮尚未将这些策略接入运行时。完整 run 沿用 M1a 先写记录、后发布元数据的协议；容量、alias、来源数或写入失败回到完整 shared LOD0。遍历与校验均不递归。
+
+本轮没有 meshoptimizer builder、磁盘格式、GPU ABI 改动或真实多级几何上传，因此不能据此宣称已经降低运行时绘制三角形。下一入口是固定 meshoptimizer 版本与许可证，先实现保持 primitive/材质边界的离线索引构建，再用本工厂校验资产；上传和视觉/性能验收完成后才启用实际 LOD。实施与验证记录见 [基础计划](../plans/2026-10-20-subtilis-m1b-foundation.md)。

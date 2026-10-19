@@ -15,6 +15,14 @@ set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "f35a9ac6-8463-4d38-8eec-5d6008153e7d" CAC
 
 project(deren VERSION 0.3.0)
 
+# Unsanitized DLLs import the same libc++ BMIs as sanitizer-enabled executables.
+# Their templates must not retain optional container-overflow runtime calls.
+# Compiler ASan/UBSan instrumentation remains enabled in the sanitized targets.
+if(MINGW AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    add_compile_definitions(__SANITIZER_DISABLE_CONTAINER_OVERFLOW__)
+endif()
+
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 # NOTE: do NOT add "-std=c++23" to CMAKE_CXX_FLAGS here - CMAKE_CXX_STANDARD already injects it,
@@ -711,6 +719,8 @@ target_sources(deren_engine
         source/engine/ray_tracing/ray_tracing.cppm
         source/engine/scene_tree/scene_tree.cppm
         source/engine/meshlet/meshlet.cppm
+        source/engine/geometry/subtilis_lod.cppm
+        source/engine/geometry/subtilis_asset.cppm
         source/engine/geometry/subtilis.cppm
         source/engine/visibility/visibility.cppm
         source/engine/primitive/primitive.cppm
@@ -1332,7 +1342,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_app_config test_subtilis test_rhi_ownership test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass)
+    set(VR_TEST_TARGETS test_app_config test_subtilis test_subtilis_asset test_subtilis_lod test_rhi_ownership test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1440,6 +1450,8 @@ if(VR_BUILD_TESTS)
     )
     # the visibility vocabulary is pure CPU (packing + record layout); the engine link carries the module
     target_link_libraries(test_subtilis deren_engine vstd_lib)
+    target_link_libraries(test_subtilis_asset deren_engine vstd_lib)
+    target_link_libraries(test_subtilis_lod deren_engine vstd_lib)
     target_link_libraries(test_visibility_buffer
             deren_engine
             vstd_lib

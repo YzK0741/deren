@@ -10,12 +10,14 @@ import deren.utility.shared;
 
 export namespace deren::engine::subtilis {
     enum class run_source : std::uint32_t { shared = 0,
-                                            visible = 1 };
+                                            visible = 1,
+    };
     enum class fallback_reason { none,
                                  capacity,
                                  source_mismatch,
                                  overlap,
-                                 publication_failed };
+                                 publication_failed,
+    };
     struct reservation {
         std::uint32_t base = 0, count = 0;
     };
@@ -29,33 +31,56 @@ export namespace deren::engine::subtilis {
     }
     /// Object-space planes from a column-major clip_from_object matrix. Testing the original
     /// sphere against each plane handles nonuniform scale and shear without a guessed radius scale.
-    [[nodiscard]] inline bool sphere_visible(meshlet const& sphere, std::array<float, 16> const& clip) noexcept {
-        if (!std::isfinite(sphere.center_x) || !std::isfinite(sphere.center_y) || !std::isfinite(sphere.center_z) ||
-            !std::isfinite(sphere.radius) || sphere.radius < 0) {
+    template <class Scalar>
+    [[nodiscard]] bool sphere_visible(std::array<double, 3> const& center, double sphere_radius,
+                                      std::array<Scalar, 16> const& clip) noexcept {
+        if (!std::isfinite(sphere_radius) || sphere_radius < 0) {
             return true;
         }
-        for (float value : clip) {
+        for (double value : center) {
+            if (!std::isfinite(value)) {
+                return true;
+            }
+        }
+        for (auto value : clip) {
             if (!std::isfinite(value)) {
                 return true;
             }
         }
         for (unsigned plane = 0; plane < 6; ++plane) {
             unsigned axis = plane / 2;
-            double sign = (plane & 1u) ? -1.0 : 1.0;
+            double sign = (plane & 1u) ? -1. : 1.;
             std::array<double, 4> equation{};
             for (unsigned column = 0; column < 4; ++column) {
-                // Vulkan's near plane is z >= 0; other planes are +/-axis <= w.
-                equation[column] = plane == 4 ? double(clip[column * 4 + 2])
-                                              : double(clip[column * 4 + 3]) + sign * double(clip[column * 4 + axis]);
+                equation[column] = plane == 4 ? double(clip[column * 4 + 2]) : double(clip[column * 4 + 3]) + sign * double(clip[column * 4 + axis]);
             }
-            double distance = equation[0] * sphere.center_x + equation[1] * sphere.center_y + equation[2] * sphere.center_z + equation[3];
-            double radius = sphere.radius * std::sqrt(equation[0] * equation[0] + equation[1] * equation[1] + equation[2] * equation[2]);
-            double slack = 1e-5 * std::max({1.0, std::abs(distance), radius});
+            double distance = equation[0] * center[0] + equation[1] * center[1] + equation[2] * center[2] + equation[3];
+            double radius = sphere_radius * std::sqrt(equation[0] * equation[0] + equation[1] * equation[1] + equation[2] * equation[2]);
+            double slack = 1e-5 * std::max({1., std::abs(distance), radius});
             if (distance < -radius - slack) {
                 return false;
             }
         }
         return true;
+    }
+    [[nodiscard]] inline bool sphere_visible(meshlet const& sphere, std::array<float, 16> const& clip) noexcept {
+        return sphere_visible(std::array<double, 3>{sphere.center_x, sphere.center_y, sphere.center_z}, sphere.radius, clip);
+    }
+    [[nodiscard]] inline fallback_reason check_reservation(reservation space, std::size_t source_count,
+                                                           std::span<reservation const> published) noexcept {
+        if (space.base > meshlet_capacity || space.count > meshlet_capacity - space.base || space.count > (1u << 14)) {
+            return fallback_reason::capacity;
+        }
+        if (source_count != space.count) {
+            return fallback_reason::source_mismatch;
+        }
+        for (auto other : published) {
+            if (space.count && other.count && std::uint64_t(space.base) < std::uint64_t(other.base) + other.count &&
+                std::uint64_t(other.base) < std::uint64_t(space.base) + space.count) {
+                return fallback_reason::overlap;
+            }
+        }
+        return fallback_reason::none;
     }
     /// Publish complete records first; only a successful writer enables the visible-table metadata.
     /// `published` protects earlier items sharing this frame's table. Empty success needs no bytes.
@@ -65,17 +90,8 @@ export namespace deren::engine::subtilis {
                                            deren::utility::vessel::vector<meshlet>& scratch,
                                            std::span<reservation const> published, Publish&& publish) {
         scratch.clear();
-        if (space.base > meshlet_capacity || space.count > meshlet_capacity - space.base || space.count > (1u << 14)) {
-            return shared_run(space, fallback_reason::capacity);
-        }
-        if (records.size() != space.count) {
-            return shared_run(space, fallback_reason::source_mismatch);
-        }
-        for (auto other : published) {
-            if (space.count && other.count && std::uint64_t(space.base) < std::uint64_t(other.base) + other.count &&
-                std::uint64_t(other.base) < std::uint64_t(space.base) + space.count) {
-                return shared_run(space, fallback_reason::overlap);
-            }
+        if (auto reason = check_reservation(space, records.size(), published); reason != fallback_reason::none) {
+            return shared_run(space, reason);
         }
         scratch.reserve(records.size());
         for (auto const& record : records) {

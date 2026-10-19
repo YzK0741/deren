@@ -173,9 +173,9 @@ namespace deren::engine::gaussian_splatting {
             }
         } workspace{reuse != nullptr, target->staging_reference_data, result->reference_data, target->staging_owners, result->owners};
         if (device_lease) {
-            target->device_lease = device_lease;
+            target->device_lease = std::move(device_lease);
         }
-        auto const publish = [&]() -> std::shared_ptr<raster_frame const> {
+        auto const publish = [&] -> std::shared_ptr<raster_frame const> {
             target->owner = &core;
             if (!reuse) {
                 return created;
@@ -336,7 +336,7 @@ namespace deren::engine::gaussian_splatting {
         result->push.references_address = addresses[1];
         target->instance_buffer = {buffers[0]};
         target->reference_buffer = {buffers[1]};
-        target->storage_view = pending;
+        target->storage_view = std::move(pending);
         return publish();
     }
 } // namespace deren::engine::gaussian_splatting

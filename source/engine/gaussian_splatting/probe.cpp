@@ -350,7 +350,8 @@ namespace deren::engine::gaussian_splatting {
             }
             std::shared_ptr<gpu_frame> gpu_snapshot;
             if (gpu) {
-                auto prepared = prepare_gpu_frame(core, inputs, camera, {}, completed_probe_slot.get());
+                foundation_limits const limits{};
+                auto prepared = prepare_gpu_frame(core, inputs, camera, limits, completed_probe_slot.get());
                 if (!prepared) {
                     return std::unexpected(prepared.error());
                 }

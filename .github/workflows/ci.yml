@@ -160,7 +160,10 @@ jobs:
           # A hand-maintained list that can go stale silently is a failure mode of its own.
           # app_config is the TARGET name; its sources live in source/application_configuration/ (the dir was
           # renamed and this list was not).
-          TIDY_FILES="source/engine/gaussian_splatting/gaussian_splatting.cppm \
+          TIDY_FILES="source/engine/geometry/subtilis.cppm \
+            source/engine/geometry/subtilis_asset.cppm \
+            source/engine/geometry/subtilis_lod.cppm \
+            source/engine/gaussian_splatting/gaussian_splatting.cppm \
             source/engine/gaussian_splatting/gaussian_splatting.cpp \
             source/engine/gaussian_splatting/gaussian_splatting.gpu.cpp \
             source/engine/gaussian_splatting/raster.cppm \
@@ -180,7 +183,6 @@ jobs:
             source/utility/BVH/bvh.cppm \
             source/utility/frame_clock/frame_clock.cppm \
             source/utility/frame_stats/frame_stats.cppm \
-            source/utility/shared/better_pmr.cpp \
             source/utility/dynamic_link.cppm \
             source/promise/rhi/rhi.cppm \
             source/promise/rhi/rhi.contract.cppm \
@@ -340,7 +342,7 @@ jobs:
         # anchors resolving, fences balanced, quoted heap slots declared).
         run: >-
           cmake --build build-asan --target
-          test_app_config test_subtilis test_rhi_ownership test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar
+          test_app_config test_subtilis test_subtilis_asset test_subtilis_lod test_rhi_ownership test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar
           test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs
           test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass
 

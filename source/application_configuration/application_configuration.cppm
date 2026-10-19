@@ -635,7 +635,7 @@ namespace deren::app_config {
      * @return app_settings with config_file = @p path on success; a partially filled structure
      *         with empty config_file on a read/parse error (the error is logged)
      */
-    export app_settings load_settings(std::string_view const path);
+    export app_settings load_settings(std::string_view path);
 
     /**
      * @ingroup app_config

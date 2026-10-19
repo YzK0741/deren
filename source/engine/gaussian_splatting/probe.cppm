@@ -19,5 +19,6 @@ export namespace deren::engine::gaussian_splatting {
     [[nodiscard]] std::expected<raster_probe_report, foundation_error> run_raster_probe(
         deren::promise::rhi::api_core& core, std::span<std::uint8_t const> vertex,
         std::span<std::uint8_t const> fragment,
+        // NOLINTNEXTLINE(readability-trailing-comma): Clang 23 mislocates commas around empty module default arguments.
         deren::utility::vessel::array<std::span<std::uint8_t const>, 3> compute = {}, bool gpu = false);
 } // namespace deren::engine::gaussian_splatting

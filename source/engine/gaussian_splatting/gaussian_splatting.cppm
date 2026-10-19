@@ -110,6 +110,7 @@ export namespace deren::engine::gaussian_splatting {
     [[nodiscard]] std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core& core, packed_asset const& asset, foundation_limits const& limits = {});
     /// Owns packed contents through synchronous upload, then releases its upload aliases.
     /// Reference-only callers keep the device alive; production supplies an owning lease.
+    // NOLINTNEXTLINE(readability-trailing-comma): Clang 23 mislocates commas around empty module default arguments.
     [[nodiscard]] std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core&, std::shared_ptr<packed_asset const>, foundation_limits const& = {}, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> = {});
 
 } // namespace deren::engine::gaussian_splatting

@@ -62,7 +62,7 @@ namespace deren::engine::gaussian_splatting {
         }
         std::shared_ptr<gpu_frame> result = reuse ? reuse->shared_from_this() : std::shared_ptr<gpu_frame>{new gpu_frame{}};
         if (device_lease) {
-            result->device_lease = device_lease;
+            result->device_lease = std::move(device_lease);
         }
         if (count == 0) {
             result->owner = &core;
@@ -86,8 +86,17 @@ namespace deren::engine::gaussian_splatting {
             return failure(error_code::unsupported, "GPU sort count exceeds backend limits");
         }
         deren::utility::vessel::array<std::uint64_t, gpu_frame::buffer_count> const sizes = {
-            records.size() * sizeof(instance_record), range_data.size() * sizeof(gpu_instance_range), count * 4u, count * 4u,
-            count * sizeof(draw_reference), req.scratch_bytes, 16u, sizeof(rhi::draw_indirect_command), sizeof(gpu_prepare_parameters), count * sizeof(gpu_projected_splat)};
+            records.size() * sizeof(instance_record),
+            range_data.size() * sizeof(gpu_instance_range),
+            count * 4u,
+            count * 4u,
+            count * sizeof(draw_reference),
+            req.scratch_bytes,
+            16u,
+            sizeof(rhi::draw_indirect_command),
+            sizeof(gpu_prepare_parameters),
+            count * sizeof(gpu_projected_splat),
+        };
         std::uint64_t bytes = 0;
         for (std::size_t i = 0; i < sizes.size(); ++i) {
             auto const capacity = result->buffers[i] ? std::max(sizes[i], result->buffers[i]->size()) : sizes[i];
@@ -98,10 +107,18 @@ namespace deren::engine::gaussian_splatting {
         }
         namespace managed = render_resource::instances;
         using render_resource::resource_id;
-        static constexpr deren::utility::vessel::array ids{resource_id::gaussian_instances, resource_id::gaussian_ranges,
-                                                           resource_id::gaussian_keys, resource_id::gaussian_values, resource_id::gaussian_references,
-                                                           resource_id::gaussian_sort_scratch, resource_id::gaussian_status, resource_id::gaussian_draw,
-                                                           resource_id::gaussian_parameters, resource_id::gaussian_projected};
+        static constexpr deren::utility::vessel::array ids{
+            resource_id::gaussian_instances,
+            resource_id::gaussian_ranges,
+            resource_id::gaussian_keys,
+            resource_id::gaussian_values,
+            resource_id::gaussian_references,
+            resource_id::gaussian_sort_scratch,
+            resource_id::gaussian_status,
+            resource_id::gaussian_draw,
+            resource_id::gaussian_parameters,
+            resource_id::gaussian_projected,
+        };
         deren::utility::vessel::array<managed::request, gpu_frame::buffer_count> requests;
         auto const flags = rhi::to_bits(rhi::buffer_flag::storage) | rhi::to_bits(rhi::buffer_flag::device_address);
         bool rebuild = false;
@@ -198,7 +215,7 @@ namespace deren::engine::gaussian_splatting {
         for (std::size_t i = 0; i < sizes.size(); ++i) {
             result->buffers[i] = {candidates[i]};
         }
-        result->storage_view = pending;
+        result->storage_view = std::move(pending);
         result->owner = &core;
         result->owners = std::move(owners);
         result->push = data.raster;
@@ -269,7 +286,8 @@ namespace deren::engine::gaussian_splatting {
             rhi::buffer_barrier{.resource = buffers[references].get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::shader_read},
             rhi::buffer_barrier{.resource = buffers[projected].get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::shader_read},
             rhi::buffer_barrier{.resource = buffers[draw].get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::indirect_read},
-            rhi::buffer_barrier{.resource = buffers[status].get(), .from = rhi::buffer_use::shader_read_write, .to = rhi::buffer_use::host_read}};
+            rhi::buffer_barrier{.resource = buffers[status].get(), .from = rhi::buffer_use::shader_read_write, .to = rhi::buffer_use::host_read},
+        };
         return list.barrier(rhi::barrier_group{.buffers = publish});
     }
     gpu_frame_stats gpu_frame::completed_stats(std::uint64_t frame_id) const noexcept {
