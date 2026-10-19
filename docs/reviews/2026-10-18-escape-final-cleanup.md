@@ -14,7 +14,9 @@
 | `api_basis` 类型 + `structure_type::vulkan_device_basis` | `get_basis` 的载体；tag 值保留退役 |
 | `vulkan_command_buffer_inheritance_info` + `structure_type::vulkan_command_buffer_inheritance` | native `VkFormat` 拼写的附件继承；engine 已用可移植 `command_buffer_inheritance_info`；spike 的 native-tagged begin 测试删除（portable 测试保留）；tag 值保留退役 |
 
-**保留的最后一个 slot 与理由**：`native_command_buffer` 是 Dear ImGui Vulkan backend 每帧录制自己 draw data
+**ABI 43 已删除这个 slot 与整个 escape 接口本身（见 `2026-10-18-native-escape-retirement.md`）。
+
+保留的最后一个 slot 与理由**：`native_command_buffer` 是 Dear ImGui Vulkan backend 每帧录制自己 draw data
 所必需的——第三方渲染 API 要的就是 `VkCommandBuffer`，契约没有也不该为它发明一个 verb。GUI 的设备根已由
 `rhi::main_context`（ABI 39）提供；engine 和测试不再使用 escape。
 

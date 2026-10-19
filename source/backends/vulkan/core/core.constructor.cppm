@@ -299,7 +299,6 @@ namespace deren::vulkan {
         this->frames_view.owner = this;
         this->profiler_view.owner = this;
         this->presentation_surface.owner = this;
-        this->escape_view.owner = this;
         this->heap_view.owner = this;
         this->descriptor_space_view.owner = this;
         this->address_view.owner = this;

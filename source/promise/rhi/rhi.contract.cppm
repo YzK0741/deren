@@ -334,6 +334,13 @@ export namespace deren::promise::rhi {
     // an APPENDED target (`heap_bind_info::mergeable_commands` / `heap_push_info::mergeable_commands`):
     // a mergeable segment publishes its binding/push data through the same ability as a command_buffer,
     // one target of the two set. Existing fields, slots and meanings do not move.
+    // ABI 43 DELETES THE ESCAPE ENTIRELY: the `vulkan_escape` tier-2 interface (one surviving slot,
+    // `native_command_buffer`), its `extension_kind::vulkan_escape` announcement, and the backend/probe/
+    // GUI plumbing around it are gone. The GUI overlay's per-frame recording target is now resolved by
+    // the BACKEND-OWNED shared `denen.vulkan.main_context` (a function pointer the backend fills), so the
+    // contract exposes no escape interface at all - the ability BIT stays as a retired value (bits are
+    // never reused). Removing a tier-2 interface and an announced bit is a number move; `all_abilities`
+    // drops the bit and `all_extension_kinds` its entry.
     // ABI 42 FINISHES THE ESCAPE: `vulkan_escape` loses `enabled_device_extensions`, `native_buffer`,
     // `native_image`, `native_image_view`, `native_sampler`, `get_basis` and `shader_group_handles` -
     // the last of them were test-only once the engine moved to the portable abilities. `api_basis` and
@@ -377,7 +384,7 @@ export namespace deren::promise::rhi {
     // operation). They live here because EVERY backend needs the same "check the concrete name, then
     // cast to the concrete layout" pair, and one copy is what keeps the next backend from reinventing
     // it (or from weakening the panic/refusal split its own doc states).
-    inline constexpr std::uint32_t abi_version = 42u;
+    inline constexpr std::uint32_t abi_version = 43u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

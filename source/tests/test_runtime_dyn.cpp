@@ -103,7 +103,7 @@ int main(int const argc, char** const argv) {
     deren::vk_test::write_line("runtime_dyn: this executable compiled abi {} (the entry takes it as its first argument)", rhi::abi_version);
     // ABI34: the native-vocabulary cleanup removed a virtual from vulkan_escape (vtable shift), so the
     // handshake number moved with it.
-    CHECK(rhi::abi_version == 42u);
+    CHECK(rhi::abi_version == 43u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("runtime_dyn: device path skipped (pass --with-device to construct the runtime)");
@@ -348,7 +348,9 @@ int main(int const argc, char** const argv) {
             CHECK(heap->push_data({.data = short_input.first(4)}) == rhi::error::invalid_argument);
         }
         rhi::ability_bits const abilities = face.abilities();
-        CHECK(rhi::has_ability(abilities, rhi::extension_kind::vulkan_escape));
+        // ABI 43: the escape ability is RETIRED, and the bit never comes back (bits are never reused). The GUI
+        // overlay's per-frame recording target is resolved through the backend-owned main context now.
+        CHECK(!rhi::has_ability(abilities, rhi::extension_kind::vulkan_escape));
         CHECK(rhi::has_ability(abilities, rhi::extension_kind::device_address));
 
         CHECK(face.frame_swapchain() != nullptr);

@@ -54,10 +54,10 @@ inline and template free functions over the existing field (no vtable slot, no b
 entry-point signature) - and the only dependency they add to `:contract` is `deren.utility.shared`, the
 process-wide panic sink both halves already link.
 
-One deliberate exception: the raw-handle escape (`vulkan_escape::native_buffer` / `native_image` / ...)
-and `device_address::buffer_address` still `static_cast` on a DOCUMENTED PRECONDITION with no runtime
-check. Their operands are handles the contract says only the owning backend may be asked about, so an
-invalid one is a caller bug rather than data to validate; those functions' own notes state it.
+One documented-precondition cast remains: `device_address::buffer_address` `static_cast`s its operand on
+a DOCUMENTED PRECONDITION with no runtime check. Its operand is a handle the contract says only the
+owning backend may be asked about, so an invalid one is a caller bug rather than data to validate; the
+function's own note states it. (The raw-handle escape that used to share this rule is deleted - abi 43.)
 
 ## The C entry: one symbol, resolved by name
 
@@ -124,11 +124,12 @@ A backend is not asked what it is; it is asked what it can do.
 * **Abilities** are the coarse tier: `abilities()` answers a set of bits (mesh shaders, a descriptor
   heap, ...). The engine asks and keeps compiling when an answer is "no".
 * **Extensions** are the optional interfaces behind those bits: `query_extension<T>()` hands one out or
-  nothing. The device facts (`device_capabilities`) and the shader-group access are what the engine itself
-  uses; the escape (`vulkan_escape`) is down to ONE slot - `native_command_buffer`, because the GUI
-  overlay's Dear ImGui Vulkan backend records its own draw data into the frame's command buffer. Its device
-  and resource handles are gone (abi 39 handed the device root over as `rhi::main_context`; abi 40/42
-  deleted the rest with their last test callers).
+  nothing. The device facts (`device_capabilities`), the shader-group access and the descriptor space are
+  what the engine itself uses. THE ESCAPE IS GONE (abi 43): its last slot existed only so the GUI overlay's
+  Dear ImGui Vulkan backend could get the frame's `VkCommandBuffer`, and that conversion now lives in the
+  backend-owned shared `denen.vulkan.main_context` (the device root itself moved there in abi 39, and abi
+  40/42 deleted the resource/channel handles with their last callers). `extension_kind::vulkan_escape`
+  survives only as a retired bit value - never announced, never queried.
 * **A fact the engine needs is an answer, not a native query.** A graphics-API concept appearing in the
   engine is a contract gap: it gets an ability or a tier-1 object, never an `escape()` call and never a
   native type.

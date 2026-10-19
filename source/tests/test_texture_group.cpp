@@ -82,7 +82,7 @@ struct queue_gate {
     }
 };
 
-void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, deren::vulkan::main_context const& main_context) {
+void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& main_context) {
     std::ifstream input(VR_TEXTURE_GROUP_SHADER_PATH, std::ios::binary | std::ios::ate);
     CHECK(input.good());
     if (!input.good())
@@ -207,7 +207,7 @@ void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, deren::
             CHECK(commands->bind_pipeline(*pipeline) == rhi::error::ok);
         commands->dispatch(1, 1, 1);
     }
-    auto native = static_cast<VkCommandBuffer>(escape.native_command_buffer(*commands));
+    auto native = static_cast<VkCommandBuffer>(main_context.native_command_buffer(*main_context.core, *commands));
     VkMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
     barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -330,15 +330,13 @@ int main(int argc, char** argv) {
     CHECK(core);
     if (!core)
         return deren::vk_test::finish("test_texture_group");
-    auto* escape = rhi::query_extension<rhi::vulkan_escape>(*core);
-    CHECK(escape);
     deren::vulkan::main_context const* const main_context = vulkan_main(*core);
     CHECK(main_context != nullptr);
-    if (!escape || main_context == nullptr)
+    if (main_context == nullptr || main_context->native_command_buffer == nullptr)
         return deren::vk_test::finish("test_texture_group");
     VkDevice const device = main_context->device;
     VkQueue const queue = main_context->graphics_queue;
-    test_heap_sampling(*core, *escape, *main_context);
+    test_heap_sampling(*core, *main_context);
     rhi::object_ptr<rhi::buffer> output{core->create_buffer({.size = 4, .usage = rhi::buffer_usage::readback_coherent})};
     auto primary = core->make_command_buffer({});
     CHECK(output && primary);

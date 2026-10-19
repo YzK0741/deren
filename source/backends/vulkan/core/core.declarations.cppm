@@ -77,6 +77,7 @@ export import :vma_handles;
  */
 
 namespace deren::vulkan {
+
     /**
      * @defgroup vulkan_core Vulkan Core Objects Manager
      * @brief manages core vulkan objects and windows instance init and destroy.
@@ -295,7 +296,6 @@ namespace deren::vulkan {
         inline constexpr std::string_view shader = "deren_shader_vulkan";
         inline constexpr std::string_view pipeline = "deren_pipeline_vulkan";
         inline constexpr std::string_view device_address = "deren_device_address_vulkan";
-        inline constexpr std::string_view vulkan_escape = "deren_vulkan_escape_vulkan";
         inline constexpr std::string_view host_image_copy = "deren_host_image_copy_vulkan";
         inline constexpr std::string_view device_capabilities = "deren_device_capabilities_vulkan";
         inline constexpr std::string_view shader_group_access = "deren_shader_group_access_vulkan";
@@ -1044,17 +1044,9 @@ namespace deren::vulkan {
             [[nodiscard]] std::uint64_t buffer_address(deren::promise::rhi::buffer const& resource, std::uint64_t offset) const noexcept override;
         };
 
-        /// tier-2 `vulkan_escape`: ONE slot - the frame command buffer the GUI overlay's ImGui backend
-        /// records its own draw data into (abi 42). The engine records through the contract, the GUI device
-        /// root is `rhi::main_context`, and the resource/handle borrows are deleted with their callers.
-        struct frame_escape final : deren::promise::rhi::vulkan_escape {
-            frame_escape() noexcept
-                : deren::promise::rhi::vulkan_escape(concrete::vulkan_escape) {
-            }
-            /// the core that owns this view (set by the constructor; the view is a member of it)
-            core* owner = nullptr;
-            [[nodiscard]] void* native_command_buffer(deren::promise::rhi::command_buffer& commands) const noexcept override;
-        };
+        // `frame_escape` STOOD HERE AND IS DELETED in abi 43: the GUI overlay's per-frame recording target is
+        // resolved through the shared `denen.vulkan.main_context` (its `native_command_buffer` member), so the
+        // backend no longer implements a tier-2 escape interface at all.
 
         /// tier-2 `host_image_copy`: the implementation-side copy out of an image into the app's own
         /// memory (`VK_EXT_host_image_copy`), announced ONLY when the device actually has it
@@ -1168,7 +1160,6 @@ namespace deren::vulkan {
         /// the presentation surface `frame_swapchain()` answers with (abi 14), a borrowed view
         swapchain_view presentation_surface;
         /// the tier-2 escape object `query_extension(vulkan_escape)` answers with
-        frame_escape escape_view;
         /// abi 39: THE MAIN-THREAD CONTEXT the GUI plugin casts (see deren.vulkan.main_context). Backend-owned
         /// and borrowed; filled on each `main_context()` call because the handles it names are stable members.
         deren::vulkan::main_context main_context_view;
@@ -1534,6 +1525,11 @@ namespace deren::vulkan {
         /// (source/backends/vulkan/main_context/main_context.cppm). Borrowed; nullptr only if this core has
         /// nothing to hand out (this backend always does).
         [[nodiscard]] deren::promise::rhi::main_context* main_context() noexcept override;
+        /// THE NATIVE RECORDING TARGET a contract command_buffer names - `deren.vulkan.main_context::native_command_buffer`
+        /// points at this. Static because the shared context stores a plain function pointer; it answers nullptr for a
+        /// handle this backend never handed out, and for the borrowed frame list when no frame is in flight.
+        [[nodiscard]] static VkCommandBuffer native_command_buffer_of(deren::promise::rhi::api_core& face,
+                                                                      deren::promise::rhi::command_buffer& commands) noexcept;
         /// abi 35: the batch submission (see `mergeable_command_buffer` and `core::submit(span)`).
         [[nodiscard]] deren::promise::rhi::error submit(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) override;
         /// abi 35: the batch-only recording handle. The returned handle carries one reference, dropped by

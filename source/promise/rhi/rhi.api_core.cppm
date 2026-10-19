@@ -1561,8 +1561,8 @@ export namespace deren::promise::rhi {
         /// needs. THE PAIR, not a single use, is deliberate: this is plan §6.4 option (a) ("explicit
         /// barrier") spelled in option (c)'s vocabulary - the caller knows what it just did (it recorded
         /// it), the backend knows what the pair costs. A single-use form cannot be derived here: the
-        /// backend does not record the pass that wrote the image yet (the engine still records its frame
-        /// through `vulkan_escape`), so it cannot know the "from".
+        /// barrier describes what the CALLER just did, and the backend cannot know the "from" of a
+        /// recording it was not told about.
         ///
         /// THE CALLER OWNS THE CORRECTNESS: a missing pair, or a reversed one, is a WRONG barrier - the
         /// one failure this contract cannot catch for you. The shadow gate compares the barriers this
@@ -1770,8 +1770,8 @@ export namespace deren::promise::rhi {
         /// needs. THE PAIR, not a single use, is deliberate: this is plan §6.4 option (a) ("explicit
         /// barrier") spelled in option (c)'s vocabulary - the caller knows what it just did (it recorded
         /// it), the backend knows what the pair costs. A single-use form cannot be derived here: the
-        /// backend does not record the pass that wrote the image yet (the engine still records its frame
-        /// through `vulkan_escape`), so it cannot know the "from".
+        /// barrier describes what the CALLER just did, and the backend cannot know the "from" of a
+        /// recording it was not told about.
         ///
         /// THE CALLER OWNS THE CORRECTNESS: a missing pair, or a reversed one, is a WRONG barrier - the
         /// one failure this contract cannot catch for you. The shadow gate compares the barriers this

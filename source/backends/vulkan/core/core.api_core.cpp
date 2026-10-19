@@ -12,12 +12,10 @@
 //
 //   - `abilities()`: A BIT MEANS THE CONTRACT CAN SERVE IT, not that the device has the feature. For
 //     every set bit, `query_extension(kind)` has to answer with an object that can carry out every
-//     operation that ability declares, on the objects this backend can produce. THIS BACKEND REPORTS
-//     `vulkan_escape` AND NOTHING ELSE: every handle the escape hands out is a member that already
-//     exists, so the bit is servable in the strict sense. `device_address` and `host_image_copy` are
-//     still NOT reported - both need a producible `buffer`/`image`, and the factories still answer
-//     nullptr because their descriptors are S3.
-//   - `query_extension()`: the escape object for `vulkan_escape`, nullptr for everything else -
+//     operation that ability declares, on the objects this backend can produce. `vulkan_escape` IS NOT
+//     AMONG THEM ANY MORE (abi 43): the escape interface is deleted, and the GUI overlay's recording
+//     target travels through the backend-owned `denen.vulkan.main_context` instead.
+//   - `query_extension()`: the announced ability object for its kind, nullptr for everything else -
 //     exactly the two-way invariant the startup gate (core.constructor.cppm, G2) and
 //     source/tests/test_dynamic_link.cpp (G1) check.
 //   - the factories: nullptr. Their descriptors are still forward-declared (the resource model is
@@ -791,6 +789,7 @@ namespace deren::vulkan {
         this->main_context_view.graphics_queue_family = this->graphics_queue_family_index;
         this->main_context_view.color_format = static_cast<std::uint32_t>(this->swap_chain_image_format);
         this->main_context_view.frames_in_flight = static_cast<std::uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        this->main_context_view.native_command_buffer = &core::native_command_buffer_of;
         return &this->main_context_view;
     }
 
@@ -805,19 +804,14 @@ namespace deren::vulkan {
     rhi::ability_bits core::abilities() const noexcept {
         // ---- TWO BITS NOW, AND EACH IS A PROMISE ABOUT SERVICE (batch-1 spec §4.1) -----------------
         //
-        // `vulkan_escape` is the one ability this backend could serve from the start, and it is servable
-        // for the strongest reason there is: every handle it hands out is a member that already exists
-        // (`instance`, `physical_device`, `logical_device`, `graphics_queue_handle`, the frame's own
-        // command buffer), so `query_extension()` answers with a real object and every operation the
-        // ability declares is performable on objects this backend produces. The bit is therefore NOT
-        // "the device has the feature" - a device-level fact is not an ability until something can
-        // serve it (batch-1 §4.1) - it is "this backend can carry out everything vulkan_escape declares".
+        // A SET BIT IS A PROMISE ABOUT SERVICE, and every bit below is announced only when this backend can
+        // carry out everything the ability declares on objects it can produce. `vulkan_escape` IS NOT
+        // ANNOUNCED ANY MORE (abi 43): the GUI overlay's recording target comes through the shared
+        // `denen.vulkan.main_context`, and no tier-2 escape interface exists for this backend to serve.
         //
-        // `device_address` JOINED IT WHEN BUFFERS BECAME PRODUCTIBLE, which is the condition the previous
-        // comment here recorded as missing: the ability now declares only `buffer_address()`, and a
-        // buffer is something `create_buffer()` hands out. Its former acceleration-structure half moved
-        // to `ray_tracing` (abi 5) precisely so this bit would stop being hostage to a resource no
-        // backend could make - see rhi.extension.cppm's `device_address` note and the view's own.
+        // `device_address` is served because a `buffer` is something `create_buffer()` hands out; its former
+        // acceleration-structure half moved to `ray_tracing` (abi 5) so the bit would stop being hostage to a
+        // resource no backend could make - see rhi.extension.cppm's `device_address` note and the view's own.
         //
         // descriptor_heap只在heap真正可用时广播；mesh_shader和ray_tracing仍由pass通过原生接口录制。
         //
@@ -827,7 +821,7 @@ namespace deren::vulkan {
         // construction). Until this batch nobody served the ability and the bit was therefore not set -
         // and the engine's heap probes called the device entry point off `core` instead; that is the
         // consumer this bit was waiting for.
-        return rhi::to_bits(rhi::extension_kind::frame_resources) | rhi::to_bits(rhi::extension_kind::scoped_synchronization) | (this->create_options.native_window != nullptr ? rhi::to_bits(rhi::extension_kind::async_presentation) : 0u) | (this->gpu_sorting_available ? rhi::to_bits(rhi::extension_kind::gpu_sorting) : 0u) | rhi::to_bits(rhi::extension_kind::vulkan_escape) | rhi::to_bits(rhi::extension_kind::device_address) |
+        return rhi::to_bits(rhi::extension_kind::frame_resources) | rhi::to_bits(rhi::extension_kind::scoped_synchronization) | (this->create_options.native_window != nullptr ? rhi::to_bits(rhi::extension_kind::async_presentation) : 0u) | (this->gpu_sorting_available ? rhi::to_bits(rhi::extension_kind::gpu_sorting) : 0u) | rhi::to_bits(rhi::extension_kind::device_address) |
                (this->heap_view.ready() ? rhi::to_bits(rhi::extension_kind::descriptor_heap) : 0u) |
                // THE DESCRIPTOR SPACE IS SERVABLE EXACTLY WHEN THE HEAP IS: it is the same backend state
                // (the heap's slot pool + the texture-group table), just addressed by positions instead of
@@ -1094,9 +1088,6 @@ namespace deren::vulkan {
         // was asked for, and every kind it does not announce answers nullptr.
         if (kind == rhi::extension_kind::gpu_sorting && this->gpu_sorting_available) {
             return &this->sorting_view;
-        }
-        if (kind == rhi::extension_kind::vulkan_escape) {
-            return &this->escape_view;
         }
         if (kind == rhi::extension_kind::descriptor_heap && this->heap_view.ready()) {
             return &this->heap_view;
@@ -4298,35 +4289,32 @@ namespace deren::vulkan {
         return address + offset;
     }
 
-    // ---- tier-2: vulkan_escape ---------------------------------------------------------------------
+    // ---- THE NATIVE RECORDING TARGET (abi 43): the one conversion the GUI overlay needs --------------
+    //
+    // It used to be a tier-2 escape slot; it is a function reachable through the backend-owned
+    // `denen.vulkan.main_context` now, which is where the API-specific glue for a third-party renderer
+    // belongs. The contract carries no escape interface at all any more.
 
-    void* core::frame_escape::native_command_buffer(rhi::command_buffer& commands) const noexcept {
+    VkCommandBuffer core::native_command_buffer_of(rhi::api_core& face, rhi::command_buffer& commands) noexcept {
         // THE SAME WINDOW `begin_commands()` ANSWERS IN for the FRAME's list: outside the frame there is
-        // no command buffer to name, and answering with "the slot that would be next" would be a lie an
-        // escaping pass could record into.
-        core& self = *this->owner;
+        // no command buffer to name, and answering with "the slot that would be next" would be a lie.
+        auto& self = static_cast<core&>(face); // the only caller is core::main_context() on this core
         if (static_cast<void const*>(&commands) == static_cast<void const*>(&self.commands_view)) {
             if (!self.frame_in_flight) {
-                return nullptr;
+                return VK_NULL_HANDLE;
             }
-            return reinterpret_cast<void*>(self.frame_command_buffer());
+            return self.frame_command_buffer();
         }
         // ... AND AN OWNED BUFFER'S LIST (abi 15): resolved through the SAME provenance registry
-        // `execute()` uses, so no caller pointer is cast before it is known to be one of ours. Outside a
-        // frame is legitimate here - a buffer the caller owns exists on its own (the read-back's
-        // one-shot buffer is created and recorded after the frame has landed), and it names itself
-        // rather than "the slot that would be next".
+        // `execute()` uses, so no caller pointer is cast before it is known to be one of ours.
         std::lock_guard const lock(self.contract_command_buffers_mutex);
-        for (deren::promise::rhi::command_buffer const* const candidate : self.contract_command_buffers) {
-            auto const* const owned = static_cast<owned_command_buffer const*>(candidate);
-            // THE BUFFER **IS** THE LIST NOW (the recording face absorbed `command_list`), so this is an
-            // object-identity question rather than the member-address comparison the borrowed view needed:
-            // one inheritance chain, so the two pointers name the same object.
+        for (rhi::command_buffer const* const candidate : self.contract_command_buffers) {
+            auto const* const owned = static_cast<core::owned_command_buffer const*>(candidate);
             if (static_cast<void const*>(owned) == static_cast<void const*>(&commands)) {
-                return reinterpret_cast<void*>(*owned->buffer);
+                return *owned->buffer;
             }
         }
-        return nullptr; // not a list this backend handed out
+        return VK_NULL_HANDLE; // not a list this backend handed out
     }
 
     rhi::error core::frame_shader_group_access::read(rhi::pipeline const& resource, std::uint32_t const first_group,

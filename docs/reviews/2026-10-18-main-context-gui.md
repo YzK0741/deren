@@ -32,6 +32,13 @@ GUI 插件是 `vulkan_escape` 剩余句柄方法（`native_instance` / `native_p
 - **GUI 3 -> 4**：`create_info` 字段语义变化（`core` -> `main_context`），`gui_abi_version` bump；
   `test_gui_plugin` 的 static_assert 与拒绝路径同步。
 
+## 后续（ABI 43）
+
+ABI 43 把 GUI overlay 的 per-frame 录制目标转换也放进同一个共享布局：`denen.vulkan.main_context`
+新增 `native_command_buffer(api_core&, command_buffer&)` 函数指针，后端填自己的实现。所以这个上下文
+现在提供 GUI 需要的全部 API 粘合（设备根 + 录制目标转换），契约里不再有 escape。见
+`2026-10-18-native-escape-retirement.md`。
+
 ## 验证
 
 - `ctest`：**49/49 passed**（contract test 增加 `main_context() == nullptr` 的默认体检查与 ABI39 历史注释）；

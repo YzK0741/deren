@@ -111,7 +111,9 @@ export namespace deren::promise::rhi {
         mesh_shader = 1u << 2,     ///< vkCmdDrawMeshTasksEXT and its indirect form
         ray_tracing = 1u << 3,     ///< RETIRED in abi 26: the acceleration-structure half became TIER-1 (`acceleration_structure` + the recording verbs), and "can this device trace rays" is answered by `device_capabilities`. The BIT stays (never reused).
         host_image_copy = 1u << 4, ///< vkCopyImageToMemoryEXT
-        vulkan_escape = 1u << 5,   ///< the frame command buffer a third-party renderer (the GUI overlay) records into
+        /// RETIRED in abi 43: the escape interface is gone - the GUI overlay's recording target is resolved
+        /// through the backend-owned `rhi::main_context`. The BIT stays (bits are never reused).
+        vulkan_escape = 1u << 5,
         /// APPENDED (a new BIT; the six before it do not move - see the static_assert below): WHAT THE DEVICE
         /// CAN DO, in the contract's own vocabulary. A backend announces it when it can answer every method,
         /// the same "a set bit is a promise about service" rule the others live by. The engine used to derive
@@ -152,7 +154,7 @@ export namespace deren::promise::rhi {
         return (abilities & to_bits(kind)) != no_abilities;
     }
 
-    /// Every bit defined here: what a backend with all twelve abilities reports, and the
+    /// Every ACTIVE bit defined here: what a backend with all eleven abilities reports, and the
     /// set the plan's §8 consistency gate iterates.
     [[nodiscard]] constexpr auto all_abilities() noexcept -> ability_bits {
         // `extension_kind::ray_tracing` IS NOT HERE ANY MORE (abi 26): its whole shape moved to tier-1, so no
@@ -160,22 +162,21 @@ export namespace deren::promise::rhi {
         // set is no longer "every enumerator" - the note on that enumerator says so.
         return to_bits(extension_kind::device_address) | to_bits(extension_kind::descriptor_heap) |
                to_bits(extension_kind::mesh_shader) |
-               to_bits(extension_kind::host_image_copy) | to_bits(extension_kind::vulkan_escape) |
+               to_bits(extension_kind::host_image_copy) |
                to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access) | to_bits(extension_kind::gpu_sorting) | to_bits(extension_kind::async_presentation) | to_bits(extension_kind::scoped_synchronization) | to_bits(extension_kind::frame_resources) | to_bits(extension_kind::descriptor_space);
     }
 
-    /// The same twelve, as a LIST: what a gate walks to check one bit at a time.
+    /// The same eleven, as a LIST: what a gate walks to check one bit at a time.
     ///
     /// `all_abilities()` is the set as a bitmask; this is the enumeration the consistency gates and
     /// the tests iterate (`abilities()` set => `query_extension()` non-null, and the reverse), so the
     /// list is spelled in ONE place instead of per caller.
-    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> deren::utility::vessel::array<extension_kind, 12> {
+    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> deren::utility::vessel::array<extension_kind, 11> {
         return {
             extension_kind::device_address,
             extension_kind::descriptor_heap,
             extension_kind::mesh_shader,
             extension_kind::host_image_copy,
-            extension_kind::vulkan_escape,
             extension_kind::device_capabilities,
             extension_kind::shader_group_access,
             extension_kind::gpu_sorting,
@@ -187,7 +188,7 @@ export namespace deren::promise::rhi {
     }
 
     static_assert(to_bits(extension_kind::device_address) == 0x1u, "the ability bits are ABI: they do not move");
-    static_assert(all_abilities() == 0x1FF7u, "twelve active abilities; retired bits are never reused");
+    static_assert(all_abilities() == 0x1FD7u, "eleven active abilities; retired bits are never reused");
 
     /// The common root of the tier-2 abilities.
     ///
@@ -451,7 +452,7 @@ export namespace deren::promise::rhi {
     /// WHY AN ABILITY RATHER THAN A METHOD ON `api_core`: the extension mechanism already IS the channel for
     /// "a capability a backend may or may not serve" - `abilities()` announces it with a bit, `query_extension()`
     /// hands back the object, and "a set bit is a promise about service" holds for it exactly as it does for
-    /// `vulkan_escape` or `descriptor_heap`. It also keeps the TIER-1 vtable untouched: a new ability moves no
+    /// `descriptor_heap` or `shader_group_access`. It also keeps the TIER-1 vtable untouched: a new ability moves no
     /// existing slot, which is why this batch needs no `abi_version` change while a `facts()` method on
     /// `api_core` would have.
     ///
@@ -664,44 +665,10 @@ export namespace deren::promise::rhi {
     // `:api_core` (`command_buffer_inheritance_info`, contract image formats) is the one every caller uses,
     // so the native struct and its tag are retired (the tag VALUE stays - values are never reused).
 
-    /// tier-2 ability: the ONE raw native handle the contract cannot express - the frame's command buffer,
-    /// which the Dear ImGui Vulkan backend needs to record its own draw data. ONLY a Vulkan backend can
-    /// answer it, which is why this is an ability and not tier-1; a non-Vulkan backend does not announce
-    /// the bit, and G1/G2 then require `nullptr` from `query_extension(vulkan_escape)`.
-    ///
-    /// THE ENGINE DOES NOT USE IT ANY MORE, and neither does the content pipeline: every engine pass records
-    /// through the contract, the GUI plugin's device root is the opaque `rhi::main_context` (abi 39), and
-    /// the resource-handle borrows were deleted with their last test callers (abi 42). What is left is the
-    /// GUI overlay's per-frame recording hand-off, which is a third-party API's own requirement.
-    ///
-    /// DELIBERATELY ABSENT: get_instance_proc / get_device_proc. A front end resolves its own entry points
-    /// through the loader and the `main_context` device; keeping a loader out of the contract is the point.
-    // `api_basis` STOOD HERE AND IS DELETED in abi 42: it was the tagged "device this work belongs to"
-    // token behind `vulkan_escape::get_basis()`. Nothing outside the escape's own legacy SBT path ever
-    // needed a basis (`shader_group_access` answers the SBT data portably), and both slots are gone.
-
-    struct vulkan_escape : extension {
-
-        static constexpr extension_kind extension_id = extension_kind::vulkan_escape;
-        explicit vulkan_escape(std::string_view const name) noexcept
-            : extension(name) {
-        }
-        [[nodiscard]] extension_kind kind() const noexcept final {
-            return extension_id;
-        }
-
-        // WHAT IS LEFT, AND WHY: this used to be the raw-handle hatch for passes that recorded Vulkan by
-        // hand. The engine records through the contract now, the GUI plugin takes the device root as the
-        // opaque `rhi::main_context` (abi 39), and the resource-handle borrows went with the tests that
-        // were their only callers (abi 40/42). ONE slot survives because one caller genuinely needs it:
-        // the Dear ImGui Vulkan backend records its own draw data into the frame's command buffer, and
-        // ImGui's API takes a `VkCommandBuffer` - there is no contract verb for "hand a third-party
-        // renderer the recording target".
-
-        /// The PRIMARY command buffer of the frame `commands` belongs to, as VkCommandBuffer; nullptr
-        /// when no frame is in flight. This is what lets an escaping pass record raw Vulkan into the
-        /// frame it is part of.
-        [[nodiscard]] virtual void* native_command_buffer(command_buffer& commands) const noexcept = 0;
-    };
+    // `vulkan_escape` STOOD HERE AND IS DELETED in abi 43. Its last content was one slot
+    // (`native_command_buffer`) that the GUI overlay's Dear ImGui backend used to record its own draw data.
+    // That hand-off now lives on the BACKEND-OWNED `rhi::main_context` (the shared Vulkan layout carries the
+    // conversion), so the contract names no escape interface at all: the `extension_kind::vulkan_escape` BIT
+    // stays as a retired value (bits are never reused), and no backend announces it.
 
 } // namespace deren::promise::rhi

@@ -118,9 +118,8 @@ namespace rhi = deren::promise::rhi;
  *
  * THE NAME IS A DOCUMENTATION GROUP, NOT A MODULE NAME: the module stays `deren.engine.runtime` (the
  * module-name rule is settled and a module rename is out of scope). And the VULKAN FACTS this layer
- * does name stay Vulkan's own - the native handles `vulkan_escape` hands out, `vkCreateWin32SurfaceKHR`
- * in the surface path, the enabled instance/device extension sets, the `rhi::image_format`/heap semantics behind
- * the contract's spellings. Those say WHAT A NATIVE FACT OR ENTRY POINT IS; what changed here is only
+ * does name stay Vulkan's own - the windowing entry points such as `vkCreateWin32SurfaceKHR`, the
+ * `rhi::image_format`/heap semantics behind the contract's spellings. Those say WHAT A NATIVE FACT OR ENTRY POINT IS; what changed here is only
  * what says what the LAYER is.
  * @note
  *      - use operator-> to access the application's filtered view of the device root; since S2's shared
@@ -148,12 +147,13 @@ namespace deren::engine {
      * @brief THE ONE DERIVATION OF EVERY BACKEND FACT THIS RUNTIME READS (③-D/E step 2), so that no
      *        call site reaches a backend member and no fact is derived twice.
      *
-     * WHY A NAMESPACE OF FREE FUNCTIONS RATHER THAN A SET OF INLINE MEMBER ACCESSORS: each of these asks
-     * the CONTRACT's `vulkan_escape` (a `query_extension<vulkan_escape>()` call) and converts the
-     * `void*`/integer a tier-2 ability deliberately speaks into the Vulkan type this renderer needs. A
-     * member accessor would be exactly as good and would also be one place - but several of these are
-     * needed by code that runs BEFORE (or without) a `runtime` object (the probes' file-local helpers),
-     * and the declarations file is the one partition every other partition already imports.
+     * WHY A NAMESPACE OF FREE FUNCTIONS RATHER THAN A SET OF INLINE MEMBER ACCESSORS: each of these asks a
+     * CONTRACT ability (`device_capabilities` or the shared main context) and converts its portable answer
+     * into the value this renderer needs. A member accessor would be exactly as good and would also be one
+     * place - but several of these are needed by code that runs BEFORE (or without) a `runtime` object
+     * (the probes' file-local helpers), and the declarations file is the one partition every other
+     * partition already imports. NO NATIVE HANDLE IS ASKED FOR HERE ANY MORE (abi 39-43): the escape is
+     * gone, and the engine records through the contract.
      *
      * WHY THE DEFINITIONS LIVE ELSEWHERE (`:constructor`, and `graphics_queue_family_of` in
      * `runtime.cpp`): the same measured reason the `contract_*` helpers above state - a definition in
@@ -348,9 +348,10 @@ namespace deren::engine {
          * WHY IT IS CACHED rather than asked where it is used: it is a SESSION-STABLE fact, and the two
          * sites that need it - `make_pipeline` for the named geometry pipelines and `make_pass_context`
          * for the passes that render into the presentation image - run BEFORE any frame exists, so the
-         * contract's image-based format query cannot answer them. `vulkan_escape::
-         * native_swapchain_image_format()` (abi 17) is the accessor that can, and this member is that
-         * one call's result. It is also what the backend's own `render_extent` path was created with.
+         * contract's image-based format query cannot answer them. The backend-owned main context's
+         * `color_format` (abi 39; the `vulkan_escape::native_swapchain_image_format()` accessor that used to
+         * answer it was deleted in abi 40) is what this member is read from. It is also what the backend's
+         * own `render_extent` path was created with.
          */
         rhi::image_format swap_chain_image_format = rhi::image_format::unknown;
         /// whether this DEVICE has ray queries - the runtime's own cache of
@@ -1773,11 +1774,11 @@ namespace deren::engine {
         // (the GPU reads the secondaries while the slot's primary executes, so they share the primary's
         // lifetime), index = segment.
         deren::utility::vessel::vector<deren::utility::vessel::vector<rhi::mergeable_command_buffer_ref>> main_segments;
-        // ---- abi 15: THE TWO BRIDGES FROM A CONTRACT BUFFER TO THE RAW HANDLE THE RECORDING USES -----
-        // The contract owns the buffers; the recording (the frame's own begin/end, the passes, the
-        // render-environment callbacks) speaks Vulkan's `VkCommandBuffer`, and the contract's own
-        // native-handle path is the escape (`vulkan_escape::native_command_buffer`). These helpers are
-        // that one conversion, so no call site spells the escape out by hand.
+        // ---- THE FRAME'S COMMAND BUFFER, IN THE CONTRACT'S OWNERSHIP SPELLING (abi 15) -------------------
+        // The engine's recording lives entirely on the contract now (abi 15-36): this holds the frame's
+        // borrowed view so the frame steps can hand it to passes, and NO raw-handle bridge exists here any
+        // more - the native conversion is the GUI overlay's own path through the shared main context, not
+        // an engine helper.
         /**
          * @brief THE FRAME'S OWN COMMAND BUFFER, in the contract's OWNERSHIP SPELLING: what
          *        `resolved_io::cmd` and `resolve_context::cmd` carry.
@@ -1795,22 +1796,11 @@ namespace deren::engine {
          * a member kept in step here. An empty shared_ptr is the honest answer when no frame is in flight.
          *
          * IT REPLACED `frame_primary_handle()` (raw `VkCommandBuffer`), and that helper is GONE rather than
-         * left beside it: the frame loop's raw steps now derive their handle from THIS value through
-         * `native_frame_commands()`, so a second accessor answering the same buffer in the other spelling
-         * would be dead code - and a dead private member is a `/W4 /WX` error here.
+         * left beside it: the frame loop records through the contract, so a second accessor answering the
+         * same buffer in the other spelling would be dead code. The native-handle bridges
+         * (`native_frame_commands()` / `native_handle()`) were removed with the escape (abi 42/43).
          */
         [[nodiscard]] std::shared_ptr<rhi::command_buffer> frame_command_buffer() const noexcept;
-        /// the raw handle of a command buffer the CONTRACT handed out (the buffer IS the recorder, so the
-        /// escape resolves the buffer itself - not a backend detail reached into)
-        /**
-         * @brief THE FRAME LOOP'S OWN DERIVATION: the native handle of the FRAME's buffer, from the contract
-         *        `shared_ptr` the frame's recording face speaks.
-         *
-         * ONE PLACE, so the three frame-loop functions that begin, record and end the frame derive the raw
-         * handle the same way (`native_handle(*buffer)`) instead of each unwrapping the pointer itself. A
-         * null `buffer` - no frame in flight - answers VK_NULL_HANDLE, which is exactly the state the frame
-         * loop's own guards test for.
-         */
         // per-frame state shared by the split frame steps (the frame steps call them in order,
         // so an external caller can interleave its own work between the same steps)
         uint32_t current_image_index = 0; // swapchain image acquired by pace_and_acquire()
@@ -2183,8 +2173,8 @@ namespace deren::engine {
          * IT TAKES A CONTRACT BUFFER because that is what the caller's lanes hold (the primitive's geometry is
          * `object_ptr` members now), which is why the hook in `render_environment` narrowed to this shape -
          * and the two DISPATCH entries take the contract `command_buffer&` for the same reason one resource class
-         * over: the session holds the contract handle, and the native handle the `vkCmdDrawMeshTasks*` entry points
-         * need is derived inside these two, through the escape.
+         * over: the session holds the contract handle, and the backend's `draw_mesh_tasks()` verbs resolve their
+         * own entry points - no engine-side native handle is involved.
          */
         static std::uintptr_t mesh_buffer_address(void* owner, rhi::buffer const& buffer);
         static bool push_geometry_block(void* owner, ::deren::engine::recording_target const& target, uint32_t offset, std::span<std::byte const> bytes);
@@ -2203,16 +2193,6 @@ namespace deren::engine {
         static bool structure_record_skin(void* owner, rhi::command_buffer& command_buffer, std::span<ray_tracing::caster_level const> casters);
         /** @brief write the structure's and its instance table's heap slots for @p frame_slot */
         void write_rt_structure_binding(deren::promise::rhi::acceleration_structure* tlas, uint32_t frame_slot);
-        /**
-         * @brief THE NATIVE HANDLE BEHIND A CONTRACT BUFFER, for the places a raw `VkBuffer` is still what
-         *        the call takes (a heap descriptor written by hand, `vkCmdBindVertexBuffers`, the indirect
-         *        dispatch's own lookup).
-         *
-         * THE ESCAPE IS THE CONTRACT'S OWN ANSWER TO THIS QUESTION (`vulkan_escape::native_buffer`, and its
-         * note says why it exists), so the temporary `VkBuffer` this hands back is BORROWED exactly as that
-         * call states: valid while `buffer` holds its reference, which every caller here does - a member or
-         * a vector element of this class, alive for the session.
-         */
         /**
          * @brief the DEVICE ADDRESS of a contract buffer, through the `device_address` ability.
          * @return 0 when the backend did not announce the ability, or when the buffer was created without

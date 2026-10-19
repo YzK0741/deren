@@ -364,7 +364,7 @@ namespace {
         // `api_basis` and the native `vulkan_command_buffer_inheritance_info` (their structure tags stay
         // retired). ONE escape slot survives: the GUI overlay's ImGui backend records its own draw data into
         // the frame's command buffer.
-        CHECK(rhi::abi_version == 42u);
+        CHECK(rhi::abi_version == 43u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
@@ -435,13 +435,10 @@ namespace {
         // a bit set (not an ordered enum), no bit outside the known set, and every announced
         // ability reachable through `query_extension()` with the kind it claims.
         rhi::ability_bits const abilities = core->abilities();
-        // TWO ABILITIES SINCE abi 19: the escape joined device_address, because the ENGINE’s runtime
-        // asks it for the presentation image’s format before any frame exists (and derives the queue
-        // family from its handles) - so a root the ENGINE can be injected with has to serve it. The probe
-        // broadcasts both bits and answers both kinds with a matching object; the invariant walk below is
-        // what keeps that honest.
+        // ABI 43 removed the escape: the probe broadcasts `device_address` (the engine's injected-root path
+        // asks for buffer addresses) and `descriptor_space`, and answers both kinds with a matching object;
+        // the invariant walk below is what keeps that honest.
         CHECK_MSG(abilities == (rhi::to_bits(rhi::extension_kind::device_address) |
-                                rhi::to_bits(rhi::extension_kind::vulkan_escape) |
                                 rhi::to_bits(rhi::extension_kind::descriptor_space)),
                   which_half);
         CHECK((abilities & ~rhi::all_abilities()) == rhi::no_abilities);

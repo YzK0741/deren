@@ -311,34 +311,23 @@ namespace {
             // contract" (Q4).
             mark("calling abilities() across the image boundary");
             rhi::ability_bits const abilities = core->abilities();
-            CHECK(rhi::has_ability(abilities, rhi::extension_kind::vulkan_escape));
             // THE SECOND BIT, ANNOUNCED ONLY ONCE BUFFERS BECAME PRODUCTIBLE (abi 5 moved the
             // acceleration-structure half of this ability to `ray_tracing`, which is the only ability
             // that can hand out that operand - so this bit stopped being hostage to a resource no
             // backend could make).
             CHECK(rhi::has_ability(abilities, rhi::extension_kind::device_address));
 
-            mark("calling query_extension(vulkan_escape)");
-            rhi::extension* const escape = core->query_extension(rhi::extension_kind::vulkan_escape);
-            CHECK(escape != nullptr);
-            if (escape != nullptr) {
-                CHECK(escape->kind() == rhi::extension_kind::vulkan_escape);
-
-                // The escape's whole promise is that these are the backend's LIVE handles, so a
-                // non-null answer is the check that the ability is servable rather than announced.
-                auto const* const main_context = vulkan_main(*core);
-                CHECK(main_context != nullptr);
-                if (main_context != nullptr) {
-                    CHECK(main_context->instance != VK_NULL_HANDLE);
-                    CHECK(main_context->physical_device != VK_NULL_HANDLE);
-                    CHECK(main_context->device != VK_NULL_HANDLE);
-                    CHECK(main_context->graphics_queue != VK_NULL_HANDLE);
-                }
-
-                // The escape does NOT hand out proc addresses (deliberately, §3.4): the front end
-                // resolves `vkGetDeviceProcAddr` itself. The absence is part of the measured shape,
-                // so the plan's own gap - "where does the front end get that function pointer" - is
-                // recorded rather than rediscovered later.
+            // abi 43: the escape interface is gone; the GUI overlay's device root and its per-frame
+            // recording target both travel through the SHARED MAIN CONTEXT, which the plugin casts and checks.
+            mark("casting the backend main context");
+            auto const* const main_context = vulkan_main(*core);
+            CHECK(main_context != nullptr);
+            if (main_context != nullptr) {
+                CHECK(main_context->instance != VK_NULL_HANDLE);
+                CHECK(main_context->physical_device != VK_NULL_HANDLE);
+                CHECK(main_context->device != VK_NULL_HANDLE);
+                CHECK(main_context->graphics_queue != VK_NULL_HANDLE);
+                CHECK(main_context->native_command_buffer != nullptr);
             }
 
             // The resource factories are the S3 design surface and answer nullptr today; what this
@@ -610,14 +599,13 @@ namespace {
                 rhi::error const timing_mark = primary->mark_gpu_timing(0, "not the frame's");
                 CHECK_MSG(timing_mark == rhi::error::not_ready,
                           "the frame-scoped mark verb refuses the same way");
-                // THE NATIVE HANDLE: the escape answers it for a buffer the CALLER owns, outside any
-                // frame - which is the read-back's case (its read runs after the frame has landed).
-                rhi::extension* const escape_extension = core->query_extension(rhi::extension_kind::vulkan_escape);
-                CHECK(escape_extension != nullptr);
-                if (escape_extension != nullptr) {
-                    auto* const escape = static_cast<rhi::vulkan_escape*>(escape_extension);
-                    CHECK_MSG(escape->native_command_buffer(*primary) != nullptr,
-                              "an owned buffer's raw handle answers through the escape outside a frame");
+                // THE NATIVE HANDLE: the backend main context resolves a buffer the CALLER owns, outside
+                // any frame - which is the read-back's case (its read runs after the frame has landed).
+                auto const* const main_context = vulkan_main(*core);
+                CHECK(main_context != nullptr && main_context->native_command_buffer != nullptr);
+                if (main_context != nullptr && main_context->native_command_buffer != nullptr) {
+                    CHECK_MSG(main_context->native_command_buffer(*core, *primary) != nullptr,
+                              "an owned buffer's native handle resolves through the main context outside a frame");
                 }
 
                 // THE SEGMENT, the executable path: recorded with no usage flags (so executing it

@@ -55,6 +55,13 @@ export namespace deren::vulkan {
         /// the presentation surface's format, as the backend resolved it (a VkFormat value)
         std::uint32_t color_format = 0;
         std::uint32_t frames_in_flight = 0;
+        /// THE NATIVE RECORDING TARGET a contract `command_buffer` names, resolved by the backend that owns it
+        /// (nullptr when the handle is foreign, or when the borrowed frame list has no frame in flight). This is
+        /// the ONE native handle a third-party renderer needs - the Dear ImGui Vulkan backend records its own
+        /// draw data into the frame's command buffer - and keeping the conversion on this backend-owned context
+        /// is what lets the contract drop its escape ability. abi 43.
+        VkCommandBuffer (*native_command_buffer)(deren::promise::rhi::api_core& face,
+                                                 deren::promise::rhi::command_buffer& commands) noexcept = nullptr;
     };
 
     /// @brief whether @p context is THIS backend's main context (the contract's provenance question)

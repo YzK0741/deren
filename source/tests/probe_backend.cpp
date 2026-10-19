@@ -217,27 +217,9 @@ namespace {
         static constexpr std::uint64_t address_base = 0x1000ull;
     };
 
-    /// THE PROBE'S ESCAPE (abi 19's injection test needs it): the engine's runtime asks the escape
-    /// for facts it cannot get anywhere else - the enabled device extensions (the backend's own
-    /// gate for ray query / mesh shaders), and the raw handles the frame path borrows.
-    ///
-    /// THE HANDLES ARE NULL AND THAT IS THE HONEST ANSWER: a probe has no instance, device or queue,
-    /// and every consumer of them in the engine guards the null (see `ray_query_available_of` in
-    /// runtime.constructor.cppm, which answers `false` rather than dereferencing). The EXTENSION LIST
-    /// is empty for the same reason, so both device-capability derivations answer "not available" -
-    /// which is what a device-less probe can honestly claim. Broadcasting `vulkan_escape` alongside
-    /// `device_address` is what makes the probe usable as an injected root at all.
-    /// abi 42: the escape carries ONE slot now; the probe stand-in answers it the only way a device-less
-    /// backend can (nullptr), and the rest of the contract surface it used to cover is gone with the
-    /// virtuals.
-    struct probe_escape final : rhi::vulkan_escape {
-        probe_escape() noexcept
-            : rhi::vulkan_escape("deren_vulkan_escape_probe") {
-        }
-        [[nodiscard]] void* native_command_buffer(rhi::command_buffer&) const noexcept override {
-            return nullptr;
-        }
-    };
+    // `probe_escape` STOOD HERE AND IS DELETED in abi 43: the contract has no escape interface any more.
+    // The GUI overlay's recording target is resolved through the backend's shared main context, which a
+    // device-less probe does not serve (its `main_context()` answers nullptr).
 
     /// The probe's frame ring: two virtual slots, one cursor, and an open that echoes the creation
     /// descriptor - the frame face's shape (abi 13), witnessed without a device. The ring is the ONE
@@ -1207,12 +1189,10 @@ namespace {
         [[nodiscard]] rhi::ability_bits abilities() const noexcept override {
             if (portable_mode)
                 return rhi::to_bits(rhi::extension_kind::frame_resources) | (async_present.completion.valid() ? rhi::to_bits(rhi::extension_kind::async_presentation) : 0u) | (scoped_sync.enabled ? rhi::to_bits(rhi::extension_kind::scoped_synchronization) : 0u) | rhi::to_bits(rhi::extension_kind::device_address) | rhi::to_bits(rhi::extension_kind::device_capabilities) | rhi::to_bits(rhi::extension_kind::descriptor_heap) | rhi::to_bits(rhi::extension_kind::descriptor_space);
-            // TWO ABILITIES SINCE abi 19: the escape joined device_address, because the ENGINE's runtime
-            // asks it for the presentation format before any frame exists (`escape()` dereferences what
-            // `query_extension<vulkan_escape>()` answers, so an injected root has to serve it - see
-            // `probe_escape`). Both bits are announced, and both answer with an object whose kind matches,
-            // which is the contract's two-way invariant (the walk in test_dynamic_link checks it).
-            return rhi::to_bits(rhi::extension_kind::device_address) | rhi::to_bits(rhi::extension_kind::vulkan_escape) |
+            // `device_address` alone (abi 43 removed the escape): the engine's injected-root path asks for
+            // buffer addresses, and every announced bit answers with an object whose kind matches - the
+            // contract's two-way invariant, walked in test_dynamic_link.
+            return rhi::to_bits(rhi::extension_kind::device_address) |
                    rhi::to_bits(rhi::extension_kind::descriptor_space);
         }
 
@@ -1228,8 +1208,6 @@ namespace {
                 if (portable_mode)
                     return &cpu_address;
                 return &this->address;
-            case rhi::extension_kind::vulkan_escape:
-                return portable_mode ? nullptr : &this->escape;
             case rhi::extension_kind::device_capabilities:
                 return portable_mode ? &cpu_caps : nullptr;
             case rhi::extension_kind::descriptor_heap:
@@ -1530,7 +1508,6 @@ namespace {
         /// the creation descriptor's `window_width`, carried in by deren_make_api_core and echoed out
         /// of frame_begin() and the walker's open; 0 would be an impl nobody filled, which the test's
         /// non-zero fill catches
-        probe_escape escape;
         std::uint32_t creation_window_width = 0;
         /// what `api_version()` answers: the contract's number unless a test asked for another
         std::uint32_t reported_api_version = rhi::abi_version;

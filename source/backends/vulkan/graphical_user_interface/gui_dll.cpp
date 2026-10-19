@@ -8,8 +8,9 @@
 //
 // The boundary carries a borrowed PLATFORM WINDOW and the RHI's opaque main-thread context (abi 39).
 // The context is cast HERE, through the shared Vulkan layout (`denen.vulkan.main_context`), because the
-// native handles and the presentation format are this API's vocabulary and must not cross the contract;
-// the escape is still used for the per-frame recording handle (`vulkan_escape::native_command_buffer`).
+// native handles, the presentation format and the per-frame recording target's conversion are this API's
+// vocabulary and must not cross the contract. abi 43 deleted the escape: the context itself resolves a
+// contract command buffer to the `VkCommandBuffer` the ImGui backend records into.
 // ============================================================================
 module;
 
@@ -164,9 +165,8 @@ namespace deren::vulkan::gui {
                     deren::utility::log("gui plugin: no compatible RHI device root in the main context");
                     return false;
                 }
-                auto* const escape = rhi::query_extension<rhi::vulkan_escape>(*context->core);
-                if (escape == nullptr) {
-                    deren::utility::log("gui plugin: the RHI root cannot provide the Vulkan recording escape");
+                if (context->native_command_buffer == nullptr) {
+                    deren::utility::log("gui plugin: the main context cannot resolve a contract command buffer to Vulkan");
                     return false;
                 }
                 gui_create_info translated = {};
@@ -179,7 +179,7 @@ namespace deren::vulkan::gui {
                 translated.color_format = static_cast<VkFormat>(context->color_format);
                 translated.depth_format = VK_FORMAT_UNDEFINED;
                 translated.frames_in_flight = context->frames_in_flight;
-                this->core = context->core;
+                this->context = context;
                 // GLFW is linked statically into each image. The host's glfwInit() does not
                 // initialize this plugin's copy, whose queries otherwise return zero sizes/scale.
                 if (!glfwInit()) {
@@ -242,11 +242,12 @@ namespace deren::vulkan::gui {
                 this->content.new_frame();
             }
             void record(deren::promise::rhi::command_buffer& commands) override {
-                if (this->core == nullptr) {
+                if (this->context == nullptr || this->context->native_command_buffer == nullptr || this->context->core == nullptr) {
                     return;
                 }
-                auto* const escape = deren::promise::rhi::query_extension<deren::promise::rhi::vulkan_escape>(*this->core);
-                auto const native = escape != nullptr ? static_cast<VkCommandBuffer>(escape->native_command_buffer(commands)) : VK_NULL_HANDLE;
+                // abi 43: the backend-owned main context resolves the contract target to the native command
+                // buffer; the GUI contract itself names no Vulkan type.
+                auto const native = this->context->native_command_buffer(*this->context->core, commands);
                 if (native == VK_NULL_HANDLE) {
                     deren::utility::log("gui plugin: the command buffer does not belong to this device");
                     return;
@@ -258,7 +259,7 @@ namespace deren::vulkan::gui {
             }
 
         private:
-            deren::promise::rhi::api_core* core = nullptr;
+            deren::vulkan::main_context const* context = nullptr;
             gui_content content;
             bool platform_ready = false;
             /// One stable owned node per panel; erasure destroys only the removed adapter.
