@@ -238,14 +238,14 @@ namespace deren::vulkan::gui {
                 this->content.new_frame();
             }
             void record(deren::promise::rhi::command_buffer& commands) override {
-                // abi 43: the recording target arrives as the RHI handle and is converted HERE, on this side
-                // of the boundary: the contract names no native type, the plugin checks the concrete tag and
-                // casts the handle to the shared Vulkan layout. The same rule the device root follows.
+                // abi 43: the target arrives as the RHI type; this Vulkan plugin checks the concrete tag,
+                // casts the handle to the Vulkan class and asks it for the native handle - no conversion
+                // callback, no ownership layer.
                 if (!deren::vulkan::is_command_buffer(commands)) {
                     deren::utility::log("gui plugin: the command buffer does not belong to this device");
                     return;
                 }
-                auto const native = deren::vulkan::native_command_buffer(commands);
+                auto const native = static_cast<deren::vulkan::command_buffer const&>(commands).get();
                 if (native == VK_NULL_HANDLE) {
                     deren::utility::log("gui plugin: the recording target names no frame in flight");
                     return;

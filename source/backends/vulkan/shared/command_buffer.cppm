@@ -2,21 +2,21 @@
 // ============================================================================
 // module: deren.vulkan.command_buffer
 //
-// THE SHARED CONCRETE HEAD OF A CONTRACT command_buffer THAT THIS BACKEND HANDS OUT.
+// THE VULKAN CLASS A CONTRACT `command_buffer` IS, for the backend and the GUI plugin.
 //
-// WHY IT EXISTS: the GUI plugin's Dear ImGui Vulkan backend records its own draw data and its API takes
-// a `VkCommandBuffer`, but the contract must not name that type. So the contract passes the recording
-// target as the RHI handle it already is (`rhi::command_buffer`), and the plugin - which IS the Vulkan
-// plugin, it knows this API's vocabulary - checks the CONCRETE TAG and casts the handle to this shared
-// layout to read the native target. The same "opaque contract handle + concrete tag + shared layout cast"
-// rule `rhi::main_context` follows (abi 39); no conversion callback and no native type crosses the
-// contract.
+// The contract passes the RHI type (`rhi::command_buffer`); this is the class the Vulkan side casts it to
+// after checking the concrete tag, and `get()` is how the native handle is read:
 //
-// BOTH concrete command-buffer forms derive from this base: the borrowed frame view (`frame_commands`)
-// and an owned recording buffer (`owned_command_buffer`, which derives from the frame view). The BACKEND
-// keeps `recording_target` in step (a frame slot's buffer while a frame is in flight, the owned buffer's
-// own handle once it is allocated, VK_NULL_HANDLE when there is nothing to record into). Everything else
-// here is declaration only - the recording logic stays in the backend DLL.
+//     if (denen::vulkan::is_command_buffer(commands)) {
+//         VkCommandBuffer native = static_cast<denen::vulkan::command_buffer const&>(commands).get();
+//     }
+//
+// WHY THE CAST NEEDS A SHARED DECLARATION AT ALL: the backend DLL exports exactly one C name, so a module
+// attachment cannot be served from it - both images compile this interface unit instead (the same shape
+// `denen.vulkan.main_context` and the other shared layout units use). The class is deliberately the
+// SMALLEST possible: one private native handle, `get()`, and the backend-side setter. No ownership flag,
+// no borrowed/owned kind, no conversion callback - the backend's two concrete command-buffer classes
+// derive from it and keep the handle current.
 // ============================================================================
 module;
 
@@ -29,7 +29,7 @@ export import deren.promise.rhi;
 
 /**
  * @file source/backends/vulkan/shared/command_buffer.cppm
- * @brief the shared concrete base of the contract's `command_buffer` for the Vulkan backend (abi 43)
+ * @brief the Vulkan class behind the contract's `command_buffer` (abi 43): tag check, cast, `get()`
  * @ingroup promise
  */
 
@@ -40,33 +40,32 @@ export namespace deren::vulkan {
     /// The concrete identity the backend constructs a caller-OWNED recording buffer with.
     inline constexpr std::string_view owned_command_buffer_name = "deren_command_buffer_vulkan";
 
-    /// THE SHARED CONCRETE HEAD: one native field, kept current by the backend, readable by any image that
-    /// compiles this layout after checking the concrete tag. Abstract: every contract virtual stays the
-    /// backend's own implementation.
-    struct command_buffer_native : deren::promise::rhi::command_buffer {
-        explicit command_buffer_native(std::string_view const name) noexcept
+    /// THE VULKAN CLASS: a contract `command_buffer` the Vulkan side casts to after checking the concrete
+    /// tag. `get()` is the native handle; `set_target()` is the backend's own way of keeping it current
+    /// (a frame slot's buffer while a frame is in flight, an owned buffer's own handle once allocated).
+    struct command_buffer : deren::promise::rhi::command_buffer {
+        explicit command_buffer(std::string_view const name) noexcept
             : deren::promise::rhi::command_buffer(name) {
         }
 
-        /// the recording target, as Vulkan spells it; VK_NULL_HANDLE = this handle names no open recording
-        VkCommandBuffer recording_target = VK_NULL_HANDLE;
+        /// @brief the native recording target (VK_NULL_HANDLE = nothing to record into right now)
+        [[nodiscard]] VkCommandBuffer get() const noexcept {
+            return this->native;
+        }
+
+        /// @brief backend only: publish the current recording target
+        void set_target(VkCommandBuffer const target) noexcept {
+            this->native = target;
+        }
+
+    private:
+        VkCommandBuffer native = VK_NULL_HANDLE;
     };
 
-    /// @brief whether @p commands is a command buffer THIS backend's shared layout describes
+    /// @brief whether @p commands is one of THIS backend's command buffers (the cast's precondition)
     [[nodiscard]] inline bool is_command_buffer(deren::promise::rhi::command_buffer const& commands) noexcept {
         return deren::promise::rhi::is_concrete(commands, frame_command_buffer_name) ||
                deren::promise::rhi::is_concrete(commands, owned_command_buffer_name);
-    }
-
-    /// @brief the recording target of a command buffer this backend handed out, or VK_NULL_HANDLE for a
-    ///        foreign handle or a handle that names no open recording (the borrowed frame view outside a
-    ///        frame in flight). The tag check is the cast's precondition - the same rule `is_main_context`
-    ///        + `do_concrete` follow.
-    [[nodiscard]] inline VkCommandBuffer native_command_buffer(deren::promise::rhi::command_buffer& commands) noexcept {
-        if (!is_command_buffer(commands)) {
-            return VK_NULL_HANDLE;
-        }
-        return static_cast<command_buffer_native&>(commands).recording_target;
     }
 
 } // namespace deren::vulkan

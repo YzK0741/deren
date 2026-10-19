@@ -208,7 +208,9 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
             CHECK(commands->bind_pipeline(*pipeline) == rhi::error::ok);
         commands->dispatch(1, 1, 1);
     }
-    auto native = static_cast<VkCommandBuffer>(deren::vulkan::native_command_buffer(*commands));
+    auto native = deren::vulkan::is_command_buffer(*commands)
+                      ? static_cast<deren::vulkan::command_buffer const&>(*commands).get()
+                      : VK_NULL_HANDLE;
     VkMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
     barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;

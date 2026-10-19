@@ -602,8 +602,10 @@ namespace {
                 // THE NATIVE HANDLE: the backend main context resolves a buffer the CALLER owns, outside
                 // any frame - which is the read-back's case (its read runs after the frame has landed).
                 CHECK_MSG(deren::vulkan::is_command_buffer(*primary), "an owned command buffer's concrete tag is shared");
-                CHECK_MSG(deren::vulkan::native_command_buffer(*primary) != nullptr,
-                          "an owned buffer's native target is published on the shared layout outside a frame");
+                if (deren::vulkan::is_command_buffer(*primary)) {
+                    CHECK_MSG(static_cast<deren::vulkan::command_buffer const&>(*primary).get() != VK_NULL_HANDLE,
+                              "an owned buffer's native handle answers through the Vulkan class outside a frame");
+                }
 
                 // THE SEGMENT, the executable path: recorded with no usage flags (so executing it
                 // outside a render pass instance is legal) and ended - only an ended segment may be merged.

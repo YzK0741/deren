@@ -35,8 +35,8 @@ GUI 插件是 `vulkan_escape` 剩余句柄方法（`native_instance` / `native_p
 ## 后续（ABI 43）
 
 ABI 43 删除了 escape：GUI 的 per-frame 录制目标不再由上下文回调转换，而是走**同一个规则的另一个
-共享布局**——契约传 RHI `command_buffer`，插件检查 concrete tag 后 cast 到 `denen.vulkan.command_buffer`
-共享基类读 `recording_target`。设备根仍在这个上下文里。契约里不再有 escape。见
+共享单元**——契约传 RHI `command_buffer`，插件检查 concrete tag 后 cast 到共享 Vulkan 类
+`denen.vulkan.command_buffer` 并调用 `get()`。设备根仍在这个上下文里。契约里不再有 escape。见
 `2026-10-18-native-escape-retirement.md`。
 
 ## 验证

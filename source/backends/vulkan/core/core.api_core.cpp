@@ -1984,7 +1984,7 @@ namespace deren::vulkan {
             return nullptr;
         }
         answer->target = *answer->buffer;
-        answer->recording_target = *answer->buffer; // the shared head's field, read by the GUI plugin's cast
+        answer->set_target(*answer->buffer); // the Vulkan class's native handle, read through get()
         answer->kind = level == VK_COMMAND_BUFFER_LEVEL_SECONDARY ? rhi::command_buffer_kind::secondary
                                                                   : rhi::command_buffer_kind::primary;
         {
@@ -4291,9 +4291,9 @@ namespace deren::vulkan {
 
     // ---- THE GUI PLUGIN'S RECORDING TARGET (abi 43) ---------------------------------------------------
     //
-    // The contract passes the RHI handle; the plugin checks the concrete tag and casts it to the shared
-    // `denen.vulkan.command_buffer` head to read `recording_target`. THE BACKEND'S JOB is only to keep that
-    // field current, which happens at the two moments a recording target changes:
+    // The contract passes the RHI handle; the plugin checks the concrete tag, casts it to the shared Vulkan
+    // class (`denen.vulkan::command_buffer`) and calls `get()`. THE BACKEND'S JOB is only to keep that handle
+    // current, at the two moments a recording target changes:
     //
     //   - an OWNED buffer: set once when its VkCommandBuffer is allocated (it never changes afterwards);
     //   - the BORROWED frame view: set when a frame is acquired (frame_in_flight) and cleared when the frame
@@ -4539,7 +4539,7 @@ namespace deren::vulkan {
             this->frame_in_flight = true;
             // THE RECORDING TARGET THE GUI PLUGIN READS (abi 43): while this frame is in flight the borrowed
             // view's shared head names the frame slot's buffer; the frame's own submit/advance clears it.
-            this->commands_view.recording_target = this->frame_command_buffer();
+            this->commands_view.set_target(this->frame_command_buffer());
             // and this is what makes `frame_image()` answer at all: before the first successful acquire
             // there is no last-acquired image, only a default index that happens to name one.
             this->frame_acquired = true;

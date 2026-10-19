@@ -352,12 +352,12 @@ namespace deren::vulkan {
         /// that is not the frame's, which is the window their own contract notes already name.
         struct owned_command_buffer;
         struct owned_pipeline;
-        /// THE SHARED CONCRETE HEAD (abi 43) carries `recording_target`, the one field the GUI plugin reads
-        /// after checking the concrete tag; this class derives from it so the cast is a real base-class cast,
-        /// not a layout guess. The borrowed frame view and an owned buffer both publish their target there.
-        struct frame_commands : deren::vulkan::command_buffer_native {
+        /// THE VULKAN CLASS (abi 43) is the shared declaration both images compile; this class derives from
+        /// it, so a tag-checked `static_cast` on the GUI side is a real base-class cast, and the native handle
+        /// is read through `get()`. The backend publishes it through `set_target()`.
+        struct frame_commands : deren::vulkan::command_buffer {
             explicit frame_commands(std::string_view const name = concrete::frame_commands) noexcept
-                : deren::vulkan::command_buffer_native(name) {
+                : deren::vulkan::command_buffer(name) {
             }
             core* owner = nullptr;
             /// the buffer this list records into: null = the frame's slot buffer, set = an owned one
@@ -379,8 +379,8 @@ namespace deren::vulkan {
             std::uint32_t shadow_gate_dumped = 0;
 
             /// the native command buffer this list records into: the owned buffer's own handle (`target`) or
-            /// the frame slot's while a frame is in flight. `recording_target` (the shared head) is this same
-            /// answer kept current for the GUI plugin's cast.
+            /// the frame slot's while a frame is in flight. `get()` (the shared Vulkan class) answers the same
+            /// handle for callers that cast the contract reference instead of using this backend-internal name.
             [[nodiscard]] VkCommandBuffer native() const noexcept;
 
             /// THE FRAME'S BUFFER IS THE CORE'S, so the four lifecycle verbs take the BORROWED shape
