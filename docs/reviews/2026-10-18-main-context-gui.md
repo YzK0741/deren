@@ -48,6 +48,6 @@ GUI 插件是 `vulkan_escape` 剩余句柄方法（`native_instance` / `native_p
 - GUI `record()` 仍要 `vulkan_escape::native_command_buffer`；等测试/spike 的 raw 校验换掉之后，可把
   这个 slot 也收进 main_context（例如给 context 加一个"记录到 native command buffer"的转换函数指针，
   或让 GUI 的 record 走 contract verb）。
-- 有了 main_context 之后，`vulkan_escape` 的 GUI 句柄方法（instance/physical device/device/queue/
+- （已由 ABI 40 完成。）有了 main_context 之后，`vulkan_escape` 的 GUI 句柄方法（instance/physical device/device/queue/
   swapchain format）**可以在下一批删除**——只剩测试/spike 调用者需要迁移；这是上轮盘点里"设备/队列/帧
   句柄"退役路径的第一步。

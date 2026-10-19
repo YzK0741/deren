@@ -1058,10 +1058,6 @@ namespace deren::vulkan {
             }
             core* owner = nullptr;
 
-            [[nodiscard]] void* native_instance() const noexcept override;
-            [[nodiscard]] void* native_physical_device() const noexcept override;
-            [[nodiscard]] void* native_device() const noexcept override;
-            [[nodiscard]] void* native_queue() const noexcept override;
             [[nodiscard]] void* native_command_buffer(deren::promise::rhi::command_buffer& commands) const noexcept override;
             [[nodiscard]] std::span<char const* const> enabled_device_extensions() const noexcept override;
             /// BORROWED: the `VkBuffer` behind a contract buffer this backend handed out (nullptr when it
@@ -1076,7 +1072,6 @@ namespace deren::vulkan {
             /// CONTEXT because the engine builds its presentation-drawing pipelines before any frame
             /// exists (see the contract's own note on this accessor). `VK_FORMAT_UNDEFINED` when this
             /// core has no swapchain format yet.
-            [[nodiscard]] std::uint32_t native_swapchain_image_format() const noexcept override;
 
             /// abi 22's BASIC-HANDLE slots: the tagged basis token this backend hands out, the entry-point
             /// resolution that takes it back, and the shader-binding-table handle query. All three check the

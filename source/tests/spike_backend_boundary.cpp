@@ -66,10 +66,13 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vulkan/vulkan.h> // abi 40: the spike casts the contract's main context to the shared Vulkan layout
 
 import deren.utility.shared;
 import deren.promise.rhi;
 import deren.utility.dynamic_link;
+// abi 40: the native device handles come from the contract's opaque main context (the GUI plugin's path).
+import deren.vulkan.main_context;
 
 // After the imports it needs: the header names deren::promise::rhi types (see its own note).
 #include "../promise/rhi/backend_entry.hpp"
@@ -77,6 +80,15 @@ import deren.utility.dynamic_link;
 namespace {
 
     namespace rhi = deren::promise::rhi;
+
+    /// abi 40: the backend's native handles, through the same cast the GUI plugin uses.
+    [[nodiscard]] deren::vulkan::main_context const* vulkan_main(rhi::api_core& core) noexcept {
+        rhi::main_context* const context = core.main_context();
+        if (context == nullptr || !deren::vulkan::is_main_context(*context)) {
+            return nullptr;
+        }
+        return rhi::do_concrete<deren::vulkan::main_context>(*context, deren::vulkan::main_context_name);
+    }
 
     /// A MARK ON STDERR, UNBUFFERED AND FLUSHED, so a hang can be located.
     ///
@@ -314,10 +326,14 @@ namespace {
 
                 // The escape's whole promise is that these are the backend's LIVE handles, so a
                 // non-null answer is the check that the ability is servable rather than announced.
-                auto* const vulkan = static_cast<rhi::vulkan_escape*>(escape);
-                CHECK(vulkan->native_instance() != nullptr);
-                CHECK(vulkan->native_device() != nullptr);
-                CHECK(vulkan->native_queue() != nullptr);
+                auto const* const main_context = vulkan_main(*core);
+                CHECK(main_context != nullptr);
+                if (main_context != nullptr) {
+                    CHECK(main_context->instance != VK_NULL_HANDLE);
+                    CHECK(main_context->physical_device != VK_NULL_HANDLE);
+                    CHECK(main_context->device != VK_NULL_HANDLE);
+                    CHECK(main_context->graphics_queue != VK_NULL_HANDLE);
+                }
 
                 // The escape does NOT hand out proc addresses (deliberately, §3.4): the front end
                 // resolves `vkGetDeviceProcAddr` itself. The absence is part of the measured shape,

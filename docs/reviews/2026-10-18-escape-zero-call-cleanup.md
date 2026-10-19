@@ -46,7 +46,9 @@
 
 - GUI 插件依赖（`native_physical_device` 等）——要删得先给 GUI 插件一条不经过 escape 的路径；
 - 测试/spike 的 raw 校验依赖（`native_command_buffer` / 资源句柄 / `get_basis` 等）——需要把校验改成
-  可移植断言，或先补契约 verb（如 buffer fill/clear）；
+  可移植断言，或先补契约 verb（如 buffer fill/clear）；</br>
+  **ABI 40 已把设备/队列/实例/格式五个句柄方法退役**（测试与 spike 改 cast `main_context`），见
+  `2026-10-18-escape-device-handles.md`。
 - 其余（`enabled_device_extensions` 等）可随测试改造一起删。
 
 整体退役顺序仍按上轮盘点：legacy SBT → 原生继承结构 → 资源句柄 → 设备/队列/帧句柄 → 整个 extension。

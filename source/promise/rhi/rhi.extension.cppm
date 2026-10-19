@@ -745,14 +745,11 @@ export namespace deren::promise::rhi {
         [[nodiscard]] extension_kind kind() const noexcept final {
             return extension_id;
         }
-        /// VkInstance / VkPhysicalDevice / VkDevice / VkQueue as their own types. All four are
-        /// DISPATCHABLE handles (pointers), so `void*` carries them without naming a Vulkan type in the
-        /// contract. Null before the device exists; the context's lifetime covers them.
-        [[nodiscard]] virtual void* native_instance() const noexcept = 0;
-        [[nodiscard]] virtual void* native_physical_device() const noexcept = 0;
-        [[nodiscard]] virtual void* native_device() const noexcept = 0;
-        /// the queue the backend submits the frame's command buffer on
-        [[nodiscard]] virtual void* native_queue() const noexcept = 0;
+        // THE FOUR DEVICE/INSTANCE HANDLES AND THE SWAPCHAIN FORMAT ARE DELETED in abi 40. Their last
+        // non-test caller was the GUI plugin, which now gets the device root as the contract's OPAQUE
+        // `rhi::main_context` (abi 39) and casts it to the Vulkan layout the backend and plugin share.
+        // Tests that need a native device/queue do the same cast; the contract keeps only the escape slots
+        // whose callers still record raw API calls (`native_command_buffer`) or borrow resource handles.
 
         /// The PRIMARY command buffer of the frame `commands` belongs to, as VkCommandBuffer; nullptr
         /// when no frame is in flight. This is what lets an escaping pass record raw Vulkan into the
@@ -808,22 +805,6 @@ export namespace deren::promise::rhi {
         // `pass::shader_group_handles` moved to the portable `shader_group_access` and the pipeline/ray-tracing
         // builders became contract factories. The two slots were APPENDED in abi 8 and are dead vocabulary now;
         // the escape keeps only the handles something actually asks for.
-
-        /// The swapchain image's format AS THE BACKEND RESOLVED IT, as the integer `VkFormat` spells it.
-        ///
-        /// WHY IT IS ON THE CONTEXT RATHER THAN ASKED OF AN IMAGE: this is a SESSION-STABLE fact (the
-        /// surface's format does not change for a given surface), and the engine needs it BEFORE any
-        /// frame exists - the pipelines that render INTO the presentation image are created up front.
-        /// The image-based format query this could have been asked of was `native_image_format(image
-        /// const&)`, DELETED in abi 34 with the raw heap view path (the format it existed for is a
-        /// portable view now), and it could not answer before an acquire anyway: the only swapchain
-        /// image a caller can name is `api_core::frame_image()`, which is nullptr until then. This
-        /// session-stable accessor is the one format fact left; VK_FORMAT_UNDEFINED when the backend
-        /// has no swapchain (nothing presented yet, or the context was created without one).
-        ///
-        /// APPENDED IN ABI 17 with the contract-only runtime's merged slice (③-D/E step 2): a virtual on
-        /// an existing tier-2 interface, which is the case the abi number exists for.
-        [[nodiscard]] virtual std::uint32_t native_swapchain_image_format() const noexcept = 0;
 
         /// THE BASIS THIS ESCAPE HANDS OUT (abi 22), as the contract's tagged `api_basis` - see its own note for
         /// why the base carries no handle and no interface. A caller that has to pass "the device this work

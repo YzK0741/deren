@@ -4325,22 +4325,6 @@ namespace deren::vulkan {
 
     // ---- tier-2: vulkan_escape ---------------------------------------------------------------------
 
-    void* core::frame_escape::native_instance() const noexcept {
-        return reinterpret_cast<void*>(this->owner->instance);
-    }
-
-    void* core::frame_escape::native_physical_device() const noexcept {
-        return reinterpret_cast<void*>(this->owner->physical_device);
-    }
-
-    void* core::frame_escape::native_device() const noexcept {
-        return reinterpret_cast<void*>(this->owner->logical_device);
-    }
-
-    void* core::frame_escape::native_queue() const noexcept {
-        return reinterpret_cast<void*>(this->owner->graphics_queue_handle);
-    }
-
     void* core::frame_escape::native_command_buffer(rhi::command_buffer& commands) const noexcept {
         // THE SAME WINDOW `begin_commands()` ANSWERS IN for the FRAME's list: outside the frame there is
         // no command buffer to name, and answering with "the slot that would be next" would be a lie an
@@ -4415,17 +4399,6 @@ namespace deren::vulkan {
     void* core::frame_escape::native_sampler(rhi::sampler const& resource) const noexcept {
         auto const* const owned = static_cast<owned_sampler const*>(&resource);
         return reinterpret_cast<void*>(owned->native_sampler_handle);
-    }
-
-    std::uint32_t core::frame_escape::native_swapchain_image_format() const noexcept {
-        // abi 17 (③-D/E step 2): the SESSION-STABLE surface format, answerable before any frame exists -
-        // the pipelines that render INTO the presentation image are created before the first acquire. The
-        // image-based query this could have been asked of was `native_image_format(image const&)`, removed
-        // in abi 34 with the raw heap view path; it could not answer before an acquire anyway (the only
-        // swapchain image a caller can name is the borrowed `frame_image()`, nullptr until then). UNDEFINED
-        // before the swapchain is built; the engine creates its overlay and presentation pipelines after
-        // construction, so they see the real value.
-        return static_cast<std::uint32_t>(this->owner->swap_chain_image_format);
     }
 
     // ---- abi 22: the BASIC-HANDLE basis ------------------------------------------------------------

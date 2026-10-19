@@ -52,11 +52,26 @@ import deren.engine.render_resource.instances;
 import deren.engine.ray_tracing;
 import deren.engine.pass.mask_bake;
 import deren.engine.render_environment;
+// abi 40: native device/queue come from the contract's opaque main context, cast through the shared layout.
+import deren.vulkan.main_context;
 
 // After the imports it needs: the header names deren::promise::rhi types (see its own note).
 #include "../promise/rhi/backend_entry.hpp"
 #include "raster_probe.hpp"
 #include "rt_traversal_probe.hpp"
+
+namespace {
+    /// abi 40: a TEST gets a native device/queue the same way the GUI plugin does - the contract's opaque
+    /// `main_context` cast to the Vulkan layout the backend and GUI plugin share. nullptr when the context is
+    /// absent or is not this backend's (the tests below use a real backend, so it never is).
+    [[nodiscard]] deren::vulkan::main_context const* vulkan_main(rhi::api_core& core) noexcept {
+        rhi::main_context* const context = core.main_context();
+        if (context == nullptr || !deren::vulkan::is_main_context(*context)) {
+            return nullptr;
+        }
+        return rhi::do_concrete<deren::vulkan::main_context>(*context, deren::vulkan::main_context_name);
+    }
+} // namespace
 
 namespace {
     struct managed_structure final : rhi::acceleration_structure {
@@ -581,7 +596,7 @@ int main(int const argc, char** const argv) {
     deren::vk_test::write_line("as_probe: this executable compiled abi {}", rhi::abi_version);
     // ABI34: the native-vocabulary cleanup removed a virtual from vulkan_escape (vtable shift), so the
     // handshake number moved with it.
-    CHECK(rhi::abi_version == 39u);
+    CHECK(rhi::abi_version == 40u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("as_probe: device path skipped (pass --with-device to run the real instrument)");
@@ -878,9 +893,12 @@ int main(int const argc, char** const argv) {
 
     // ---- 6. THE SUBMISSION, THROUGH THE ESCAPE (plan X4's second item: the contract has no submit verb for a
     //         buffer the CALLER owns, which is why this is still a raw pair here).
+    deren::vulkan::main_context const* const main_context = vulkan_main(*core);
     {
-        VkDevice const device = static_cast<VkDevice>(escape->native_device());
-        VkQueue const queue = static_cast<VkQueue>(escape->native_queue());
+        CHECK(main_context != nullptr);
+        CHECK(main_context != nullptr);
+        VkDevice const device = main_context != nullptr ? main_context->device : VK_NULL_HANDLE;
+        VkQueue const queue = main_context != nullptr ? main_context->graphics_queue : VK_NULL_HANDLE;
         VkFenceCreateInfo const fence_info{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = 0};
         VkFence fence = VK_NULL_HANDLE;
         CHECK(vkCreateFence(device, &fence_info, nullptr, &fence) == VK_SUCCESS);
@@ -903,7 +921,9 @@ int main(int const argc, char** const argv) {
     for (int index = 1; index < argc; ++index) {
         native_heap = native_heap || std::string_view(argv[index]) == "--native-heap-traversal";
     }
-    check_rt_traversal(*core, *escape, *addresses, *capabilities, *blas, *tlas, argv[0], native_heap);
+    if (main_context != nullptr) {
+        check_rt_traversal(*core, *escape, *main_context, *addresses, *capabilities, *blas, *tlas, argv[0], native_heap);
+    }
 
     blas->release();
     static_blas->release();

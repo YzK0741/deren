@@ -334,6 +334,12 @@ export namespace deren::promise::rhi {
     // an APPENDED target (`heap_bind_info::mergeable_commands` / `heap_push_info::mergeable_commands`):
     // a mergeable segment publishes its binding/push data through the same ability as a command_buffer,
     // one target of the two set. Existing fields, slots and meanings do not move.
+    // ABI 40 RETIRES THE ESCAPE'S DEVICE HANDLES: `native_instance()` / `native_physical_device()` /
+    // `native_device()` / `native_queue()` / `native_swapchain_image_format()` are DELETED. Their last
+    // non-test caller was the GUI plugin, which now receives the OPAQUE `rhi::main_context` (abi 39) and
+    // casts it to its API's shared layout; the tests/spike that still needed a native device/queue do the
+    // same. Removing virtuals from an existing tier-2 interface shifts every slot after them: that is the
+    // number. `native_command_buffer` and the resource-handle borrows stay (raw recording/verification).
     // ABI 39 INTRODUCES THE MAIN-THREAD CONTEXT: `rhi::main_context` (an OPAQUE handle carrying only the
     // concrete-identity tag) and the appended `api_core::main_context()` virtual that answers it. It is
     // the contract's answer to "a non-engine consumer needs the API handles": one opaque hand-off the
@@ -356,7 +362,7 @@ export namespace deren::promise::rhi {
     // operation). They live here because EVERY backend needs the same "check the concrete name, then
     // cast to the concrete layout" pair, and one copy is what keeps the next backend from reinventing
     // it (or from weakening the panic/refusal split its own doc states).
-    inline constexpr std::uint32_t abi_version = 39u;
+    inline constexpr std::uint32_t abi_version = 40u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

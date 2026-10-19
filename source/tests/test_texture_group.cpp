@@ -12,16 +12,34 @@
 import deren.utility.shared;
 import deren.promise.rhi;
 import deren.engine.backend_loader;
+// abi 40: the native handles now come from the contract's opaque main context, cast through the shared
+// Vulkan layout (the same path the GUI plugin uses).
+import deren.vulkan.main_context;
 namespace rhi = deren::promise::rhi;
+
+namespace {
+    /// abi 40: a TEST gets a native device/queue the same way the GUI plugin does - the contract's opaque
+    /// `main_context` cast to the Vulkan layout the backend and GUI plugin share. nullptr when the context is
+    /// absent or is not this backend's (the tests below use a real backend, so it never is).
+    [[nodiscard]] deren::vulkan::main_context const* vulkan_main(rhi::api_core& core) noexcept {
+        rhi::main_context* const context = core.main_context();
+        if (context == nullptr || !deren::vulkan::is_main_context(*context)) {
+            return nullptr;
+        }
+        return rhi::do_concrete<deren::vulkan::main_context>(*context, deren::vulkan::main_context_name);
+    }
+} // namespace
 
 struct queue_gate {
     rhi::api_core& core;
     VkDevice device;
+    VkQueue queue = VK_NULL_HANDLE;
     VkSemaphore semaphore = VK_NULL_HANDLE;
     bool armed = false;
-    queue_gate(rhi::api_core& context, rhi::vulkan_escape& escape)
+    queue_gate(rhi::api_core& context, VkDevice const device_, VkQueue const queue)
         : core(context)
-        , device(static_cast<VkDevice>(escape.native_device())) {
+        , device(device_)
+        , queue(queue) {
         VkSemaphoreTypeCreateInfo type{};
         type.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
         type.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
@@ -43,7 +61,7 @@ struct queue_gate {
         wait.waitSemaphoreCount = 1;
         wait.pWaitSemaphores = &semaphore;
         wait.pWaitDstStageMask = &stage;
-        armed = vkQueueSubmit(static_cast<VkQueue>(escape.native_queue()), 1, &wait, VK_NULL_HANDLE) == VK_SUCCESS;
+        armed = vkQueueSubmit(queue, 1, &wait, VK_NULL_HANDLE) == VK_SUCCESS;
         CHECK(armed);
     }
     void release() {
@@ -64,7 +82,7 @@ struct queue_gate {
     }
 };
 
-void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape) {
+void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape, deren::vulkan::main_context const& main_context) {
     std::ifstream input(VR_TEXTURE_GROUP_SHADER_PATH, std::ios::binary | std::ios::ate);
     CHECK(input.good());
     if (!input.good())
@@ -201,7 +219,7 @@ void test_heap_sampling(rhi::api_core& core, rhi::vulkan_escape& escape) {
     rhi::texture_group_info extra_info{};
     extra_info.textures[0] = extra_image.get();
     std::weak_ptr<rhi::texture_group> lifetime_a = group_a, lifetime_b = group_b;
-    queue_gate gate(core, escape);
+    queue_gate gate(core, main_context.device, main_context.graphics_queue);
     CHECK(core.submit(*submitted) == rhi::error::ok);
     group_a.reset();
     group_b.reset();
@@ -314,11 +332,13 @@ int main(int argc, char** argv) {
         return deren::vk_test::finish("test_texture_group");
     auto* escape = rhi::query_extension<rhi::vulkan_escape>(*core);
     CHECK(escape);
-    if (!escape)
+    deren::vulkan::main_context const* const main_context = vulkan_main(*core);
+    CHECK(main_context != nullptr);
+    if (!escape || main_context == nullptr)
         return deren::vk_test::finish("test_texture_group");
-    auto device = static_cast<VkDevice>(escape->native_device());
-    auto queue = static_cast<VkQueue>(escape->native_queue());
-    test_heap_sampling(*core, *escape);
+    VkDevice const device = main_context->device;
+    VkQueue const queue = main_context->graphics_queue;
+    test_heap_sampling(*core, *escape, *main_context);
     rhi::object_manager<rhi::buffer> output{core->create_buffer({.size = 4, .usage = rhi::buffer_usage::readback_coherent})};
     auto primary = core->make_command_buffer({});
     CHECK(output && primary);

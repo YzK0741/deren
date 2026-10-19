@@ -124,8 +124,10 @@ A backend is not asked what it is; it is asked what it can do.
 * **Abilities** are the coarse tier: `abilities()` answers a set of bits (mesh shaders, a descriptor
   heap, ...). The engine asks and keeps compiling when an answer is "no".
 * **Extensions** are the optional interfaces behind those bits: `query_extension<T>()` hands one out or
-  nothing. The raw-handle escape (`vulkan_escape`), the device facts (`device_capabilities`) and the
-  shader-group access are the ones this build uses.
+  nothing. The device facts (`device_capabilities`) and the shader-group access are what the engine itself
+  uses; the raw-handle escape (`vulkan_escape`) survives for the GUI plugin's per-frame native command
+  buffer and for the tests' raw verification, and its device handles are gone (abi 40 - the GUI takes them
+  through `rhi::main_context`, abi 39).
 * **A fact the engine needs is an answer, not a native query.** A graphics-API concept appearing in the
   engine is a contract gap: it gets an ability or a tier-1 object, never an `escape()` call and never a
   native type.

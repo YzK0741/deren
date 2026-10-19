@@ -8,6 +8,7 @@
 // queue to submit caller-owned commands; resource creation and recording stay on the RHI surface.
 static void check_rt_traversal(deren::promise::rhi::api_core& core,
                                deren::promise::rhi::vulkan_escape& escape,
+                               deren::vulkan::main_context const& main_context,
                                deren::promise::rhi::device_address& addresses,
                                deren::promise::rhi::device_capabilities& capabilities,
                                deren::promise::rhi::acceleration_structure& blas,
@@ -146,7 +147,7 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
         commands->trace_rays(region(aligned), region(aligned + stride), region(aligned + 2 * stride), {}, 3, 1, 1);
     }
     if (!checked(commands->end_recording())) { return; }
-    VkDevice const device = static_cast<VkDevice>(escape.native_device());
+    VkDevice const device = main_context.device;
     auto const native = static_cast<VkCommandBuffer>(escape.native_command_buffer(*commands));
     VkFenceCreateInfo fence_info{};
     fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
@@ -158,7 +159,7 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
     submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &native;
-    VkResult const submitted = vkQueueSubmit(static_cast<VkQueue>(escape.native_queue()), 1, &submit, fence);
+    VkResult const submitted = vkQueueSubmit(main_context.graphics_queue, 1, &submit, fence);
     CHECK(submitted == VK_SUCCESS);
     VkResult const waited = submitted == VK_SUCCESS ? vkWaitForFences(device, 1, &fence, VK_TRUE, 10'000'000'000ull) : submitted;
     CHECK(waited == VK_SUCCESS);

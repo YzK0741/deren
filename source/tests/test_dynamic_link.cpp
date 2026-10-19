@@ -354,7 +354,12 @@ namespace {
         // existing tier-1 interface, with a default body answering nullptr. It is the contract's one hand-off
         // of main-thread device state to an API-specific consumer (the GUI plugin), which casts it to the
         // layout its API's plugin and backend share; no native vocabulary enters this contract.
-        CHECK(rhi::abi_version == 39u);
+        // ABI40 retires the escape's DEVICE HANDLES: native_instance / native_physical_device / native_device /
+        // native_queue / native_swapchain_image_format are DELETED. The GUI plugin receives the main context
+        // instead, and the tests/spike that still submitted raw commands (test_texture_group, the
+        // acceleration-structure probe and the boundary spike) cast the same context through the shared Vulkan
+        // layout - so the escape keeps only native_command_buffer and the resource-handle borrows.
+        CHECK(rhi::abi_version == 40u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 

@@ -1626,6 +1626,7 @@ if(VR_BUILD_TESTS)
             promise
             static_utility
             vstd_lib
+            vulkan_main_context
     )
     # The library the test opens has to exist first, or the run reports a loader error as a test
     # failure (the same rule test_dynamic_link lives by).
@@ -1658,7 +1659,7 @@ add_dependencies(test_runtime_dyn deren_vulkan)
 
 # Device-only texture-group and submission-lifetime probe, outside headless CTest.
 add_executable(test_texture_group source/tests/test_texture_group.cpp)
-target_link_libraries(test_texture_group backend_loader promise static_utility vstd_lib Vulkan::Vulkan)
+target_link_libraries(test_texture_group backend_loader promise static_utility vstd_lib vulkan_main_context Vulkan::Vulkan)
 add_dependencies(test_texture_group deren_vulkan)
 
 # ---- THE ACCELERATION-STRUCTURE DEVICE PROBE (plan S1's P0) ------------------------------------------
@@ -1676,6 +1677,7 @@ target_link_libraries(test_acceleration_structures
         promise
         static_utility
         vstd_lib
+        vulkan_main_context # abi 40: the shared Vulkan layout the main context is cast through
 )
 # Same build-order rule again: this probe resolves deren_vulkan.dll at run time (it does not link it).
 add_dependencies(test_acceleration_structures deren_vulkan)

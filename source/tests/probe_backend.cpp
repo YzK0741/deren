@@ -218,8 +218,7 @@ namespace {
     };
 
     /// THE PROBE'S ESCAPE (abi 19's injection test needs it): the engine's runtime asks the escape
-    /// for facts it cannot get anywhere else - the presentation image's FORMAT before a frame is
-    /// acquired (`native_swapchain_image_format`), the enabled device extensions (the backend's own
+    /// for facts it cannot get anywhere else - the enabled device extensions (the backend's own
     /// gate for ray query / mesh shaders), and the raw handles the frame path borrows.
     ///
     /// THE HANDLES ARE NULL AND THAT IS THE HONEST ANSWER: a probe has no instance, device or queue,
@@ -231,18 +230,6 @@ namespace {
     struct probe_escape final : rhi::vulkan_escape {
         probe_escape() noexcept
             : rhi::vulkan_escape("deren_vulkan_escape_probe") {
-        }
-        [[nodiscard]] void* native_instance() const noexcept override {
-            return nullptr;
-        }
-        [[nodiscard]] void* native_physical_device() const noexcept override {
-            return nullptr;
-        }
-        [[nodiscard]] void* native_device() const noexcept override {
-            return nullptr;
-        }
-        [[nodiscard]] void* native_queue() const noexcept override {
-            return nullptr;
         }
         [[nodiscard]] void* native_command_buffer(rhi::command_buffer&) const noexcept override {
             return nullptr;
@@ -263,18 +250,6 @@ namespace {
             return nullptr;
         }
 
-        /// THE ONE NON-NULL ANSWER, and the reason the engine's runtime can ask this at all before a
-        /// frame exists (abi 17): the presentation image's format is a session-stable fact, and the
-        /// probe has to name SOMETHING for it. `VK_FORMAT_B8G8R8A8_UNORM` = 44 is the value a Vulkan
-        /// backend would report for the common swapchain; the number is not a promise about pixels.
-        [[nodiscard]] std::uint32_t native_swapchain_image_format() const noexcept override {
-            return static_cast<std::uint32_t>(probe_image_format);
-        }
-        /// abi 22's BASIC-HANDLE slots, answered the way a DEVICE-LESS probe must: it has no basis to hand out
-        /// (null), and the method that takes one writes no handle. A pass that reaches it through this face
-        /// therefore takes its own documented "unavailable" path instead of recording against a device that is not
-        /// there, which is exactly what the probe is for: the boundary, witnessed with no GPU behind it.
-        /// (abi 24 removed the `device_proc` slot this class used to answer with "no entry point".)
         [[nodiscard]] rhi::api_basis* get_basis() const noexcept override {
             return nullptr;
         }
@@ -284,9 +259,6 @@ namespace {
         [[nodiscard]] bool shader_group_handles(rhi::api_basis&, rhi::pipeline const&, std::uint32_t, std::uint32_t, std::span<std::uint8_t>) const noexcept override {
             return false;
         }
-
-        /// B8G8R8A8_UNORM, as the contract's `std::uint32_t` spelling of a VkFormat.
-        static constexpr int probe_image_format = 44;
     };
 
     /// The probe's frame ring: two virtual slots, one cursor, and an open that echoes the creation
