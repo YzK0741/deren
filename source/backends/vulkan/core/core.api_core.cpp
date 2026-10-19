@@ -2241,7 +2241,13 @@ namespace deren::vulkan {
         // heap face is ACTIVE: a device without VK_EXT_descriptor_heap leaves both heaps unusable, the
         // bind infos stay zero, and chaining a heap the device never got would be worse than leaving it
         // out - the same "the heap is simply unused" state every other heap path in this file accepts.
-        if (this->owner->descriptor_heaps.ready() && (inherits || rhi::has_flag(usage, rhi::command_buffer_usage::render_pass_continue))) {
+        bool inherit_descriptor_heaps = true;
+        if (covered_by(declared_info.struct_size, offsetof(rhi::command_buffer_begin_info, inherit_descriptor_heaps),
+                       sizeof(rhi::command_buffer_begin_info::inherit_descriptor_heaps))) {
+            inherit_descriptor_heaps = declared_info.inherit_descriptor_heaps;
+        }
+        if (inherit_descriptor_heaps && this->owner->descriptor_heaps.ready() &&
+            (inherits || rhi::has_flag(usage, rhi::command_buffer_usage::render_pass_continue))) {
             this->owner->descriptor_heaps.bind_infos(resource_bind, sampler_bind);
             heap_inheritance = VkCommandBufferInheritanceDescriptorHeapInfoEXT{
                 .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_DESCRIPTOR_HEAP_INFO_EXT,

@@ -602,9 +602,56 @@ export namespace deren::engine::pass {
      * it (see `runtime::overlay_draw`), the chain owner hands it to the passes that may be the frame's last
      * writer, and each of those decides for itself whether it is the one that draws it.
      */
+    /// THE RENDERING-INSTANCE INHERITANCE an overlay segment records under: one colour attachment (the
+    /// target the pass just wrote) and no depth - the three overlay hosts are full-screen composite/FXAA/
+    /// upscale passes with exactly that scope. The attachments are named in the CONTRACT's vocabulary, so the
+    /// backend derives the native formats itself.
+    struct overlay_begin {
+        deren::utility::vessel::array<deren::promise::rhi::image_format, 8> color_formats = {};
+        deren::promise::rhi::command_buffer_inheritance_info inheritance = {};
+        deren::promise::rhi::command_buffer_begin_info begin = {};
+    };
+    [[nodiscard]] inline overlay_begin make_overlay_begin(deren::promise::rhi::rendering_info const& rendering,
+                                                          deren::promise::rhi::image_format const color_format) noexcept {
+        overlay_begin result;
+        std::uint32_t count = 0;
+        for (deren::promise::rhi::color_attachment const& color : rendering.colors) {
+            if (color.view == nullptr || count >= result.color_formats.size()) {
+                break;
+            }
+            result.color_formats[count++] = color_format;
+        }
+        result.inheritance = deren::promise::rhi::command_buffer_inheritance_info{
+            .color_format_count = count,
+            .color_formats = result.color_formats.data(),
+            .depth_format = rendering.has_depth ? deren::promise::rhi::image_format::depth : deren::promise::rhi::image_format::unknown,
+            .samples = 1,
+            .view_mask = 0,
+        };
+        result.begin = deren::promise::rhi::command_buffer_begin_info{
+            .struct_size = sizeof(deren::promise::rhi::command_buffer_begin_info),
+            .usage = deren::promise::rhi::to_bits(deren::promise::rhi::command_buffer_usage::render_pass_continue),
+            .next = &result.inheritance.header,
+            // the third-party recorder binds its OWN descriptor sets; inheriting the frame's heap binds
+            // would make every one of those binds trip VUID-...-11295/11296
+            .inherit_descriptor_heaps = false,
+        };
+        return result;
+    }
+
     struct draw_callback {
-        /// the host's function; null means "nothing to draw after this pass"
-        void (*record)(void* owner, deren::promise::rhi::command_buffer& command_buffer) = nullptr;
+        /// the host's function; null means "nothing to draw after this pass". @p begin is the inheritance
+        /// of the rendering instance the pass has OPEN: the overlay records its own segment under it and the
+        /// host executes the segment inside that same instance.
+        void (*record)(void* owner, deren::promise::rhi::command_buffer& command_buffer,
+                       deren::promise::rhi::command_buffer_begin_info const& begin) = nullptr;
+        /// THE EXECUTION HALF, called AFTER the pass's own rendering instance ended: the host begins a
+        /// secondary-contents rendering instance over the same attachments (LOAD, no clear), executes the
+        /// segment recorded by @c record and ends it. The split is Vulkan's: a render instance begun with
+        /// CONTENTS_SECONDARY_COMMAND_BUFFERS may contain no primary draws, so the overlay cannot share the
+        /// pass's instance once its draw goes into a segment.
+        void (*finish)(void* owner, deren::promise::rhi::command_buffer& command_buffer,
+                       deren::promise::rhi::rendering_info const& rendering) = nullptr;
         /// what it is called with (the host's own context)
         void* owner = nullptr;
 

@@ -236,9 +236,15 @@ namespace deren::engine::pass {
         // last writer instead, which its own frame decided in prepare_frame). The overlay records RAW (its
         // third-party recorder is not a contract consumer), which is why io.cmd stays beside the list.
         if (this->pass_frame.after_draw.valid()) {
-            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, *io.cmd);
+            auto const overlay_begin = pass::make_overlay_begin(
+                rendering_info, io.targets[0].image_handle != nullptr ? io.targets[0].image_handle->format()
+                                                                      : deren::promise::rhi::image_format::unknown);
+            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, *io.cmd, overlay_begin.begin);
         }
         io.list->end_rendering();
+        if (this->pass_frame.after_draw.valid() && this->pass_frame.after_draw.finish != nullptr) {
+            this->pass_frame.after_draw.finish(this->pass_frame.after_draw.owner, *io.cmd, rendering_info);
+        }
         return rhi::error::ok;
     }
 

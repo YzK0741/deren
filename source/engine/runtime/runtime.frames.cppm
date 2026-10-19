@@ -2597,7 +2597,9 @@ namespace deren::engine {
     pass::draw_callback runtime::overlay_draw() const noexcept {
         // The trampoline takes the owner as an ARGUMENT rather than using `this`, so the address is a plain
         // function pointer and the hook is one value (see pass::draw_callback).
-        return pass::draw_callback{.record = &runtime::draw_overlay_after, .owner = const_cast<runtime*>(this)};
+        return pass::draw_callback{.record = &runtime::draw_overlay_after,
+                                   .finish = &runtime::finish_overlay_after,
+                                   .owner = const_cast<runtime*>(this)};
     }
 
     pass::frame_facts runtime::make_frame_facts() const noexcept {
@@ -3038,10 +3040,56 @@ namespace deren::engine {
     // the command stream, because the stages carry no marks of their own (`make_pass_host` leaves the mark pair
     // null), so nothing is emitted between them.
 
-    void runtime::record_overlay_if_enabled(rhi::command_buffer& commands) {
-        if (this->debug_gui_shown && this->debug_overlay != nullptr && this->debug_overlay->is_active()) {
-            this->debug_overlay->record(commands);
+    void runtime::record_overlay_if_enabled(rhi::command_buffer& commands,
+                                            rhi::command_buffer_begin_info const& begin) {
+        (void)commands;
+        this->overlay_segment = {};
+        if (!this->debug_gui_shown || this->debug_overlay == nullptr || !this->debug_overlay->is_active()) {
+            return;
         }
+        // THE OVERLAY RECORDS ITS OWN SEGMENT (abi 5): the plugin starts one of the two mergeable targets under
+        // the caller's instance inheritance, records ImGui into it and hands it back. EXECUTION IS THE OTHER
+        // HALF (finish_overlay_if_enabled): Vulkan forbids primary draws in an instance begun with
+        // CONTENTS_SECONDARY_COMMAND_BUFFERS, so the segment gets its own instance after the pass's ends.
+        this->overlay_segment = this->debug_overlay->record(begin);
+    }
+
+    void runtime::finish_overlay_if_enabled(rhi::command_buffer& commands, rhi::rendering_info const& rendering) {
+        if (!this->overlay_segment) {
+            return;
+        }
+        // THE OVERLAY'S OWN INSTANCE: the same attachments as the pass just drew, LOADed (the overlay composites
+        // on top and has no clear of its own), and marked as SECONDARY CONTENTS - the only way a dynamic-rendering
+        // instance may contain vkCmdExecuteCommands. The pass's own instance stayed flag-free for its draw.
+        deren::utility::vessel::array<rhi::color_attachment, 8> colors = {};
+        std::uint32_t color_count = 0;
+        for (rhi::color_attachment const& color : rendering.colors) {
+            if (color_count >= colors.size()) {
+                break;
+            }
+            colors[color_count++] = color;
+            colors[color_count - 1].load = rhi::load_op::load;
+        }
+        rhi::rendering_info const overlay_rendering{
+            .struct_size = sizeof(rhi::rendering_info),
+            .area = rendering.area,
+            .layer_count = rendering.layer_count,
+            .colors = std::span<rhi::color_attachment const>{colors.data(), color_count},
+            .depth = {},
+            .has_depth = false,
+            .secondary_contents = true,
+        };
+        if (commands.begin_rendering(overlay_rendering) != rhi::error::ok) {
+            deren::utility::log("gui overlay: the backend refused the overlay's rendering instance");
+            this->overlay_segment = {};
+            return;
+        }
+        rhi::mergeable_command_buffer_ref const segments[1] = {this->overlay_segment};
+        if (commands.execute(std::span<rhi::mergeable_command_buffer_ref const>{segments}) != rhi::error::ok) {
+            deren::utility::log("gui overlay: the recorded segment was refused by the frame's command buffer");
+        }
+        commands.end_rendering();
+        this->overlay_segment = {};
     }
 
     // =============================================================================================
@@ -3093,14 +3141,21 @@ namespace deren::engine {
         return this->render_scale < 1.0f && this->pass_ready("upscale");
     }
 
-    void runtime::draw_overlay_after(void* const owner, deren::promise::rhi::command_buffer& commands) {
+    void runtime::finish_overlay_after(void* const owner, deren::promise::rhi::command_buffer& commands,
+                                       deren::promise::rhi::rendering_info const& rendering) {
+        runtime& self = *static_cast<runtime*>(owner);
+        self.finish_overlay_if_enabled(commands, rendering);
+    }
+
+    void runtime::draw_overlay_after(void* const owner, deren::promise::rhi::command_buffer& commands,
+                                     deren::promise::rhi::command_buffer_begin_info const& begin) {
         // The composite's frame carries this as a plain function pointer (a pass records into what it is given and
         // knows nothing about this class), so the member is reached through the context that frame also holds.
         // THE ARCHITECTURE LINE (abi 20): the pass hands the CONTRACT buffer, and the third-party overlay's own
         // recorder - which is not a contract consumer - receives the native handle derived HERE, once, through the
         // same unwrap path every other raw step uses.
         runtime& self = *static_cast<runtime*>(owner);
-        self.record_overlay_if_enabled(commands);
+        self.record_overlay_if_enabled(commands, begin);
     }
 
     // =============================================================================================

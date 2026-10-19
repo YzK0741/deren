@@ -338,6 +338,12 @@ export namespace deren::promise::rhi {
     // an APPENDED target (`heap_bind_info::mergeable_commands` / `heap_push_info::mergeable_commands`):
     // a mergeable segment publishes its binding/push data through the same ability as a command_buffer,
     // one target of the two set. Existing fields, slots and meanings do not move.
+    // ABI 45 APPENDS ONE FIELD TO `command_buffer_begin_info`: `inherit_descriptor_heaps` (default true). The
+    // GUI overlay records ITS OWN mergeable segment now, and the Dear ImGui Vulkan backend binds its own classic
+    // descriptor sets - so the backend must be able to start that segment WITHOUT chaining the engine's
+    // descriptor-heap inheritance (a heap-inheriting continuation makes every ImGui bind trip VUID-...-11295/96).
+    // The field is APPENDED to a by-value POD, so it is a number move; the default keeps every existing caller's
+    // meaning, and a caller compiled before the field simply gets the default.
     // ABI 44 PUTS THE SHARED RHI OWNERSHIP ON THE CONTRACT\'S OWN CONTAINER: every shared RHI handle the
     // contract returns is `shared_object<T>` (one control block; the factory reference dropped exactly once
     // at the last copy) instead of `std::shared_ptr<T>`: `image::share()`, `image_view::get_image()`,
@@ -399,7 +405,7 @@ export namespace deren::promise::rhi {
     // operation). They live here because EVERY backend needs the same "check the concrete name, then
     // cast to the concrete layout" pair, and one copy is what keeps the next backend from reinventing
     // it (or from weakening the panic/refusal split its own doc states).
-    inline constexpr std::uint32_t abi_version = 44u;
+    inline constexpr std::uint32_t abi_version = 45u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

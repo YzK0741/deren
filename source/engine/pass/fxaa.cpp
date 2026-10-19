@@ -160,9 +160,15 @@ namespace deren::engine::pass {
         // so the overlay belongs here - drawing it in the composite's instance instead would let the edge filter
         // blur the UI text into mush (see fxaa_frame::after_draw, and the composite's frame for the other case).
         if (this->pass_frame.after_draw.valid()) {
-            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, *io.cmd);
+            auto const overlay_begin = pass::make_overlay_begin(
+                rendering_info, io.targets[0].image_handle != nullptr ? io.targets[0].image_handle->format()
+                                                                      : deren::promise::rhi::image_format::unknown);
+            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, *io.cmd, overlay_begin.begin);
         }
         io.list->end_rendering();
+        if (this->pass_frame.after_draw.valid() && this->pass_frame.after_draw.finish != nullptr) {
+            this->pass_frame.after_draw.finish(this->pass_frame.after_draw.owner, *io.cmd, rendering_info);
+        }
         return rhi::error::ok;
     }
 

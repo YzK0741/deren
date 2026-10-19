@@ -138,7 +138,7 @@ namespace deren::vulkan::gui {
 
             [[nodiscard]] bool init(deren::gui::create_info const& info) override {
                 if (info.struct_size < sizeof(info)) {
-                    deren::utility::log("gui plugin: the create_info prefix is too short for GUI ABI4");
+                    deren::utility::log("gui plugin: the create_info prefix is too short for GUI ABI5");
                     return false;
                 }
                 if (this->content.is_active()) {
@@ -165,6 +165,15 @@ namespace deren::vulkan::gui {
                 if (context->core == nullptr || context->core->api_version() != rhi::abi_version) {
                     deren::utility::log("gui plugin: no compatible RHI device root in the main context");
                     return false;
+                }
+                // THE OVERLAY'S OWN RECORDING TARGETS (abi 5): the host created these through the contract and
+                // handed them over; the plugin holds them for the session and records into them.
+                for (std::size_t index = 0; index < 2; ++index) {
+                    this->recording_targets[index] = info.recording_targets[index];
+                    if (!this->recording_targets[index]) {
+                        deren::utility::log("gui plugin: create_info did not carry two recording targets");
+                        return false;
+                    }
                 }
                 gui_create_info translated = {};
                 translated.window = info.window;
@@ -237,20 +246,38 @@ namespace deren::vulkan::gui {
             void new_frame() const override {
                 this->content.new_frame();
             }
-            void record(deren::promise::rhi::command_buffer& commands) override {
-                // abi 43: the target arrives as the RHI type; this Vulkan plugin checks the concrete tag,
-                // casts the handle to the Vulkan class and asks it for the native handle - no conversion
-                // callback, no ownership layer.
-                if (!deren::vulkan::is_command_buffer(commands)) {
-                    deren::utility::log("gui plugin: the command buffer does not belong to this device");
-                    return;
+            [[nodiscard]] deren::promise::rhi::mergeable_command_buffer_ref record(
+                deren::promise::rhi::command_buffer_begin_info const& begin) override {
+                // abi 5: the overlay OWNS its recording targets. The host created the two mergeable segments,
+                // this plugin holds them and alternates; each frame it starts the CURRENT one under the
+                // host's instance inheritance, asks the shared Vulkan class for the native target (`get()`),
+                // records ImGui, ends the segment and hands it back for the host to execute in-place.
+                auto& target = this->recording_targets[this->recording_index];
+                if (!target) {
+                    deren::utility::log("gui plugin: no recording target was handed over");
+                    return {};
                 }
-                auto const native = static_cast<deren::vulkan::command_buffer const&>(commands).get();
+                if (!deren::vulkan::is_mergeable_command_buffer(*target)) {
+                    deren::utility::log("gui plugin: the recording target does not belong to this device");
+                    return {};
+                }
+                if (target->begin_recording(begin) != deren::promise::rhi::error::ok) {
+                    deren::utility::log("gui plugin: the recording target is still in flight - the overlay is skipped this frame");
+                    return {};
+                }
+                auto const native = static_cast<deren::vulkan::mergeable_command_buffer const&>(*target).get();
                 if (native == VK_NULL_HANDLE) {
-                    deren::utility::log("gui plugin: the recording target names no frame in flight");
-                    return;
+                    (void)target->end_recording();
+                    deren::utility::log("gui plugin: the recording target names no native command buffer");
+                    return {};
                 }
                 this->content.record(native);
+                if (target->end_recording() != deren::promise::rhi::error::ok) {
+                    deren::utility::log("gui plugin: ending the overlay's recording segment failed");
+                    return {};
+                }
+                this->recording_index = (this->recording_index + 1u) % 2u;
+                return target;
             }
             void on_swapchain_recreated() const override {
                 this->content.on_swapchain_recreated();
@@ -259,6 +286,10 @@ namespace deren::vulkan::gui {
         private:
             gui_content content;
             bool platform_ready = false;
+            /// THE OVERLAY'S OWN RECORDING TARGETS (abi 5): two mergeable segments the host created and the
+            /// overlay alternates between - the frame's slot ring makes alternating reuse safe.
+            deren::promise::rhi::mergeable_command_buffer_ref recording_targets[2] = {};
+            std::uint32_t recording_index = 0;
             /// One stable owned node per panel; erasure destroys only the removed adapter.
             detail::panel_adapter_storage<panel_adapter> panels;
         };
@@ -275,7 +306,7 @@ extern "C" DEREN_API_EXPORT std::shared_ptr<deren::gui::overlay> deren_make_gui(
         return {};
     }
     if (info->struct_size < sizeof(deren::gui::create_info)) {
-        deren::utility::log("gui plugin: the create_info prefix is too short for GUI ABI4");
+        deren::utility::log("gui plugin: the create_info prefix is too short for GUI ABI5");
         return {};
     }
     std::shared_ptr<deren::gui::overlay> overlay = std::make_shared<deren::vulkan::gui::overlay_adapter>();

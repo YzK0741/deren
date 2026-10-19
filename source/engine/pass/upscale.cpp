@@ -214,9 +214,15 @@ namespace deren::engine::pass {
         // render-extent LDR image this pass is about to resample, so a UI drawn there would be scaled up with
         // the scene (see upscale_frame::after_draw and the composite's frame for the other case).
         if (this->pass_frame.after_draw.valid()) {
-            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, *io.cmd);
+            auto const overlay_begin = pass::make_overlay_begin(
+                rendering_info, io.targets[0].image_handle != nullptr ? io.targets[0].image_handle->format()
+                                                                      : deren::promise::rhi::image_format::unknown);
+            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, *io.cmd, overlay_begin.begin);
         }
         io.list->end_rendering();
+        if (this->pass_frame.after_draw.valid() && this->pass_frame.after_draw.finish != nullptr) {
+            this->pass_frame.after_draw.finish(this->pass_frame.after_draw.owner, *io.cmd, rendering_info);
+        }
         return rhi::error::ok;
     }
 

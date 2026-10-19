@@ -2913,9 +2913,18 @@ namespace deren::engine {
          * THE HANDLE IS THE CONTRACT'S (abi 20, see `pass::draw_callback::record`): the third-party overlay's own
          * recorder is not a contract consumer, so this thunk derives the native handle once.
          */
-        static void draw_overlay_after(void* owner, deren::promise::rhi::command_buffer& commands);
-        /** @brief the overlay, when it should draw into @p command_buffer (inside the caller's instance) */
-        void record_overlay_if_enabled(rhi::command_buffer& commands);
+        static void draw_overlay_after(void* owner, deren::promise::rhi::command_buffer& commands,
+                                       deren::promise::rhi::command_buffer_begin_info const& begin);
+        static void finish_overlay_after(void* owner, deren::promise::rhi::command_buffer& commands,
+                                         deren::promise::rhi::rendering_info const& rendering);
+        /** @brief the overlay, when it should draw into @p commands (inside the caller's instance): it records
+         *         its own segment under @p begin and the segment is executed here */
+        void record_overlay_if_enabled(rhi::command_buffer& commands,
+                                       deren::promise::rhi::command_buffer_begin_info const& begin);
+        /// the recorded overlay segment, waiting for @c finish_overlay_after
+        rhi::mergeable_command_buffer_ref overlay_segment = {};
+        void finish_overlay_if_enabled(rhi::command_buffer& commands,
+                                       rhi::rendering_info const& rendering);
 
         /** @brief end the rendering instance / render pass and finish recording;
          *         end_recording_failed when vkEndCommandBuffer fails */

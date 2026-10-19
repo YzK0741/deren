@@ -1443,6 +1443,12 @@ export namespace deren::promise::rhi {
         std::uint32_t struct_size = sizeof(command_buffer_begin_info); ///< size of this structure as the CALLER compiled it
         command_buffer_flags usage = no_command_buffer_flags;          ///< see command_buffer_usage
         structure_header const* next = nullptr;                        ///< optional tagged backend parameters
+        /// APPENDED in abi 45: whether the backend chains ITS descriptor-heap inheritance into this
+        /// secondary's begin. The engine's own segments live on the heap face and want it (the default); a
+        /// THIRD-PARTY recorder that binds its own classic descriptor sets - the Dear ImGui Vulkan backend is
+        /// the measured case - must NOT inherit a heap bind, or every one of its binds trips
+        /// VUID-...-11295/11296 inside the continuation.
+        bool inherit_descriptor_heaps = true;
     };
 
     /// ONE INDIRECT MESH-TASK RECORD: the three group counts, and nothing else.

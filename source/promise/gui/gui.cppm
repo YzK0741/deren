@@ -15,7 +15,7 @@ export import deren.promise.rhi;
 export namespace deren::gui {
     /// The boundary's own version: an INCOMPATIBLE change to the interface or to `create_info` moves it, and
     /// the entry refuses a caller that hands over another number (the backend's abi handshake, one level up).
-    inline constexpr std::uint32_t gui_abi_version = 4u;
+    inline constexpr std::uint32_t gui_abi_version = 5u;
 
     /// WHICH GRAPHICS API THE HOST IS ASKING THIS GUI DLL TO SERVE. It is the host's hint AND the plugin's
     /// check: `deren_gui_vulkan.dll` serves `vulkan` and refuses anything else by name.
@@ -51,6 +51,12 @@ export namespace deren::gui {
         api_type api = api_type::none;
         deren::promise::rhi::main_context* main_context = nullptr;
         GLFWwindow* window = nullptr;
+        /// THE OVERLAY'S OWN RECORDING TARGETS (abi 5): two mergeable command buffers the HOST creates through
+        /// the contract and hands over - the overlay holds them, records ImGui into one per frame (the frame
+        /// slot ring makes alternating reuse safe), and returns the recorded segment to the host, which
+        /// executes it inside the rendering instance it owns. The handles are the contract's; no native
+        /// vocabulary crosses this boundary.
+        deren::promise::rhi::mergeable_command_buffer_ref recording_targets[2] = {};
     };
 
     /// ONE WIDGET, as the HOST can talk about it: it exists so a caller can ATTACH A VISIBILITY PREDICATE to
@@ -112,8 +118,14 @@ export namespace deren::gui {
 
         /// begin a frame's UI (once per frame, after the acquire and before any content)
         virtual void new_frame() const = 0;
-        /// Record inside an open rendering instance on the supplied contract target.
-        virtual void record(deren::promise::rhi::command_buffer& commands) = 0;
+        /// Record this frame's ImGui draw data into the CURRENT owned recording target and hand it back.
+        ///
+        /// @p begin is the rendering-instance inheritance the HOST's currently open instance declares (the
+        /// overlay draws inside it and cannot begin its own): the plugin starts the segment with it, records
+        /// ImGui, ends the segment and returns it - the host executes it on the frame's command buffer. An
+        /// empty return is a named refusal (no target, a target still in flight, or ImGui recording failure).
+        [[nodiscard]] virtual deren::promise::rhi::mergeable_command_buffer_ref record(
+            deren::promise::rhi::command_buffer_begin_info const& begin) = 0;
         /// the swapchain was recreated: let the backend adapt (its per-frame ring, its min-image hint)
         virtual void on_swapchain_recreated() const = 0;
     };

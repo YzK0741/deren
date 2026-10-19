@@ -448,6 +448,16 @@ namespace deren::engine {
         info.api = deren::gui::api_type::vulkan;
         info.window = static_cast<GLFWwindow*>(this->create_options.native_window);
         info.main_context = vk.main_context();
+        // THE OVERLAY'S OWN RECORDING TARGETS (gui abi 5): two mergeable segments, created through the
+        // contract and handed over. The plugin records ImGui into one per frame and returns it, and the frame
+        // executes it inside the rendering instance. Two of them = one per frame-slot parity; the frame ring
+        // waits its slot before recording, so alternating reuse is safe.
+        info.recording_targets[0] = vk.make_mergeable_command_buffer(rhi::command_buffer_desc{});
+        info.recording_targets[1] = vk.make_mergeable_command_buffer(rhi::command_buffer_desc{});
+        if (!info.recording_targets[0] || !info.recording_targets[1]) {
+            deren::utility::log("gui overlay: the backend refused the overlay's recording targets");
+            return false;
+        }
         this->debug_overlay = deren::engine::load_gui(info);
         if (this->debug_overlay == nullptr) {
             deren::utility::log("gui overlay: no plugin answered (the loader's own line says which step failed) - the overlay stays off");
