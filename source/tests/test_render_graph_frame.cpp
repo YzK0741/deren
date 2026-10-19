@@ -2,11 +2,43 @@
 
 #include <array>
 #include <memory>
+#include <string_view>
+import deren.engine.backend_loader;
 import deren.engine.render_graph.execute;
 #include "probe_backend.hpp"
 namespace rg = deren::engine::render_graph;
 namespace rhi = deren::promise::rhi;
-int main() {
+int main(int argc, char** argv) {
+    if (argc > 1 && std::string_view(argv[1]) == "--with-device") {
+        rhi::create_info options{};
+        options.window_width = options.window_height = 16;
+        options.validation_layers = true;
+        auto core = deren::engine::load_api_core(options);
+        CHECK(core);
+        if (!core)
+            return deren::vk_test::finish("test_render_graph_frame");
+        (void)core->frame_begin();
+        auto frames = rhi::query_extension<rhi::frame_resources>(*core);
+        auto snapshot = frames ? frames->retain_image() : rhi::shared_object<rhi::image>{};
+        auto* commands = core->begin_commands();
+        CHECK(snapshot && commands);
+        if (snapshot && commands) {
+            CHECK(commands->begin_recording({}) == rhi::error::ok);
+            CHECK(commands->barrier(rhi::image_barrier{.resource = snapshot.get(), .from = rhi::image_use::undefined, .to = rhi::image_use::color_attachment}) == rhi::error::ok);
+            CHECK(commands->barrier(rhi::image_barrier{.resource = snapshot.get(), .from = rhi::image_use::color_attachment, .to = rhi::image_use::color_attachment}) == rhi::error::ok);
+            auto reusable = core->create_command_buffer({});
+            CHECK(reusable);
+            if (reusable) {
+                CHECK(reusable->begin_recording({}) == rhi::error::ok);
+                CHECK(reusable->barrier(rhi::image_barrier{.resource = snapshot.get(), .from = rhi::image_use::color_attachment, .to = rhi::image_use::color_attachment}) == rhi::error::invalid_argument);
+                CHECK(reusable->end_recording() == rhi::error::ok);
+            }
+            CHECK(commands->end_recording() == rhi::error::ok);
+            CHECK(core->submit(*commands) == rhi::error::ok);
+            core->wait_idle();
+        }
+        return deren::vk_test::finish("test_render_graph_frame");
+    }
     auto core = deren::vk_test::probe_make_core({}, rhi::abi_version, true);
     auto frames = rhi::query_extension<rhi::frame_resources>(*core);
     CHECK(frames);

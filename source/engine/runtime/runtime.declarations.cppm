@@ -63,7 +63,8 @@ import deren.engine.pass.shadow;                // the sixteenth: the directiona
 import deren.engine.pass.cluster;
 import deren.engine.pass.visibility_raster;  // the raster pass's frame: what the lane records through
 import deren.engine.pass.visibility_resolve; // the resolve pass: the id's consumer in the graph
-import deren.engine.visibility;              // the visibility buffer's packed id and draw-item record
+import deren.engine.subtilis;
+import deren.engine.visibility; // the visibility buffer's packed id and draw-item record
 import deren.engine.pass.scene_constants;
 import deren.engine.pass.scene_deformation;
 import deren.engine.pass.scene_tables;
@@ -2032,6 +2033,9 @@ namespace deren::engine {
          * fallback log cannot disagree about this frame.
          */
         bool visibility_buffer_on = false;
+        bool subtilis_on = false;
+        bool subtilis_active_frame = false;
+        bool subtilis_logged = false;
         /// why this frame was or was not admitted (the record step's lane decision, and the log's vocabulary)
         deren::engine::visibility::admission visibility_admission_frame = deren::engine::visibility::admission::disabled;
         /// the opaque lane this frame records through - `choose_opaque_lane(switch, admission)`'s answer
@@ -2915,16 +2919,16 @@ namespace deren::engine {
          */
         static void draw_overlay_after(void* owner, deren::promise::rhi::command_buffer& commands,
                                        deren::promise::rhi::command_buffer_begin_info const& begin);
-        static void finish_overlay_after(void* owner, deren::promise::rhi::command_buffer& commands,
-                                         deren::promise::rhi::rendering_info const& rendering);
+        static rhi::error finish_overlay_after(void* owner, deren::promise::rhi::command_buffer& commands,
+                                               deren::promise::rhi::rendering_info const& rendering);
         /** @brief the overlay, when it should draw into @p commands (inside the caller's instance): it records
          *         its own segment under @p begin and the segment is executed here */
         void record_overlay_if_enabled(rhi::command_buffer& commands,
                                        deren::promise::rhi::command_buffer_begin_info const& begin);
         /// the recorded overlay segment, waiting for @c finish_overlay_after
         rhi::mergeable_command_buffer_ref overlay_segment = {};
-        void finish_overlay_if_enabled(rhi::command_buffer& commands,
-                                       rhi::rendering_info const& rendering);
+        rhi::error finish_overlay_if_enabled(rhi::command_buffer& commands,
+                                             rhi::rendering_info const& rendering);
 
         /** @brief end the rendering instance / render pass and finish recording;
          *         end_recording_failed when vkEndCommandBuffer fails */
@@ -3281,6 +3285,11 @@ namespace deren::engine {
          *       exist), and read per frame, so a later flip takes effect on the next frame
          */
         void set_visibility_buffer(bool enabled) noexcept;
+        /// Select static LOD0 runs on admitted visibility frames; takes effect next frame.
+        void set_subtilis(bool enabled) noexcept;
+        [[nodiscard]] bool subtilis_enabled() const noexcept {
+            return this->subtilis_on;
+        }
 
         /** @brief whether the visibility path's two passes exist AND both built their pipelines this session */
         [[nodiscard]] bool visibility_available() const noexcept;

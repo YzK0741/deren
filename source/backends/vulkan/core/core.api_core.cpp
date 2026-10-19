@@ -3021,7 +3021,7 @@ namespace deren::vulkan {
         // core itself owns (the same object `use()` accepts by identity) - so the identity check is the
         // second acceptance, with the format the swapchain was created with.
         auto const resolve_image = [&](rhi::image const* const resource, VkImage& native, VkFormat& format) -> rhi::error {
-            if (resource == nullptr || (!rhi::is_concrete(*resource, concrete::image) && !rhi::is_concrete(*resource, concrete::frame_image))) {
+            if (resource == nullptr || (!rhi::is_concrete(*resource, concrete::image) && !rhi::is_concrete(*resource, concrete::frame_image) && !rhi::is_concrete(*resource, concrete::frame_snapshot))) {
                 return rhi::error::invalid_argument;
             }
             if (static_cast<void const*>(resource) == static_cast<void const*>(&self->frame_image_view)) {
@@ -3030,6 +3030,15 @@ namespace deren::vulkan {
                 return rhi::error::ok;
             }
             std::lock_guard const lock(self->contract_images_mutex);
+            if (self->frame_snapshots.contains(resource)) {
+                auto const& snapshot = *static_cast<frame_snapshot const*>(resource);
+                // Like scoped synchronization, frame targets belong only to the acquired primary.
+                if (this != &self->commands_view || snapshot.owner != self || !snapshot.current())
+                    return rhi::error::invalid_argument;
+                native = snapshot.native_handle;
+                format = self->swap_chain_image_format;
+                return rhi::error::ok;
+            }
             if (!self->contract_images.contains(resource)) {
                 return rhi::error::invalid_argument;
             }

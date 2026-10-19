@@ -9,6 +9,7 @@ import deren.engine.render_graph.transparent;
 import deren.engine.render_graph.gaussian;
 import deren.engine.render_graph.post;
 import deren.engine.render_graph.geometry;
+import deren.engine.render_graph.rt_shadow;
 import deren.engine.pass.deferred;
 namespace rg = deren::engine::render_graph;
 namespace lighting = rg::lighting;
@@ -20,6 +21,31 @@ namespace gaussian = rg::gaussian;
 namespace post = rg::post;
 namespace rhi = deren::promise::rhi;
 int main() {
+    {
+        rg::builder graph;
+        rg::geometry::inputs geometry{};
+        geometry.color = *graph.import_texture({91, 1}, rg::initial_contents::undefined, "HDR", {}, rg::resource_state{});
+        geometry.velocity = *graph.import_texture({91, 2}, rg::initial_contents::undefined, "velocity", {}, rg::resource_state{});
+        geometry.depth = *graph.import_texture({91, 3}, rg::initial_contents::undefined, "depth", {1, 1, rg::texture_aspect::depth}, rg::resource_state{});
+        for (unsigned i = 0; i < 3; ++i)
+            geometry.surface[i] = *graph.import_texture({91, 4 + i}, rg::initial_contents::undefined, "surface", {}, rg::resource_state{});
+        auto visibility = *graph.import_texture({91, 7}, rg::initial_contents::undefined, "RT visibility", {}, rg::resource_state{});
+        auto drawn = rg::geometry::append(graph, geometry);
+        auto traced = rg::rt_shadow::append(graph, {visibility, geometry.surface, geometry.depth});
+        CHECK(drawn && traced && graph.export_resource(visibility));
+        auto plan = graph.compile({true});
+        CHECK(plan);
+        if (plan && traced) {
+            unsigned published = 0;
+            for (auto const& barrier : plan->barriers)
+                if (barrier.before_pass == traced->pass.index() && barrier.resource != visibility.index()) {
+                    CHECK(barrier.memory_dependency);
+                    CHECK(barrier.after.stages == rg::pipeline_stage::ray_tracing);
+                    ++published;
+                }
+            CHECK(published == 4);
+        }
+    }
     for (bool defined : {false, true}) {
         rg::builder graph;
         rg::geometry::inputs in{};

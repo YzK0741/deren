@@ -35,6 +35,7 @@ module;
 #include <type_traits>
 
 export module deren.engine.visibility;
+import deren.engine.subtilis;
 
 export namespace deren::engine::visibility {
     // =============================================================================================
@@ -250,6 +251,17 @@ export namespace deren::engine::visibility {
             .flags = 0u,
             .model = model,
         };
+    }
+
+    /// One published run drives raster, resolve and dispatch together.
+    inline void apply_meshlet_run(draw_item& item, push_block& block, subtilis::visible_run const& run) noexcept {
+        static_assert(id_meshlet_capacity == (1u << 14));
+        bool const visible = run.source == subtilis::run_source::visible;
+        item.meshlet_base = run.base;
+        item.meshlet_table = static_cast<std::uint32_t>(visible ? meshlet_source::culled : meshlet_source::table);
+        block.geometry.first_index = run.base;
+        block.geometry.index_count = run.count;
+        block.geometry.base_vertex = visible ? 1 : 0;
     }
 
     // =============================================================================================

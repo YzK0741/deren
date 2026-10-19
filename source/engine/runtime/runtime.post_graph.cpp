@@ -540,6 +540,8 @@ namespace deren::engine {
                 // and this frame's indirect dispatch arguments (consumed at the DRAW-INDIRECT stage). The draw-item
                 // table is NOT a raster read - its consumer is the resolve lane below.
                 visibility_inputs.shared = graph::visibility::shared_inputs{shared_refs[0], shared_refs[8], shared_refs[11]};
+                if (this->subtilis_active_frame)
+                    visibility_inputs.shared->culled_meshlets = shared_refs[9];
                 auto visibility_added = build.append([&](graph::builder& description) noexcept {
                     return graph::visibility::append(description, visibility_inputs);
                 });
@@ -584,6 +586,8 @@ namespace deren::engine {
                     shared_refs[3],  // previous transforms: the motion vector's second half
                     shared_refs[10]  // mesh statistics: the resolve's two failure counters are atomic adds
                 };
+                if (this->subtilis_active_frame)
+                    resolve_inputs.shared->culled_meshlets = shared_refs[9];
                 auto resolve_added = build.append([&](graph::builder& description) noexcept {
                     return graph::visibility::append_resolve(description, resolve_inputs);
                 });

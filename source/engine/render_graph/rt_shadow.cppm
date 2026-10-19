@@ -41,7 +41,7 @@ export namespace deren::engine::render_graph::rt_shadow {
             for (std::size_t j = 0; j < i; ++j)
                 if (refs[i] == refs[j])
                     return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "ray-traced shadows", .resource_name = "rt shadow alias"});
-        constexpr access_scope sampled{resource_usage::sampled, pipeline_stage::fragment_shader};
+        constexpr access_scope sampled{resource_usage::sampled, pipeline_stage::ray_tracing};
         parameters params{{in.visibility, {}, {resource_usage::storage, pipeline_stage::ray_tracing}},
                           {{{in.surface[0], {}, sampled}, {in.surface[1], {}, sampled}, {in.surface[2], {}, sampled}}},
                           {in.depth, {}, sampled}};

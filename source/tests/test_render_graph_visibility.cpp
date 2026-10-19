@@ -15,7 +15,7 @@ namespace visibility = rg::visibility;
 
 int main() {
     // ---- the RASTER lane as it will be recorded: both attachments and the three stage reads ----
-    {
+    for (bool with_culled : {false, true}) {
         rg::builder graph;
         visibility::inputs in{};
         in.vis_id = *graph.import_texture({31, 1}, rg::initial_contents::undefined, "visibility", {}, rg::resource_state{});
@@ -26,6 +26,10 @@ int main() {
                                               rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::mesh_shader, rg::memory_access::read});
         }
         in.shared = visibility::shared_inputs{buffers[0], buffers[1], buffers[2]};
+        auto culled = *graph.import_buffer({31, 100}, rg::initial_contents::defined, "selected run", {64},
+                                           rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader, rg::memory_access::write});
+        if (with_culled)
+            in.shared->culled_meshlets = culled;
         auto added = visibility::append(graph, in);
         CHECK(added.has_value());
         CHECK(graph.export_resource(in.vis_id).has_value());
@@ -33,13 +37,21 @@ int main() {
         CHECK(plan.has_value());
         if (plan && added) {
             // two attachment writes + three table reads; the indirect read lands on draw_indirect
-            CHECK(plan->passes[added->pass.index()].accesses.size() == 5u);
+            CHECK(plan->passes[added->pass.index()].accesses.size() == (with_culled ? 6u : 5u));
             auto const* params = plan->passes[added->pass.index()].parameters.get<visibility::parameters>();
             CHECK(params != nullptr);
             CHECK(params && params->shared.has_value());
             CHECK(params && params->shared->camera.resource == buffers[0]);
             CHECK(params && params->shared->meshlets.resource == buffers[1]);
             CHECK(params && params->shared->indirect.resource == buffers[2]);
+            CHECK(params && params->shared->culled_meshlets.has_value() == with_culled);
+            if (with_culled) {
+                bool dependency = false;
+                for (auto const& barrier : plan->barriers)
+                    if (barrier.resource == culled.index() && barrier.before_pass == added->pass.index())
+                        dependency = barrier.memory_dependency && barrier.after.stages == rg::pipeline_stage::mesh_shader;
+                CHECK(dependency);
+            }
             // the pass is the only one, so it is first in the execution order
             CHECK(plan->execution_order.size() == 1u);
             CHECK(plan->execution_order[0] == added->pass.index());
@@ -74,7 +86,7 @@ int main() {
 
     // ---- the RESOLVE lane (v0.4c; v0.5 made it the opaque producer so its depth input is the frame's own
     //      G-buffer depth): two sampled reads, five storage writes, six table reads ----
-    {
+    for (bool with_culled : {false, true}) {
         rg::builder graph;
         visibility::resolve_inputs in{};
         auto const surface_state = rg::resource_state{};
@@ -95,13 +107,17 @@ int main() {
                                               rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader, rg::memory_access::read});
         }
         in.shared = visibility::resolve_shared_inputs{buffers[0], buffers[1], buffers[2], buffers[3], buffers[4], buffers[5]};
+        auto culled = *graph.import_buffer({31, 100}, rg::initial_contents::defined, "selected run", {64},
+                                           rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader, rg::memory_access::write});
+        if (with_culled)
+            in.shared->culled_meshlets = culled;
         auto added = visibility::append_resolve(graph, in);
         CHECK(added.has_value());
         CHECK(graph.export_resource(in.color).has_value());
         auto plan = graph.compile({true});
         CHECK(plan.has_value());
         if (plan && added) {
-            CHECK(plan->passes[added->pass.index()].accesses.size() == 13u); // 2 reads + 5 writes + 6 buffers
+            CHECK(plan->passes[added->pass.index()].accesses.size() == (with_culled ? 14u : 13u)); // 2 reads + 5 writes + 6 buffers
             auto const* params = plan->passes[added->pass.index()].parameters.get<visibility::resolve_parameters>();
             CHECK(params != nullptr);
             CHECK(params && params->vis_id.resource == in.vis_id);
@@ -118,6 +134,14 @@ int main() {
             CHECK(params && params->shared->meshlets.resource == buffers[3]);
             CHECK(params && params->shared->previous_transforms.resource == buffers[4]);
             CHECK(params && params->shared->statistics.resource == buffers[5]);
+            CHECK(params && params->shared->culled_meshlets.has_value() == with_culled);
+            if (with_culled) {
+                bool dependency = false;
+                for (auto const& barrier : plan->barriers)
+                    if (barrier.resource == culled.index() && barrier.before_pass == added->pass.index())
+                        dependency = barrier.memory_dependency && barrier.after.stages == rg::pipeline_stage::compute_shader;
+                CHECK(dependency);
+            }
         }
     }
     // ---- one image cannot be two of the resolve's outputs ----

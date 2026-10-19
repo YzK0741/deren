@@ -14,16 +14,18 @@ export namespace deren::engine::render_graph::visibility {
     /// culls and emits, and this frame slot's draw arguments - which the dispatches consume at the DRAW-INDIRECT
     /// stage rather than reading as a storage buffer (the mesh draws are `draw_mesh_tasks_indirect` records).
     ///
-    /// ONLY THOSE THREE: the raster stage reads nothing else. In particular it does NOT read the draw-item table -
+    /// Subtilis additionally reads the optional compacted table. The raster does NOT read the draw-item table -
     /// the per-item block arrives in its push block, and the item table's consumer is the resolve stage (below).
     struct shared_inputs {
         buffer_ref camera, meshlets, indirect;
+        std::optional<buffer_ref> culled_meshlets = {};
     };
 
     struct shared_parameters {
         buffer_read camera, meshlets, indirect;
+        std::optional<buffer_read> culled_meshlets = {};
         void visit_resources(parameter_visitor& visit) const noexcept {
-            visit(camera, meshlets, indirect);
+            visit(camera, meshlets, indirect, culled_meshlets);
         }
     };
 
@@ -59,6 +61,8 @@ export namespace deren::engine::render_graph::visibility {
             constexpr access_scope mesh{resource_usage::storage, pipeline_stage::mesh_shader};
             constexpr access_scope indirect{resource_usage::indirect_buffer, pipeline_stage::draw_indirect};
             params.shared = shared_parameters{{in.shared->camera, {}, camera}, {in.shared->meshlets, {}, mesh}, {in.shared->indirect, {}, indirect}};
+            if (in.shared->culled_meshlets)
+                params.shared->culled_meshlets = buffer_read{*in.shared->culled_meshlets, {}, mesh};
         }
         auto added = graph.add_pass("scene visibility raster", std::move(params));
         if (!added)
@@ -78,13 +82,15 @@ export namespace deren::engine::render_graph::visibility {
         buffer_ref meshlets;            ///< the import-time meshlet record table
         buffer_ref previous_transforms; ///< last frame's world matrices, for the motion vector
         buffer_ref statistics;          ///< the mesh-statistics buffer: the resolve's failure counters are atomic adds
+        std::optional<buffer_ref> culled_meshlets = {};
     };
 
     struct resolve_shared_parameters {
         buffer_read camera, materials, items, meshlets, previous_transforms;
         buffer_read_write statistics;
+        std::optional<buffer_read> culled_meshlets = {};
         void visit_resources(parameter_visitor& visit) const noexcept {
-            visit(camera, materials, items, meshlets, previous_transforms, statistics);
+            visit(camera, materials, items, meshlets, previous_transforms, statistics, culled_meshlets);
         }
     };
 
@@ -144,6 +150,8 @@ export namespace deren::engine::render_graph::visibility {
                                                       {in.shared->meshlets, {}, buffer},
                                                       {in.shared->previous_transforms, {}, buffer},
                                                       {in.shared->statistics, {}, buffer}};
+            if (in.shared->culled_meshlets)
+                params.shared->culled_meshlets = buffer_read{*in.shared->culled_meshlets, {}, buffer};
         }
         auto added = graph.add_pass("visibility resolve", std::move(params));
         if (!added)

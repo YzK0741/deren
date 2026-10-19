@@ -711,6 +711,7 @@ target_sources(deren_engine
         source/engine/ray_tracing/ray_tracing.cppm
         source/engine/scene_tree/scene_tree.cppm
         source/engine/meshlet/meshlet.cppm
+        source/engine/geometry/subtilis.cppm
         source/engine/visibility/visibility.cppm
         source/engine/primitive/primitive.cppm
         source/engine/render_environment/render_environment.cppm
@@ -1331,7 +1332,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_app_config test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass)
+    set(VR_TEST_TARGETS test_app_config test_subtilis test_rhi_ownership test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1347,6 +1348,8 @@ if(VR_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run/${test_target}"
                 TIMEOUT 120)
     endforeach()
+
+    target_link_libraries(test_rhi_ownership promise)
 
     # Execute the real module-partition query bodies with driver query doubles.
     # This test links no Vulkan loader and needs no GPU or window.
@@ -1436,6 +1439,7 @@ if(VR_BUILD_TESTS)
             vstd_lib
     )
     # the visibility vocabulary is pure CPU (packing + record layout); the engine link carries the module
+    target_link_libraries(test_subtilis deren_engine vstd_lib)
     target_link_libraries(test_visibility_buffer
             deren_engine
             vstd_lib
@@ -1467,7 +1471,7 @@ if(VR_BUILD_TESTS)
     target_link_libraries(test_render_graph_parameters render_graph_core)
     target_link_libraries(test_render_graph_sync render_graph_core)
     target_link_libraries(test_render_graph_execute render_graph_execute probe_backend_static)
-    target_link_libraries(test_render_graph_frame render_graph_execute probe_backend_static)
+    target_link_libraries(test_render_graph_frame render_graph_execute probe_backend_static backend_loader)
     target_link_libraries(test_render_graph_compose render_graph_compose probe_backend_static)
     target_link_libraries(test_render_graph_lighting render_graph_lighting render_graph_cluster render_graph_shadow render_graph_post deren_engine)
     target_link_libraries(test_render_graph_post render_graph_post deren_engine probe_backend_static)

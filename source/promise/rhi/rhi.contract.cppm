@@ -418,7 +418,9 @@ export namespace deren::promise::rhi {
     // operation). They live here because EVERY backend needs the same "check the concrete name, then
     // cast to the concrete layout" pair, and one copy is what keeps the next backend from reinventing
     // it (or from weakening the panic/refusal split its own doc states).
-    inline constexpr std::uint32_t abi_version = 45u;
+    // ABI 46 changes the shared ownership control-block protocol: strong ownership now
+    // carries an implicit weak reference. Old inline drop code cannot share these blocks.
+    inline constexpr std::uint32_t abi_version = 46u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
@@ -677,11 +679,9 @@ export namespace deren::promise::rhi {
             /// point at a different object than the one the control block drops)
             void* owned = nullptr;
             std::atomic<std::uint32_t> strong{1};
-            std::atomic<std::uint32_t> weak{0};
-            /// true while the strong-drop runs: the object's destructor may destroy the LAST weak
-            /// reference (one of its members observes this very object), and that weak must not delete
-            /// the control block out from under the drop
-            std::atomic<bool> dropping{false};
+            /// One implicit weak reference belongs to the strong group until object destruction
+            /// finishes. External weak releases can never delete a block still used by the drop.
+            std::atomic<std::uint32_t> weak{1};
             void (*drop)(void*) noexcept = nullptr;
         };
     } // namespace detail
@@ -824,12 +824,10 @@ export namespace deren::promise::rhi {
                 return;
             }
             if (this->control->strong.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-                this->control->dropping.store(true, std::memory_order_release);
                 if (this->control->drop != nullptr) {
                     this->control->drop(this->control->owned);
                 }
-                this->control->dropping.store(false, std::memory_order_release);
-                if (this->control->weak.load(std::memory_order_acquire) == 0) {
+                if (this->control->weak.fetch_sub(1, std::memory_order_acq_rel) == 1) {
                     delete this->control;
                 }
             }
@@ -1007,8 +1005,7 @@ export namespace deren::promise::rhi {
     private:
         void release_control() noexcept {
             if (this->control != nullptr) {
-                if (this->control->weak.fetch_sub(1, std::memory_order_acq_rel) == 1 && this->control->strong.load(std::memory_order_acquire) == 0 &&
-                    !this->control->dropping.load(std::memory_order_acquire)) {
+                if (this->control->weak.fetch_sub(1, std::memory_order_acq_rel) == 1) {
                     delete this->control;
                 }
                 this->control = nullptr;

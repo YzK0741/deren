@@ -39,6 +39,7 @@ taa = true
 taa_blend_static = 0.8
 taa_blend_min = 0.2
 visibility_buffer = true
+subtilis = true
 # the frame's static surround as a second model (`[render] background_glb`): a NON-default value here, so
 # the read-back is proven rather than inferred from an empty string that is also the compiled default
 background_glb = "bg/test-background.glb"

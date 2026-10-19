@@ -404,6 +404,8 @@ taa_blend_min = 0.5
 # materials are not shaded by this path yet (their pixels are counted in the resolve's unresolved counter) and
 # near-plane-clipped triangles cannot be reconstructed from the id.
 visibility_buffer = false
+# CPU-selected LOD0 visible runs; requires visibility_buffer and frame admission.
+subtilis = false
 
 # character_forward: the TOON CHARACTER STAGE. It draws the scene's opaque leaves a SECOND time, after the
 # lighting stage, through a pipeline whose depth compare is EQUAL and whose depth write is held off - so it

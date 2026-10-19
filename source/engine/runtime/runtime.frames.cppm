@@ -867,6 +867,7 @@ namespace deren::engine {
         // every leaf - there is no partial frame.
         this->visibility_admission_frame = this->visibility_frame_admission(this->main_graph_frame);
         this->visibility_lane_frame = deren::engine::visibility::choose_opaque_lane(this->visibility_buffer_on, this->visibility_admission_frame);
+        this->subtilis_active_frame = this->subtilis_on && this->visibility_lane_frame == deren::engine::visibility::opaque_lane::visibility;
         if (this->visibility_buffer_on && this->visibility_lane_frame == deren::engine::visibility::opaque_lane::geometry && !this->visibility_fallback_logged) {
             this->visibility_fallback_logged = true;
             deren::utility::log("visibility buffer: frame NOT admitted ({}), so the geometry lane records it - the fallback is whole-frame and announced once per session",
@@ -2293,7 +2294,9 @@ namespace deren::engine {
         //      meshlets, the draw's model matrix and the camera - so the dispatch asks for the survivors only and a
         //      rejected meshlet costs no workgroup launch at all. The shadow pass deliberately does NOT get this: its
         //      frustum is per cascade, and it dispatches its casters once per cascade.
-        env.meshlet_culled = true;
+        // Visibility owns this frame's compacted table while Subtilis is active. Later toon
+        // LOD0 re-shading must not overwrite its records through the camera host-cull path.
+        env.meshlet_culled = !self.subtilis_active_frame;
         env.meshlet_view_proj = &runtime::meshlet_view_proj;
         env.meshlet_culled_write = &runtime::meshlet_culled_write;
         env.mesh_stage = gbuffer_mesh;
@@ -2599,7 +2602,10 @@ namespace deren::engine {
         // function pointer and the hook is one value (see pass::draw_callback).
         return pass::draw_callback{.record = &runtime::draw_overlay_after,
                                    .finish = &runtime::finish_overlay_after,
-                                   .owner = const_cast<runtime*>(this)};
+                                   .owner = const_cast<runtime*>(this),
+                                   .has_recording = [](void* owner) noexcept {
+                                       return bool(static_cast<runtime*>(owner)->overlay_segment);
+                                   }};
     }
 
     pass::frame_facts runtime::make_frame_facts() const noexcept {
@@ -3054,9 +3060,9 @@ namespace deren::engine {
         this->overlay_segment = this->debug_overlay->record(begin);
     }
 
-    void runtime::finish_overlay_if_enabled(rhi::command_buffer& commands, rhi::rendering_info const& rendering) {
+    rhi::error runtime::finish_overlay_if_enabled(rhi::command_buffer& commands, rhi::rendering_info const& rendering) {
         if (!this->overlay_segment) {
-            return;
+            return rhi::error::ok;
         }
         // THE OVERLAY'S OWN INSTANCE: the same attachments as the pass just drew, LOADed (the overlay composites
         // on top and has no clear of its own), and marked as SECONDARY CONTENTS - the only way a dynamic-rendering
@@ -3079,17 +3085,20 @@ namespace deren::engine {
             .has_depth = false,
             .secondary_contents = true,
         };
-        if (commands.begin_rendering(overlay_rendering) != rhi::error::ok) {
+        auto const begun = commands.begin_rendering(overlay_rendering);
+        if (begun != rhi::error::ok) {
             deren::utility::log("gui overlay: the backend refused the overlay's rendering instance");
             this->overlay_segment = {};
-            return;
+            return begun;
         }
         rhi::mergeable_command_buffer_ref const segments[1] = {this->overlay_segment};
-        if (commands.execute(std::span<rhi::mergeable_command_buffer_ref const>{segments}) != rhi::error::ok) {
+        auto const executed = commands.execute(std::span<rhi::mergeable_command_buffer_ref const>{segments});
+        if (executed != rhi::error::ok) {
             deren::utility::log("gui overlay: the recorded segment was refused by the frame's command buffer");
         }
         commands.end_rendering();
         this->overlay_segment = {};
+        return executed;
     }
 
     // =============================================================================================
@@ -3141,10 +3150,10 @@ namespace deren::engine {
         return this->render_scale < 1.0f && this->pass_ready("upscale");
     }
 
-    void runtime::finish_overlay_after(void* const owner, deren::promise::rhi::command_buffer& commands,
-                                       deren::promise::rhi::rendering_info const& rendering) {
+    rhi::error runtime::finish_overlay_after(void* const owner, deren::promise::rhi::command_buffer& commands,
+                                             deren::promise::rhi::rendering_info const& rendering) {
         runtime& self = *static_cast<runtime*>(owner);
-        self.finish_overlay_if_enabled(commands, rendering);
+        return self.finish_overlay_if_enabled(commands, rendering);
     }
 
     void runtime::draw_overlay_after(void* const owner, deren::promise::rhi::command_buffer& commands,

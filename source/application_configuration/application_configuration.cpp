@@ -272,6 +272,10 @@ namespace deren::app_config {
                     settings.render.visibility_buffer = *value;
                 }
             }
+            if (toml::node const* node = render->get("subtilis")) {
+                if (auto const value = node->value<bool>())
+                    settings.render.subtilis = *value;
+            }
             if (toml::node const* node = render->get("character_forward")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
                     settings.render.character_forward = *value;

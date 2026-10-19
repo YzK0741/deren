@@ -23,6 +23,7 @@ module;
 
 module deren.engine.runtime;
 import deren.utility.shared;
+import deren.engine.subtilis;
 
 import deren.promise.gui;
 
@@ -1339,6 +1340,11 @@ namespace deren::engine {
         }
     }
 
+    void runtime::set_subtilis(bool const enabled) noexcept {
+        this->subtilis_on = enabled;
+        this->subtilis_logged = false;
+    }
+
     bool runtime::visibility_available() const noexcept {
         // BOTH halves are required: the raster writes the ids (and the depth the resolve reconstructs against),
         // the resolve is the only consumer, so either missing means the path cannot produce a G-buffer at all.
@@ -1632,6 +1638,9 @@ namespace deren::engine {
         if (this->visibility_items_mapped == nullptr || this->mesh_indirect_mapped == nullptr || !this->mesh_indirect_buffer || this->frame_visible.empty()) {
             return false;
         }
+        deren::utility::vessel::vector<meshlet> selected;
+        deren::utility::vessel::vector<subtilis::reservation> published;
+        unsigned input_count = 0, selected_count = 0, fallback_count = 0;
         auto* const commands = static_cast<rhi::mesh_task_command*>(this->mesh_indirect_mapped);
         std::uint32_t const frame_slot = this->frame_ring().position();
         std::uint32_t item = 0;
@@ -1656,11 +1665,8 @@ namespace deren::engine {
             std::array<float, 16> model = {};
             std::memcpy(model.data(), &leaf->push.model, sizeof(model));
             std::uint32_t const index_width = leaf->index_type == rhi::index_type::uint16 ? 2u : 4u;
-            vis::draw_item const row = vis::make_draw_item(vertex_address, index_address, 0u, 0, index_width, leaf->meshlet_base,
-                                                           leaf->push.material_index.value, leaf->push.motion_base, model);
-            if (!runtime::visibility_items_write(this, item, std::as_bytes(std::span(&row, 1u)))) {
-                return false;
-            }
+            vis::draw_item row = vis::make_draw_item(vertex_address, index_address, 0u, 0, index_width, leaf->meshlet_base,
+                                                     leaf->push.material_index.value, leaf->push.motion_base, model);
             // THE SCALAR ITEM BLOCK: the stage's own 104-byte shape (see deren.engine.visibility::push_block):
             // the item's model matrix, the item index the packed id carries and the frame slot whose camera lane
             // the stage reads, then the SAME eight geometry lanes the other mesh stages take - with `first_index`
@@ -1678,18 +1684,41 @@ namespace deren::engine {
             block.geometry.index_count = leaf->meshlet_count;
             block.geometry.base_vertex = 0;
             block.geometry.index_width = index_width;
+            subtilis::reservation const space{leaf->meshlet_base, leaf->meshlet_count};
+            auto run = subtilis::shared_run(space);
+            if (this->subtilis_active_frame) {
+                glm::mat4 const clip = this->current_ubo.proj * this->current_ubo.view * leaf->push.model;
+                std::array<float, 16> clip_from_object{};
+                std::memcpy(clip_from_object.data(), &clip, sizeof(clip));
+                run = subtilis::prepare_lod0(leaf->meshlets, space, clip_from_object, selected, published,
+                                             [this](unsigned base, std::span<meshlet const> records) {
+                                                 return runtime::meshlet_culled_write(this, base, std::as_bytes(records));
+                                             });
+                if (run.source == subtilis::run_source::visible && run.count != 0)
+                    published.push_back(space);
+                input_count += space.count;
+                selected_count += run.count;
+                fallback_count += run.reason != subtilis::fallback_reason::none;
+            }
+            vis::apply_meshlet_run(row, block, run);
+            if (!runtime::visibility_items_write(this, item, std::as_bytes(std::span(&row, 1u))))
+                return false;
             if (!runtime::push_raw_block(this, command_buffer, std::as_bytes(std::span(&block, 1u)))) {
                 return false;
             }
             // THE DISPATCH: one command per item, in the THIRD command run (the first two are the scene's
             // culled/unculled classes, which the old geometry lane still writes on a capture frame).
             std::size_t const command_index = static_cast<std::size_t>(frame_slot) * runtime::mesh_command_capacity + runtime::visibility_command_run + item;
-            commands[command_index] = rhi::mesh_task_command{.groups_x = leaf->meshlet_count, .groups_y = 1u, .groups_z = 1u};
+            commands[command_index] = rhi::mesh_task_command{.groups_x = block.geometry.index_count, .groups_y = 1u, .groups_z = 1u};
             std::uint64_t const offset = static_cast<std::uint64_t>(command_index) * rhi::mesh_task_command_size;
             if (command_buffer.draw_mesh_tasks_indirect(*this->mesh_indirect_buffer, offset, 1u, rhi::mesh_task_command_size) != rhi::error::ok) {
                 return false;
             }
             ++item;
+        }
+        if (this->subtilis_active_frame && !this->subtilis_logged) {
+            this->subtilis_logged = true;
+            deren::utility::log("subtilis: LOD0 run publication: {} input, {} selected, {} fallback item(s)", input_count, selected_count, fallback_count);
         }
         recorded = item;
         return item > 0u;

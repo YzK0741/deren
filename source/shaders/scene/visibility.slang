@@ -96,7 +96,9 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
     // ONE WORKGROUP PER MESHLET: the lane's first_index is the item's MESHLET RUN BASE and the group id is the
     // meshlet's order inside that run, so this is the same record the pbr meshlet entry reads (and the resolve
     // reads back through the id).
-    const MeshletRecord meshlet = meshlet_at(geometry.first_index + group_id.x);
+    const bool host_culled = (geometry.base_vertex & 1u) != 0u;
+    const MeshletRecord meshlet = host_culled ? culled_meshlet_at(push.frame_slot, geometry.first_index + group_id.x)
+                                            : meshlet_at(geometry.first_index + group_id.x);
 
     // THE SAME CONSERVATIVE CULL pbr's meshlet entry does: the record's object-space sphere pushed through the
     // draw's model and the camera's view*proj, the radius scaled by an upper bound on both matrices' axis scales.

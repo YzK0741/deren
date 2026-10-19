@@ -38,6 +38,7 @@ taa = false
 taa_blend_static = 0.9
 taa_blend_min = 0.5
 visibility_buffer = false
+subtilis = false
 fxaa = false
 render_scale = 1.0
 upscale = "easu"

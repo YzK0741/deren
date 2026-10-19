@@ -626,6 +626,7 @@ int main(int argc, char** argv) {
     // about - a config that asks for the new path while its pipelines failed logs the refusal once and the frame
     // keeps the geometry lane.
     runtime.set_visibility_buffer(settings.render.visibility_buffer);
+    runtime.set_subtilis(settings.render.subtilis);
 
     // 7. Collect the async startup results. FOR A GAUSSIAN-ONLY RUN THERE IS NO MODEL, so the slot holds an EMPTY
     //    scene: the import, the material resolve, the toon lookup and the animation state below then all work over

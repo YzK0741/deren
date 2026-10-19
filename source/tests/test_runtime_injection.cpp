@@ -578,6 +578,9 @@ int main(int const argc, char** const argv) {
         };
         auto const pace = [&] { CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed); };
         // OFF is the default and must stay a pure no-op: the frames record the historic path.
+        CHECK(!engine.subtilis_enabled());
+        engine.set_subtilis(true);
+        CHECK(engine.subtilis_enabled());
         engine.set_visibility_buffer(false);
         CHECK(!engine.visibility_available()); // no chain built the two passes on this device
         pace();

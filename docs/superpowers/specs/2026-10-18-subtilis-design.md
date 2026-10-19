@@ -1,7 +1,8 @@
 # Subtilis（细织几何）设计：轻量层级 LOD 的初版与扩展
 
-> **状态：设计草案（2026-10-18）。已做仓库适配性审查（同日），修正见 §10 末的审查结论；剩余 owner 决定项见 §3 与 §9。**
-> 本文是实现设计，不是验收记录；文中标"现状"的事实都以当前代码为准，标"计划"的是尚未实现的接口。
+> **状态：层级 LOD 设计草案；M1a 的 LOD0 可见 run 通路已实现并通过验收（2026-10-19）。§2–10 保留实现前的适配性基线；当前实现范围见 §12。**
+> 本文是实现设计；§2–10 的"现状"基于 2026-10-18 实现前代码，具体通过项以独立验收记录为准。
+> **2026-10-19 路线已获准，见 §11**：先 M1a，再 M1b、M2。§11 与前文有冲突时，以 §11 为准；M1b 及后续仍是设计。
 > 命名：**Subtilis**——拉丁语 `subtilis`（"细织的、精微的"，`sub + tela`＝织机），格言 **subtilitas in minimo**（至小之中，见其精微）。
 > 代码中不出现 "Nanite"（商标）；需要类比时在文档里写"Nanite 风格的虚拟几何"。
 
@@ -36,7 +37,7 @@
 - **路线顺序与 id 位宽的冲突（需 owner 决定并回写计划）**：同一份 visibility buffer 计划把后续顺序写成 "v1 software raster → v2 material binning → v3 cluster 层级 + screen-error LOD → v4 分页/流送"，并明说 "item 位宽与 meshlet 位宽在 v3 会被 cluster group 取代，届时升级到 64 位 vis buffer 或分两级表是预期变化"（该文件第 170 行；`docs/reviews/2026-10-18-visibility-buffer-ab.md` 的 "Follow-ups" 同义）。本设计把 cluster LOD 提到软光栅之前（M1 就是它），并在 M1 冻结现有 32-bit id（§4.2、§9），软光栅推到 M4。两处不是同一个顺序、也不是同一个 id 结论，M1 冻结前必须在计划里显式记录这次重排，否则验收时两份文档会各说各话。
 - 本设计与计划的文件边界对应关系：计划 4A 的 `cluster_asset/cluster_builder/cluster_lod/cluster_select.slang/test_cluster_lod` 在实现时以 **Subtilis 命名**落地（见 §6），文档在这一层注明映射，验收时同步更新计划复选框与命名。
 
-## 4. 数据模型（M1 冻结，M2 起只增不改）
+## 4. 数据模型（草案，M1b 验收后再冻结 GPU/资产协议）
 
 ### 4.1 资产层级（离线构建）
 
@@ -70,7 +71,7 @@ uint   level;       uint flags;        // flags：根/叶/材质边界锁定等
 - 误差单位：**asset-space 距离**，与包围体分离；`error` 为保守上界（父 >= max(子) + 父级简化误差 + 量化误差）。
 - 屏幕误差：`e_px = error * projection_scale / clamp(distance_to_bounds, near_epsilon)`，透视/正交分别处理；projection_scale 从当前视图矩阵（含 jitter）取；包围体跨近裁面**强制细化**。
 - 默认 `target_error_px = 1.0`（质量预算，不是逐像素严格保证）；迟滞：`coarsen <= 0.8*target`、`refine > 1.0*target`，中间保留上一帧决定；禁用迟滞时 CPU/GPU cut 必须一致。
-- 覆盖规则：同一区域不能同时选父与子；选父就必须选完整 child 集；输出容量溢出 → **最高细节全量回退**（计划 3 的 overflow 协议），不得截断。
+- 覆盖规则：同一区域不能同时选父与子；选父表示输出该父节点的完整粗表示，细化时才替换为完整子覆盖，不能同时输出父和孩子。输出容量溢出 → **最高细节全量回退**（计划 3 的 overflow 协议），不得截断。
 
 ## 5. 运行时数据流
 
@@ -130,7 +131,7 @@ uint   level;       uint flags;        // flags：根/叶/材质边界锁定等
 **M1a（无资产改动）**
 1. `test_subtilis`：CPU cut 参考（覆盖完整、父/子互斥、误差单调、确定性 hash、溢出回退）。
 2. 端到端：deferred_visibility 等 admitted 场景 ON 参考不变或按流程重基线；画面与"现有 host-cull 全量"逐像素对照（M1a 应无差异——前提是 §5 任务 1-4 都做了：只写表而不加 shader 分支时，raster 仍是"共享表 + group_id"而 dispatch 已经缩到 survivors，画面会少几何）。
-3. OFF 冻结 gate 15/15、CTest 全绿（当前 49/49）。
+3. OFF 冻结 gate 15/15、CTest 全绿（实施时以实际测试数量为准）。
 
 **M1b（真实 LOD 资产）**
 4. 与最高细节参考图对照：接缝/轮廓特写、误差预算 1px；不能只看全图平均。
@@ -143,7 +144,7 @@ uint   level;       uint flags;        // flags：根/叶/材质边界锁定等
 
 | 风险 | 现状/对策 |
 | --- | --- |
-| 跨 group 裂缝 | 组内共享 LOD + 简化锁组边界；M1b 用"最高细节参考图"量化接缝像素；不达标再加裙边 |
+| 跨 group 裂缝 | 组内共享 LOD + 简化锁组边界；M1b 用"最高细节参考图"量化接缝像素；不达标保留细节并终止该分支的简化；不默认用裙边遮盖缺口 |
 | 资产构建依赖 | 需 vendor meshoptimizer（third_party 现无）或自写简化器；M1a 不阻塞 |
 | 现计划阶段三未实现 | M1 用 host 选择绕过；M2 需决定是先在现有可见表上做 GPU select，还是先补计划 3.2/3.3 的可见列表基础设施 |
 | 现有记录/注释不一致 | `mesh_geometry.slang:119` 的注释仍写 "exactly the 28 bytes `deren::vulkan::meshlet` holds"：数字错（std430 下 `float3` 要求 16 字节对齐，实际 48B），类型名也错（宿主记录是 `deren::engine::meshlet`，`meshlet.cppm:70`）。本设计以 48B 为准，M1 首个提交把这两点一起改掉 |
@@ -171,3 +172,88 @@ uint   level;       uint flags;        // flags：根/叶/材质边界锁定等
 6. 与 v0 已验证结论无冲突（MASK 在 raster、近平面裁剪与 mip 对齐在 resolve、OFF 参考逐字节不变），但 **id 布局与 visibility buffer 计划 v3 的预期冲突**，见 §3 的 "路线顺序与 id 位宽的冲突"。
 
 **仍需 owner 决定**（本文档不替它拍板）：§3 的路线重排与 id 位宽结论；M2 是先在现有可见表上做 GPU select，还是先补计划 3.2/3.3 的可见列表基础设施（§9）。
+
+## 11. 2026-10-19：建议的轻量实现路线
+
+本节将现有草案收敛成可逐步验证的实施范围。目标是让高几何压力场景随距离降低真实绘制工作量；暂不实现完整虚拟几何系统，也不预设比现有 G-buffer 更快。其中 M1a 已进入实现；更后阶段仍是建议范围，实际验收见 §12。
+
+### 11.1 路线选择与依赖
+
+推荐 **CPU cut → 全驻留层级资产 → GPU cut → 本帧 Hi-Z**；软件光栅和分页流送等实测说明必要后再做。32-bit visibility ID 在 M1 保留，其 meshlet 字段表示本帧可见 run 内的序号，并不直接编码资产 cluster/group 身份。容量不足明确回退，不能以掩码截断来维持这个编码。
+
+这会重排 §3 所引旧路线；开始 M1 前应将 visibility 计划和总计划的路线说明同步，但不勾选尚未实施的 GPU 阶段。M1 只替换可见记录生产者，M2 再交付阶段三的 GPU select/finalize 基础。
+
+资产侧建议采用 meshoptimizer 的聚类/简化基础算法，自有代码只实现小规模唯一父 group 树、cut 和校验。官方已有连续 cluster LOD 的 `demo/clusterlod.h`，但其表达是带 refined-group 关系的 DAG，不能直接当成这里的唯一父树；可作为对照实现，后续若切换模型需单独设计适配。
+
+唯一父树让每个 group 只在父替代物和整套子表示之间选择，CPU reference、覆盖校验和容量上界都较容易实现；代价是分组自由度较低，锁边界可能限制简化率。先测真实资产上的层级规模与简化收益；若固定树长期无法有效降面，再评估直接适配 clusterlod 的 DAG，不同时维护两套正式资产模型。
+
+参考：[meshoptimizer 官方实现与说明](https://github.com/zeux/meshoptimizer)，[clusterlod.h](https://github.com/zeux/meshoptimizer/blob/master/demo/clusterlod.h)。真正接入时 vendor 固定 tag/commit、记录许可证与 builder 版本；本轮不下载或安装依赖。
+
+### 11.2 M1a：先证明记录通路
+
+首个交付只使用现有 LOD0 meshlet，做 host 选择和表通路，不引入离线工具、简化、资产序列化或新的 GPU pass。
+
+1. 用纯 CPU 的选择结果形成一次完整的 run：记录来源、基址、选中记录和 dispatch 数。raster 的 flag、draw-item 的 `meshlet_table` 与 indirect 的 `groups_x` 从同一个结果生成，避免三个位置分别判断。
+2. 可见表写入与元数据发布必须成套：先检查 item 区间与全局容量，写完整记录，再发布 draw item 和命令。写入失败时使用原 LOD0 表，清掉 culled 标记并恢复全量 dispatch；禁止半套元数据进入光栅。
+3. visibility mesh entry 增加与 pbr meshlet entry 一致的 bit0/culled-table 分支。resolve 原有 `meshlet_table` 分支即可消费，不改重建数学。
+4. 所选数为零是合法剔除，不是失败；失败和空结果用不同状态表示。所有图像仍由既有 visibility pass 清空，避免零 dispatch 留下上一帧内容。
+
+首版开关默认关闭；没有层级资产的 item 使用现有 LOD0。沿用整帧 opaque-lane admission：若现有 visibility 路径不能承载某个 item，整帧继续走几何 lane，不能同时记录两个 opaque G-buffer 作者。MASK 在现有 visibility lane 已支持，但 M1 不简化 MASK 网格，仍用其 LOD0。
+
+验收分别比较：OFF 对现有冻结参考；M1a ON 对同配置的既有 visibility 参考。已有 visibility 相对直接几何的残差另列，不能把它算成 Subtilis 新误差，也不能通过重基线掩盖新缺口。
+
+### 11.3 M1b：再做真正的层级 LOD
+
+每个 group 保存两套可替换表示的关系：本节点的一组 coarse clusters，以及覆盖同一区域的全部 child groups。选择节点就输出其完整 coarse run；细化才递归选择所有 children。group 可以有多个 cluster，不能把“父节点”误作“一张父 meshlet”。叶节点保留最高细节。
+
+构建顺序：按 primitive/材质分区 → LOD0 紧凑聚类 → 相邻 clusters 分组 → 合并组内三角形并锁定外边界 → 属性感知简化 → 重新聚类为 coarse run → 递归生成父级，直到无有效减量或达到根。第一版建议每组 4–8 个 cluster、沿用现有 85 三角形工作组上限；这些是待测参数，不修改现有记录宽度。
+
+边界约束包括位置、UV/法线接缝和材质边界。锁定的是被替换区域的完整外边界，不只是某一级各 meshlet 的局部边界；相邻不同层级不能出现 T-junction。没有有效简化就结束该分支，不能启用删除组件或丢三角形的兜底来强行达到目标。裙边也不作为正确性修复的默认办法。
+
+可先仅生成新索引并复用原顶点，再评估顶点更新；这样资产与现有 fetch 最容易对接。所有 LOD 记录仍须指向同一 item 的有效缓冲窗口和统一 index width。CPU 树采用自己的逻辑记录，不将未经 shader 反射验证的 C++ struct 大小当成 GPU ABI。
+
+### 11.4 容量与覆盖是硬约束
+
+M1 沿用 item 的现有可见区间：`[meshlet_base, meshlet_base + meshlet_count)`。写入之前必须校验这个区间，不能只通过全局 65536 容量检查；选中数量还必须满足 14-bit meshlet ID 的上限。
+
+离线校验树的最大 cut 容量：`B(node) = max(coarse_cluster_count, sum(B(child)))`，叶为其细节 cluster 数，forest 为各根容量之和。它可能大于最高细节 cluster 数，即使每一级三角形都更少。若超过现有 reservation，M1b 要拒绝该层级并使用 LOD0，或另行扩展 reservation；不能默认“LOD 更粗就一定放得下”。
+
+回退必须在任何光栅命令之前完成；M1 的每 item 全量回退仍使用它自己的完整 LOD0，不能受本次可见表残留影响。验证非法 child 区间、环、重复覆盖、非有限误差、无表示根、损坏索引和超预算。校验失败不会生成部分可绘制资产。
+
+### 11.5 误差与变换
+
+区分几何距离误差和属性质量代价。meshoptimizer 的属性感知误差可能混合位置与属性项，不能未经换算就当成严格 Hausdorff 距离或严格 1px 保证。builder 应记录所用度量、单位、累计方式和版本，采用保守策略，并以最高细节图像验证轮廓、接缝与材质质量。
+
+asset-space 误差必须先乘模型线性变换的保守伸缩上界。非均匀缩放和 shear 不能只乘平均缩放；可用 Frobenius 范数作为初版安全上界。透视按视空间的最近深度与投影尺度估计，正交不除距离。包围体跨近裁面或投影/变换非有限时选择最高细节。屏幕误差仍是选择指标，不承诺最终着色逐像素严格界。
+
+迟滞状态按 asset generation、稳定 item 身份和 view 标识保存，不能用每帧压紧后的 item 下标当历史身份。camera cut、resize、资产替换和视图变化失效；先提供无迟滞确定性模式用于 CPU/GPU 对照。主视图 cut 与阴影策略分离，M1 阴影及 BLAS 继续使用稳定 LOD0；另测切换时的 TAA 轮廓与自阴影误差。
+
+现有 admission 允许部分 toon item 后续通过 character_forward 做 depth-EQUAL 重着色，而该 pass 仍调用原 leaf 几何。M1b 必须将这些 item 固定 LOD0；仅让 visibility 使用简化 cut 会使原几何与深度不一致，导致局部拒绝或错着色。将来要让它们参与 LOD，必须让重着色 pass 消费完全相同的 cut。M1a 全程 LOD0 不受影响。
+
+### 11.6 模块边界与 M2 接入
+
+纯 CPU `geometry/subtilis` 负责树校验、误差估计、完整 cut 和 fallback 结果；不依赖 RHI。builder 负责分组、简化及带 source hash/builder 版本的资产。runtime 只做帧槽准备、选择结果转可见记录和生命周期保留；shader 只消费冻结后的 run。M1a 不提前发布磁盘资产格式，也不在 runtime 中嵌入整个离线构建器。CPU 容器沿用 utility::vessel；资产无效或预算不足是可报告并回退的结果，进程 OOM 则沿用 fast_panic，不引入异常恢复分支。
+
+M2 复用已经证明正确的 run 协议：compute select 产生可见表与每 item 的 indirect 参数，finalize 检查容量并选择细节回退，然后才允许 raster。主机可保持固定 item 循环，读取 GPU 生成的每 item 间接参数，不以 GPU readback 决定本帧 dispatch 数。图声明 compute-write → mesh/resolve-read，以及 compute-write → draw-indirect-read；CPU reference 保留作无迟滞集合对照。
+
+不因为 M1 尚未 GPU 化就假造 GPU 生产 pass；CPU publication 继续现有帧槽协议。M2 才增加真正的 select/finalize 图节点。全驻留资产和可见 run 都由 cluster/generation 持有，图只导入并保留 lease。分页、GPU 分配器、64-bit ID 和软件光栅仍不属于 M1。
+
+### 11.7 最小验收闭环
+
+- CPU：覆盖完整、父子互斥、确定性、最大 cut 预算、损坏资产拒绝、零结果与失败分开；含非均匀缩放、shear、近裁面与正交视图。
+- M1a：两套表选择标记及 dispatch 数一致；强制容量失败回到完整 LOD0；OFF 冻结图像不变。
+- M1b：高几何压力资产的距离序列、邻组混合 LOD 接缝、轮廓近景、材质缝、镜头切换、resize 与 TAA；无裂缝优先于简化率。
+- 性能：分别报告构建时间/体积、CPU 选择、上传字节、光栅、resolve、总 GPU 中位数与 P95、选中 cluster/三角形、回退次数。现有 visibility resolve 的成本要计入，不用 cluster 数下降代替整体收益。
+
+建议下次实现只交付 M1a；M1b 在记录通路验收后再冻结资产与选择器实施计划。
+
+
+## 12. M1a 实现边界（2026-10-19）
+
+已实现 `geometry/subtilis.cppm`、默认关闭的 `[render] subtilis` 开关、CPU 保守 LOD0 选择、原子式 run 发布/回退，以及 raster/resolve/indirect 三处统一元数据。这里的“原子式”指只在整批记录写入成功后发布消费元数据，不是增加 GPU 原子操作。
+
+实际接线补充了两条共享表约束：同帧已发布区间不能被后续 alias item 覆写；启用的 visibility 帧禁止其它 camera host-cull 写者覆写该表，toon 仍以 LOD0 做 exact-depth 重着色。图的 raster/resolve 分别声明可选 culled-table 的 mesh/compute 读取。OFF 不增加这两个可选读取。
+
+当前交付是 LOD0 选择/记录通路，尚无真实层级资产、简化器、误差 LOD cut 或 GPU select。M1b 将继续按 §11 校验覆盖、边界与最坏 cut 容量。配置需要同时开启 `visibility_buffer = true` 和 `subtilis = true`；不满足 admission 的帧仍整体使用几何 lane。
+
+证据与限制见 [M1a 记录](../../reviews/2026-10-19-subtilis-m1a.md)，执行进度见 [实施计划](../plans/2026-10-19-subtilis-m1a.md)。

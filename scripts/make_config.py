@@ -184,6 +184,7 @@ def write_toml(path: str, cfg: dict) -> None:
         f"taa_blend_static = {cfg['taa_blend_static']}",
         f"taa_blend_min = {cfg['taa_blend_min']}",
         f"visibility_buffer = {str(cfg['visibility_buffer']).lower()}",
+        f"subtilis = {str(cfg['subtilis']).lower()}",
         f"fxaa = {str(cfg['fxaa']).lower()}",
         f"render_scale = {cfg['render_scale']}",
         f"upscale = \"{cfg['upscale']}\"",
@@ -313,6 +314,7 @@ def ask_all(output_dir: str) -> dict:
         False,
         hint="GPU-driven opaque path (mesh-task id raster + compute resolve); a frame it cannot carry falls back whole",
     )
+    subtilis = ask_bool("render.subtilis", False, hint="CPU-selected LOD0 runs; requires an admitted visibility-buffer frame")
     fxaa = ask_bool("render.fxaa", False, hint="final anti-aliasing pass; costs nothing when off")
     render_scale = ask_float(
         "render.render_scale", 1.0, 0.1, 1.0, hint="fraction of the window the render chain runs at (1.0 = no scaling)"
@@ -451,6 +453,7 @@ def ask_all(output_dir: str) -> dict:
         "taa_blend_static": taa_blend_static,
         "taa_blend_min": taa_blend_min,
         "visibility_buffer": visibility_buffer,
+        "subtilis": subtilis,
         "fxaa": fxaa,
         "render_scale": render_scale,
         "upscale": upscale,

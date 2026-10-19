@@ -243,7 +243,7 @@ namespace deren::engine::pass {
         }
         io.list->end_rendering();
         if (this->pass_frame.after_draw.valid() && this->pass_frame.after_draw.finish != nullptr) {
-            this->pass_frame.after_draw.finish(this->pass_frame.after_draw.owner, *io.cmd, rendering_info);
+            return this->pass_frame.after_draw.finish_with_dependency(*io.cmd, *io.targets[0].image_handle, rendering_info);
         }
         return rhi::error::ok;
     }

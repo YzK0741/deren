@@ -610,6 +610,32 @@ export namespace deren::engine::pass {
         deren::utility::vessel::array<deren::promise::rhi::image_format, 8> color_formats = {};
         deren::promise::rhi::command_buffer_inheritance_info inheritance = {};
         deren::promise::rhi::command_buffer_begin_info begin = {};
+        overlay_begin() noexcept = default;
+        overlay_begin(overlay_begin const& other) noexcept
+            : color_formats(other.color_formats)
+            , inheritance(other.inheritance)
+            , begin(other.begin) {
+            rebind();
+        }
+        overlay_begin(overlay_begin&& other) noexcept
+            : overlay_begin(static_cast<overlay_begin const&>(other)) {
+        }
+        overlay_begin& operator=(overlay_begin const& other) noexcept {
+            color_formats = other.color_formats;
+            inheritance = other.inheritance;
+            begin = other.begin;
+            rebind();
+            return *this;
+        }
+        overlay_begin& operator=(overlay_begin&& other) noexcept {
+            return *this = static_cast<overlay_begin const&>(other);
+        }
+
+    private:
+        void rebind() noexcept {
+            inheritance.color_formats = color_formats.data();
+            begin.next = &inheritance.header;
+        }
     };
     [[nodiscard]] inline overlay_begin make_overlay_begin(deren::promise::rhi::rendering_info const& rendering,
                                                           deren::promise::rhi::image_format const color_format) noexcept {
@@ -651,14 +677,29 @@ export namespace deren::engine::pass {
         /// segment recorded by @c record and ends it. The split is Vulkan's: a render instance begun with
         /// CONTENTS_SECONDARY_COMMAND_BUFFERS may contain no primary draws, so the overlay cannot share the
         /// pass's instance once its draw goes into a segment.
-        void (*finish)(void* owner, deren::promise::rhi::command_buffer& command_buffer,
-                       deren::promise::rhi::rendering_info const& rendering) = nullptr;
+        deren::promise::rhi::error (*finish)(void* owner, deren::promise::rhi::command_buffer& command_buffer,
+                                             deren::promise::rhi::rendering_info const& rendering) = nullptr;
         /// what it is called with (the host's own context)
         void* owner = nullptr;
+        /// Optional live predicate, queried after recording to skip an empty overlay.
+        bool (*has_recording)(void* owner) noexcept = nullptr;
 
         /// @brief whether there is anything to call
         [[nodiscard]] bool valid() const noexcept {
             return this->record != nullptr;
+        }
+        [[nodiscard]] deren::promise::rhi::error finish_with_dependency(
+            deren::promise::rhi::command_buffer& commands, deren::promise::rhi::image& target,
+            deren::promise::rhi::rendering_info const& rendering) const noexcept {
+            namespace rhi = deren::promise::rhi;
+            if (!valid() || !finish || (has_recording && !has_recording(owner)))
+                return rhi::error::ok;
+            auto error = commands.barrier(rhi::image_barrier{.resource = &target,
+                                                             .from = rhi::image_use::color_attachment,
+                                                             .to = rhi::image_use::color_attachment});
+            if (error != rhi::error::ok)
+                return error;
+            return finish(owner, commands, rendering);
         }
     };
 

@@ -65,6 +65,9 @@ namespace {
         deren::promise::rhi::error begin_result = deren::promise::rhi::error::ok;
         deren::promise::rhi::error end_result = deren::promise::rhi::error::ok;
         deren::promise::rhi::error execute_result = deren::promise::rhi::error::ok;
+        deren::promise::rhi::error barrier_result = deren::promise::rhi::error::ok;
+        std::uint32_t image_barriers = 0;
+        deren::promise::rhi::image_barrier last_image_barrier{};
         deren::promise::rhi::rect rendering_area = {};
         deren::utility::vessel::vector<deren::promise::rhi::color_attachment> rendering_colors;
         deren::promise::rhi::depth_attachment rendering_depth = {};
@@ -191,8 +194,10 @@ namespace {
             return deren::promise::rhi::error::ok;
         }
 
-        [[nodiscard]] deren::promise::rhi::error barrier(deren::promise::rhi::image_barrier const&) override {
-            return deren::promise::rhi::error::ok;
+        [[nodiscard]] deren::promise::rhi::error barrier(deren::promise::rhi::image_barrier const& barrier) override {
+            ++image_barriers;
+            last_image_barrier = barrier;
+            return barrier_result;
         }
 
         [[nodiscard]] deren::promise::rhi::error copy_image(deren::promise::rhi::image_copy const&) override {
@@ -488,6 +493,79 @@ void check_structure_publication() {
 }
 
 int32_t main() {
+    {
+        namespace rhi = deren::promise::rhi;
+        std::array<rhi::color_attachment, 1> colors{{{.view = reinterpret_cast<rhi::image_view*>(0x1000)}}};
+        rhi::rendering_info rendering{.colors = colors};
+        auto original = vp::make_overlay_begin(rendering, rhi::image_format::rgba8_unorm);
+        CHECK(original.begin.next == &original.inheritance.header);
+        CHECK(original.inheritance.color_formats == original.color_formats.data());
+        auto copied = original;
+        CHECK(copied.begin.next == &copied.inheritance.header);
+        CHECK(copied.inheritance.color_formats == copied.color_formats.data());
+        auto moved = std::move(copied);
+        CHECK(moved.begin.next == &moved.inheritance.header);
+        CHECK(moved.inheritance.color_formats == moved.color_formats.data());
+        copied = moved;
+        CHECK(copied.begin.next == &copied.inheritance.header);
+        original = std::move(moved);
+        CHECK(original.begin.next == &original.inheritance.header);
+        CHECK(original.inheritance.color_formats == original.color_formats.data());
+    }
+    {
+        namespace rhi = deren::promise::rhi;
+        struct target final : rhi::image {
+            target()
+                : image("overlay test") {
+            }
+            void release() noexcept override {
+            }
+            rhi::image_extent extent() const noexcept override {
+                return {16, 16, 1};
+            }
+            rhi::image_format format() const noexcept override {
+                return rhi::image_format::rgba8_unorm;
+            }
+            rhi::unique_object<rhi::image_view> make_view(rhi::image_view_desc const&) override {
+                return {};
+            }
+            std::expected<rhi::image_content, rhi::error> get_content(rhi::image_copy_region const&) const override {
+                return std::unexpected(rhi::error::unsupported);
+            }
+        } target;
+        contract_command_buffer commands;
+        struct context {
+            unsigned finishes = 0;
+            bool recording = false;
+            rhi::error result = rhi::error::ok;
+        } context;
+        vp::draw_callback callback{
+            .record = [](void*, rhi::command_buffer&, rhi::command_buffer_begin_info const&) {},
+            .finish = [](void* owner, rhi::command_buffer& cmd, rhi::rendering_info const&) {
+                auto* context = static_cast<struct context*>(owner);
+                CHECK(static_cast<contract_command_buffer&>(cmd).image_barriers > 0);
+                ++context->finishes;
+                return context->result; },
+            .owner = &context};
+        CHECK(callback.finish_with_dependency(commands, target, {}) == rhi::error::ok);
+        CHECK(context.finishes == 1 && commands.last_image_barrier.resource == &target);
+        CHECK(commands.last_image_barrier.from == rhi::image_use::color_attachment && commands.last_image_barrier.to == rhi::image_use::color_attachment);
+        commands.barrier_result = rhi::error::operation_failed;
+        CHECK(callback.finish_with_dependency(commands, target, {}) == rhi::error::operation_failed);
+        CHECK(context.finishes == 1);
+        commands.barrier_result = rhi::error::ok;
+        context.result = rhi::error::operation_failed;
+        CHECK(callback.finish_with_dependency(commands, target, {}) == rhi::error::operation_failed);
+        CHECK(context.finishes == 2);
+        callback.has_recording = [](void* owner) noexcept { return static_cast<struct context*>(owner)->recording; };
+        auto barriers_before = commands.image_barriers;
+        CHECK(callback.finish_with_dependency(commands, target, {}) == rhi::error::ok);
+        CHECK(context.finishes == 2 && commands.image_barriers == barriers_before);
+        context.recording = true;
+        context.result = rhi::error::ok;
+        CHECK(callback.finish_with_dependency(commands, target, {}) == rhi::error::ok);
+        CHECK(context.finishes == 3 && commands.image_barriers == barriers_before + 1);
+    }
     check_structure_publication<deren::engine::pass::resolved_binding>();
     check_managed_resource_api<deren::engine::pass::pass_chain>();
     using namespace deren::engine::pass;

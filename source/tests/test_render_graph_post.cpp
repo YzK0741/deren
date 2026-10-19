@@ -156,6 +156,8 @@ int main() {
         for (unsigned i = 0; i < 4; ++i)
             chain.emplace<pass::post_bloom_pass>(i);
         deren::engine::runtime runtime{core, options};
+        CHECK(runtime.overlay_draw().valid());
+        CHECK(runtime.overlay_draw().has_recording && !runtime.overlay_draw().has_recording(runtime.overlay_draw().owner));
         runtime.set_scene(scene);
         deren::engine::runtime::chain_wiring wiring{};
         struct context {
@@ -212,6 +214,8 @@ int main() {
         chain.emplace<pass::output_targets_pass>();
         chain.emplace<test_composite>();
         deren::engine::runtime runtime{core, options};
+        CHECK(runtime.overlay_draw().valid());
+        CHECK(runtime.overlay_draw().has_recording && !runtime.overlay_draw().has_recording(runtime.overlay_draw().owner));
         runtime.set_scene(scene);
         runtime.set_pass_chain(chain, {});
         CHECK(runtime.pace_and_acquire() == deren::engine::frame_status::proceed);
