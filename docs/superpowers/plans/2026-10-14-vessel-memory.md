@@ -5,6 +5,7 @@
 **目标：** `deren::utility::vessel` 提供 STL 容器别名，allocator 使用 shared_utility DLL 中唯一的 mimalloc 分配/释放入口；底层 `try_allocate` 可返回错误，标准容器 allocator 在失败时直接诊断并 abort；移除当前 PMR 路由并迁移项目自有容器。
 
 **边界：** 不改第三方库、vstd 的标准库导出、RHI ABI32 或 GPU 内存分配。（2026-10-18 核对：RHI ABI 现为 33，证据 source/promise/rhi/rhi.contract.cppm:300；ABI32 是当时的基线，本文其它处出现的 ABI32 同理。）跨第三方/标准库/RHI 的具体容器类型保留并显式适配。`std::span/string_view` 等借用视图、array/optional/expected 等无动态容器分配的类型、无法指定 allocator 的 function 以及库内部隐藏分配不宣称已全由 mimalloc 管理。容器元素自己的构造/复制及越界、长度错误也不宣称 universally noexcept。
+> 历史规划文档：本文写作时的 RHI ABI 为 33 / GUI ABI 为 3；当前值为 RHI ABI 45 / GUI ABI 5（见 `rhi.contract.cppm` 与 `gui.cppm`）。
 
 ## 任务与证据
 

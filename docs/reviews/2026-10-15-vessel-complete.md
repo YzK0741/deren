@@ -8,7 +8,7 @@ alias; string streams now own strings with the project allocator. The test
 printing harness writes formatted output through a FILE iterator, avoiding its
 previous owned default-allocator string and avoiding module imports in headers.
 
-RHI ABI33 and GUI ABI3 replace ABI32/ABI2 because owned concrete C++ types in
+RHI ABI33（当时值；当前 RHI ABI 45 / GUI ABI 5） and GUI ABI3 replace ABI32/ABI2 because owned concrete C++ types in
 the DLL interfaces changed. Consumers and plugins were rebuilt together.
 Version checks reject incompatible plugins before returning typed objects.
 File/stream boundaries use filesystem paths, views or explicit string conversion.

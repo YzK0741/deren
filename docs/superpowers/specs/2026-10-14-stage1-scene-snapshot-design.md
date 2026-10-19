@@ -10,6 +10,7 @@
 
 **2026-10-18 现状核对：** "ABI 保持 32" 是撰写时的基线，当前 ABI 已是 33
 （`source/promise/rhi/rhi.contract.cppm:300`）。阶段一本身仍未实施——本设计提出的
+> 历史规划文档：本文写作时的 RHI ABI 为 33 / GUI ABI 为 3；当前值为 RHI ABI 45 / GUI ABI 5（见 `rhi.contract.cppm` 与 `gui.cppm`）。
 `node_handle` / `render_instance_id` / `geometry_asset` / `draw_packet` / `render_snapshot`
 在源码中都不存在，`scene_tree` 依旧是 `vector<scene_node>` 值语义、
 `instanced_draw_primitive::source` 仍是裸指针

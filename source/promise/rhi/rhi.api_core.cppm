@@ -46,7 +46,6 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <expected> // std::expected: `image::get_content()` answers the bytes OR the named reason
-#include <memory>   // (unused since abi 44: the shared handles are :contract's `shared_object`, not a standard pointer)
 #include <optional>
 #include <span>        // std::span: buffer::mapped() hands the caller the bytes of a host-visible buffer
 #include <string_view> // std::string_view: gpu_profiler's stage names ride the boundary as views
@@ -1499,10 +1498,7 @@ export namespace deren::promise::rhi {
     /// The batch-only recording handle (defined after `command_buffer`): forward-declared here so the
     /// recording interface can name the batch its `execute()` merges.
     struct mergeable_command_buffer;
-
-    /// The segment's shared handle, beside the repeated forward declaration the alias was introduced
-    /// with: a `shared_object` over the batch-only handle (abi 44).
-    struct mergeable_command_buffer;
+    /// The segment's shared handle: a `shared_object` over the batch-only handle (abi 44).
     using mergeable_command_buffer_ref = shared_object<mergeable_command_buffer>;
 
     /// Immutable sampled 2D slots. The device and backend must outlive all references.
@@ -1914,7 +1910,6 @@ export namespace deren::promise::rhi {
         }
     };
 
-    using mergeable_command_buffer_ref = shared_object<mergeable_command_buffer>;
     /// What starting a frame hands back.
     ///
     /// §3.3 fixes the name and the fact that it is a value, not a handle; the fields the

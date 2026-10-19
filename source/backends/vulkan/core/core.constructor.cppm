@@ -403,12 +403,6 @@ namespace deren::vulkan {
 
         create_info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
         create_info.ppEnabledExtensionNames = extensions.data();
-        // The names this INSTANCE enabled, in this core's own storage: taken from the very list that went
-        // into VkInstanceCreateInfo, so "enabled" is the actual list, and the strings are
-        // literals/`VK_*_EXTENSION_NAME` - valid for the context's lifetime. (The escape that used to
-        // report them to the engine is deleted in abi 38/43; nothing reads this vector today.)
-        this->instance_extension_names = extensions;
-
         // enable validation_layers
         deren::utility::vessel::vector<char const*> validation_layers;
 
@@ -648,10 +642,6 @@ namespace deren::vulkan {
         }
 
         // Features go through the pNext chain (device_capabilities query result, incl. all 1.1/1.2/1.3 supported features)
-        // The names this DEVICE was created with (the list checked above), in the core's own storage - the
-        // record of what the device creation actually enabled. (The escape that used to expose the list to
-        // the engine is deleted in abi 38/43; nothing reads this vector today.)
-        this->device_extension_names = creation_info.extensions;
         creation_info.pNext = capabilities.device_pnext();
 
         auto const [device, graphics_family_index, present_family_index, graphics_queue, present_queue] = create_logical_device(physical_device, creation_info); // NOLINT(*-misplaced-const)

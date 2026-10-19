@@ -25,6 +25,7 @@
 - 设置进入 `config.toml`，同时支持无窗口渲染与既有窗口渲染。只在 GPU 完成相应帧后释放在途资源。
 - 配置实现同时更新 `config.example.toml`、`source/tests/test_app_config.cpp` 和配置 fixtures；运行目录生成的 `config.toml` 不当作仓库源文件。
 - 当前 RHI ABI 为 32（2026-10-18 核对：现为 33，证据 source/promise/rhi/rhi.contract.cppm:300；实施时以该常量为准，本条数值仅保留当时的基线）。不是每次追加 enum 都升级 ABI：遵守 contract 中 enum、`struct_size` 与虚函数边界的现有规则；变更前列出兼容性分类及测试。
+> 历史规划文档：本文写作时的 RHI ABI 为 33 / GUI ABI 为 3；当前值为 RHI ABI 45 / GUI ABI 5（见 `rhi.contract.cppm` 与 `gui.cppm`）。
 
 ## 依赖与交付边界
 

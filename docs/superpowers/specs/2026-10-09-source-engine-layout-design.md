@@ -55,6 +55,7 @@ configuration, compiled shader destinations, and rendering behavior.
 **2026-10-18 现状核对：** the ABI clause above records the constraint of THIS change
 (do not bump an ABI just to move files), not the current numbers. Both numbers have
 moved since, deliberately and separately from any layout work: the RHI ABI is 33
+> 历史规划文档：本文写作时的 RHI ABI 为 33 / GUI ABI 为 3；当前值为 RHI ABI 45 / GUI ABI 5（见 `rhi.contract.cppm` 与 `gui.cppm`）。
 (`source/promise/rhi/rhi.contract.cppm:300`) and the GUI ABI is 3
 (`source/promise/gui/gui.cppm:18`). The exported C entry points and DLL names are
 still what the loaders resolve by name (`source/utility/dynamic_link.cppm`), so the

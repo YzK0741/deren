@@ -286,7 +286,7 @@ namespace deren::vulkan {
         /// plugin checks them too; these aliases keep the backend's own spellings pointing at one source.
         inline constexpr std::string_view frame_commands = deren::vulkan::frame_command_buffer_name;
         inline constexpr std::string_view command_buffer = deren::vulkan::owned_command_buffer_name;
-        inline constexpr std::string_view mergeable_command_buffer = "deren_mergeable_command_buffer_vulkan";
+        inline constexpr std::string_view mergeable_command_buffer = deren::vulkan::mergeable_command_buffer_name;
         inline constexpr std::string_view frame_image = "deren_frame_image_vulkan";
         inline constexpr std::string_view frame_snapshot = "deren_frame_snapshot_vulkan";
         inline constexpr std::string_view frame_resources = "deren_frame_resources_vulkan";
@@ -638,12 +638,6 @@ namespace deren::vulkan {
                 : deren::promise::rhi::image(concrete::frame_image) {
             }
             core* owner = nullptr;
-            /// legacy: the one-log rule the release() override used before the abi-44 lifetime rule made a
-            /// wrapped borrowed view a PANIC; nothing reads it now
-            mutable bool borrowed_release_logged = false;
-            /// the same for abi 7's make_view on this view - which hands out OWNED views since abi 16, so
-            /// nothing reads it either
-            mutable bool borrowed_make_view_logged = false;
 
             [[nodiscard]] ::deren::promise::rhi::image_extent extent() const noexcept override;
             [[nodiscard]] deren::promise::rhi::image_format format() const noexcept override;
@@ -681,7 +675,6 @@ namespace deren::vulkan {
             deren::promise::rhi::image_extent captured_extent{};
             deren::promise::rhi::image_format captured_format = deren::promise::rhi::image_format::unknown;
             std::uint64_t epoch = 0;
-            bool release_logged = false;
             ~frame_snapshot() noexcept override;
             [[nodiscard]] bool current() const noexcept;
             [[nodiscard]] deren::promise::rhi::image_extent extent() const noexcept override {
@@ -717,9 +710,6 @@ namespace deren::vulkan {
                 : deren::promise::rhi::buffer(concrete::frame_readback_buffer) {
             }
             core* owner = nullptr;
-            /// legacy, for the same reason and with the same fate as frame_image_slot's:
-            /// release() PANICS now, so nothing reads it
-            mutable bool borrowed_release_logged = false;
 
             [[nodiscard]] std::uint64_t size() const noexcept override;
             [[nodiscard]] std::span<std::byte> mapped() noexcept override;
@@ -1028,7 +1018,6 @@ namespace deren::vulkan {
             /// optional, not a member: the RAII types have no default state (a wrapper IS a live
             /// handle), so the factory emplaces on success
             std::optional<deren::vulkan::vk_shader_module> owned;
-            VkShaderModule native_handle = VK_NULL_HANDLE;
 
             /// `delete this`, whose destructor resets the RAII owner
             void release() noexcept override;
@@ -1352,12 +1341,6 @@ namespace deren::vulkan {
         VkBuffer readback_slot_handle = VK_NULL_HANDLE;
         void* readback_slot_mapped = nullptr;
         VkDeviceSize readback_slot_size = 0;
-        /// the extension names this context ENABLED, in this core's own storage. Filled once at
-        /// construction from the list that went into VkInstanceCreateInfo / the device creation (the
-        /// strings are literals, so the pointers stay valid). NOTHING READS THEM TODAY: the escape that
-        /// exposed them to the engine is deleted (abi 38/43); they are retained as the construction record.
-        deren::utility::vessel::vector<char const*> instance_extension_names;
-        deren::utility::vessel::vector<char const*> device_extension_names;
         /// true between the ACQUIRE of a frame and the SUBMIT that hands it to the queue: it is the window
         /// `begin_commands()`, `use()` and `copy_image_to_buffer()` answer in (nullptr, or
         /// `error::not_ready`, outside it)

@@ -105,6 +105,7 @@ before committing. Fixes two old growth bugs: refusal dropped old records, and s
 the already-written prefix. Registry has typed AS objects, currently top-only descriptors (no geometry pointers).
 Production RT phase carries core_owner and forwards it; phase teardown waits before freeing micromaps.
 Append rt_instance_table id; RHI ABI stays32（2026-10-18 核对：RHI ABI 现为 33，证据 source/promise/rhi/rhi.contract.cppm:300；本文两处“ABI32”都是当时的基线值）. Native AS probe stale31 check corrected, default portable
+> 历史规划文档：本文写作时的 RHI ABI 为 33 / GUI ABI 为 3；当前值为 RHI ABI 45 / GUI ABI 5（见 `rhi.contract.cppm` 与 `gui.cppm`）。
 regression added to CTest. RED4/265 → GREEN279, native AS362 and runtime1164, Release/CTest25/25 in26.09s;
 RT/ML-scaled/animated-refit captures pixel-identical and sync-clean; resize2/2 clean. Review no new issue.
 Report2026-10-14-tlas-resources.md.

@@ -1592,7 +1592,6 @@ namespace deren::vulkan {
         }
         auto* const answer = new owned_shader();
         answer->owned.emplace(std::move(module.value()));
-        answer->native_handle = answer->owned->get();
         return rhi::unique_object<rhi::shader>{answer};
     }
 
