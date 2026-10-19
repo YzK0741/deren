@@ -57,10 +57,11 @@ namespace deren::engine::render_graph {
                 raw("\"");
             }
             void index(uint32_t value) {
-                if (value == invalid_index)
+                if (value == invalid_index) {
                     raw("null");
-                else
+                } else {
                     number(value);
+                }
             }
             void boolean(bool value) {
                 raw(value ? "true" : "false");
@@ -93,8 +94,9 @@ namespace deren::engine::render_graph {
                                 raw("\\u00");
                                 output.push_back(hex[c >> 4]);
                                 output.push_back(hex[c & 15]);
-                            } else
+                            } else {
                                 output.push_back(static_cast<char>(c));
+                            }
                         }
                         continue;
                     }
@@ -102,8 +104,9 @@ namespace deren::engine::render_graph {
                                                               : c >= 0xf0 && c <= 0xf4   ? 4
                                                                                          : 0;
                     bool valid = width && width <= text.size() - i;
-                    for (unsigned j = 1; valid && j < width; ++j)
+                    for (unsigned j = 1; valid && j < width; ++j) {
                         valid = (static_cast<unsigned char>(text[i + j]) & 0xc0) == 0x80;
+                    }
                     if (valid) {
                         auto second = static_cast<unsigned char>(text[i + 1]);
                         valid = !(c == 0xe0 && second < 0xa0) && !(c == 0xed && second >= 0xa0) && !(c == 0xf0 && second < 0x90) && !(c == 0xf4 && second >= 0x90);
@@ -123,8 +126,9 @@ namespace deren::engine::render_graph {
                 raw("[");
                 bool first = true;
                 for (auto const& value : values) {
-                    if (!first)
+                    if (!first) {
                         raw(",");
+                    }
                     first = false;
                     emit(value);
                 }
@@ -132,22 +136,25 @@ namespace deren::engine::render_graph {
             }
             template <typename T, typename F>
             void optional(std::optional<T> const& value, F emit) {
-                if (value)
+                if (value) {
                     emit(*value);
-                else
+                } else {
                     raw("null");
+                }
             }
             void stages(pipeline_stage value) {
                 constexpr std::array names{"vertex_shader", "fragment_shader", "compute_shader", "color_output", "depth_stencil", "transfer", "vertex_input", "draw_indirect", "task_shader", "mesh_shader"};
                 raw("[");
                 bool first = true;
-                for (unsigned bit = 0; bit < names.size(); ++bit)
+                for (unsigned bit = 0; bit < names.size(); ++bit) {
                     if (static_cast<uint32_t>(value) & (1U << bit)) {
-                        if (!first)
+                        if (!first) {
                             raw(",");
+                        }
                         first = false;
                         string(names[bit]);
                     }
+                }
                 raw("]");
             }
             void state(resource_state const& value) {
@@ -159,12 +166,15 @@ namespace deren::engine::render_graph {
                 number(static_cast<uint32_t>(value.stages));
                 raw(",\"access\":[");
                 auto bits = static_cast<uint32_t>(value.access);
-                if (bits & 1)
+                if (bits & 1) {
                     string("read");
-                if ((bits & 3) == 3)
+                }
+                if ((bits & 3) == 3) {
                     raw(",");
-                if (bits & 2)
+                }
+                if (bits & 2) {
                     string("write");
+                }
                 raw("],\"access_mask\":");
                 number(bits);
                 raw("}");
@@ -279,10 +289,11 @@ namespace deren::engine::render_graph {
                 raw(",\"live\":");
                 boolean(value.live);
                 raw(",\"cull_reason\":");
-                if (value.live)
+                if (value.live) {
                     raw("null");
-                else
+                } else {
                     string("not_reachable_from_outputs_or_side_effects");
+                }
                 raw(",\"parameters_present\":");
                 boolean(static_cast<bool>(value.parameters));
                 raw(",\"accesses\":");
@@ -372,16 +383,19 @@ namespace deren::engine::render_graph {
             vessel::vector<std::optional<writer::interval>> result(graph.resources.size());
             for (std::size_t position = 0; position < graph.execution_order.size(); ++position) {
                 auto pass = graph.execution_order[position];
-                if (pass >= graph.passes.size())
+                if (pass >= graph.passes.size()) {
                     continue;
+                }
                 for (auto const& access : graph.passes[pass].accesses) {
-                    if (access.resource >= result.size())
+                    if (access.resource >= result.size()) {
                         continue;
+                    }
                     auto& value = result[access.resource];
-                    if (!value)
+                    if (!value) {
                         value = writer::interval{position, position};
-                    else
+                    } else {
                         value->last = position;
+                    }
                 }
             }
             return result;
@@ -396,14 +410,16 @@ namespace deren::engine::render_graph {
         w.boolean(graph.synchronization_planned);
         w.raw(",\"resources\":[");
         for (std::size_t i = 0; i < graph.resources.size(); ++i) {
-            if (i)
+            if (i) {
                 w.raw(",");
+            }
             w.resource(graph.resources[i], i, uses[i]);
         }
         w.raw("],\"passes\":[");
         for (std::size_t i = 0; i < graph.passes.size(); ++i) {
-            if (i)
+            if (i) {
                 w.raw(",");
+            }
             w.pass(graph.passes[i], i);
         }
         w.raw("],\"dependencies\":");
@@ -438,11 +454,14 @@ namespace deren::engine::render_graph {
         w.array(graph.execution_order, [&](auto v) { w.index(v); });
         w.raw("\n");
         auto line = [&](std::string_view name, std::size_t i, auto emit) { w.raw(name); w.raw("["); w.number(i); w.raw("]: "); emit(); w.raw("\n"); };
-        for (std::size_t i = 0; i < graph.resources.size(); ++i)
+        for (std::size_t i = 0; i < graph.resources.size(); ++i) {
             line("resource", i, [&] { w.resource(graph.resources[i], i, uses[i]); });
-        for (std::size_t i = 0; i < graph.passes.size(); ++i)
+        }
+        for (std::size_t i = 0; i < graph.passes.size(); ++i) {
             line("pass", i, [&] { w.pass(graph.passes[i], i); });
-        auto lines = [&](std::string_view name, auto const& values, auto emit) { for (std::size_t i = 0; i < values.size(); ++i) line(name, i, [&] { emit(values[i]); }); };
+        }
+        auto lines = [&](std::string_view name, auto const& values, auto emit) { for (std::size_t i = 0; i < values.size(); ++i) { line(name, i, [&] { emit(values[i]); }); 
+} };
         lines("dependency", graph.dependencies, [&](auto const& v) { w.edge(v); });
         lines("read", graph.reads, [&](auto const& v) { w.read(v); });
         lines("output", graph.outputs, [&](auto const& v) { w.exported(v); });

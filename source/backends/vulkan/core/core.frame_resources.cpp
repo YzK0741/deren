@@ -24,13 +24,16 @@ namespace deren::vulkan {
     }
 
     rhi::shared_object<rhi::image> core::frame_resources_view::retain_image() noexcept {
-        if (!owner || !owner->frame_in_flight || !owner->frame_acquired)
+        if (!owner || !owner->frame_in_flight || !owner->frame_acquired) {
             return {};
+        }
         auto keep_core = owner->self_owner.lock();
-        if (!keep_core || owner->frame_image_view.handle() == VK_NULL_HANDLE)
+        if (!keep_core || owner->frame_image_view.handle() == VK_NULL_HANDLE) {
             return {};
-        if (auto cached = owner->frame_snapshot_cache.lock(); cached && cached->current())
+        }
+        if (auto cached = owner->frame_snapshot_cache.lock(); cached && cached->current()) {
             return cached;
+        }
         rhi::shared_object<frame_snapshot> result{new frame_snapshot()};
         result->owner = owner;
         result->keep_alive = keep_core;
@@ -48,13 +51,15 @@ namespace deren::vulkan {
     }
 
     rhi::unique_object<rhi::image_view> core::frame_snapshot::make_view(rhi::image_view_desc const& desc) {
-        if (!current())
+        if (!current()) {
             return nullptr;
+        }
         rhi::unique_object<rhi::image_view> result = owner->frame_image_view.make_view(desc);
         if (result) {
             auto keep = this->self.lock();
-            if (keep)
+            if (keep) {
                 static_cast<owned_image_view*>(result.get())->parent_image = keep;
+            }
         }
         return result;
     }

@@ -177,8 +177,9 @@ namespace deren::engine {
         this->main_graph_frame = false;
         this->post_graph_output = {};
         deren::engine::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::pace};
-        if (!this->shared_heap_ready)
+        if (!this->shared_heap_ready) {
             return frame_status::acquire_failed; // No frame may read a descriptor update whose rollback failed.
+        }
 
         // A zero-sized swapchain (a window that has not been sized yet, or was restored from
         // minimized into a 0-sized client area) has no valid attachments: recording would set a
@@ -223,8 +224,9 @@ namespace deren::engine {
         // light updates and resource publication, including scenes with no mesh primitives.
         // Later frames reuse the same resources and bindings.
         // Creation failure, including first-frame initialization, must precede acquisition.
-        if (this->prepare_managed_resources() != rhi::error::ok)
+        if (this->prepare_managed_resources() != rhi::error::ok) {
             return frame_status::acquire_failed;
+        }
         this->prepare_scene_resources();
 
         // THE FRAME OPENS THROUGH THE CONTRACT (abi 13): the walker fuses today's prologue - wait this
@@ -337,8 +339,9 @@ namespace deren::engine {
         // inverse must be the projection actually used to render that depth (jitter included).
         this->current_inv_view_proj = glm::inverse(this->current_ubo.proj * this->current_ubo.view);
         // ... and only now is the frame's camera UBO complete: upload it.
-        if (this->upload_scene_constant(frame_slot, render_resource::resource_id::camera_ubo, std::as_bytes(std::span(&this->current_ubo, 1))) != rhi::error::ok)
+        if (this->upload_scene_constant(frame_slot, render_resource::resource_id::camera_ubo, std::as_bytes(std::span(&this->current_ubo, 1))) != rhi::error::ok) {
             deren::utility::panic("managed camera constants: upload to completed slot failed");
+        }
         // Same for the light UBO: copy the CPU-side light_state into THIS slot's own light
         // buffer. The slot was just paced (its previous submission completed) and the other
         // in-flight slot's set points at its own buffer, so this host write can never race a GPU
@@ -394,23 +397,26 @@ namespace deren::engine {
                                                             static_cast<float>(this->render_extent().width),
                                                             static_cast<float>(this->render_extent().height));
             }
-            if (this->upload_scene_constant(frame_slot, render_resource::resource_id::light_ubo, std::as_bytes(std::span(&this->light_state, 1))) != rhi::error::ok)
+            if (this->upload_scene_constant(frame_slot, render_resource::resource_id::light_ubo, std::as_bytes(std::span(&this->light_state, 1))) != rhi::error::ok) {
                 deren::utility::panic("managed light constants: upload to completed slot failed");
+            }
         }
         // Reset managed scratch after the completed-slot wait and after updating this frame's light facts.
         // No clustered dispatch means no count clear, matching the former feature-gated memset.
         deren::utility::vessel::array<render_resource::resource_id, 1> const preserved_counts = {render_resource::resource_id::cluster_counts};
         std::span<render_resource::resource_id const> const preserved = this->active_features().clustered ? std::span<render_resource::resource_id const>{} : std::span<render_resource::resource_id const>{preserved_counts};
         if ((this->frame_chain != nullptr && this->frame_chain->begin_frame(frame_slot, preserved) != rhi::error::ok) ||
-            this->shared_resource_fallback.begin_frame(frame_slot, preserved) != rhi::error::ok)
+            this->shared_resource_fallback.begin_frame(frame_slot, preserved) != rhi::error::ok) {
             deren::utility::panic("managed resources: acquired frame slot is outside the prepared resource set");
+        }
         // THE HEAD FRAME RIDES THE SAME SLOT RULE, and for the same reason: it can change every frame on a model
         // whose head turns, so the paced slot gets its own copy and a frame in flight keeps reading the one it
         // started with. `head_state` is only ever written by set_head_basis, which is an arbitrary-time call -
         // this is where that value reaches the GPU, exactly as the light's does.
         if (this->head_buffers.size() > static_cast<std::size_t>(frame_slot)) {
-            if (this->upload_scene_constant(frame_slot, render_resource::resource_id::head_ubo, std::as_bytes(std::span(&this->head_state, 1))) != rhi::error::ok)
+            if (this->upload_scene_constant(frame_slot, render_resource::resource_id::head_ubo, std::as_bytes(std::span(&this->head_state, 1))) != rhi::error::ok) {
                 deren::utility::panic("managed head constants: upload to completed slot failed");
+            }
         }
         // Remember the paced slot: the caller's per-frame host writes (set_skin_matrices /
         // morph_scratch) land in this slot's buffers and are safe to make now that the slot's
@@ -922,8 +928,9 @@ namespace deren::engine {
             // derives the native handle it still needs for the allocated build entry points itself.
             if (auto const built = this->structures.build(*this->frame_command_buffer(), inputs); !built) {
                 deren::utility::log("ray-traced shadows disabled: {}", built.error().message);
-                if (built.error().disable_skin_bake)
+                if (built.error().disable_skin_bake) {
                     this->rt_skin_bake = false;
+                }
             }
             // ... and the top level structure, which is rebuilt EVERY frame: the instance set is culled per
             // frame and a caster's world matrix can change (animation, a moved node), so the instance list
@@ -1147,8 +1154,9 @@ namespace deren::engine {
         return this->gbuffer_pass_active();
     }
     bool runtime::cluster_resources_available() noexcept {
-        if (this->cluster_pass[0] == nullptr)
+        if (this->cluster_pass[0] == nullptr) {
             return false; // the active chain has no cluster pass (a stub chain, or the pass was not resolved)
+        }
         auto const counts = this->cluster_resource_view.find(render_resource::resource_id::cluster_counts);
         auto const indices = this->cluster_resource_view.find(render_resource::resource_id::cluster_indices);
         auto const slot = this->frame_ring().position();
@@ -1739,10 +1747,12 @@ namespace deren::engine {
                 // the caller comes for (a shader binding table's whole purpose); the caller's own bits decide the
                 // rest. The pass framework's rule still holds: the owner either builds what was asked for or
                 // answers nullptr, and a pass that gets nullptr records nothing rather than reading zeros.
-                if (out_address != nullptr)
+                if (out_address != nullptr) {
                     *out_address = 0;
-                if (data == nullptr || bytes == 0)
+                }
+                if (data == nullptr || bytes == 0) {
                     return nullptr;
+                }
                 self->pass_upload_buffers.push_back(self->create_shared_upload(
                     std::span<std::byte const>(static_cast<std::byte const*>(data), static_cast<std::size_t>(bytes)),
                     flags | rhi::to_bits(rhi::buffer_flag::device_address)));
@@ -1848,8 +1858,9 @@ namespace deren::engine {
         };
         for (size_t i = 0; i < this->scene_table_resource_views.size(); ++i) {
             auto const id = pass::scene_tables_pass::ids[i];
-            if (auto const generation = this->scene_table_resource_views[i].find(id))
+            if (auto const generation = this->scene_table_resource_views[i].find(id)) {
                 buffer(id, 0, generation->objects[0].buffer);
+            }
         }
         // One image, in the contract lane ONLY (plan X5 B2): the raw `VkImage` the binding used to carry is
         // gone, and the handle is what `image()` answers with.
@@ -1993,8 +2004,9 @@ namespace deren::engine {
             if (slot < this->light_buffers.size()) {
                 buffer(render_resource::resource_id::light_ubo, slot, this->light_buffers[slot]);
             }
-            if (slot < this->head_buffers.size())
+            if (slot < this->head_buffers.size()) {
                 buffer(render_resource::resource_id::head_ubo, slot, this->head_buffers[slot]);
+            }
             if (slot < this->motion_buffers.size()) {
                 buffer(render_resource::resource_id::motion_vectors, slot, this->motion_buffers[slot]);
             }
@@ -2041,10 +2053,12 @@ namespace deren::engine {
             single(render_resource::resource_id::top_level_structure, 0, slot,
                    pass::resolved_binding{.structure_handle = this->structures.handle(slot)});
         }
-        if (this->post_lut_image && this->post_lut_view)
+        if (this->post_lut_image && this->post_lut_view) {
             single(render_resource::resource_id::post_lut, 0, 0, {.image_handle = this->post_lut_image.get(), .view_handle = this->post_lut_view.get()});
-        if (this->goo_fgd_image && this->goo_fgd_view)
+        }
+        if (this->goo_fgd_image && this->goo_fgd_view) {
             single(render_resource::resource_id::goo_fgd_lut, 0, 0, {.image_handle = this->goo_fgd_image.get(), .view_handle = this->goo_fgd_view.get()});
+        }
     }
 
     void runtime::verify_resource_table(pass::frame_pass const& pass, pass::resolved_io const& io) {
@@ -2355,8 +2369,9 @@ namespace deren::engine {
     }
 
     std::shared_ptr<gaussian_splatting::raster_frame const> runtime::make_gaussian_frame() noexcept {
-        if (auto const* mode = std::getenv("DEREN_GAUSSIAN_PATH"); mode && std::string_view{mode} == "gpu")
+        if (auto const* mode = std::getenv("DEREN_GAUSSIAN_PATH"); mode && std::string_view{mode} == "gpu") {
             return {};
+        }
         if (!this->gaussian_path_reported && this->gaussian_asset) {
             deren::utility::log("gaussian path: CPU");
             this->gaussian_path_reported = true;
@@ -2406,8 +2421,9 @@ namespace deren::engine {
         // This provider runs after pace_and_acquire completed this slot's previous submission.
         if (slot) {
             auto const stats = slot->completed_stats(this->gaussian_gpu_frame_ids[index]);
-            if (stats.errors)
+            if (stats.errors) {
                 deren::utility::log("gaussian GPU frame {} skipped: {} numeric errors", stats.frame_id, stats.errors);
+            }
         }
         if (!this->gaussian_asset) {
             slot.reset();
@@ -2416,10 +2432,12 @@ namespace deren::engine {
         auto const* requested = std::getenv("DEREN_GAUSSIAN_PATH");
         std::string_view const mode = requested ? std::string_view{requested} : "auto";
         bool const forced = mode == "gpu";
-        if (mode == "cpu" || (!forced && !gaussian_gpu_auto_enabled))
+        if (mode == "cpu" || (!forced && !gaussian_gpu_auto_enabled)) {
             return {};
-        if (this->gaussian_gpu_unavailable)
+        }
+        if (this->gaussian_gpu_unavailable) {
             return {};
+        }
         if (!pipelines_ready) {
             deren::utility::log("gaussian GPU initialization: {} preparation pipelines unavailable", forced ? "FAIL" : "CPU fallback:");
             this->gaussian_gpu_unavailable = true;
@@ -2447,9 +2465,11 @@ namespace deren::engine {
         if (this->gaussian_reported_slot_bytes[index] != slot->byte_size()) {
             this->gaussian_reported_slot_bytes[index] = slot->byte_size();
             std::uint64_t total_bytes = 0;
-            for (auto const& frame : this->gaussian_gpu_frames)
-                if (frame)
+            for (auto const& frame : this->gaussian_gpu_frames) {
+                if (frame) {
                     total_bytes += frame->byte_size();
+                }
+            }
             deren::utility::log("gaussian GPU memory: slot {} bytes {}, total completed-slot resources {} bytes", index, slot->byte_size(), total_bytes);
         }
         return slot;
@@ -2634,8 +2654,9 @@ namespace deren::engine {
             .make_gaussian_frame = [](void* owner) { return static_cast<runtime*>(owner)->make_gaussian_frame(); },
             .make_gaussian_gpu_frame = [](void* owner, bool ready) { return static_cast<runtime*>(owner)->make_gaussian_gpu_frame(ready); },
             .gaussian_timing = [](void* owner) { return gaussian_splatting::gpu_frame_timing{owner, [](void* context, std::uint32_t phase) {
-                                                                                                 if (phase < 3u)
+                                                                                                 if (phase < 3u) {
                                                                                                      static_cast<runtime*>(context)->gpu_mark(static_cast<gpu_mark_id>(static_cast<std::uint32_t>(gpu_mark_id::gaussian_prepare_end) + phase));
+                                                                                                 }
                                                                                              }}; },
         };
     }
@@ -2707,8 +2728,9 @@ namespace deren::engine {
 
     void runtime::collect_stage(std::string_view const stage) {
         frame_results results = {};
-        if (this->frame_wiring.collect != nullptr)
+        if (this->frame_wiring.collect != nullptr) {
             this->frame_wiring.collect(this->frame_wiring.owner, stage, results);
+        }
         if (results.gaussian_record_error != rhi::error::ok) {
             deren::utility::log("gaussian recording: FAIL error {}; this frame's splats were skipped", static_cast<std::uint32_t>(results.gaussian_record_error));
         }
@@ -3235,14 +3257,17 @@ namespace deren::engine {
             auto* const commands = this->frame_command_buffer().get();
             auto* const image = this->rhi_face().frame_image();
             rhi::subresource_range const whole{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u};
-            if (commands == nullptr || image == nullptr)
+            if (commands == nullptr || image == nullptr) {
                 return false;
-            if (commands->barrier(rhi::image_barrier{.resource = image, .from = rhi::image_use::undefined, .to = rhi::image_use::color_attachment, .range = whole}) != rhi::error::ok)
+            }
+            if (commands->barrier(rhi::image_barrier{.resource = image, .from = rhi::image_use::undefined, .to = rhi::image_use::color_attachment, .range = whole}) != rhi::error::ok) {
                 return false;
+            }
             if (commands->clear_color_image(*image,
                                             deren::utility::vessel::array<float, 4>{this->background_color.r, this->background_color.g, this->background_color.b, 1.0f},
-                                            whole) != rhi::error::ok)
+                                            whole) != rhi::error::ok) {
                 return false;
+            }
             // The swapchain image WAS written: end_recording's present transition starts at the attachment state, and
             // post_wrote_swapchain == true is also what keeps the screenshot path's read-back legal on this frame.
             return true;
@@ -3255,8 +3280,9 @@ namespace deren::engine {
         // (record_post_graph's own comment states the lanes). The legacy scene tail and the legacy post
         // stages this function used to fall back to are gone.
         this->bloom_graph_error = this->record_post_graph();
-        if (this->bloom_graph_error != rhi::error::ok)
+        if (this->bloom_graph_error != rhi::error::ok) {
             deren::utility::log("post graph: recording refused ({})", static_cast<std::uint32_t>(this->bloom_graph_error));
+        }
         return this->bloom_graph_error == rhi::error::ok;
     }
     frame_status runtime::end_recording() {
@@ -3359,11 +3385,12 @@ namespace deren::engine {
             if (this->bloom_graph_error != rhi::error::ok) {
                 return frame_status::end_recording_failed;
             }
-        } else
+        } else {
             (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->rhi_face().frame_image(),
                                                                            .from = post_wrote_swapchain ? rhi::image_use::color_attachment : rhi::image_use::undefined,
                                                                            .to = (this->create_options.native_window == nullptr) ? rhi::image_use::shader_read : rhi::image_use::present,
                                                                            .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
+        }
         // GPU timing: last mark of the frame. The interval it closes is everything after the FXAA
         // (or composite) pass - the screenshot read-back copy and the present barrier.
         this->gpu_mark(gpu_mark_id::frame_end);
@@ -3436,12 +3463,16 @@ namespace deren::engine {
             deren::utility::log("runtime: frame submit was refused ({})", static_cast<std::uint32_t>(submitted));
             return frame_status::submit_failed;
         }
-        if (this->frame_chain != nullptr)
+        if (this->frame_chain != nullptr) {
             this->submitted_resource_views[this->frame_ring().position()] = this->frame_chain->resources().snapshot();
-        if (this->bloom_graph_pending)
-            for (auto const& generation : this->bloom_graph_pending_generations)
-                if (generation)
+        }
+        if (this->bloom_graph_pending) {
+            for (auto const& generation : this->bloom_graph_pending_generations) {
+                if (generation) {
                     this->bloom_graph_states[weak_bloom_generation{generation}][this->current_image_index] = true;
+                }
+            }
+        }
         this->submitted_fallback_views[this->frame_ring().position()] = this->shared_resource_fallback.resources().snapshot();
         this->cpu_timings.add(deren::engine::profiling::cpu_phase::submit_queue, std::chrono::steady_clock::now() - submit_started);
         auto const present_started = std::chrono::steady_clock::now();
@@ -3460,8 +3491,9 @@ namespace deren::engine {
                 this->async_present_reported = true;
             }
             this->pending_present = overlap->begin();
-            if (!this->pending_present.valid())
+            if (!this->pending_present.valid()) {
                 return frame_status::present_failed;
+            }
         } else if (presented == rhi::error::ok) {
             presented = this->create_options.native_window == nullptr ? rhi::error::ok : this->rhi_face().present();
         }
@@ -3483,11 +3515,13 @@ namespace deren::engine {
         }
         // THE RING ADVANCES THROUGH THE FACE (today's to_next_frame, walked, not poked).
         auto const now = std::chrono::steady_clock::now();
-        if (this->gaussian_last_present != std::chrono::steady_clock::time_point{})
+        if (this->gaussian_last_present != std::chrono::steady_clock::time_point{}) {
             this->gaussian_frame_wall_ms[static_cast<std::size_t>(this->frame_ring().position())] = std::chrono::duration<double, std::milli>(now - this->gaussian_last_present).count();
+        }
         this->gaussian_last_present = now;
-        if (std::getenv("DEREN_GAUSSIAN_RESIZE_TRACE"))
+        if (std::getenv("DEREN_GAUSSIAN_RESIZE_TRACE")) {
             deren::utility::log("gaussian completed frame: {}", ++this->gaussian_trace_frames);
+        }
         this->frame_ring().walk_to_next();
         return frame_status::proceed;
     }

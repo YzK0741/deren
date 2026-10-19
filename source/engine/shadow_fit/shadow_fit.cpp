@@ -148,8 +148,9 @@ namespace deren::engine::shadow_fit {
             // Quantize with a scene-fixed world increment, not a unit derived from that radius.
             center_view /= 8.0f;
             float radius = 0.0f;
-            for (auto const& corner : view_corners)
+            for (auto const& corner : view_corners) {
                 radius = std::max(radius, glm::length(corner - center_view));
+            }
             float const quantum = std::max(params.scene_radius / 1024.0f, 1e-6f);
             float const radius_quantized = std::ceil(radius / quantum) * quantum;
             // Five texels cover centre snapping, the receiver's two-texel normal offset and PCF taps.

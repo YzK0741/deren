@@ -403,13 +403,16 @@ namespace deren::engine {
         }
         /// Call after successful pace_and_acquire and before submit. Single frame-thread writer.
         [[nodiscard]] rhi::error retain_resource_cluster_for_frame(std::shared_ptr<resource_cluster const> cluster) {
-            if (!this->cluster_retention_open)
+            if (!this->cluster_retention_open) {
                 return rhi::error::not_ready;
-            if (!cluster || cluster->device() != this->core_owner.get())
+            }
+            if (!cluster || cluster->device() != this->core_owner.get()) {
                 return rhi::error::invalid_argument;
+            }
             auto& retained = this->frame_resource_clusters[this->cluster_retention_slot];
-            if (std::find(retained.begin(), retained.end(), cluster) == retained.end())
+            if (std::find(retained.begin(), retained.end(), cluster) == retained.end()) {
                 retained.push_back(std::move(cluster));
+            }
             return rhi::error::ok;
         }
 

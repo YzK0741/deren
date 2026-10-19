@@ -168,8 +168,9 @@ namespace deren::engine {
                                  rhi::mergeable_command_buffer* const mergeable_commands, std::uint32_t const offset,
                                  std::span<std::byte const> const data) noexcept {
         auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
-        if (heap == nullptr)
+        if (heap == nullptr) {
             return false;
+        }
         rhi::heap_push_info info{};
         info.commands = commands;
         info.mergeable_commands = mergeable_commands;
@@ -414,8 +415,9 @@ namespace deren::engine {
         // constructor but the two capacities, and nothing else here reads them.
         this->init_recording_resources();
         // Scene tables must exist before default material/neutral toon values and animation setup write them.
-        if (this->prepare_managed_resources(true) != rhi::error::ok)
+        if (this->prepare_managed_resources(true) != rhi::error::ok) {
             deren::utility::panic("managed scene setup resources could not be prepared");
+        }
 
         // Shared legacy scene resources: white fallback texture and scene tables/deformation buffers
         this->init_scene_resources();
@@ -460,8 +462,9 @@ namespace deren::engine {
         this->vulkan_core.wait_idle();
         if (this->pending_present.valid()) {
             rhi::error const result = this->pending_present.get();
-            if (result != rhi::error::ok && result != rhi::error::out_of_date)
+            if (result != rhi::error::ok && result != rhi::error::out_of_date) {
                 deren::utility::log("runtime: pending present was refused during shutdown ({})", static_cast<uint32_t>(result));
+            }
             this->pending_present = {};
         }
 
@@ -571,8 +574,9 @@ namespace deren::engine {
         desc.initial_bytes = {};
         request.image = desc;
         provider.configure(std::span{&request, 1});
-        if (chain->prepare_resources(core_owner, {}) != rhi::error::ok)
+        if (chain->prepare_resources(core_owner, {}) != rhi::error::ok) {
             return {};
+        }
         auto generation = chain->resources().snapshot().find(id);
         auto* image = generation->objects[0].image.get();
         auto* view = generation->objects[0].array_view.get();
@@ -592,15 +596,17 @@ namespace deren::engine {
         request.life = managed::lifetime::device;
         request.sampler = desc;
         provider.configure(std::span{&request, 1});
-        if (chain->prepare_resources(core_owner, {}) != rhi::error::ok)
+        if (chain->prepare_resources(core_owner, {}) != rhi::error::ok) {
             return {};
+        }
         auto generation = chain->resources().snapshot().find(id);
         return rhi::shared_object<rhi::sampler>{chain, generation->objects[0].sampler.get()};
     }
 
     rhi::shared_object<rhi::buffer> runtime::create_shared_upload(std::span<std::byte const> bytes, rhi::buffer_flags flags) {
-        if (bytes.empty())
+        if (bytes.empty()) {
             return {};
+        }
         namespace managed = render_resource::instances;
         auto chain = std::make_shared<pass::pass_chain>();
         auto& provider = chain->emplace<pass::resource_storage_pass>();
@@ -614,8 +620,9 @@ namespace deren::engine {
         request.initial_data_size = upload->size();
         request.initialization_key = std::make_shared<int const>(0);
         provider.configure(std::span{&request, 1});
-        if (chain->prepare_resources(core_owner, {}) != rhi::error::ok)
+        if (chain->prepare_resources(core_owner, {}) != rhi::error::ok) {
             return {};
+        }
         auto generation = chain->resources().snapshot().find(request.id);
         request.initial_data.reset();
         provider.configure(std::span{&request, 1});
@@ -1233,8 +1240,9 @@ namespace deren::engine {
     // creation loop is how two generations drift - the same argument `reset_image_generation_state` makes.
     void runtime::create_render_chain_targets() {
         // Constructor setup creates outputs only; configuration-dependent scene resources stay lazy.
-        if (this->prepare_managed_resources(this->light_buffers.empty()) != rhi::error::ok)
+        if (this->prepare_managed_resources(this->light_buffers.empty()) != rhi::error::ok) {
             deren::utility::panic("failed to prepare output targets");
+        }
 
         // All scene/post/ray targets are now passchain-owned. Only the furnace environment
         // remains in the legacy creation path; its contents are reset with the generation.
@@ -1257,8 +1265,9 @@ namespace deren::engine {
         auto furnace = create_shared_image(render_resource::resource_id::furnace_cube, furnace_desc);
         this->furnace_cube_image = std::move(furnace.first);
         this->furnace_cube_view = std::move(furnace.second);
-        if (!this->furnace_cube_image || !this->furnace_cube_view)
+        if (!this->furnace_cube_image || !this->furnace_cube_view) {
             deren::utility::panic("failed to create the furnace environment cube");
+        }
     }
 
     rhi::error runtime::prepare_managed_resources(bool output_only) {
@@ -1275,8 +1284,9 @@ namespace deren::engine {
         managed::resource_snapshot primary;
         if (this->frame_chain != nullptr) {
             auto const prepared = this->frame_chain->prepare_resources(this->core_owner, context);
-            if (prepared != rhi::error::ok)
+            if (prepared != rhi::error::ok) {
                 return prepared;
+            }
             primary = this->frame_chain->resources().snapshot();
         }
         bool const missing_shadow = !primary.find(resource_id::shadow_map);
@@ -1285,68 +1295,84 @@ namespace deren::engine {
         bool const missing_camera = !primary.find(resource_id::camera_ubo);
         bool const missing_counts = !primary.find(resource_id::cluster_counts);
         bool const missing_indices = !primary.find(resource_id::cluster_indices);
-        if (missing_counts != missing_indices)
+        if (missing_counts != missing_indices) {
             return rhi::error::invalid_argument;
+        }
         auto& fallback = this->shared_resource_fallback;
         fallback.clear();
         deren::utility::vessel::array<bool, pass::scene_tables_pass::resource_count> missing_tables;
-        for (size_t i = 0; i < missing_tables.size(); ++i)
+        for (size_t i = 0; i < missing_tables.size(); ++i) {
             missing_tables[i] = !primary.find(pass::scene_tables_pass::ids[i]);
+        }
         if (std::any_of(missing_tables.begin(), missing_tables.end(), [](bool missing) { return missing; })) {
-            if (this->fallback_tables_provider == nullptr)
+            if (this->fallback_tables_provider == nullptr) {
                 this->fallback_tables_provider = &fallback.emplace<pass::scene_tables_pass>();
-            else
+            } else {
                 fallback.add(*this->fallback_tables_provider);
+            }
             this->fallback_tables_provider->select_resources(missing_tables);
-        } else if (this->fallback_tables_provider != nullptr)
+        } else if (this->fallback_tables_provider != nullptr) {
             this->fallback_tables_provider->bind_resources({});
+        }
         deren::utility::vessel::array<bool, 4> missing_deformation;
-        for (size_t i = 0; i < missing_deformation.size(); ++i)
+        for (size_t i = 0; i < missing_deformation.size(); ++i) {
             missing_deformation[i] = !primary.find(pass::scene_deformation_pass::ids[i]);
+        }
         if (std::any_of(missing_deformation.begin(), missing_deformation.end(), [](bool missing) { return missing; })) {
-            if (this->fallback_deformation_provider == nullptr)
+            if (this->fallback_deformation_provider == nullptr) {
                 this->fallback_deformation_provider = &fallback.emplace<pass::scene_deformation_pass>();
-            else
+            } else {
                 fallback.add(*this->fallback_deformation_provider);
+            }
             this->fallback_deformation_provider->select_resources(missing_deformation);
-        } else if (this->fallback_deformation_provider != nullptr)
+        } else if (this->fallback_deformation_provider != nullptr) {
             this->fallback_deformation_provider->bind_resources({});
+        }
         if (!output_only) {
             if (missing_shadow) {
-                if (this->fallback_shadow_provider == nullptr)
+                if (this->fallback_shadow_provider == nullptr) {
                     this->fallback_shadow_provider = &fallback.emplace<pass::shadow_pass>();
-                else
+                } else {
                     fallback.add(*this->fallback_shadow_provider);
-            } else if (this->fallback_shadow_provider != nullptr)
+                }
+            } else if (this->fallback_shadow_provider != nullptr) {
                 this->fallback_shadow_provider->bind_resources({});
+            }
             if (missing_counts) {
-                if (this->fallback_cluster_provider == nullptr)
+                if (this->fallback_cluster_provider == nullptr) {
                     this->fallback_cluster_provider = &fallback.emplace<pass::cluster_pass>();
-                else
+                } else {
                     fallback.add(*this->fallback_cluster_provider);
-            } else if (this->fallback_cluster_provider != nullptr)
+                }
+            } else if (this->fallback_cluster_provider != nullptr) {
                 this->fallback_cluster_provider->bind_resources({});
+            }
         }
         // Camera is also needed by setup-time scene heap publication; the other constants stay lazy.
         if (missing_camera || (!output_only && (missing_light || missing_head))) {
-            if (this->fallback_constants_provider == nullptr)
+            if (this->fallback_constants_provider == nullptr) {
                 this->fallback_constants_provider = &fallback.emplace<pass::scene_constants_pass>();
-            else
+            } else {
                 fallback.add(*this->fallback_constants_provider);
+            }
             this->fallback_constants_provider->select_resources(!output_only && missing_light, !output_only && missing_head, missing_camera);
-        } else if (this->fallback_constants_provider != nullptr)
+        } else if (this->fallback_constants_provider != nullptr) {
             this->fallback_constants_provider->bind_resources({});
+        }
         deren::utility::vessel::array<bool, pass::output_targets_pass::resource_count> missing_output;
-        for (size_t i = 0; i < missing_output.size(); ++i)
+        for (size_t i = 0; i < missing_output.size(); ++i) {
             missing_output[i] = !primary.find(pass::output_targets_pass::ids[i]);
+        }
         if (std::any_of(missing_output.begin(), missing_output.end(), [](bool missing) { return missing; })) {
-            if (this->fallback_output_provider == nullptr)
+            if (this->fallback_output_provider == nullptr) {
                 this->fallback_output_provider = &fallback.emplace<pass::output_targets_pass>();
-            else
+            } else {
                 fallback.add(*this->fallback_output_provider);
+            }
             this->fallback_output_provider->select_resources(missing_output);
-        } else if (this->fallback_output_provider != nullptr)
+        } else if (this->fallback_output_provider != nullptr) {
             this->fallback_output_provider->bind_resources({});
+        }
         auto const prepared = fallback.prepare_resources(this->core_owner, context);
         if (prepared != rhi::error::ok) {
             return prepared;
@@ -1383,8 +1409,9 @@ namespace deren::engine {
                    (value->description.buffer.flags & rhi::to_bits(rhi::buffer_flag::device_address)) != 0 &&
                    std::all_of(value->objects.begin(), value->objects.end(), [bytes](auto const& object) { return object.buffer->mapped().size() >= bytes; });
         };
-        if (!valid_constant(camera, sizeof(camera_ubo)))
+        if (!valid_constant(camera, sizeof(camera_ubo))) {
             return rhi::error::invalid_argument;
+        }
         deren::utility::vessel::array<managed::resource_snapshot, pass::scene_tables_pass::resource_count> table_views;
         deren::utility::vessel::array<std::shared_ptr<managed::generation const>, pass::scene_tables_pass::resource_count> tables;
         auto const required_tables = pass::scene_tables_pass::descriptions(context);
@@ -1397,8 +1424,9 @@ namespace deren::engine {
             if (desc.type != managed::kind::buffer || desc.scope != expected.scope || desc.life != expected.life ||
                 value->objects.size() != 1 || desc.buffer.size < expected.buffer.size || desc.buffer.usage != expected.buffer.usage ||
                 (desc.buffer.flags & expected.buffer.flags) != expected.buffer.flags || !desc.zero_on_create || desc.zero_on_frame ||
-                value->objects[0].buffer->mapped().size() < expected.buffer.size)
+                value->objects[0].buffer->mapped().size() < expected.buffer.size) {
                 return rhi::error::invalid_argument;
+            }
             tables[i] = value;
             tables_changed |= this->scene_table_resource_views[i].find(expected.id) != value;
         }
@@ -1410,8 +1438,9 @@ namespace deren::engine {
             deformation_views[i] = missing_deformation[i] ? fallback_view : primary;
             deformations[i] = deformation_views[i].find(id);
             if (!valid_buffer(deformations[i], pass::scene_deformation_pass::sizes[i]) || deformations[i]->description.zero_on_frame ||
-                deformations[i]->description.life != managed::lifetime::frame_slot)
+                deformations[i]->description.life != managed::lifetime::frame_slot) {
                 return rhi::error::invalid_argument;
+            }
             deformation_changed[i] = this->deformation_resource_views[i].find(id) != deformations[i];
         }
         if (!output_only && (!valid_constant(light, sizeof(light_ubo)) || !valid_constant(head, sizeof(head_ubo)) ||
@@ -1420,8 +1449,9 @@ namespace deren::engine {
                              shadow->description.type != managed::kind::image || shadow->objects.size() != context.frame_slots ||
                              shadow->description.image.extent.width != context.shadow_map_size ||
                              shadow->description.image.extent.height != context.shadow_map_size ||
-                             shadow->description.image.array_layers < context.shadow_layers))
+                             shadow->description.image.array_layers < context.shadow_layers)) {
             return rhi::error::invalid_argument;
+        }
         deren::utility::vessel::array<managed::resource_snapshot, pass::output_targets_pass::resource_count> output_views;
         deren::utility::vessel::array<std::shared_ptr<managed::generation const>, pass::output_targets_pass::resource_count> outputs;
         auto const required_outputs = pass::output_targets_pass::descriptions(context);
@@ -1436,8 +1466,9 @@ namespace deren::engine {
                 desc.image.extent.width != expected.image.extent.width || desc.image.extent.height != expected.image.extent.height ||
                 desc.image.extent.depth != 1 || desc.image.format != expected.image.format ||
                 desc.image.array_layers != 1 || desc.image.mip_levels != 1 ||
-                (desc.image.flags & expected.image.flags) != expected.image.flags)
+                (desc.image.flags & expected.image.flags) != expected.image.flags) {
                 return rhi::error::invalid_argument;
+            }
             outputs[i] = value;
             outputs_changed |= this->output_resource_views[i].find(expected.id) != value;
         }
@@ -1462,8 +1493,9 @@ namespace deren::engine {
                                                                                                &this->meshlet_mapped, &this->mesh_indirect_mapped, &this->meshlet_stats_mapped, &this->meshlet_culled_mapped,
                                                                                                &this->visibility_items_mapped};
             for (size_t i = 0; i < tables.size(); ++i) {
-                if (this->scene_table_resource_views[i].find(required_tables[i].id) == tables[i])
+                if (this->scene_table_resource_views[i].find(required_tables[i].id) == tables[i]) {
                     continue;
+                }
                 auto const target = tables[i]->objects[0].buffer->mapped();
                 if (*handles[i]) {
                     auto const source = handles[i]->get()->mapped();
@@ -1475,8 +1507,9 @@ namespace deren::engine {
             this->publish_scene_table_bindings();
         }
         auto const adopt_deformation = [&](size_t family, auto& buffers, auto& mapped) {
-            if (!deformation_changed[family])
+            if (!deformation_changed[family]) {
                 return;
+            }
             auto const& generation = deformations[family];
             // Preserve setup deltas, partial uploads and history. Old snapshots stay alive through this copy.
             for (size_t slot = 0; slot < std::min(buffers.size(), generation->objects.size()); ++slot) {
@@ -1495,19 +1528,22 @@ namespace deren::engine {
         adopt_deformation(1, this->skin_buffers, this->skin_mapped);
         adopt_deformation(2, this->skin_buffers_previous, this->skin_previous_mapped);
         adopt_deformation(3, this->morph_buffers, this->morph_mapped);
-        if (std::any_of(deformation_changed.begin(), deformation_changed.end(), [](bool changed) { return changed; }))
+        if (std::any_of(deformation_changed.begin(), deformation_changed.end(), [](bool changed) { return changed; })) {
             this->publish_deformation_bindings();
+        }
         if (camera_changed) {
             auto& owner = missing_camera ? fallback : *this->frame_chain;
             camera_ubo initial{};
             for (uint32_t slot = 0; slot < context.frame_slots; ++slot) {
                 auto const copied = owner.write_frame_buffer(slot, resource_id::camera_ubo, std::as_bytes(std::span(&initial, 1)));
-                if (copied != rhi::error::ok)
+                if (copied != rhi::error::ok) {
                     return copied;
+                }
             }
             this->camera_buffers.clear();
-            for (auto const& object : camera->objects)
+            for (auto const& object : camera->objects) {
                 this->camera_buffers.push_back({object.buffer.get()});
+            }
             this->publish_camera_bindings();
         }
         if (light_changed) {
@@ -1515,24 +1551,28 @@ namespace deren::engine {
             light_ubo initial{};
             for (uint32_t slot = 0; slot < context.frame_slots; ++slot) {
                 auto const copied = owner.write_frame_buffer(slot, resource_id::light_ubo, std::as_bytes(std::span(&initial, 1)));
-                if (copied != rhi::error::ok)
+                if (copied != rhi::error::ok) {
                     return copied;
+                }
             }
             this->light_buffers.clear();
-            for (auto const& object : light->objects)
+            for (auto const& object : light->objects) {
                 this->light_buffers.push_back({object.buffer.get()});
+            }
         }
         if (head_changed) {
             auto& owner = missing_head ? fallback : *this->frame_chain;
             head_ubo initial{}; // usable fallback axes, not an all-zero head basis
             for (uint32_t slot = 0; slot < context.frame_slots; ++slot) {
                 auto const copied = owner.write_frame_buffer(slot, resource_id::head_ubo, std::as_bytes(std::span(&initial, 1)));
-                if (copied != rhi::error::ok)
+                if (copied != rhi::error::ok) {
                     return copied;
+                }
             }
             this->head_buffers.clear();
-            for (auto const& object : head->objects)
+            for (auto const& object : head->objects) {
                 this->head_buffers.push_back({object.buffer.get()});
+            }
         }
         if (shadow_changed) {
             this->shadow_images.clear();
@@ -1542,8 +1582,9 @@ namespace deren::engine {
                 this->shadow_images.push_back({object.image.get()});
                 this->shadow_array_views.push_back({object.array_view.get()});
                 deren::utility::vessel::vector<managed::borrowed<rhi::image_view>> layers;
-                for (auto const& layer : object.layers)
+                for (auto const& layer : object.layers) {
                     layers.push_back({layer.get()});
+                }
                 this->shadow_layer_views.push_back(std::move(layers));
             }
             this->shadow_allocated_layers = shadow->description.image.array_layers;
@@ -1560,8 +1601,9 @@ namespace deren::engine {
             }
             this->publish_cluster_bindings();
         }
-        if (shadow_changed || light_changed || head_changed)
+        if (shadow_changed || light_changed || head_changed) {
             this->write_light_and_shadow_bindings();
+        }
         if (outputs_changed) {
             auto const adopt = [&](size_t family, auto& images, auto& views) {
                 auto const& generation = outputs[family];
@@ -1570,28 +1612,32 @@ namespace deren::engine {
                     views[i] = {generation->objects[i].array_view.get()};
                     if (contract_heap_ready(this->rhi_face()) &&
                         !contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(pass::output_targets_pass::heap_slots[family] + i),
-                                                   *images[i], rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image))
+                                                   *images[i], rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image)) {
                         deren::utility::log("descriptor heap: managed output target publication failed");
+                    }
                     uint32_t const storage_slot = pass::output_targets_pass::storage_slots[family];
                     if (storage_slot != 0 && contract_heap_ready(this->rhi_face())) {
                         rhi::image_view_desc range{};
                         range.role = rhi::view_role::storage;
                         if (!contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(storage_slot + i),
-                                                       *images[i], range, rhi::descriptor_type::storage_image))
+                                                       *images[i], range, rhi::descriptor_type::storage_image)) {
                             deren::utility::log("descriptor heap: managed storage target publication failed");
+                        }
                     }
                 }
             };
             adopt(0, this->hdr_images, this->hdr_image_views);
-            for (size_t target = 0; target < this->gbuffer_images.size(); ++target)
+            for (size_t target = 0; target < this->gbuffer_images.size(); ++target) {
                 adopt(target + 1, this->gbuffer_images[target], this->gbuffer_image_views[target]);
+            }
             adopt(4, this->velocity_images, this->velocity_image_views);
             adopt(5, this->scene_color_images, this->scene_color_image_views);
             adopt(6, this->gbuffer_depth_images, this->gbuffer_depth_image_views);
             adopt(7, this->taa_history_images, this->taa_history_image_views);
             adopt(8, this->ldr_images, this->ldr_image_views);
-            for (size_t level = 0; level < this->bloom_images.size(); ++level)
+            for (size_t level = 0; level < this->bloom_images.size(); ++level) {
                 adopt(9 + level, this->bloom_images[level], this->bloom_image_views[level]);
+            }
             adopt(13, this->rt_shadow_images, this->rt_shadow_image_views);
             adopt(14, this->visibility_images, this->visibility_image_views);
             // family 15 is the RETIRED capture-step depth (see runtime.declarations.cppm's member note): adopted and
@@ -1613,16 +1659,18 @@ namespace deren::engine {
 
     rhi::error runtime::upload_scene_constant(uint32_t completed_slot, render_resource::resource_id id, std::span<std::byte const> bytes) {
         auto* owner = &this->shared_resource_fallback;
-        if (this->frame_chain != nullptr && this->frame_chain->resources().snapshot().find(id))
+        if (this->frame_chain != nullptr && this->frame_chain->resources().snapshot().find(id)) {
             owner = this->frame_chain;
+        }
         return owner->write_frame_buffer(completed_slot, id, bytes);
     }
 
     // Explicit cascade growth retains the setter's existing fatal-error policy.
     // Frame preparation calls prepare_managed_resources directly so it can report acquire_failed.
     void runtime::create_shadow_resources() {
-        if (this->prepare_managed_resources() != rhi::error::ok)
+        if (this->prepare_managed_resources() != rhi::error::ok) {
             deren::utility::panic("failed to prepare pass resources");
+        }
     }
 
     namespace {
@@ -1688,12 +1736,14 @@ namespace deren::engine {
                                                                                          this->meshlet_buffer, this->mesh_indirect_buffer, this->meshlet_stats_buffer, this->meshlet_culled_buffer,
                                                                                          this->visibility_items_buffer};
         auto const required = pass::scene_tables_pass::descriptions(render_resource::instances::resource_context{.frame_slots = this->frame_ring().slot_count()});
-        if (!contract_heap_ready(this->rhi_face()))
+        if (!contract_heap_ready(this->rhi_face())) {
             return;
+        }
         for (size_t i = 0; i < handles.size(); ++i) {
             auto const slot = pass::scene_tables_pass::heap_slots[i];
-            if (slot != 0 && !this->write_heap_buffer(*handles[i], slot, required[i].buffer.size, rhi::descriptor_type::storage_buffer))
+            if (slot != 0 && !this->write_heap_buffer(*handles[i], slot, required[i].buffer.size, rhi::descriptor_type::storage_buffer)) {
                 deren::utility::log("descriptor heap: managed scene table publication failed for slot {}", slot);
+            }
         }
     }
 
@@ -1703,8 +1753,9 @@ namespace deren::engine {
     }
 
     void runtime::create_cluster_buffers() {
-        if (this->scene_heap_buffers_published)
+        if (this->scene_heap_buffers_published) {
             return;
+        }
         // The managed cluster pair is already published by prepare_managed_resources.
         // Publish the remaining legacy scene-buffer bindings once.
         // A STORAGE DESCRIPTOR, NOT A UNIFORM ONE, and the shaders declare it as a `buffer` block: the storage
@@ -1737,8 +1788,9 @@ namespace deren::engine {
     }
 
     void runtime::prepare_scene_resources() {
-        if (this->scene_heap_buffers_published)
+        if (this->scene_heap_buffers_published) {
             return;
+        }
         // A frame needs these resources even when no mesh was imported. Defer allocation until
         // application configuration is applied, then publish their heap bindings once.
         this->create_cluster_buffers();
@@ -1795,8 +1847,9 @@ namespace deren::engine {
     }
 
     void runtime::set_ibl(ibl_input const& info) {
-        if (!info.env_size || !info.env_mip_count || !info.irr_size || !info.lut_size)
+        if (!info.env_size || !info.env_mip_count || !info.irr_size || !info.lut_size) {
             return;
+        }
         deren::utility::vessel::vector<rhi::shared_object<rhi::image>> images;
         deren::utility::vessel::vector<rhi::shared_object<rhi::image_view>> views;
         auto const upload = [&](render_resource::resource_id id, std::span<uint8_t const> data, uint32_t size, uint32_t mips, rhi::image_format format, bool cube) {
@@ -1808,8 +1861,9 @@ namespace deren::engine {
             desc.flags = rhi::to_bits(rhi::image_flag::sampled) | (cube ? rhi::to_bits(rhi::image_flag::cube_compatible) : rhi::no_image_flags);
             desc.initial_bytes = std::as_bytes(data);
             auto created = create_shared_image(id, desc);
-            if (!created.first || !created.second)
+            if (!created.first || !created.second) {
                 return false;
+            }
             images.push_back(std::move(created.first));
             views.push_back(std::move(created.second));
             return true;
@@ -1825,8 +1879,9 @@ namespace deren::engine {
         desc.address_mode = rhi::sampler_address_mode::clamp_to_edge;
         desc.max_lod = static_cast<float>(info.env_mip_count - 1);
         auto sampler = create_shared_sampler(resource_id::environment_sampler, desc);
-        if (!sampler)
+        if (!sampler) {
             return;
+        }
         this->rhi_face().wait_idle();
         deren::utility::vessel::array<uint32_t, 3> const slots{deren::engine::render_layout::heap_slots::env_cube,
                                                                deren::engine::render_layout::heap_slots::irradiance_cube, deren::engine::render_layout::heap_slots::brdf_lut};
@@ -1835,18 +1890,23 @@ namespace deren::engine {
                                              rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image);
         };
         size_t written = 0;
-        for (; written < slots.size(); ++written)
-            if (!write(written, *images[written]))
+        for (; written < slots.size(); ++written) {
+            if (!write(written, *images[written])) {
                 break;
+            }
+        }
         if (written != slots.size()) {
             bool restored = this->ibl_images.size() == slots.size();
             for (size_t i = 0; i < written; ++i) {
-                if (this->ibl_images.size() <= i || !this->ibl_images[i] || !write(i, *this->ibl_images[i]))
+                if (this->ibl_images.size() <= i || !this->ibl_images[i] || !write(i, *this->ibl_images[i])) {
                     restored = false;
+                }
             }
-            if (written && !restored)
-                for (auto const& image : images)
+            if (written && !restored) {
+                for (auto const& image : images) {
                     this->failed_shared_publication.push_back(image);
+                }
+            }
             this->shared_heap_ready = this->shared_heap_ready && restored;
             deren::utility::log("IBL descriptor publication failed; previous bindings restored: {}", restored);
             return;
@@ -1876,8 +1936,9 @@ namespace deren::engine {
         lut_desc.initial_bytes = std::as_bytes(std::span(pixels));
         lut_desc.debug_name = "post LUT image";
         auto created = create_shared_image(render_resource::resource_id::post_lut, lut_desc);
-        if (!created.first || !created.second)
+        if (!created.first || !created.second) {
             return;
+        }
         this->rhi_face().wait_idle();
         if (!write_heap_grid_image(this->vulkan_core, deren::engine::render_layout::heap_slots::post_lut, created.first.get())) {
             deren::utility::log("descriptor heap: post_lut publication refused; keeping the previous LUT");
@@ -1922,8 +1983,9 @@ namespace deren::engine {
         fgd_desc.initial_bytes = std::as_bytes(std::span(pixels));
         fgd_desc.debug_name = "goo FGD LUT image";
         auto created = create_shared_image(render_resource::resource_id::goo_fgd_lut, fgd_desc);
-        if (!created.first || !created.second)
+        if (!created.first || !created.second) {
             return;
+        }
         this->rhi_face().wait_idle();
         if (!write_heap_grid_image(this->vulkan_core, deren::engine::render_layout::heap_slots::goo_fgd_lut, created.first.get())) {
             deren::utility::log("descriptor heap: goo_fgd publication refused; keeping the previous LUT");

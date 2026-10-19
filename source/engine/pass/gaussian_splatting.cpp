@@ -77,9 +77,11 @@ namespace deren::engine::pass {
             gaussian_splatting::gpu_frame_timing points;
             bool delegated = false;
             ~timing_scope() {
-                if (!delegated && points.mark)
-                    for (std::uint32_t phase = 0; phase < 3u; ++phase)
+                if (!delegated && points.mark) {
+                    for (std::uint32_t phase = 0; phase < 3u; ++phase) {
                         points.mark(points.owner, phase);
+                    }
+                }
             }
         } marks{timing};
         record_error = rhi::error::ok;

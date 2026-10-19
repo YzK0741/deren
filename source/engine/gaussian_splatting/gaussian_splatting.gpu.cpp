@@ -98,16 +98,19 @@ namespace deren::engine::gaussian_splatting {
     std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core& core, packed_asset const& asset, foundation_limits const& limits) {
         // Validate before making the legacy interface's owning copy. Production transfers packed storage.
         auto size = packed_byte_size(asset.geometry.size(), limits);
-        if (!size)
+        if (!size) {
             return std::unexpected(size.error());
+        }
         auto bounds = validate_packed(asset);
-        if (!bounds)
+        if (!bounds) {
             return std::unexpected(bounds.error());
+        }
         return upload_asset(core, std::make_shared<packed_asset const>(asset), limits, {});
     }
     std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core& core, std::shared_ptr<packed_asset const> source, foundation_limits const& limits, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_lease) {
-        if (!source || (device_lease && device_lease.get() != &core))
+        if (!source || (device_lease && device_lease.get() != &core)) {
             return failure(error_code::invalid_argument, "Invalid Gaussian source or device lease");
+        }
         auto const& asset = *source;
         namespace rhi = deren::promise::rhi;
         deren::utility::log("gaussian upload: enter ({} geometry, {} SH)", asset.geometry.size(), asset.sh.size());
@@ -183,8 +186,9 @@ namespace deren::engine::gaussian_splatting {
             for (std::size_t i = 0; i < requests.size(); ++i) {
                 auto entry = snapshot.find(ids[i]);
                 buffers[i] = entry && entry->objects.size() == 1 ? entry->objects[0].buffer.get() : nullptr;
-                if (!buffers[i] || buffers[i]->size() < requests[i].buffer.size)
+                if (!buffers[i] || buffers[i]->size() < requests[i].buffer.size) {
                     return rhi::error::unsupported;
+                }
                 addresses[i] = address->buffer_address(*buffers[i], 0);
                 auto const alignment = i == 0 ? alignof(geometry_record) : alignof(sh_record);
                 if (!addresses[i] || addresses[i] % alignment) {
@@ -196,15 +200,17 @@ namespace deren::engine::gaussian_splatting {
             return rhi::error::ok;
         };
         auto root = device_lease ? device_lease : rhi::shared_object<rhi::api_core>::borrow(*&core);
-        if (result->storage_chain.prepare_resources(root, {}, admit) != rhi::error::ok)
+        if (result->storage_chain.prepare_resources(root, {}, admit) != rhi::error::ok) {
             return failure(admission_code, admission_message);
+        }
         result->storage_view = result->storage_chain.resources().snapshot();
         result->geometry_buffer = {buffers[0]};
         result->sh_buffer = {buffers[1]};
         result->geometry_gpu_address = addresses[0];
         result->sh_gpu_address = addresses[1];
-        for (auto& request : requests)
+        for (auto& request : requests) {
             request.initial_data.reset();
+        }
         provider.configure(requests); // Keep declarations/content identities, release packed upload storage.
         return std::shared_ptr<gpu_asset const>{std::move(result)};
     }

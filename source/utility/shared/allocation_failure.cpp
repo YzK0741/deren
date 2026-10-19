@@ -19,15 +19,17 @@
 namespace deren::utility::memory::detail {
     [[noreturn]] void terminate_allocation(char const* reason, std::size_t bytes, std::size_t alignment) noexcept {
         static thread_local bool reporting = false;
-        if (reporting)
+        if (reporting) {
             std::_Exit(EXIT_FAILURE);
+        }
         reporting = true;
         {
             char text[192];
             std::size_t count = 0;
             auto const append = [&](char const* value) {
-                while (*value != '\0' && count < sizeof(text))
+                while (*value != '\0' && count < sizeof(text)) {
                     text[count++] = *value++;
+                }
             };
             auto const number = [&](std::size_t value) {
                 char digits[3 * sizeof(std::size_t)];
@@ -36,8 +38,9 @@ namespace deren::utility::memory::detail {
                     digits[used++] = static_cast<char>('0' + value % 10);
                     value /= 10;
                 } while (value != 0);
-                while (used != 0 && count < sizeof(text))
+                while (used != 0 && count < sizeof(text)) {
                     text[count++] = digits[--used];
+                }
             };
             append("deren allocation failure: ");
             append(reason);
@@ -65,8 +68,9 @@ extern "C" MEMORY_TEST_API void utility_memory_test_fail_after(std::int64_t coun
     allocation_countdown = count;
 }
 extern "C" MEMORY_TEST_API bool utility_memory_test_should_fail() noexcept {
-    if (allocation_countdown < 0)
+    if (allocation_countdown < 0) {
         return false;
+    }
     if (allocation_countdown == 0) {
         allocation_countdown = -1;
         return true;

@@ -197,8 +197,9 @@ namespace deren::vulkan {
         wait_info.pSemaphores = &this->frame_done_semaphores[slot];
         wait_info.pValues = &value;
         auto const result = vkWaitSemaphores(this->logical_device, &wait_info, UINT64_MAX);
-        if (result == VK_SUCCESS)
+        if (result == VK_SUCCESS) {
             poll_submissions();
+        }
         return result;
     }
 
@@ -261,9 +262,11 @@ namespace deren::vulkan {
         submission->groups = commands_view.group_refs;
         submission->secondaries = commands_view.secondary_refs;
         std::lock_guard lock(submissions_mutex);
-        for (auto const& secondary : submission->secondaries)
-            if (!secondary->executable || (!secondary->simultaneous_use && secondary->pending.load(std::memory_order_acquire)))
+        for (auto const& secondary : submission->secondaries) {
+            if (!secondary->executable || (!secondary->simultaneous_use && secondary->pending.load(std::memory_order_acquire))) {
                 return VK_NOT_READY;
+            }
+        }
         pending_submissions.reserve(pending_submissions.size() + 1);
         std::lock_guard queue_lock(this->vma.queue_access());
         VkResult const result = vkQueueSubmit(this->graphics_queue_handle, 1, &submit_info, VK_NULL_HANDLE);
@@ -271,8 +274,9 @@ namespace deren::vulkan {
             submission->submitted = true;
             for (auto const& secondary : submission->secondaries) {
                 secondary->pending.fetch_add(1, std::memory_order_release);
-                if (secondary->one_time_submit)
+                if (secondary->one_time_submit) {
                     secondary->executable = false;
+                }
             }
             pending_submissions.push_back(std::move(submission));
             this->frame_done_values[slot] = signal_value;
@@ -292,10 +296,12 @@ namespace deren::vulkan {
             completion->set_value(deren::promise::rhi::error::not_ready);
             return result;
         }
-        if (owner->present_pending.valid())
+        if (owner->present_pending.valid()) {
             owner->present_pending.wait();
-        if (!owner->present_worker)
+        }
+        if (!owner->present_worker) {
             owner->present_worker = std::make_unique<deren::utility::thread_pool>(1);
+        }
         VkQueue const queue = owner->present_queue_handle;
         VkSwapchainKHR const swapchain = owner->swap_chain;
         uint32_t const image = owner->acquired_image_index;
@@ -327,14 +333,16 @@ namespace deren::vulkan {
             std::lock_guard queue_lock(retained->vma.queue_access());
             completion->set_value(present_error(vkQueuePresentKHR(queue, &info)));
         });
-        if (!posted)
+        if (!posted) {
             completion->set_value(deren::promise::rhi::error::not_ready);
+        }
         return result;
     }
 
     deren::promise::rhi::error core::present(uint32_t const image_index) const {
-        if (this->create_options.native_window == nullptr)
+        if (this->create_options.native_window == nullptr) {
             return rhi::error::unsupported;
+        }
         // Wait this image's binary present-ready semaphore (signaled by submit() above);
         // vkQueuePresentKHR requires binary wait semaphores (VUID-vkQueuePresentKHR-pWaitSemaphores-03267).
         VkPresentInfoKHR present_info = {};
@@ -362,8 +370,9 @@ namespace deren::vulkan {
     }
 
     rhi::error core::swapchain_view::recreate() {
-        if (this->owner->create_options.native_window == nullptr)
+        if (this->owner->create_options.native_window == nullptr) {
             return rhi::error::unsupported;
+        }
         // ok = a new generation was built; not_ready = the window reports a zero extent and nothing
         // was built - a DEFERRED recreate is a state, not a failure, and the caller retries when the
         // window is sized. Real build failures never reach here: they are the backend's named
@@ -404,8 +413,9 @@ namespace deren::vulkan {
     }
 
     bool core::recreate_swap_chain() {
-        if (this->create_options.native_window == nullptr)
+        if (this->create_options.native_window == nullptr) {
             return false;
+        }
         // 0. A minimized (or otherwise not-yet-sized) window reports currentExtent (0, 0). Building a
         //    swapchain and the per-image targets from that is invalid - vkCreateSwapchainKHR
         //    (VUID-VkSwapchainCreateInfoKHR-imageExtent-01689) and every vkCreateImage
@@ -813,8 +823,9 @@ namespace deren::vulkan {
     }
 
     void core::wait_idle() const noexcept {
-        if (this->present_pending.valid())
+        if (this->present_pending.valid()) {
             this->present_pending.wait();
+        }
         {
             std::lock_guard queue_lock(this->vma.queue_access());
             if (this->prefetched_slot != UINT32_MAX) {

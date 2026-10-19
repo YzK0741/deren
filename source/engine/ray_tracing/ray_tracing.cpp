@@ -119,8 +119,9 @@ namespace deren::engine::ray_tracing {
         this->micromap_resources.clear();
     }
     structure_set::~structure_set() {
-        if (this->contract && (this->bottom || this->top_level))
+        if (this->contract && (this->bottom || this->top_level)) {
             this->contract->wait_idle();
+        }
         this->release_micromaps();
     }
 
@@ -206,8 +207,9 @@ namespace deren::engine::ray_tracing {
         auto& provider = out.resources->emplace<pass::resource_storage_pass>();
         provider.configure(std::span{&request, 1});
         auto root = lease ? lease : rhi::shared_object<rhi::api_core>::borrow(*&vk);
-        if (out.resources->prepare_resources(root, {}) != rhi::error::ok)
+        if (out.resources->prepare_resources(root, {}) != rhi::error::ok) {
             return std::nullopt;
+        }
         auto generation = out.resources->resources().snapshot().find(request.id);
         out.handle = {generation->objects[0].micromap.get()};
         request.micromap_data.reset();
@@ -263,8 +265,9 @@ namespace deren::engine::ray_tracing {
     }
 
     std::expected<void, failure> structure_set::build(rhi::command_buffer& commands, build_inputs const& inputs) {
-        if (!this->contract)
+        if (!this->contract) {
             return std::unexpected(failure{.message = "Ray tracing device lease belongs to another core"});
+        }
         // BUILT ONCE, SUCCESS OR FAILURE: a device that refused the build is not asked again, and no log repeats.
         if (this->build_attempted) {
             return {};
@@ -301,10 +304,12 @@ namespace deren::engine::ray_tracing {
             if (caster == nullptr) {
                 continue;
             }
-            if (auto lease = caster->vertex_buffer.lease())
+            if (auto lease = caster->vertex_buffer.lease()) {
                 dependencies.push_back(std::move(lease));
-            if (auto lease = caster->index_buffer.lease())
+            }
+            if (auto lease = caster->index_buffer.lease()) {
                 dependencies.push_back(std::move(lease));
+            }
             if (!caster->vertex_buffer || !caster->index_buffer) {
                 ++skipped_no_address;
                 continue;
@@ -486,8 +491,9 @@ namespace deren::engine::ray_tracing {
 
         // Record only after all destinations and BLAS objects are prepared. Abandoning a failed
         // allocation must not leave commands pointing into freed, never-submitted bake storage.
-        for (auto const& bake : pending_mask_bakes)
+        for (auto const& bake : pending_mask_bakes) {
             inputs.hooks.record_mask_bake(inputs.hooks.owner, commands, bake);
+        }
         mask_bakes_recorded = !pending_mask_bakes.empty();
 
         // The skinned casters' first skinning pass, recorded here because the BUILD below has to read skinned
@@ -500,8 +506,9 @@ namespace deren::engine::ray_tracing {
                     this->skin_levels.push_back(built.blas_index);
                 }
             }
-            if (!inputs.hooks.record_skin(inputs.hooks.owner, commands, this->caster_list))
+            if (!inputs.hooks.record_skin(inputs.hooks.owner, commands, this->caster_list)) {
                 return std::unexpected(failure{.message = "Ray tracing: initial skin recording failed", .disable_skin_bake = true});
+            }
         }
 
         // Every bake wrote a buffer the build below reads: one barrier covers them all, because every dispatch is

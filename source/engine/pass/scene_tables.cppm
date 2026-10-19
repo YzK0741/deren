@@ -62,9 +62,11 @@ export namespace deren::engine::pass {
         }
         void describe_resources(render_resource::instances::resource_context const& context, deren::utility::vessel::vector<render_resource::instances::request>& requests) const override {
             auto const values = descriptions(context);
-            for (size_t i = 0; i < values.size(); ++i)
-                if (required[i])
+            for (size_t i = 0; i < values.size(); ++i) {
+                if (required[i]) {
                     requests.push_back(values[i]);
+                }
+            }
         }
         void bind_resources(render_resource::instances::resource_snapshot const& snapshot) override {
             resource_view = snapshot;

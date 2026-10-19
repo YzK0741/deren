@@ -52,11 +52,13 @@ namespace deren::utility::detail::trace_native {
         /// call already tried (the flag is monotonic, so a failure is not retried forever).
         HANDLE try_open_emergency_output() noexcept {
             bool expected = false;
-            if (!emergency_open_attempted.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+            if (!emergency_open_attempted.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
                 return nullptr;
+            }
             HANDLE const file = open_crash_log();
-            if (file == INVALID_HANDLE_VALUE)
+            if (file == INVALID_HANDLE_VALUE) {
                 return nullptr;
+            }
             emergency_output.store(file, std::memory_order_release);
             return file;
         }
@@ -65,10 +67,12 @@ namespace deren::utility::detail::trace_native {
             char bytes[512];
             std::size_t used = 0;
             void text(char const* value, std::size_t max = 400) noexcept {
-                if (!value)
+                if (!value) {
                     return;
-                while (*value && max-- && used < sizeof(bytes))
+                }
+                while (*value && max-- && used < sizeof(bytes)) {
                     bytes[used++] = *value++;
+                }
             }
             void number(std::uintptr_t value, unsigned radix = 16) noexcept {
                 char digits[3 * sizeof(value)];
@@ -77,8 +81,9 @@ namespace deren::utility::detail::trace_native {
                     digits[n++] = "0123456789abcdef"[value % radix];
                     value /= radix;
                 } while (value);
-                while (n && used < sizeof(bytes))
+                while (n && used < sizeof(bytes)) {
                     bytes[used++] = digits[--n];
+                }
             }
             void send() noexcept {
                 write_text(bytes, used);
@@ -100,22 +105,26 @@ namespace deren::utility::detail::trace_native {
         public:
             filtered_environment() noexcept {
                 LPWCH const source = GetEnvironmentStringsW();
-                if (!source)
+                if (!source) {
                     return;
+                }
                 std::size_t units = 1; // the terminating empty entry
                 for (wchar_t const* entry = source; *entry; entry += std::wcslen(entry) + 1) {
-                    if (!blocked(entry))
+                    if (!blocked(entry)) {
                         units += std::wcslen(entry) + 1;
+                    }
                 }
                 // A pathological environment is inherited rather than failing symbolization: the
                 // filter is a hardening measure, not a reason to lose the decoded frames.
-                if (units <= maximum_units)
+                if (units <= maximum_units) {
                     this->block = static_cast<wchar_t*>(std::malloc(units * sizeof(wchar_t)));
+                }
                 if (this->block) {
                     std::size_t written = 0;
                     for (wchar_t const* entry = source; *entry; entry += std::wcslen(entry) + 1) {
-                        if (blocked(entry))
+                        if (blocked(entry)) {
                             continue;
+                        }
                         auto const length = (std::wcslen(entry) + 1) * sizeof(wchar_t);
                         std::memcpy(this->block + written, entry, length);
                         written += length / sizeof(wchar_t);
@@ -125,8 +134,9 @@ namespace deren::utility::detail::trace_native {
                 FreeEnvironmentStringsW(source);
             }
             ~filtered_environment() noexcept {
-                if (this->block)
+                if (this->block) {
                     std::free(this->block);
+                }
             }
             filtered_environment(filtered_environment const&) = delete;
             filtered_environment& operator=(filtered_environment const&) = delete;
@@ -144,8 +154,9 @@ namespace deren::utility::detail::trace_native {
                 // A terminator where the name still expects a character ends the comparison: the
                 // entry is some other variable (the name itself is never a prefix of a shorter one).
                 for (std::size_t i = 0; name[i]; ++i) {
-                    if (lower(entry[i]) != name[i])
+                    if (lower(entry[i]) != name[i]) {
                         return false;
+                    }
                 }
                 return true;
             }
@@ -155,19 +166,22 @@ namespace deren::utility::detail::trace_native {
     } // namespace
 
     void write_text(char const* value, std::size_t size) noexcept {
-        if (!value)
+        if (!value) {
             return;
+        }
 #if defined(_WIN32)
         DWORD written = 0;
         // Small direct writes only; no FILE lock or logger queue.
         HANDLE output = GetStdHandle(STD_ERROR_HANDLE);
         if (!output || output == INVALID_HANDLE_VALUE) {
             output = emergency_output.load(std::memory_order_relaxed);
-            if (!output || output == INVALID_HANDLE_VALUE)
+            if (!output || output == INVALID_HANDLE_VALUE) {
                 output = try_open_emergency_output();
+            }
         }
-        if (output && output != INVALID_HANDLE_VALUE)
+        if (output && output != INVALID_HANDLE_VALUE) {
             static_cast<void>(WriteFile(output, value, static_cast<DWORD>(size), &written, nullptr));
+        }
 #else
         [[maybe_unused]] auto const written = ::write(STDERR_FILENO, value, size);
 #endif
@@ -176,15 +190,17 @@ namespace deren::utility::detail::trace_native {
     TRACE_NOINLINE trace capture(std::uint32_t skip, std::uint32_t depth) noexcept {
         trace result;
         depth = std::min(depth, static_cast<std::uint32_t>(capacity));
-        if (!depth || skip > 1024)
+        if (!depth || skip > 1024) {
             return result;
+        }
 #if defined(_WIN32)
         void* addresses[capacity + 1]{};
         auto n = CaptureStackBackTrace(skip + 1, depth + 1, addresses, nullptr);
         result.truncated = n > depth;
         result.count = std::min(static_cast<std::uint32_t>(n), depth);
-        for (std::uint32_t i = 0; i < result.count; ++i)
+        for (std::uint32_t i = 0; i < result.count; ++i) {
             result.pc[i] = reinterpret_cast<std::uintptr_t>(addresses[i]);
+        }
 #else
         struct state {
             trace* output;
@@ -208,15 +224,18 @@ namespace deren::utility::detail::trace_native {
 #if defined(_WIN32)
         HMODULE module = nullptr;
         if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                reinterpret_cast<LPCWSTR>(pc), &module))
+                                reinterpret_cast<LPCWSTR>(pc), &module)) {
             return false;
+        }
         wchar_t path[1024];
         DWORD n = GetModuleFileNameW(module, path, 1024);
-        if (!n || n >= 1024)
+        if (!n || n >= 1024) {
             return false;
+        }
         if (!WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, path, static_cast<int>(n), frame.module,
-                                 sizeof(frame.module) - 1, nullptr, nullptr))
+                                 sizeof(frame.module) - 1, nullptr, nullptr)) {
             return false;
+        }
         frame.base = reinterpret_cast<std::uintptr_t>(module);
 #else
         Dl_info info{};
@@ -279,8 +298,9 @@ namespace deren::utility::detail::trace_native {
 
     [[noreturn]] TRACE_NOINLINE void fast_panic(char const* message, std::size_t size) noexcept {
         static thread_local bool reporting = false;
-        if (reporting)
+        if (reporting) {
             std::_Exit(EXIT_FAILURE);
+        }
         reporting = true;
         write_text("deren fast_panic: ", 18);
         write_text(message, std::min(size, std::size_t{4096}));
@@ -305,8 +325,9 @@ namespace deren::utility::detail::trace_native {
     namespace {
         TRACE_NOINLINE LONG WINAPI crash_filter(EXCEPTION_POINTERS* exception) {
             static thread_local bool reporting = false;
-            if (reporting || !exception || !exception->ExceptionRecord || !exception->ContextRecord)
+            if (reporting || !exception || !exception->ExceptionRecord || !exception->ContextRecord) {
                 return EXCEPTION_EXECUTE_HANDLER;
+            }
             reporting = true;
             auto* record = exception->ExceptionRecord;
             auto fault = reinterpret_cast<std::uintptr_t>(record->ExceptionAddress);
@@ -364,13 +385,15 @@ namespace deren::utility::detail::trace_native {
                 } else {
                     DWORD64 next = 0;
                     SIZE_T read = 0;
-                    if (!ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(context.Rsp), &next, sizeof(next), &read) || read != sizeof(next))
+                    if (!ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(context.Rsp), &next, sizeof(next), &read) || read != sizeof(next)) {
                         break;
+                    }
                     context.Rip = next;
                     context.Rsp += sizeof(next);
                 }
-                if (!context.Rip || context.Rsp <= previous_sp || context.Rsp - previous_sp > 16 * 1024 * 1024 || context.Rip == previous_pc)
+                if (!context.Rip || context.Rsp <= previous_sp || context.Rsp - previous_sp > 16 * 1024 * 1024 || context.Rip == previous_pc) {
                     break;
+                }
                 captured.pc[captured.count++] = context.Rip;
             }
 #endif
@@ -391,8 +414,9 @@ namespace deren::utility::detail::trace_native {
             HANDLE const file = open_crash_log();
             if (file != INVALID_HANDLE_VALUE) {
                 HANDLE empty = nullptr;
-                if (!emergency_output.compare_exchange_strong(empty, file, std::memory_order_relaxed))
+                if (!emergency_output.compare_exchange_strong(empty, file, std::memory_order_relaxed)) {
                     CloseHandle(file);
+                }
             }
         }
         static_cast<void>(prepare_thread());
@@ -405,15 +429,19 @@ namespace deren::utility::detail::trace_native {
                                    std::size_t& written, std::uint32_t timeout_ms) noexcept {
         written = 0;
         wchar_t application[2048], object[2048], command[8192];
-        if (!count || count > capacity || !cap || !timeout_ms)
+        if (!count || count > capacity || !cap || !timeout_ms) {
             return process_status::failed;
+        }
         if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, executable, -1, application, 2048) ||
-            !MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, module, -1, object, 2048))
+            !MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, module, -1, object, 2048)) {
             return process_status::failed;
+        }
         std::size_t used = 0;
         bool valid = true;
-        auto append = [&](wchar_t ch) { if (used + 1 < sizeof(command) / sizeof(command[0])) command[used++] = ch; else valid = false; };
-        auto text = [&](wchar_t const* value) { while (*value) append(*value++); };
+        auto append = [&](wchar_t ch) { if (used + 1 < sizeof(command) / sizeof(command[0])) { command[used++] = ch; } else { valid = false; 
+} };
+        auto text = [&](wchar_t const* value) { while (*value) { append(*value++); 
+} };
         auto quote = [&](wchar_t const* value) {
             append(L'"');
             while (*value) {
@@ -423,12 +451,15 @@ namespace deren::utility::detail::trace_native {
                     ++value;
                 }
                 unsigned n = (*value == L'"' || !*value) ? 2 * slashes : slashes;
-                while (n--)
+                while (n--) {
                     append(L'\\');
-                if (*value == L'"')
+                }
+                if (*value == L'"') {
                     append(L'\\');
-                if (*value)
+                }
+                if (*value) {
                     append(*value++);
+                }
             }
             append(L'"');
         };
@@ -446,36 +477,46 @@ namespace deren::utility::detail::trace_native {
                 digits[n++] = L"0123456789abcdef"[value % 16];
                 value /= 16;
             } while (value);
-            while (n)
+            while (n) {
                 append(digits[--n]);
+            }
         }
         command[used] = 0;
-        if (!valid)
+        if (!valid) {
             return process_status::failed;
+        }
 
         HANDLE reader = nullptr, writer = nullptr, null_file = INVALID_HANDLE_VALUE, job = nullptr;
         PROCESS_INFORMATION process{};
         STARTUPINFOEXW startup{};
         bool attributes_ready = false;
         auto cleanup = [&] {
-            if (job)
+            if (job) {
                 CloseHandle(job); // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE contains descendants too.
-            if (process.hThread)
+            }
+            if (process.hThread) {
                 CloseHandle(process.hThread);
-            if (process.hProcess)
+            }
+            if (process.hProcess) {
                 CloseHandle(process.hProcess);
-            if (attributes_ready)
+            }
+            if (attributes_ready) {
                 DeleteProcThreadAttributeList(startup.lpAttributeList);
-            if (reader)
+            }
+            if (reader) {
                 CloseHandle(reader);
-            if (writer)
+            }
+            if (writer) {
                 CloseHandle(writer);
-            if (null_file != INVALID_HANDLE_VALUE)
+            }
+            if (null_file != INVALID_HANDLE_VALUE) {
                 CloseHandle(null_file);
+            }
         };
         SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
-        if (!CreatePipe(&reader, &writer, &security, 0))
+        if (!CreatePipe(&reader, &writer, &security, 0)) {
             return process_status::failed;
+        }
         if (!SetHandleInformation(reader, HANDLE_FLAG_INHERIT, 0)) {
             cleanup();
             return process_status::failed;
@@ -549,8 +590,9 @@ namespace deren::utility::detail::trace_native {
                     break;
                 }
                 written += got;
-            } else if (WaitForSingleObject(process.hProcess, 0) == WAIT_OBJECT_0)
+            } else if (WaitForSingleObject(process.hProcess, 0) == WAIT_OBJECT_0) {
                 break;
+            }
             if (monotonic_ms() >= deadline) {
                 status = process_status::timeout;
                 break;
@@ -561,8 +603,9 @@ namespace deren::utility::detail::trace_native {
             static_cast<void>(WaitForSingleObject(process.hProcess, 1));
         }
         DWORD code = 0;
-        if (status == process_status::ok && (!GetExitCodeProcess(process.hProcess, &code) || code != 0))
+        if (status == process_status::ok && (!GetExitCodeProcess(process.hProcess, &code) || code != 0)) {
             status = process_status::failed;
+        }
         cleanup();
         return status;
     }

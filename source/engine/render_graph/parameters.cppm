@@ -60,18 +60,21 @@ export namespace deren::engine::render_graph {
         }
         template <typename T>
         void operator()(std::optional<T> const& field) noexcept {
-            if (field)
+            if (field) {
                 (*this)(*field);
+            }
         }
         template <typename T, std::size_t N>
         void operator()(std::array<T, N> const& fields) noexcept {
-            for (auto const& field : fields)
+            for (auto const& field : fields) {
                 (*this)(field);
+            }
         }
         template <typename T, std::size_t N>
         void operator()(std::span<T, N> fields) noexcept {
-            for (auto const& field : fields)
+            for (auto const& field : fields) {
                 (*this)(field);
+            }
         }
         template <typename First, typename Second, typename... Rest>
         void operator()(First const& first, Second const& second, Rest const&... rest) noexcept {

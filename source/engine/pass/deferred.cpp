@@ -121,8 +121,9 @@ namespace deren::engine::pass {
     rhi::error deferred_pass::record_content(resolved_io const& io) noexcept {
         if (!this->pass_pipeline || io.targets.empty() || io.pipelines.empty() || !io.pipelines[0] ||
             !io.list || !io.cmd || io.cmd.get() != io.list || !io.targets[0].image_handle || !io.targets[0].view_handle ||
-            !io.extent.width || !io.extent.height)
+            !io.extent.width || !io.extent.height) {
             return rhi::error::invalid_argument;
+        }
         // The three stored targets and the G-buffer depth became samples in this STAGE's preamble, in the
         // renderer - the frame's ordering rule about images the G-buffer pass wrote (see deferred_frame's note).
         // THE RENDERING SCOPE RIDES THE CONTRACT NOW (abi 20): one colour attachment, LOAD + STORE (what the raw
@@ -140,8 +141,9 @@ namespace deren::engine::pass {
             .secondary_contents = false, // no secondary command buffers: the lighting draw records straight into the primary
         };
         auto begun = io.list->begin_rendering(rendering_info);
-        if (begun != rhi::error::ok)
+        if (begun != rhi::error::ok) {
             return begun;
+        }
         // No set to bind: the stored targets and the G-buffer depth are heap slots, and the frame bound the heaps
         // on this command buffer (see begin_recording); the pass's push block carries the two indices.
         io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull

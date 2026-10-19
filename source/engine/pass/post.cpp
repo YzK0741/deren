@@ -199,8 +199,9 @@ namespace deren::engine::pass {
     rhi::error post_composite_pass::record_content(resolved_io const& io) noexcept {
         if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || !io.pipelines[0] ||
             !io.cmd || !io.list || io.cmd.get() != io.list || !io.targets[0].image_handle || !io.targets[0].view_handle ||
-            io.extent.width == 0 || io.extent.height == 0 || io.push.size() < sizeof(post_push_constants))
+            io.extent.width == 0 || io.extent.height == 0 || io.push.size() < sizeof(post_push_constants)) {
             return rhi::error::invalid_argument;
+        }
         // The push block the host filled, with the pass's own stage lane written last: `mode = 2` is what makes
         // post.frag composite instead of prefiltering or downsampling.
         post_push_constants push = {};
@@ -221,8 +222,9 @@ namespace deren::engine::pass {
             .secondary_contents = false, // this instance is inline; the overlay segment runs in its own after it ends
         };
         auto const begun = io.list->begin_rendering(rendering_info);
-        if (begun != rhi::error::ok)
+        if (begun != rhi::error::ok) {
             return begun;
+        }
         io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
         if (!io.push_block(*io.cmd, pass::push_bytes(push))) {
             io.list->end_rendering();
@@ -306,8 +308,9 @@ namespace deren::engine::pass {
     rhi::error post_bloom_pass::record_content(resolved_io const& io) noexcept {
         if (io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
             io.extent.width == 0 || io.extent.height == 0 || io.list == nullptr || !io.cmd ||
-            io.cmd.get() != io.list || io.targets[0].image_handle == nullptr || io.targets[0].view_handle == nullptr)
+            io.cmd.get() != io.list || io.targets[0].image_handle == nullptr || io.targets[0].view_handle == nullptr) {
             return rhi::error::invalid_argument;
+        }
         // The push block is composed HERE (S3): the frame's three settings (exposure, the bloom weight and the
         // bright-pass threshold - all of them lanes more than one pass pushes, which is why they are frame
         // settings), the struct's defaults for every lane this stage does not read - which is what the renderer
@@ -333,8 +336,9 @@ namespace deren::engine::pass {
             .secondary_contents = false,
         };
         auto const begun = io.list->begin_rendering(rendering_info);
-        if (begun != rhi::error::ok)
+        if (begun != rhi::error::ok) {
             return begun;
+        }
         io.list->set_cull_mode(rhi::cull_mode::none);
         // THIS LEVEL'S SOURCE: the third lane says which one, and the HOST turns it into a heap slot (see
         // runtime::push_stage_block). Level 0 (the prefilter) and the composite read the HDR target, which is the

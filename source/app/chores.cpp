@@ -552,8 +552,11 @@ namespace deren::chores {
             if (auto const* enabled = std::getenv("DEREN_GAUSSIAN_GPU_PROBE"); enabled != nullptr && std::string_view{enabled} == "1") {
                 deren::utility::vessel::array<std::span<uint8_t const>, 3> const compute = {gaussian_compute_code[0], gaussian_compute_code[1], gaussian_compute_code[2]};
                 auto report = deren::engine::gaussian_splatting::run_raster_probe(runtime.rhi_face(), gaussian_vertex_code, gaussian_fragment_code, compute, true);
-                if (report) deren::utility::log("Gaussian GPU raster probe: PASS {} cases / {} pixels, maximum RGB error {}, depth max {} ULP, double-order differences {}", report->cases, report->pixels, report->maximum_error, report->maximum_depth_ulp, report->depth_order_differences);
-                else deren::utility::log("Gaussian GPU raster probe: FAIL {}", report.error().message);
+                if (report) {
+                    deren::utility::log("Gaussian GPU raster probe: PASS {} cases / {} pixels, maximum RGB error {}, depth max {} ULP, double-order differences {}", report->cases, report->pixels, report->maximum_error, report->maximum_depth_ulp, report->depth_order_differences);
+                } else {
+                    deren::utility::log("Gaussian GPU raster probe: FAIL {}", report.error().message);
+                }
             }
             deren::utility::vessel::vector<uint8_t> heap_probe_vertex_code;
             load_shader(shaders_dir, "heap_probe.vert.spv", heap_probe_vertex_code);

@@ -51,8 +51,9 @@ export namespace deren::engine {
         /// The caller supplies the owning core; consumers still validate resource provenance.
         [[nodiscard]] static resource_lease from_shared(
             deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core, deren::promise::rhi::shared_object<T> owned) {
-            if (!core || !owned)
+            if (!core || !owned) {
                 return {};
+            }
             resource_lease result;
             result.resource = owned.get();
             result.value = std::allocate_shared<resource_cluster_detail::owner<T>>(
@@ -82,8 +83,9 @@ export namespace deren::engine {
 
         template <typename T>
         std::expected<resource_lease<T>, deren::promise::rhi::error> keep(T* raw, std::shared_ptr<void const> parent = {}) {
-            if (!raw)
+            if (!raw) {
                 return std::unexpected(deren::promise::rhi::error::operation_failed);
+            }
             auto owned = std::allocate_shared<resource_cluster_detail::owner<T>>(
                 deren::utility::memory::allocator<resource_cluster_detail::owner<T>>{}, core, raw, std::move(parent));
             members.push_back(owned);
@@ -101,13 +103,15 @@ export namespace deren::engine {
         resource_cluster(resource_cluster&&) = delete;
         resource_cluster& operator=(resource_cluster&&) = delete;
         ~resource_cluster() {
-            while (!members.empty())
+            while (!members.empty()) {
                 members.pop_back();
+            }
         }
         [[nodiscard]] static std::shared_ptr<resource_cluster> create(
             deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device, std::string_view name = {}) {
-            if (!device)
+            if (!device) {
                 return {};
+            }
             return std::allocate_shared<resource_cluster>(deren::utility::memory::allocator<resource_cluster>{},
                                                           construction_key{}, std::move(device), name);
         }
@@ -135,17 +139,20 @@ export namespace deren::engine {
         }
         [[nodiscard]] std::expected<resource_lease<deren::promise::rhi::image_view>, deren::promise::rhi::error>
         create_image_view(resource_lease<deren::promise::rhi::image> const& image, deren::promise::rhi::image_view_desc const& desc) {
-            if (!image || image.value->device.get() != core.get())
+            if (!image || image.value->device.get() != core.get()) {
                 return std::unexpected(deren::promise::rhi::error::invalid_argument);
+            }
             return keep(image->make_view(desc).release(), image.value);
         }
         template <typename T>
         [[nodiscard]] deren::promise::rhi::error share(resource_lease<T> const& resource) {
-            if (!resource || resource.value->device.get() != core.get())
+            if (!resource || resource.value->device.get() != core.get()) {
                 return deren::promise::rhi::error::invalid_argument;
+            }
             auto const found = std::find_if(members.begin(), members.end(), [&](auto const& entry) { return entry.get() == resource.value.get(); });
-            if (found == members.end())
+            if (found == members.end()) {
                 members.push_back(resource.value);
+            }
             return deren::promise::rhi::error::ok;
         }
     };

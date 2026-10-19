@@ -99,8 +99,9 @@ namespace deren::engine {
     }
 
     frame_status runtime::poll_events() {
-        if (this->create_options.native_window == nullptr)
+        if (this->create_options.native_window == nullptr) {
             return frame_status::proceed;
+        }
         GLFWwindow* window = static_cast<GLFWwindow*>(this->create_options.native_window);
 
         // Window events first: respond to ESC / native close before any GPU work
@@ -210,8 +211,9 @@ namespace deren::engine {
         // out-of-date answer for that retired generation must not rebuild the new one again.
         if (this->pending_present.valid() && this->pending_present.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
             rhi::error const result = this->pending_present.get();
-            if (result == rhi::error::ok || result == rhi::error::out_of_date)
+            if (result == rhi::error::ok || result == rhi::error::out_of_date) {
                 this->pending_present = {};
+            }
         }
         // THE GENERATION'S SIZES FIRST: a rebuild is exactly when the presentation extent can move,
         // so the engine re-reads it from the contract (`frame_swapchain()->extent()`) and recomputes
@@ -395,15 +397,17 @@ namespace deren::engine {
             if (!this->gaussian_benchmark.is_open()) {
                 this->gaussian_benchmark.open(path);
                 this->gaussian_benchmark << "sample,frame_ms,cpu_prepare_ms";
-                for (auto const& label : gpu_timing_labels)
+                for (auto const& label : gpu_timing_labels) {
                     this->gaussian_benchmark << ',' << label.name;
+                }
                 this->gaussian_benchmark << '\n';
             }
             if (measured == gpu_timing_labels.size()) {
                 auto const slot = static_cast<std::size_t>(this->frame_ring().position());
                 this->gaussian_benchmark << ++this->gaussian_benchmark_rows << ',' << this->gaussian_frame_wall_ms[slot] << ',' << this->gaussian_cpu_prepare_ms[slot];
-                for (auto const duration : sample)
+                for (auto const duration : sample) {
                     this->gaussian_benchmark << ',' << duration;
+                }
                 this->gaussian_benchmark << '\n';
             }
         }
@@ -477,8 +481,9 @@ namespace deren::engine {
     }
 
     bool runtime::enable_debug_gui() {
-        if (this->create_options.native_window == nullptr)
+        if (this->create_options.native_window == nullptr) {
             return false;
+        }
         // THE PLUGIN IS LOADED ON DEMAND (plan X2): the GUI lives in `deren_gui_<api>.dll`, resolved BY NAME
         // through the loader, so the engine has no link-time dependency on it at all - and this is the one
         // place that decides which API it asks for (the renderer this runtime drives).
@@ -1312,8 +1317,9 @@ namespace deren::engine {
     void runtime::set_shadow_cascade_blend(float const blend) noexcept {
         // a band wider than half a cascade would reach back into the previous one
         float const clamped = std::clamp(blend, 0.0f, 0.5f);
-        if (clamped != this->shadow_cascade_blend)
+        if (clamped != this->shadow_cascade_blend) {
             this->shadow_frustum_valid = false;
+        }
         this->shadow_cascade_blend = clamped;
         this->light_state.cascade_blend = this->shadow_cascade_blend;
     }
@@ -1445,8 +1451,9 @@ namespace deren::engine {
                 deren::utility::log("heap push: a block of {} B plus {} index lanes does not fit the push-data window", bytes.size(), lanes);
                 return false;
             }
-            if (!bytes.empty())
+            if (!bytes.empty()) {
                 std::memcpy(staging.data(), bytes.data(), bytes.size());
+            }
             deren::utility::vessel::array<uint32_t, 3> const indices = {frame_slot, image_index, extra_lane};
             std::memcpy(staging.data() + bytes.size(), indices.data(), lane_bytes);
             return contract_push_heap_data(face, target.command.get(), target.mergeable.get(), 0u, std::span<std::byte const>(staging.data(), bytes.size() + lane_bytes));
@@ -1628,21 +1635,26 @@ namespace deren::engine {
     // then records the OLD geometry lane for EVERY leaf. The clauses live in deren::engine::visibility (pure, and
     // unit-tested there); this function owns the FACTS, i.e. which primitive field each clause reads.
     std::uint32_t runtime::material_flags_of(primitive const& leaf) const noexcept {
-        if (this->material_mapped == nullptr || leaf.push.material_index.value >= this->material_count)
+        if (this->material_mapped == nullptr || leaf.push.material_index.value >= this->material_count) {
             return 0u;
+        }
         return static_cast<material_record const*>(this->material_mapped)[leaf.push.material_index.value].flags;
     }
 
     deren::engine::visibility::admission runtime::visibility_frame_admission(bool const graph_frame) const noexcept {
         namespace vis = deren::engine::visibility;
-        if (!this->visibility_buffer_on)
+        if (!this->visibility_buffer_on) {
             return vis::admission::disabled;
-        if (!this->visibility_available())
+        }
+        if (!this->visibility_available()) {
             return vis::admission::no_pipeline;
-        if (!graph_frame)
+        }
+        if (!graph_frame) {
             return vis::admission::no_scene; // no graph-recordable scene: there is no G-buffer lane to replace
-        if (this->frame_visible.empty())
+        }
+        if (this->frame_visible.empty()) {
             return vis::admission::no_draws; // the old lane's clear IS the frame; nothing to capture
+        }
         // THE TOON RE-SHADING STAGE NO LONGER REFUSES THE FRAME (item 1 measured to the root cause): it draws the
         // opaque leaves a SECOND time with an EXACT depth-EQUAL test, and v0.6 saw that test reject a third of the
         // frame - which turned out to be the visibility mesh shader spelling the clip position as a precomputed
@@ -1653,8 +1665,9 @@ namespace deren::engine {
         bool const material_table_ready = this->material_mapped != nullptr;
         std::uint32_t item = 0;
         for (primitive const* const leaf : this->frame_visible) {
-            if (leaf == nullptr)
+            if (leaf == nullptr) {
                 return vis::admission::missing_geometry; // a null leaf has no item to write
+            }
             vis::leaf_admission_facts facts{
                 .default_pipeline = leaf->pipeline_name.empty(),
                 .instanced = (leaf->push.flags & 1u) != 0u,
@@ -1668,8 +1681,9 @@ namespace deren::engine {
                 .item_index = item,
             };
             vis::admission const verdict = vis::admit_leaf(facts);
-            if (!vis::admitted(verdict))
+            if (!vis::admitted(verdict)) {
                 return verdict;
+            }
             ++item;
         }
         return vis::admission::admitted;
@@ -1737,15 +1751,17 @@ namespace deren::engine {
                                              [this](unsigned base, std::span<meshlet const> records) {
                                                  return runtime::meshlet_culled_write(this, base, std::as_bytes(records));
                                              });
-                if (run.source == subtilis::run_source::visible && run.count != 0)
+                if (run.source == subtilis::run_source::visible && run.count != 0) {
                     published.push_back(space);
+                }
                 input_count += space.count;
                 selected_count += run.count;
                 fallback_count += run.reason != subtilis::fallback_reason::none;
             }
             vis::apply_meshlet_run(row, block, run);
-            if (!runtime::visibility_items_write(this, item, std::as_bytes(std::span(&row, 1u))))
+            if (!runtime::visibility_items_write(this, item, std::as_bytes(std::span(&row, 1u)))) {
                 return false;
+            }
             if (!runtime::push_raw_block(this, command_buffer, std::as_bytes(std::span(&block, 1u)))) {
                 return false;
             }
@@ -2104,8 +2120,9 @@ namespace deren::engine {
         deren::utility::vessel::array<managed::request, 2> requests;
         deren::utility::vessel::array<std::span<std::byte const>, 2> const bytes{std::as_bytes(info.vertex_data), std::as_bytes(info.index_data)};
         for (size_t i = 0; i < requests.size(); ++i) {
-            if (bytes[i].empty())
+            if (bytes[i].empty()) {
                 return nullptr;
+            }
             auto upload = std::make_shared<deren::utility::vessel::vector<std::byte> const>(bytes[i].begin(), bytes[i].end());
             auto& request = requests[i];
             request.id = i == 0 ? render_resource::resource_id::scene_geometry_vertices : render_resource::resource_id::scene_geometry_indices;
@@ -2121,21 +2138,24 @@ namespace deren::engine {
             for (auto const& request : requests) {
                 auto generation = snapshot.find(request.id);
                 auto* buffer = generation && generation->objects.size() == 1 ? generation->objects[0].buffer.get() : nullptr;
-                if (!buffer || buffer->size() < request.buffer.size)
+                if (!buffer || buffer->size() < request.buffer.size) {
                     return rhi::error::unsupported;
+                }
             }
             return rhi::error::ok;
         };
-        if (geometry->prepare_resources(this->core_owner, {}, admit) != rhi::error::ok)
+        if (geometry->prepare_resources(this->core_owner, {}, admit) != rhi::error::ok) {
             return nullptr;
+        }
         auto snapshot = geometry->resources().snapshot();
         auto vertices = snapshot.find(requests[0].id);
         auto indices = snapshot.find(requests[1].id);
         result->vertex_buffer.bind(vertices->objects[0].buffer.get(), vertices);
         result->index_buffer.bind(indices->objects[0].buffer.get(), indices);
         result->geometry_resources = geometry;
-        for (auto& request : requests)
+        for (auto& request : requests) {
             request.initial_data.reset();
+        }
         provider.configure(requests);
         result->index_type = info.index_type;
         result->draw_index_count = info.index_count;
@@ -2362,8 +2382,9 @@ namespace deren::engine {
         std::size_t const bytes = std::min(matrices.size_bytes(), static_cast<std::size_t>(deren::engine::scene_skin_capacity) * sizeof(glm::mat4));
         auto& current = this->skin_current[slot];
         std::size_t const count = bytes / sizeof(glm::mat4);
-        if (current.size() < count)
+        if (current.size() < count) {
             current.resize(count, glm::mat4(0.0f));
+        }
         if (bytes != 0) {
             std::memcpy(current.data(), matrices.data(), bytes);
             std::memcpy(this->skin_mapped[slot], matrices.data(), bytes);

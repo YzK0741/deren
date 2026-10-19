@@ -22,15 +22,17 @@ namespace deren::utility::diagnostics {
         /// hence `exact_address_count` on the trace rather than a blanket -1.
         [[nodiscard]] std::uintptr_t symbolizer_address(stack_trace const& trace, std::uint32_t index) noexcept {
             auto const pc = trace.addresses[index];
-            if (!pc)
+            if (!pc) {
                 return 0;
+            }
             return index < trace.exact_address_count ? pc : pc - 1;
         }
     } // namespace
     TRACE_NOINLINE stack_trace capture_stack(std::uint32_t skip, std::uint32_t depth) noexcept {
         stack_trace result;
-        if (skip > 1024)
+        if (skip > 1024) {
             return result;
+        }
         auto raw = native::capture(skip + 1, depth);
         result.count = raw.count;
         result.truncated = raw.truncated;
@@ -54,8 +56,9 @@ namespace deren::utility::diagnostics {
     symbolized_trace symbolize(stack_trace const& trace, symbolizer_options const& options) {
         symbolized_trace result;
         auto n = std::min(trace.count, max_stack_depth);
-        if (!n)
+        if (!n) {
             return result;
+        }
         auto executable = options.executable.empty() ? std::string_view(native::default_symbolizer()) : options.executable;
         bool disabled = executable.empty() || executable == "off";
         bool invalid = executable.find('\0') != std::string_view::npos || executable.size() >= 2048;
@@ -64,8 +67,9 @@ namespace deren::utility::diagnostics {
         auto deadline = native::monotonic_ms() + timeout;
         auto remaining_output = std::min(options.max_symbolizer_output_bytes, std::size_t{1024 * 1024});
         vessel::vector<char> output;
-        if (!disabled && !invalid && remaining_output)
+        if (!disabled && !invalid && remaining_output) {
             output.resize(remaining_output);
+        }
         for (std::uint32_t i = 0; i < n;) {
             native::frame_info frame;
             // Exact PCs are kept as recorded; return PCs point after the call instruction.
@@ -75,8 +79,9 @@ namespace deren::utility::diagnostics {
             for (; j < n; ++j) {
                 native::frame_info next;
                 static_cast<void>(native::resolve(symbolizer_address(trace, j), next));
-                if (j != i && (next.base != frame.base || std::string_view(next.module) != frame.module))
+                if (j != i && (next.base != frame.base || std::string_view(next.module) != frame.module)) {
                     break;
+                }
                 offsets[j - i] = next.offset;
                 // Always retain raw evidence, including when symbols are missing or a child fails.
                 result.text += vessel::format("frame pc=0x{:x} base=0x{:x} rva=0x{:x} module={}\n",
@@ -85,15 +90,15 @@ namespace deren::utility::diagnostics {
             auto status = symbolizer_status::ok;
             std::size_t written = 0;
             auto now = native::monotonic_ms();
-            if (invalid)
+            if (invalid) {
                 status = symbolizer_status::failed;
-            else if (disabled || !frame.module[0])
+            } else if (disabled || !frame.module[0]) {
                 status = symbolizer_status::unavailable;
-            else if (!remaining_output)
+            } else if (!remaining_output) {
                 status = symbolizer_status::output_limit;
-            else if (now >= deadline)
+            } else if (now >= deadline) {
                 status = symbolizer_status::timeout;
-            else {
+            } else {
                 auto raw_status = native::symbolize_group(tool.c_str(), frame.module, offsets, j - i, options.inlines,
                                                           output.data(), remaining_output, written, static_cast<std::uint32_t>(deadline - now));
                 switch (raw_status) {
@@ -119,12 +124,14 @@ namespace deren::utility::diagnostics {
                 // A tool that exited cleanly without writing anything decoded nothing: reporting
                 // `ok` here would claim symbols that do not exist, and the caller cannot tell it
                 // from a group that was decoded (the raw records are present either way).
-                if (status == symbolizer_status::ok && !written)
+                if (status == symbolizer_status::ok && !written) {
                     status = symbolizer_status::unavailable;
+                }
                 remaining_output -= written;
             }
-            if (status != symbolizer_status::ok && result.status == symbolizer_status::ok)
+            if (status != symbolizer_status::ok && result.status == symbolizer_status::ok) {
                 result.status = status;
+            }
             i = j;
         }
         return result;

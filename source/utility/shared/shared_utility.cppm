@@ -198,8 +198,9 @@ export namespace deren::utility::vessel {
         } else {
             char buffer[std::numeric_limits<Integer>::digits10 + 3];
             auto const converted = std::to_chars(buffer, buffer + sizeof(buffer), value);
-            if (converted.ec != std::errc{})
+            if (converted.ec != std::errc{}) {
                 memory::allocation_failure(memory::allocation_error::size_overflow, sizeof(buffer), alignof(char));
+            }
             return string(buffer, converted.ptr);
         }
     }

@@ -61,12 +61,14 @@ export namespace deren::engine::render_graph::visibility {
             constexpr access_scope mesh{resource_usage::storage, pipeline_stage::mesh_shader};
             constexpr access_scope indirect{resource_usage::indirect_buffer, pipeline_stage::draw_indirect};
             params.shared = shared_parameters{{in.shared->camera, {}, camera}, {in.shared->meshlets, {}, mesh}, {in.shared->indirect, {}, indirect}};
-            if (in.shared->culled_meshlets)
+            if (in.shared->culled_meshlets) {
                 params.shared->culled_meshlets = buffer_read{*in.shared->culled_meshlets, {}, mesh};
+            }
         }
         auto added = graph.add_pass("scene visibility raster", std::move(params));
-        if (!added)
+        if (!added) {
             return std::unexpected(added.error());
+        }
         return outputs{in, *added};
     }
 
@@ -126,17 +128,23 @@ export namespace deren::engine::render_graph::visibility {
 
     [[nodiscard]] inline std::expected<resolve_outputs, graph_error> append_resolve(builder& graph, resolve_inputs const& in) noexcept {
         std::array<texture_ref, 5> outputs{in.surface[0], in.surface[1], in.surface[2], in.velocity, in.color};
-        for (std::size_t i = 0; i < outputs.size(); ++i)
-            for (std::size_t j = 0; j < i; ++j)
-                if (outputs[i] == outputs[j])
+        for (std::size_t i = 0; i < outputs.size(); ++i) {
+            for (std::size_t j = 0; j < i; ++j) {
+                if (outputs[i] == outputs[j]) {
                     return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "visibility resolve", .resource_name = "G-buffer alias"});
+                }
+            }
+        }
         // the inputs and the outputs are different images by construction (the id is not a G-buffer family, and the
         // depth is READ but never written by this pass), so a shared handle would be a wiring mistake rather than a
         // legal read-write pair.
-        for (texture_ref const input : {in.vis_id, in.depth})
-            for (texture_ref const output : outputs)
-                if (input == output)
+        for (texture_ref const input : {in.vis_id, in.depth}) {
+            for (texture_ref const output : outputs) {
+                if (input == output) {
                     return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "visibility resolve", .resource_name = "visibility input alias"});
+                }
+            }
+        }
         constexpr access_scope read{resource_usage::sampled, pipeline_stage::compute_shader};
         constexpr access_scope write{resource_usage::storage, pipeline_stage::compute_shader};
         resolve_parameters params{{in.vis_id, {}, read}, {in.depth, {}, read}, {}, {in.velocity, {}, write}, {in.color, {}, write}};
@@ -150,12 +158,14 @@ export namespace deren::engine::render_graph::visibility {
                                                       {in.shared->meshlets, {}, buffer},
                                                       {in.shared->previous_transforms, {}, buffer},
                                                       {in.shared->statistics, {}, buffer}};
-            if (in.shared->culled_meshlets)
+            if (in.shared->culled_meshlets) {
                 params.shared->culled_meshlets = buffer_read{*in.shared->culled_meshlets, {}, buffer};
+            }
         }
         auto added = graph.add_pass("visibility resolve", std::move(params));
-        if (!added)
+        if (!added) {
             return std::unexpected(added.error());
+        }
         return resolve_outputs{in, *added};
     }
 } // namespace deren::engine::render_graph::visibility

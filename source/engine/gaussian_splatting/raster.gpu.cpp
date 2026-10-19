@@ -66,8 +66,9 @@ namespace deren::engine::gaussian_splatting {
         }
     } // namespace
     std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(rhi::api_core& core, deren::gaussian::asset input, foundation_limits const& limits, rhi::shared_object<rhi::api_core> device_lease) {
-        if (device_lease && device_lease.get() != &core)
+        if (device_lease && device_lease.get() != &core) {
             return failure(error_code::invalid_argument, "Gaussian asset device lease belongs to another core");
+        }
         // THE VIEWER'S OWN PROGRESS, at the two stages that can be slow or refuse: a 562,974-splat cloud is
         // packed and uploaded once, and "which half" is the first question when it does not arrive.
         deren::utility::log("gaussian asset: packing {} particle(s) (SH degree {})", input.particles.size(), input.sh_degree);
@@ -89,12 +90,15 @@ namespace deren::engine::gaussian_splatting {
         return std::shared_ptr<raster_asset const>{std::move(result)};
     }
     std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(rhi::api_core& core, std::span<raster_instance const> inputs, raster_camera const& camera, foundation_limits const& limits, raster_frame* const reuse, rhi::shared_object<rhi::api_core> device_lease) {
-        if (device_lease && device_lease.get() != &core)
+        if (device_lease && device_lease.get() != &core) {
             return failure(error_code::invalid_argument, "Raster device lease belongs to another core");
-        if (reuse && reuse->owner != &core)
+        }
+        if (reuse && reuse->owner != &core) {
             return failure(error_code::invalid_argument, "Raster frame belongs to another core");
-        if (reuse && device_lease && !reuse->device_lease && reuse->storage_view.size())
+        }
+        if (reuse && device_lease && !reuse->device_lease && reuse->storage_view.size()) {
             return failure(error_code::invalid_argument, "Legacy raster storage cannot gain an owning device lease; prepare a new frame");
+        }
         auto const frame_started = std::chrono::steady_clock::now();
         auto sort_view = validate_raster_camera(camera);
         if (!sort_view) {
@@ -144,8 +148,9 @@ namespace deren::engine::gaussian_splatting {
         // Stage CPU results so rejection cannot clear the completed slot's last valid frame.
         raster_frame staged;
         std::shared_ptr<raster_frame> created;
-        if (!reuse)
+        if (!reuse) {
             created = std::shared_ptr<raster_frame>{new raster_frame{}};
+        }
         auto* const result = reuse ? &staged : created.get();
         auto* const target = reuse ? reuse : result;
         if (reuse) {
@@ -167,12 +172,14 @@ namespace deren::engine::gaussian_splatting {
                 }
             }
         } workspace{reuse != nullptr, target->staging_reference_data, result->reference_data, target->staging_owners, result->owners};
-        if (device_lease)
+        if (device_lease) {
             target->device_lease = device_lease;
+        }
         auto const publish = [&]() -> std::shared_ptr<raster_frame const> {
             target->owner = &core;
-            if (!reuse)
+            if (!reuse) {
                 return created;
+            }
             reuse->push = result->push;
             reuse->reference_data.swap(result->reference_data);
             reuse->instance_data = std::move(result->instance_data);
@@ -296,8 +303,9 @@ namespace deren::engine::gaussian_splatting {
             for (std::size_t i = 0; i < requests.size(); ++i) {
                 auto generation = snapshot.find(ids[i]);
                 buffers[i] = generation && generation->objects.size() == 1 ? generation->objects[0].buffer.get() : nullptr;
-                if (!buffers[i] || buffers[i]->size() < sizes[i] || buffers[i]->mapped().size() < sizes[i])
+                if (!buffers[i] || buffers[i]->size() < sizes[i] || buffers[i]->mapped().size() < sizes[i]) {
                     return rhi::error::unsupported;
+                }
                 addresses[i] = address->buffer_address(*buffers[i], 0);
                 auto const alignment = i == 0 ? alignof(instance_record) : alignof(draw_reference);
                 if (!addresses[i] || addresses[i] % alignment) {
@@ -310,12 +318,14 @@ namespace deren::engine::gaussian_splatting {
         };
         auto pending = target->storage_view;
         if (rebuild) {
-            if (!target->storage_provider)
+            if (!target->storage_provider) {
                 target->storage_provider = &target->storage_chain.emplace<deren::engine::pass::buffer_storage_pass>();
+            }
             target->storage_provider->configure(requests);
             auto root = target->device_lease ? target->device_lease : rhi::shared_object<rhi::api_core>::borrow(*&core);
-            if (target->storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok)
+            if (target->storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok) {
                 return failure(admission_code, admission_message);
+            }
             pending = target->storage_chain.resources().snapshot();
         } else if (admit(pending) != rhi::error::ok) {
             return failure(admission_code, admission_message);

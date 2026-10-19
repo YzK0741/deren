@@ -50,8 +50,9 @@ namespace deren::engine::pass {
 
     rhi::error transparent_pass::record_content(resolved_io const& io) noexcept {
         if (this->pass_frame.make_environment == nullptr || !this->pass_frame.secondary || this->pass_frame.leaves.empty() ||
-            io.targets.size() < 2 || io.list == nullptr)
+            io.targets.size() < 2 || io.list == nullptr) {
             return rhi::error::invalid_argument; // the record step resolves this or does not record the pass at all
+        }
         // The leaves go into the frame slot's transparent secondary, with inheritance matching the instance
         // below: ONE colour attachment at 1x. A secondary does not inherit state from its primary, so it binds
         // the shared scene block for itself - the same bind the scene pass's segments make.

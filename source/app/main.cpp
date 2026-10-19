@@ -94,8 +94,9 @@ namespace {
         GLFWwindow* window = nullptr;
 
         glfw_window_host(int32_t const width, int32_t const height, char const* const title, bool const visible, bool const offscreen = false) {
-            if (offscreen)
+            if (offscreen) {
                 return;
+            }
             // THE BACKEND USED TO CALL THIS AND IGNORE THE RESULT (`core::init_window`'s bare `glfwInit()`).
             // The application owns the initialisation now, so a failure is reported where it happens instead
             // of surfacing later as a null extension list or a window that never appears.
@@ -125,8 +126,9 @@ namespace {
             if (this->window != nullptr) {
                 glfwDestroyWindow(this->window);
             }
-            if (this->window != nullptr)
+            if (this->window != nullptr) {
                 glfwTerminate();
+            }
         }
     };
 

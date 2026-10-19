@@ -151,8 +151,9 @@ namespace deren::engine::pass {
 
     rhi::error shadow_pass::record_content(resolved_io const& io) noexcept {
         if (!this->pipeline_ready() || io.targets.empty() || io.list == nullptr || this->pass_frame.record_cascade == nullptr ||
-            this->pass_frame.run_tasks == nullptr || this->pass_frame.map_size == 0u)
+            this->pass_frame.run_tasks == nullptr || this->pass_frame.map_size == 0u) {
             return rhi::error::invalid_argument; // the record step resolves this or does not record the pass at all
+        }
         this->record_impl(io);
         return rhi::error::ok;
     }
@@ -165,8 +166,9 @@ namespace deren::engine::pass {
             return;
         }
         auto const managed = this->resource_view.find(render_resource::resource_id::shadow_map);
-        if (managed && io.frame.slot >= managed->objects.size())
+        if (managed && io.frame.slot >= managed->objects.size()) {
             return;
+        }
         // ONE LAYER PER CASCADE, and never more than the map has: the DECLARATION claims a RUN of cascade layers
         // (render_resource::shadow_targets) and the FRAME caps it at the layers the image actually has - so the
         // two counts meet here. The secondaries are the frame's own count, and they are what decides how many
@@ -211,8 +213,9 @@ namespace deren::engine::pass {
             rhi::image* layer_image = io.targets[cascade].image_handle;
             if (managed) {
                 auto const& object = managed->objects[io.frame.slot];
-                if (cascade >= object.layers.size())
+                if (cascade >= object.layers.size()) {
                     return;
+                }
                 layer_view = object.layers[cascade].get();
                 layer_image = object.image.get();
             }

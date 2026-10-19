@@ -83,40 +83,46 @@ namespace deren::engine {
             return this->command != nullptr ? this->command->bind_pipeline(pipeline) : this->mergeable->bind_pipeline(pipeline);
         }
         void set_viewport(deren::promise::rhi::viewport const& viewport) const noexcept {
-            if (this->command != nullptr)
+            if (this->command != nullptr) {
                 this->command->set_viewport(viewport);
-            else
+            } else {
                 this->mergeable->set_viewport(viewport);
+            }
         }
         void set_scissor(deren::promise::rhi::rect const& scissor) const noexcept {
-            if (this->command != nullptr)
+            if (this->command != nullptr) {
                 this->command->set_scissor(scissor);
-            else
+            } else {
                 this->mergeable->set_scissor(scissor);
+            }
         }
         void set_depth_write(bool const enabled) const noexcept {
-            if (this->command != nullptr)
+            if (this->command != nullptr) {
                 this->command->set_depth_write(enabled);
-            else
+            } else {
                 this->mergeable->set_depth_write(enabled);
+            }
         }
         void set_depth_bias(float const constant_factor, float const slope_factor, float const clamp) const noexcept {
-            if (this->command != nullptr)
+            if (this->command != nullptr) {
                 this->command->set_depth_bias(constant_factor, slope_factor, clamp);
-            else
+            } else {
                 this->mergeable->set_depth_bias(constant_factor, slope_factor, clamp);
+            }
         }
         void set_cull_mode(deren::promise::rhi::cull_mode const mode) const noexcept {
-            if (this->command != nullptr)
+            if (this->command != nullptr) {
                 this->command->set_cull_mode(mode);
-            else
+            } else {
                 this->mergeable->set_cull_mode(mode);
+            }
         }
         void draw_mesh_tasks(std::uint32_t const groups_x, std::uint32_t const groups_y, std::uint32_t const groups_z) const noexcept {
-            if (this->command != nullptr)
+            if (this->command != nullptr) {
                 this->command->draw_mesh_tasks(groups_x, groups_y, groups_z);
-            else
+            } else {
                 this->mergeable->draw_mesh_tasks(groups_x, groups_y, groups_z);
+            }
         }
         [[nodiscard]] deren::promise::rhi::error draw_mesh_tasks_indirect(deren::promise::rhi::buffer const& arguments, std::uint64_t const offset,
                                                                           std::uint32_t const count, std::uint32_t const stride) const noexcept {

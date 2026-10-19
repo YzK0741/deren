@@ -1191,8 +1191,9 @@ queue_family_indices find_queue_families(VkPhysicalDevice device, VkSurfaceKHR s
     }
 
     // Windowless rendering has no separate presentation queue requirement.
-    if (surface == VK_NULL_HANDLE)
+    if (surface == VK_NULL_HANDLE) {
         indices.present_family = indices.graphics_family;
+    }
 
     // Fallback: if no dedicated compute/transfer queue was found, use the graphics queue
     if (!indices.compute_family.has_value() && indices.graphics_family.has_value()) {

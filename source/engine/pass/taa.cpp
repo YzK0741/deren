@@ -66,9 +66,11 @@ namespace deren::engine::pass {
 
     void taa_pass::describe_resources(render_resource::instances::resource_context const& context,
                                       deren::utility::vessel::vector<render_resource::instances::request>& out) const {
-        for (auto const& value : output_targets_pass::descriptions(context))
-            if (value.id == render_resource::resource_id::taa_history)
+        for (auto const& value : output_targets_pass::descriptions(context)) {
+            if (value.id == render_resource::resource_id::taa_history) {
                 out.push_back(value);
+            }
+        }
     }
 
     void taa_pass::bind_resources(render_resource::instances::resource_snapshot const& snapshot) {
@@ -123,16 +125,20 @@ namespace deren::engine::pass {
         /// The guards every TAA entry shares: the record step resolved the handles, this image slot has a history
         /// record, and the frame is current. `history_valid` comes out of the pass's per-image bookkeeping.
         bool taa_frame_ready(resolved_io const& io, deren::utility::vessel::vector<bool>& valid_history, bool& history_valid) {
-            if (io.own.size() < 3u || io.targets.empty() || io.extent.width == 0 || io.extent.height == 0)
+            if (io.own.size() < 3u || io.targets.empty() || io.extent.width == 0 || io.extent.height == 0) {
                 return false;
+            }
             if (io.list == nullptr || io.own[0].image_handle == nullptr || io.own[1].image_handle == nullptr ||
-                io.targets[0].image_handle == nullptr || io.targets[0].view_handle == nullptr)
+                io.targets[0].image_handle == nullptr || io.targets[0].view_handle == nullptr) {
                 return false;
+            }
             uint32_t const index = io.frame.image_index;
-            if (valid_history.size() != io.frame.image_count)
+            if (valid_history.size() != io.frame.image_count) {
                 valid_history.assign(io.frame.image_count, false);
-            if (index >= valid_history.size())
+            }
+            if (index >= valid_history.size()) {
                 return false;
+            }
             history_valid = valid_history[index];
             return true;
         }
@@ -141,12 +147,15 @@ namespace deren::engine::pass {
     void taa_pass::record_owned(resolved_io const& io) {
         this->history_written = false;
         bool history_valid = false;
-        if (!taa_frame_ready(io, this->valid_history, history_valid))
+        if (!taa_frame_ready(io, this->valid_history, history_valid)) {
             return;
-        if (!this->record_resolve(io, history_valid, true))
+        }
+        if (!this->record_resolve(io, history_valid, true)) {
             return;
-        if (!this->record_copy(io, true))
+        }
+        if (!this->record_copy(io, true)) {
             return;
+        }
         this->valid_history[io.frame.image_index] = true;
         this->history_written = true;
     }
@@ -154,16 +163,19 @@ namespace deren::engine::pass {
     rhi::error taa_pass::record_content(resolved_io const& io) noexcept {
         this->history_written = false;
         bool history_valid = false;
-        if (!taa_frame_ready(io, this->valid_history, history_valid))
+        if (!taa_frame_ready(io, this->valid_history, history_valid)) {
             return rhi::error::invalid_argument; // the record step resolves this or does not record the pass at all
-        if (!this->record_resolve(io, history_valid, false))
+        }
+        if (!this->record_resolve(io, history_valid, false)) {
             return rhi::error::invalid_argument;
+        }
         return rhi::error::ok;
     }
 
     rhi::error taa_pass::record_copy(resolved_io const& io) noexcept {
-        if (!this->record_copy(io, false))
+        if (!this->record_copy(io, false)) {
             return rhi::error::invalid_argument;
+        }
         this->valid_history[io.frame.image_index] = true;
         this->history_written = true;
         return rhi::error::ok;

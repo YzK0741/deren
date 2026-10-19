@@ -37,9 +37,11 @@ namespace deren::engine::pass {
 
     void rt_shadow_pass::describe_resources(render_resource::instances::resource_context const& context,
                                             deren::utility::vessel::vector<render_resource::instances::request>& out) const {
-        for (auto const& value : output_targets_pass::descriptions(context))
-            if (value.id == render_resource::resource_id::rt_shadow_visibility)
+        for (auto const& value : output_targets_pass::descriptions(context)) {
+            if (value.id == render_resource::resource_id::rt_shadow_visibility) {
                 out.push_back(value);
+            }
+        }
     }
 
     void rt_shadow_pass::bind_resources(render_resource::instances::resource_snapshot const& snapshot) {
@@ -173,8 +175,9 @@ namespace deren::engine::pass {
     }
 
     rhi::error rt_shadow_pass::record_content(resolved_io const& io) noexcept {
-        if (!this->record_ready(io))
+        if (!this->record_ready(io)) {
             return rhi::error::invalid_argument; // the record step resolves all of this or does not record the pass at all
+        }
         // No sets to bind (see the heap bind in begin_recording): the tracer's scene buffers, its G-buffer images
         // and the acceleration structure are heap slots the shader names, and the frame's indices arrive in its
         // push block.

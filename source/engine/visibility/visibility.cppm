@@ -106,8 +106,9 @@ export namespace deren::engine::visibility {
      *         a wrong picture, not a clamp)
      */
     [[nodiscard]] constexpr std::optional<id> pack_id(std::uint32_t const item, std::uint32_t const meshlet_in_item, std::uint32_t const triangle) noexcept {
-        if (item >= id_item_capacity || meshlet_in_item >= id_meshlet_capacity || triangle >= id_triangle_capacity)
+        if (item >= id_item_capacity || meshlet_in_item >= id_meshlet_capacity || triangle >= id_triangle_capacity) {
             return std::nullopt;
+        }
         return id{.value = (1u << id_valid_shift) | (item << id_item_shift) | (meshlet_in_item << id_meshlet_shift) | (triangle << id_triangle_shift)};
     }
 
@@ -502,25 +503,33 @@ export namespace deren::engine::visibility {
 
     /// @brief CLASSIFY ONE LEAF against the path's clauses, first refusal wins
     [[nodiscard]] constexpr admission admit_leaf(leaf_admission_facts const& facts) noexcept {
-        if (!facts.default_pipeline)
+        if (!facts.default_pipeline) {
             return admission::custom_pipeline;
-        if (facts.instanced)
+        }
+        if (facts.instanced) {
             return admission::instanced;
-        if (facts.deforming)
+        }
+        if (facts.deforming) {
             return admission::deforming;
-        if (!facts.has_vertex_buffer || !facts.has_index_buffer)
+        }
+        if (!facts.has_vertex_buffer || !facts.has_index_buffer) {
             return admission::missing_geometry;
-        if (!facts.has_meshlets)
+        }
+        if (!facts.has_meshlets) {
             return admission::no_meshlet_run;
-        if (!facts.material_index_valid)
+        }
+        if (!facts.material_index_valid) {
             return admission::missing_material;
+        }
         // `masked_material` is NOT a clause any more (item 2): the visibility RASTER fragment runs the glTF MASK
         // test and discards before the depth write, so a masked pixel keeps the surface behind it - the property
         // the compute resolve lacks. The enum value stays for older log vocabulary.
-        if (facts.meshlet_count > id_meshlet_capacity)
+        if (facts.meshlet_count > id_meshlet_capacity) {
             return admission::meshlet_overflow;
-        if (facts.item_index >= id_item_capacity)
+        }
+        if (facts.item_index >= id_item_capacity) {
             return admission::item_overflow;
+        }
         return admission::admitted;
     }
 

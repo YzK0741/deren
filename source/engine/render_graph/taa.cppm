@@ -32,16 +32,20 @@ export namespace deren::engine::render_graph::taa {
     };
     [[nodiscard]] std::expected<resolve_outputs, graph_error> append_resolve(builder& graph, resolve_inputs const& in) noexcept {
         std::array refs{in.scene_color, in.velocity, in.depth, in.history, in.target};
-        for (std::size_t i = 0; i < refs.size(); ++i)
-            for (std::size_t j = 0; j < i; ++j)
-                if (refs[i] == refs[j])
+        for (std::size_t i = 0; i < refs.size(); ++i) {
+            for (std::size_t j = 0; j < i; ++j) {
+                if (refs[i] == refs[j]) {
                     return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "TAA resolve", .resource_name = "resolve alias"});
+                }
+            }
+        }
         constexpr access_scope sampled{resource_usage::sampled, pipeline_stage::fragment_shader};
         resolve_parameters params{{{{in.scene_color, {}, sampled}, {in.velocity, {}, sampled}, {in.depth, {}, sampled}, {in.history, {}, sampled}}},
                                   {in.target, {}, {resource_usage::color_attachment, pipeline_stage::color_output}}};
         auto added = graph.add_pass("TAA resolve", std::move(params));
-        if (!added)
+        if (!added) {
             return std::unexpected(added.error());
+        }
         return resolve_outputs{in.target, *added};
     }
     /// The history copy: the HDR target out through a transfer read, the history image written through a
@@ -62,14 +66,16 @@ export namespace deren::engine::render_graph::taa {
         pass_ref pass;
     };
     [[nodiscard]] std::expected<copy_outputs, graph_error> append_history_copy(builder& builder_graph, copy_inputs const& in) noexcept {
-        if (in.source == in.history)
+        if (in.source == in.history) {
             return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "TAA history copy", .resource_name = "copy alias"});
+        }
         constexpr access_scope read{resource_usage::transfer_source, pipeline_stage::transfer};
         constexpr access_scope write{resource_usage::transfer_destination, pipeline_stage::transfer};
         copy_parameters params{{in.source, {}, read}, {in.history, {}, write}};
         auto added = builder_graph.add_pass("TAA history copy", std::move(params));
-        if (!added)
+        if (!added) {
             return std::unexpected(added.error());
+        }
         return copy_outputs{in.history, *added};
     }
 } // namespace deren::engine::render_graph::taa

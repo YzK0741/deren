@@ -26,8 +26,9 @@ export namespace deren::engine::render_graph::shadow {
         pass_ref pass;
     };
     [[nodiscard]] std::expected<outputs, graph_error> append(builder& graph, inputs const& in) noexcept {
-        if (in.layers == 0)
+        if (in.layers == 0) {
             return std::unexpected(graph_error{.code = error_code::invalid_range, .pass_name = "shadow cascades", .resource_name = "empty cascade run"});
+        }
         // THE WHOLE IMAGE, NOT THE ACTIVE RUN, and that is measured rather than preferred: a layer-ranged write
         // declaration is refused as `unsupported` by this tree's execution path (the transition never reaches the
         // backend), while the whole-image declaration is accepted. It is SAFE for the spare layers because the
@@ -37,8 +38,9 @@ export namespace deren::engine::render_graph::shadow {
         texture_range const written{};
         parameters params{{in.cascades, written, {resource_usage::depth_stencil_attachment, pipeline_stage::depth_stencil}}};
         auto added = graph.add_pass("shadow cascades", std::move(params));
-        if (!added)
+        if (!added) {
             return std::unexpected(added.error());
+        }
         return outputs{*added};
     }
 } // namespace deren::engine::render_graph::shadow

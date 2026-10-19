@@ -114,9 +114,11 @@ namespace deren::engine::pass {
             (has_draws && this->pass_frame.leaves.size() >= min_leaves_for_parallel && this->pass_frame.segments.size() > 1 && !this->pass_frame.run_tasks)) {
             return rhi::error::invalid_argument;
         }
-        for (auto const& target : io.targets)
-            if (!target.view_handle)
+        for (auto const& target : io.targets) {
+            if (!target.view_handle) {
                 return rhi::error::invalid_argument;
+            }
+        }
 
         // THE INSTANCE, over the targets the declaration names: every colour target in declaration order, and
         // the one DEPTH target in the depth slot. The declarations and the resolved handles are index-aligned,
@@ -156,8 +158,9 @@ namespace deren::engine::pass {
             .secondary_contents = has_draws,
         };
         auto result = io.list->begin_rendering(rendering_info);
-        if (result != rhi::error::ok)
+        if (result != rhi::error::ok) {
             return result;
+        }
         if (!has_draws) {
             // The clear is frame initialization, even when culling removed every mesh. Lighting and splats
             // still consume these targets; retaining their previous contents accumulates ghosts on camera motion.

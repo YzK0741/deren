@@ -40,16 +40,19 @@ export namespace deren::engine::pass {
             value.buffer.usage = rhi::buffer_usage::uniform_coherent;
             value.buffer.flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage);
             value.zero_on_create = true;
-            if (light_required)
+            if (light_required) {
                 requests.push_back(value);
+            }
             value.id = render_resource::resource_id::head_ubo;
             value.buffer.size = sizeof(deren::engine::head_ubo);
-            if (head_required)
+            if (head_required) {
                 requests.push_back(value);
+            }
             value.id = render_resource::resource_id::camera_ubo;
             value.buffer.size = sizeof(deren::engine::camera_ubo);
-            if (camera_required)
+            if (camera_required) {
                 requests.push_back(value);
+            }
         }
         void bind_resources(render_resource::instances::resource_snapshot const& snapshot) override {
             resource_view = snapshot;

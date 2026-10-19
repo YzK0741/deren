@@ -105,14 +105,16 @@ export namespace deren::engine::render_resource::instances {
             : state(std::move(value)) {
         }
         std::shared_ptr<generation const> find(resource_id id) const {
-            if (!state)
+            if (!state) {
                 return {};
+            }
             auto i = state->entries.find(id);
             return i == state->entries.end() ? nullptr : i->second;
         }
         std::span<resource_id const> group(lifetime life) const noexcept {
-            if (!state)
+            if (!state) {
                 return {};
+            }
             auto i = state->groups.find(life);
             return i == state->groups.end() ? std::span<resource_id const>{} : std::span<resource_id const>{i->second};
         }
@@ -130,8 +132,9 @@ export namespace deren::engine::render_resource::instances {
 
     public:
         void drain() const {
-            if (device_owner)
+            if (device_owner) {
                 (void)device_owner->wait_idle();
+            }
         }
         resource_snapshot snapshot() const {
             return resource_snapshot{active};
@@ -140,32 +143,41 @@ export namespace deren::engine::render_resource::instances {
         // Rejection preserves the active generations, including the cached-reuse case.
         using admission = std::function<rhi::error(resource_snapshot const&)>;
         rhi::error reconcile(rhi::shared_object<rhi::api_core> const& device, resource_context const& context, std::span<request const> requests, admission const& accept = {}) {
-            if (!device || context.frame_slots == 0 || context.output_images == 0)
+            if (!device || context.frame_slots == 0 || context.output_images == 0) {
                 return rhi::error::invalid_argument;
+            }
             deren::utility::vessel::map<resource_id, request> desired;
             for (auto const& value : requests) {
-                if (value.id == resource_id::none || value.id >= resource_id::count)
+                if (value.id == resource_id::none || value.id >= resource_id::count) {
                     return rhi::error::invalid_argument;
-                if (!value.create)
+                }
+                if (!value.create) {
                     continue;
-                if (!valid(value))
+                }
+                if (!valid(value)) {
                     return rhi::error::invalid_argument;
+                }
                 auto [i, inserted] = desired.try_emplace(value.id, value);
                 if (!inserted) {
-                    if (!compatible(i->second, value))
+                    if (!compatible(i->second, value)) {
                         return rhi::error::invalid_argument;
+                    }
                     i->second.image.array_layers = std::max(i->second.image.array_layers, value.image.array_layers);
                     i->second.buffer.size = std::max(i->second.buffer.size, value.buffer.size);
                     i->second.structure.instance_capacity = std::max(i->second.structure.instance_capacity, value.structure.instance_capacity);
-                    if (!i->second.initial_data)
+                    if (!i->second.initial_data) {
                         i->second.initial_data = value.initial_data;
-                    if (!i->second.micromap_data)
+                    }
+                    if (!i->second.micromap_data) {
                         i->second.micromap_data = value.micromap_data;
+                    }
                 }
             }
-            for (auto const& value : requests)
-                if (!desired.contains(value.id))
+            for (auto const& value : requests) {
+                if (!desired.contains(value.id)) {
                     return rhi::error::invalid_argument;
+                }
+            }
             auto next = std::make_shared<resource_set>();
             for (auto const& [id, value] : desired) {
                 uint32_t const count = value.scope == resource_scope::per_frame_slot ? context.frame_slots : value.scope == resource_scope::per_swapchain_image ? context.output_images
@@ -188,63 +200,76 @@ export namespace deren::engine::render_resource::instances {
                     for (uint32_t index = 0; index < count; ++index) {
                         resource_instance object;
                         if (value.type == kind::image) {
-                            if (value.initialization_key && !value.initial_data)
+                            if (value.initialization_key && !value.initial_data) {
                                 return rhi::error::not_ready;
+                            }
                             auto desc = value.image;
-                            if (value.initial_data)
+                            if (value.initial_data) {
                                 desc.initial_bytes = {value.initial_data.get(), value.initial_data_size};
+                            }
                             object.image = rhi::unique_object<rhi::image>{device->create_image(desc)};
-                            if (!object.image)
+                            if (!object.image) {
                                 return rhi::error::initialization_failed;
+                            }
                             rhi::image_view_desc array{};
                             array.layer_count = 0;
                             array.mip_count = 0;
                             object.array_view = rhi::unique_object<rhi::image_view>{object.image->make_view(array)};
-                            if (!object.array_view)
+                            if (!object.array_view) {
                                 return rhi::error::initialization_failed;
+                            }
                             object.layers.reserve(value.layer_views ? value.image.array_layers : 0);
                             for (uint32_t layer = 0; value.layer_views && layer < value.image.array_layers; ++layer) {
                                 rhi::image_view_desc desc{};
                                 desc.base_layer = layer;
                                 desc.layer_count = 1;
                                 object.layers.emplace_back(object.image->make_view(desc));
-                                if (!object.layers.back())
+                                if (!object.layers.back()) {
                                     return rhi::error::initialization_failed;
+                                }
                             }
                         } else if (value.type == kind::sampler) {
                             object.sampler = rhi::unique_object<rhi::sampler>{device->create_sampler(value.sampler)};
-                            if (!object.sampler)
+                            if (!object.sampler) {
                                 return rhi::error::initialization_failed;
+                            }
                         } else if (value.type == kind::micromap) {
-                            if (!value.micromap_data)
+                            if (!value.micromap_data) {
                                 return rhi::error::not_ready;
+                            }
                             auto desc = value.micromap;
                             desc.data = value.micromap_data->data;
                             desc.triangles = value.micromap_data->triangles;
                             desc.indices = value.micromap_data->indices;
                             object.micromap = rhi::unique_object<rhi::micromap>{device->create_micromap(desc)};
-                            if (!object.micromap)
+                            if (!object.micromap) {
                                 return rhi::error::initialization_failed;
+                            }
                         } else if (value.type == kind::acceleration_structure) {
                             auto desc = value.structure;
                             desc.geometries = value.geometries.empty() ? nullptr : value.geometries.data();
                             desc.geometry_count = static_cast<uint32_t>(value.geometries.size());
                             object.structure = rhi::unique_object<rhi::acceleration_structure>{device->create_acceleration_structure(desc)};
-                            if (!object.structure)
+                            if (!object.structure) {
                                 return rhi::error::initialization_failed;
+                            }
                         } else {
                             // A released upload can describe an existing generation, but cannot recreate
                             // initialized storage on another device without its source being supplied again.
-                            if (value.initialization_key && !value.initial_data)
+                            if (value.initialization_key && !value.initial_data) {
                                 return rhi::error::not_ready;
+                            }
                             auto desc = value.buffer;
-                            if (value.initial_data)
+                            if (value.initial_data) {
                                 desc.initial_bytes = {value.initial_data.get(), value.initial_data_size};
+                            }
                             object.buffer = rhi::unique_object<rhi::buffer>{device->create_buffer(desc)};
-                            if (!object.buffer)
+                            if (!object.buffer) {
                                 return rhi::error::initialization_failed;
-                            if ((value.zero_on_frame || value.zero_on_create) && object.buffer->mapped().size() < value.buffer.size)
+                            }
+                            if ((value.zero_on_frame || value.zero_on_create) && object.buffer->mapped().size() < value.buffer.size) {
                                 return rhi::error::unsupported;
+                            }
                             if (value.zero_on_create) {
                                 auto bytes = object.buffer->mapped();
                                 std::fill(bytes.begin(), bytes.end(), std::byte{});
@@ -258,11 +283,13 @@ export namespace deren::engine::render_resource::instances {
             }
             if (accept) {
                 auto const result = accept(resource_snapshot{next});
-                if (result != rhi::error::ok)
+                if (result != rhi::error::ok) {
                     return result;
+                }
             }
-            if (active && device_owner == device && active->entries == next->entries && frame_slots == context.frame_slots)
+            if (active && device_owner == device && active->entries == next->entries && frame_slots == context.frame_slots) {
                 return rhi::error::ok;
+            }
             device_owner = device;
             frame_slots = context.frame_slots;
             active = std::move(next);
@@ -271,32 +298,40 @@ export namespace deren::engine::render_resource::instances {
         // Upload only to a completed slot (or a newly allocated, unused instance). No flush API exists,
         // so cached and GPU-only allocations cannot serve this direct host-write operation.
         rhi::error write_frame_buffer(uint32_t slot, resource_id id, std::span<std::byte const> bytes) {
-            if (!active)
+            if (!active) {
                 return rhi::error::invalid_argument;
+            }
             auto const entry = active->entries.find(id);
-            if (entry == active->entries.end())
+            if (entry == active->entries.end()) {
                 return rhi::error::invalid_argument;
+            }
             auto const& value = *entry->second;
             if (value.description.type != kind::buffer || value.description.scope != resource_scope::per_frame_slot ||
-                slot >= value.objects.size() || bytes.size() > value.description.buffer.size)
+                slot >= value.objects.size() || bytes.size() > value.description.buffer.size) {
                 return rhi::error::invalid_argument;
+            }
             auto const usage = value.description.buffer.usage;
             if (usage != rhi::buffer_usage::uniform_coherent && usage != rhi::buffer_usage::storage_coherent &&
-                usage != rhi::buffer_usage::readback_coherent)
+                usage != rhi::buffer_usage::readback_coherent) {
                 return rhi::error::unsupported;
+            }
             auto destination = value.objects[slot].buffer->mapped();
-            if (destination.size() < bytes.size())
+            if (destination.size() < bytes.size()) {
                 return rhi::error::unsupported;
-            if (!bytes.empty())
+            }
+            if (!bytes.empty()) {
                 std::memmove(destination.data(), bytes.data(), bytes.size());
+            }
             return rhi::error::ok;
         }
         // The caller must have completed the GPU wait for this slot before calling this method.
         rhi::error initialize_frame(uint32_t completed_slot, std::span<resource_id const> preserved = {}) {
-            if (completed_slot >= frame_slots)
+            if (completed_slot >= frame_slots) {
                 return rhi::error::invalid_argument;
-            if (!active)
+            }
+            if (!active) {
                 return rhi::error::ok;
+            }
             for (auto const& [id, value] : active->entries) {
                 if (value->description.zero_on_frame && std::find(preserved.begin(), preserved.end(), id) == preserved.end()) {
                     auto bytes = value->objects[completed_slot].buffer->mapped();
@@ -309,18 +344,21 @@ export namespace deren::engine::render_resource::instances {
     private:
         uint32_t frame_slots = rhi::max_frames_in_flight;
         static bool valid(request const& value) {
-            if (value.micromap_data && value.type != kind::micromap)
+            if (value.micromap_data && value.type != kind::micromap) {
                 return false;
+            }
             if (value.initialization_key) {
                 if ((value.type != kind::micromap && ((value.type != kind::buffer && value.type != kind::image) || !value.initial_data_size ||
                                                       (value.type == kind::buffer && value.initial_data_size > value.buffer.size))) ||
-                    value.zero_on_create || value.zero_on_frame)
+                    value.zero_on_create || value.zero_on_frame) {
                     return false;
+                }
             } else if (value.initial_data || value.initial_data_size) {
                 return false;
             }
-            if (value.zero_on_create && value.type != kind::buffer)
+            if (value.zero_on_create && value.type != kind::buffer) {
                 return false;
+            }
             switch (value.life) {
             case lifetime::device:
             case lifetime::scene:
@@ -333,66 +371,82 @@ export namespace deren::engine::render_resource::instances {
                 return false;
             }
             if (value.scope != resource_scope::device_wide && value.scope != resource_scope::per_frame_slot &&
-                value.scope != resource_scope::per_swapchain_image)
+                value.scope != resource_scope::per_swapchain_image) {
                 return false;
+            }
             if (value.zero_on_frame && (value.type != kind::buffer || value.scope != resource_scope::per_frame_slot ||
-                                        value.life == lifetime::history))
+                                        value.life == lifetime::history)) {
                 return false;
-            if (value.type == kind::image)
+            }
+            if (value.type == kind::image) {
                 return value.image.struct_size == sizeof(rhi::image_desc) && value.image.extent.width && value.image.extent.height &&
                        value.image.extent.depth && value.image.array_layers && value.image.format != rhi::image_format::unknown &&
                        value.image.initial_bytes.empty();
-            if (value.type == kind::buffer)
+            }
+            if (value.type == kind::buffer) {
                 return value.buffer.struct_size == sizeof(rhi::buffer_desc) && value.buffer.size && value.buffer.initial_bytes.empty();
-            if (value.type == kind::sampler)
+            }
+            if (value.type == kind::sampler) {
                 return value.sampler.struct_size == sizeof(rhi::sampler_desc) && std::isfinite(value.sampler.max_lod) && value.sampler.max_lod >= 0;
+            }
             if (value.type == kind::micromap) {
                 auto const& desc = value.micromap;
                 if (!value.initialization_key || value.initial_data || value.initial_data_size ||
                     desc.struct_size != sizeof(rhi::micromap_desc) || !desc.triangle_count || !desc.data_stride ||
                     !desc.data.empty() || !desc.triangles.empty() || !desc.indices.empty() ||
-                    (desc.format != rhi::micromap_format::four_state && desc.format != rhi::micromap_format::two_state))
+                    (desc.format != rhi::micromap_format::four_state && desc.format != rhi::micromap_format::two_state)) {
                     return false;
+                }
                 auto const& data = value.micromap_data;
                 return !data || (data->data.size() == uint64_t(desc.triangle_count) * desc.data_stride &&
                                  data->triangles.size() == desc.triangle_count && data->indices.size() == desc.triangle_count);
             }
             if (value.type == kind::acceleration_structure) {
                 if (value.structure.struct_size != sizeof(rhi::acceleration_structure_desc) ||
-                    value.structure.geometries || value.structure.geometry_count)
+                    value.structure.geometries || value.structure.geometry_count) {
                     return false;
-                if (value.structure.type == rhi::acceleration_structure_type::top_level)
+                }
+                if (value.structure.type == rhi::acceleration_structure_type::top_level) {
                     return value.structure.instance_capacity && value.geometries.empty();
+                }
                 return value.structure.type == rhi::acceleration_structure_type::bottom_level &&
                        !value.structure.instance_capacity && !value.geometries.empty() && value.geometries.size() <= UINT32_MAX;
             }
             return false;
         }
         static bool compatible(request const& a, request const& b) {
-            if (a.dependencies != b.dependencies)
+            if (a.dependencies != b.dependencies) {
                 return false;
-            if (a.initialization_key != b.initialization_key || a.initial_data_size != b.initial_data_size)
+            }
+            if (a.initialization_key != b.initialization_key || a.initial_data_size != b.initial_data_size) {
                 return false;
-            if (a.type != b.type || a.life != b.life || a.scope != b.scope || a.zero_on_frame != b.zero_on_frame || a.zero_on_create != b.zero_on_create)
+            }
+            if (a.type != b.type || a.life != b.life || a.scope != b.scope || a.zero_on_frame != b.zero_on_frame || a.zero_on_create != b.zero_on_create) {
                 return false;
-            if (a.type == kind::buffer)
+            }
+            if (a.type == kind::buffer) {
                 return a.buffer.usage == b.buffer.usage && a.buffer.flags == b.buffer.flags;
-            if (a.type == kind::sampler)
+            }
+            if (a.type == kind::sampler) {
                 return a.sampler.address_mode == b.sampler.address_mode && a.sampler.max_lod == b.sampler.max_lod &&
                        a.sampler.mag_filter == b.sampler.mag_filter && a.sampler.min_filter == b.sampler.min_filter &&
                        a.sampler.mipmap_mode == b.sampler.mipmap_mode && a.sampler.compare_enable == b.sampler.compare_enable && a.sampler.compare_op == b.sampler.compare_op;
-            if (a.type == kind::micromap)
+            }
+            if (a.type == kind::micromap) {
                 return a.micromap.triangle_count == b.micromap.triangle_count && a.micromap.data_stride == b.micromap.data_stride &&
                        a.micromap.format == b.micromap.format;
+            }
             if (a.type == kind::acceleration_structure) {
-                if (a.structure.type != b.structure.type || a.structure.flags != b.structure.flags || a.geometries.size() != b.geometries.size())
+                if (a.structure.type != b.structure.type || a.structure.flags != b.structure.flags || a.geometries.size() != b.geometries.size()) {
                     return false;
+                }
                 for (size_t i = 0; i < a.geometries.size(); ++i) {
                     auto const& x = a.geometries[i];
                     auto const& y = b.geometries[i];
                     if (x.vertex_address != y.vertex_address || x.vertex_stride != y.vertex_stride || x.vertex_count != y.vertex_count ||
-                        x.index_address != y.index_address || x.index_format != y.index_format || x.index_count != y.index_count || x.opacity_micromap != y.opacity_micromap)
+                        x.index_address != y.index_address || x.index_format != y.index_format || x.index_count != y.index_count || x.opacity_micromap != y.opacity_micromap) {
                         return false;
+                    }
                 }
                 return true;
             }

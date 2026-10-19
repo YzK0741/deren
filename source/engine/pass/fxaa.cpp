@@ -109,8 +109,9 @@ namespace deren::engine::pass {
     rhi::error fxaa_pass::record_content(resolved_io const& io) noexcept {
         if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || !io.pipelines[0] ||
             !io.cmd || !io.list || io.cmd.get() != io.list || !io.targets[0].image_handle || !io.targets[0].view_handle ||
-            io.extent.width == 0 || io.extent.height == 0)
+            io.extent.width == 0 || io.extent.height == 0) {
             return rhi::error::invalid_argument;
+        }
         // The push block is composed HERE (S3): the frame's settings (exposure, the bloom weight/threshold and
         // this pass's two thresholds - all of them lanes the composite pushes too, which is why they are frame
         // settings rather than one pass's parameters), the struct's defaults for the lanes this mode does not
@@ -144,8 +145,9 @@ namespace deren::engine::pass {
             .secondary_contents = false, // this instance is inline; the overlay segment runs in its own after it ends
         };
         auto const begun = io.list->begin_rendering(rendering_info);
-        if (begun != rhi::error::ok)
+        if (begun != rhi::error::ok) {
             return begun;
+        }
         io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
         // The post chain's source is a heap slot now (see source/shaders/post/post.slang): the third push lane names it, and
         // the frame bound the heaps for this command buffer, so there is no set to bind here.

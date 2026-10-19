@@ -28,17 +28,21 @@ export namespace deren::engine::render_graph::gbuffer_debug {
     };
     [[nodiscard]] std::expected<outputs, graph_error> append(builder& graph, inputs const& in) noexcept {
         std::array refs{in.surface[0], in.surface[1], in.surface[2], in.velocity, in.target};
-        for (std::size_t i = 0; i < refs.size(); ++i)
-            for (std::size_t j = 0; j < i; ++j)
-                if (refs[i] == refs[j])
+        for (std::size_t i = 0; i < refs.size(); ++i) {
+            for (std::size_t j = 0; j < i; ++j) {
+                if (refs[i] == refs[j]) {
                     return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "GBuffer debug view", .resource_name = "debug alias"});
+                }
+            }
+        }
         constexpr access_scope sampled{resource_usage::sampled, pipeline_stage::fragment_shader};
         parameters params{{{{in.surface[0], {}, sampled}, {in.surface[1], {}, sampled}, {in.surface[2], {}, sampled}}},
                           {in.velocity, {}, sampled},
                           {in.target, {}, {resource_usage::color_attachment, pipeline_stage::color_output}}};
         auto added = graph.add_pass("GBuffer debug view", std::move(params));
-        if (!added)
+        if (!added) {
             return std::unexpected(added.error());
+        }
         return outputs{in.target, *added};
     }
 } // namespace deren::engine::render_graph::gbuffer_debug

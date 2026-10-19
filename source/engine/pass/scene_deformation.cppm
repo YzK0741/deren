@@ -41,8 +41,9 @@ export namespace deren::engine::pass {
             namespace managed = render_resource::instances;
             namespace rhi = deren::promise::rhi;
             for (size_t i = 0; i < ids.size(); ++i) {
-                if (!required[i])
+                if (!required[i]) {
                     continue;
+                }
                 managed::request value;
                 value.id = ids[i];
                 value.type = managed::kind::buffer;

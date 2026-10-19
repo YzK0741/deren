@@ -169,8 +169,9 @@ namespace deren::vulkan {
         // Windows are caller-owned. A null handle selects ordinary offscreen images.
         window = nullptr;
         init_instance();
-        if (this->create_options.native_window != nullptr)
+        if (this->create_options.native_window != nullptr) {
             init_surface();
+        }
         init_device_and_queue();
         init_swap_chain();
         init_image_views();
@@ -502,8 +503,9 @@ namespace deren::vulkan {
     }
 
     void core::init_surface() noexcept {
-        if (this->create_options.native_window == nullptr)
+        if (this->create_options.native_window == nullptr) {
             deren::utility::panic("surface creation requires a caller-owned window");
+        }
         VkWin32SurfaceCreateInfoKHR const info{
             .sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
             .pNext = nullptr,
@@ -511,8 +513,9 @@ namespace deren::vulkan {
             .hinstance = static_cast<HINSTANCE>(GetModuleHandleW(nullptr)),
             .hwnd = static_cast<HWND>(this->create_options.native_window),
         };
-        if (vkCreateWin32SurfaceKHR(this->instance, &info, nullptr, &this->surface) != VK_SUCCESS)
+        if (vkCreateWin32SurfaceKHR(this->instance, &info, nullptr, &this->surface) != VK_SUCCESS) {
             deren::utility::panic("can not init surface (vkCreateWin32SurfaceKHR on the caller's HWND)");
+        }
         register_cleanup([this] { vkDestroySurfaceKHR(this->instance, this->surface, nullptr); });
     }
 
@@ -544,8 +547,9 @@ namespace deren::vulkan {
         // Vulkan headers are; it is only ever pushed when the device advertises it.
         constexpr char const* fifo_latest_ready_extension = "VK_EXT_present_mode_fifo_latest_ready";
 
-        if (this->create_options.native_window != nullptr)
+        if (this->create_options.native_window != nullptr) {
             creation_info.extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+        }
         VkPhysicalDeviceSubgroupProperties subgroup{};
         subgroup.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
         VkPhysicalDevicePushDescriptorPropertiesKHR push{};
@@ -788,8 +792,9 @@ namespace deren::vulkan {
                 info.tiling = VK_IMAGE_TILING_OPTIMAL;
                 info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
                 info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-                if (vkCreateImage(logical_device, &info, nullptr, &swap_chain_images[i]) != VK_SUCCESS)
+                if (vkCreateImage(logical_device, &info, nullptr, &swap_chain_images[i]) != VK_SUCCESS) {
                     deren::utility::panic("failed to create offscreen image");
+                }
                 VkMemoryRequirements requirements{};
                 vkGetImageMemoryRequirements(logical_device, swap_chain_images[i], &requirements);
                 VkMemoryAllocateInfo allocation{};
@@ -797,14 +802,17 @@ namespace deren::vulkan {
                 allocation.allocationSize = requirements.size;
                 allocation.memoryTypeIndex = find_memory_type(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, physical_device);
                 if (vkAllocateMemory(logical_device, &allocation, nullptr, &allocations[i]) != VK_SUCCESS ||
-                    vkBindImageMemory(logical_device, swap_chain_images[i], allocations[i], 0) != VK_SUCCESS)
+                    vkBindImageMemory(logical_device, swap_chain_images[i], allocations[i], 0) != VK_SUCCESS) {
                     deren::utility::panic("failed to allocate offscreen image memory");
+                }
             }
             register_cleanup([this, allocations] {
-                for (auto image : swap_chain_images)
+                for (auto image : swap_chain_images) {
                     vkDestroyImage(logical_device, image, nullptr);
-                for (auto memory : allocations)
+                }
+                for (auto memory : allocations) {
                     vkFreeMemory(logical_device, memory, nullptr);
+                }
             });
             deren::utility::log("offscreen: {} owned images, no window, surface or swapchain", swap_chain_images.size());
             return;

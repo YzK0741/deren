@@ -122,10 +122,12 @@ namespace deren::engine::pass {
     }
 
     rhi::error cluster_pass::record_content(resolved_io const& io) noexcept {
-        if (!this->pass_pipeline.has_value() || io.pipelines.empty() || io.pipelines[0] == nullptr || this->pass_frame.cluster_count == 0)
+        if (!this->pass_pipeline.has_value() || io.pipelines.empty() || io.pipelines[0] == nullptr || this->pass_frame.cluster_count == 0) {
             return rhi::error::invalid_argument; // the record step resolves this or skips the pass (see runtime::resolve_cluster_pass)
-        if (io.list == nullptr)
+        }
+        if (io.list == nullptr) {
             return rhi::error::invalid_argument;
+        }
         // The dispatch reads the frame's OWN camera and light slots and writes the same generation's cluster
         // buffers - and it needs no bind to do it: the frame bound the heaps once, and the two indices its push
         // block carries pick the slot. A compute stage is not part of a rendering instance, so this still records
@@ -135,8 +137,9 @@ namespace deren::engine::pass {
         // pass at all.
         // The shader's only push fields are the heap frame/image indices. The host appends them to
         // the empty pass-specific payload; no earlier pass in this command buffer may be assumed to set them.
-        if (!io.push_block(*io.list, {}))
+        if (!io.push_block(*io.list, {})) {
             return rhi::error::invalid_argument;
+        }
         io.list->dispatch((this->pass_frame.cluster_count + group_size - 1u) / group_size, 1, 1);
         return rhi::error::ok;
     }

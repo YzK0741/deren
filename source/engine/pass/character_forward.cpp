@@ -62,8 +62,9 @@ namespace deren::engine::pass {
 
     rhi::error character_forward_pass::record_content(resolved_io const& io) noexcept {
         if (this->pass_frame.make_environment == nullptr || this->pass_frame.pipeline_name.empty() || io.targets.size() < 2 || io.list == nullptr ||
-            (this->pass_frame.leaves.empty() && this->pass_frame.overlay_leaves.empty() && this->pass_frame.outline_leaves.empty()))
+            (this->pass_frame.leaves.empty() && this->pass_frame.overlay_leaves.empty() && this->pass_frame.outline_leaves.empty())) {
             return rhi::error::invalid_argument; // the record step resolves this or does not record the pass at all
+        }
         // LOAD on both attachments: the lit frame and the opaque surface are what this pass draws OVER.
         // THE SCOPE RIDES THE CONTRACT TOO (abi 20): one colour attachment and the depth, both LOAD + STORE, and
         // no `secondary_contents` bit - this pass records straight into the primary, which is the whole point of

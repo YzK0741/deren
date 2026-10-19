@@ -26,12 +26,14 @@ namespace deren::vulkan {
             rhi::radix_sort_requirements requirements(std::uint32_t count) const noexcept override {
                 // Upstream RoundUp adds PARTITION_SIZE - 1 in uint32. Validate before entering it.
                 std::uint64_t const partitions = (static_cast<std::uint64_t>(count) + 4095u) / 4096u;
-                if (count > UINT32_MAX - 4095u || partitions > owner_->device_properties.limits.maxComputeWorkGroupCount[0])
+                if (count > UINT32_MAX - 4095u || partitions > owner_->device_properties.limits.maxComputeWorkGroupCount[0]) {
                     return {};
+                }
                 VrdxSorterStorageRequirements req{};
                 vrdxGetSorterStorageRequirements(native_, count, VRDX_SORT_MODE_KEY_VALUE, &req);
-                if (req.size > owner_->device_properties.limits.maxStorageBufferRange)
+                if (req.size > owner_->device_properties.limits.maxStorageBufferRange) {
                     return {};
+                }
                 return {.scratch_bytes = req.size, .buffer_alignment = std::max<std::uint64_t>(4u, owner_->device_properties.limits.minStorageBufferOffsetAlignment), .scratch_flags = rhi::to_bits(rhi::buffer_flag::storage) | rhi::to_bits(rhi::buffer_flag::transfer_destination)};
             }
             rhi::error record(rhi::command_buffer& commands, rhi::radix_sort_info const& info) override {
@@ -49,8 +51,9 @@ namespace deren::vulkan {
                     return rhi::error::ok;
                 }
                 auto req = requirements(info.element_count);
-                if (!req.scratch_bytes)
+                if (!req.scratch_bytes) {
                     return rhi::error::unsupported;
+                }
                 auto operand = [&](rhi::buffer* buffer, std::uint64_t offset, std::uint64_t bytes, rhi::buffer_flags flags) -> core::owned_buffer* {
                     if (buffer == nullptr || !rhi::is_concrete(*buffer, concrete::buffer)) {
                         return nullptr;
@@ -103,8 +106,9 @@ namespace deren::vulkan {
                 vkCmdPipelineBarrier2(list.native(), &dependency);
                 // VRDX uses traditional push descriptors, which invalidate descriptor-heap bindings.
                 // Restore this device's heaps for subsequent native heap pipelines (including post-processing).
-                if (owner_->descriptor_heaps.ready())
+                if (owner_->descriptor_heaps.ready()) {
                     owner_->descriptor_heaps.record_bind(list.native());
+                }
                 list.bound_pipeline = nullptr;
                 return rhi::error::ok;
             }

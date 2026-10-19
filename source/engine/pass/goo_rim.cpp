@@ -171,8 +171,9 @@ namespace deren::engine::pass {
         // THIS PASS OWNS NO BARRIERS: the removed legacy record body WAS the content (its sampled inputs are heap slots the
         // graph declares on its behalf), so the graph entry only refuses what the record step would have refused.
         if (!this->pipeline_ready() || io.targets.empty() || io.targets[0].view_handle == nullptr || io.extent.width == 0 ||
-            io.extent.height == 0 || io.list == nullptr)
+            io.extent.height == 0 || io.list == nullptr) {
             return rhi::error::invalid_argument;
+        }
         this->record_impl(io);
         return rhi::error::ok;
     }

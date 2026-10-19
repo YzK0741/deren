@@ -60,10 +60,13 @@ export namespace deren::engine::render_graph::geometry {
     };
     [[nodiscard]] std::expected<outputs, graph_error> append(builder& graph, inputs const& in) noexcept {
         std::array refs{in.color, in.surface[0], in.surface[1], in.surface[2], in.velocity, in.depth};
-        for (std::size_t i = 0; i < refs.size(); ++i)
-            for (std::size_t j = 0; j < i; ++j)
-                if (refs[i] == refs[j])
+        for (std::size_t i = 0; i < refs.size(); ++i) {
+            for (std::size_t j = 0; j < i; ++j) {
+                if (refs[i] == refs[j]) {
                     return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "scene geometry", .resource_name = "geometry alias"});
+                }
+            }
+        }
         constexpr access_scope color{resource_usage::color_attachment, pipeline_stage::color_output};
         parameters params{{{{in.surface[0], {}, color}, {in.surface[1], {}, color}, {in.surface[2], {}, color}}},
                           {in.velocity, {}, color},
@@ -90,8 +93,9 @@ export namespace deren::engine::render_graph::geometry {
             }
         }
         auto added = graph.add_pass("scene geometry", std::move(params));
-        if (!added)
+        if (!added) {
             return std::unexpected(added.error());
+        }
         return outputs{in, *added};
     }
 } // namespace deren::engine::render_graph::geometry

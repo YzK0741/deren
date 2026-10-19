@@ -272,8 +272,9 @@ namespace deren::app_config {
                 }
             }
             if (toml::node const* node = render->get("subtilis")) {
-                if (auto const value = node->value<bool>())
+                if (auto const value = node->value<bool>()) {
                     settings.render.subtilis = *value;
+                }
             }
             if (toml::node const* node = render->get("character_forward")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
@@ -358,12 +359,14 @@ namespace deren::app_config {
                 }
             }
             if (toml::node const* node = render->get("async_present")) {
-                if (auto value = node->value<bool>())
+                if (auto value = node->value<bool>()) {
                     settings.render.async_present = *value;
+                }
             }
             if (toml::node const* node = render->get("offscreen")) {
-                if (auto value = node->value<bool>())
+                if (auto value = node->value<bool>()) {
                     settings.render.offscreen = *value;
+                }
             }
             if (toml::node const* node = render->get("validation_layers")) {
                 if (std::optional<bool> const value = node->value<bool>()) {

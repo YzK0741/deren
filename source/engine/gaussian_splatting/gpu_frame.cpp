@@ -15,8 +15,9 @@ namespace deren::engine::gaussian_splatting {
         }
     } // namespace
     std::expected<std::shared_ptr<gpu_frame>, foundation_error> prepare_gpu_frame(rhi::api_core& core, std::span<raster_instance const> inputs, raster_camera const& camera, foundation_limits const& limits, gpu_frame* reuse, rhi::shared_object<rhi::api_core> device_lease) {
-        if (device_lease && device_lease.get() != &core)
+        if (device_lease && device_lease.get() != &core) {
             return failure(error_code::invalid_argument, "GPU device lease belongs to another core");
+        }
         auto view = validate_raster_camera(camera);
         if (!view) {
             return std::unexpected(view.error());
@@ -24,8 +25,9 @@ namespace deren::engine::gaussian_splatting {
         if (reuse && reuse->owner != &core) {
             return failure(error_code::invalid_argument, "GPU frame belongs to another core");
         }
-        if (reuse && device_lease && !reuse->device_lease && reuse->storage_view.size())
+        if (reuse && device_lease && !reuse->device_lease && reuse->storage_view.size()) {
             return failure(error_code::invalid_argument, "Legacy GPU storage cannot gain an owning device lease; prepare a new frame");
+        }
         if (inputs.size() > UINT32_MAX || inputs.size() > limits.max_packed_bytes / (sizeof(instance_record) + sizeof(gpu_instance_range))) {
             return failure(error_code::limit_exceeded, "GPU instance tables exceed budget");
         }
@@ -59,8 +61,9 @@ namespace deren::engine::gaussian_splatting {
             owners.push_back(input.asset);
         }
         std::shared_ptr<gpu_frame> result = reuse ? reuse->shared_from_this() : std::shared_ptr<gpu_frame>{new gpu_frame{}};
-        if (device_lease)
+        if (device_lease) {
             result->device_lease = device_lease;
+        }
         if (count == 0) {
             result->owner = &core;
             result->push = {};
@@ -112,12 +115,15 @@ namespace deren::engine::gaussian_splatting {
             request.buffer.size = sizes[i];
             request.buffer.usage = host ? rhi::buffer_usage::storage_coherent : rhi::buffer_usage::storage_gpu_only;
             request.buffer.flags = flags;
-            if (i == gpu_frame::scratch)
+            if (i == gpu_frame::scratch) {
                 request.buffer.flags |= req.scratch_flags;
-            if (i == gpu_frame::draw)
+            }
+            if (i == gpu_frame::draw) {
                 request.buffer.flags |= rhi::to_bits(rhi::buffer_flag::indirect);
-            if (i == gpu_frame::keys || i == gpu_frame::values || i == gpu_frame::references || i == gpu_frame::draw)
+            }
+            if (i == gpu_frame::keys || i == gpu_frame::values || i == gpu_frame::references || i == gpu_frame::draw) {
                 request.buffer.flags |= rhi::to_bits(rhi::buffer_flag::transfer_source);
+            }
             auto previous = result->storage_view.find(ids[i]);
             rebuild |= !previous || previous->objects[0].buffer->size() < sizes[i] ||
                        previous->description.buffer.flags != request.buffer.flags || previous->description.buffer.usage != request.buffer.usage;
@@ -157,12 +163,14 @@ namespace deren::engine::gaussian_splatting {
         };
         auto pending = result->storage_view;
         if (rebuild) {
-            if (!result->storage_provider)
+            if (!result->storage_provider) {
                 result->storage_provider = &result->storage_chain.emplace<deren::engine::pass::buffer_storage_pass>();
+            }
             result->storage_provider->configure(requests);
             auto root = result->device_lease ? result->device_lease : rhi::shared_object<rhi::api_core>::borrow(*&core);
-            if (result->storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok)
+            if (result->storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok) {
                 return failure(admission_code, admission_message);
+            }
             pending = result->storage_chain.resources().snapshot();
         } else if (admit(pending) != rhi::error::ok) {
             return failure(admission_code, admission_message);
@@ -187,8 +195,9 @@ namespace deren::engine::gaussian_splatting {
         std::memcpy(get(gpu_frame::instances)->mapped().data(), records.data(), static_cast<std::size_t>(sizes[gpu_frame::instances]));
         std::memcpy(get(gpu_frame::ranges)->mapped().data(), range_data.data(), static_cast<std::size_t>(sizes[gpu_frame::ranges]));
         std::memcpy(get(gpu_frame::parameters)->mapped().data(), &data, sizeof(data));
-        for (std::size_t i = 0; i < sizes.size(); ++i)
+        for (std::size_t i = 0; i < sizes.size(); ++i) {
             result->buffers[i] = {candidates[i]};
+        }
         result->storage_view = pending;
         result->owner = &core;
         result->owners = std::move(owners);

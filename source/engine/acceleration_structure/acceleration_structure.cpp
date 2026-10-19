@@ -229,8 +229,9 @@ namespace deren::engine::acceleration_structure {
             requests[1].buffer = {.size = static_cast<std::uint64_t>(wanted) * sizeof(instance_record),
                                   .usage = rhi::buffer_usage::storage_coherent,
                                   .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input)};
-            if (!target.storage_provider)
+            if (!target.storage_provider) {
                 target.storage_provider = &target.storage_chain.emplace<deren::engine::pass::resource_storage_pass>();
+            }
             target.storage_provider->configure(requests);
             rhi::buffer* records = nullptr;
             rhi::acceleration_structure* structure = nullptr;
@@ -240,18 +241,22 @@ namespace deren::engine::acceleration_structure {
                 records = record_generation && record_generation->objects.size() == 1 ? record_generation->objects[0].buffer.get() : nullptr;
                 structure = structure_generation && structure_generation->objects.size() == 1 ? structure_generation->objects[0].structure.get() : nullptr;
                 if (!records || records->size() < requests[1].buffer.size || records->mapped().size() < requests[1].buffer.size ||
-                    !structure || !structure->device_address() || !structure->size_bytes())
+                    !structure || !structure->device_address() || !structure->size_bytes()) {
                     return rhi::error::unsupported;
+                }
                 auto const used = static_cast<std::size_t>(target.count) * sizeof(instance_record);
-                if (used && (!target.records || target.records->mapped().size() < used))
+                if (used && (!target.records || target.records->mapped().size() < used)) {
                     return rhi::error::unsupported;
-                if (used && records != target.records.get())
+                }
+                if (used && records != target.records.get()) {
                     std::memcpy(records->mapped().data(), target.records->mapped().data(), used);
+                }
                 return rhi::error::ok;
             };
             auto root = device_lease ? device_lease : rhi::shared_object<rhi::api_core>::borrow(*contract);
-            if (target.storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok)
+            if (target.storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok) {
                 return std::unexpected(deren::utility::vessel::string("acceleration structures: top level storage could not be prepared"));
+            }
             target.storage_view = target.storage_chain.resources().snapshot();
             target.records = {records};
             target.structure = {structure};
@@ -281,8 +286,9 @@ namespace deren::engine::acceleration_structure {
 
     std::expected<void, deren::utility::vessel::string> top_level_structure::record_build(rhi::command_buffer& commands) {
         std::chrono::steady_clock::time_point const start = std::chrono::steady_clock::now();
-        if (this->current_slot >= this->slots.size())
+        if (this->current_slot >= this->slots.size()) {
             return std::unexpected(deren::utility::vessel::string("acceleration structures: no frame slot is being built"));
+        }
         slot& target = this->slots[this->current_slot];
         target.build_ready = false;
         if (target.count == 0u || !target.structure) {

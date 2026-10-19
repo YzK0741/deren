@@ -83,16 +83,21 @@ export namespace deren::engine::pass {
                 // because the scene colour target ALTERNATES between family 5 (the TAA working image) and family 0
                 // (the HDR image) - see `runtime::resolve_pass`, which publishes the storage descriptors per frame
                 // and knows which one this frame's scene colour is.
-                if (i <= 5)
+                if (i <= 5) {
                     value.image.flags |= rhi::to_bits(rhi::image_flag::storage);
-                if (i == 7)
+                }
+                if (i == 7) {
                     value.image.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination);
-                if (i == 13)
+                }
+                if (i == 13) {
                     value.image.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::storage);
-                if (i == 0)
+                }
+                if (i == 0) {
                     value.image.flags |= rhi::to_bits(rhi::image_flag::transfer_source);
-                if (i == 6)
+                }
+                if (i == 6) {
                     value.image.flags |= rhi::to_bits(rhi::image_flag::transfer_source);
+                }
                 value.image.debug_name = "managed output target";
             }
             return values;
@@ -103,9 +108,11 @@ export namespace deren::engine::pass {
         void describe_resources(render_resource::instances::resource_context const& context,
                                 deren::utility::vessel::vector<render_resource::instances::request>& requests) const override {
             auto const values = descriptions(context);
-            for (size_t i = 0; i < values.size(); ++i)
-                if (required[i])
+            for (size_t i = 0; i < values.size(); ++i) {
+                if (required[i]) {
                     requests.push_back(values[i]);
+                }
+            }
         }
         void bind_resources(render_resource::instances::resource_snapshot const& snapshot) override {
             resource_view = snapshot;

@@ -80,10 +80,13 @@ export namespace deren::engine::render_graph::lighting {
     // real sampled resources the lighting stage reads every frame.
     [[nodiscard]] std::expected<outputs, graph_error> append(builder& graph, inputs const& in) noexcept {
         std::array refs{in.color, in.surface[0], in.surface[1], in.surface[2], in.depth};
-        for (std::size_t i = 0; i < refs.size(); ++i)
-            for (std::size_t j = 0; j < i; ++j)
-                if (refs[i] == refs[j])
+        for (std::size_t i = 0; i < refs.size(); ++i) {
+            for (std::size_t j = 0; j < i; ++j) {
+                if (refs[i] == refs[j]) {
                     return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "deferred lighting", .resource_name = "lighting alias"});
+                }
+            }
+        }
         constexpr access_scope sampled{resource_usage::sampled, pipeline_stage::fragment_shader};
         parameters params{{{{in.surface[0], {}, sampled}, {in.surface[1], {}, sampled}, {in.surface[2], {}, sampled}}},
                           {in.depth, {}, sampled},
@@ -92,23 +95,27 @@ export namespace deren::engine::render_graph::lighting {
         if (in.shared) {
             constexpr access_scope uniform{resource_usage::uniform_buffer, pipeline_stage::fragment_shader};
             params.shared = shared_parameters{{in.shared->camera, {}, uniform}, {in.shared->light, {}, uniform}, {}};
-            if (in.shared->ibl)
+            if (in.shared->ibl) {
                 params.shared->ibl = ibl_parameters{{in.shared->ibl->environment, {}, sampled},
                                                     {in.shared->ibl->irradiance, {}, sampled},
                                                     {in.shared->ibl->lut, {}, sampled}};
+            }
             if (in.shared->cluster) {
                 constexpr access_scope storage{resource_usage::storage, pipeline_stage::fragment_shader};
                 params.shared->cluster = cluster_parameters{{in.shared->cluster->counts, {}, storage},
                                                             {in.shared->cluster->indices, {}, storage}};
             }
-            if (in.shared->shadow_cascades)
+            if (in.shared->shadow_cascades) {
                 params.shared->shadow_cascades = texture_read{*in.shared->shadow_cascades, {}, sampled};
-            if (in.shared->rt_visibility)
+            }
+            if (in.shared->rt_visibility) {
                 params.shared->rt_visibility = texture_read{*in.shared->rt_visibility, {}, sampled};
+            }
         }
         auto added = graph.add_pass("deferred lighting", std::move(params));
-        if (!added)
+        if (!added) {
             return std::unexpected(added.error());
+        }
         return outputs{in.color, *added};
     }
 } // namespace deren::engine::render_graph::lighting

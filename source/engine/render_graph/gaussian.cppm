@@ -25,13 +25,15 @@ export namespace deren::engine::render_graph::gaussian {
         pass_ref pass;
     };
     [[nodiscard]] inline std::expected<outputs, graph_error> append(builder& graph, inputs const& in) noexcept {
-        if (in.target == in.depth)
+        if (in.target == in.depth) {
             return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "gaussian", .resource_name = "gaussian alias"});
+        }
         parameters params{{in.target, {}, {resource_usage::color_attachment, pipeline_stage::color_output}},
                           {in.depth, {}, {resource_usage::depth_stencil_read, pipeline_stage::depth_stencil}}};
         auto added = graph.add_pass("gaussian", std::move(params));
-        if (!added)
+        if (!added) {
             return std::unexpected(added.error());
+        }
         return outputs{in.target, *added};
     }
 } // namespace deren::engine::render_graph::gaussian

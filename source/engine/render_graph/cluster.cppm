@@ -29,8 +29,9 @@ export namespace deren::engine::render_graph::cluster {
         constexpr access_scope compute{resource_usage::storage, pipeline_stage::compute_shader};
         parameters params{{in.counts, {}, compute}, {in.indices, {}, compute}};
         auto added = graph.add_pass("clustered light sort", std::move(params));
-        if (!added)
+        if (!added) {
             return std::unexpected(added.error());
+        }
         return outputs{*added};
     }
 } // namespace deren::engine::render_graph::cluster

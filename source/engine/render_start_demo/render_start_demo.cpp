@@ -169,13 +169,15 @@ namespace deren::engine {
             }
         } else if (stage == "gaussian") {
             if (self.gaussian != nullptr) {
-                if (services.gaussian_timing)
+                if (services.gaussian_timing) {
                     self.gaussian->set_timing(services.gaussian_timing(services.owner));
+                }
                 auto gpu = services.make_gaussian_gpu_frame ? services.make_gaussian_gpu_frame(services.owner, self.gaussian->gpu_ready()) : nullptr;
-                if (gpu)
+                if (gpu) {
                     self.gaussian->set_gpu_frame(std::move(gpu));
-                else
+                } else {
                     self.gaussian->set_frame(services.make_gaussian_frame(services.owner));
+                }
             }
         } else if (stage == "character_forward") {
             if (self.character_forward != nullptr) {

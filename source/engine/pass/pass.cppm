@@ -692,13 +692,15 @@ export namespace deren::engine::pass {
             deren::promise::rhi::command_buffer& commands, deren::promise::rhi::image& target,
             deren::promise::rhi::rendering_info const& rendering) const noexcept {
             namespace rhi = deren::promise::rhi;
-            if (!valid() || !finish || (has_recording && !has_recording(owner)))
+            if (!valid() || !finish || (has_recording && !has_recording(owner))) {
                 return rhi::error::ok;
+            }
             auto error = commands.barrier(rhi::image_barrier{.resource = &target,
                                                              .from = rhi::image_use::color_attachment,
                                                              .to = rhi::image_use::color_attachment});
-            if (error != rhi::error::ok)
+            if (error != rhi::error::ok) {
                 return error;
+            }
             return finish(owner, commands, rendering);
         }
     };

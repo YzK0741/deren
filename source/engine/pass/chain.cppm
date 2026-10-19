@@ -91,13 +91,15 @@ export namespace deren::engine::pass {
         }
         deren::promise::rhi::error prepare_resources(deren::promise::rhi::shared_object<deren::promise::rhi::api_core> const& device, render_resource::instances::resource_context const& context, render_resource::instances::resource_registry::admission const& accept = {}) {
             deren::utility::vessel::vector<render_resource::instances::request> requests;
-            for (auto* pass : passes)
+            for (auto* pass : passes) {
                 pass->describe_resources(context, requests);
+            }
             auto const result = managed_resources.reconcile(device, context, requests, accept);
             if (result == deren::promise::rhi::error::ok) {
                 auto const snapshot = managed_resources.snapshot();
-                for (auto* pass : passes)
+                for (auto* pass : passes) {
                     pass->bind_resources(snapshot);
+                }
             }
             return result;
         }

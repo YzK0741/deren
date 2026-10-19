@@ -19,31 +19,38 @@ export namespace deren::engine::render_graph::bloom {
         // Bloom reads one image and clears four distinct single-mip/layer color targets.
         // Aliasing any of these changes that algorithm, even if a general graph can model it.
         for (unsigned i = 0; i < level_count; ++i) {
-            if (desc.levels[i] == desc.input)
+            if (desc.levels[i] == desc.input) {
                 return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = {}, .resource_name = {}});
-            for (unsigned j = 0; j < i; ++j)
-                if (desc.levels[i] == desc.levels[j])
+            }
+            for (unsigned j = 0; j < i; ++j) {
+                if (desc.levels[i] == desc.levels[j]) {
                     return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = {}, .resource_name = {}});
+                }
+            }
         }
         builder graph;
         auto input = graph.import_texture(desc.input, initial_contents::defined, "bloom input", {}, desc.input_state);
-        if (!input)
+        if (!input) {
             return std::unexpected(input.error());
+        }
         constexpr std::array names{"bloom prefilter", "bloom downsample 1", "bloom downsample 2", "bloom downsample 3"};
         std::array<texture_ref, level_count> levels;
         for (unsigned i = 0; i < level_count; ++i) {
             auto target = graph.import_texture(desc.levels[i], initial_contents::undefined, names[i], {}, desc.level_states[i]);
-            if (!target)
+            if (!target) {
                 return std::unexpected(target.error());
+            }
             levels[i] = *target;
             std::array<resource_access, 2> accesses{{{i ? levels[i - 1] : *input, content_access::read, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}},
                                                      {*target, content_access::discard_write, {}, {resource_usage::color_attachment, pipeline_stage::color_output}}}};
             auto pass = graph.add_pass(names[i], accesses);
-            if (!pass)
+            if (!pass) {
                 return std::unexpected(pass.error());
+            }
             auto output = graph.export_resource(*target);
-            if (!output)
+            if (!output) {
                 return std::unexpected(output.error());
+            }
         }
         // export_resource roots contents but emits no epilogue. An explicit boundary reader
         // orders the final color write before the external composite's fragment reads.
@@ -52,8 +59,9 @@ export namespace deren::engine::render_graph::bloom {
                                                           {levels[2], content_access::read, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}},
                                                           {levels[3], content_access::read, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}}}};
         auto boundary = graph.add_pass("bloom to composite", handoff, {true});
-        if (!boundary)
+        if (!boundary) {
             return std::unexpected(boundary.error());
+        }
         return graph.compile({true});
     }
     class prepared_chain {
@@ -73,11 +81,13 @@ export namespace deren::engine::render_graph::bloom {
                 bindings[i + 1] = levels[i];
             }
             auto plan = compile(desc);
-            if (!plan)
+            if (!plan) {
                 return std::unexpected(execution::execution_error{execution::rhi::error::invalid_argument, plan.error().pass, plan.error().resource});
+            }
             auto prepared = execution::prepared_graph::prepare(std::move(core), std::move(*plan), bindings);
-            if (!prepared)
+            if (!prepared) {
                 return std::unexpected(prepared.error());
+            }
             prepared_chain result;
             result.graph_ = std::move(*prepared);
             return result;

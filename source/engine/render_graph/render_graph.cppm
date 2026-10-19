@@ -42,17 +42,20 @@ export namespace deren::engine::render_graph {
         std::expected<pass_ref, graph_error> add_pass(std::string_view, std::span<resource_access const>, pass_options = {});
         template <pass_parameters Parameters>
         std::expected<pass_ref, graph_error> add_pass(std::string_view name, Parameters parameters, pass_options options = {}) {
-            if (frozen)
+            if (frozen) {
                 return std::unexpected(error(error_code::frozen_builder));
-            if (passes.size() >= invalid_index)
+            }
+            if (passes.size() >= invalid_index) {
                 return std::unexpected(error(error_code::capacity_exceeded));
+            }
             auto snapshot = parameter_snapshot::make(std::move(parameters));
             deren::utility::vessel::vector<resource_access> accesses;
             parameter_visitor visit(accesses);
             snapshot.template get<Parameters>()->visit_resources(visit);
             auto result = add_pass(name, std::span<resource_access const>(accesses), options);
-            if (result)
+            if (result) {
                 passes[result->index()].parameters = std::move(snapshot);
+            }
             return result;
         }
         std::expected<void, graph_error> export_resource(texture_ref, texture_range = {});
