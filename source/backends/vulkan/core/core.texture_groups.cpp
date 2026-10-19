@@ -26,16 +26,16 @@ namespace deren::vulkan {
         }
         auto const base = VkDeviceSize(texture_group_state::table_slot) * 64;
         if (texture_groups.reserved_offset == VK_WHOLE_SIZE) {
-            auto offset = descriptor_heaps.reserve_bytes(2049u * 64u, base);
+            auto offset = descriptor_heaps.reserve_bytes(static_cast<std::uint64_t>(2049u) * 64u, base);
             if (offset != base) {
                 return rhi::error::unsupported;
             }
             texture_groups.reserved_offset = offset;
         }
-        rhi::unique_object<rhi::buffer> records{create_buffer({.size = 1025u * 80u,
+        rhi::unique_object<rhi::buffer> records{create_buffer({.size = static_cast<std::uint64_t>(1025u) * 80u,
                                                                .usage = rhi::buffer_usage::storage_coherent,
                                                                .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
-        if (!records || records->mapped().size() < 1025u * 80u) {
+        if (!records || records->mapped().size() < static_cast<std::uint64_t>(1025u) * 80u) {
             return rhi::error::out_of_device_memory;
         }
         std::memset(records->mapped().data(), 0, records->mapped().size());

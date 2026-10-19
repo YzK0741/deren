@@ -174,7 +174,7 @@ namespace deren::engine {
         }
         // the window must lie inside the index buffer (the caller's contract, re-checked because a read past it
         // would be indistinguishable from a wrong meshlet)
-        std::size_t const needed_indices = static_cast<std::size_t>(input.first_index) + triangles * 3u;
+        std::size_t const needed_indices = static_cast<std::size_t>(input.first_index) + static_cast<std::size_t>(triangles) * 3u;
         if (input.index_data.size() < needed_indices * input.index_width) {
             return meshlets;
         }

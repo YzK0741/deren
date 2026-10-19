@@ -51,7 +51,7 @@ namespace deren::engine::pass {
                                                        mesh_spirv,
                                                        fragment_spirv,
                                                        1u,
-                                                       /*depth_test_enabled=*/true,
+                                                       /*depth_test=*/true,
                                                        0.0f,
                                                        0.0f,
                                                        0.0f,

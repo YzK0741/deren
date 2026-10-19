@@ -297,8 +297,8 @@ namespace deren::vulkan {
         /// sampler heap is capped at 128 KiB by the API, so its grid base is 64 KiB instead, which has to leave
         /// room for the samplers themselves - 64 KiB was entirely the reserved window the embedded-sampler path
         /// requires, i.e. no usable sampler space at all.
-        constexpr VkDeviceSize resource_working_size = (1280u) * 1024u; // the 1 MiB grid base + its 64 KiB + the older blocks still in place
-        constexpr VkDeviceSize sampler_working_size = 128u * 1024u;     // the API's maximum (64 reserved + 64 usable)
+        constexpr VkDeviceSize resource_working_size = static_cast<VkDeviceSize>(1280u) * 1024u; // the 1 MiB grid base + its 64 KiB + the older blocks still in place
+        constexpr VkDeviceSize sampler_working_size = static_cast<VkDeviceSize>(128u) * 1024u;   // the API's maximum (64 reserved + 64 usable)
 
         /// the VkBuffer behind a vk_buffer (the wrapper holds a VMA handle, not the Vulkan one)
         VkBuffer buffer_of(vma_allocator& allocator, vk_buffer const& buffer) noexcept {

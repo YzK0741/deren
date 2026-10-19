@@ -54,7 +54,7 @@ namespace deren::engine::acceleration_structure {
         void fill_instance_transform(rhi::acceleration_structure_instance& out, glm::mat4 const& matrix) noexcept {
             for (std::uint32_t row = 0; row < 3u; ++row) {
                 for (std::uint32_t column = 0; column < 4u; ++column) {
-                    out.transform[row * 4u + column] = matrix[column][row];
+                    out.transform[static_cast<int>(row * 4u + column)] = matrix[static_cast<int>(column)][static_cast<int>(row)];
                 }
             }
         }

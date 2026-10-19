@@ -154,7 +154,7 @@ namespace deren::engine::pass {
         auto const region = [region_size](uint64_t const at) { return rhi::shader_binding_table_region{.address = at, .size = region_size, .stride = region_size}; };
         this->raygen_region = region(address);
         this->miss_region = region(address + region_size);
-        this->hit_region = region(address + 2u * region_size);
+        this->hit_region = region(address + static_cast<std::uint64_t>(2u) * region_size);
         // The line the runtime used to log when it built this pipeline: a pass that says what it built is what
         // makes a missing one visible in the startup log rather than in a frame that looks merely shadowless.
         deren::utility::log("SUCCESS: ray-traced sun shadow pipeline created (raygen + miss + closest hit + any hit, one ray per pixel, terminated on first hit)");

@@ -90,7 +90,7 @@ namespace deren::engine::pass {
                                                        vertex_spirv,
                                                        fragment_spirv,
                                                        1u,
-                                                       /*depth_test_enabled=*/false,
+                                                       /*depth_test=*/false,
                                                        0.0f,
                                                        0.0f,
                                                        0.0f,

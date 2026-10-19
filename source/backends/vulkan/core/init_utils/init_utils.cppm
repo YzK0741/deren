@@ -984,7 +984,7 @@ void print_device_capabilities(device_capabilities const& capabilities) {
                             capabilities.descriptor_heap_properties.samplerDescriptorSize,
                             capabilities.descriptor_heap_properties.samplerDescriptorAlignment);
         deren::utility::log("   heaps       : resource max {} MiB (alignment {}), sampler max {} KiB (alignment {})",
-                            capabilities.descriptor_heap_properties.maxResourceHeapSize / (1024 * 1024),
+                            capabilities.descriptor_heap_properties.maxResourceHeapSize / (static_cast<VkDeviceSize>(1024) * 1024),
                             capabilities.descriptor_heap_properties.resourceHeapAlignment,
                             capabilities.descriptor_heap_properties.maxSamplerHeapSize / 1024,
                             capabilities.descriptor_heap_properties.samplerHeapAlignment);

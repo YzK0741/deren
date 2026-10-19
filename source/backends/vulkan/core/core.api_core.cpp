@@ -175,7 +175,7 @@ namespace deren::vulkan {
                       "the declaration table must be exactly the pairs the CENSUS measured "
                       "(scripts/recording_face_census.py: 'measured pairs: 22'); a hand count is not evidence");
         static_assert(image_use_pair_count_from_census + unsupported_pair_count_from_census ==
-                          image_use_value_count * image_use_value_count,
+                          static_cast<std::size_t>(image_use_value_count) * image_use_value_count,
                       "22 measured pairs + 99 unsupported must be exactly the 121 role combinations the census "
                       "reports - if the enum grows, both numbers are re-read from the same run");
 

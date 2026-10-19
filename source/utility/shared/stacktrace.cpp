@@ -65,7 +65,7 @@ namespace deren::utility::diagnostics {
         vessel::string tool(executable);
         auto timeout = std::min(options.timeout_ms, std::uint32_t{10000});
         auto deadline = native::monotonic_ms() + timeout;
-        auto remaining_output = std::min(options.max_symbolizer_output_bytes, std::size_t{1024 * 1024});
+        auto remaining_output = std::min(options.max_symbolizer_output_bytes, static_cast<std::size_t>(1024) * 1024);
         vessel::vector<char> output;
         if (!disabled && !invalid && remaining_output) {
             output.resize(remaining_output);

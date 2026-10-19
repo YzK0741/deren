@@ -253,9 +253,9 @@ export namespace deren::utility::diagnostics {
                                    output_limit,
                                    failed };
     struct symbolizer_options {
-        std::string_view executable{};                       // Empty uses CMake's configured absolute tool path; "off" disables it.
-        std::uint32_t timeout_ms = 1000;                     // Total child-process budget, clamped to 10 seconds.
-        std::size_t max_symbolizer_output_bytes = 64 * 1024; // Clamped to 1 MiB in total.
+        std::string_view executable{};                                                 // Empty uses CMake's configured absolute tool path; "off" disables it.
+        std::uint32_t timeout_ms = 1000;                                               // Total child-process budget, clamped to 10 seconds.
+        std::size_t max_symbolizer_output_bytes = static_cast<std::size_t>(64) * 1024; // Clamped to 1 MiB in total.
         bool inlines = true;
     };
     struct symbolized_trace {

@@ -145,7 +145,7 @@ namespace deren::utility::detail::trace_native {
             }
 
         private:
-            static inline constexpr std::size_t maximum_units = 512 * 1024; // 1 MiB of wchar_t
+            static inline constexpr std::size_t maximum_units = static_cast<std::size_t>(512) * 1024; // 1 MiB of wchar_t
             static wchar_t lower(wchar_t value) noexcept {
                 return value >= L'A' && value <= L'Z' ? static_cast<wchar_t>(value - L'A' + L'a') : value;
             }
@@ -391,7 +391,7 @@ namespace deren::utility::detail::trace_native {
                     context.Rip = next;
                     context.Rsp += sizeof(next);
                 }
-                if (!context.Rip || context.Rsp <= previous_sp || context.Rsp - previous_sp > 16 * 1024 * 1024 || context.Rip == previous_pc) {
+                if (!context.Rip || context.Rsp <= previous_sp || context.Rsp - previous_sp > static_cast<std::uint64_t>(16) * 1024 * 1024 || context.Rip == previous_pc) {
                     break;
                 }
                 captured.pc[captured.count++] = context.Rip;
@@ -537,7 +537,7 @@ namespace deren::utility::detail::trace_native {
         attributes_ready = true;
         HANDLE inherited[]{writer, null_file};
         if (!UpdateProcThreadAttribute(startup.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
-                                       inherited, sizeof(inherited), nullptr, nullptr)) {
+                                       static_cast<void*>(inherited), sizeof(inherited), nullptr, nullptr)) {
             cleanup();
             return process_status::failed;
         }
