@@ -103,7 +103,7 @@ int main(int const argc, char** const argv) {
     deren::vk_test::write_line("runtime_dyn: this executable compiled abi {} (the entry takes it as its first argument)", rhi::abi_version);
     // ABI34: the native-vocabulary cleanup removed a virtual from vulkan_escape (vtable shift), so the
     // handshake number moved with it.
-    CHECK(rhi::abi_version == 38u);
+    CHECK(rhi::abi_version == 39u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("runtime_dyn: device path skipped (pass --with-device to construct the runtime)");
@@ -143,6 +143,17 @@ int main(int const argc, char** const argv) {
         CHECK(!dynamic.enable_debug_gui());
 
         rhi::api_core& face = dynamic.rhi_face();
+
+        // ABI 39: the main-thread context the GUI plugin casts. On a real backend it is the borrowed, backend-owned
+        // handle whose concrete tag names the Vulkan layout; the plugin's own test covers the refusal paths.
+        {
+            rhi::main_context* const main = dynamic.rhi_face().main_context();
+            CHECK(main != nullptr);
+            if (main != nullptr) {
+                CHECK(main->type == "deren_main_context_vulkan");
+                CHECK(dynamic.rhi_face().main_context() == main); // one backend-owned object, answered again
+            }
+        }
         {
             // ABI 37: the multithreaded recording paths use mergeable segments merged in batches; the
             // retention rule (a recorded primary keeps the merged segment alive until it is released) is

@@ -155,6 +155,10 @@ Four guarantees, each measured while the boundary was built:
 
 The GUI is reached the same way: `deren.engine.gui_loader` resolves `deren_gui_<api>.dll`, and the
 overlay crosses as the `deren::gui::overlay` interface plus one C entry.
+The device root crosses as the RHI's OPAQUE `rhi::main_context` (abi 39): the contract carries only the
+concrete-identity tag, and the API-specific plugin casts it to the layout it shares with its backend
+(`deren.vulkan.main_context` for the Vulkan plugin) - so no native handle or format number is part of
+the GUI contract.
 
 ## The run-time package
 

@@ -349,7 +349,12 @@ namespace {
         // two resource-handle borrows `native_pipeline()` / `native_shader_module()` are DELETED. Nothing in
         // this repository called them (the portable factories/abilities replaced the last potential callers),
         // and removing virtuals from a tier-2 interface is the vtable-shift case the number exists for.
-        CHECK(rhi::abi_version == 38u);
+        // ABI39 introduces the MAIN-THREAD CONTEXT: `rhi::main_context` is a new OPAQUE handle type (it carries
+        // only the concrete-identity tag) and `api_core` APPENDS `main_context()` - a vtable append on an
+        // existing tier-1 interface, with a default body answering nullptr. It is the contract's one hand-off
+        // of main-thread device state to an API-specific consumer (the GUI plugin), which casts it to the
+        // layout its API's plugin and backend share; no native vocabulary enters this contract.
+        CHECK(rhi::abi_version == 39u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
@@ -430,6 +435,11 @@ namespace {
                                 rhi::to_bits(rhi::extension_kind::descriptor_space)),
                   which_half);
         CHECK((abilities & ~rhi::all_abilities()) == rhi::no_abilities);
+
+        // ABI 39: THE MAIN-THREAD CONTEXT is an OPAQUE handle on this contract, and its appended virtual
+        // carries a default body answering nullptr - a backend (or this probe) with nothing to hand out stays
+        // concrete without editing, and the consumer names the refusal itself.
+        CHECK_MSG(core->main_context() == nullptr, which_half);
 
         // ---- G1: THE SAME INVARIANT WALKED OVER EVERY DEFINED BIT, instead of spelled out per kind -------
         // `all_extension_kinds()` is the CONTRACT's own list, so a sixth ability cannot be forgotten here:

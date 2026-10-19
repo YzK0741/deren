@@ -466,6 +466,16 @@ target_sources(vulkan_constant_init PUBLIC FILE_SET CXX_MODULES FILES
     source/backends/vulkan/constant_init/constant_init.cppm)
 target_link_libraries(vulkan_constant_init PUBLIC Vulkan::Vulkan)
 
+# THE VULKAN MAIN-THREAD CONTEXT (abi 39): the concrete layout behind the contract's opaque
+# `rhi::main_context`, compiled by BOTH halves that touch it - `deren_vulkan` (creates and fills it) and
+# `deren_gui_vulkan` (casts it back). A STATIC library carrying the interface unit, for the same reason
+# `vulkan_constant_init` and `renderer_layout` are: the backend DLL exports exactly one name, so a module
+# attachment cannot be served from it, and both images compile the same unit instead.
+add_library(vulkan_main_context STATIC)
+target_sources(vulkan_main_context PUBLIC FILE_SET CXX_MODULES FILES
+    source/backends/vulkan/main_context/main_context.cppm)
+target_link_libraries(vulkan_main_context PUBLIC promise Vulkan::Vulkan)
+
 add_library(vulkan_synchronization STATIC)
 target_sources(vulkan_synchronization PUBLIC FILE_SET CXX_MODULES FILES
     source/backends/vulkan/synchronization/synchronization.cppm)
@@ -584,6 +594,7 @@ target_sources(deren_vulkan
 target_link_libraries(deren_vulkan
         vulkan_synchronization
         vulkan_error_tables
+        vulkan_main_context
         # The backend implements the contract, so the contract's module is a dependency of THIS target
         # and of nothing else in the backend's direction (source/promise/rhi/*.cppm imports nothing back).
         promise
@@ -1718,6 +1729,7 @@ target_link_libraries(deren_gui_vulkan
         imgui
         glfw
         Vulkan::Vulkan
+        vulkan_main_context
         vulkan_constant_init
         static_utility
         vstd_lib

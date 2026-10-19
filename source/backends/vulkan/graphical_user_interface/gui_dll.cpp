@@ -6,8 +6,10 @@
 // widget classes). The port is deliberately a WRAP and not a rewrite: every class below this line is
 // unchanged, and the host sees verbs instead of objects.
 //
-// The boundary carries a borrowed RHI root and platform window. Native handles are resolved
-// inside this adapter through the root's typed escape service.
+// The boundary carries a borrowed PLATFORM WINDOW and the RHI's opaque main-thread context (abi 39).
+// The context is cast HERE, through the shared Vulkan layout (`denen.vulkan.main_context`), because the
+// native handles and the presentation format are this API's vocabulary and must not cross the contract;
+// the escape is still used for the per-frame recording handle (`vulkan_escape::native_command_buffer`).
 // ============================================================================
 module;
 
@@ -26,6 +28,10 @@ module deren.vulkan.graphical_user_interface;
 import deren.utility.shared;
 
 import deren.promise.gui;
+
+// THE SHARED CONCRETE LAYOUT of the contract's opaque main context (abi 39): the backend/plugin pair
+// compiles the same interface unit, so the cast below is to the layout the backend actually filled.
+import deren.vulkan.main_context;
 
 import deren.utility;
 
@@ -130,7 +136,7 @@ namespace deren::vulkan::gui {
 
             [[nodiscard]] bool init(deren::gui::create_info const& info) override {
                 if (info.struct_size < sizeof(info)) {
-                    deren::utility::log("gui plugin: the create_info prefix is too short for ABI2");
+                    deren::utility::log("gui plugin: the create_info prefix is too short for GUI ABI4");
                     return false;
                 }
                 if (this->content.is_active()) {
@@ -146,28 +152,34 @@ namespace deren::vulkan::gui {
                     return false;
                 }
                 namespace rhi = deren::promise::rhi;
-                if (info.core == nullptr || info.core->api_version() != rhi::abi_version) {
-                    deren::utility::log("gui plugin: no compatible RHI device root");
+                // THE OPAQUE CONTEXT IS THE DEVICE ROOT NOW (abi 39): this plugin is the VULKAN one, so it
+                // knows its own concrete layout and casts - the contract only carries the tag. A context this
+                // plugin does not recognise is refused by name, exactly like a wrong api_type.
+                if (info.main_context == nullptr || !deren::vulkan::is_main_context(*info.main_context)) {
+                    deren::utility::log("gui plugin: the create_info carried no main context this Vulkan plugin serves");
                     return false;
                 }
-                auto* const escape = rhi::query_extension<rhi::vulkan_escape>(*info.core);
-                auto* const capabilities = rhi::query_extension<rhi::device_capabilities>(*info.core);
-                auto* const frames = info.core->walk_frames();
-                if (escape == nullptr || capabilities == nullptr || frames == nullptr) {
-                    deren::utility::log("gui plugin: the RHI root cannot provide Vulkan GUI services");
+                auto const* const context = rhi::do_concrete<deren::vulkan::main_context>(*info.main_context, deren::vulkan::main_context_name);
+                if (context->core == nullptr || context->core->api_version() != rhi::abi_version) {
+                    deren::utility::log("gui plugin: no compatible RHI device root in the main context");
+                    return false;
+                }
+                auto* const escape = rhi::query_extension<rhi::vulkan_escape>(*context->core);
+                if (escape == nullptr) {
+                    deren::utility::log("gui plugin: the RHI root cannot provide the Vulkan recording escape");
                     return false;
                 }
                 gui_create_info translated = {};
                 translated.window = info.window;
-                translated.instance = static_cast<VkInstance>(escape->native_instance());
-                translated.physical_device = static_cast<VkPhysicalDevice>(escape->native_physical_device());
-                translated.device = static_cast<VkDevice>(escape->native_device());
-                translated.graphics_queue_family = capabilities->graphics_queue_family();
-                translated.graphics_queue = static_cast<VkQueue>(escape->native_queue());
-                translated.color_format = static_cast<VkFormat>(escape->native_swapchain_image_format());
+                translated.instance = context->instance;
+                translated.physical_device = context->physical_device;
+                translated.device = context->device;
+                translated.graphics_queue_family = context->graphics_queue_family;
+                translated.graphics_queue = context->graphics_queue;
+                translated.color_format = static_cast<VkFormat>(context->color_format);
                 translated.depth_format = VK_FORMAT_UNDEFINED;
-                translated.frames_in_flight = frames->slot_count();
-                this->core = info.core;
+                translated.frames_in_flight = context->frames_in_flight;
+                this->core = context->core;
                 // GLFW is linked statically into each image. The host's glfwInit() does not
                 // initialize this plugin's copy, whose queries otherwise return zero sizes/scale.
                 if (!glfwInit()) {
@@ -265,7 +277,7 @@ extern "C" DEREN_API_EXPORT std::shared_ptr<deren::gui::overlay> deren_make_gui(
         return {};
     }
     if (info->struct_size < sizeof(deren::gui::create_info)) {
-        deren::utility::log("gui plugin: the create_info prefix is too short for ABI2");
+        deren::utility::log("gui plugin: the create_info prefix is too short for GUI ABI4");
         return {};
     }
     std::shared_ptr<deren::gui::overlay> overlay = std::make_shared<deren::vulkan::gui::overlay_adapter>();

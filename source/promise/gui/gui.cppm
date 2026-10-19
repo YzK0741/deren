@@ -15,7 +15,7 @@ export import deren.promise.rhi;
 export namespace deren::gui {
     /// The boundary's own version: an INCOMPATIBLE change to the interface or to `create_info` moves it, and
     /// the entry refuses a caller that hands over another number (the backend's abi handshake, one level up).
-    inline constexpr std::uint32_t gui_abi_version = 3u;
+    inline constexpr std::uint32_t gui_abi_version = 4u;
 
     /// WHICH GRAPHICS API THE HOST IS ASKING THIS GUI DLL TO SERVE. It is the host's hint AND the plugin's
     /// check: `deren_gui_vulkan.dll` serves `vulkan` and refuses anything else by name.
@@ -41,12 +41,15 @@ export namespace deren::gui {
     /// The DLL a host looks for, without the extension or the directory.
     inline constexpr char const* gui_dll_prefix = "deren_gui_";
 
-    /// The device root stays borrowed for the overlay's lifetime; the runtime owns it.
-    /// No API-specific handles or format numbers cross this boundary.
+    /// The device root is handed over as the RHI's OPAQUE MAIN-THREAD CONTEXT (abi 39), borrowed for the
+    /// overlay's lifetime; the runtime owns it. The GUI contract names no native vocabulary: the
+    /// API-specific plugin checks the context's concrete tag and casts it to the layout its API's backend
+    /// and plugin share (`denen.vulkan.main_context` for the Vulkan plugin), which is where the native
+    /// handles and format numbers live.
     struct create_info {
         std::uint32_t struct_size = sizeof(create_info);
         api_type api = api_type::none;
-        deren::promise::rhi::api_core* core = nullptr;
+        deren::promise::rhi::main_context* main_context = nullptr;
         GLFWwindow* window = nullptr;
     };
 

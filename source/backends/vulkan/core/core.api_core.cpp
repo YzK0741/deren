@@ -779,6 +779,21 @@ namespace deren::vulkan {
 
     } // namespace
 
+    // abi 39: THE MAIN-THREAD CONTEXT. Every handle it names is a stable member of this core, so the object
+    // is a view filled on demand rather than a second owner; the GUI plugin casts it back through the shared
+    // `denen.vulkan.main_context` layout and copies what it needs for the session.
+    rhi::main_context* core::main_context() noexcept {
+        this->main_context_view.core = this;
+        this->main_context_view.instance = this->instance;
+        this->main_context_view.physical_device = this->physical_device;
+        this->main_context_view.device = this->logical_device;
+        this->main_context_view.graphics_queue = this->graphics_queue_handle;
+        this->main_context_view.graphics_queue_family = this->graphics_queue_family_index;
+        this->main_context_view.color_format = static_cast<std::uint32_t>(this->swap_chain_image_format);
+        this->main_context_view.frames_in_flight = static_cast<std::uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        return &this->main_context_view;
+    }
+
     std::uint32_t core::api_version() const noexcept {
         // THE OBJECT'S OWN ATTESTATION (abi 19): the number BOTH halves compiled from the contract
         // module. The engine asks it before it uses this object, which covers the case the entry's

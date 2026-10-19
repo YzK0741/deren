@@ -447,7 +447,7 @@ namespace deren::engine {
         deren::gui::create_info info = {};
         info.api = deren::gui::api_type::vulkan;
         info.window = static_cast<GLFWwindow*>(this->create_options.native_window);
-        info.core = &vk;
+        info.main_context = vk.main_context();
         this->debug_overlay = deren::engine::load_gui(info);
         if (this->debug_overlay == nullptr) {
             deren::utility::log("gui overlay: no plugin answered (the loader's own line says which step failed) - the overlay stays off");

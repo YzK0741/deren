@@ -58,6 +58,9 @@ export import :descriptor_heap;
 // module imports nothing (source/promise/rhi/*.cppm), so a backend that implements it cannot drag anything
 // back into the engine's contract.
 import deren.promise.rhi;
+// THE CONCRETE LAYOUT of the contract's opaque `main_context` (abi 39): the SAME interface unit the GUI
+// plugin compiles (vulkan_main_context), so the tag and the layout cannot fork between the two images.
+export import deren.vulkan.main_context;
 // The error translators and the diagnostic builder: a neutral module both sides link (see the note
 // in the purview). RE-EXPORTED, because every backend TU that names `failed`/`*_error` imports THIS
 // module and must keep compiling unchanged.
@@ -1201,6 +1204,9 @@ namespace deren::vulkan {
         swapchain_view presentation_surface;
         /// the tier-2 escape object `query_extension(vulkan_escape)` answers with
         frame_escape escape_view;
+        /// abi 39: THE MAIN-THREAD CONTEXT the GUI plugin casts (see deren.vulkan.main_context). Backend-owned
+        /// and borrowed; filled on each `main_context()` call because the handles it names are stable members.
+        deren::vulkan::main_context main_context_view;
         frame_heap heap_view;
         frame_descriptor_space descriptor_space_view;
         std::mutex contract_images_mutex;
@@ -1580,6 +1586,10 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::gpu_profiler* profiler() noexcept override;
         [[nodiscard]] deren::promise::rhi::swapchain* frame_swapchain() noexcept override;
         [[nodiscard]] deren::promise::rhi::error submit(deren::promise::rhi::command_buffer& commands) override;
+        /// abi 39: the OPAQUE main-thread context the GUI plugin casts to its Vulkan layout
+        /// (source/backends/vulkan/main_context/main_context.cppm). Borrowed; nullptr only if this core has
+        /// nothing to hand out (this backend always does).
+        [[nodiscard]] deren::promise::rhi::main_context* main_context() noexcept override;
         /// abi 35: the batch submission (see `mergeable_command_buffer` and `core::submit(span)`).
         [[nodiscard]] deren::promise::rhi::error submit(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) override;
         /// abi 35: the batch-only recording handle. The returned handle carries one reference, dropped by

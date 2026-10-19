@@ -334,6 +334,12 @@ export namespace deren::promise::rhi {
     // an APPENDED target (`heap_bind_info::mergeable_commands` / `heap_push_info::mergeable_commands`):
     // a mergeable segment publishes its binding/push data through the same ability as a command_buffer,
     // one target of the two set. Existing fields, slots and meanings do not move.
+    // ABI 39 INTRODUCES THE MAIN-THREAD CONTEXT: `rhi::main_context` (an OPAQUE handle carrying only the
+    // concrete-identity tag) and the appended `api_core::main_context()` virtual that answers it. It is
+    // the contract's answer to "a non-engine consumer needs the API handles": one opaque hand-off the
+    // API-specific plugin casts to its own layout, instead of adding native accessors here or to the
+    // escape. The virtual is appended (a vtable append on an existing tier-1 interface) and has a default
+    // body answering nullptr, so a backend with nothing to hand out compiles unchanged.
     // ABI 38 REMOVES THREE ZERO-CALL ESCAPE SLOTS: `vulkan_escape::enabled_instance_extensions()`,
     // `native_pipeline()` and `native_shader_module()` are DELETED - nothing in this repository called
     // them (the device-extension list is still asked for, the two resource handles moved to portable
@@ -350,7 +356,7 @@ export namespace deren::promise::rhi {
     // operation). They live here because EVERY backend needs the same "check the concrete name, then
     // cast to the concrete layout" pair, and one copy is what keeps the next backend from reinventing
     // it (or from weakening the panic/refusal split its own doc states).
-    inline constexpr std::uint32_t abi_version = 38u;
+    inline constexpr std::uint32_t abi_version = 39u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
@@ -497,6 +503,29 @@ export namespace deren::promise::rhi {
             : type(name) {
         }
         ~object() = default; // Destruction stays on each interface's release path.
+    };
+
+    /// A BORROWED, BACKEND-OWNED MAIN-THREAD CONTEXT (abi 39).
+    ///
+    /// The device-side state a non-engine consumer on the main thread brings itself up from - the GUI
+    /// overlay is the caller, and it is the reason this exists: that consumer needs the API's own handles,
+    /// and handing it ONE opaque context is the alternative to growing `vulkan_escape` with one virtual per
+    /// handle.
+    ///
+    /// IT IS OPAQUE HERE ON PURPOSE. The contract carries only the concrete-identity tag (`object::type`),
+    /// no native vocabulary and no handle members: an API-specific consumer checks the tag with
+    /// `is_concrete()` and casts the handle to the concrete layout ITS API's backend and plugin share (for
+    /// Vulkan: `denen::vulkan::main_context` in `denen.vulkan.main_context`, versioned with that
+    /// backend/plugin pair rather than with this contract). A contract that named the layout would put the
+    /// native vocabulary right back.
+    ///
+    /// OWNERSHIP: the `api_core` owns it; `api_core::main_context()` answers a BORROWED pointer valid for
+    /// the context's lifetime. There is no `release()` and no reference to keep - the caller must never
+    /// delete it.
+    struct main_context : object {
+        explicit main_context(std::string_view const name) noexcept
+            : object(name) {
+        }
     };
 
     /// THE CONCRETE-IDENTITY MECHANISM, SHARED BY EVERY BACKEND: a handle's `type` is the concrete

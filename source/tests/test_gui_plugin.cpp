@@ -15,7 +15,7 @@ import deren.utility.dynamic_link;
 #include "../backends/vulkan/graphical_user_interface/panel_adapter_storage.hpp"
 #include "../promise/gui/gui_entry.hpp"
 
-static_assert(deren::gui::gui_abi_version == 3u, "GUI ABI3 uses vessel-owned strings and containers");
+static_assert(deren::gui::gui_abi_version == 4u, "GUI ABI4 hands the device root over as the RHI main context");
 
 // Exercise the overlay's actual storage without needing a graphics device. Hosts
 // retain panel references, so deleting a different panel must preserve its address.
@@ -73,7 +73,7 @@ int main() {
     CHECK(!entry(deren::gui::gui_abi_version, &info));
     info.api = deren::gui::api_type::vulkan;
     CHECK(!entry(deren::gui::gui_abi_version, &info)); // no window
-    CHECK(info.core == nullptr);
+    CHECK(info.main_context == nullptr);
     info.window = reinterpret_cast<decltype(info.window)>(std::uintptr_t{1});
     CHECK(!entry(deren::gui::gui_abi_version, &info)); // reject absent device before using the window
     info.struct_size = sizeof(info) - 1;

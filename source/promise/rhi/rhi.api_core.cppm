@@ -2348,6 +2348,24 @@ export namespace deren::promise::rhi {
         /// segment still recording, released, or already pending; device-level failures travel as
         /// themselves. A `command_buffer` cannot appear in a batch (different type on purpose).
         [[nodiscard]] virtual error submit(std::span<mergeable_command_buffer_ref const> batch) = 0;
+
+        // ---- the main-thread context (abi 39) ----
+        /// THE BACKEND'S MAIN-THREAD CONTEXT, borrowed for this core's lifetime; nullptr when the backend
+        /// has nothing to hand out.
+        ///
+        /// WHY IT IS ONE OPAQUE HANDLE rather than more escape slots: a non-engine consumer that must bring
+        /// itself up on the main thread (the GUI overlay) needs device-side state the portable contract
+        /// deliberately does not carry (an instance, a physical device, the device and its queue, the
+        /// presentation format). The contract names NONE of that: it answers an opaque `main_context` whose
+        /// concrete tag says what layout the handle really is, and the API-specific consumer casts it to the
+        /// layout its API's plugin and backend share. See `rhi::main_context`'s own note.
+        ///
+        /// THE DEFAULT BODY ANSWERS nullptr, the same rule `command_buffer::execute(span)` follows: a backend
+        /// (or a test double) with no such context stays concrete without editing, and a consumer that needs
+        /// one names the refusal itself.
+        [[nodiscard]] virtual main_context* main_context() noexcept {
+            return nullptr;
+        }
     };
 
     /// 在已完成ABI握手的有效对象上检查扩展身份；不能验证悬空指针或不可信后端。
