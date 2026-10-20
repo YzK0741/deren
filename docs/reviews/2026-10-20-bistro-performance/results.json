@@ -420,5 +420,87 @@
       "result": "target_ratio .35 / max_error .03 (alone or together) move the selected record count by <= 1% and the GPU time not at all: the hierarchy parameters are not leaving measurable savings on the table either."
     },
     "conclusion": "Both cheap tuning levers are exhausted. The measured remaining headroom is structural: near-view occlusion (33% of visible triangles, conservative lower bound -> HZB two-pass) and far-view subpixel clusters (22% below 1 px -> software raster). Those are the next implementation steps; neither is reachable by parameter tuning."
+  },
+  "m3_host_occlusion_prototype_2026_10_20": {
+    "what_was_tried": "a host-side two-phase prototype (reverted afterwards, patch archived here): every frame copies the G-buffer depth into a per-frame-slot host-readable buffer; the next use of that slot builds a max-depth Hi-Z pyramid on the CPU and the parallel planning phase filters the cut-selected meshlets whose bounding sphere is fully behind it, re-publishing the survivors and shrinking each item's dispatch. Static-camera only (a matrix comparison disables it in motion); off unless DEREN_OCCLUSION_CULL is set.",
+    "config": {
+      "frames": 130,
+      "validation": false,
+      "render": "deferred lit, subtilis on, 1280x720"
+    },
+    "runs": {
+      "far-off": {
+        "occlusion_logs": [],
+        "gpu_total": 24.6,
+        "gpu_visibility": 23.85,
+        "frame_ms": 23.18,
+        "cpu_post": 6.68,
+        "cpu_total": 23.77,
+        "cpu_active": 7.68,
+        "records": 45493,
+        "triangle_reduction_pct": 11.44
+      },
+      "far-on": {
+        "occlusion_logs": [
+          [
+            "17100",
+            "2729580",
+            "0"
+          ],
+          [
+            "34200",
+            "5459160",
+            "0"
+          ]
+        ],
+        "gpu_total": 24.9,
+        "gpu_visibility": 23.77,
+        "frame_ms": 23.49,
+        "cpu_post": 18.9,
+        "cpu_total": 23.97,
+        "cpu_active": 19.97,
+        "records": 45493,
+        "triangle_reduction_pct": 11.44
+      },
+      "near-off": {
+        "occlusion_logs": [],
+        "gpu_total": 21.77,
+        "gpu_visibility": 20.79,
+        "frame_ms": 20.61,
+        "cpu_post": 6.7,
+        "cpu_total": 21.13,
+        "cpu_active": 7.73,
+        "records": 38864,
+        "triangle_reduction_pct": 12.43
+      },
+      "near-on": {
+        "occlusion_logs": [
+          [
+            "834120",
+            "2331840",
+            "35"
+          ],
+          [
+            "1668240",
+            "4663680",
+            "35"
+          ]
+        ],
+        "gpu_total": 15.61,
+        "gpu_visibility": 14.16,
+        "frame_ms": 18.7,
+        "cpu_post": 17.88,
+        "cpu_total": 19.06,
+        "cpu_active": 18.95,
+        "records": 38864,
+        "triangle_reduction_pct": 12.43
+      }
+    },
+    "reading": {
+      "gpu_saving_is_real": "near view: 35% of the selected records culled -> GPU visibility raster 20.79 -> 14.16 ms (-31.9%) and GPU total 21.77 -> 15.61 ms (-28.3%). far view: 0 records culled, GPU unchanged (matches the probe: far occlusion is negligible).",
+      "host_cost_kills_most_of_it": "the prototype costs +11.2 ms of CPU per frame (CPU post phase 6.70 -> 17.88 ms): the pyramid build plus 46k sphere tests. The near frame becomes CPU-bound (CPU active 18.95 ms against a 15.61 ms GPU frame), so the end-to-end gain is only 20.61 -> 18.70 ms (-9.3%) instead of the -28% the GPU alone offers.",
+      "not_pixel_exact": "near view changed 0.314% of pixels (mean channel-max diff 0.003/255, max 10): the near-depth approximation is not perfectly conservative, so the host test is not shippable as-is. far view was pixel-identical.",
+      "conclusion": "the occlusion headroom translates into GPU time and is worth building properly, but NOT on the host: move the HZB build and the conservative sphere test into a GPU pass (M2/M3: build the pyramid from the frame depth, cull before the dispatch, use the stencil/two-pass recovery) so the near-view GPU saving stays and the CPU cost disappears. Expected near-view gain for that design: on the order of the measured -28% GPU frame time."
+    }
   }
 }

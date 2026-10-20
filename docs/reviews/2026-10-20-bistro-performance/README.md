@@ -133,6 +133,26 @@ GPU 工作没有变化，因此当前 GPU-bound 下墙钟帧时间不变（省�
 
 两个负结果合起来说明：当前 cut 的收益已接近这个层级结构的边界，**剩余收益只能来自结构性 GPU 侧**——近景遮挡（33% 可见三角形，保守下界 → HZB 两遍）或远景亚像素（22% cluster <1px → 软件光栅），参数调优无法触及。
 
+## M3 原型验证：host 侧 Hi-Z 遮挡剔除（已回退，仅保留测量）
+
+为了验证"近景 33% 遮挡"能否换成实际 GPU 时间，先做了一个**host 侧两段式原型**（环境变量门控、静态相机、已回退，补丁归档为 [occlusion-prototype.patch](occlusion-prototype.patch)）：每帧把 G-buffer 深度拷到 frame-slot 的 host 可读 buffer；下一次用同一 slot 时 CPU 建 max-depth Hi-Z 金字塔；在并行规划阶段把 cut 选出的 meshlet 包围球逐个测试，被完全遮挡的记录压紧回 host-culled 表并缩小 dispatch 的组数。
+
+| 指标（130 帧，validation 关） | far OFF | far ON | near OFF | near ON |
+| --- | ---: | ---: | ---: | ---: |
+| 被剔除的选中记录 | — | 0 / 2.73M（0%） | — | **1.67M / 4.66M（35%）** |
+| GPU visibility raster | 23.85 ms | 23.77 ms | 20.79 ms | **14.16 ms（−31.9%）** |
+| GPU 帧总时间 | 24.60 ms | 24.90 ms | 21.77 ms | **15.61 ms（−28.3%）** |
+| CPU active | 7.68 ms | 19.97 ms（+12.3） | 7.73 ms | 18.95 ms（+11.2） |
+| 端到端帧时间 | 23.18 ms | 23.49 ms | 20.61 ms | **18.70 ms（−9.3%）** |
+| 画面差异 vs OFF | — | **逐像素相同** | — | 0.314% 像素变化（mean 0.003/255，max 10） |
+
+**这组数把 M3 的工程决策钉死了：**
+
+1. **遮挡红利是真的，而且确实转化为 GPU 时间**：near 剔掉 35% 的记录 → visibility raster −32%、GPU 帧 −28%；far 为 0（与探针的 0.4% 一致）。
+2. **host 实现吃掉大部分收益**：CPU 每帧多 11.2 ms（金字塔构建 + 4.6 万次球测试），near 帧变成 CPU-bound（CPU active 18.95 ms vs GPU 15.61 ms），端到端只剩 −9.3%，而不是 GPU 侧给出的 −28%。
+3. **还不像素精确**：near 有 0.314% 像素变化（近平面深度近似不够保守），所以 host 版本不能发布；far 逐像素相同。
+4. **结论**：遮挡剔除值得做，但**必须在 GPU 侧做**——HZB 构建 + 保守球测试放进 compute（剔除后再 dispatch，必要时两遍 + recovery），才能保住 −28% 的 GPU 收益同时消掉 11 ms 的 host 成本。这就是下一步 M3 的形状。
+
 ## 怎么解读这些数字
 
 - 两项特性的收益来源不同：**容量 = 换路径**（2909 个完整 draw → 2909 个间接 mesh dispatch + meshlet 剔选，scene pass 几乎归零）；**Subtilis = 在 lane 内换层级**（减 11–12% 三角形，换 8.7% GPU 时间）。
