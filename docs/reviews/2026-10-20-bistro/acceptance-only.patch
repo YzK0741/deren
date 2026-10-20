@@ -1,0 +1,56 @@
+--- a/source/engine/runtime/runtime.cpp
++++ b/source/engine/runtime/runtime.cpp
+@@ -26,6 +26,7 @@
+ import deren.engine.subtilis;
+ import deren.engine.subtilis.upload;
+ import deren.engine.subtilis.selection;
++import deren.engine.subtilis.builder;
+ 
+ import deren.promise.gui;
+ 
+@@ -1702,6 +1703,7 @@
+         deren::utility::vessel::vector<subtilis::reservation> published;
+         unsigned input_count = 0, selected_count = 0, fallback_count = 0;
+         std::uint64_t input_triangles = 0, selected_triangles = 0;
++        unsigned coarse_records = 0;
+         bool const exact_depth_redraw = this->feature_active("character_forward");
+         auto const extent = this->render_extent();
+         auto* const commands = static_cast<rhi::mesh_task_command*>(this->mesh_indirect_mapped);
+@@ -1766,6 +1768,7 @@
+                 if (run.source == subtilis::run_source::visible) {
+                     for (auto const& record : selected) {
+                         selected_triangles += record.index_count / 3;
++                        coarse_records += leaf->subtilis_geometry && record.first_index >= leaf->subtilis_geometry->source().lod0_index_count();
+                     }
+                 } else {
+                     selected_triangles += leaf->draw_index_count / 3;
+@@ -1790,8 +1793,8 @@
+         }
+         if (this->subtilis_active_frame && !this->subtilis_logged) {
+             this->subtilis_logged = true;
+-            deren::utility::log("subtilis: cut run publication: {} -> {} records, {} -> {} triangles, {} fallback item(s)",
+-                                input_count, selected_count, input_triangles, selected_triangles, fallback_count);
++            deren::utility::log("subtilis: cut run publication: {} -> {} records, {} -> {} triangles, {} fallback item(s), {} coarse records",
++                                input_count, selected_count, input_triangles, selected_triangles, fallback_count, coarse_records);
+         }
+         recorded = item;
+         return item > 0u;
+@@ -2104,7 +2107,17 @@
+         return nullptr;
+     }
+ 
+-    std::unique_ptr<primitive> runtime::create_primitive(std::string_view const pipeline_name, primitive_create_info const& info) {
++    std::unique_ptr<primitive> runtime::create_primitive(std::string_view const pipeline_name, primitive_create_info const& supplied_info) {
++        auto info = supplied_info;
++        // Temporary acceptance probe, not a shipped import policy.
++        if (std::getenv("DEREN_BISTRO_BUILD") && !info.subtilis_geometry && info.vertex_stride == 64 && info.index_count) {
++            auto built = subtilis::build({{info.vertex_data, info.vertex_stride, info.vertex_count,
++                                           info.index_data, info.index_type == rhi::index_type::uint32 ? 4u : 2u, 0, info.index_count, 0}});
++            if (!built) {
++                deren::utility::panic("Bistro acceptance: hierarchy build failed");
++            }
++            info.subtilis_geometry = std::make_shared<subtilis::built_geometry const>(std::move(*built));
++        }
+         // The pipeline must exist (the caller names the pipeline this geometry is for), but a
+         // normal_draw_primitive has DEFAULT semantics: it does not store the name, it draws with
+         // whatever pipeline the recording pass binds as default (render_environment). A custom

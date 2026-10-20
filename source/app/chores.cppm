@@ -164,7 +164,7 @@ namespace deren::chores {
         // questions - whether the stage runs, and which model it runs - and the rewrite is verified by holding the
         // first fixed and moving the second. Mirrored into the runtime every frame like the other render toggles.
         bool goo_toon = false;
-        // demo punctual lights (count matches deren::engine::max_punctual_lights): the gui rows below
+        // Four editable punctual lights (the runtime supports a larger set): the gui rows below
         // edit these fields live (no per-widget callbacks), and main() pushes the enabled set to
         // the runtime once per frame via deren::chores::apply_point_lights(). Each slot is a point light
         // or - with `spot` set - a cone light (direction + inner/outer half-angles in degrees;

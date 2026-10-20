@@ -2544,7 +2544,7 @@ int main(int argc, char** argv) {
 
     // ---- authored (glTF) punctual lights -> the editable gui light slots ----
     // KHR_lights_punctual lights load straight into the gui slots (up to
-    // deren::engine::max_punctual_lights): main pushes the enabled set through
+    // std::size(gui.point_lights)): main pushes the enabled set through
     // deren::chores::apply_point_lights() every frame, so imported lights are adjustable in the overlay
     // like the demo ones. Position comes from the owning node's loader-space world matrix,
     // shifted by the same import offset the geometry got. KHR directional lights are NOT mapped:
@@ -2563,7 +2563,7 @@ int main(int argc, char** argv) {
             ++imported_directional;
             continue;
         }
-        if (imported_lights >= deren::engine::max_punctual_lights) {
+        if (imported_lights >= std::size(gui.point_lights)) {
             ++imported_truncated;
             continue;
         }
@@ -2604,7 +2604,7 @@ int main(int argc, char** argv) {
                             imported_directional);
     }
     if (imported_truncated > 0) {
-        deren::utility::log("KHR_lights_punctual: {} additional light(s) dropped (GPU punctual-light cap = {})", imported_truncated, deren::engine::max_punctual_lights);
+        deren::utility::log("KHR_lights_punctual: {} additional light(s) dropped (editable light-slot cap = {})", imported_truncated, std::size(gui.point_lights));
     }
     deren::utility::vessel::vector<deren::utility::vessel::string> gui_camera_names; // selector items: authored names (orbit added inside)
     gui_camera_names.reserve(authored_cameras.size());
