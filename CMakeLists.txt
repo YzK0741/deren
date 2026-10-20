@@ -931,6 +931,7 @@ target_link_libraries(deren_engine PRIVATE meshoptimizer_vendored)
 target_sources(deren_engine PRIVATE
     source/engine/geometry/subtilis_builder.cpp
     source/engine/geometry/subtilis_builder_simplify.cpp
+    source/engine/geometry/subtilis_builder_topology.cpp
 )
 
 add_library(xxhash STATIC

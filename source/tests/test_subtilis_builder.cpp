@@ -3,6 +3,7 @@
 #include <array>
 #include <cstring>
 #include <limits>
+#include <map>
 #include <span>
 #include <utility>
 import deren.engine.subtilis.builder;
@@ -18,6 +19,35 @@ namespace {
     template <class T, std::size_t N>
     auto bytes(std::span<T, N> data) {
         return std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const*>(data.data()), data.size_bytes()};
+    }
+    auto root_indices(sub::built_geometry const& built) {
+        deren::utility::vessel::vector<std::uint32_t> result;
+        for (auto root : built.hierarchy().roots()) {
+            auto range = built.hierarchy().groups()[root].record.coarse;
+            for (unsigned i = 0; i < range.count; ++i) {
+                auto record = built.hierarchy().clusters()[range.first + i];
+                auto window = built.indices().subspan(record.first_index, record.index_count);
+                result.insert(result.end(), window.begin(), window.end());
+            }
+        }
+        return result;
+    }
+    auto boundary(std::span<std::uint32_t const> indices) {
+        deren::utility::vessel::map<std::array<std::uint32_t, 2>, int> result;
+        for (std::size_t t = 0; t < indices.size(); t += 3) {
+            for (unsigned edge = 0; edge < 3; ++edge) {
+                auto a = indices[t + edge], b = indices[t + (edge + 1) % 3];
+                result[{std::min(a, b), std::max(a, b)}] += a < b ? 1 : -1;
+            }
+        }
+        for (auto it = result.begin(); it != result.end();) {
+            if (!it->second) {
+                it = result.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        return result;
     }
 } // namespace
 int main() {
@@ -98,5 +128,138 @@ int main() {
     CHECK(!bad && bad.error() == sub::build_error::capacity);
     bad = sub::build({}, options);
     CHECK(!bad && bad.error() == sub::build_error::capacity);
+    // Real reduction: the production builder must not pass by always returning leaves.
+    constexpr unsigned side = 33;
+    deren::utility::vessel::vector<vertex> grid;
+    deren::utility::vessel::vector<std::uint32_t> triangles;
+    for (unsigned y = 0; y < side; ++y) {
+        for (unsigned x = 0; x < side; ++x) {
+            grid.push_back({{float(x), float(y), 0}, {0, 0, 1}, {float(x) / (side - 1), float(y) / (side - 1)}});
+        }
+    }
+    for (unsigned y = 0; y + 1 < side; ++y) {
+        for (unsigned x = 0; x + 1 < side; ++x) {
+            auto a = y * side + x, b = a + 1, c = a + side, d = c + 1;
+            for (auto value : {a, b, c, b, d, c}) {
+                triangles.push_back(value);
+            }
+        }
+    }
+    sub::build_input grid_input{{bytes(std::span(grid)), sizeof(vertex), static_cast<std::uint32_t>(grid.size()),
+                                 bytes(std::span(triangles)), 4, 0, static_cast<std::uint32_t>(triangles.size()), 0}};
+    auto hierarchy = sub::build(grid_input);
+    CHECK(hierarchy);
+    if (hierarchy) {
+        CHECK(hierarchy->statistics().depth >= 1);
+        CHECK(hierarchy->statistics().coarse_triangles < hierarchy->statistics().lod0_triangles);
+        CHECK(hierarchy->indices().size() > triangles.size());
+        CHECK(std::memcmp(hierarchy->indices().data(), triangles.data(), triangles.size() * 4) == 0);
+        std::uint32_t root_records = 0;
+        for (auto root : hierarchy->hierarchy().roots()) {
+            root_records += hierarchy->hierarchy().groups()[root].record.coarse.count;
+        }
+        CHECK(root_records < hierarchy->hierarchy().lod0_count());
+        CHECK(boundary(root_indices(*hierarchy)) == boundary(triangles));
+        deren::vk_test::write_line("grid: {} -> {} triangles, {} -> {} records, depth {}",
+                                   hierarchy->statistics().lod0_triangles, hierarchy->statistics().coarse_triangles,
+                                   hierarchy->hierarchy().lod0_count(), root_records, hierarchy->statistics().depth);
+    }
+    // A separate closed island must survive even though its boundary is empty.
+    auto island_vertices = grid;
+    auto island_indices = triangles;
+    auto offset = static_cast<std::uint32_t>(island_vertices.size());
+    for (auto p : {std::array<float, 3>{100, 0, 0}, {101, 0, 0}, {100, 1, 0}, {100, 0, 1}}) {
+        island_vertices.push_back({p, {0, 0, 1}, {0, 0}});
+    }
+    for (auto index : {0u, 2u, 1u, 0u, 1u, 3u, 0u, 3u, 2u, 1u, 2u, 3u}) {
+        island_indices.push_back(offset + index);
+    }
+    auto island_input = grid_input;
+    island_input.geometry.vertex_data = bytes(std::span(island_vertices));
+    island_input.geometry.vertex_count = static_cast<std::uint32_t>(island_vertices.size());
+    island_input.geometry.index_data = bytes(std::span(island_indices));
+    island_input.geometry.index_count = static_cast<std::uint32_t>(island_indices.size());
+    auto island = sub::build(island_input);
+    CHECK(island);
+    if (island) {
+        auto coarse = root_indices(*island);
+        unsigned surviving = 0;
+        bool unmixed = true;
+        for (std::size_t i = 0; i < coarse.size(); i += 3) {
+            unsigned count = (coarse[i] >= offset) + (coarse[i + 1] >= offset) + (coarse[i + 2] >= offset);
+            if (count == 3) {
+                ++surviving;
+            }
+            unmixed = unmixed && (count == 0 || count == 3);
+        }
+        CHECK(surviving >= 4 && unmixed);
+        CHECK(boundary(coarse) == boundary(island_indices));
+    }
+    // Degenerate triangles are preserved in an unchanged finest branch, not filtered away.
+    auto bad_indices = triangles;
+    bad_indices.insert(bad_indices.end(), {0, 0, 0});
+    auto degenerate_input = grid_input;
+    degenerate_input.geometry.index_data = bytes(std::span(bad_indices));
+    degenerate_input.geometry.index_count = static_cast<std::uint32_t>(bad_indices.size());
+    auto degenerate = sub::build(degenerate_input);
+    CHECK(degenerate && degenerate->statistics().rejected_topology > 0);
+    if (degenerate) {
+        auto coarse = root_indices(*degenerate);
+        unsigned preserved = 0;
+        for (std::size_t i = 0; i < coarse.size(); i += 3) {
+            preserved += coarse[i] == 0 && coarse[i + 1] == 0 && coarse[i + 2] == 0;
+        }
+        CHECK(preserved == 1);
+    }
+    // Duplicate the middle column on its right side: UV and normal discontinuities
+    // must retain both copies of every seam edge, including at mixed LODs.
+    auto seam_vertices = grid;
+    auto seam_indices = triangles;
+    constexpr unsigned middle = side / 2;
+    for (unsigned y = 0; y < side; ++y) {
+        auto copy = grid[y * side + middle];
+        copy.normal = {0, 1, 0};
+        copy.uv[0] += 1;
+        seam_vertices.push_back(copy);
+    }
+    for (std::size_t t = 0; t < seam_indices.size(); t += 3) {
+        bool right = false;
+        for (unsigned k = 0; k < 3; ++k) {
+            right = right || seam_indices[t + k] % side > middle;
+        }
+        if (right) {
+            for (unsigned k = 0; k < 3; ++k) {
+                auto& id = seam_indices[t + k];
+                if (id % side == middle) {
+                    id = side * side + id / side;
+                }
+            }
+        }
+    }
+    auto seam_input = grid_input;
+    seam_input.geometry.vertex_data = bytes(std::span(seam_vertices));
+    seam_input.geometry.vertex_count = static_cast<std::uint32_t>(seam_vertices.size());
+    seam_input.geometry.index_data = bytes(std::span(seam_indices));
+    auto seam = sub::build(seam_input);
+    CHECK(seam && seam->statistics().depth > 0);
+    if (seam) {
+        CHECK(boundary(root_indices(*seam)) == boundary(seam_indices));
+    }
+    // A duplicate face makes three triangles share an edge. It must remain intact.
+    auto nonmanifold_indices = triangles;
+    nonmanifold_indices.insert(nonmanifold_indices.end(), triangles.begin(), triangles.begin() + 3);
+    auto nonmanifold_input = grid_input;
+    nonmanifold_input.geometry.index_data = bytes(std::span(nonmanifold_indices));
+    nonmanifold_input.geometry.index_count = static_cast<std::uint32_t>(nonmanifold_indices.size());
+    auto nonmanifold = sub::build(nonmanifold_input);
+    CHECK(nonmanifold && nonmanifold->statistics().rejected_topology > 0);
+    if (nonmanifold) {
+        auto coarse = root_indices(*nonmanifold);
+        unsigned copies = 0;
+        for (std::size_t i = 0; i < coarse.size(); i += 3) {
+            copies += std::equal(coarse.begin() + i, coarse.begin() + i + 3, triangles.begin());
+        }
+        CHECK(copies == 2 && boundary(coarse) == boundary(nonmanifold_indices));
+    }
     return deren::vk_test::finish("test_subtilis_builder");
 }

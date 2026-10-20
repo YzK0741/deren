@@ -44,12 +44,12 @@ API in deren::engine::subtilis:
 
 ## Task 2: Safe original-region simplification and forest packing
 
-- [ ] Add positive regular-grid test requiring real parent levels and fewer coarse triangles AND records; observe leaf-only RED. Add open boundaries, seam duplicates, disconnected/degenerate/nonmanifold input and invalid candidate cases.
-- [ ] Decode aligned position/normal/UV arrays. Build exact position classes (+0/-0 normalized), seam locks, source-triangle adjacency/components; unsafe topology stays finest with statistics.
-- [ ] Partition frontier using complete logical nodes, stable ordering, target group_size. Merge source triangle IDs and current coarse runs; lock original-region boundary classes and all seam copies. Call attribute simplification with absolute errors and source-scaled weights, no destructive/pruning fallback.
-- [ ] Verify candidate source components and original oriented boundary multiset before accepting. Recluster at <=85 triangles/<=255 vertices and expand local indices to original vertex IDs. Accept only strictly smaller triangle and cluster counts within child worst-cut budget; reject without mutating payload/tree.
-- [ ] Accumulate parent error=max(children)+step with upward float rounding; iterate until no progress/depth. Pack reverse BFS levels, preserving sibling order and contiguous children; every root retained. Call asset::make before publishing result.
-- [ ] Run real hierarchy, mixed-depth packing and existing CPU cut/publication tests GREEN; commit.
+- [x] Add positive regular-grid test requiring real parent levels and fewer coarse triangles AND records; observe leaf-only RED. Add open boundaries, seam duplicates, disconnected/degenerate/nonmanifold input and invalid candidate cases.
+- [x] Decode aligned position/normal/UV arrays. Build exact position classes (+0/-0 normalized), seam locks, source-triangle adjacency/components; unsafe topology stays finest with statistics.
+- [x] Partition frontier using complete logical nodes, stable ordering, target group_size. Merge source triangle IDs and current coarse runs; lock original-region boundary classes and all seam copies. Call attribute simplification with absolute errors and source-scaled weights, no destructive/pruning fallback.
+- [x] Verify candidate source components and original oriented boundary multiset before accepting. Recluster at <=85 triangles/<=255 vertices and expand local indices to original vertex IDs. Accept only strictly smaller triangle and cluster counts within child worst-cut budget; reject without mutating payload/tree.
+- [x] Accumulate parent error=max(children)+step with upward float rounding; iterate until no progress/depth. Pack reverse BFS levels, preserving sibling order and contiguous children; every root retained. Call asset::make before publishing result.
+- [x] Run real hierarchy, mixed-depth packing and existing CPU cut/publication tests GREEN; commit.
 
 ## Task 3: Determinism, mixed-cut proof and integration verification
 

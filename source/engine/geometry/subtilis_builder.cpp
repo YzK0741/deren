@@ -99,7 +99,6 @@ namespace deren::engine::subtilis {
                     high[axis] = i ? std::max(high[axis], v) : v;
                 }
             }
-            result.scale = std::max({high[0] - low[0], high[1] - low[1], high[2] - low[2]});
             result.indices.reserve(g.index_count);
             for (std::uint32_t i = 0; i < g.index_count; ++i) {
                 std::uint32_t value = 0;
@@ -117,6 +116,15 @@ namespace deren::engine::subtilis {
                 }
                 result.indices.push_back(static_cast<std::uint32_t>(absolute));
             }
+            for (std::size_t i = 0; i < result.indices.size(); ++i) {
+                auto const& p = result.positions[result.indices[i]];
+                for (unsigned axis = 0; axis < 3; ++axis) {
+                    low[axis] = i ? std::min(low[axis], double(p[axis])) : p[axis];
+                    high[axis] = i ? std::max(high[axis], double(p[axis])) : p[axis];
+                }
+            }
+            result.origin = low;
+            result.scale = std::max({high[0] - low[0], high[1] - low[1], high[2] - low[2]});
             return result;
         }
     } // namespace
