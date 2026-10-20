@@ -711,6 +711,7 @@ target_sources(deren_engine
         source/engine/pass/shadow.cppm
         source/engine/pass/visibility_raster.cppm
         source/engine/pass/visibility_resolve.cppm
+        source/engine/pass/hzb_build.cppm
         source/engine/pass/chain.cppm
         ${VR_FULL_API_MODULES}
         source/engine/profiling/profiling.cppm
@@ -765,6 +766,7 @@ target_sources(deren_engine
         source/engine/pass/shadow.cpp
         source/engine/pass/visibility_raster.cpp
         source/engine/pass/visibility_resolve.cpp
+        source/engine/pass/hzb_build.cpp
         ${VR_FULL_API_SOURCES}
         source/engine/shadow_fit/shadow_fit.cpp
         source/engine/acceleration_structure/acceleration_structure.cpp
@@ -2117,6 +2119,12 @@ set(VR_SHADER_INCLUDES
     # be forgotten the same way.
     "${VR_SHADER_SRC_DIR}/common/heap_access.slang"
     "${VR_SHADER_SRC_DIR}/common/texture_group.slang"
+    # hzb.slang is THE HZB LAYOUT (M3 phase A2): the pyramid's level recurrence and the header's word layout,
+    # mirrored by hand from deren.engine.visibility.hzb (which the host sizes the buffers with) exactly as
+    # heap_slot_constants.slang mirrors the slot grid. Editing either side without rebuilding the build stage would
+    # leave the two halves of the contract writing/reading different offsets - a wrong picture, not an error, which
+    # is why it is a build dependency of every shader that includes it.
+    "${VR_SHADER_SRC_DIR}/common/hzb.slang"
     "${VR_SHADER_SRC_DIR}/geometry/mesh_geometry.slang"
     # surface_body.slang and gbuffer_body.slang are the SHARED G-BUFFER BODY (visibility-buffer v0.4b): the material
     # decode and the five-target composition are included by the fragment G-buffer stage AND by the visibility
@@ -2248,6 +2256,11 @@ set(VR_SLANG_SOURCES
     # targets through the shared body. It has no pipeline yet (v0.4c wires the pass), so no frame can move; the entry
     # is here so the build compiles it and the naming-contract test above covers it from the start.
     scene/visibility_resolve.slang:main:compute:visibility_resolve.comp.spv
+    # hzb_build.slang -> hzb_build.comp.spv is THE HZB OCCLUSION CULLING's BUILD STAGE (M3 phase A2): one dispatch
+    # per pyramid level over the frame's G-buffer depth, plus the header (camera/extent snapshot) its thread 0
+    # writes. It reads/writes only heap slots and is default-OFF behind DEREN_HZB_BUILD, so it changes no frame
+    # until the gate is set; the readback probe (scripts/measure/hzb_verify.py) is its acceptance.
+    scene/hzb_build.slang:main:compute:hzb_build.comp.spv
     # ... and the outline's FRAGMENT stage, which shades that hull with the G-buffer normal of the surface
     # BEHIND it (the author's `MyZmdOutlineShader.shader:196-198`). ITS ENTRY IS `frag_main`, NOT `main`, and the
     # reason is measured rather than stylistic: it INCLUDES character_forward.slang for `toon_diffuse`, which

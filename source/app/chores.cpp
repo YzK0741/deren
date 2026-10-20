@@ -213,6 +213,19 @@ namespace deren::chores {
             runtime.register_shader("visibility_resolve.comp.spv", visibility_resolve_code);
         }
 
+        // ---- THE HZB BUILD MODULE (M3 phase A2, docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md) ----
+        // The runtime creates its own build pass lazily on the first frame after `create_passes()` (the shader
+        // cannot be registered before `setup_pipeline()` runs, because that is this function), and that pass asks
+        // for the module through `pass_context::shader` - so loading and registering it here is the whole host-side
+        // contract. THE SAME GATE THE RUNTIME READS (`DEREN_HZB_BUILD`, default off) also guards the LOAD, so an OFF
+        // run does not even read the file and its log carries no HZB line: "gate off means the frame, the
+        // allocations AND the log are today's" is the strict form this lane is accepted under.
+        if (std::getenv("DEREN_HZB_BUILD") != nullptr) {
+            deren::utility::vessel::vector<uint8_t> hzb_build_code;
+            load_shader(shaders_dir, "hzb_build.comp.spv", hzb_build_code);
+            runtime.register_shader("hzb_build.comp.spv", hzb_build_code);
+        }
+
         {
             // THE TOON CHARACTER STAGE'S PIPELINE, and it is registered through a DIFFERENT entry point on
             // purpose: `runtime::make_pipeline` above builds the forward family's pipeline (swapchain format,

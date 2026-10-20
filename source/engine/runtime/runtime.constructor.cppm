@@ -23,6 +23,7 @@ module;
 #include <algorithm>             // std::min in the resource publication
 #include <bit>                   // std::bit_cast for the caster world-matrix hash
 #include <chrono>
+#include <cstdlib>    // std::getenv: the DEREN_HZB_BUILD gate (read once, at construction)
 #include <cstring>    // std::memcpy, for composing a pass's push block
 #include <filesystem> // the backend DLL's path: executable_directory() / "deren_vulkan.dll"
 #include <glm/glm.hpp>
@@ -42,6 +43,8 @@ import deren.engine.pipelines;
 import deren.engine.render_resource;
 import deren.engine.render_resource.shared;
 import deren.engine.pass.buffer_storage;
+import deren.engine.pass.hzb_build; // the runtime-owned HZB build pass (see ensure_hzb_resources)
+import deren.engine.visibility.hzb; // the pyramid layout the HZB buffers are sized with (§4.1's one formula)
 
 import deren.utility;
 import deren.engine.frame_constants; // one frame's shared constants (see update_frame_constants)
@@ -329,6 +332,13 @@ namespace deren::engine {
         // `pass_resources` is NOT in this list any more (S2's shared filter batch): the pass filter holds no
         // device root at all now, so it default-constructs its (empty) resource table. Naming it would be an
         // initializer for a member the list cannot reach - see filters.cppm's measured note.
+
+        // ---- THE HZB BUILD LANE'S GATE, READ ONCE (M3 phase A2) ----
+        // DEREN_HZB_BUILD is this phase's switch (the [render] config key is phase D): unset means this runtime
+        // allocates no HZB buffer, creates no HZB pipeline and records no HZB lane - the OFF frame must stay
+        // byte-identical to the pre-HZB build, and "no allocation at all" is the strict form of that (see
+        // ensure_hzb_resources, which is the only reader of the flag besides the record path).
+        this->hzb_build_enabled = std::getenv("DEREN_HZB_BUILD") != nullptr;
 
         // ---- THE SESSION-STABLE FORMATS AND DEVICE CAPABILITIES, ASKED ONCE (③-D/E step 2) ----------
         // THE SURFACE FORMAT: abi 17's accessor is the only answer that exists BEFORE a frame is acquired,
@@ -1691,6 +1701,13 @@ namespace deren::engine {
             this->shadow_resource_view = shadow_view;
             this->cluster_resource_view = cluster_view;
         }
+        // THE HZB BUILD LANE'S TWO GPU-ONLY TABLES (M3 phase A2): sized from the CURRENT render extent and
+        // rebuilt only when that extent changes. A no-op unless DEREN_HZB_BUILD is set - the OFF path allocates
+        // nothing, records nothing and therefore cannot move a pixel. It runs here (the one resource-preparation
+        // point every frame passes through) rather than in `record_main_drawcalls`'s frozen segment because the
+        // renderer's frame partitions are not this task's scope; the ordering property the spec asks for is the
+        // same: the buffers and their heap descriptors exist BEFORE the frame that imports them records.
+        this->ensure_hzb_resources();
         return rhi::error::ok;
     }
 
@@ -1782,6 +1799,126 @@ namespace deren::engine {
                 deren::utility::log("descriptor heap: managed scene table publication failed for slot {}", slot);
             }
         }
+    }
+
+    void runtime::publish_hzb_bindings() {
+        if (!contract_heap_ready(this->rhi_face()) || !this->hzb_levels_buffer || !this->hzb_header_buffer) {
+            return;
+        }
+        // THE SAME SPELLING EVERY PUBLISH PATH USES: an address and a length, one storage-class descriptor per
+        // table. The descriptor covers the WHOLE buffer (every frame-slot lane); a shader picks its lane by
+        // indexing `frame_slot * stride + index` INSIDE it - the internal-lane rule the heap slot comments state
+        // (§5.3), which is why neither table gets a per-frame descriptor mirror.
+        if (!this->write_heap_buffer(*this->hzb_levels_buffer.get(), deren::engine::render_layout::heap_slots::hzb_levels, this->hzb_levels_buffer.get()->size(),
+                                     rhi::descriptor_type::storage_buffer)) {
+            deren::utility::log("hzb: the levels table did not reach heap slot {}", deren::engine::render_layout::heap_slots::hzb_levels);
+            this->hzb_resources_ready = false;
+        }
+        if (!this->write_heap_buffer(*this->hzb_header_buffer.get(), deren::engine::render_layout::heap_slots::hzb_header, this->hzb_header_buffer.get()->size(),
+                                     rhi::descriptor_type::storage_buffer)) {
+            deren::utility::log("hzb: the header table did not reach heap slot {}", deren::engine::render_layout::heap_slots::hzb_header);
+            this->hzb_resources_ready = false;
+        }
+    }
+
+    void runtime::ensure_hzb_resources() {
+        // THE SWITCH: DEREN_HZB_BUILD (read once, at construction) and nothing else. Unset means this function
+        // returns before allocating or publishing anything, so the OFF frame has no HZB buffer, no HZB pipeline and
+        // no HZB heap descriptor - the strict form of "OFF is byte-identical to the pre-HZB frame".
+        if (!this->hzb_build_enabled || this->hzb_build_failed) {
+            return;
+        }
+        if (!contract_heap_ready(this->rhi_face())) {
+            return; // the descriptor heap is what the two tables are published through: the next frame retries
+        }
+        // ---- THE PASS, LAZILY ----
+        // The application is the shader loader (chores::setup_pipeline) and it runs AFTER this runtime's
+        // constructor, so the pass cannot be created at construction: the first frame's resource preparation is
+        // the first point where both the shader bytes and the device exist. A registry miss is not a failure -
+        // it just means the app has not registered the module yet (or never will, e.g. a headless test).
+        if (this->hzb_build == nullptr) {
+            if (this->registered_shader(pass::hzb_build_shader_name).empty()) {
+                return;
+            }
+            auto owned = std::make_unique<pass::hzb_build_pass>();
+            owned->create(this->make_pass_context());
+            if (!owned->ready()) {
+                this->hzb_build_failed = true;
+                deren::utility::log("hzb: the build lane is unavailable (the pipeline was refused); no HZB table will be built this run");
+                return;
+            }
+            this->hzb_build = std::move(owned);
+            deren::utility::log("hzb: build lane ARMED (DEREN_HZB_BUILD) - the max pyramid is built from the frame's "
+                                "G-buffer depth and validated by the DEREN_HZB_PROBE_CAPTURE readback; nothing culls against it yet");
+        }
+        rhi::image_extent const extent = this->render_extent();
+        if (this->hzb_resources_ready && extent.width == this->hzb_extent.width && extent.height == this->hzb_extent.height) {
+            this->hzb_build->set_hzb_levels(this->hzb_levels_buffer.get());
+            return;
+        }
+        // ---- (RE)CREATION: the first frame, or a RENDER EXTENT CHANGE ----
+        // §5.2's fallback does not get the resource manager's rebuild for free, so it takes the one wait the spec
+        // budgets: at most ONE device idle per extent change (frames in flight may still read/write the previous
+        // generation's buffers, and two frames in flight is the ring's own rule). There is no per-frame stall.
+        if (this->hzb_levels_buffer || this->hzb_header_buffer || this->hzb_resources_ready) {
+            this->rhi_face().wait_idle();
+        }
+        this->hzb_resources_ready = false;
+        this->hzb_levels_buffer = {};
+        this->hzb_header_buffer = {};
+        this->hzb_valid = {}; // §9.3: a resize invalidates both lanes; the next frames rebuild before any read
+        if (extent.width == 0u || extent.height == 0u) {
+            return;
+        }
+        std::uint32_t const frame_slots = this->frame_ring().slot_count();
+        std::uint32_t const levels = deren::engine::visibility::hzb::level_count(extent.width, extent.height);
+        std::uint32_t const words = deren::engine::visibility::hzb::pyramid_words(extent.width, extent.height);
+        std::uint64_t const levels_bytes = static_cast<std::uint64_t>(frame_slots) * deren::engine::visibility::hzb::pyramid_bytes(extent.width, extent.height);
+        std::uint64_t const header_bytes = static_cast<std::uint64_t>(frame_slots) * pass::hzb_header_byte_capacity;
+        if (levels == 0u || words == 0u || levels_bytes == 0u) {
+            return; // a degenerate extent has no pyramid: nothing to do, and the next frame's extent may be real
+        }
+        auto cluster = this->create_resource_cluster("hzb tables");
+        if (!cluster) {
+            this->hzb_build_failed = true;
+            deren::utility::log("hzb: the build lane is unavailable (no resource cluster for its tables)");
+            return;
+        }
+        // THE TWO TABLES, GPU-ONLY (§5.2): the GPU is their only writer, so they must not be host-visible memory
+        // (a 1280x720 pyramid is 4.92 MB per lane; 4K's is 44.2 MB, and a host-visible twin of that would be waste
+        // the design explicitly ruled out). `device_address` is what a heap buffer descriptor is built from
+        // (address + length), and `transfer_source` is what the readback probe's `copy_buffer` requires.
+        rhi::buffer_desc levels_desc{};
+        levels_desc.size = levels_bytes;
+        levels_desc.usage = rhi::buffer_usage::storage_gpu_only;
+        levels_desc.flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::transfer_source);
+        auto created_levels = cluster->create_buffer(levels_desc);
+        rhi::buffer_desc header_desc{};
+        header_desc.size = header_bytes;
+        header_desc.usage = rhi::buffer_usage::storage_gpu_only;
+        header_desc.flags = levels_desc.flags;
+        auto created_header = cluster->create_buffer(header_desc);
+        if (!created_levels || !created_header) {
+            this->hzb_build_failed = true;
+            deren::utility::log("hzb: the build lane is unavailable (the HZB tables could not be created)");
+            return;
+        }
+        this->hzb_levels_buffer = std::move(*created_levels);
+        this->hzb_header_buffer = std::move(*created_header);
+        this->hzb_extent = extent;
+        this->hzb_resources_ready = true;
+        this->publish_hzb_bindings();
+        this->hzb_build->set_hzb_levels(this->hzb_levels_buffer.get());
+        deren::utility::log("hzb: tables (re)created for {}x{} - {} level(s), {} word(s) per frame lane ({} B), levels table {} B for {} frame slot(s), "
+                            "header {} B per lane; the pyramid is rebuilt from the frame's G-buffer depth every build frame",
+                            extent.width,
+                            extent.height,
+                            levels,
+                            words,
+                            deren::engine::visibility::hzb::pyramid_bytes(extent.width, extent.height),
+                            levels_bytes,
+                            frame_slots,
+                            pass::hzb_header_byte_capacity);
     }
 
     void runtime::publish_cluster_bindings() {

@@ -1,6 +1,9 @@
 module;
 #include <array>
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>  // std::memcpy: the probe's same-frame camera snapshot for the metadata
+#include <expected> // the HZB lane's graph adapter answers std::expected, like the other adapters
 #include <memory>
 #include <optional>
 #include <span>
@@ -22,7 +25,9 @@ import deren.engine.render_graph.visibility;
 import deren.engine.pass.transparent;
 import deren.engine.pass.taa;
 import deren.engine.pass;
+import deren.engine.pass.hzb_build; // the runtime-owned HZB build pass (lane 22) and its header constants
 import deren.engine.pass.output_targets;
+import deren.engine.visibility.hzb; // the pyramid layout the probe's lane sizes are computed with (§4.1)
 import deren.promise.rhi;
 namespace deren::engine {
     namespace graph = deren::engine::render_graph;
@@ -38,13 +43,15 @@ namespace deren::engine {
             //   10 TAA resolve         11 TAA history copy   12 gbuffer debug
             //   13 transparent         14 character forward   15 toon screen rim   16 goo rim
             //   17 gaussian splats     18 ray-traced shadow   19 VISIBILITY RASTER  20 VISIBILITY RESOLVE
+            //   21 reserved for the HZB CULL lane (phase B; kept free so that phase can append it without
+            //      renumbering), 22 HZB BUILD (M3 phase A2)
             // THE VISIBILITY LANES ARE 19/20 BECAUSE THOSE ARE THE LAST FREE SLOTS. The first attempt shipped them at
             // 3/4 (the post chain overwrote `passes[3]` with `post_bloom_3`) and the second at 10/11 (the TAA lane's
             // two passes): both are harmless while the visibility passes are pruned, and both mis-record another pass
             // the moment one runs - measured, first as a `post_bloom_3` begin_rendering in the wrong layout, then as
             // the post composite recording the resolve pass instead of itself (a transparent-black frame).
-            std::array<pass::resolved_io, 21> ios;
-            std::array<pass::frame_pass*, 21> passes{};
+            std::array<pass::resolved_io, 23> ios;
+            std::array<pass::frame_pass*, 23> passes{};
             rhi::error record(unsigned lane) const noexcept {
                 if (host.apply_behaviour) {
                     host.apply_behaviour(host.context, *passes[lane], ios[lane]);
@@ -84,9 +91,55 @@ namespace deren::engine {
             }
             return error;
         }
+
+        // ================================================================================================
+        // THE HZB BUILD LANE'S GRAPH DECLARATION (M3 phase A2, spec §4.2/§8.2 step 3)
+        //
+        // ONE graph node with four declared accesses: the frame's DEPTH sampled read (its producer is the
+        // visibility raster lane, so the graph orders build AFTER raster and emits the attachment -> sampled
+        // transition), the frame camera as a uniform/storage read (the header's matrix snapshot - the shader reads
+        // camera UBO lane `frame_slot`), and the TWO HZB TABLES as storage writes at the compute stage.
+        //
+        // THE TABLES ARE IMPORTED WITH UNDEFINED CONTENTS AND WRITTEN WHOLESALE (`discard_write`): nothing IN THIS
+        // GRAPH reads them this phase - the only reader is the readback probe, a copy recorded manually after
+        // `prepared->record` - so no value edge exists and the graph must not invent a "defined contents" state for
+        // them. Phase B will add the cull lane that reads them, and that lane's declaration will turn the build
+        // into a real producer (its import can then stay undefined; the consumer is what creates the edge).
+        //
+        // `side_effect = true` IS LOAD-BEARING: a pass whose outputs nothing in the graph reads would be culled by
+        // the value-root liveness pass (render_graph.cpp's roots list) and the pyramid would never be built. This
+        // is the same requirement the TAA history copy states with `export_resource` - here the side effect is the
+        // pass's own: it writes tables the NEXT frame's phase-B cull will read, which no graph can see.
+        //
+        // IT IS DECLARED HERE RATHER THAN IN A `render_graph/hzb.cppm` because phase A has ONE such pass and this
+        // is the file that appends it; the module-per-chain shape the other adapters use earns its file when the
+        // cull lane joins in phase B.
+        // ================================================================================================
+        struct hzb_build_parameters {
+            graph::buffer_discard_write levels;
+            graph::buffer_discard_write header;
+            graph::texture_read depth;
+            graph::buffer_read camera;
+            void visit_resources(graph::parameter_visitor& visit) const noexcept {
+                visit(levels, header, depth, camera);
+            }
+        };
+
+        std::expected<graph::pass_ref, graph::graph_error> append_hzb_build(graph::builder& description, graph::buffer_ref levels, graph::buffer_ref header,
+                                                                            graph::texture_ref depth, graph::buffer_ref camera) noexcept {
+            constexpr graph::access_scope storage{graph::resource_usage::storage, graph::pipeline_stage::compute_shader};
+            constexpr graph::access_scope sampled{graph::resource_usage::sampled, graph::pipeline_stage::compute_shader};
+            constexpr graph::access_scope uniform{graph::resource_usage::uniform_buffer, graph::pipeline_stage::compute_shader};
+            hzb_build_parameters params{{levels, {}, storage}, {header, {}, storage}, {depth, {}, sampled}, {camera, {}, uniform}};
+            return description.add_pass("hzb build", std::move(params), graph::pass_options{.side_effect = true});
+        }
     } // namespace
     rhi::error runtime::record_post_graph() {
         using lease = resource_lease<rhi::image>;
+        // The HZB probe may only dump a frame whose build lane RECORDED it (see the probe block at the end of
+        // this function): cleared here, once per frame, and set by that lane's recorder. A frame that is not a
+        // main graph frame never runs the visibility lanes, so it must not inherit the previous frame's flag.
+        this->hzb_recorded_this_frame = false;
         auto commands = this->frame_command_buffer();
         if (!commands || !this->cluster_retention_open) {
             return rhi::error::not_ready;
@@ -692,9 +745,58 @@ namespace deren::engine {
                     return post_build_error(resolve_bound.error());
                 }
             }
+            // ---- THE HZB BUILD LANE (M3 phase A2, spec §4.2/§8.2 step 3): the max pyramid of THIS frame's depth ----
+            // Recorded AFTER the visibility raster (the depth it samples is final there, and the graph emits the
+            // attachment -> sampled transition from that dependency) and BEFORE the resolve lane is the declared
+            // order of §8.2; the graph schedules it by dependencies, which is the same thing because both lanes
+            // only read the depth the raster wrote.
+            //
+            // EVERY PREDICATE BELOW IS A PRUNE, not a fallback: the lane exists only when DEREN_HZB_BUILD armed it,
+            // the two tables exist and their heap descriptors were written, the pass has its pipeline, and this is
+            // a frame whose opaque producer is the visibility lane (§8.3: a geometry-lane frame builds nothing -
+            // the pyramid is the visibility lane's derived data, and a fallback frame changes no HZB byte either).
+            // Any false leaves the graph with EXACTLY the nodes it has today.
+            if (visibility_frame && this->hzb_build_enabled && this->hzb_resources_ready && this->hzb_build != nullptr && this->hzb_build->ready()) {
+                auto levels_ref = build.import_buffer(this->hzb_levels_buffer, {}, "hzb levels");
+                if (!levels_ref) {
+                    return post_build_error(levels_ref.error());
+                }
+                auto header_ref = build.import_buffer(this->hzb_header_buffer, {}, "hzb header");
+                if (!header_ref) {
+                    return post_build_error(header_ref.error());
+                }
+                auto hzb_added = build.append([&](graph::builder& description) noexcept {
+                    return append_hzb_build(description, *levels_ref, *header_ref, *depth_ref, shared_refs[0]);
+                });
+                if (!hzb_added) {
+                    return post_build_error(hzb_added.error());
+                }
+                std::array<pass::frame_pass*, 1> hzb_stage_passes{this->hzb_build.get()};
+                pass::stage hzb_stage{.name = "hzb build", .passes = hzb_stage_passes};
+                this->prepare_stage(hzb_stage);
+                passes[22] = this->hzb_build.get();
+                ios[22].push_block = host.push_block;
+                if (!host.resolve || !host.resolve(host.context, *passes[22], ios[22]) || ios[22].list != commands.get()) {
+                    return rhi::error::not_ready;
+                }
+                // THE BARRIER BUFFER THE PASS RECORDS ITS INTER-LEVEL ORDERING ON: the graph cannot see inside one
+                // pass, so the pass is handed the levels table's handle (the only buffer it needs a role pair on).
+                this->hzb_build->set_hzb_levels(this->hzb_levels_buffer.get());
+                auto hzb_bound = build.bind_pass<hzb_build_parameters>(
+                    *hzb_added, [this, payload](hzb_build_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                        auto const error = payload->record(22);
+                        if (error == rhi::error::ok) {
+                            this->hzb_recorded_this_frame = true; // the probe copies only a frame that actually built
+                        }
+                        return error;
+                    });
+                if (!hzb_bound) {
+                    return post_build_error(hzb_bound.error());
+                }
+            }
             // THE GEOMETRY LANE (the old producer) IS RECORDED ONLY WHEN THE VISIBILITY LANE IS NOT: the two write
             // the same six attachments, so recording both would be two G-buffer authors. `update_pass_geometry`
-            // still runs on EVERY frame - the transparent, character, shadow and cluster pipelines are not part of
+            // still runs on EVERY frame - the transparent, character, shadow and cluster passes are not part of
             // either opaque lane and keep their cached viewports synced from here.
             this->update_pass_geometry();
             if (!visibility_frame) {
@@ -1155,6 +1257,78 @@ namespace deren::engine {
                     deren::utility::log("depth probe capture: FAIL copy or publication");
                 } else {
                     this->depth_probe_extent = extent;
+                }
+            }
+        }
+        // ---- THE HZB PROBE CAPTURE (M3 phase A2, spec §10.2) ----
+        // The pyramid lane and the header lane of the frame that JUST built them are copied out here, for the same
+        // reason the depth probe copies here: the graph has recorded, the buffers' contents are final, and this is
+        // the only recorder there is. The copy is NOT a graph node (no pass reads these tables this phase), so it
+        // needs its own buffer role pair: compute-write -> transfer-source, then transfer-destination -> host-read
+        // on the two readback slots (the depth probe's image pair, one resource class over).
+        //
+        // THE METADATA IS THE POINT (spec §4.1/C21): the header's view/proj are a GPU snapshot of the camera lane the
+        // build read, and the only way to prove "the header is THAT frame's camera" is to dump the host's own
+        // snapshot of the same frame (current_ubo, written in pace_and_acquire before this frame recorded) beside
+        // it. scripts/measure/hzb_verify.py then compares the two BIT FOR BIT, and independently rebuilds the whole
+        // pyramid from the same frame's DEREN_DEPTH_PROBE_CAPTURE dump.
+        if (this->screenshot_requested && std::getenv("DEREN_HZB_PROBE_CAPTURE") && this->hzb_resources_ready) {
+            auto* const levels = this->hzb_levels_buffer.get();
+            auto* const header = this->hzb_header_buffer.get();
+            auto const extent = this->render_extent();
+            std::uint32_t const slot = this->frame_ring().position();
+            std::uint64_t const levels_bytes = deren::engine::visibility::hzb::pyramid_bytes(extent.width, extent.height);
+            rhi::buffer_desc levels_desc;
+            levels_desc.size = levels_bytes;
+            levels_desc.usage = rhi::buffer_usage::readback_coherent;
+            this->hzb_probe_pyramid_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(levels_desc)};
+            rhi::buffer_desc header_desc;
+            header_desc.size = pass::hzb_header_byte_capacity;
+            header_desc.usage = rhi::buffer_usage::readback_coherent;
+            this->hzb_probe_header_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(header_desc)};
+            if (!levels || !header || !this->hzb_probe_pyramid_readback || !this->hzb_probe_header_readback) {
+                deren::utility::log("hzb probe capture: FAIL allocation");
+            } else if (!this->hzb_recorded_this_frame) {
+                // The build lane is pruned on a frame that is not a visibility frame (or whose gate/resources are
+                // not ready): the buffers hold a PREVIOUS frame's pyramid and its header, so a dump here would
+                // pass the script's magic/extent check and silently describe the wrong frame. Refuse instead.
+                deren::utility::log("hzb probe capture: skipped - the HZB build lane did not record on this screenshot frame");
+            } else {
+                std::array<rhi::buffer_barrier, 2> const to_source{{{.resource = levels, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::transfer_source},
+                                                                    {.resource = header, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::transfer_source}}};
+                auto const entered = commands->barrier(rhi::barrier_group{.buffers = std::span<rhi::buffer_barrier const>(to_source)});
+                // THE COPY IS THE FRAME SLOT'S LANE, not the whole buffer: the tables are ONE descriptor with an
+                // internal per-frame lane (§5.3), and the source offset is that lane's byte start.
+                auto const levels_copied = entered == rhi::error::ok
+                                               ? commands->copy_buffer(*this->hzb_probe_pyramid_readback, *levels, levels_bytes, static_cast<std::uint64_t>(slot) * levels_bytes, 0u)
+                                               : entered;
+                auto const header_copied = entered == rhi::error::ok
+                                               ? commands->copy_buffer(*this->hzb_probe_header_readback, *header, pass::hzb_header_byte_capacity,
+                                                                       static_cast<std::uint64_t>(slot) * pass::hzb_header_byte_capacity, 0u)
+                                               : entered;
+                std::array<rhi::buffer_barrier, 2> const restored{{{.resource = levels, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_write},
+                                                                   {.resource = header, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_write}}};
+                auto const left = commands->barrier(rhi::barrier_group{.buffers = std::span<rhi::buffer_barrier const>(restored)});
+                std::array<rhi::buffer_barrier, 2> const host_reads{{{.resource = this->hzb_probe_pyramid_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
+                                                                     {.resource = this->hzb_probe_header_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read}}};
+                auto const published = commands->barrier(rhi::barrier_group{.buffers = std::span<rhi::buffer_barrier const>(host_reads)});
+                if (levels_copied != rhi::error::ok || header_copied != rhi::error::ok || left != rhi::error::ok || published != rhi::error::ok) {
+                    deren::utility::log("hzb probe capture: FAIL copy or publication");
+                } else {
+                    this->hzb_probe_extent = extent;
+                    this->hzb_probe_words = deren::engine::visibility::hzb::pyramid_words(extent.width, extent.height);
+                    this->hzb_probe_levels = deren::engine::visibility::hzb::level_count(extent.width, extent.height);
+                    this->hzb_probe_frame_slot = slot;
+                    std::memcpy(this->hzb_probe_view.data(), &this->current_ubo.view[0][0], sizeof(float) * 16u);
+                    std::memcpy(this->hzb_probe_proj.data(), &this->current_ubo.proj[0][0], sizeof(float) * 16u);
+                    this->hzb_probe_camera_pos = {this->current_ubo.camera_pos.x, this->current_ubo.camera_pos.y, this->current_ubo.camera_pos.z};
+                    deren::utility::log("hzb probe capture: pyramid lane {} ({} word(s)) + header lane {} dumped for {}x{}, {} level(s); the frame camera is in the metadata",
+                                        slot,
+                                        this->hzb_probe_words,
+                                        slot,
+                                        extent.width,
+                                        extent.height,
+                                        this->hzb_probe_levels);
                 }
             }
         }

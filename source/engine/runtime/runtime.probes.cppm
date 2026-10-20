@@ -15,11 +15,15 @@ module;
 #include <algorithm> // std::min in the resource publication
 #include <bit>       // std::bit_cast for the caster world-matrix hash
 #include <chrono>
+#include <cstdio>   // std::snprintf: the HZB probe's %.9g float metadata (round-trips float32 exactly)
+#include <cstdlib>  // std::getenv: the probe capture's paths
 #include <cstring>  // std::memcpy, for composing a pass's push block
 #include <expected> // std::expected: `image::get_content()` answers the content or the named reason
+#include <fstream>  // the HZB probe's dumps
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <span>   // std::as_bytes for the init_utils calls (the bytes behind a UBO or a zeroed table)
+#include <string> // the probe capture's derived file paths
 #include <thread> // std::this_thread::yield in the frame limiter
 #include <vector> // the destination of a host image copy, when that read-back path is taken
 
@@ -31,6 +35,8 @@ import deren.engine.profiling;
 import deren.engine.pipelines;
 import deren.engine.render_resource;
 import deren.engine.render_resource.shared;
+import deren.engine.pass.hzb_build; // the HZB header's host-side lane layout/magic (the probe dumps it)
+import deren.engine.visibility.hzb; // the pyramid layout the probe's lane sizes are computed with (§4.1)
 
 import deren.utility;
 import deren.engine.frame_constants; // one frame's shared constants (see update_frame_constants)
@@ -356,6 +362,115 @@ namespace deren::engine {
                             pixel[3]);
         deren::utility::log("descriptor heap: the heap-native {} probe read that pixel back through the HOST IMAGE COPY (no staging buffer, no copy command)",
                             mesh_shader ? "MESH" : "GRAPHICS");
+    }
+
+    // =============================================================================================
+    // THE HZB PROBE CAPTURE'S WRITE HALF (M3 phase A2, spec §10.2)
+    //
+    // WHY THIS IS A DIAGNOSTIC AND NOT A FRAME PATH: it runs at most once per session, only on the screenshot
+    // frame, only when DEREN_HZB_PROBE_CAPTURE is set, and ONLY after the caller has made the device idle - the
+    // frame's copy into the two readback buffers is recorded in runtime.post_graph.cpp, and the mapped bytes are
+    // not valid until the frame has completed. runtime.readback.cppm calls this right after the device idle it
+    // already performs for the depth dump, which is the same point its own dumps are written from.
+    //
+    // THE THREE FILES, and what pins each one (scripts/measure/hzb_verify.py):
+    //   <prefix>.pyramid.bin - u32 {file magic, width, height, level_count} then `words` float32 words: the
+    //                          pyramid lane the build pass wrote, in level 0..Lmax order. The script rebuilds
+    //                          it independently from the SAME frame's depth dump and compares word for word.
+    //   <prefix>.header.bin  - the 256-byte header lane VERBATIM: word 0 magic, extent, level count, then the
+    //                          view[16]/proj[16]/camera_pos[3] BITS the build pass snapshotted from the camera
+    //                          UBO (see common/hzb.slang).
+    //   <prefix>.json        - the metadata that makes the header checkable without a second probe: this frame's
+    //                          extent/level count/frame slot and the HOST's own camera snapshot for the same
+    //                          frame. "Header view/proj == this frame's camera" is the C21 invariant (§4.1);
+    //                          the floats are printed with %.9g, which is exact for a float32 round trip.
+    // =============================================================================================
+    void runtime::write_hzb_probe_capture() {
+        auto const* const prefix = std::getenv("DEREN_HZB_PROBE_CAPTURE");
+        if (prefix == nullptr || !this->hzb_probe_pyramid_readback || !this->hzb_probe_header_readback) {
+            return; // unset, or the frame that recorded the copy was not a build frame (the copy block logged why)
+        }
+        std::span<std::byte> const pyramid_bytes = this->hzb_probe_pyramid_readback->mapped();
+        std::span<std::byte> const header_bytes = this->hzb_probe_header_readback->mapped();
+        std::uint64_t const required_words = static_cast<std::uint64_t>(this->hzb_probe_words) * deren::engine::visibility::hzb::hzb_word_bytes;
+        if (required_words == 0u || pyramid_bytes.size() < required_words || header_bytes.size() < pass::hzb_header_byte_capacity) {
+            deren::utility::log("hzb probe capture: FAIL unavailable readback");
+            return;
+        }
+        // THE PYRAMID DUMP: a four-word header the script can sanity-check before comparing arithmetic ($magic
+        // distinguishes "this is a pyramid dump" from "this is the depth dump" if the paths get crossed), then the
+        // lane's words exactly as the build pass left them. Another magic than the HZB header's on purpose: one
+        // names a FILE's shape, the other a GPU table's.
+        constexpr std::uint32_t hzb_pyramid_file_magic = 0x485A4250u; // "HZBP": HZB Pyramid
+        std::string const pyramid_path = std::string(prefix) + ".pyramid.bin";
+        {
+            std::ofstream output(pyramid_path, std::ios::binary | std::ios::trunc);
+            deren::utility::vessel::array<std::uint32_t, 4> const file_header = {hzb_pyramid_file_magic, this->hzb_probe_extent.width, this->hzb_probe_extent.height,
+                                                                                 this->hzb_probe_levels};
+            output.write(reinterpret_cast<char const*>(file_header.data()), sizeof(file_header));
+            output.write(reinterpret_cast<char const*>(pyramid_bytes.data()), static_cast<std::streamsize>(required_words));
+            if (!output) {
+                deren::utility::log("hzb probe capture: FAIL pyramid file write");
+                return;
+            }
+        }
+        std::string const header_path = std::string(prefix) + ".header.bin";
+        {
+            std::ofstream output(header_path, std::ios::binary | std::ios::trunc);
+            output.write(reinterpret_cast<char const*>(header_bytes.data()), static_cast<std::streamsize>(pass::hzb_header_byte_capacity));
+            if (!output) {
+                deren::utility::log("hzb probe capture: FAIL header file write");
+                return;
+            }
+        }
+        std::string const metadata_path = std::string(prefix) + ".json";
+        {
+            std::ofstream output(metadata_path, std::ios::trunc);
+            auto const write_float = [&output](float const value) {
+                char text[32] = {};
+                std::snprintf(text, sizeof(text), "%.9g", static_cast<double>(value));
+                output << text;
+            };
+            auto const write_array = [&write_float, &output](auto const& values) {
+                output << '[';
+                for (std::size_t index = 0; index < values.size(); ++index) {
+                    if (index != 0u) {
+                        output << ", ";
+                    }
+                    write_float(values[index]);
+                }
+                output << ']';
+            };
+            output << "{\n";
+            output << "  \"extent\": {\"width\": " << this->hzb_probe_extent.width << ", \"height\": " << this->hzb_probe_extent.height << "},\n";
+            output << "  \"level_count\": " << this->hzb_probe_levels << ",\n";
+            output << "  \"frame_slot\": " << this->hzb_probe_frame_slot << ",\n";
+            output << "  \"words_per_lane\": " << this->hzb_probe_words << ",\n";
+            output << "  \"levels_bytes_per_lane\": " << required_words << ",\n";
+            output << "  \"header_bytes_per_lane\": " << pass::hzb_header_byte_capacity << ",\n";
+            output << "  \"header_magic\": " << pass::hzb_header_magic << ",\n";
+            output << "  \"pyramid_file_magic\": " << hzb_pyramid_file_magic << ",\n";
+            output << "  \"camera\": {\n";
+            output << "    \"view\": ";
+            write_array(this->hzb_probe_view);
+            output << ",\n    \"proj\": ";
+            write_array(this->hzb_probe_proj);
+            output << ",\n    \"position\": ";
+            write_array(this->hzb_probe_camera_pos);
+            output << "\n  }\n}\n";
+            if (!output) {
+                deren::utility::log("hzb probe capture: FAIL metadata file write");
+                return;
+            }
+        }
+        deren::utility::log("hzb probe capture: wrote {} ({} word(s) + 4-word file header), {} ({} B) and the {}x{} frame camera metadata ({})",
+                            pyramid_path,
+                            this->hzb_probe_words,
+                            header_path,
+                            pass::hzb_header_byte_capacity,
+                            this->hzb_probe_extent.width,
+                            this->hzb_probe_extent.height,
+                            metadata_path);
     }
 
 } // namespace deren::engine

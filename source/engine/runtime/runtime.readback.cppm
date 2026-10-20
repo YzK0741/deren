@@ -107,6 +107,11 @@ namespace deren::engine {
                 return std::unexpected(deren::utility::vessel::string("depth probe capture: FAIL file write"));
             }
         }
+        // THE HZB PROBE CAPTURE's files (M3 phase A2, spec §10.2): the SAME wait, the SAME frame - the copy was
+        // recorded after the graph by runtime.post_graph.cpp, so by here the pyramid and header lanes are complete
+        // and their readback buffers are mapped. The implementation is runtime.probes.cppm's (the diagnostics
+        // partition); it is a no-op unless DEREN_HZB_PROBE_CAPTURE is set AND the frame's build lane recorded.
+        this->write_hzb_probe_capture();
         std::size_t const buffer_size = static_cast<std::size_t>(extent.width) * static_cast<std::size_t>(extent.height) * 4u;
         std::span<std::byte> const mapped = slot->mapped();
         if (mapped.empty() || mapped.size() < buffer_size) {

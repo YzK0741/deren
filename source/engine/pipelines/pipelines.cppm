@@ -191,6 +191,11 @@ namespace deren::engine::pipelines {
     /// the cluster sort - no layout, no set, no push size - over the id/depth/capture descriptors the frame's heap
     /// carries. It is the consumer the visibility raster lane was recorded for.
     export std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_visibility_resolve(rhi::api_core& face, std::span<uint8_t const> compute_shader_code);
+    /// the HZB BUILD stage (source/shaders/scene/hzb_build.slang): the same heap-native compute shape again - no
+    /// layout, no set, and its parameters (the pyramid level being dispatched, plus the two heap index lanes the
+    /// pass framework appends) arrive through vkCmdPushDataEXT. It is what makes the max pyramid exist on the GPU
+    /// (M3 phase A2: build + readback validation only; nothing culls against it yet).
+    export std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_hzb_build(rhi::api_core& face, std::span<uint8_t const> compute_shader_code);
 
     /**
      * @brief the HEAP-NATIVE probe's pipeline: the first one in this renderer created the heap way
@@ -428,6 +433,27 @@ namespace deren::engine::pipelines {
         rhi::unique_object<rhi::pipeline> built = face.create_pipeline(desc);
         if (!built) {
             return fail("visibility resolve: the contract's compute pipeline factory refused the descriptor");
+        }
+        out.trace = pipeline_handle(built.release());
+        return out;
+    }
+
+    // The HZB BUILD (source/shaders/scene/hzb_build.slang): the visibility resolve's shape one more time - every
+    // input and output is a heap descriptor (the per-image depth, the two HZB tables, the camera), the shader's
+    // only constants are the pyramid level plus the two index lanes the framework appends, and no set or layout
+    // exists to own. M3 phase A2 builds it so the pyramid can be validated by readback; nothing reads it yet.
+    std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_hzb_build(rhi::api_core& face, std::span<uint8_t const> const compute_shader_code) {
+        using fail = std::unexpected<deren::utility::vessel::string>;
+        compute_pipeline_owned out;
+        // THE PIPELINE IS A CONTRACT OBJECT (abi 21): the heap-native compute rules live in the backend
+        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        rhi::pipeline_desc desc{};
+        desc.first_stage = rhi::shader_stage::compute;
+        desc.compute_code = std::as_bytes(compute_shader_code);
+        desc.debug_name = "hzb build";
+        rhi::unique_object<rhi::pipeline> built = face.create_pipeline(desc);
+        if (!built) {
+            return fail("hzb build: the contract's compute pipeline factory refused the descriptor");
         }
         out.trace = pipeline_handle(built.release());
         return out;

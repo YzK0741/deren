@@ -63,6 +63,7 @@ import deren.engine.pass.shadow;                // the sixteenth: the directiona
 import deren.engine.pass.cluster;
 import deren.engine.pass.visibility_raster;  // the raster pass's frame: what the lane records through
 import deren.engine.pass.visibility_resolve; // the resolve pass: the id's consumer in the graph
+import deren.engine.pass.hzb_build;          // HZB phase A2: the max pyramid's producer (runtime-owned, see its member note)
 import deren.engine.subtilis;
 import deren.engine.visibility; // the visibility buffer's packed id and draw-item record
 import deren.engine.pass.scene_constants;
@@ -1062,6 +1063,60 @@ namespace deren::engine {
         /// out on the screenshot frame when DEREN_DEPTH_PROBE_CAPTURE names a file (written by runtime.readback.cppm).
         rhi::unique_object<rhi::buffer> depth_probe_readback;
         rhi::image_extent depth_probe_extent = {};
+        // ================================================================================================
+        // THE HZB BUILD LANE (M3 phase A2, docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md §4.1, §4.2,
+        // §5.2, §10.2). Phase A BUILDS the max pyramid and its header from this frame's G-buffer depth and proves
+        // them by readback; NOTHING culls against them yet (the cull pass and the survivor table are phase B), so
+        // the lane cannot change a pixel - and it is default-OFF behind DEREN_HZB_BUILD, so with the gate unset
+        // nothing below allocates, records or publishes anything and the frame is byte-identical to today's.
+        //
+        // THE BUFFERS ARE RUNTIME-OWNED, AND THAT IS THE SPEC'S §5.2 FALLBACK RATHER THAN AN OVERSIGHT
+        // (Lead decision #4; see runtime::ensure_hzb_resources for the full argument). In one line: the resource
+        // manager's BUFFER `output_size` families DO rebuild on a growing render extent (instances.cppm:189-201),
+        // but a GPU-only, extent-dependent table cannot enter `pass::scene_tables_pass` without breaking that
+        // pass's admission contract (every table host-visible `storage_coherent` + `zero_on_create`, and keyed by
+        // a new `render_resource::resource_id`) - which would cost a host-visible, zeroed 44-88 MB pyramid. The
+        // runtime therefore creates, sizes and publishes the two buffers itself and hands their addresses to the
+        // heap in `publish_hzb_bindings()`; phase B revisits the ownership when the fixed-size tables need
+        // scene_tables' machinery and the resource schema can grow.
+        // ================================================================================================
+        /// THE GATE, read ONCE at construction: DEREN_HZB_BUILD set (to any value) turns the build lane on.
+        /// Default OFF - the acceptance requires an OFF frame that allocates and records nothing new.
+        bool hzb_build_enabled = false;
+        /// a startup failure (no registered shader, a refused pipeline) is reported once and then not retried
+        bool hzb_build_failed = false;
+        /**
+         * THE BUILD PASS ITSELF, and the reason it is the RUNTIME's rather than the application chain's: the
+         * chain is the app's (see set_pass_chain), the app has no way to name an M3 phase-A internal lane, and
+         * the pass is recorded as a graph lane this renderer appends itself (runtime.post_graph.cpp lane 22).
+         * It is created lazily by ensure_hzb_resources, because the app registers the pass's shader after this
+         * runtime is constructed (main.cpp: chores::setup_pipeline -> runtime.create_passes).
+         */
+        std::unique_ptr<pass::hzb_build_pass> hzb_build;
+        /// the two GPU-only HZB tables (one descriptor each, internal per-frame lanes - see the heap slot comments)
+        resource_lease<rhi::buffer> hzb_levels_buffer;
+        resource_lease<rhi::buffer> hzb_header_buffer;
+        /// the extent the CURRENT buffers were created for; a mismatch is the resize invalidation (§5.2, §9.3)
+        rhi::image_extent hzb_extent = {};
+        /// whether the buffers exist AND their heap descriptors were written this generation
+        bool hzb_resources_ready = false;
+        /// the build pass was recorded in the frame being recorded (the probe copies only such a frame)
+        bool hzb_recorded_this_frame = false;
+        /// THE PHASE-B READ GATE, declared now so the invalidation rule has one owner: a resize sets both lanes
+        /// false and the next two frames only build (§9.3). Phase A only ever writes it; no reader exists yet.
+        deren::utility::vessel::array<bool, rhi::max_frames_in_flight> hzb_valid = {};
+        /// THE PROBE (DEREN_HZB_PROBE_CAPTURE, §10.2): the screenshot frame's pyramid lane and header lane are
+        /// copied into these readback buffers and dumped by runtime::write_hzb_probe_capture; the metadata is the
+        /// SAME frame's camera snapshot, so the script can prove the header's matrices are that camera's (§4.1 C21).
+        rhi::unique_object<rhi::buffer> hzb_probe_pyramid_readback;
+        rhi::unique_object<rhi::buffer> hzb_probe_header_readback;
+        rhi::image_extent hzb_probe_extent = {};
+        std::uint32_t hzb_probe_words = 0;
+        std::uint32_t hzb_probe_levels = 0;
+        std::uint32_t hzb_probe_frame_slot = 0;
+        deren::utility::vessel::array<float, 16> hzb_probe_view = {};
+        deren::utility::vessel::array<float, 16> hzb_probe_proj = {};
+        deren::utility::vessel::array<float, 3> hzb_probe_camera_pos = {};
         // Enable only after the image and performance acceptance checks pass.
         static constexpr bool gaussian_gpu_auto_enabled = true;
         /**
@@ -2405,6 +2460,42 @@ namespace deren::engine {
          */
         void reset_image_generation_state();
         rhi::error prepare_managed_resources(bool output_only = false);
+        /**
+         * @brief THE HZB BUILD LANE'S RESOURCES (spec §5.2's runtime-owned fallback, M3 phase A2)
+         *
+         * Called at the start of every frame's resource preparation (`prepare_managed_resources`), and it is the
+         * ONE place the two GPU-only HZB tables are sized, created and published. It does nothing at all while
+         * DEREN_HZB_BUILD is unset; with the gate on it:
+         *   - creates the build pass lazily (the app registers its shader after this runtime is constructed);
+         *   - on the FIRST frame or after a RENDER EXTENT change, waits for the device once (the previous
+         *     generation's buffers may still be in flight), recreates `hzb_levels` (`frame_slots * pyramid_words`)
+         *     and `hzb_header` (`frame_slots * 256 B`) as GPU-only storage buffers with device addresses and
+         *     transfer sources, rewrites BOTH heap descriptors, and invalidates both lanes' `hzb_valid`.
+         * The resize wait is the only stall it can cause, and it happens once per extent change (§9.3), not per
+         * frame. Recorded frames then rebuild before any reader (phase B) looks at a lane.
+         *
+         * @note WHY IT IS NOT A `render_resource` REQUEST (Lead decision #4, verified first): the manager DOES
+         *       rebuild a growing BUFFER `output_size` family (`resource_registry::reconcile` reuses a previous
+         *       generation only when `previous->description.buffer.size >= value.buffer.size`,
+         *       source/engine/render_resource/instances.cppm:189-201; sizes are max-merged at :160-174, and the
+         *       per-frame `prepare_managed_resources()` passes the CURRENT `context.render_extent`). What blocks
+         *       the scene-table route instead is that table's admission contract (`runtime.constructor.cppm`'s
+         *       table loop requires EVERY table host-visible `storage_coherent` + `zero_on_create`, single
+         *       object) - the exact opposite of what §5.2 needs for a 44.2 MB-per-lane GPU-only pyramid - and
+         *       that a new table needs a new `render_resource::resource_id`. Both are phase-B/schema work, so
+         *       this phase uses the fallback §5.2 documents for precisely this situation. Do not "fix" it back
+         *       without that schema change: the acceptance evidence for this decision is in the task-4 report.
+         */
+        void ensure_hzb_resources();
+        /// @brief write the two HZB heap descriptors (address + length, the same spelling every publish path uses)
+        /// @note called by ensure_hzb_resources after each (re)creation; idempotent, and a heap write failure is
+        ///       logged rather than fatal (the lane then stays unready and no frame records it)
+        void publish_hzb_bindings();
+        /// @brief dump the HZB probe readback buffers + metadata (DEREN_HZB_PROBE_CAPTURE, spec §10.2)
+        /// @note declared here and defined in runtime.probes.cppm (the diagnostics partition), called by
+        ///       runtime.readback.cppm after its device idle - the one post-submit point where the mapped
+        ///       readback is valid. A no-op when the env var is unset or no probe copy was recorded.
+        void write_hzb_probe_capture();
         void create_shadow_resources(); // collect managed scene resources
         rhi::error upload_scene_constant(uint32_t completed_slot, render_resource::resource_id id, std::span<std::byte const> bytes);
         void publish_cluster_bindings();

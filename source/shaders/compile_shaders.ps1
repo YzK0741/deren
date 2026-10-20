@@ -61,6 +61,9 @@ $slangSources = @(
     # the visibility buffer's RESOLVE (v0.4b): the compute stage that turns the ids back into the five G-buffer
     # targets, and the consumer the capture lane needed before the graph would keep it alive.
     "scene/visibility_resolve.slang:main:compute:visibility_resolve.comp.spv",
+    # THE HZB BUILD STAGE (M3 phase A2): one dispatch per pyramid level over the frame's G-buffer depth, plus the
+    # header its thread 0 writes. The build pass asks for this .spv by name; DEREN_HZB_BUILD is the runtime gate.
+    "scene/hzb_build.slang:main:compute:hzb_build.comp.spv",
     "toon/outline.slang:frag_main:fragment:outline.frag.spv",
     "lighting/shadow.slang:main:fragment:shadow.frag.spv",
     "lighting/shadow.slang:mesh_main:mesh:shadow.mesh.spv",
