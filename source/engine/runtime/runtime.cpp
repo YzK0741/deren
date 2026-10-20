@@ -25,6 +25,7 @@ module deren.engine.runtime;
 import deren.utility.shared;
 import deren.engine.subtilis;
 import deren.engine.subtilis.upload;
+import deren.engine.subtilis.selection;
 
 import deren.promise.gui;
 
@@ -1680,6 +1681,7 @@ namespace deren::engine {
                 .material_flags = this->material_flags_of(*leaf),
                 .meshlet_count = leaf->meshlet_count,
                 .item_index = item,
+                .vertex_stride = leaf->vertex_stride,
             };
             vis::admission const verdict = vis::admit_leaf(facts);
             if (!vis::admitted(verdict)) {
@@ -1699,6 +1701,9 @@ namespace deren::engine {
         deren::utility::vessel::vector<meshlet> selected;
         deren::utility::vessel::vector<subtilis::reservation> published;
         unsigned input_count = 0, selected_count = 0, fallback_count = 0;
+        std::uint64_t input_triangles = 0, selected_triangles = 0;
+        bool const exact_depth_redraw = this->feature_active("character_forward");
+        auto const extent = this->render_extent();
         auto* const commands = static_cast<rhi::mesh_task_command*>(this->mesh_indirect_mapped);
         std::uint32_t const frame_slot = this->frame_ring().position();
         std::uint32_t item = 0;
@@ -1707,7 +1712,7 @@ namespace deren::engine {
                 return false;
             }
             if (!leaf->pipeline_name.empty() || (leaf->push.flags & 1u) != 0u || leaf->push.skin_base != 0u || leaf->push.morph_targets != 0u ||
-                !leaf->vertex_buffer || !leaf->index_buffer || leaf->meshlet_count == 0u) {
+                !leaf->vertex_buffer || !leaf->index_buffer || leaf->meshlet_count == 0u || leaf->vertex_stride != 64) {
                 return false; // the candidate scan refused this frame; a mixed frame must not be recorded
             }
             // THE CULL MODE IS THE MATERIAL'S, exactly as the fragment path sets it per draw: glTF doubleSided (record
@@ -1745,10 +1750,9 @@ namespace deren::engine {
             subtilis::reservation const space{leaf->meshlet_base, leaf->meshlet_count};
             auto run = subtilis::shared_run(space);
             if (this->subtilis_active_frame) {
-                glm::mat4 const clip = this->current_ubo.proj * this->current_ubo.view * leaf->push.model;
-                std::array<float, 16> clip_from_object{};
-                std::memcpy(clip_from_object.data(), &clip, sizeof(clip));
-                run = subtilis::prepare_lod0(leaf->meshlets, space, clip_from_object, selected, published,
+                auto const view = subtilis::make_item_view(leaf->push.model, this->current_ubo.view, this->current_ubo.proj, extent.width, extent.height);
+                subtilis::item_policy const policy{this->material_flags_of(*leaf), exact_depth_redraw && !leaf->environment};
+                run = subtilis::prepare_item(*leaf, policy, view, selected, published,
                                              [this](unsigned base, std::span<meshlet const> records) {
                                                  return runtime::meshlet_culled_write(this, base, std::as_bytes(records));
                                              });
@@ -1758,6 +1762,14 @@ namespace deren::engine {
                 input_count += space.count;
                 selected_count += run.count;
                 fallback_count += run.reason != subtilis::fallback_reason::none;
+                input_triangles += leaf->draw_index_count / 3;
+                if (run.source == subtilis::run_source::visible) {
+                    for (auto const& record : selected) {
+                        selected_triangles += record.index_count / 3;
+                    }
+                } else {
+                    selected_triangles += leaf->draw_index_count / 3;
+                }
             }
             vis::apply_meshlet_run(row, block, run);
             if (!runtime::visibility_items_write(this, item, std::as_bytes(std::span(&row, 1u)))) {
@@ -1778,7 +1790,8 @@ namespace deren::engine {
         }
         if (this->subtilis_active_frame && !this->subtilis_logged) {
             this->subtilis_logged = true;
-            deren::utility::log("subtilis: LOD0 run publication: {} input, {} selected, {} fallback item(s)", input_count, selected_count, fallback_count);
+            deren::utility::log("subtilis: cut run publication: {} -> {} records, {} -> {} triangles, {} fallback item(s)",
+                                input_count, selected_count, input_triangles, selected_triangles, fallback_count);
         }
         recorded = item;
         return item > 0u;

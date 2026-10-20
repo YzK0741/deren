@@ -40,6 +40,8 @@ namespace deren::vk_test {
     [[nodiscard]] deren::promise::rhi::image const* probe_heap_image(deren::promise::rhi::api_core& core, std::uint64_t offset);
     void probe_buffer_allocation_fill(deren::promise::rhi::api_core& core, std::uint8_t value);
     [[nodiscard]] std::span<std::byte const> probe_buffer_initial_bytes(deren::promise::rhi::api_core& core, deren::promise::rhi::buffer const& buffer);
+    [[nodiscard]] std::span<std::byte const> probe_last_push(deren::promise::rhi::api_core& core, std::size_t byte_count);
+    [[nodiscard]] deren::promise::rhi::mesh_task_command probe_last_indirect(deren::promise::rhi::api_core& core);
     [[nodiscard]] std::uint64_t probe_live_image_count() noexcept;
     [[nodiscard]] std::uint64_t probe_idle_wait_count(deren::promise::rhi::api_core const& core) noexcept;
     [[nodiscard]] std::uint64_t probe_scoped_record_count(deren::promise::rhi::api_core const& core) noexcept;

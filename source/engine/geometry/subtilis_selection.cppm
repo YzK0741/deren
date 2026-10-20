@@ -42,7 +42,9 @@ export namespace deren::engine::subtilis {
         bool orthographic = projection[2][3] == 0 && projection[3][3] == 1;
         p.kind = perspective ? projection_kind::perspective : projection_kind::orthographic;
         p.near_plane = std::numeric_limits<float>::quiet_NaN();
-        if ((perspective || orthographic) && projection[2][2] < 0) {
+        bool standard_depth = projection[0][2] == 0 && projection[1][2] == 0 && projection[2][2] < 0;
+        bool standard_perspective = perspective && projection[2][2] <= -1 && projection[3][0] == 0 && projection[3][1] == 0;
+        if ((standard_perspective || orthographic) && standard_depth) {
             double near = double(projection[3][2]) / projection[2][2];
             p.near_plane = static_cast<float>(near);
             if (double(p.near_plane) < near) {

@@ -922,6 +922,8 @@ namespace {
         std::int32_t image_writes_until_failure = -1;
         bool persistent_image_failure = false;
         deren::utility::vessel::vector<rhi::heap_buffer_write_info> written_buffers;
+        mutable std::mutex push_mutex;
+        mutable deren::utility::vessel::map<std::size_t, deren::utility::vessel::vector<std::byte>> last_pushes;
         // Retain only image identity and offset; view pointers in the write descriptor are transient.
         deren::utility::vessel::vector<std::pair<std::uint64_t, rhi::image const*>> written_images;
         bool ready() const noexcept override {
@@ -963,7 +965,12 @@ namespace {
             return info.commands != nullptr ? rhi::error::ok : rhi::error::invalid_argument;
         }
         rhi::error push_data(rhi::heap_push_info const& info) const noexcept override {
-            return info.commands == nullptr ? rhi::error::invalid_argument : rhi::validate_heap_push_range(info.offset, info.data.size(), 256);
+            auto status = info.commands == nullptr ? rhi::error::invalid_argument : rhi::validate_heap_push_range(info.offset, info.data.size(), 256);
+            if (status == rhi::error::ok && info.offset == 0) {
+                std::lock_guard lock(push_mutex);
+                last_pushes[info.data.size()].assign(info.data.begin(), info.data.end());
+            }
+            return status;
         }
     };
 
@@ -1816,6 +1823,23 @@ namespace deren::vk_test {
             }
         }
         return {};
+    }
+    std::span<std::byte const> probe_last_push(deren::promise::rhi::api_core& core, std::size_t byte_count) {
+        auto& heap = static_cast<impl&>(core).heap;
+        std::lock_guard lock(heap.push_mutex);
+        auto found = heap.last_pushes.find(byte_count);
+        return found == heap.last_pushes.end() ? std::span<std::byte const>{} : std::span<std::byte const>{found->second};
+    }
+    deren::promise::rhi::mesh_task_command probe_last_indirect(deren::promise::rhi::api_core& core) {
+        auto const& call = static_cast<impl&>(core).commands.last_indirect_mesh;
+        rhi::mesh_task_command result{};
+        if (call.buffer) {
+            auto bytes = const_cast<rhi::buffer*>(call.buffer)->mapped();
+            if (call.offset <= bytes.size() && sizeof(result) <= bytes.size() - call.offset) {
+                std::memcpy(&result, bytes.data() + call.offset, sizeof(result));
+            }
+        }
+        return result;
     }
     void probe_resource_failure(deren::promise::rhi::api_core& core, std::int32_t successful_creations) {
         static_cast<impl&>(core).resource_creations_until_failure = successful_creations;

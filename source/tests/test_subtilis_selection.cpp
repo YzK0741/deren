@@ -136,6 +136,10 @@ int main() {
     leaf.pipeline_name = {};
     auto perspective = sub::make_item_view(glm::mat4(1), camera, glm::perspectiveRH_ZO(1.f, 1.f, 2.f, 1000.f), 800, 600);
     CHECK(perspective.selection.kind == sub::projection_kind::perspective && perspective.selection.near_plane >= 2.f && perspective.selection.near_plane < 2.00001f);
+    auto oblique_projection = glm::perspectiveRH_ZO(1.f, 1.f, 2.f, 1000.f);
+    oblique_projection[0][2] = .25f;
+    auto oblique = sub::make_item_view(glm::mat4(1), camera, oblique_projection, 800, 600);
+    CHECK(!std::isfinite(oblique.selection.near_plane));
     auto invalid = sub::make_item_view(glm::mat4(1), camera, glm::mat4(0), 800, 600);
     run = sub::prepare_item(leaf, {}, invalid, selected, {}, publish);
     CHECK(run.count == leaf.meshlet_count);
