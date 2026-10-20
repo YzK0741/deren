@@ -48,6 +48,8 @@ export import deren.vstd;
 export import deren.engine.render_environment;
 export import deren.engine.scene_tree; // the abstract leaf interface these implement
 export import deren.engine.meshlet;    // the meshlet split this primitive's geometry carries (docs/mesh_shaders.md step 3)
+import deren.engine.subtilis.builder;
+import deren.engine.subtilis.upload;
 namespace deren::engine {
     /// A geometry view with an explicit lease. Legacy assignments adopt one RHI reference;
     /// managed bindings retain the generation that owns the actual allocation and device.
@@ -1603,6 +1605,9 @@ namespace deren::engine {
      * @brief everything runtime::make_primitive() needs: geometry + material textures + factors
      */
     export struct primitive_create_info {
+        /// If present, this immutable source supplies ALL geometry fields below;
+        /// material/model still come from this descriptor. No per-frame LOD is enabled.
+        std::shared_ptr<subtilis::built_geometry const> subtilis_geometry;
         std::span<uint8_t const> vertex_data = {};
         uint32_t vertex_stride = 0;
         uint32_t vertex_count = 0;
@@ -1928,6 +1933,7 @@ namespace deren::engine {
         // Geometry views carry allocation leases. Production generations own buffers and device;
         // legacy assignments own their transferred RHI reference. BLAS retains leases separately.
         std::shared_ptr<void const> geometry_resources; // subchain drains after the views below release
+        std::shared_ptr<subtilis::uploaded_geometry const> subtilis_geometry;
         geometry_buffer vertex_buffer;
         geometry_buffer index_buffer;
         deren::promise::rhi::index_type index_type = deren::promise::rhi::index_type::uint32;
@@ -2128,6 +2134,24 @@ namespace deren::engine {
      */
     export class normal_draw_primitive final : public primitive {
     public:
+        /// Creation-time binding only: caller must obey the existing idle-runtime
+        /// rule. Both buffer views lease the entire immutable CPU/GPU generation.
+        bool bind_subtilis_geometry(std::shared_ptr<subtilis::uploaded_geometry const> generation) noexcept {
+            if (!generation || this->vertex_buffer || this->index_buffer || this->geometry_resources || this->subtilis_geometry || this->draw_index_count || this->meshlet_count || !this->meshlets.empty()) {
+                return false;
+            }
+            auto const& source = generation->source();
+            this->vertex_buffer.bind(generation->vertices(), generation);
+            this->index_buffer.bind(generation->indices(), generation);
+            this->index_type = deren::promise::rhi::index_type::uint32;
+            this->draw_index_count = source.lod0_index_count();
+            this->vertex_count = source.vertex_count();
+            this->vertex_stride = source.vertex_stride();
+            this->subtilis_geometry = generation;
+            this->geometry_resources = std::move(generation);
+            return true;
+        }
+
         void draw(render_environment& env) const override;
         void destroy() noexcept override;
         [[nodiscard]] bool is_valid() const noexcept override;

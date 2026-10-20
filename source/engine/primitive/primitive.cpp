@@ -252,6 +252,7 @@ namespace deren::engine {
         // keep the actual immutable geometry allocation alive until the structures release.
         this->vertex_buffer.reset();
         this->index_buffer.reset();
+        this->subtilis_geometry.reset();
         this->geometry_resources.reset();
         this->draw_index_count = 0;
         this->vertex_count = 0;

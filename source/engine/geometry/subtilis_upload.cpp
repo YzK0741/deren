@@ -17,7 +17,7 @@ namespace deren::engine::subtilis {
             return std::unexpected(upload_rhi::error::invalid_argument);
         }
         namespace managed = render_resource::instances;
-        auto resources = std::make_shared<pass::pass_chain>();
+        auto resources = std::allocate_shared<pass::pass_chain>(deren::utility::memory::allocator<pass::pass_chain>{});
         auto& provider = resources->emplace<pass::resource_storage_pass>();
         std::array<managed::request, 2> requests;
         std::array<std::span<std::byte const>, 2> bytes{std::as_bytes(source->vertices()), std::as_bytes(source->indices())};
@@ -43,7 +43,8 @@ namespace deren::engine::subtilis {
             }
             return upload_rhi::error::ok;
         };
-        if (auto status = resources->prepare_resources(device, {}, admit); status != upload_rhi::error::ok) {
+        managed::resource_context context;
+        if (auto status = resources->prepare_resources(device, context, admit); status != upload_rhi::error::ok) {
             return std::unexpected(status);
         }
         auto snapshot = resources->resources().snapshot();
@@ -53,6 +54,7 @@ namespace deren::engine::subtilis {
             request.initial_data.reset();
         }
         provider.configure(requests);
-        return std::shared_ptr<uploaded_geometry const>{new uploaded_geometry(std::move(resources), std::move(source), std::move(vertices), std::move(indices))};
+        return std::allocate_shared<uploaded_geometry>(deren::utility::memory::allocator<uploaded_geometry>{}, uploaded_geometry::construction_key{},
+                                                       std::move(resources), std::move(source), std::move(vertices), std::move(indices));
     }
 } // namespace deren::engine::subtilis

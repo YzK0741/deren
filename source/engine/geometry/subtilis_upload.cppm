@@ -17,12 +17,15 @@ export namespace deren::engine::subtilis {
     /// One immutable CPU hierarchy and its complete GPU payload. Borrowed buffers
     /// are valid while this generation (or a view's lease of it) is retained.
     class uploaded_geometry {
+        struct construction_key {};
         std::shared_ptr<void const> resources_;
         std::shared_ptr<built_geometry const> source_;
         std::shared_ptr<render_resource::instances::generation const> vertices_, indices_;
         friend std::expected<std::shared_ptr<uploaded_geometry const>, upload_rhi::error>
         upload_geometry(upload_rhi::shared_object<upload_rhi::api_core> const&, std::shared_ptr<built_geometry const>, upload_rhi::buffer_flags);
-        uploaded_geometry(std::shared_ptr<void const> resources, std::shared_ptr<built_geometry const> source,
+
+    public:
+        uploaded_geometry(construction_key /*unused*/, std::shared_ptr<void const> resources, std::shared_ptr<built_geometry const> source,
                           std::shared_ptr<render_resource::instances::generation const> vertices,
                           std::shared_ptr<render_resource::instances::generation const> indices)
             : resources_(std::move(resources))
@@ -31,7 +34,6 @@ export namespace deren::engine::subtilis {
             , indices_(std::move(indices)) {
         }
 
-    public:
         uploaded_geometry(uploaded_geometry const&) = delete;
         uploaded_geometry& operator=(uploaded_geometry const&) = delete;
         [[nodiscard]] built_geometry const& source() const noexcept {

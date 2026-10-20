@@ -24,6 +24,7 @@ module;
 module deren.engine.runtime;
 import deren.utility.shared;
 import deren.engine.subtilis;
+import deren.engine.subtilis.upload;
 
 import deren.promise.gui;
 
@@ -2103,6 +2104,16 @@ namespace deren::engine {
         }
 
         auto result = std::make_unique<normal_draw_primitive>();
+        auto upload_info = info;
+        if (info.subtilis_geometry) {
+            auto const& source = *info.subtilis_geometry;
+            upload_info.vertex_data = source.vertices();
+            upload_info.vertex_count = source.vertex_count();
+            upload_info.vertex_stride = source.vertex_stride();
+            upload_info.index_data = {reinterpret_cast<std::uint8_t const*>(source.indices().data()), source.indices().size_bytes()};
+            upload_info.index_count = source.lod0_index_count();
+            upload_info.index_type = rhi::index_type::uint32;
+        }
 
         // ---- geometry buffers ----
         // The vertex and index buffers carry the acceleration-structure build-input usage when the
@@ -2114,56 +2125,63 @@ namespace deren::engine {
         // which is also what lets the backend's content-keyed registry see them at creation.
         rhi::buffer_flags const geometry_flags = rhi::to_bits(rhi::buffer_flag::device_address) |
                                                  (runtime_detail::ray_query_available_of(this->rhi_face()) ? rhi::to_bits(rhi::buffer_flag::acceleration_structure_input) : rhi::no_buffer_flags);
-        namespace managed = render_resource::instances;
-        auto geometry = std::make_shared<pass::pass_chain>();
-        auto& provider = geometry->emplace<pass::resource_storage_pass>();
-        deren::utility::vessel::array<managed::request, 2> requests;
-        deren::utility::vessel::array<std::span<std::byte const>, 2> const bytes{std::as_bytes(info.vertex_data), std::as_bytes(info.index_data)};
-        for (size_t i = 0; i < requests.size(); ++i) {
-            if (bytes[i].empty()) {
+        if (info.subtilis_geometry) {
+            auto generation = subtilis::upload_geometry(this->core_owner, info.subtilis_geometry, geometry_flags);
+            if (!generation || !result->bind_subtilis_geometry(*generation)) {
                 return nullptr;
             }
-            auto upload = std::make_shared<deren::utility::vessel::vector<std::byte> const>(bytes[i].begin(), bytes[i].end());
-            auto& request = requests[i];
-            request.id = i == 0 ? render_resource::resource_id::scene_geometry_vertices : render_resource::resource_id::scene_geometry_indices;
-            request.type = managed::kind::buffer;
-            request.life = managed::lifetime::scene;
-            request.buffer = {.size = bytes[i].size(), .usage = i == 0 ? rhi::buffer_usage::vertex : rhi::buffer_usage::index, .flags = geometry_flags};
-            request.initial_data = std::shared_ptr<std::byte const>{upload, upload->data()};
-            request.initial_data_size = bytes[i].size();
-            request.initialization_key = std::make_shared<int const>(0);
-        }
-        provider.configure(requests);
-        auto const admit = [&](managed::resource_snapshot const& snapshot) {
-            for (auto const& request : requests) {
-                auto generation = snapshot.find(request.id);
-                auto* buffer = generation && generation->objects.size() == 1 ? generation->objects[0].buffer.get() : nullptr;
-                if (!buffer || buffer->size() < request.buffer.size) {
-                    return rhi::error::unsupported;
+        } else {
+            namespace managed = render_resource::instances;
+            auto geometry = std::make_shared<pass::pass_chain>();
+            auto& provider = geometry->emplace<pass::resource_storage_pass>();
+            deren::utility::vessel::array<managed::request, 2> requests;
+            deren::utility::vessel::array<std::span<std::byte const>, 2> const bytes{std::as_bytes(upload_info.vertex_data), std::as_bytes(upload_info.index_data)};
+            for (size_t i = 0; i < requests.size(); ++i) {
+                if (bytes[i].empty()) {
+                    return nullptr;
                 }
+                auto upload = std::make_shared<deren::utility::vessel::vector<std::byte> const>(bytes[i].begin(), bytes[i].end());
+                auto& request = requests[i];
+                request.id = i == 0 ? render_resource::resource_id::scene_geometry_vertices : render_resource::resource_id::scene_geometry_indices;
+                request.type = managed::kind::buffer;
+                request.life = managed::lifetime::scene;
+                request.buffer = {.size = bytes[i].size(), .usage = i == 0 ? rhi::buffer_usage::vertex : rhi::buffer_usage::index, .flags = geometry_flags};
+                request.initial_data = std::shared_ptr<std::byte const>{upload, upload->data()};
+                request.initial_data_size = bytes[i].size();
+                request.initialization_key = std::make_shared<int const>(0);
             }
-            return rhi::error::ok;
-        };
-        if (geometry->prepare_resources(this->core_owner, {}, admit) != rhi::error::ok) {
-            return nullptr;
+            provider.configure(requests);
+            auto const admit = [&](managed::resource_snapshot const& snapshot) {
+                for (auto const& request : requests) {
+                    auto generation = snapshot.find(request.id);
+                    auto* buffer = generation && generation->objects.size() == 1 ? generation->objects[0].buffer.get() : nullptr;
+                    if (!buffer || buffer->size() < request.buffer.size) {
+                        return rhi::error::unsupported;
+                    }
+                }
+                return rhi::error::ok;
+            };
+            if (geometry->prepare_resources(this->core_owner, {}, admit) != rhi::error::ok) {
+                return nullptr;
+            }
+            auto snapshot = geometry->resources().snapshot();
+            auto vertices = snapshot.find(requests[0].id);
+            auto indices = snapshot.find(requests[1].id);
+            result->vertex_buffer.bind(vertices->objects[0].buffer.get(), vertices);
+            result->index_buffer.bind(indices->objects[0].buffer.get(), indices);
+            result->geometry_resources = geometry;
+            for (auto& request : requests) {
+                request.initial_data.reset();
+            }
+            provider.configure(requests);
         }
-        auto snapshot = geometry->resources().snapshot();
-        auto vertices = snapshot.find(requests[0].id);
-        auto indices = snapshot.find(requests[1].id);
-        result->vertex_buffer.bind(vertices->objects[0].buffer.get(), vertices);
-        result->index_buffer.bind(indices->objects[0].buffer.get(), indices);
-        result->geometry_resources = geometry;
-        for (auto& request : requests) {
-            request.initial_data.reset();
-        }
-        provider.configure(requests);
-        result->index_type = info.index_type;
-        result->draw_index_count = info.index_count;
-        result->vertex_count = info.vertex_count;
+        result->index_type = upload_info.index_type;
+        result->draw_index_count = upload_info.index_count;
+        result->vertex_count = upload_info.vertex_count;
         // Kept for the acceleration-structure build, which reads the vertex buffer directly and has to
         // be told the stride the interleaved layout uses (nothing else needs it after the upload: the
         // raster pipelines take it from the vertex input state).
-        result->vertex_stride = info.vertex_stride;
+        result->vertex_stride = upload_info.vertex_stride;
 
         // ---- local-space AABB for frustum culling: the interleaved vertex layout starts every
         //      vertex with a vec3 position (see the loader's vertex struct / pbr.vert), so scan
@@ -2174,13 +2192,13 @@ namespace deren::engine {
         //      the layout (stride, index width) is known. The GPU TABLE is filled right below, so a task stage can
         //      read the same records the CPU just computed.
         result->meshlets = deren::engine::build_meshlets(deren::engine::meshlet_build_input{
-            .vertex_data = info.vertex_data,
-            .vertex_stride = info.vertex_stride,
-            .vertex_count = info.vertex_count,
-            .index_data = info.index_data,
-            .index_width = info.index_type == deren::promise::rhi::index_type::uint16 ? 2u : 4u,
+            .vertex_data = upload_info.vertex_data,
+            .vertex_stride = upload_info.vertex_stride,
+            .vertex_count = upload_info.vertex_count,
+            .index_data = upload_info.index_data,
+            .index_width = upload_info.index_type == deren::promise::rhi::index_type::uint16 ? 2u : 4u,
             .first_index = 0u,
-            .index_count = info.index_count,
+            .index_count = upload_info.index_count,
             .base_vertex = 0,
         });
         // ... AND INTO THE TABLE a task stage reads, where this primitive owns a CONTIGUOUS run: it remembers the
@@ -2210,26 +2228,26 @@ namespace deren::engine {
         // boundary where the records leave the host.
         bool records_sound = true;
         for (deren::engine::meshlet const& meshlet : result->meshlets) {
-            records_sound = records_sound && deren::engine::meshlet_record_sound(meshlet, info.index_count);
+            records_sound = records_sound && deren::engine::meshlet_record_sound(meshlet, upload_info.index_count);
         }
         if (!records_sound && !this->meshlet_records_unsound_logged) {
             this->meshlet_records_unsound_logged = true;
             deren::utility::log("meshlet records: a primitive with {} indices produced a meshlet outside its window or over the "
                                 "{} index budget - a mesh stage would ask the device for invalid output (the splitter's invariants are tested in source/tests/test_meshlet.cpp)",
-                                info.index_count,
+                                upload_info.index_count,
                                 deren::engine::meshlet_max_indices);
         }
 
-        if (info.vertex_count > 0 && info.vertex_stride >= sizeof(glm::vec3) && !info.vertex_data.empty()) {
+        if (upload_info.vertex_count > 0 && upload_info.vertex_stride >= sizeof(glm::vec3) && !upload_info.vertex_data.empty()) {
             glm::vec3 aabb_min = glm::vec3(std::numeric_limits<float>::infinity());
             glm::vec3 aabb_max = glm::vec3(-std::numeric_limits<float>::infinity());
-            auto const* cursor = info.vertex_data.data();
-            for (uint32_t v = 0; v < info.vertex_count; ++v) {
+            auto const* cursor = upload_info.vertex_data.data();
+            for (uint32_t v = 0; v < upload_info.vertex_count; ++v) {
                 glm::vec3 position;
                 std::memcpy(&position, cursor, sizeof(position));
                 aabb_min = glm::min(aabb_min, position);
                 aabb_max = glm::max(aabb_max, position);
-                cursor += info.vertex_stride;
+                cursor += upload_info.vertex_stride;
             }
             result->local_aabb_min = aabb_min;
             result->local_aabb_max = aabb_max;
