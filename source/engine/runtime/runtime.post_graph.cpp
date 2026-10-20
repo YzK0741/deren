@@ -26,7 +26,7 @@ import deren.engine.pass.transparent;
 import deren.engine.pass.taa;
 import deren.engine.pass;
 import deren.engine.pass.hzb_build; // the runtime-owned HZB build pass (lane 22) and its header constants
-import deren.engine.pass.hzb_cull;  // the runtime-owned HZB cull pass (lane 21, M3 phase B1)
+import deren.engine.pass.hzb_cull;  // the runtime-owned HZB cull pass (lane 21, M3 phase B2)
 import deren.engine.pass.output_targets;
 import deren.engine.visibility.hzb; // the pyramid layout the probe's lane sizes are computed with (§4.1)
 import deren.promise.rhi;
@@ -136,14 +136,14 @@ namespace deren::engine {
         }
 
         // ================================================================================================
-        // THE HZB CULL LANE'S GRAPH DECLARATION (M3 phase B1, spec §4.3, §8.1)
+        // THE HZB CULL LANE'S GRAPH DECLARATION (M3 phase B2, spec §4.3, §8.1)
         //
-        // ONE compute node with the seven accesses the dispatch has: the HISTORY pyramid and header lanes as reads
+        // ONE compute node declaring the dispatch accesses: the HISTORY pyramid and header lanes as reads
         // (the data is the same frame slot's PREVIOUS use, so the graph must NOT think this frame's build produces
         // it - the WAR order it derives from the build's write is exactly the §8.2 order cull-then-build), the two
         // host-written tables as reads (no barrier: the host wrote them before submission, §8.2 step 0), and the two
-        // GPU-written result tables as writes. Nothing in this graph reads the writes, so `side_effect = true` is
-        // what keeps the node alive (the same requirement the build lane states).
+        // GPU-written result tables as writes, plus the existing indirect table as read-write. Raster and resolve
+        // read the results; raster consumes indirect commands at draw-indirect scope. Stats remain a side effect.
         //
         // THE CANDIDATE RECORDS AND THE ITEM MODEL ARE THE FRAME'S EXISTING TABLES, not new ones: the host-culled
         // meshlet lane the host compacts while it records, and the visibility draw-item table (whose model matrix is
@@ -158,16 +158,17 @@ namespace deren::engine {
             graph::buffer_read draw_items;
             graph::buffer_discard_write results;
             graph::buffer_discard_write survivors;
+            graph::buffer_read_write commands;
             void visit_resources(graph::parameter_visitor& visit) const noexcept {
-                visit(levels, header, items, candidates, draw_items, results, survivors);
+                visit(levels, header, items, candidates, draw_items, results, survivors, commands);
             }
         };
 
         std::expected<graph::pass_ref, graph::graph_error> append_hzb_cull(graph::builder& description, graph::buffer_ref levels, graph::buffer_ref header,
                                                                            graph::buffer_ref items, graph::buffer_ref candidates, graph::buffer_ref draw_items,
-                                                                           graph::buffer_ref results, graph::buffer_ref survivors) noexcept {
+                                                                           graph::buffer_ref results, graph::buffer_ref survivors, graph::buffer_ref commands) noexcept {
             constexpr graph::access_scope storage{graph::resource_usage::storage, graph::pipeline_stage::compute_shader};
-            hzb_cull_parameters params{{levels, {}, storage}, {header, {}, storage}, {items, {}, storage}, {candidates, {}, storage}, {draw_items, {}, storage}, {results, {}, storage}, {survivors, {}, storage}};
+            hzb_cull_parameters params{{levels, {}, storage}, {header, {}, storage}, {items, {}, storage}, {candidates, {}, storage}, {draw_items, {}, storage}, {results, {}, storage}, {survivors, {}, storage}, {commands, {}, storage}};
             return description.add_pass("hzb cull", std::move(params), graph::pass_options{.side_effect = true});
         }
     } // namespace
@@ -719,12 +720,14 @@ namespace deren::engine {
                 hzb_levels_ref = *levels_import;
                 hzb_header_ref = *header_import;
             }
-            // ---- THE HZB CULL LANE (M3 phase B1, spec §4.3/§8.2 step 1): APPENDED BEFORE THE RASTER LANE ----
+            // ---- THE HZB CULL LANE (M3 phase B2, spec §4.3/§8.2 step 1): APPENDED BEFORE THE RASTER LANE ----
             // Its accesses are the history pyramid/header (reads), the phase-B item table (host-written read), the
             // frame's existing candidate/draw-item tables (reads) and its two result tables (writes). The explicit
             // order edge below pins the §8.2 order even though the WAR edge from the build lane's write would
             // already do it - the design's order is a contract, not an emergent property of the hazard analysis.
             std::optional<graph::pass_ref> hzb_cull_ref{};
+            std::optional<graph::buffer_ref> hzb_survivors_ref{};
+            std::optional<graph::buffer_ref> hzb_results_ref{};
             if (hzb_cull_lane && hzb_levels_ref && hzb_header_ref) {
                 auto items_import = build.import_buffer(this->hzb_items_buffer,
                                                         {graph::initial_contents::defined,
@@ -745,12 +748,14 @@ namespace deren::engine {
                 // [12]): the cull reads the records the host compacted in phase 2 and the model matrix the raster
                 // will project with, so the two lanes cannot disagree about either.
                 auto hzb_added = build.append([&](graph::builder& description) noexcept {
-                    return append_hzb_cull(description, *hzb_levels_ref, *hzb_header_ref, *items_import, shared_refs[9], shared_refs[12], *results_import, *survivors_import);
+                    return append_hzb_cull(description, *hzb_levels_ref, *hzb_header_ref, *items_import, shared_refs[9], shared_refs[12], *results_import, *survivors_import, shared_refs[11]);
                 });
                 if (!hzb_added) {
                     return post_build_error(hzb_added.error());
                 }
                 hzb_cull_ref = *hzb_added;
+                hzb_survivors_ref = *survivors_import;
+                hzb_results_ref = *results_import;
                 // THE PHASE-B PROBE'S READBACKS ARE ALLOCATED HERE, BEFORE THE LANE RECORDS: the history-lane copy is
                 // recorded INSIDE the cull lane (this frame's build overwrites the same lane later in the submission,
                 // so after the graph would be too late - see runtime::begin_hzb_cull_probe).
@@ -809,6 +814,8 @@ namespace deren::engine {
                 if (this->subtilis_active_frame) {
                     visibility_inputs.shared->culled_meshlets = shared_refs[9];
                 }
+                visibility_inputs.shared->hzb_survivors = hzb_survivors_ref;
+                visibility_inputs.shared->hzb_results = hzb_results_ref;
                 auto visibility_added = build.append([&](graph::builder& description) noexcept {
                     return graph::visibility::append(description, visibility_inputs);
                 });
@@ -816,8 +823,7 @@ namespace deren::engine {
                     return post_build_error(visibility_added.error());
                 }
                 // THE §8.2 ORDER, STATED RATHER THAN EMERGENT: cull BEFORE raster (phase B2's raster consumes the
-                // survivor table the cull just wrote, so this edge is the lane contract's first half; in phase B1 it
-                // keeps the history-lane probe copy ahead of everything that could touch the lane).
+                // survivor table and indirect commands the cull just wrote).
                 if (hzb_cull_ref) {
                     if (auto ordered = build.order_after(visibility_added->pass, *hzb_cull_ref); !ordered) {
                         return post_build_error(ordered.error());
@@ -872,6 +878,8 @@ namespace deren::engine {
                 if (this->subtilis_active_frame) {
                     resolve_inputs.shared->culled_meshlets = shared_refs[9];
                 }
+                resolve_inputs.shared->hzb_survivors = hzb_survivors_ref;
+                resolve_inputs.shared->hzb_results = hzb_results_ref;
                 auto resolve_added = build.append([&](graph::builder& description) noexcept {
                     return graph::visibility::append_resolve(description, resolve_inputs);
                 });

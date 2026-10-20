@@ -236,7 +236,7 @@ def main() -> int:
         if source not in (SOURCE_UNCULLED, SOURCE_CULLED):
             checker.check(False, f"item {index}: source {source} is not one of the two sources")
             break
-        if pad != 0:
+        if metadata.get("version", 1) < 2 and pad != 0:
             pad_bad += 1
         if source == SOURCE_UNCULLED:
             checker.check(count == 0, f"item {index}: an unculled-source item offers no candidates")
@@ -244,7 +244,8 @@ def main() -> int:
             planned += count
             checker.check(count <= ITEM_CAPACITY and meshlet_base <= CANDIDATE_CAPACITY and count <= CANDIDATE_CAPACITY - meshlet_base,
                           f"item {index}: candidate run [{meshlet_base}, +{count}) is addressable")
-    checker.check(pad_bad == 0, f"every item entry's pad word is zero ({pad_bad} bad entry(ies))")
+    if metadata.get("version", 1) < 2:
+        checker.check(pad_bad == 0, f"every item entry's pad word is zero ({pad_bad} bad entry(ies))")
     checker.check(planned == candidate_total, f"the plan's candidate total matches the metadata ({planned} == {candidate_total})")
 
     # ---- 5. FLAGS, COUNTS AND SURVIVORS ARE SELF-CONSISTENT ----
@@ -281,6 +282,17 @@ def main() -> int:
                   f"the per-item counts sum to the candidates minus the culled ({counts_total} == {planned} - {culled_total})")
     checker.check(item_problems == 0, f"every per-item count equals its item's kept candidates ({item_problems} mismatch(es))")
     checker.check(order_problems == 0, f"the survivor list is the ascending compaction of the kept candidates ({order_problems} bad record(s))")
+
+    # B2 captures the actual coherent indirect lane after GPU completion, including unsupported items.
+    if metadata.get("version", 1) >= 2:
+        command_raw = read_bytes(prefix, ".commands.bin")
+        command_words = parse_u32s(command_raw, item_count * 3)
+        for index, (_, count, source, original_count) in enumerate(items):
+            if index >= item_count:
+                break
+            expected = counts[index] if source == SOURCE_CULLED and count and counts[index] != 0xFFFFFFFF else original_count
+            actual = tuple(command_words[index * 3:index * 3 + 3])
+            checker.check(actual == (expected, 1, 1), f"item {index}: indirect command {actual} == ({expected}, 1, 1)")
 
     # ---- 6. THE STATS BLOCK MATCHES THE TABLES (spec §4.3/§10.3) ----
     checker.check(stats[STAT_CANDIDATES] == planned, f"stats candidates == the plan's total ({stats[STAT_CANDIDATES]})")

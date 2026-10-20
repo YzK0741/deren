@@ -1956,9 +1956,13 @@ namespace deren::engine {
                                                            {.resource = header, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_read},
                                                            {.resource = survivors, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_write}}};
         auto const left = commands.barrier(rhi::barrier_group{.buffers = std::span<rhi::buffer_barrier const>(restored)});
-        std::array<rhi::buffer_barrier, 3> const host_reads{{{.resource = this->hzb_cull_probe_pyramid_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
+        std::array<rhi::buffer_barrier, 5> const host_reads{{{.resource = this->hzb_cull_probe_pyramid_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
                                                              {.resource = this->hzb_cull_probe_header_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
-                                                             {.resource = this->hzb_cull_probe_survivors_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read}}};
+                                                             {.resource = this->hzb_cull_probe_survivors_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
+                                                             // These coherent tables are read directly after device idle. Completion alone
+                                                             // does not publish shader writes into the host memory domain.
+                                                             {.resource = this->mesh_indirect_buffer.get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::host_read},
+                                                             {.resource = this->hzb_results_buffer.get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::host_read}}};
         auto const published = commands.barrier(rhi::barrier_group{.buffers = std::span<rhi::buffer_barrier const>(host_reads)});
         if (pyramid_copied != rhi::error::ok || header_copied != rhi::error::ok || survivors_copied != rhi::error::ok || left != rhi::error::ok || published != rhi::error::ok) {
             deren::utility::log("hzb cull probe capture: FAIL copy or publication");
@@ -2174,11 +2178,10 @@ namespace deren::engine {
         unsigned input_count = 0, selected_count = 0, fallback_count = 0;
         std::uint64_t input_triangles = 0, selected_triangles = 0;
         for (std::uint32_t index = 0; index < count; ++index) {
-            visibility_item_plan const& plan = plans[index];
+            visibility_item_plan& plan = plans[index];
             command_buffer.set_cull_mode(plan.cull);
-            if (!runtime::visibility_items_write(this, index, std::as_bytes(std::span(&plan.row, 1u)))) {
-                return false;
-            }
+            static_assert(runtime::mesh_command_capacity == deren::engine::visibility::hzb::hzb_mesh_command_capacity);
+            static_assert(runtime::visibility_command_run == deren::engine::visibility::hzb::hzb_visibility_command_run);
             // ---- THE HZB CULL LANE'S PER-ITEM DESCRIPTION (spec §4.3) ----
             // The cull pass walks ONE run per item, so all it needs is where the run starts and how long it is. A
             // CUT-VISIBLE run's candidate records are this frame's host-culled lane at `run.base` (the host wrote
@@ -2187,12 +2190,15 @@ namespace deren::engine {
             // to host-visible coherent memory before submission (§8.2 step 0: the cull dispatch ran earlier in the
             // command buffer but the GPU only sees the buffer after `vkQueueSubmit`).
             if (this->hzb_cull_active_frame && this->hzb_items_mapped != nullptr) {
-                bool const cut_visible = plan.run.source == subtilis::run_source::visible;
+                bool const cut_visible = deren::engine::visibility::apply_hzb_run(plan.row, plan.block, plan.run);
                 std::uint32_t const candidates = cut_visible ? plan.run.count : 0u;
                 auto* const table = static_cast<pass::hzb_item*>(this->hzb_items_mapped);
                 table[static_cast<std::size_t>(frame_slot) * pass::hzb_cull_item_capacity + index] =
-                    pass::hzb_item{.meshlet_base = plan.run.base, .candidate_count = candidates, .source = cut_visible ? pass::hzb_item_source_culled : pass::hzb_item_source_unculled, .pad = 0u};
+                    pass::hzb_item{.meshlet_base = plan.run.base, .candidate_count = candidates, .source = cut_visible ? pass::hzb_item_source_culled : pass::hzb_item_source_unculled, .pad = plan.block.geometry.index_count};
                 this->hzb_cull_candidate_total += candidates;
+            }
+            if (!runtime::visibility_items_write(this, index, std::as_bytes(std::span(&plan.row, 1u)))) {
+                return false;
             }
             if (!runtime::push_raw_block(this, command_buffer, std::as_bytes(std::span(&plan.block, 1u)))) {
                 return false;

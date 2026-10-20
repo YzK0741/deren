@@ -58,7 +58,7 @@ struct MeshGeometryLanes
     uint index_address_high;
     uint first_index;        // the draw's first index inside the index buffer
     uint index_count;        // indices this draw covers (a multiple of 3: triangles)
-    int base_vertex;         // added to every fetched index (static-draw chunks; 0 otherwise)
+    int base_vertex;         // vertex offset; visibility meshlet mode uses bit0 host-cut / bit1 HZB source
     uint index_width;        // bytes per index: 2 or 4
 };
 
@@ -154,6 +154,10 @@ MeshletRecord culled_meshlet_at(const uint frame_slot, const uint index)
 /// @note it is the value `core::meshlet_capacity` holds, and the host's `heap_slots::meshlet_culled` binding writes
 ///       exactly this many records per frame slot - the two have to agree or a lane would read its neighbour's run.
 static const uint meshlet_table_capacity = 65536u;
+MeshletRecord hzb_survivor_at(uint frame_slot, uint index)
+{
+    return heap_at<StructuredBuffer<MeshletRecord>>(heap_slots_hzb_survivors)[frame_slot * meshlet_table_capacity + index];
+}
 
 // =============================================================================================================
 // WHAT THE CULLING BUYS, COUNTED (docs/mesh_shaders.md step 3). The meshlet entry culls a whole meshlet against

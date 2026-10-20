@@ -1,9 +1,6 @@
-// THE HZB CULL STAGE (M3 phase B1): one workgroup per ITEM, walking that item's host-selected candidates and
-// testing each against the HISTORY HZB - the max pyramid of the same frame slot's PREVIOUS use, i.e. the depth of
-// frame N-2 (spec §4.3, §6, §7.2, §8.2). It writes the per-candidate flags, the compacted survivor list, the
-// per-item survivor count and the frame's stats block. NOTHING CONSUMES THE SURVIVORS IN THIS PHASE: the mesh
-// stage keeps reading the host-culled table (phase B2 swaps it), so this stage cannot change a pixel - its
-// acceptance is the in-engine verification against the committed CPU reference.
+// THE HZB CULL STAGE (M3 B2): tests history HZB, compacts survivors in candidate order and writes all three
+// indirect command words. Raster and resolve share the result source. A rejected run publishes the fallback
+// sentinel and retains the host command, so both consumers use the original host-culled records.
 //
 // WHY ONE WORKGROUP PER ITEM. The item is the unit whose candidates the host already compacted into ONE run of the
 // host-culled meshlet table (runtime.cpp's record_visibility_items publishes `visible_run`s at the primitive's own
@@ -77,6 +74,16 @@ HzbMatrix hzb_draw_item_model(StructuredBuffer<uint> items, uint item_row)
     return model;
 }
 
+// All three words belong to this item. Unsupported/rejected items retain the host command.
+void hzb_write_command(uint slot, uint item, uint count)
+{
+    RWStructuredBuffer<uint> commands = heap_at<RWStructuredBuffer<uint>>(heap_slots_hzb_commands);
+    const uint word = hzb_command_word_offset(slot, item);
+    commands[word] = count;
+    commands[word + 1u] = 1u;
+    commands[word + 2u] = 1u;
+}
+
 /// @brief one stats row's atomic add (the only cross-item accumulation this stage does, §4.3)
 /// @note ZERO-ADDS ARE SKIPPED: `InterlockedAdd(x, 0)` is still an atomic on the same cache line across ~2900 items,
 ///       and the released path (no candidates, nothing culled) is the common one.
@@ -122,16 +129,13 @@ void main(uint3 group_id : SV_GroupID, uint thread_id : SV_GroupThreadID)
         }
         return;
     }
-    // ---- OVERFLOW: DO NOT PUBLISH A PARTIAL RESULT (spec §9.4). The id's meshlet field is 12 bits and the flags
-    // table is meshlet_capacity records, so a run past either cannot be described at all: the item's count is
-    // frozen to 0 (nothing is drawn from a survivor list that does not exist) and the host's stats line reports the
-    // overflow. The cull lane is a pure prediction in phase B, so "no survivors" here can never lose geometry. ----
+    // Reject the entire result. Preserve the original host command and records (fail open).
     if (src.candidate_count > hzb_item_candidate_capacity || src.meshlet_base > hzb_candidate_capacity ||
         src.candidate_count > hzb_candidate_capacity - src.meshlet_base)
     {
         if (thread_id == 0u)
         {
-            results[count_slot] = 0u;
+            results[count_slot] = hzb_count_fallback;
             hzb_stat_add(results, results_lane_base, hzb_stat_overflow_items, 1u);
         }
         return;
@@ -158,10 +162,11 @@ void main(uint3 group_id : SV_GroupID, uint thread_id : SV_GroupThreadID)
             results[results_lane_base + hzb_results_flags + src.meshlet_base + index] = 0u;
             survivors[candidate_base + index] = record;
         }
-        GroupMemoryBarrierWithGroupSync();
+        DeviceMemoryBarrierWithGroupSync();
         if (thread_id == 0u)
         {
             results[count_slot] = src.candidate_count;
+            hzb_write_command(slot, item, src.candidate_count);
             hzb_stat_add(results, results_lane_base, hzb_stat_candidates, src.candidate_count);
             hzb_stat_add(results, results_lane_base, hzb_stat_survivors, src.candidate_count);
         }
@@ -179,8 +184,8 @@ void main(uint3 group_id : SV_GroupID, uint thread_id : SV_GroupThreadID)
         results[results_lane_base + hzb_results_flags + src.meshlet_base + index] = culled_by_history ? 1u : 0u;
     }
     // THE COMPACTION'S PRECONDITION: every flag thread of this workgroup has written its word before thread 0 reads
-    // the run back in index order (a group-scope barrier covers the global writes of the group's own invocations).
-    GroupMemoryBarrierWithGroupSync();
+    // the run back in index order (device-memory visibility is required because flags live in a UAV).
+    DeviceMemoryBarrierWithGroupSync();
     if (thread_id == 0u)
     {
         // ---- THE DETERMINISTIC COMPACTION (see the file header): thread 0 walks the item's candidates in ascending
@@ -196,6 +201,7 @@ void main(uint3 group_id : SV_GroupID, uint thread_id : SV_GroupThreadID)
             }
         }
         results[count_slot] = running;
+        hzb_write_command(slot, item, running);
         // ---- THE STATS (§4.3/§10.3): one atomic per item per row. `candidates = culled + survivors` by
         // construction, which is what the host/probe checks. ----
         hzb_stat_add(results, results_lane_base, hzb_stat_candidates, src.candidate_count);

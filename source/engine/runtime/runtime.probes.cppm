@@ -622,6 +622,19 @@ namespace deren::engine {
             deren::utility::log("hzb cull probe capture: FAIL draw-items file write");
             return;
         }
+        // The capture waits for device idle; this coherent lane is the exact GPU-written indirect input.
+        if (this->mesh_indirect_mapped == nullptr) {
+            deren::utility::log("hzb cull probe capture: FAIL commands not mapped");
+            return;
+        }
+        auto const* command_data = static_cast<rhi::mesh_task_command const*>(this->mesh_indirect_mapped);
+        std::size_t const command_base = static_cast<std::size_t>(slot) * runtime::mesh_command_capacity + runtime::visibility_command_run;
+        std::size_t const command_bytes = static_cast<std::size_t>(this->hzb_cull_probe_item_count) * rhi::mesh_task_command_size;
+        std::string const commands_path = std::string(prefix) + ".commands.bin";
+        if (!write_file(commands_path, command_data + command_base, command_bytes)) {
+            deren::utility::log("hzb cull probe capture: FAIL commands file write");
+            return;
+        }
         // ---- THE IN-ENGINE VERIFICATION: THE SAME DATA, THE COMMITTED CPU REFERENCE ----
         namespace hzb = deren::engine::visibility::hzb;
         bool const header_usable = header_word(0u) == pass::hzb_header_magic && header_word(1u) == extent.width && header_word(2u) == extent.height &&
@@ -747,7 +760,7 @@ namespace deren::engine {
             std::ofstream output(metadata_path, std::ios::trunc);
             output << "{\n";
             output << "  \"kind\": \"hzb-cull-probe\",\n";
-            output << "  \"version\": 1,\n";
+            output << "  \"version\": 2,\n";
             output << "  \"note\": \"the cull reads the HISTORY HZB: the previous use of this frame slot (2 frames old). The copies were recorded "
                       "INSIDE the cull lane, before this frame's build overwrote the lane, so these files describe the data the dispatch consumed.\",\n";
             output << "  \"extent\": {\"width\": " << extent.width << ", \"height\": " << extent.height << "},\n";
@@ -815,7 +828,8 @@ namespace deren::engine {
             file_entry("stats", stats_path, stats_bytes, false);
             file_entry("survivors", survivors_path, static_cast<std::size_t>(required_survivors), false);
             file_entry("candidates", candidates_path, candidates_bytes, false);
-            file_entry("draw_items", draw_items_path, draw_items_bytes, true);
+            file_entry("draw_items", draw_items_path, draw_items_bytes, false);
+            file_entry("commands", commands_path, command_bytes, true);
             output << "  }\n";
             output << "}\n";
             if (!output) {

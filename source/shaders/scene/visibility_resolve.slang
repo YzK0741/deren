@@ -45,6 +45,7 @@
 
 #include "common/heap_access.slang"
 #include "geometry/mesh_geometry.slang"
+#include "common/hzb.slang"
 
 // ---- THE FRAGMENT SAMPLER'S MIP, REBUILT FROM THE TRIANGLE (visibility-buffer v0.6 quality alignment) --------
 // A compute thread has no derivatives, so the shared decode's fetches are EXPLICIT SampleLevel calls. v0 used
@@ -254,8 +255,14 @@ gbuffer_output resolve_pixel(const uint2 pixel,
 
     // ---- the meshlet record: the item's run base plus the id's order inside the run (the CPU reference's
     //      `resolve_indices` states the same arithmetic) ----
-    const MeshletRecord meshlet = item.meshlet_table == 0u ? meshlet_at(item.meshlet_base + id_meshlet)
-                                                           : culled_meshlet_at(heap_frame_slot, item.meshlet_base + id_meshlet);
+    bool hzb_live = false;
+    if (item.meshlet_table == 2u)
+    {
+        hzb_live = hzb_survivors_usable(heap_frame_slot, id_item);
+    }
+    const MeshletRecord meshlet = hzb_live ? hzb_survivor_at(heap_frame_slot, item.meshlet_base + id_meshlet)
+        : (item.meshlet_table == 0u ? meshlet_at(item.meshlet_base + id_meshlet)
+                                   : culled_meshlet_at(heap_frame_slot, item.meshlet_base + id_meshlet));
     if (id_triangle * 3u >= meshlet.index_count) {
         unresolved = true; // an id past its meshlet's window cannot name a triangle
         return gbuffer_empty_output();

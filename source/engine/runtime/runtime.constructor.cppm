@@ -1911,6 +1911,7 @@ namespace deren::engine {
             publication{this->hzb_items_buffer.get(), deren::engine::render_layout::heap_slots::hzb_items, "items"},
             publication{this->hzb_results_buffer.get(), deren::engine::render_layout::heap_slots::hzb_results, "results"},
             publication{this->hzb_survivors_buffer.get(), deren::engine::render_layout::heap_slots::hzb_survivors, "survivors"},
+            publication{this->mesh_indirect_buffer.get(), deren::engine::render_layout::heap_slots::hzb_commands, "commands"},
         };
         for (auto const& entry : publications) {
             if (entry.buffer == nullptr || !this->write_heap_buffer(*entry.buffer, entry.slot, entry.buffer->size(), rhi::descriptor_type::storage_buffer)) {
@@ -1964,7 +1965,7 @@ namespace deren::engine {
                     this->hzb_cull = std::move(owned);
                     deren::utility::log("hzb: cull lane ARMED (DEREN_HZB_BUILD + DEREN_HZB_CULL) - per-item groups test the "
                                         "host-selected candidates against the HISTORY pyramid and publish flags/survivors/counts; "
-                                        "nothing consumes them in this phase, so the frame stays byte-identical");
+                                        "visibility consumes the survivors and GPU indirect commands while the static gate is open");
                 }
             }
         }

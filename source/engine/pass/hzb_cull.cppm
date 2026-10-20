@@ -2,29 +2,13 @@
  * @file source/engine/pass/hzb_cull.cppm
  * @defgroup engine_pass_hzb_cull HZB Cull Pass
  * @brief the HZB's consumer on the GPU: one workgroup per item, walking that item's host-selected candidates and
- *        testing each conservatively against the HISTORY pyramid (M3 phase B1).
+ *        testing each conservatively against the history pyramid (M3 phase B2).
  *
- * SPEC: docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md §4.3 (the pass), §6 (the test), §7.2 (the
- * pseudo-code), §8.2 (the frame order: cull BEFORE raster, build AFTER it), §9.1/§9.2 (the whole-frame gate and the
- * byte-exact static gate) and §10.3 (the counts). This phase is CULL + VERIFY ONLY: the pass writes
- * `heap_slots_hzb_results` and `heap_slots_hzb_survivors` (and atomically accumulates the stats block), READ BY
- * NOTHING IN THE FRAME except the probe's copies. Phase B2 consumes the survivor table in the visibility raster and
- * writes the per-item command words - neither happens here, and that is what keeps the frame's pixels identical.
- *
- * THE PREDICATES IT IS PRUNED BY ARE THE RUNTIME'S, NOT THE PASS'S: whether the lane is appended at all is decided
- * once per frame in `runtime.post_graph.cpp` (both env gates, the pipelines, the two fixed-size tables, a
- * visibility-lane frame, and the phase-B byte-exact static gate §9.2). A pruned lane means the graph has EXACTLY
- * today's nodes and the frame is byte-for-byte today's. A pass that IS recorded but whose item count is zero
- * records nothing at all (§8.3: an empty frame has no dispatch).
- *
- * WHY THE PASS RECORDS NO BARRIERS OF ITS OWN. Its two outputs (results, survivors) are read by NOTHING inside the
- * frame's command buffer in phase B1 - the probe's copies are recorded after the graph and carry their own
- * transfer pair - so the explicit `compute write -> shader read` barrier the spec's §8.1/§9.1 shape will need
- * belongs to phase B2, where the raster lane consumes the survivor table. The two buffer handles are handed in
- * anyway (`set_hzb_tables`), so B2 adds the barrier in this file rather than a second wiring path through the
- * runtime. Everything else the pass needs travels through the frame's heap descriptors (the shader reaches the
- * HZB tables, the item/candidate tables, the draw-item model and the meshlet records by slot); the graph's
- * declaration owns the pass's cross-pass ordering.
+ * The cull publishes stable survivors, counts and per-item mesh-task commands. Runtime declares compute writes
+ * and mesh/resolve/indirect reads in the render graph; its scoped barriers own all cross-pass synchronization.
+ * Rejected runs publish UINT32_MAX and preserve the host command: raster and resolve both fetch the original
+ * host-culled run. Unsupported items stay on their original path. The runtime's byte-exact static gate controls
+ * admission (design sections 8/9); no valid history means the original visibility lane.
  */
 module;
 
@@ -76,7 +60,7 @@ export namespace deren::engine::pass {
     inline constexpr std::uint32_t hzb_cull_candidate_capacity = deren::engine::visibility::hzb::hzb_candidate_capacity; // 65536
 
     /// `HzbItem.source`: the candidate records are NOT in the host-culled lane, so the cull walks nothing for the
-    /// item this phase (spec §4.3's shared source is a B2/B3 extension; B1's acceptance config is subtilis-cut)
+    /// item this phase (shared source is not tested in phase B; acceptance uses host-cut subtilis runs)
     inline constexpr std::uint32_t hzb_item_source_unculled = 0u;
     /// `HzbItem.source`: the candidate records are `heap_slots_hzb_culled` at `meshlet_base + i`
     inline constexpr std::uint32_t hzb_item_source_culled = 1u;
@@ -93,7 +77,7 @@ export namespace deren::engine::pass {
         std::uint32_t meshlet_base = 0;    ///< the run's first candidate index in its source table
         std::uint32_t candidate_count = 0; ///< candidates the run holds; 0 = this item offers the cull nothing
         std::uint32_t source = 0;          ///< `hzb_item_source_*`
-        std::uint32_t pad = 0;             ///< keeps the entry 16 B; the shader mirrors the field
+        std::uint32_t pad = 0;             ///< original host dispatch count; probe verifies commands (16 B entry)
     };
     static_assert(sizeof(hzb_item) == 16u, "the shader's HzbItem is four u32 words - the entry must be exactly 16 B");
 
@@ -187,10 +171,6 @@ export namespace deren::engine::pass {
         void* built_against = nullptr;
         std::uint32_t frame_item_count = 0;
         rhi::image_extent frame_extent = {};
-        // NOTE FOR PHASE B2: the pass writes heap_slots_hzb_results and heap_slots_hzb_survivors, and B2's raster
-        // lane CONSUMES the survivor table, so B2 adds the `compute write -> shader read` buffer barrier between the
-        // dispatch below and the lane's end - and with it the two buffer handles (a `set_hzb_tables`, the shape the
-        // build pass has for its inter-level barrier). Phase B1 records nothing after the dispatch on purpose: no
-        // command in this frame's buffer reads either table (see the file header).
+        // Cross-pass visibility of results/survivors/commands belongs to scoped graph barriers.
     };
 } // namespace deren::engine::pass

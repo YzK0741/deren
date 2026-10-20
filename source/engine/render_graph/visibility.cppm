@@ -19,13 +19,15 @@ export namespace deren::engine::render_graph::visibility {
     struct shared_inputs {
         buffer_ref camera, meshlets, indirect;
         std::optional<buffer_ref> culled_meshlets = {};
+        std::optional<buffer_ref> hzb_survivors = {}, hzb_results = {};
     };
 
     struct shared_parameters {
         buffer_read camera, meshlets, indirect;
         std::optional<buffer_read> culled_meshlets = {};
+        std::optional<buffer_read> hzb_survivors = {}, hzb_results = {};
         void visit_resources(parameter_visitor& visit) const noexcept {
-            visit(camera, meshlets, indirect, culled_meshlets);
+            visit(camera, meshlets, indirect, culled_meshlets, hzb_survivors, hzb_results);
         }
     };
 
@@ -50,6 +52,9 @@ export namespace deren::engine::render_graph::visibility {
     };
 
     [[nodiscard]] inline std::expected<outputs, graph_error> append(builder& graph, inputs const& in) noexcept {
+        if (in.shared && in.shared->hzb_survivors.has_value() != in.shared->hzb_results.has_value()) {
+            return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "visibility HZB", .resource_name = "incomplete HZB read tables"});
+        }
         if (in.vis_id == in.depth) {
             return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "scene visibility raster", .resource_name = "visibility attachments"});
         }
@@ -63,6 +68,10 @@ export namespace deren::engine::render_graph::visibility {
             params.shared = shared_parameters{{in.shared->camera, {}, camera}, {in.shared->meshlets, {}, mesh}, {in.shared->indirect, {}, indirect}};
             if (in.shared->culled_meshlets) {
                 params.shared->culled_meshlets = buffer_read{*in.shared->culled_meshlets, {}, mesh};
+            }
+            if (in.shared->hzb_survivors) {
+                params.shared->hzb_survivors = buffer_read{*in.shared->hzb_survivors, {}, mesh};
+                params.shared->hzb_results = buffer_read{*in.shared->hzb_results, {}, mesh};
             }
         }
         auto added = graph.add_pass("scene visibility raster", std::move(params));
@@ -85,14 +94,16 @@ export namespace deren::engine::render_graph::visibility {
         buffer_ref previous_transforms; ///< last frame's world matrices, for the motion vector
         buffer_ref statistics;          ///< the mesh-statistics buffer: the resolve's failure counters are atomic adds
         std::optional<buffer_ref> culled_meshlets = {};
+        std::optional<buffer_ref> hzb_survivors = {}, hzb_results = {};
     };
 
     struct resolve_shared_parameters {
         buffer_read camera, materials, items, meshlets, previous_transforms;
         buffer_read_write statistics;
         std::optional<buffer_read> culled_meshlets = {};
+        std::optional<buffer_read> hzb_survivors = {}, hzb_results = {};
         void visit_resources(parameter_visitor& visit) const noexcept {
-            visit(camera, materials, items, meshlets, previous_transforms, statistics, culled_meshlets);
+            visit(camera, materials, items, meshlets, previous_transforms, statistics, culled_meshlets, hzb_survivors, hzb_results);
         }
     };
 
@@ -127,6 +138,9 @@ export namespace deren::engine::render_graph::visibility {
     };
 
     [[nodiscard]] inline std::expected<resolve_outputs, graph_error> append_resolve(builder& graph, resolve_inputs const& in) noexcept {
+        if (in.shared && in.shared->hzb_survivors.has_value() != in.shared->hzb_results.has_value()) {
+            return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "visibility HZB", .resource_name = "incomplete HZB read tables"});
+        }
         std::array<texture_ref, 5> outputs{in.surface[0], in.surface[1], in.surface[2], in.velocity, in.color};
         for (std::size_t i = 0; i < outputs.size(); ++i) {
             for (std::size_t j = 0; j < i; ++j) {
@@ -160,6 +174,10 @@ export namespace deren::engine::render_graph::visibility {
                                                       {in.shared->statistics, {}, buffer}};
             if (in.shared->culled_meshlets) {
                 params.shared->culled_meshlets = buffer_read{*in.shared->culled_meshlets, {}, buffer};
+            }
+            if (in.shared->hzb_survivors) {
+                params.shared->hzb_survivors = buffer_read{*in.shared->hzb_survivors, {}, buffer};
+                params.shared->hzb_results = buffer_read{*in.shared->hzb_results, {}, buffer};
             }
         }
         auto added = graph.add_pass("visibility resolve", std::move(params));

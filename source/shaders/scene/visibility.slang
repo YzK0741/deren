@@ -46,6 +46,7 @@
 // the material record: the raster fragment reads one record per pixel for the alphaMode MASK test (item 2)
 #include "common/material_record.slang"
 #include "geometry/mesh_geometry.slang"
+#include "common/hzb.slang"
 
 struct VisibilityPush
 {
@@ -97,8 +98,15 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
     // meshlet's order inside that run, so this is the same record the pbr meshlet entry reads (and the resolve
     // reads back through the id).
     const bool host_culled = (geometry.base_vertex & 1u) != 0u;
-    const MeshletRecord meshlet = host_culled ? culled_meshlet_at(push.frame_slot, geometry.first_index + group_id.x)
-                                            : meshlet_at(geometry.first_index + group_id.x);
+    const bool hzb_mode = (geometry.base_vertex & 2u) != 0u;
+    bool hzb_live = false;
+    if (hzb_mode)
+    {
+        hzb_live = hzb_survivors_usable(push.frame_slot, push.item_index);
+    }
+    const MeshletRecord meshlet = hzb_live ? hzb_survivor_at(push.frame_slot, geometry.first_index + group_id.x)
+        : ((hzb_mode || host_culled) ? culled_meshlet_at(push.frame_slot, geometry.first_index + group_id.x)
+                                    : meshlet_at(geometry.first_index + group_id.x));
     // THIS LANE'S OWN COUNTERS (mesh_geometry.slang's ids 8..11): the pbr/shadow meshlet entries count themselves,
     // but they are different stages, so without these the cull below had no in-engine evidence - only the offline
     // probe. One atomic per workgroup, the rule the other mesh entries follow.

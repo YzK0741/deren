@@ -13,7 +13,80 @@ import deren.engine.render_graph.visibility;
 namespace rg = deren::engine::render_graph;
 namespace visibility = rg::visibility;
 
+namespace {
+    struct cull_outputs {
+        rg::buffer_discard_write survivors, results;
+        rg::buffer_read_write commands;
+        void visit_resources(rg::parameter_visitor& visit) const noexcept {
+            visit(survivors, results, commands);
+        }
+    };
+    void test_hzb_consumers() {
+        for (bool resolve : {false, true}) {
+            rg::builder graph;
+            std::array<rg::buffer_ref, 10> b{};
+            for (unsigned i = 0; i < b.size(); ++i)
+                b[i] = *graph.import_buffer({83, 100 + i}, rg::initial_contents::defined, "table", {64},
+                                            rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader, rg::memory_access::read});
+            constexpr rg::access_scope compute{rg::resource_usage::storage, rg::pipeline_stage::compute_shader};
+            CHECK(graph.add_pass("hzb cull", cull_outputs{{b[4], {}, compute}, {b[5], {}, compute}, {b[2], {}, compute}}).has_value());
+            auto image = [&](unsigned id, bool defined, bool depth = false) {
+                return *graph.import_texture({83, id}, defined ? rg::initial_contents::defined : rg::initial_contents::undefined,
+                                             "attachment", {1, 1, depth ? rg::texture_aspect::depth : rg::texture_aspect::color},
+                                             defined ? rg::resource_state{rg::resource_layout::shader_read_only, rg::pipeline_stage::compute_shader, rg::memory_access::read} : rg::resource_state{});
+            };
+            auto vis = image(1, resolve), depth = image(2, resolve, true);
+            rg::pass_ref consumer{};
+            if (!resolve) {
+                visibility::inputs in{vis, depth, visibility::shared_inputs{b[0], b[1], b[2]}};
+                in.shared->culled_meshlets = b[3];
+                in.shared->hzb_survivors = b[4];
+                CHECK(!visibility::append(graph, in).has_value());
+                in.shared->hzb_results = b[5];
+                auto appended = visibility::append(graph, in);
+                CHECK(appended.has_value());
+                if (!appended)
+                    continue;
+                consumer = appended->pass;
+                CHECK(graph.export_resource(vis).has_value());
+            } else {
+                visibility::resolve_inputs in{};
+                in.vis_id = vis;
+                in.depth = depth;
+                for (unsigned i = 0; i < in.surface.size(); ++i)
+                    in.surface[i] = image(3 + i, false);
+                in.velocity = image(6, false);
+                in.color = image(7, false);
+                in.shared = visibility::resolve_shared_inputs{b[0], b[6], b[7], b[1], b[8], b[9]};
+                in.shared->culled_meshlets = b[3];
+                in.shared->hzb_survivors = b[4];
+                in.shared->hzb_results = b[5];
+                auto appended = visibility::append_resolve(graph, in);
+                CHECK(appended.has_value());
+                if (!appended)
+                    continue;
+                consumer = appended->pass;
+                CHECK(graph.export_resource(in.color).has_value());
+            }
+            auto plan = graph.compile({true});
+            CHECK(plan.has_value());
+            if (!plan)
+                continue;
+            for (auto resource : {b[4], b[5], b[2]}) {
+                if (resolve && resource == b[2])
+                    continue;
+                bool ordered = false;
+                auto stage = resource == b[2] ? rg::pipeline_stage::draw_indirect : (resolve ? rg::pipeline_stage::compute_shader : rg::pipeline_stage::mesh_shader);
+                for (auto const& barrier : plan->barriers)
+                    if (barrier.resource == resource.index() && barrier.before_pass == consumer.index())
+                        ordered |= barrier.memory_dependency && barrier.before.stages == rg::pipeline_stage::compute_shader && barrier.after.stages == stage;
+                CHECK(ordered);
+            }
+        }
+    }
+} // namespace
 int main() {
+    test_hzb_consumers();
     // ---- the RASTER lane as it will be recorded: both attachments and the three stage reads ----
     for (bool with_culled : {false, true}) {
         rg::builder graph;

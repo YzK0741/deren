@@ -36,6 +36,7 @@ module;
 
 export module deren.engine.visibility;
 import deren.engine.subtilis;
+import deren.engine.meshlet;
 
 export namespace deren::engine::visibility {
     // =============================================================================================
@@ -129,6 +130,7 @@ export namespace deren::engine::visibility {
     /// where the item's meshlet records come from: the import-time table or this frame's host-culled lane
     enum class meshlet_source : std::uint32_t { table = 0u,
                                                 culled = 1u,
+                                                hzb = 2u,
     };
 
     /// the number of 32-bit lanes before the model matrix
@@ -265,6 +267,18 @@ export namespace deren::engine::visibility {
         block.geometry.first_index = run.base;
         block.geometry.index_count = run.count;
         block.geometry.base_vertex = visible ? 1 : 0;
+    }
+
+    /// Promote only a complete, valid host-cut run; a refused promotion preserves the old metadata.
+    [[nodiscard]] inline bool apply_hzb_run(draw_item& item, push_block& block, subtilis::visible_run const& run) noexcept {
+        if (run.source != subtilis::run_source::visible || run.count == 0 || run.count > id_meshlet_capacity ||
+            run.base > deren::engine::meshlet_capacity || run.count > deren::engine::meshlet_capacity - run.base) {
+            return false;
+        }
+        apply_meshlet_run(item, block, run);
+        item.meshlet_table = static_cast<std::uint32_t>(meshlet_source::hzb);
+        block.geometry.base_vertex = 2; // bit0 host-cut, bit1 HZB survivor table
+        return true;
     }
 
     // =============================================================================================

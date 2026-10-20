@@ -12,6 +12,7 @@
 #include <vector>
 
 import deren.engine.visibility;
+import deren.engine.subtilis;
 
 namespace {
     using namespace deren::engine::visibility;
@@ -491,7 +492,26 @@ namespace {
     }
 } // namespace
 
+namespace {
+    void test_hzb_run_publication() {
+        draw_item row{};
+        push_block push{};
+        push.geometry.index_width = 2;
+        using deren::engine::subtilis::run_source;
+        CHECK(static_cast<unsigned>(meshlet_source::hzb) == 2u);
+        CHECK(apply_hzb_run(row, push, {27, 12, run_source::visible}));
+        CHECK(row.meshlet_table == 2 && push.geometry.base_vertex == 2);
+        CHECK(row.meshlet_base == 27 && push.geometry.first_index == 27 && push.geometry.index_count == 12);
+        CHECK(push.geometry.index_width == 2);
+        CHECK(!apply_hzb_run(row, push, {0, 12, run_source::shared}));
+        CHECK(!apply_hzb_run(row, push, {0, 0, run_source::visible}));
+        CHECK(!apply_hzb_run(row, push, {65530, 12, run_source::visible}));
+        CHECK(!apply_hzb_run(row, push, {0, id_meshlet_capacity + 1, run_source::visible}));
+        CHECK(row.meshlet_base == 27 && push.geometry.index_count == 12); // failed promotion changes nothing
+    }
+} // namespace
 int main() {
+    test_hzb_run_publication();
     test_id_layout();
     test_id_round_trip();
     test_id_bounds_refuse();

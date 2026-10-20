@@ -1072,6 +1072,11 @@ namespace {
 } // namespace
 
 int main() {
+    CHECK(hzb::hzb_command_word_offset(0, 0) == 2u * 65536u * 3u);
+    CHECK(hzb::hzb_command_word_offset(1, 4095) == (3u * 65536u + 2u * 65536u + 4095u) * 3u);
+    CHECK(hzb::hzb_dispatch_count(7, 0) == 0);
+    CHECK(hzb::hzb_dispatch_count(7, 3) == 3);
+    CHECK(hzb::hzb_dispatch_count(7, hzb::hzb_count_fallback) == 7);
     test_pyramid_layout();
     test_pyramid_builder();
     test_fail_open_constructs();

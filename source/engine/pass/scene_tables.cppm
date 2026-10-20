@@ -52,7 +52,7 @@ export namespace deren::engine::pass {
                 value.life = i < 6 ? managed::lifetime::scene : managed::lifetime::frame_slot;
                 value.buffer.size = sizes[i];
                 value.buffer.usage = rhi::buffer_usage::storage_coherent;
-                value.buffer.flags = i == 6 ? rhi::to_bits(rhi::buffer_flag::indirect) : rhi::to_bits(rhi::buffer_flag::device_address);
+                value.buffer.flags = rhi::to_bits(rhi::buffer_flag::device_address) | (i == 6 ? rhi::to_bits(rhi::buffer_flag::indirect) : 0u);
                 value.zero_on_create = true;
             }
             return values;

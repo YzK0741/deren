@@ -993,3 +993,12 @@ prepare/record 拆分在关闭时行为不变（RED 证明：拆分后先不接 
 
 - **阶段 A 的 HZB 读回验证**必须包含"GPU 构建的 pyramid 与 host 用 `DEREN_DEPTH_PROBE_CAPTURE` 深度离线构建的 max pyramid 逐 texel 相等"（若允许误差，必须在报告里给出误差来源与上界），这是 HZB 数学正确性的唯一机内证据。
 - **阶段 B 的 near 画面差异**必须与 host 原型（0.314% 像素、max 10）对比并解释差异来源（近深度界改进了哪些像素）；不能只报"更小"。
+
+
+## 16. 阶段 B2 实施验收（2026-10-21）
+
+已接入 GPU survivor 与 per-item indirect commands，保持阶段 B 的默认关闭与字节精确静态门控。完整 host-cut run 才进入新来源；无法发布时用 UINT32_MAX sentinel，保留 host command，raster/resolve 同时回退原记录。跨 pass 同步由图声明，探针另行显式发布 GPU→host 可见性。
+
+Bistro 远/近视点 CPU-reference 判断100%一致，同变体 OFF/ON 逐像素相同；强制 overflow 与移动 gate 关闭时也保持完整画面。各三轮交错测量的 GPU frame 中位数：far24.47→10.62ms（−56.60%）、near21.80→5.09ms（−76.65%），包含 cull 成本。Release58/58，相关 ASan/UBSan4/4；独立审查的一项探针同步问题已修复并复验。明细与已知 near OFF-vs-OFF 两变体抖动见 `docs/reviews/2026-10-20-bistro-performance/hzb-b2-verify.md`。
+
+下一阶段为 C 的 current-frame recovery，尚未实现；动态相机/TAA jitter 仍关闭剔除，不能因此默认开启阶段 B。

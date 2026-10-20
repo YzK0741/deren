@@ -154,6 +154,13 @@ void hzb_level_size(uint width, uint height, uint level, out uint out_width, out
 
 // ---- capacities and thresholds: mirrors of hzb.cppm's exported constants ----
 static const uint hzb_item_candidate_capacity = 4096u;  // how many candidates ONE item may offer (the id's meshlet field)
+static const uint hzb_mesh_command_capacity = 3u * 65536u;
+static const uint hzb_visibility_command_run = 2u * 65536u;
+static const uint hzb_count_fallback = 0xFFFFFFFFu;
+uint hzb_command_word_offset(uint slot, uint item)
+{
+    return (slot * hzb_mesh_command_capacity + hzb_visibility_command_run + item) * 3u;
+}
 static const uint hzb_candidate_capacity = 65536u;      // records one frame lane of a meshlet table holds
 static const float hzb_ndc_epsilon = 1e-5;              // the NDC-depth comparison's epsilon (§6.6)
 static const float hzb_near_plane_scale = 1.001;        // the cross-near-plane early-out's factor (§6.3)
@@ -167,7 +174,7 @@ struct HzbItem
     uint meshlet_base;    // the run's first candidate index inside the source table
     uint candidate_count; // how many candidates the run holds (0 = none)
     uint source;          // hzb_item_source_*: 0 = not a host-cut run, 1 = this frame's host-culled lane
-    uint pad;             // keeps the entry 16 B (the host struct's own pad, mirrored)
+    uint pad;             // original host dispatch count (probe contract), keeps the entry 16 B
 };
 
 /// `HzbItem.source`: the candidate records are NOT in the host-culled lane, so this phase culls nothing for the item
@@ -195,6 +202,12 @@ uint hzb_results_lane_base(uint frame_slot)
     return frame_slot * hzb_results_words;
 }
 
+// A rejected result keeps the host command and the original host-culled records.
+bool hzb_survivors_usable(uint slot, uint item)
+{
+    return heap_at<StructuredBuffer<uint>>(heap_slots_hzb_results)[hzb_results_lane_base(slot) + hzb_results_pass1_count + item] != hzb_count_fallback;
+}
+
 /// the first WORD of @p frame_slot's item lane (heap_slots_hzb_items holds 4096 16-byte entries per frame)
 uint hzb_items_lane_base(uint frame_slot)
 {
@@ -205,7 +218,7 @@ uint hzb_items_lane_base(uint frame_slot)
 static const uint hzb_stat_candidates = 0u;     // candidates the cull walked
 static const uint hzb_stat_culled = 1u;         // candidates it conservatively dismissed
 static const uint hzb_stat_survivors = 2u;      // candidates it kept
-static const uint hzb_stat_overflow_items = 3u; // items whose run could not be described: their count is frozen to 0
+static const uint hzb_stat_overflow_items = 3u; // items whose run could not be described: fallback sentinel preserves the original run
 
 // ---- THE MATRIX SPELLING: the CPU reference's storage and its three accessors, copied §6.2 verbatim ----
 //

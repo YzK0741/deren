@@ -90,6 +90,15 @@ export namespace deren::engine::visibility::hzb {
     /// records one frame lane of a meshlet table holds: `hzb_results.flags` and `hzb_survivors` are indexed by
     /// absolute meshlet index and use this capacity (§5.1, mirrored from mesh_geometry.slang's meshlet_table_capacity)
     inline constexpr std::uint32_t hzb_candidate_capacity = 65536u;
+    inline constexpr std::uint32_t hzb_mesh_command_capacity = 3u * hzb_candidate_capacity;
+    inline constexpr std::uint32_t hzb_visibility_command_run = 2u * hzb_candidate_capacity;
+    inline constexpr std::uint32_t hzb_count_fallback = 0xFFFFFFFFu;
+    [[nodiscard]] constexpr std::uint32_t hzb_command_word_offset(std::uint32_t slot, std::uint32_t item) noexcept {
+        return (slot * hzb_mesh_command_capacity + hzb_visibility_command_run + item) * 3u;
+    }
+    [[nodiscard]] constexpr std::uint32_t hzb_dispatch_count(std::uint32_t candidates, std::uint32_t survivors) noexcept {
+        return survivors <= candidates ? survivors : candidates;
+    }
 } // namespace deren::engine::visibility::hzb
 
 namespace deren::engine::visibility::hzb::detail {
