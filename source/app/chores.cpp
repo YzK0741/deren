@@ -225,6 +225,16 @@ namespace deren::chores {
             load_shader(shaders_dir, "hzb_build.comp.spv", hzb_build_code);
             runtime.register_shader("hzb_build.comp.spv", hzb_build_code);
         }
+        // ---- THE HZB CULL MODULE (M3 phase B1, docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md) ----
+        // The runtime creates its own cull pass lazily, exactly as it does the build pass, and asks for the module
+        // through `pass_context::shader` - so loading and registering it here is the whole host-side contract. THE
+        // SAME TWO GATES THE RUNTIME READS guard the load (the cull lane requires the build lane: it tests against
+        // the history pyramid the build lane produces), so an A2-only or OFF run does not even read the file.
+        if (std::getenv("DEREN_HZB_BUILD") != nullptr && std::getenv("DEREN_HZB_CULL") != nullptr) {
+            deren::utility::vessel::vector<uint8_t> hzb_cull_code;
+            load_shader(shaders_dir, "hzb_cull.comp.spv", hzb_cull_code);
+            runtime.register_shader("hzb_cull.comp.spv", hzb_cull_code);
+        }
 
         {
             // THE TOON CHARACTER STAGE'S PIPELINE, and it is registered through a DIFFERENT entry point on

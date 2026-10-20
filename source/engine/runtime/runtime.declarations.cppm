@@ -64,6 +64,8 @@ import deren.engine.pass.cluster;
 import deren.engine.pass.visibility_raster;  // the raster pass's frame: what the lane records through
 import deren.engine.pass.visibility_resolve; // the resolve pass: the id's consumer in the graph
 import deren.engine.pass.hzb_build;          // HZB phase A2: the max pyramid's producer (runtime-owned, see its member note)
+import deren.engine.pass.hzb_cull;           // HZB phase B1: the pyramid's GPU consumer (runtime-owned, same note)
+import deren.engine.visibility.hzb;          // the CPU reference + the phase-B scene gate/snapshot vocabulary
 import deren.engine.subtilis;
 import deren.engine.visibility; // the visibility buffer's packed id and draw-item record
 import deren.engine.pass.scene_constants;
@@ -661,6 +663,12 @@ namespace deren::engine {
             rt_build_end,          // after the acceleration-structure builds (the bottom levels on the frame
                                    // that creates them, the top level every frame after it)
             shadow_end,            // after the shadow pass + its sampling barrier
+            hzb_cull_end,          // after the HZB CULL lane (M3 phase B1): the per-item conservative cull dispatch,
+                                   // recorded BEFORE the raster lane and AFTER the shadow pass. Inserted (not
+                                   // appended) because the report walks the marks positionally: the interval
+                                   // shadow_end -> here is the cull alone, and here -> visibility_raster_end is
+                                   // the raster alone - folding the cull into either pass would make the B2 A/B
+                                   // unable to say which of the two bought the GPU time (§10.5).
             visibility_raster_end, // after the VISIBILITY RASTER lane (the mesh-task id dispatch). Written by BOTH
                                    // opaque paths so the labels stay path-independent: a visibility frame writes it
                                    // after the raster lane (so shadow_end -> here is the raster alone and here ->
@@ -711,6 +719,7 @@ namespace deren::engine {
         static constexpr deren::utility::vessel::array<gpu_timing_label, gpu_mark_count - 1> gpu_timing_labels = {{
             {"rt", false},
             {"shadow", false},
+            {"hzb cull", false},
             {"visibility raster", false},
             {"scene", false},
             {"rt shadow", false},
@@ -1117,6 +1126,100 @@ namespace deren::engine {
         deren::utility::vessel::array<float, 16> hzb_probe_view = {};
         deren::utility::vessel::array<float, 16> hzb_probe_proj = {};
         deren::utility::vessel::array<float, 3> hzb_probe_camera_pos = {};
+        // ================================================================================================
+        // THE HZB CULL LANE (M3 phase B1, docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md §4.3, §6,
+        // §9.1/§9.2, §10.3). It is the BUILD lane's consumer on the GPU: per-item workgroups test the host-selected
+        // candidates against the HISTORY pyramid and write flags / the compacted survivor list / per-item counts /
+        // the stats block. NOTHING CONSUMES ITS OUTPUT THIS PHASE - phase B2 swaps the visibility raster onto the
+        // survivor table and writes the per-item command words - so with both gates set the frame's PIXELS are
+        // still byte-identical to the un-gated build, and the acceptance is the in-engine verification against the
+        // committed CPU reference.
+        //
+        // THE SECOND GATE IS DEREN_HZB_CULL, AND IT REQUIRES DEREN_HZB_BUILD: the cull lane reads tables the build
+        // lane produces, so "cull without build" has no history to read. Unset means this runtime allocates no
+        // phase-B buffer, creates no cull pipeline and appends no cull lane - the phase-A2 run stays exactly itself.
+        // ================================================================================================
+        /// both gates, read ONCE at construction: DEREN_HZB_BUILD and DEREN_HZB_CULL set (to any value)
+        bool hzb_cull_enabled = false;
+        /// a startup failure (no registered shader, a refused pipeline, a refused allocation) is reported once
+        bool hzb_cull_failed = false;
+        /// THE CULL PASS (runtime-owned for the same reason the build pass is - it is an internal M3 lane)
+        std::unique_ptr<pass::hzb_cull_pass> hzb_cull;
+        /// THE PHASE-B TABLES (spec §5.1): `hzb_items` is HOST-written per item (host-visible/coherent, like the
+        /// item table), `hzb_results` is GPU-written but host-visible because the probe and the shutdown stats line
+        /// read it back, and `hzb_survivors` is GPU-only (nothing but a GPU consumer reads it in this design).
+        resource_lease<rhi::buffer> hzb_items_buffer;
+        resource_lease<rhi::buffer> hzb_results_buffer;
+        resource_lease<rhi::buffer> hzb_survivors_buffer;
+        /// the two host mappings the per-frame writes/reads go through (null when the lane is off or failed)
+        void* hzb_items_mapped = nullptr;
+        void* hzb_results_mapped = nullptr;
+        /// whether BOTH the fixed-size phase-B tables exist and their heap descriptors were written
+        bool hzb_cull_resources_ready = false;
+        /// THE FRAME'S FROZEN VERDICT: the static gate was open, so the cull lane is appended and the item table is
+        /// filled this frame. Written once in runtime.post_graph.cpp before the graph records; every later reader
+        /// (the raster lane's item recorder, the probe) uses it instead of re-evaluating.
+        bool hzb_cull_active_frame = false;
+        /// the cull pass was recorded in the frame being recorded (the probe dumps only such a frame)
+        bool hzb_cull_recorded_this_frame = false;
+        /// the frame slot the last cull lane recorded in (its stats block is the one the shutdown line reads)
+        std::uint32_t hzb_cull_last_slot = 0;
+        /// whether a cull lane recorded since the last resize (the stats block has a value the line may report)
+        bool hzb_cull_stats_valid = false;
+        /// this frame's dispatch shape: items the cull lane tests, and the candidates the host's plans sum to
+        /// (the CANDIDATE TOTAL is host-known - the item table's runs - which is why the per-frame log can print it
+        /// without a GPU read-back; the culled/survivor split is the GPU's and is read at shutdown/probe time).
+        std::uint32_t hzb_cull_item_count = 0;
+        std::uint32_t hzb_cull_candidate_total = 0;
+        /// once-per-session log lines: the gate-closed reasons (the first frames have no history yet; a later close
+        /// is the real phase-B decision - a camera/item change) and the first gate-open frame
+        bool hzb_cull_gate_closed_logged = false;
+        bool hzb_cull_gate_pruned_logged = false;
+        bool hzb_cull_gate_open_logged = false;
+        // ---- THE SESSION'S CULL TOTALS, accumulated on the HOST from the per-frame stats block ----
+        // A cull frame's stats are zeroed before its slot is reused, so the exact session totals need one read of the
+        // SLOT'S PREVIOUS FRAME at the moment it is about to be reused - and that read is free: the frame ring has
+        // already waited for the slot before this frame records (the same no-stall rule the history HZB read relies
+        // on). The shutdown line then reports the run's totals and the per-cull-frame averages, not just the last
+        // frame's numbers (spec §10.3's "session cumulative" shape, applied to this phase's own stats block).
+        std::uint64_t hzb_cull_session_candidates = 0;
+        std::uint64_t hzb_cull_session_culled = 0;
+        std::uint64_t hzb_cull_session_survivors = 0;
+        std::uint64_t hzb_cull_session_overflow_items = 0;
+        std::uint32_t hzb_cull_session_frames = 0;
+        // ---- THE PHASE-B SCENE GATE (§9.2): byte-exact, per frame slot ----
+        // What the frame that BUILT this slot's history HZB recorded: the camera's two matrix lanes (bit patterns,
+        // not values) and the ordered visible-item list (leaf identity + model matrix bits). A frame whose snapshot
+        // equals the slot's stored one is byte-identical for every pixel the cull reasons about, so the old depth IS
+        // this frame's depth; anything else closes the gate and the frame keeps the old path.
+        deren::utility::vessel::array<deren::engine::visibility::hzb::hzb_matrix_bits, rhi::max_frames_in_flight> hzb_source_view = {};
+        deren::utility::vessel::array<deren::engine::visibility::hzb::hzb_matrix_bits, rhi::max_frames_in_flight> hzb_source_proj = {};
+        deren::utility::vessel::array<deren::utility::vessel::vector<deren::engine::visibility::hzb::hzb_scene_item>, rhi::max_frames_in_flight> hzb_source_items = {};
+        /// whether this slot has a snapshot at all (set by the build lane, cleared by the resize invalidation)
+        deren::utility::vessel::array<bool, rhi::max_frames_in_flight> hzb_source_valid = {};
+        /// THE CURRENT FRAME'S SNAPSHOT, captured ONCE when the gate is evaluated (the item list is ~200 KB of bits,
+        /// so capturing it once per frame and reusing it for the compare/save is part of the CPU budget §1.2 sets)
+        deren::engine::visibility::hzb::hzb_matrix_bits hzb_current_view = {};
+        deren::engine::visibility::hzb::hzb_matrix_bits hzb_current_proj = {};
+        deren::utility::vessel::vector<deren::engine::visibility::hzb::hzb_scene_item> hzb_current_items = {};
+        bool hzb_current_scene_captured = false;
+        // ---- THE PHASE-B PROBE (DEREN_HZB_CULL_PROBE_CAPTURE, §10.2) ----
+        // THE HISTORY LANE IS DUMPED, NOT THE CURRENT ONE: the cull reads `frame_slot`'s pyramid as the PREVIOUS use
+        // of that slot wrote it (2 frames old), and this frame's build OVERWRITES the same lane later in the same
+        // submission. So the copy is recorded INSIDE the cull lane's recorder (before the build lane records), and
+        // the file names say "history" - a dump taken after the graph would describe the current frame and the CPU
+        // reference would be verified against the wrong data.
+        bool hzb_cull_probe_active = false;
+        rhi::unique_object<rhi::buffer> hzb_cull_probe_pyramid_readback;   // the HISTORY pyramid lane the cull read
+        rhi::unique_object<rhi::buffer> hzb_cull_probe_header_readback;    // ... and its header lane
+        rhi::unique_object<rhi::buffer> hzb_cull_probe_survivors_readback; // this frame's survivor lane (after the cull)
+        rhi::image_extent hzb_cull_probe_extent = {};
+        std::uint32_t hzb_cull_probe_frame_slot = 0;
+        std::uint32_t hzb_cull_probe_item_count = 0;
+        std::uint32_t hzb_cull_probe_candidate_total = 0;
+        std::uint32_t hzb_cull_probe_words = 0;
+        std::uint32_t hzb_cull_probe_levels = 0;
+        bool hzb_cull_probe_dumped = false;
         // Enable only after the image and performance acceptance checks pass.
         static constexpr bool gaussian_gpu_auto_enabled = true;
         /**
@@ -2487,6 +2590,11 @@ namespace deren::engine {
          *       without that schema change: the acceptance evidence for this decision is in the task-4 report.
          */
         void ensure_hzb_resources();
+        /// @brief create the three phase-B fixed-size tables into @p cluster, map the two host-visible ones, zero them
+        /// @note called by `ensure_hzb_resources` only when both gates are set: an A2-only or OFF run allocates
+        ///       nothing here. A failure marks the cull lane unavailable (the build lane keeps working) - the frame
+        ///       then has no cull lane and keeps today's path.
+        void create_hzb_cull_tables(resource_cluster& cluster);
         /// @brief write the two HZB heap descriptors (address + length, the same spelling every publish path uses)
         /// @note called by ensure_hzb_resources after each (re)creation; idempotent, and a heap write failure is
         ///       logged rather than fatal (the lane then stays unready and no frame records it)
@@ -2496,6 +2604,60 @@ namespace deren::engine {
         ///       runtime.readback.cppm after its device idle - the one post-submit point where the mapped
         ///       readback is valid. A no-op when the env var is unset or no probe copy was recorded.
         void write_hzb_probe_capture();
+        // ---- THE PHASE-B (CULL) LANE'S HELPERS (M3 phase B1) ----
+        /**
+         * @brief capture THIS frame's phase-B scene snapshot: the camera's two matrix lanes and the ordered visible
+         *        item list (leaf identity + model matrix bits), from the SAME `current_ubo` / `frame_visible` the
+         *        frame records with
+         * @note called once per candidate frame by `evaluate_hzb_cull_lane`, and reused when the build lane saves
+         *       the snapshot - the item list is ~200 KB of bits on Bistro, which is inside the CPU budget only
+         *       because it is captured ONCE (§1.2)
+         */
+        void capture_hzb_current_scene();
+        /// @brief store the current snapshot as the slot's "what built this lane's history HZB" record (§9.2)
+        /// @note called from the BUILD lane's recorder after it recorded (the matrices/items that built the pyramid
+        ///       are this frame's); also sets `hzb_source_valid[slot]`, the first of the cull lane's two gates
+        void save_hzb_source_scene();
+        /// @brief whether this frame may cull: this slot's HZB was built AND the frame is byte-identical to it
+        [[nodiscard]] bool hzb_scene_gate_open() const noexcept;
+        /// @brief the vocabulary of `hzb_scene_gate_open`'s "no" (the once-per-session log line's reason)
+        [[nodiscard]] std::string_view hzb_scene_gate_closed_reason() const noexcept;
+        /**
+         * @brief evaluate the cull lane for this frame and (when it opens) arm the per-frame bookkeeping
+         * @param item_count the number of items the frame will record (the dispatch's group count)
+         * @return true when `runtime.post_graph.cpp` should append + bind the cull lane
+         * @note the whole §9.1 admission for this phase is in one place: the two env gates, the pipeline, the three
+         *       fixed-size tables and their heap descriptors, a visibility-lane frame (the cull is the visibility
+         *       lane's derived data), the frame's own recorded item count, and the byte-exact gate above. Any
+         *       false leaves the graph with exactly today's nodes and the frame byte-identical to today's.
+         */
+        [[nodiscard]] bool evaluate_hzb_cull_lane(std::uint32_t item_count);
+        /// @brief zero this frame slot's stats block and clear the candidate total, before the cull lane runs
+        void reset_hzb_cull_stats();
+        /**
+         * @brief allocate the phase-B probe's three readback buffers for THIS frame's dump
+         * @return true when the probe is armed (the cull lane records the history-copy block); false when the
+         *         screenshot frame cannot be probed - the reason is logged where the decision is made
+         * @note the HISTORY pyramid/header copy must be recorded INSIDE the cull lane (before this frame's build
+         *       overwrites the lane); the survivors copy is recorded in the same block, after the dispatch
+         */
+        [[nodiscard]] bool begin_hzb_cull_probe();
+        /// @brief record the probe's two history copies + the survivor copy inside the cull lane's recorder
+        /// @note called after the cull pass recorded: the history lanes are the ones the dispatch READ (copied
+        ///       before the build lane rewrites this slot's lane), the survivor lane is this dispatch's output.
+        void record_hzb_cull_probe_copy(rhi::command_buffer& commands);
+        /// @brief dump the phase-B probe's files + run the in-engine verification against the committed CPU
+        ///        reference (DEREN_HZB_CULL_PROBE_CAPTURE, spec §10.2/§6.7)
+        /// @note declared here and defined in runtime.probes.cppm; called by runtime.readback.cppm after its device
+        ///       idle. A no-op when the env var is unset or no cull lane recorded on the screenshot frame.
+        void write_hzb_cull_probe_capture();
+        /// @brief the session's last culling frame's counts: `candidates / culled / survivors` + the overflow items
+        /// @note read from the mapped results buffer at shutdown (after `wait_idle`), the same pattern
+        ///       `log_meshlet_stats` uses - this is the only GPU->CPU read of the stats block in a phase-B run
+        /// @note non-const because it performs the LAST accumulation: the frame slots' stats blocks still hold
+        ///       their last culling frame's numbers at shutdown (each slot's previous frame is accumulated when the
+        ///       slot is reused), so this reads them once more to make the session totals exact.
+        void log_hzb_cull_stats();
         void create_shadow_resources(); // collect managed scene resources
         rhi::error upload_scene_constant(uint32_t completed_slot, render_resource::resource_id id, std::span<std::byte const> bytes);
         void publish_cluster_bindings();

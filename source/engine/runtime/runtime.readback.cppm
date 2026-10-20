@@ -112,6 +112,11 @@ namespace deren::engine {
         // and their readback buffers are mapped. The implementation is runtime.probes.cppm's (the diagnostics
         // partition); it is a no-op unless DEREN_HZB_PROBE_CAPTURE is set AND the frame's build lane recorded.
         this->write_hzb_probe_capture();
+        // ... AND THE PHASE-B CULL PROBE'S FILES + THE IN-ENGINE REFERENCE VERIFICATION (M3 phase B1, spec §6.7):
+        // its history-lane and survivor copies were recorded INSIDE the cull lane (before the build lane rewrote the
+        // history lane), and the other dumps are the mapped tables - all final by this same idle point. A no-op
+        // unless DEREN_HZB_CULL_PROBE_CAPTURE is set and the cull lane recorded on the screenshot frame.
+        this->write_hzb_cull_probe_capture();
         std::size_t const buffer_size = static_cast<std::size_t>(extent.width) * static_cast<std::size_t>(extent.height) * 4u;
         std::span<std::byte> const mapped = slot->mapped();
         if (mapped.empty() || mapped.size() < buffer_size) {

@@ -1,0 +1,47 @@
+HZB phase B1 — Lead independent verification (2026-10-20, same machine/session, 1280x720)
+
+CONFIG: perf-off-noval.toml + -Overrides "subtilis=true" (host-cut runs are the candidates), 130 frames.
+GATES: DEREN_HZB_BUILD=1, DEREN_HZB_CULL=1, DEREN_HZB_PROBE_CAPTURE + DEREN_HZB_CULL_PROBE_CAPTURE on the screenshot frame.
+
+BUILD/TESTS (Lead re-ran)
+  cmake --build build-release-dyn-clang64 -j 12 -> exit 0
+  ctest --test-dir build-release-dyn-clang64     -> 58/58 passed (45.48 s)
+  test_hzb 1031, test_shader_sources 1944, test_render_resources 694, test_docs 385 - all PASS
+
+CULL NUMBERS (exact engine session lines, my runs)
+  far : session 6,554,232 candidates / 4,687,215 culled / 1,867,017 survivors (71.514%) over 129 culling frames
+        per cull frame 50,808 candidates -> 36,335 culled / 14,473 survivors; 0 overflow items
+  near: session 5,561,835 / 5,163,096 culled / 398,739 survivors (92.831%) over 129 culling frames
+        per cull frame 43,115 candidates -> 40,024 culled / 3,091 survivors; 0 overflow items
+  gate: CLOSED on the first frames ("no history HZB ... yet"), OPEN from the frame whose slot got its 3rd use
+
+IN-ENGINE CPU-REFERENCE VERIFY (100% both cameras)
+  far : hzb cull verify: 50808 candidate(s), 50808 decision(s) agree (100%), survivor order matched; pass1 counts matched
+  near: hzb cull verify: 43115 candidate(s), 43115 decision(s) agree (100%), survivor order matched; pass1 counts matched
+  both: the history header's view/proj are byte-equal to the gate snapshot; the dumped lane is the one the cull READ
+
+INDEPENDENT SCRIPT (no §6 reimplementation; consistency/ordering checks)
+  python scripts/measure/hzb_cull_verify.py .../lead-b1-cull-far   -> PASS (4139 check(s))
+  python scripts/measure/hzb_cull_verify.py .../lead-b1-cull-near  -> PASS (4139 check(s))
+
+GPU COST (isolated "hzb cull" interval, new gpu_mark hzb_cull_end)
+  far : 0.51-0.63 ms/window (matches teammate's 0.55-0.63)
+  near: 0.28-0.39 ms/window (matches teammate's 0.30-0.32)
+
+PIXELS (no consumption yet: must be identical)
+  far : lead-b1-off-far.png vs lead-b1-on-far.png -> changed=0 max=0
+  near: lead-b1-off-near.png vs lead-b1-on-near.png -> changed=2901 max=10  (= the PRE-EXISTING two-variant jitter)
+  near: lead-b1-off-near.png vs lead-b1-off-near2.png (two OFF runs, same binary) -> changed=2901 max=10
+  near: lead-b1-off-near2.png vs lead-b1-on-near.png -> changed=0 max=0   => within-variant identical, jitter not HZB
+
+DESIGN-NUMBER CORRECTION (accepted, measured): the host prototype / offline probe used the bound r_w/d, which is
+  1834x (far) / 954x (near) LOOSER than the exact monotone bound z(d)-z(d-r) at Bistro distances; hence the earlier
+  "far ~0% / near 33%" readings were a weak lower bound. The exact test legitimately culls 71.5% (far) and 92.8%
+  (near) of the host-cut candidates. B2's consumption will measure the real GPU gain; no design change needed.
+
+VERDICT: phase B1 accepted — GPU cull decisions exactly match the committed CPU reference on the real scene, the
+compaction/counts/stats are self-consistent, the static gate behaves, pixels are unchanged, and the cull costs
+~0.3-0.6 ms. B2 prerequisites recorded: (a) add the compute->mesh read barrier + survivor consumption + command
+word writes, (b) consider replacing the group-scope barrier used before the compaction with a device-scope one or
+a groupshared flag stage (the flags live in global memory), (c) the pixel-identical static-camera capture is the
+ultimate correctness gate for the consumed path.

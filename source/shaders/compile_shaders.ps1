@@ -64,6 +64,9 @@ $slangSources = @(
     # THE HZB BUILD STAGE (M3 phase A2): one dispatch per pyramid level over the frame's G-buffer depth, plus the
     # header its thread 0 writes. The build pass asks for this .spv by name; DEREN_HZB_BUILD is the runtime gate.
     "scene/hzb_build.slang:main:compute:hzb_build.comp.spv",
+    # THE HZB CULL STAGE (M3 phase B1): one 64-thread workgroup per item against the HISTORY pyramid. The cull pass
+    # asks for this .spv by name; DEREN_HZB_BUILD + DEREN_HZB_CULL are the runtime gates.
+    "scene/hzb_cull.slang:main:compute:hzb_cull.comp.spv",
     "toon/outline.slang:frag_main:fragment:outline.frag.spv",
     "lighting/shadow.slang:main:fragment:shadow.frag.spv",
     "lighting/shadow.slang:mesh_main:mesh:shadow.mesh.spv",

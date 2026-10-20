@@ -13,19 +13,25 @@ module;
 
 #include <GLFW/glfw3.h>
 #include <algorithm> // std::min in the resource publication
+#include <array>     // the HZB cull probe's fixed table lanes
 #include <bit>       // std::bit_cast for the caster world-matrix hash
 #include <chrono>
+#include <cstddef>  // std::ptrdiff_t in the cull verify's fill
+#include <cstdint>  // the HZB cull probe's table word types
 #include <cstdio>   // std::snprintf: the HZB probe's %.9g float metadata (round-trips float32 exactly)
 #include <cstdlib>  // std::getenv: the probe capture's paths
-#include <cstring>  // std::memcpy, for composing a pass's push block
+#include <cstring>  // std::memcmp: the cull verify's survivor-order comparison
 #include <expected> // std::expected: `image::get_content()` answers the content or the named reason
 #include <fstream>  // the HZB probe's dumps
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <span>   // std::as_bytes for the init_utils calls (the bytes behind a UBO or a zeroed table)
-#include <string> // the probe capture's derived file paths
-#include <thread> // std::this_thread::yield in the frame limiter
-#include <vector> // the destination of a host image copy, when that read-back path is taken
+#include <numeric>     // std::iota: the compaction reference's candidate ids
+#include <optional>    // hzb_compact's answer: the counts, or the refusal
+#include <span>        // std::as_bytes for the init_utils calls (the bytes behind a UBO or a zeroed table)
+#include <string>      // the probe capture's derived file paths
+#include <string_view> // the metadata's file-entry names
+#include <thread>      // std::this_thread::yield in the frame limiter
+#include <vector>      // the destination of a host image copy, when that read-back path is taken
 
 module deren.engine.runtime:probes;
 import deren.utility.shared;
@@ -36,7 +42,10 @@ import deren.engine.pipelines;
 import deren.engine.render_resource;
 import deren.engine.render_resource.shared;
 import deren.engine.pass.hzb_build; // the HZB header's host-side lane layout/magic (the probe dumps it)
-import deren.engine.visibility.hzb; // the pyramid layout the probe's lane sizes are computed with (§4.1)
+import deren.engine.pass.hzb_cull;  // the phase-B table layout + the item record (the probe dumps/verifies them)
+import deren.engine.visibility.hzb; // the pyramid layout + the CPU reference the cull verify runs (§6.7)
+import deren.engine.meshlet;        // the candidate record the CPU reference consumes
+import deren.engine.visibility;     // the draw-item record (the reference's model matrix) and its capacities
 
 import deren.utility;
 import deren.engine.frame_constants; // one frame's shared constants (see update_frame_constants)
@@ -471,6 +480,356 @@ namespace deren::engine {
                             this->hzb_probe_extent.width,
                             this->hzb_probe_extent.height,
                             metadata_path);
+    }
+
+    // =============================================================================================
+    // THE PHASE-B CULL PROBE + THE IN-ENGINE REFERENCE VERIFICATION (M3 phase B1, spec §6.7/§10.2)
+    //
+    // WHY THIS EXISTS AND WHY IT IS THE PHASE'S ACCEPTANCE: the cull lane makes a PREDICTION ("these candidates
+    // are hidden by the history depth"), and a GPU's prediction is only trustworthy when it can be checked against
+    // a reference that has no GPU in it. The reference is the committed `deren::engine::visibility::hzb` module
+    // (hzb_test_sphere + hzb_compact), and this function re-runs it over exactly the data the cull read:
+    //   - the HISTORY pyramid + header lanes, copied by the cull lane's recorder BEFORE this frame's build
+    //     overwrote the same lane (record_hzb_cull_probe_copy - that is what makes the dump describe the data the
+    //     dispatch actually consumed, not this frame's re-built pyramid);
+    //   - the item table, the candidate records and the draw-item model matrices, from the same host-visible
+    //     tables the GPU read.
+    // Every decision, the survivor ORDER and every per-item count must agree; a single disagreement is a FAIL line
+    // and, per the design, a BUG rather than noise (§6.7: the shader and the reference are one contract).
+    //
+    // THE FILES, and what pins each one (scripts/measure/hzb_cull_verify.py):
+    //   <prefix>.history.pyramid.bin  - u32 {file magic, width, height, levels} then the HISTORY lane's words
+    //   <prefix>.history.header.bin   - the 256-byte HISTORY header lane VERBATIM (the camera the cull used)
+    //   <prefix>.items.bin            - the frame slot's 4096 x 16 B item descriptions
+    //   <prefix>.flags.bin            - the frame slot's 65536 candidate flags (u32: 0 survivor, 1 culled)
+    //   <prefix>.counts.bin           - the frame slot's 4096 pass1 survivor counts
+    //   <prefix>.stats.bin            - the frame slot's 16-word stats block
+    //   <prefix>.survivors.bin        - the compacted survivor records (meshlet_capacity x 48 B)
+    //   <prefix>.candidates.bin       - the host-culled candidate records (meshlet_capacity x 48 B)
+    //   <prefix>.draw_items.bin       - the visibility draw-item lane (4096 x 112 B) = the model matrices
+    //   <prefix>.json                 - the metadata that names WHICH history lane/camera was used and the shapes
+    // The script checks internal consistency only; the §6 decision comparison is the in-engine verification below.
+    // =============================================================================================
+    void runtime::write_hzb_cull_probe_capture() {
+        auto const* const prefix = std::getenv("DEREN_HZB_CULL_PROBE_CAPTURE");
+        if (prefix == nullptr || this->hzb_cull_probe_dumped) {
+            return;
+        }
+        if (!this->hzb_cull_probe_active || !this->hzb_cull_probe_pyramid_readback || !this->hzb_cull_probe_header_readback ||
+            !this->hzb_cull_probe_survivors_readback) {
+            // The lane never recorded its copies: either the screenshot frame had no cull lane (gate closed, or the
+            // lane is unavailable). Say so once - a silently missing dump would look like a path typo.
+            deren::utility::log("hzb cull probe capture: skipped - no cull lane recorded its history/survivor copies on the screenshot frame");
+            return;
+        }
+        if (!this->hzb_cull_recorded_this_frame || this->hzb_results_mapped == nullptr || this->hzb_items_mapped == nullptr || this->meshlet_culled_mapped == nullptr ||
+            this->visibility_items_mapped == nullptr) {
+            deren::utility::log("hzb cull probe capture: skipped - a source table is not mapped this run");
+            return;
+        }
+        std::span<std::byte> const pyramid_bytes = this->hzb_cull_probe_pyramid_readback->mapped();
+        std::span<std::byte> const header_mapped = this->hzb_cull_probe_header_readback->mapped();
+        std::span<std::byte> const survivors_mapped = this->hzb_cull_probe_survivors_readback->mapped();
+        std::uint64_t const required_pyramid = static_cast<std::uint64_t>(this->hzb_cull_probe_words) * deren::engine::visibility::hzb::hzb_word_bytes;
+        std::uint64_t const required_survivors = static_cast<std::uint64_t>(pass::hzb_cull_candidate_capacity) * sizeof(deren::engine::meshlet);
+        if (required_pyramid == 0u || pyramid_bytes.size() < required_pyramid || header_mapped.size() < pass::hzb_header_byte_capacity ||
+            survivors_mapped.size() < required_survivors) {
+            deren::utility::log("hzb cull probe capture: FAIL unavailable readback");
+            return;
+        }
+        std::uint32_t const slot = this->hzb_cull_probe_frame_slot;
+        rhi::image_extent const extent = this->hzb_cull_probe_extent;
+        pass::hzb_item const* const items = static_cast<pass::hzb_item const*>(this->hzb_items_mapped);
+        std::uint32_t const* const results = static_cast<std::uint32_t const*>(this->hzb_results_mapped);
+        deren::engine::meshlet const* const candidates = static_cast<deren::engine::meshlet const*>(this->meshlet_culled_mapped);
+        deren::engine::visibility::draw_item const* const draw_items = static_cast<deren::engine::visibility::draw_item const*>(this->visibility_items_mapped);
+        deren::engine::meshlet const* const survivors = reinterpret_cast<deren::engine::meshlet const*>(survivors_mapped.data());
+        std::size_t const survivor_lane_base = static_cast<std::size_t>(slot) * pass::hzb_cull_candidate_capacity;
+        std::size_t const candidate_lane_base = static_cast<std::size_t>(slot) * deren::engine::meshlet_capacity;
+        std::size_t const item_lane_base = static_cast<std::size_t>(slot) * pass::hzb_cull_item_capacity;
+        std::size_t const draw_lane_base = static_cast<std::size_t>(slot) * deren::engine::visibility::id_item_capacity;
+        std::size_t const results_lane_base = static_cast<std::size_t>(slot) * pass::hzb_results_words_per_lane;
+        auto const header_word = [&](std::size_t const index) { return reinterpret_cast<std::uint32_t const*>(header_mapped.data())[index]; };
+        auto const header_float = [&](std::size_t const index) { return std::bit_cast<float>(header_word(index)); };
+        auto const write_float = [](std::ostream& output, float const value) {
+            char text[32] = {};
+            std::snprintf(text, sizeof(text), "%.9g", static_cast<double>(value));
+            output << text;
+        };
+        auto const write_file = [](std::string const& path, void const* const bytes, std::size_t const size) {
+            std::ofstream output(path, std::ios::binary | std::ios::trunc);
+            output.write(static_cast<char const*>(bytes), static_cast<std::streamsize>(size));
+            return static_cast<bool>(output);
+        };
+        // ---- THE DUMPS ----
+        // The history pyramid keeps phase A's file shape (a 4-word header the script can sanity-check first), with a
+        // DIFFERENT magic: one names a FILE's shape ("this is the cull's history pyramid"), the other the HZB
+        // header's GPU-table magic.
+        constexpr std::uint32_t hzb_cull_pyramid_file_magic = 0x485A4342u; // "HZCB": HZB Cull, history pyramid
+        std::string const pyramid_path = std::string(prefix) + ".history.pyramid.bin";
+        {
+            std::array<std::uint32_t, 4> const file_header{hzb_cull_pyramid_file_magic, extent.width, extent.height, this->hzb_cull_probe_levels};
+            std::ofstream output(pyramid_path, std::ios::binary | std::ios::trunc);
+            output.write(reinterpret_cast<char const*>(file_header.data()), sizeof(file_header));
+            output.write(reinterpret_cast<char const*>(pyramid_bytes.data()), static_cast<std::streamsize>(required_pyramid));
+            if (!output) {
+                deren::utility::log("hzb cull probe capture: FAIL pyramid file write");
+                return;
+            }
+        }
+        std::string const history_header_path = std::string(prefix) + ".history.header.bin";
+        if (!write_file(history_header_path, header_mapped.data(), pass::hzb_header_byte_capacity)) {
+            deren::utility::log("hzb cull probe capture: FAIL history header file write");
+            return;
+        }
+        std::string const items_path = std::string(prefix) + ".items.bin";
+        if (!write_file(items_path, items + item_lane_base, static_cast<std::size_t>(pass::hzb_cull_item_capacity) * sizeof(pass::hzb_item))) {
+            deren::utility::log("hzb cull probe capture: FAIL items file write");
+            return;
+        }
+        std::string const flags_path = std::string(prefix) + ".flags.bin";
+        std::size_t const flags_bytes = static_cast<std::size_t>(pass::hzb_cull_candidate_capacity) * sizeof(std::uint32_t);
+        if (!write_file(flags_path, results + results_lane_base + pass::hzb_results_flags_offset, flags_bytes)) {
+            deren::utility::log("hzb cull probe capture: FAIL flags file write");
+            return;
+        }
+        std::string const counts_path = std::string(prefix) + ".counts.bin";
+        std::size_t const counts_bytes = static_cast<std::size_t>(pass::hzb_cull_item_capacity) * sizeof(std::uint32_t);
+        if (!write_file(counts_path, results + results_lane_base + pass::hzb_results_pass1_count_offset, counts_bytes)) {
+            deren::utility::log("hzb cull probe capture: FAIL counts file write");
+            return;
+        }
+        std::string const stats_path = std::string(prefix) + ".stats.bin";
+        std::size_t const stats_bytes = static_cast<std::size_t>(pass::hzb_results_stats_capacity) * sizeof(std::uint32_t);
+        if (!write_file(stats_path, results + results_lane_base + pass::hzb_results_stats_offset, stats_bytes)) {
+            deren::utility::log("hzb cull probe capture: FAIL stats file write");
+            return;
+        }
+        std::string const survivors_path = std::string(prefix) + ".survivors.bin";
+        if (!write_file(survivors_path, survivors, required_survivors)) {
+            deren::utility::log("hzb cull probe capture: FAIL survivors file write");
+            return;
+        }
+        std::string const candidates_path = std::string(prefix) + ".candidates.bin";
+        std::size_t const candidates_bytes = static_cast<std::size_t>(deren::engine::meshlet_capacity) * sizeof(deren::engine::meshlet);
+        if (!write_file(candidates_path, candidates + candidate_lane_base, candidates_bytes)) {
+            deren::utility::log("hzb cull probe capture: FAIL candidates file write");
+            return;
+        }
+        std::string const draw_items_path = std::string(prefix) + ".draw_items.bin";
+        std::size_t const draw_items_bytes = static_cast<std::size_t>(deren::engine::visibility::id_item_capacity) * sizeof(deren::engine::visibility::draw_item);
+        if (!write_file(draw_items_path, draw_items + draw_lane_base, draw_items_bytes)) {
+            deren::utility::log("hzb cull probe capture: FAIL draw-items file write");
+            return;
+        }
+        // ---- THE IN-ENGINE VERIFICATION: THE SAME DATA, THE COMMITTED CPU REFERENCE ----
+        namespace hzb = deren::engine::visibility::hzb;
+        bool const header_usable = header_word(0u) == pass::hzb_header_magic && header_word(1u) == extent.width && header_word(2u) == extent.height &&
+                                   header_word(3u) == this->hzb_cull_probe_levels;
+        bool const header_matches_snapshot = [&] {
+            auto const bits_equal = [&](std::size_t const word_base, hzb::hzb_matrix_bits const& saved) {
+                for (std::size_t index = 0u; index < saved.size(); ++index) {
+                    if (header_word(word_base + index) != saved[index]) {
+                        return false;
+                    }
+                }
+                return true;
+            };
+            return slot < this->hzb_source_valid.size() && this->hzb_source_valid[slot] &&
+                   bits_equal(pass::hzb_header_word_view, this->hzb_source_view[slot]) &&
+                   bits_equal(pass::hzb_header_word_proj, this->hzb_source_proj[slot]);
+        }();
+        std::uint64_t decisions = 0u, agree = 0u, order_bad = 0u, count_bad = 0u;
+        if (header_usable) {
+            hzb::hzb_camera_snapshot camera{};
+            for (std::size_t index = 0u; index < 16u; ++index) {
+                camera.view[index] = static_cast<double>(header_float(pass::hzb_header_word_view + index));
+                camera.proj[index] = static_cast<double>(header_float(pass::hzb_header_word_proj + index));
+            }
+            camera.position = {static_cast<double>(header_float(pass::hzb_header_word_camera_pos)), static_cast<double>(header_float(pass::hzb_header_word_camera_pos + 1u)), static_cast<double>(header_float(pass::hzb_header_word_camera_pos + 2u))};
+            hzb::max_pyramid_view const pyramid{std::span<float const>{reinterpret_cast<float const*>(pyramid_bytes.data()), static_cast<std::size_t>(this->hzb_cull_probe_words)},
+                                                extent.width, extent.height, this->hzb_cull_probe_levels};
+            std::uint32_t const item_count = std::min(this->hzb_cull_probe_item_count, pass::hzb_cull_item_capacity);
+            std::vector<std::uint32_t> candidate_ids(pass::hzb_cull_item_capacity);
+            std::iota(candidate_ids.begin(), candidate_ids.end(), 0u);
+            std::array<bool, pass::hzb_cull_item_capacity> keep = {};
+            std::vector<std::uint32_t> compacted(pass::hzb_cull_item_capacity);
+            for (std::uint32_t item = 0u; item < item_count; ++item) {
+                pass::hzb_item const& description = items[item_lane_base + item];
+                if (description.source != pass::hzb_item_source_culled || description.candidate_count == 0u) {
+                    continue;
+                }
+                std::uint32_t const count = description.candidate_count;
+                if (count > pass::hzb_cull_item_capacity || description.meshlet_base > pass::hzb_cull_candidate_capacity ||
+                    count > pass::hzb_cull_candidate_capacity - description.meshlet_base) {
+                    count_bad += 1u; // the GPU froze this item's count to 0 (the §9.4 overflow answer)
+                    continue;
+                }
+                hzb::hzb_matrix model{};
+                for (std::size_t index = 0u; index < 16u; ++index) {
+                    model[index] = static_cast<double>(draw_items[draw_lane_base + item].model[index]);
+                }
+                std::fill(keep.begin(), keep.begin() + static_cast<std::ptrdiff_t>(count), false);
+                for (std::uint32_t index = 0u; index < count; ++index) {
+                    deren::engine::meshlet const& record = candidates[candidate_lane_base + description.meshlet_base + index];
+                    hzb::hzb_sphere const sphere{{static_cast<double>(record.center_x), static_cast<double>(record.center_y), static_cast<double>(record.center_z)},
+                                                 static_cast<double>(record.radius)};
+                    hzb::hzb_decision const decision = hzb::hzb_test_sphere(camera, model, sphere, pyramid);
+                    bool const reference_culled = decision == hzb::hzb_decision::occluded;
+                    keep[index] = !reference_culled;
+                    std::uint32_t const gpu_flag = results[results_lane_base + pass::hzb_results_flags_offset + description.meshlet_base + index];
+                    bool const gpu_culled = gpu_flag != 0u;
+                    ++decisions;
+                    if (gpu_culled == reference_culled) {
+                        ++agree;
+                    } else if (decisions - agree <= 8u) {
+                        // THE FAIL LINES ARE CAPPED: a systematic bug would otherwise flood the log with one line per
+                        // candidate, and the FIRST few name the item/candidate the diff starts at.
+                        deren::utility::log("hzb cull verify: FAIL - item {} candidate {} (meshlet {}): the GPU {} it, the CPU reference {} it",
+                                            item,
+                                            description.meshlet_base + index,
+                                            description.meshlet_base + index,
+                                            gpu_culled ? "culled" : "kept",
+                                            reference_culled ? "culls" : "keeps");
+                    }
+                }
+                std::optional<hzb::hzb_compaction> const reference =
+                    hzb::hzb_compact(std::span<std::uint32_t const>{candidate_ids.data(), count}, std::span<bool const>{keep.data(), count},
+                                     std::span<std::uint32_t>{compacted.data(), count});
+                if (!reference.has_value()) {
+                    count_bad += 1u;
+                    continue;
+                }
+                if (results[results_lane_base + pass::hzb_results_pass1_count_offset + item] != reference->survivors) {
+                    count_bad += 1u;
+                }
+                for (std::uint32_t order = 0u; order < reference->survivors; ++order) {
+                    deren::engine::meshlet const& gpu_record = survivors[survivor_lane_base + description.meshlet_base + order];
+                    deren::engine::meshlet const& reference_record = candidates[candidate_lane_base + description.meshlet_base + compacted[order]];
+                    if (std::memcmp(&gpu_record, &reference_record, sizeof(deren::engine::meshlet)) != 0) {
+                        ++order_bad;
+                    }
+                }
+            }
+        }
+        // ---- THE ONE LINE ----
+        double const agreement = decisions != 0u ? 100.0 * static_cast<double>(agree) / static_cast<double>(decisions) : 100.0;
+        deren::utility::log("hzb cull verify: {} candidate(s), {} decision(s) agree ({}%), survivor order {}; pass1 counts {}",
+                            decisions,
+                            agree,
+                            agreement,
+                            order_bad == 0u ? "matched" : "MISMATCHED",
+                            count_bad == 0u ? "matched" : "MISMATCHED");
+        if (!header_usable) {
+            deren::utility::log("hzb cull verify: FAIL - the dumped history header is not usable (magic/extent/level count), so the reference could not run");
+        } else if (decisions == 0u) {
+            // A LEGITIMATE EMPTY STATE rather than a failure: phase B1 only tests host-CUT runs, so a frame with
+            // `subtilis = false` (every item's candidates are the shared table) has nothing for this lane to test.
+            // The dump is still complete (the tables are all zero) and the script's internal checks still run.
+            deren::utility::log("hzb cull verify: no candidates to compare - the frame had no host-cut (subtilis) runs, which phase B1's cull "
+                                "deliberately does not walk; the lane recorded and the tables are consistent");
+        } else if (agree != decisions || order_bad != 0u || count_bad != 0u) {
+            deren::utility::log("hzb cull verify: FAIL - {} decision(s), {} survivor-order record(s) and {} per-item count(s) disagreed with the committed "
+                                "CPU reference (this is a bug, not noise: the shader and hzb.cppm are one contract)",
+                                decisions - agree,
+                                order_bad,
+                                count_bad);
+        } else {
+            deren::utility::log("hzb cull verify: {}", header_matches_snapshot
+                                                           ? "the history header's view/proj are byte-equal to the snapshot the static gate compared; "
+                                                             "the dumped history lane is the one the cull READ (this frame slot's previous use)"
+                                                           : "the history header's view/proj are NOT byte-equal to the snapshot the static gate compared - the "
+                                                             "dump or the gate is wrong");
+        }
+        // ---- THE METADATA ----
+        std::string const metadata_path = std::string(prefix) + ".json";
+        {
+            std::ofstream output(metadata_path, std::ios::trunc);
+            output << "{\n";
+            output << "  \"kind\": \"hzb-cull-probe\",\n";
+            output << "  \"version\": 1,\n";
+            output << "  \"note\": \"the cull reads the HISTORY HZB: the previous use of this frame slot (2 frames old). The copies were recorded "
+                      "INSIDE the cull lane, before this frame's build overwrote the lane, so these files describe the data the dispatch consumed.\",\n";
+            output << "  \"extent\": {\"width\": " << extent.width << ", \"height\": " << extent.height << "},\n";
+            output << "  \"frame_slot\": " << slot << ",\n";
+            output << "  \"level_count\": " << this->hzb_cull_probe_levels << ",\n";
+            output << "  \"words_per_lane\": " << this->hzb_cull_probe_words << ",\n";
+            output << "  \"item_count\": " << this->hzb_cull_probe_item_count << ",\n";
+            output << "  \"candidate_total\": " << this->hzb_cull_candidate_total << ",\n";
+            output << "  \"gate\": \"open (the frame is byte-identical to the one that built this history lane)\",\n";
+            output << "  \"history\": {\n";
+            output << "    \"frame_slot\": " << slot << ",\n";
+            output << "    \"header_magic\": " << header_word(0u) << ",\n";
+            output << "    \"header_width\": " << header_word(1u) << ",\n";
+            output << "    \"header_height\": " << header_word(2u) << ",\n";
+            output << "    \"header_levels\": " << header_word(3u) << ",\n";
+            output << "    \"header_matches_saved_snapshot\": " << (header_matches_snapshot ? "true" : "false") << ",\n";
+            output << "    \"camera\": {\"view\": [";
+            for (std::size_t index = 0u; index < 16u; ++index) {
+                if (index != 0u) {
+                    output << ", ";
+                }
+                write_float(output, header_float(pass::hzb_header_word_view + index));
+            }
+            output << "], \"proj\": [";
+            for (std::size_t index = 0u; index < 16u; ++index) {
+                if (index != 0u) {
+                    output << ", ";
+                }
+                write_float(output, header_float(pass::hzb_header_word_proj + index));
+            }
+            output << "], \"position\": [";
+            for (std::size_t index = 0u; index < 3u; ++index) {
+                if (index != 0u) {
+                    output << ", ";
+                }
+                write_float(output, header_float(pass::hzb_header_word_camera_pos + index));
+            }
+            output << "]}\n";
+            output << "  },\n";
+            output << "  \"verify\": {\"decisions\": " << decisions << ", \"agree\": " << agree << ", \"survivor_order_mismatches\": " << order_bad
+                   << ", \"count_mismatches\": " << count_bad << "},\n";
+            output << "  \"files\": {\n";
+            // THE PATHS ARE JSON-ESCAPED: a Windows path is full of backslashes, and a raw one makes the whole
+            // metadata file unparseable (`\U` is not a JSON escape) - which the verification script reports as a
+            // dump problem rather than the probe bug it is (measured on the first Bistro run).
+            auto const escaped = [](std::string const& text) {
+                std::string out;
+                out.reserve(text.size() + 8u);
+                for (char const character : text) {
+                    if (character == '\\' || character == '"') {
+                        out.push_back('\\');
+                    }
+                    out.push_back(character);
+                }
+                return out;
+            };
+            auto const file_entry = [&output, &escaped](std::string_view const name, std::string const& path, std::size_t const bytes, bool const last) {
+                output << "    \"" << name << "\": {\"path\": \"" << escaped(path) << "\", \"bytes\": " << bytes << "}" << (last ? "\n" : ",\n");
+            };
+            file_entry("history_pyramid", pyramid_path, static_cast<std::size_t>(required_pyramid) + sizeof(std::array<std::uint32_t, 4>), false);
+            file_entry("history_header", history_header_path, pass::hzb_header_byte_capacity, false);
+            file_entry("items", items_path, static_cast<std::size_t>(pass::hzb_cull_item_capacity) * sizeof(pass::hzb_item), false);
+            file_entry("flags", flags_path, flags_bytes, false);
+            file_entry("counts", counts_path, counts_bytes, false);
+            file_entry("stats", stats_path, stats_bytes, false);
+            file_entry("survivors", survivors_path, static_cast<std::size_t>(required_survivors), false);
+            file_entry("candidates", candidates_path, candidates_bytes, false);
+            file_entry("draw_items", draw_items_path, draw_items_bytes, true);
+            output << "  }\n";
+            output << "}\n";
+            if (!output) {
+                deren::utility::log("hzb cull probe capture: FAIL metadata file write");
+                return;
+            }
+        }
+        this->hzb_cull_probe_dumped = true;
+        deren::utility::log("hzb cull probe capture: wrote the history pyramid/header (lane {}), the item/flags/counts/stats lanes, the survivor lane and "
+                            "the candidate records under '{}.*' ({} item(s), {} candidate(s) in the item plans)",
+                            slot,
+                            prefix,
+                            this->hzb_cull_probe_item_count,
+                            this->hzb_cull_candidate_total);
     }
 
 } // namespace deren::engine

@@ -196,6 +196,11 @@ namespace deren::engine::pipelines {
     /// pass framework appends) arrive through vkCmdPushDataEXT. It is what makes the max pyramid exist on the GPU
     /// (M3 phase A2: build + readback validation only; nothing culls against it yet).
     export std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_hzb_build(rhi::api_core& face, std::span<uint8_t const> compute_shader_code);
+    /// the HZB CULL stage (source/shaders/scene/hzb_cull.slang): the same heap-native compute shape as the build
+    /// stage - no layout, no set, and its parameters (the item count, the extent the history header must describe,
+    /// plus the two heap index lanes the pass framework appends) through vkCmdPushDataEXT. It is the M3 phase-B1
+    /// consumer of the pyramid: it writes flags/survivors/counts and changes no picture (nothing consumes them yet).
+    export std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_hzb_cull(rhi::api_core& face, std::span<uint8_t const> compute_shader_code);
 
     /**
      * @brief the HEAP-NATIVE probe's pipeline: the first one in this renderer created the heap way
@@ -454,6 +459,27 @@ namespace deren::engine::pipelines {
         rhi::unique_object<rhi::pipeline> built = face.create_pipeline(desc);
         if (!built) {
             return fail("hzb build: the contract's compute pipeline factory refused the descriptor");
+        }
+        out.trace = pipeline_handle(built.release());
+        return out;
+    }
+
+    // The HZB CULL (source/shaders/scene/hzb_cull.slang): the build stage's shape once more, for the same reason -
+    // every input and output is a heap descriptor (the history pyramid/header, the item/candidate tables, the flags/
+    // survivors/counts tables and the draw-item model), its only constants are the three own push lanes plus the
+    // framework's index lanes, and no set or layout exists to own. M3 phase B1: it writes its own tables only.
+    std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_hzb_cull(rhi::api_core& face, std::span<uint8_t const> const compute_shader_code) {
+        using fail = std::unexpected<deren::utility::vessel::string>;
+        compute_pipeline_owned out;
+        // THE PIPELINE IS A CONTRACT OBJECT (abi 21): the heap-native compute rules live in the backend
+        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        rhi::pipeline_desc desc{};
+        desc.first_stage = rhi::shader_stage::compute;
+        desc.compute_code = std::as_bytes(compute_shader_code);
+        desc.debug_name = "hzb cull";
+        rhi::unique_object<rhi::pipeline> built = face.create_pipeline(desc);
+        if (!built) {
+            return fail("hzb cull: the contract's compute pipeline factory refused the descriptor");
         }
         out.trace = pipeline_handle(built.release());
         return out;

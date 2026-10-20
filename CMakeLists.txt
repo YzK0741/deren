@@ -712,6 +712,7 @@ target_sources(deren_engine
         source/engine/pass/visibility_raster.cppm
         source/engine/pass/visibility_resolve.cppm
         source/engine/pass/hzb_build.cppm
+        source/engine/pass/hzb_cull.cppm
         source/engine/pass/chain.cppm
         ${VR_FULL_API_MODULES}
         source/engine/profiling/profiling.cppm
@@ -767,6 +768,7 @@ target_sources(deren_engine
         source/engine/pass/visibility_raster.cpp
         source/engine/pass/visibility_resolve.cpp
         source/engine/pass/hzb_build.cpp
+        source/engine/pass/hzb_cull.cpp
         ${VR_FULL_API_SOURCES}
         source/engine/shadow_fit/shadow_fit.cpp
         source/engine/acceleration_structure/acceleration_structure.cpp
@@ -2261,6 +2263,12 @@ set(VR_SLANG_SOURCES
     # writes. It reads/writes only heap slots and is default-OFF behind DEREN_HZB_BUILD, so it changes no frame
     # until the gate is set; the readback probe (scripts/measure/hzb_verify.py) is its acceptance.
     scene/hzb_build.slang:main:compute:hzb_build.comp.spv
+    # hzb_cull.slang -> hzb_cull.comp.spv is THE HZB CULL STAGE (M3 phase B1): one 64-thread workgroup per item,
+    # walking that item's host-selected candidates against the HISTORY max pyramid and writing the per-candidate
+    # flags, the compacted survivor list, the per-item survivor counts and the stats block. Its gate is
+    # DEREN_HZB_BUILD + DEREN_HZB_CULL and it consumes nothing in the frame (phase B2 does), so it changes no
+    # pixel; its acceptance is the in-engine CPU-reference verification (scripts/measure/hzb_cull_verify.py).
+    scene/hzb_cull.slang:main:compute:hzb_cull.comp.spv
     # ... and the outline's FRAGMENT stage, which shades that hull with the G-buffer normal of the surface
     # BEHIND it (the author's `MyZmdOutlineShader.shader:196-198`). ITS ENTRY IS `frag_main`, NOT `main`, and the
     # reason is measured rather than stylistic: it INCLUDES character_forward.slang for `toon_diffuse`, which

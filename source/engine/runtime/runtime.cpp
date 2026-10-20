@@ -15,6 +15,7 @@ module;
 #include <memory>          // std::shared_ptr: the frame's borrowed command buffer (see frame_command_buffer)
 #include <source_location> // the panic sites of the graphics-queue-family derivation
 #include <span>            // the byte spans the contract's buffer descriptors and the push endpoints take
+#include <string_view>     // the phase-B gate's closed-reason vocabulary (the once-per-session log line)
 #include <thread>          // std::this_thread::yield in the frame limiter
 #include <vector>          // the queue-family list the graphics-queue derivation walks
 
@@ -42,6 +43,10 @@ import deren.engine.frame_constants; // one frame's shared constants (see update
 import deren.engine.pipelines;       // make_graphics_pipeline: the contract factory the named pipelines build through
 import deren.engine.meshlet;         // the meshlet split (docs/mesh_shaders.md step 3): pure CPU, built at upload
 import deren.engine.gui_loader;      // load_gui: resolves deren_gui_<api>.dll by name (plan X2)
+import deren.engine.visibility;      // the draw-item record the visibility lane writes (the cull reads its model)
+import deren.engine.visibility.hzb;  // the CPU reference + the phase-B byte-exact scene gate (§9.2)
+import deren.engine.pass.hzb_build;  // the HZB header lane's host-side byte count (the cull probe's copies)
+import deren.engine.pass.hzb_cull;   // the phase-B item/results layout the host writes and reads back
 
 namespace deren::engine {
     // ---- runtime_detail::graphics_queue_family_of: ONE QUESTION TO THE BACKEND -------------------------
@@ -1694,6 +1699,273 @@ namespace deren::engine {
         return vis::admission::admitted;
     }
 
+    // =============================================================================================
+    // THE PHASE-B CULL LANE'S HOST HALF (M3 phase B1, spec §4.3, §9.1/§9.2)
+    //
+    // Three things live here, and each one has a contract the CPU reference already states:
+    //   - the SCENE SNAPSHOT capture + the byte-exact gate (`hzb_scene_gate`) that decides whether this frame's
+    //     depth is byte-identical to the depth the history HZB was built from;
+    //   - the per-frame bookkeeping the lane needs (the item count, the stats reset, the once-per-session lines);
+    //   - the probe's history-lane copies, which must be recorded INSIDE the cull lane (before this frame's build
+    //     overwrites the same lane) - the one place a copy of the DATA THE CULL READ can still be taken.
+    // =============================================================================================
+
+    namespace {
+        namespace hzb = deren::engine::visibility::hzb;
+
+        /// one visible leaf's model matrix as the gate's bit snapshot takes it (the push block's own bytes)
+        [[nodiscard]] hzb::hzb_matrix_bits hzb_model_bits_of(primitive const& leaf) noexcept {
+            return hzb::hzb_matrix_bits_of(std::span<float const>(&leaf.push.model[0][0], 16u));
+        }
+
+        /// the number of bytes one frame slot's lane of a table occupies, for the probe copies
+        [[nodiscard]] std::uint64_t hzb_lane_bytes(rhi::buffer const& buffer, std::uint32_t const slot_count) noexcept {
+            return slot_count == 0u ? 0u : buffer.size() / slot_count;
+        }
+    } // namespace
+
+    void runtime::capture_hzb_current_scene() {
+        // THE CAMERA IS THE SAME SNAPSHOT THE BUILD SHADER WRITES INTO THE HEADER: `current_ubo.view/proj` are the
+        // exact bytes the frame's camera lane holds (the build shader copies them from there), so a byte compare
+        // against the saved snapshot is the gate's "the old depth IS this frame's depth" claim (§9.2).
+        this->hzb_current_view = hzb::hzb_matrix_bits_of(std::span<float const>(&this->current_ubo.view[0][0], 16u));
+        this->hzb_current_proj = hzb::hzb_matrix_bits_of(std::span<float const>(&this->current_ubo.proj[0][0], 16u));
+        // THE ORDER IS THE FRAME'S OWN: `frame_visible` is the order the visibility lane records/publishes items in,
+        // and the gate holds the SAVED list to the same order (an order-only change is a different frame, because the
+        // cull's item indices are the ones the raster dispatches).
+        this->hzb_current_items.clear();
+        this->hzb_current_items.reserve(this->frame_visible.size());
+        for (primitive const* const leaf : this->frame_visible) {
+            if (leaf == nullptr) {
+                continue; // the admission scan refuses a null leaf; the snapshot never sees one
+            }
+            this->hzb_current_items.push_back(hzb::hzb_scene_item{reinterpret_cast<std::uintptr_t>(leaf), hzb_model_bits_of(*leaf)});
+        }
+        this->hzb_current_scene_captured = true;
+    }
+
+    void runtime::save_hzb_source_scene() {
+        if (!this->hzb_current_scene_captured) {
+            return;
+        }
+        std::uint32_t const slot = this->frame_ring().position();
+        this->hzb_source_view[slot] = this->hzb_current_view;
+        this->hzb_source_proj[slot] = this->hzb_current_proj;
+        this->hzb_source_items[slot].assign(this->hzb_current_items.begin(), this->hzb_current_items.end());
+        this->hzb_source_valid[slot] = true;
+        // §9.1's data-validity flag: this lane now holds a pyramid THIS extent/scene built, so the next use of the
+        // slot may test against it - which is exactly what the gate then has to confirm byte for byte.
+        this->hzb_valid[slot] = true;
+    }
+
+    bool runtime::hzb_scene_gate_open() const noexcept {
+        std::uint32_t const slot = this->frame_ring().position();
+        if (!this->hzb_valid[slot] || !this->hzb_source_valid[slot] || !this->hzb_current_scene_captured) {
+            return false;
+        }
+        hzb::hzb_scene_snapshot const previous{this->hzb_source_view[slot], this->hzb_source_proj[slot], this->hzb_source_items[slot]};
+        hzb::hzb_scene_snapshot const current{this->hzb_current_view, this->hzb_current_proj, this->hzb_current_items};
+        return hzb::hzb_scene_gate(previous, current);
+    }
+
+    std::string_view runtime::hzb_scene_gate_closed_reason() const noexcept {
+        std::uint32_t const slot = this->frame_ring().position();
+        if (!this->hzb_valid[slot] || !this->hzb_source_valid[slot]) {
+            return "no history HZB has been built in this frame slot yet (the first frames, or after a resize)";
+        }
+        if (this->hzb_source_view[slot] != this->hzb_current_view || this->hzb_source_proj[slot] != this->hzb_current_proj) {
+            return "the camera's view/projection is not byte-identical to the one that built the history HZB (camera motion, or TAA jitter in proj)";
+        }
+        if (this->hzb_source_items[slot].size() != this->hzb_current_items.size()) {
+            return "the frame's visible item list changed length since the history HZB was built";
+        }
+        for (std::size_t index = 0u; index < this->hzb_current_items.size(); ++index) {
+            auto const& previous = this->hzb_source_items[slot][index];
+            auto const& current = this->hzb_current_items[index];
+            if (previous.leaf != current.leaf) {
+                return "the frame's visible item list changed identity since the history HZB was built";
+            }
+            if (previous.model != current.model) {
+                return "a visible item's model matrix changed since the history HZB was built";
+            }
+        }
+        return "the frame is not byte-identical to the one that built the history HZB";
+    }
+
+    bool runtime::evaluate_hzb_cull_lane(std::uint32_t const item_count) {
+        this->hzb_cull_active_frame = false;
+        this->hzb_cull_item_count = 0;
+        this->hzb_cull_candidate_total = 0;
+        // ---- §9.1's whole-frame admission, this phase's clauses (the frame-level ones - a visibility-lane frame -
+        // are the caller's, runtime.post_graph.cpp): both env gates, the pipeline, the three fixed-size tables and
+        // their heap descriptors. A false here prunes the lane and the graph keeps today's nodes. ----
+        if (!this->hzb_cull_enabled || this->hzb_cull_failed || this->hzb_cull == nullptr || !this->hzb_cull->ready()) {
+            return false;
+        }
+        if (!this->hzb_resources_ready || !this->hzb_cull_resources_ready || this->hzb_items_mapped == nullptr || this->hzb_results_mapped == nullptr) {
+            return false;
+        }
+        if (item_count == 0u || item_count > pass::hzb_cull_item_capacity) {
+            return false; // §8.3: an empty frame records no dispatch, and an oversized item table is the admission's refusal
+        }
+        // ---- THE BYTE-EXACT STATIC GATE (§9.2), the phase's whole correctness argument: cull only when this
+        // frame's camera and visible-item list are the ones that built the history HZB, so the old depth IS this
+        // frame's depth and the conservative test's prediction is a fact rather than a prediction. ----
+        this->capture_hzb_current_scene();
+        if (!this->hzb_scene_gate_open()) {
+            // TWO once-per-session lines, because the two closes mean different things: the first frames have no
+            // history yet (the expected warm-up, §9.3), while a close WITH history present is the real phase-B
+            // decision (the camera or an item moved) - so a moving camera logs the second one and never "gate open".
+            bool const history_present = this->hzb_valid[this->frame_ring().position()] && this->hzb_source_valid[this->frame_ring().position()];
+            if (!history_present && !this->hzb_cull_gate_closed_logged) {
+                this->hzb_cull_gate_closed_logged = true;
+                deren::utility::log("hzb cull: the static gate is CLOSED this frame ({}) - the cull lane is pruned and the frame keeps today's path byte for byte",
+                                    this->hzb_scene_gate_closed_reason());
+            } else if (history_present && !this->hzb_cull_gate_pruned_logged) {
+                this->hzb_cull_gate_pruned_logged = true;
+                deren::utility::log("hzb cull: the static gate is CLOSED on a frame that HAS a history HZB ({}) - the cull lane is pruned and the "
+                                    "frame keeps today's path byte for byte",
+                                    this->hzb_scene_gate_closed_reason());
+            }
+            return false;
+        }
+        this->hzb_cull_active_frame = true;
+        this->hzb_cull_item_count = item_count;
+        this->reset_hzb_cull_stats();
+        if (!this->hzb_cull_gate_open_logged) {
+            this->hzb_cull_gate_open_logged = true;
+            deren::utility::log("hzb cull: the static gate is OPEN on this frame (slot {}) - the frame is byte-identical to the one that built "
+                                "this frame slot's history HZB, so its depth is this frame's depth; {} item(s) will be tested",
+                                this->frame_ring().position(),
+                                item_count);
+        }
+        return true;
+    }
+
+    void runtime::reset_hzb_cull_stats() {
+        if (this->hzb_results_mapped == nullptr) {
+            return;
+        }
+        auto* const results = static_cast<std::uint32_t*>(this->hzb_results_mapped);
+        std::uint32_t* const stats =
+            results + static_cast<std::size_t>(this->frame_ring().position()) * pass::hzb_results_words_per_lane + pass::hzb_results_stats_offset;
+        // ---- THE SESSION ACCUMULATION, AND WHY IT IS FREE ----
+        // This slot's stats still hold ITS PREVIOUS CULLING FRAME's numbers: the frame ring waited for that submission
+        // before this frame's recording, so reading the mapped block here is a plain host read with no stall - the
+        // same no-stall rule the history-HZB read relies on (spec C9). The counters then skip the last frame of each
+        // slot, which `log_hzb_cull_stats` adds at shutdown, so the session totals are exact.
+        std::uint64_t const candidates = stats[pass::hzb_stat_candidates];
+        std::uint64_t const culled = stats[pass::hzb_stat_culled];
+        std::uint64_t const survivors = stats[pass::hzb_stat_survivors];
+        std::uint64_t const overflow = stats[pass::hzb_stat_overflow_items];
+        if (candidates != 0u || culled != 0u || survivors != 0u || overflow != 0u) {
+            this->hzb_cull_session_candidates += candidates;
+            this->hzb_cull_session_culled += culled;
+            this->hzb_cull_session_survivors += survivors;
+            this->hzb_cull_session_overflow_items += overflow;
+            ++this->hzb_cull_session_frames;
+        }
+        // THE STATS ARE PER-FRAME-A-LANE ACCUMULATORS (§4.3, §10.3): the cull stage atomically adds into them and
+        // nothing on the GPU can clear them between dispatches (there is no cross-workgroup barrier inside one
+        // dispatch), so the host zeroes the lane it is about to use - it owns the memory before submission.
+        for (std::uint32_t row = 0u; row < pass::hzb_results_stats_capacity; ++row) {
+            stats[row] = 0u;
+        }
+    }
+
+    bool runtime::begin_hzb_cull_probe() {
+        this->hzb_cull_probe_active = false;
+        if (!this->screenshot_requested || std::getenv("DEREN_HZB_CULL_PROBE_CAPTURE") == nullptr) {
+            return false;
+        }
+        if (!this->hzb_levels_buffer || !this->hzb_header_buffer || !this->hzb_survivors_buffer) {
+            return false;
+        }
+        rhi::image_extent const extent = this->render_extent();
+        std::uint32_t const slot_count = this->frame_ring().slot_count();
+        std::uint64_t const levels_bytes = hzb_lane_bytes(*this->hzb_levels_buffer.get(), slot_count);
+        std::uint64_t const header_bytes = hzb_lane_bytes(*this->hzb_header_buffer.get(), slot_count);
+        std::uint64_t const survivors_bytes = hzb_lane_bytes(*this->hzb_survivors_buffer.get(), slot_count);
+        if (levels_bytes == 0u || header_bytes == 0u || survivors_bytes == 0u) {
+            deren::utility::log("hzb cull probe capture: FAIL table lanes are empty");
+            return false;
+        }
+        rhi::buffer_desc pyramid_desc;
+        pyramid_desc.size = levels_bytes;
+        pyramid_desc.usage = rhi::buffer_usage::readback_coherent;
+        rhi::buffer_desc header_desc;
+        header_desc.size = header_bytes;
+        header_desc.usage = rhi::buffer_usage::readback_coherent;
+        rhi::buffer_desc survivors_desc;
+        survivors_desc.size = survivors_bytes;
+        survivors_desc.usage = rhi::buffer_usage::readback_coherent;
+        this->hzb_cull_probe_pyramid_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(pyramid_desc)};
+        this->hzb_cull_probe_header_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(header_desc)};
+        this->hzb_cull_probe_survivors_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(survivors_desc)};
+        if (!this->hzb_cull_probe_pyramid_readback || !this->hzb_cull_probe_header_readback || !this->hzb_cull_probe_survivors_readback) {
+            deren::utility::log("hzb cull probe capture: FAIL allocation");
+            return false;
+        }
+        this->hzb_cull_probe_extent = extent;
+        this->hzb_cull_probe_frame_slot = this->frame_ring().position();
+        this->hzb_cull_probe_item_count = this->hzb_cull_item_count;
+        this->hzb_cull_probe_words = deren::engine::visibility::hzb::pyramid_words(extent.width, extent.height);
+        this->hzb_cull_probe_levels = deren::engine::visibility::hzb::level_count(extent.width, extent.height);
+        this->hzb_cull_probe_dumped = false;
+        this->hzb_cull_probe_active = true;
+        deren::utility::log("hzb cull probe capture: armed - the HISTORY pyramid/header lane {} ({} word(s) / {} B) and this frame's survivor "
+                            "lane will be copied INSIDE the cull lane, before the build lane overwrites the history lane",
+                            this->hzb_cull_probe_frame_slot,
+                            this->hzb_cull_probe_words,
+                            levels_bytes);
+        return true;
+    }
+
+    void runtime::record_hzb_cull_probe_copy(rhi::command_buffer& commands) {
+        if (!this->hzb_cull_probe_active || !this->hzb_cull_probe_pyramid_readback || !this->hzb_cull_probe_header_readback || !this->hzb_cull_probe_survivors_readback) {
+            return;
+        }
+        auto* const levels = this->hzb_levels_buffer.get();
+        auto* const header = this->hzb_header_buffer.get();
+        auto* const survivors = this->hzb_survivors_buffer.get();
+        if (levels == nullptr || header == nullptr || survivors == nullptr) {
+            this->hzb_cull_probe_active = false;
+            return;
+        }
+        std::uint32_t const slot_count = this->frame_ring().slot_count();
+        std::uint64_t const levels_bytes = hzb_lane_bytes(*levels, slot_count);
+        std::uint64_t const header_bytes = hzb_lane_bytes(*header, slot_count);
+        std::uint64_t const survivors_bytes = hzb_lane_bytes(*survivors, slot_count);
+        std::uint64_t const slot = this->hzb_cull_probe_frame_slot;
+        // THE ENTRY PAIR IS THE ONE THE CULL RECORDED: the history lanes were READ by the dispatch (the phase-A2
+        // probe's pair was write -> source; here the last use is the dispatch's read) and the survivor lane was
+        // just WRITTEN by it. One barrier group for all three, then the three copies, then the hand-back, then the
+        // host-read publication - the same shape the depth/HZB probes use, one resource class over.
+        std::array<rhi::buffer_barrier, 3> const to_source{{{.resource = levels, .from = rhi::buffer_use::shader_read, .to = rhi::buffer_use::transfer_source},
+                                                            {.resource = header, .from = rhi::buffer_use::shader_read, .to = rhi::buffer_use::transfer_source},
+                                                            {.resource = survivors, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::transfer_source}}};
+        if (commands.barrier(rhi::barrier_group{.buffers = std::span<rhi::buffer_barrier const>(to_source)}) != rhi::error::ok) {
+            deren::utility::log("hzb cull probe capture: FAIL copy entry barrier");
+            this->hzb_cull_probe_active = false;
+            return;
+        }
+        auto const pyramid_copied = commands.copy_buffer(*this->hzb_cull_probe_pyramid_readback, *levels, levels_bytes, slot * levels_bytes, 0u);
+        auto const header_copied = commands.copy_buffer(*this->hzb_cull_probe_header_readback, *header, header_bytes, slot * header_bytes, 0u);
+        auto const survivors_copied = commands.copy_buffer(*this->hzb_cull_probe_survivors_readback, *survivors, survivors_bytes, slot * survivors_bytes, 0u);
+        std::array<rhi::buffer_barrier, 3> const restored{{{.resource = levels, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_read},
+                                                           {.resource = header, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_read},
+                                                           {.resource = survivors, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_write}}};
+        auto const left = commands.barrier(rhi::barrier_group{.buffers = std::span<rhi::buffer_barrier const>(restored)});
+        std::array<rhi::buffer_barrier, 3> const host_reads{{{.resource = this->hzb_cull_probe_pyramid_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
+                                                             {.resource = this->hzb_cull_probe_header_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
+                                                             {.resource = this->hzb_cull_probe_survivors_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read}}};
+        auto const published = commands.barrier(rhi::barrier_group{.buffers = std::span<rhi::buffer_barrier const>(host_reads)});
+        if (pyramid_copied != rhi::error::ok || header_copied != rhi::error::ok || survivors_copied != rhi::error::ok || left != rhi::error::ok || published != rhi::error::ok) {
+            deren::utility::log("hzb cull probe capture: FAIL copy or publication");
+            this->hzb_cull_probe_active = false;
+        }
+    }
+
     bool runtime::record_visibility_items(deren::promise::rhi::command_buffer& command_buffer, std::uint32_t& recorded) {
         namespace vis = deren::engine::visibility;
         recorded = 0;
@@ -1906,6 +2178,21 @@ namespace deren::engine {
             command_buffer.set_cull_mode(plan.cull);
             if (!runtime::visibility_items_write(this, index, std::as_bytes(std::span(&plan.row, 1u)))) {
                 return false;
+            }
+            // ---- THE HZB CULL LANE'S PER-ITEM DESCRIPTION (spec §4.3) ----
+            // The cull pass walks ONE run per item, so all it needs is where the run starts and how long it is. A
+            // CUT-VISIBLE run's candidate records are this frame's host-culled lane at `run.base` (the host wrote
+            // them in phase 2 - so the entry is filled HERE, after the plan published); every other item offers the
+            // phase-B cull nothing and is written with count 0, which is the shader's "no work" answer. The write is
+            // to host-visible coherent memory before submission (§8.2 step 0: the cull dispatch ran earlier in the
+            // command buffer but the GPU only sees the buffer after `vkQueueSubmit`).
+            if (this->hzb_cull_active_frame && this->hzb_items_mapped != nullptr) {
+                bool const cut_visible = plan.run.source == subtilis::run_source::visible;
+                std::uint32_t const candidates = cut_visible ? plan.run.count : 0u;
+                auto* const table = static_cast<pass::hzb_item*>(this->hzb_items_mapped);
+                table[static_cast<std::size_t>(frame_slot) * pass::hzb_cull_item_capacity + index] =
+                    pass::hzb_item{.meshlet_base = plan.run.base, .candidate_count = candidates, .source = cut_visible ? pass::hzb_item_source_culled : pass::hzb_item_source_unculled, .pad = 0u};
+                this->hzb_cull_candidate_total += candidates;
             }
             if (!runtime::push_raw_block(this, command_buffer, std::as_bytes(std::span(&plan.block, 1u)))) {
                 return false;

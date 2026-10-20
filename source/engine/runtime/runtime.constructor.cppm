@@ -21,8 +21,11 @@ module;
 #define GLFW_EXPOSE_NATIVE_WIN32 // glfwGetWin32Window: the engine's window, as the native handle the
 #include <GLFW/glfw3native.h>    // backend's own GLFW image can understand (see to_rhi_create_info)
 #include <algorithm>             // std::min in the resource publication
+#include <array>                 // the HZB cull table publication's three-entry table
 #include <bit>                   // std::bit_cast for the caster world-matrix hash
 #include <chrono>
+#include <cstddef>    // std::ptrdiff_t in the phase-B table zeroing
+#include <cstdint>    // the HZB table layout constants' arithmetic
 #include <cstdlib>    // std::getenv: the DEREN_HZB_BUILD gate (read once, at construction)
 #include <cstring>    // std::memcpy, for composing a pass's push block
 #include <filesystem> // the backend DLL's path: executable_directory() / "deren_vulkan.dll"
@@ -43,8 +46,10 @@ import deren.engine.pipelines;
 import deren.engine.render_resource;
 import deren.engine.render_resource.shared;
 import deren.engine.pass.buffer_storage;
-import deren.engine.pass.hzb_build; // the runtime-owned HZB build pass (see ensure_hzb_resources)
-import deren.engine.visibility.hzb; // the pyramid layout the HZB buffers are sized with (§4.1's one formula)
+import deren.engine.pass.hzb_build;   // the runtime-owned HZB build pass (see ensure_hzb_resources)
+import deren.engine.pass.hzb_cull;    // ... and its phase-B GPU consumer (the three fixed-size tables + the cull pass)
+import deren.engine.resource_cluster; // the cluster create_hzb_cull_tables creates the phase-B tables in
+import deren.engine.visibility.hzb;   // the pyramid layout the HZB buffers are sized with (§4.1's one formula)
 
 import deren.utility;
 import deren.engine.frame_constants; // one frame's shared constants (see update_frame_constants)
@@ -339,6 +344,12 @@ namespace deren::engine {
         // byte-identical to the pre-HZB build, and "no allocation at all" is the strict form of that (see
         // ensure_hzb_resources, which is the only reader of the flag besides the record path).
         this->hzb_build_enabled = std::getenv("DEREN_HZB_BUILD") != nullptr;
+        // ---- THE HZB CULL LANE'S GATE (M3 phase B1), ALSO READ ONCE ----
+        // DEREN_HZB_CULL is the cull lane's switch and it REQUIRES DEREN_HZB_BUILD: the lane tests against the
+        // history pyramid the build lane produces, so "cull without build" has nothing to read. Unset (or set
+        // without the build gate) means no phase-B buffer is allocated, no cull pipeline is created and no cull
+        // lane is appended - the phase-A2 run and the OFF run are both exactly themselves.
+        this->hzb_cull_enabled = this->hzb_build_enabled && std::getenv("DEREN_HZB_CULL") != nullptr;
 
         // ---- THE SESSION-STABLE FORMATS AND DEVICE CAPABILITIES, ASKED ONCE (③-D/E step 2) ----------
         // THE SURFACE FORMAT: abi 17's accessor is the only answer that exists BEFORE a frame is acquired,
@@ -483,6 +494,12 @@ namespace deren::engine {
         // the one point where the GPU has finished (wait_idle above) and the numbers are final - so a run of any
         // length reports exactly what the meshlet path did, without a read-back inside the frame loop.
         this->log_meshlet_stats();
+        // THE LAST CULLING FRAME'S HZB COUNTS, printed HERE for the same reason: the stats block is GPU-written and
+        // this is the one point where the GPU has finished (wait_idle above), so a plain mapped read is the whole
+        // read-back. It is the phase-B evidence line the design's §10.3 asks for - the culled/survivor split has no
+        // other CPU-visible source without a per-frame stall (the CANDIDATE total, which the host knows from its
+        // item plans, is reported per frame by the cull lane's own line).
+        this->log_hzb_cull_stats();
         // THE SESSION'S GPU TIMING AVERAGE, printed HERE for the same reason as the meshlet totals: the GPU has
         // finished (wait_idle above), so this is the one point where a whole-run average is final. The per-window
         // reports during the run are once per wall second (see collect_gpu_timings), not once per 60 frames.
@@ -1721,6 +1738,65 @@ namespace deren::engine {
 
     // Explicit cascade growth retains the setter's existing fatal-error policy.
     // Frame preparation calls prepare_managed_resources directly so it can report acquire_failed.
+    void runtime::log_hzb_cull_stats() {
+        // THE PHASE-B EVIDENCE LINES (spec §10.3): the ONLY GPU->CPU read of the cull stats block in a phase-B run,
+        // taken here because the destructor has already waited for the device.
+        if (!this->hzb_cull_enabled || this->hzb_cull_failed || !this->hzb_cull_stats_valid || this->hzb_results_mapped == nullptr) {
+            return;
+        }
+        auto* const results = static_cast<std::uint32_t*>(this->hzb_results_mapped);
+        // ---- THE LAST FRAMES' PENDING STATS ARE FOLDED IN HERE ----
+        // Each slot's stats hold its LAST culling frame's numbers; every earlier frame was accumulated when the slot
+        // was reused (`reset_hzb_cull_stats`). So at shutdown each slot is pending exactly once - add them all.
+        std::uint64_t last_candidates = 0u, last_culled = 0u, last_survivors = 0u;
+        for (std::uint64_t slot = 0u; slot < this->frame_ring().slot_count(); ++slot) {
+            std::uint32_t const* const stats = results + static_cast<std::size_t>(slot) * pass::hzb_results_words_per_lane + pass::hzb_results_stats_offset;
+            std::uint64_t const candidates = stats[pass::hzb_stat_candidates];
+            std::uint64_t const culled = stats[pass::hzb_stat_culled];
+            std::uint64_t const survivors = stats[pass::hzb_stat_survivors];
+            std::uint64_t const overflow = stats[pass::hzb_stat_overflow_items];
+            if (candidates != 0u || culled != 0u || survivors != 0u || overflow != 0u) {
+                this->hzb_cull_session_candidates += candidates;
+                this->hzb_cull_session_culled += culled;
+                this->hzb_cull_session_survivors += survivors;
+                this->hzb_cull_session_overflow_items += overflow;
+                ++this->hzb_cull_session_frames;
+            }
+            if (slot == this->hzb_cull_last_slot) {
+                last_candidates = candidates;
+                last_culled = culled;
+                last_survivors = survivors;
+            }
+        }
+        std::uint64_t const session_candidates = this->hzb_cull_session_candidates;
+        std::uint64_t const session_culled = this->hzb_cull_session_culled;
+        std::uint64_t const session_survivors = this->hzb_cull_session_survivors;
+        std::uint32_t const frames = this->hzb_cull_session_frames;
+        double const session_share = session_candidates != 0u ? 100.0 * static_cast<double>(session_culled) / static_cast<double>(session_candidates) : 0.0;
+        double const last_share = last_candidates != 0u ? 100.0 * static_cast<double>(last_culled) / static_cast<double>(last_candidates) : 0.0;
+        double const average = frames != 0u ? static_cast<double>(session_candidates) / static_cast<double>(frames) : 0.0;
+        // THE SESSION TOTALS AND THE LAST FRAME, one line each: the first is the run's exact cumulative evidence (what
+        // every acceptance number is calibrated against), the second names the frame the probe dumped. The overflow
+        // count is 0 in every healthy run and names the items whose run could not be described (§9.4), i.e. the only
+        // way this stage ever answers "nothing survived" for an item that had candidates.
+        deren::utility::log("hzb cull: session {} candidate(s) / {} culled / {} survivor(s) ({}% culled) over {} culling frame(s), "
+                            "{} candidate(s)/frame; test = conservative sphere-vs-HISTORY-HZB, CPU-reference verified",
+                            session_candidates,
+                            session_culled,
+                            session_survivors,
+                            session_share,
+                            frames,
+                            average);
+        deren::utility::log("hzb cull: last culling frame (slot {}) had {} candidate(s) / {} culled / {} survivor(s) ({}% culled); "
+                            "{} overflow item(s) in the session",
+                            this->hzb_cull_last_slot,
+                            last_candidates,
+                            last_culled,
+                            last_survivors,
+                            last_share,
+                            this->hzb_cull_session_overflow_items);
+    }
+
     void runtime::create_shadow_resources() {
         if (this->prepare_managed_resources() != rhi::error::ok) {
             deren::utility::panic("failed to prepare pass resources");
@@ -1819,6 +1895,29 @@ namespace deren::engine {
             deren::utility::log("hzb: the header table did not reach heap slot {}", deren::engine::render_layout::heap_slots::hzb_header);
             this->hzb_resources_ready = false;
         }
+        // ---- THE PHASE-B TABLES (M3 phase B1): only when the cull lane is armed, so an A2-only run publishes
+        // exactly the two descriptors it always did. Each table is ONE descriptor over the whole buffer with the
+        // per-frame lanes inside it - the same §5.3 rule the two above follow. ----
+        if (!this->hzb_cull_enabled || this->hzb_cull_failed) {
+            return;
+        }
+        this->hzb_cull_resources_ready = true;
+        struct publication {
+            rhi::buffer const* buffer;
+            std::uint32_t slot;
+            char const* what;
+        };
+        std::array const publications{
+            publication{this->hzb_items_buffer.get(), deren::engine::render_layout::heap_slots::hzb_items, "items"},
+            publication{this->hzb_results_buffer.get(), deren::engine::render_layout::heap_slots::hzb_results, "results"},
+            publication{this->hzb_survivors_buffer.get(), deren::engine::render_layout::heap_slots::hzb_survivors, "survivors"},
+        };
+        for (auto const& entry : publications) {
+            if (entry.buffer == nullptr || !this->write_heap_buffer(*entry.buffer, entry.slot, entry.buffer->size(), rhi::descriptor_type::storage_buffer)) {
+                deren::utility::log("hzb: the {} table did not reach heap slot {}", entry.what, entry.slot);
+                this->hzb_cull_resources_ready = false;
+            }
+        }
     }
 
     void runtime::ensure_hzb_resources() {
@@ -1829,11 +1928,11 @@ namespace deren::engine {
             return;
         }
         if (!contract_heap_ready(this->rhi_face())) {
-            return; // the descriptor heap is what the two tables are published through: the next frame retries
+            return; // the descriptor heap is what the tables are published through: the next frame retries
         }
-        // ---- THE PASS, LAZILY ----
+        // ---- THE PASSES, LAZILY ----
         // The application is the shader loader (chores::setup_pipeline) and it runs AFTER this runtime's
-        // constructor, so the pass cannot be created at construction: the first frame's resource preparation is
+        // constructor, so the passes cannot be created at construction: the first frame's resource preparation is
         // the first point where both the shader bytes and the device exist. A registry miss is not a failure -
         // it just means the app has not registered the module yet (or never will, e.g. a headless test).
         if (this->hzb_build == nullptr) {
@@ -1851,8 +1950,27 @@ namespace deren::engine {
             deren::utility::log("hzb: build lane ARMED (DEREN_HZB_BUILD) - the max pyramid is built from the frame's "
                                 "G-buffer depth and validated by the DEREN_HZB_PROBE_CAPTURE readback; nothing culls against it yet");
         }
+        // THE CULL PASS IS A LAZY SECOND PASS, AND A MISSING SHADER DOES NOT BLOCK THE BUILD LANE: the app registers
+        // the module under the same two env gates (chores::setup_pipeline), so an absent registration means the
+        // cull lane is simply not available this run - the lane stays pruned and the frame keeps today's path.
+        if (this->hzb_cull_enabled && this->hzb_cull == nullptr && !this->hzb_cull_failed) {
+            if (!this->registered_shader(pass::hzb_cull_shader_name).empty()) {
+                auto owned = std::make_unique<pass::hzb_cull_pass>();
+                owned->create(this->make_pass_context());
+                if (!owned->ready()) {
+                    this->hzb_cull_failed = true;
+                    deren::utility::log("hzb: the cull lane is unavailable (the pipeline was refused); no candidate will be tested this run");
+                } else {
+                    this->hzb_cull = std::move(owned);
+                    deren::utility::log("hzb: cull lane ARMED (DEREN_HZB_BUILD + DEREN_HZB_CULL) - per-item groups test the "
+                                        "host-selected candidates against the HISTORY pyramid and publish flags/survivors/counts; "
+                                        "nothing consumes them in this phase, so the frame stays byte-identical");
+                }
+            }
+        }
         rhi::image_extent const extent = this->render_extent();
-        if (this->hzb_resources_ready && extent.width == this->hzb_extent.width && extent.height == this->hzb_extent.height) {
+        bool const cull_tables_ready = !this->hzb_cull_enabled || this->hzb_cull_failed || (this->hzb_items_buffer && this->hzb_results_buffer && this->hzb_survivors_buffer);
+        if (this->hzb_resources_ready && cull_tables_ready && extent.width == this->hzb_extent.width && extent.height == this->hzb_extent.height) {
             this->hzb_build->set_hzb_levels(this->hzb_levels_buffer.get());
             return;
         }
@@ -1860,13 +1978,24 @@ namespace deren::engine {
         // §5.2's fallback does not get the resource manager's rebuild for free, so it takes the one wait the spec
         // budgets: at most ONE device idle per extent change (frames in flight may still read/write the previous
         // generation's buffers, and two frames in flight is the ring's own rule). There is no per-frame stall.
-        if (this->hzb_levels_buffer || this->hzb_header_buffer || this->hzb_resources_ready) {
+        // The phase-B tables do not depend on the extent, but they are recreated with the same generation so one
+        // ownership path (and one invalidation path) covers every HZB table.
+        if (this->hzb_levels_buffer || this->hzb_header_buffer || this->hzb_items_buffer || this->hzb_results_buffer || this->hzb_survivors_buffer ||
+            this->hzb_resources_ready) {
             this->rhi_face().wait_idle();
         }
         this->hzb_resources_ready = false;
+        this->hzb_cull_resources_ready = false;
         this->hzb_levels_buffer = {};
         this->hzb_header_buffer = {};
-        this->hzb_valid = {}; // §9.3: a resize invalidates both lanes; the next frames rebuild before any read
+        this->hzb_items_buffer = {};
+        this->hzb_results_buffer = {};
+        this->hzb_survivors_buffer = {};
+        this->hzb_items_mapped = nullptr;
+        this->hzb_results_mapped = nullptr;
+        this->hzb_valid = {};        // §9.3: a resize invalidates both lanes; the next frames rebuild before any read
+        this->hzb_source_valid = {}; // ... and the phase-B scene gate has no snapshot to compare against either
+        this->hzb_cull_stats_valid = false;
         if (extent.width == 0u || extent.height == 0u) {
             return;
         }
@@ -1884,9 +2013,9 @@ namespace deren::engine {
             deren::utility::log("hzb: the build lane is unavailable (no resource cluster for its tables)");
             return;
         }
-        // THE TWO TABLES, GPU-ONLY (§5.2): the GPU is their only writer, so they must not be host-visible memory
-        // (a 1280x720 pyramid is 4.92 MB per lane; 4K's is 44.2 MB, and a host-visible twin of that would be waste
-        // the design explicitly ruled out). `device_address` is what a heap buffer descriptor is built from
+        // THE TWO BUILD TABLES, GPU-ONLY (§5.2): the GPU is their only writer, so they must not be host-visible
+        // memory (a 1280x720 pyramid is 4.92 MB per lane; 4K's is 44.2 MB, and a host-visible twin of that would be
+        // waste the design explicitly ruled out). `device_address` is what a heap buffer descriptor is built from
         // (address + length), and `transfer_source` is what the readback probe's `copy_buffer` requires.
         rhi::buffer_desc levels_desc{};
         levels_desc.size = levels_bytes;
@@ -1907,6 +2036,10 @@ namespace deren::engine {
         this->hzb_header_buffer = std::move(*created_header);
         this->hzb_extent = extent;
         this->hzb_resources_ready = true;
+        // ---- THE THREE PHASE-B TABLES (M3 phase B1, spec §5.1) ----
+        if (this->hzb_cull_enabled && !this->hzb_cull_failed) {
+            this->create_hzb_cull_tables(*cluster);
+        }
         this->publish_hzb_bindings();
         this->hzb_build->set_hzb_levels(this->hzb_levels_buffer.get());
         deren::utility::log("hzb: tables (re)created for {}x{} - {} level(s), {} word(s) per frame lane ({} B), levels table {} B for {} frame slot(s), "
@@ -1919,6 +2052,66 @@ namespace deren::engine {
                             levels_bytes,
                             frame_slots,
                             pass::hzb_header_byte_capacity);
+    }
+
+    void runtime::create_hzb_cull_tables(resource_cluster& cluster) {
+        std::uint32_t const frame_slots = this->frame_ring().slot_count();
+        std::uint64_t const items_bytes = static_cast<std::uint64_t>(frame_slots) * pass::hzb_cull_item_capacity * sizeof(pass::hzb_item);
+        std::uint64_t const results_bytes = static_cast<std::uint64_t>(frame_slots) * pass::hzb_results_bytes_per_lane;
+        std::uint64_t const survivors_bytes = static_cast<std::uint64_t>(frame_slots) * pass::hzb_cull_candidate_capacity * sizeof(deren::engine::meshlet);
+        rhi::buffer_desc items_desc{};
+        items_desc.size = items_bytes;
+        items_desc.usage = rhi::buffer_usage::storage_coherent; // HOST-written per frame (the item recorder writes the lane)
+        items_desc.flags = rhi::to_bits(rhi::buffer_flag::device_address);
+        rhi::buffer_desc results_desc{};
+        results_desc.size = results_bytes;
+        results_desc.usage = rhi::buffer_usage::storage_coherent; // GPU-written, host-read at shutdown/probe time
+        results_desc.flags = rhi::to_bits(rhi::buffer_flag::device_address);
+        rhi::buffer_desc survivors_desc{};
+        survivors_desc.size = survivors_bytes;
+        survivors_desc.usage = rhi::buffer_usage::storage_gpu_only; // GPU-only: nothing but a GPU consumer reads it
+        survivors_desc.flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::transfer_source);
+        auto created_items = cluster.create_buffer(items_desc);
+        auto created_results = cluster.create_buffer(results_desc);
+        auto created_survivors = cluster.create_buffer(survivors_desc);
+        if (!created_items || !created_results || !created_survivors) {
+            this->hzb_cull_failed = true;
+            deren::utility::log("hzb: the cull lane is unavailable (the phase-B tables could not be created)");
+            return;
+        }
+        this->hzb_items_buffer = std::move(*created_items);
+        this->hzb_results_buffer = std::move(*created_results);
+        this->hzb_survivors_buffer = std::move(*created_survivors);
+        // THE HOST-SIDE ZEROING IS PART OF THE CREATION because the two mapped tables are read before they are
+        // first written: the item recorder writes only the entries of THIS frame's items, and the probe/shutdown
+        // read every lane. A zeroed table means "no item, no candidates, every counter zero" rather than whatever
+        // the allocator held.
+        auto const items_bytes_mapped = this->hzb_items_buffer->mapped();
+        auto const results_bytes_mapped = this->hzb_results_buffer->mapped();
+        if (items_bytes_mapped.size() < items_bytes || results_bytes_mapped.size() < results_bytes) {
+            this->hzb_cull_failed = true;
+            deren::utility::log("hzb: the cull lane is unavailable (its host-visible tables are not mapped)");
+            return;
+        }
+        std::fill(items_bytes_mapped.begin(), items_bytes_mapped.begin() + static_cast<std::ptrdiff_t>(items_bytes), std::byte{0});
+        std::fill(results_bytes_mapped.begin(), results_bytes_mapped.begin() + static_cast<std::ptrdiff_t>(results_bytes), std::byte{0});
+        this->hzb_items_mapped = items_bytes_mapped.data();
+        this->hzb_results_mapped = results_bytes_mapped.data();
+        this->hzb_cull_resources_ready = true;
+        deren::utility::log("hzb cull: tables (re)created - items {} B ({} item(s) x {} frame slot(s), host-written), results {} B "
+                            "({} word(s) per lane: flags[{}] + pass1/pass2 counts[{}] each + stats[{}], host-readable), survivors {} B "
+                            "({} record(s) x {} frame slot(s), GPU-only)",
+                            items_bytes,
+                            pass::hzb_cull_item_capacity,
+                            frame_slots,
+                            results_bytes,
+                            pass::hzb_results_words_per_lane,
+                            pass::hzb_cull_candidate_capacity,
+                            pass::hzb_cull_item_capacity,
+                            pass::hzb_results_stats_capacity,
+                            survivors_bytes,
+                            pass::hzb_cull_candidate_capacity,
+                            frame_slots);
     }
 
     void runtime::publish_cluster_bindings() {

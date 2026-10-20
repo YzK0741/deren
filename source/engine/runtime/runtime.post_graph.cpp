@@ -26,6 +26,7 @@ import deren.engine.pass.transparent;
 import deren.engine.pass.taa;
 import deren.engine.pass;
 import deren.engine.pass.hzb_build; // the runtime-owned HZB build pass (lane 22) and its header constants
+import deren.engine.pass.hzb_cull;  // the runtime-owned HZB cull pass (lane 21, M3 phase B1)
 import deren.engine.pass.output_targets;
 import deren.engine.visibility.hzb; // the pyramid layout the probe's lane sizes are computed with (§4.1)
 import deren.promise.rhi;
@@ -133,6 +134,42 @@ namespace deren::engine {
             hzb_build_parameters params{{levels, {}, storage}, {header, {}, storage}, {depth, {}, sampled}, {camera, {}, uniform}};
             return description.add_pass("hzb build", std::move(params), graph::pass_options{.side_effect = true});
         }
+
+        // ================================================================================================
+        // THE HZB CULL LANE'S GRAPH DECLARATION (M3 phase B1, spec §4.3, §8.1)
+        //
+        // ONE compute node with the seven accesses the dispatch has: the HISTORY pyramid and header lanes as reads
+        // (the data is the same frame slot's PREVIOUS use, so the graph must NOT think this frame's build produces
+        // it - the WAR order it derives from the build's write is exactly the §8.2 order cull-then-build), the two
+        // host-written tables as reads (no barrier: the host wrote them before submission, §8.2 step 0), and the two
+        // GPU-written result tables as writes. Nothing in this graph reads the writes, so `side_effect = true` is
+        // what keeps the node alive (the same requirement the build lane states).
+        //
+        // THE CANDIDATE RECORDS AND THE ITEM MODEL ARE THE FRAME'S EXISTING TABLES, not new ones: the host-culled
+        // meshlet lane the host compacts while it records, and the visibility draw-item table (whose model matrix is
+        // the one the raster would use). Those are imported by the shared scene imports above and reused here, so
+        // their producer/consumer edges are the graph's and this lane needs no second copy.
+        // ================================================================================================
+        struct hzb_cull_parameters {
+            graph::buffer_read levels;
+            graph::buffer_read header;
+            graph::buffer_read items;
+            graph::buffer_read candidates;
+            graph::buffer_read draw_items;
+            graph::buffer_discard_write results;
+            graph::buffer_discard_write survivors;
+            void visit_resources(graph::parameter_visitor& visit) const noexcept {
+                visit(levels, header, items, candidates, draw_items, results, survivors);
+            }
+        };
+
+        std::expected<graph::pass_ref, graph::graph_error> append_hzb_cull(graph::builder& description, graph::buffer_ref levels, graph::buffer_ref header,
+                                                                           graph::buffer_ref items, graph::buffer_ref candidates, graph::buffer_ref draw_items,
+                                                                           graph::buffer_ref results, graph::buffer_ref survivors) noexcept {
+            constexpr graph::access_scope storage{graph::resource_usage::storage, graph::pipeline_stage::compute_shader};
+            hzb_cull_parameters params{{levels, {}, storage}, {header, {}, storage}, {items, {}, storage}, {candidates, {}, storage}, {draw_items, {}, storage}, {results, {}, storage}, {survivors, {}, storage}};
+            return description.add_pass("hzb cull", std::move(params), graph::pass_options{.side_effect = true});
+        }
     } // namespace
     rhi::error runtime::record_post_graph() {
         using lease = resource_lease<rhi::image>;
@@ -140,6 +177,10 @@ namespace deren::engine {
         // this function): cleared here, once per frame, and set by that lane's recorder. A frame that is not a
         // main graph frame never runs the visibility lanes, so it must not inherit the previous frame's flag.
         this->hzb_recorded_this_frame = false;
+        // ... and the same bookkeeping for the phase-B cull lane: `hzb_cull_active_frame` is THIS frame's frozen
+        // verdict (set by evaluate_hzb_cull_lane below), `hzb_cull_recorded_this_frame` its recorder's answer.
+        this->hzb_cull_active_frame = false;
+        this->hzb_cull_recorded_this_frame = false;
         auto commands = this->frame_command_buffer();
         if (!commands || !this->cluster_retention_open) {
             return rhi::error::not_ready;
@@ -641,6 +682,111 @@ namespace deren::engine {
             //   * the lighting / debug / gaussian / transparent / toon lanes below read the same five targets and the
             //     depth exactly as they read the geometry lane's, so none of them knows which producer ran.
             bool const visibility_frame = this->visibility_lane_frame == deren::engine::visibility::opaque_lane::visibility;
+            // ---- THE HZB LANES' SHARED ADMISSION, AND THE PHASE-B STATIC GATE (M3 phase A2 + B1) ----
+            // The BUILD lane's predicate is phase A2's, unchanged (the gate, the two tables, the pipeline, and a
+            // visibility-lane frame - §8.3: a geometry-lane frame builds nothing). The CULL lane adds its own §9.1
+            // clauses AND the §9.2 byte-exact gate, evaluated ONCE, here, before any HZB resource is imported:
+            // `evaluate_hzb_cull_lane` captures this frame's scene snapshot and compares it with the slot's saved
+            // "what built the history HZB" record. A closed gate prunes the lane, and the frame keeps today's path.
+            bool const hzb_build_lane = visibility_frame && this->hzb_build_enabled && this->hzb_resources_ready && this->hzb_build != nullptr && this->hzb_build->ready();
+            std::uint32_t const hzb_item_count = static_cast<std::uint32_t>(this->frame_visible.size());
+            bool const hzb_cull_lane = hzb_build_lane && this->hzb_cull_enabled && this->evaluate_hzb_cull_lane(hzb_item_count);
+            // THE HISTORY LANES ARE IMPORTED ONCE, FOR BOTH LANES. A cull frame's history is DEFINED (it is the same
+            // frame slot's previous use: the cull reads it and the build overwrites it, and the graph's WAR edge from
+            // that read to the build's write is the §8.2 cull-before-build order). Without a cull lane the build
+            // lane's import is phase A2's own - undefined contents, no state - so a closed-gate frame is byte-for-byte
+            // a phase-A2 frame.
+            std::optional<graph::buffer_ref> hzb_levels_ref{}, hzb_header_ref{};
+            if (hzb_build_lane) {
+                auto levels_import = hzb_cull_lane
+                                         ? build.import_buffer(this->hzb_levels_buffer,
+                                                               {graph::initial_contents::defined,
+                                                                {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read}},
+                                                               "hzb levels")
+                                         : build.import_buffer(this->hzb_levels_buffer, {}, "hzb levels");
+                if (!levels_import) {
+                    return post_build_error(levels_import.error());
+                }
+                auto header_import = hzb_cull_lane
+                                         ? build.import_buffer(this->hzb_header_buffer,
+                                                               {graph::initial_contents::defined,
+                                                                {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read}},
+                                                               "hzb header")
+                                         : build.import_buffer(this->hzb_header_buffer, {}, "hzb header");
+                if (!header_import) {
+                    return post_build_error(header_import.error());
+                }
+                hzb_levels_ref = *levels_import;
+                hzb_header_ref = *header_import;
+            }
+            // ---- THE HZB CULL LANE (M3 phase B1, spec §4.3/§8.2 step 1): APPENDED BEFORE THE RASTER LANE ----
+            // Its accesses are the history pyramid/header (reads), the phase-B item table (host-written read), the
+            // frame's existing candidate/draw-item tables (reads) and its two result tables (writes). The explicit
+            // order edge below pins the §8.2 order even though the WAR edge from the build lane's write would
+            // already do it - the design's order is a contract, not an emergent property of the hazard analysis.
+            std::optional<graph::pass_ref> hzb_cull_ref{};
+            if (hzb_cull_lane && hzb_levels_ref && hzb_header_ref) {
+                auto items_import = build.import_buffer(this->hzb_items_buffer,
+                                                        {graph::initial_contents::defined,
+                                                         {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read}},
+                                                        "hzb items");
+                auto results_import = build.import_buffer(this->hzb_results_buffer,
+                                                          {graph::initial_contents::defined,
+                                                           {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read}},
+                                                          "hzb results");
+                auto survivors_import = build.import_buffer(this->hzb_survivors_buffer,
+                                                            {graph::initial_contents::defined,
+                                                             {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::write}},
+                                                            "hzb survivors");
+                if (!items_import || !results_import || !survivors_import) {
+                    return post_build_error(!items_import ? items_import.error() : (!results_import ? results_import.error() : survivors_import.error()));
+                }
+                // THE CANDIDATE LANE AND THE DRAW-ITEM TABLE ARE THE FRAME'S OWN SHARED IMPORTS (shared_refs[9] and
+                // [12]): the cull reads the records the host compacted in phase 2 and the model matrix the raster
+                // will project with, so the two lanes cannot disagree about either.
+                auto hzb_added = build.append([&](graph::builder& description) noexcept {
+                    return append_hzb_cull(description, *hzb_levels_ref, *hzb_header_ref, *items_import, shared_refs[9], shared_refs[12], *results_import, *survivors_import);
+                });
+                if (!hzb_added) {
+                    return post_build_error(hzb_added.error());
+                }
+                hzb_cull_ref = *hzb_added;
+                // THE PHASE-B PROBE'S READBACKS ARE ALLOCATED HERE, BEFORE THE LANE RECORDS: the history-lane copy is
+                // recorded INSIDE the cull lane (this frame's build overwrites the same lane later in the submission,
+                // so after the graph would be too late - see runtime::begin_hzb_cull_probe).
+                if (this->screenshot_requested && std::getenv("DEREN_HZB_CULL_PROBE_CAPTURE") != nullptr) {
+                    (void)this->begin_hzb_cull_probe();
+                }
+                std::array<pass::frame_pass*, 1> hzb_cull_stage_passes{this->hzb_cull.get()};
+                pass::stage hzb_cull_stage{.name = "hzb cull", .passes = hzb_cull_stage_passes};
+                this->prepare_stage(hzb_cull_stage);
+                passes[21] = this->hzb_cull.get();
+                ios[21].push_block = host.push_block;
+                if (!host.resolve || !host.resolve(host.context, *passes[21], ios[21]) || ios[21].list != commands.get()) {
+                    return rhi::error::not_ready;
+                }
+                this->hzb_cull->set_frame(hzb_item_count, this->render_extent());
+                auto hzb_bound = build.bind_pass<hzb_cull_parameters>(
+                    *hzb_cull_ref, [this, payload](hzb_cull_parameters const&, rhi::command_buffer& command_buffer, graph::execution::record_context const&) noexcept {
+                        auto const error = payload->record(21);
+                        if (error != rhi::error::ok) {
+                            return error;
+                        }
+                        // the lane's witness + its own timing boundary (the "hzb cull" interval ends here, before
+                        // the raster lane's "visibility raster" interval starts - spec §10.5's split)
+                        this->hzb_cull_recorded_this_frame = true;
+                        this->hzb_cull_stats_valid = true;
+                        this->hzb_cull_last_slot = this->frame_ring().position();
+                        this->gpu_mark(gpu_mark_id::hzb_cull_end);
+                        if (this->hzb_cull_probe_active) {
+                            this->record_hzb_cull_probe_copy(command_buffer);
+                        }
+                        return rhi::error::ok;
+                    });
+                if (!hzb_bound) {
+                    return post_build_error(hzb_bound.error());
+                }
+            }
             std::optional<graph::texture_ref> visibility_ref{};
             if (visibility_frame) {
                 graph::resource_state visibility_id_state{};
@@ -669,6 +815,14 @@ namespace deren::engine {
                 if (!visibility_added) {
                     return post_build_error(visibility_added.error());
                 }
+                // THE §8.2 ORDER, STATED RATHER THAN EMERGENT: cull BEFORE raster (phase B2's raster consumes the
+                // survivor table the cull just wrote, so this edge is the lane contract's first half; in phase B1 it
+                // keeps the history-lane probe copy ahead of everything that could touch the lane).
+                if (hzb_cull_ref) {
+                    if (auto ordered = build.order_after(visibility_added->pass, *hzb_cull_ref); !ordered) {
+                        return post_build_error(ordered.error());
+                    }
+                }
                 pass::stage visibility_stage{.name = "visibility raster", .passes = this->visibility_pass};
                 this->prepare_stage(visibility_stage);
                 passes[19] = this->visibility_pass[0];
@@ -680,13 +834,20 @@ namespace deren::engine {
                 this->visibility_raster->set_frame(this->make_visibility_frame());
                 auto visibility_bound = build.bind_pass<graph::visibility::parameters>(
                     visibility_added->pass, [this, payload](graph::visibility::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                        // THE CULL LANE'S MARK IS POSITIONAL LIKE EVERY OTHER: a frame whose cull lane was pruned
+                        // still has to emit `hzb_cull_end` AT THE CULL LANE'S POINT - i.e. before the raster
+                        // records - or the interval would be measured as the raster's (the OFF path's pass report
+                        // would call the raster "hzb cull"). `gpu_mark_through` is exactly that filler: a 0 ms
+                        // interval when the lane did not run.
+                        this->gpu_mark_through(gpu_mark_id::hzb_cull_end);
                         auto error = payload->record(19);
                         if (error != rhi::error::ok) {
                             return error;
                         }
-                        // shadow_end -> here is the MESH-TASK RASTER ALONE; here -> scene_end (written by the
-                        // resolve lane below) is the resolve. BOTH paths write this mark, so the labels never
-                        // lie per-path (the geometry callback writes it immediately before its pass).
+                        // shadow_end -> hzb_cull_end is the cull lane; hzb_cull_end -> here is the MESH-TASK RASTER
+                        // ALONE; here -> scene_end (written by the resolve lane below) is the resolve. BOTH paths
+                        // write this mark, so the labels never lie per-path (the geometry callback writes it
+                        // immediately before its pass).
                         this->gpu_mark(gpu_mark_id::visibility_raster_end);
                         return rhi::error::ok;
                     });
@@ -751,22 +912,13 @@ namespace deren::engine {
             // order of §8.2; the graph schedules it by dependencies, which is the same thing because both lanes
             // only read the depth the raster wrote.
             //
-            // EVERY PREDICATE BELOW IS A PRUNE, not a fallback: the lane exists only when DEREN_HZB_BUILD armed it,
-            // the two tables exist and their heap descriptors were written, the pass has its pipeline, and this is
-            // a frame whose opaque producer is the visibility lane (§8.3: a geometry-lane frame builds nothing -
-            // the pyramid is the visibility lane's derived data, and a fallback frame changes no HZB byte either).
-            // Any false leaves the graph with EXACTLY the nodes it has today.
-            if (visibility_frame && this->hzb_build_enabled && this->hzb_resources_ready && this->hzb_build != nullptr && this->hzb_build->ready()) {
-                auto levels_ref = build.import_buffer(this->hzb_levels_buffer, {}, "hzb levels");
-                if (!levels_ref) {
-                    return post_build_error(levels_ref.error());
-                }
-                auto header_ref = build.import_buffer(this->hzb_header_buffer, {}, "hzb header");
-                if (!header_ref) {
-                    return post_build_error(header_ref.error());
-                }
+            // ITS PREDICATE AND ITS TWO IMPORTS ARE HOISTED ABOVE (hzb_build_lane / hzb_levels_ref / hzb_header_ref):
+            // the cull lane that runs BEFORE the raster needs the very same two buffers as reads, and a resource may
+            // be imported once with one initial state - so the admission is one predicate and the imports are one
+            // pair. With no cull lane this is exactly phase A2's `{}` import and the same discard write.
+            if (hzb_build_lane && hzb_levels_ref && hzb_header_ref) {
                 auto hzb_added = build.append([&](graph::builder& description) noexcept {
-                    return append_hzb_build(description, *levels_ref, *header_ref, *depth_ref, shared_refs[0]);
+                    return append_hzb_build(description, *hzb_levels_ref, *hzb_header_ref, *depth_ref, shared_refs[0]);
                 });
                 if (!hzb_added) {
                     return post_build_error(hzb_added.error());
@@ -787,6 +939,12 @@ namespace deren::engine {
                         auto const error = payload->record(22);
                         if (error == rhi::error::ok) {
                             this->hzb_recorded_this_frame = true; // the probe copies only a frame that actually built
+                            // THE PHASE-B SNAPSHOT IS TAKEN HERE, FROM THE FRAME THAT BUILT THE PYRAMID (§9.2): the
+                            // matrices/items the build just copied into the header and the depth it built from. This
+                            // slot's next use (2 frames from now) compares against exactly this record.
+                            if (this->hzb_cull_enabled) {
+                                this->save_hzb_source_scene();
+                            }
                         }
                         return error;
                     });
@@ -823,6 +981,10 @@ namespace deren::engine {
                 }
                 auto geometry_bound = build.bind_pass<graph::geometry::parameters>(geometry->pass,
                                                                                    [this, payload](graph::geometry::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                                                                                       // the cull lane did not run on this path (a geometry-lane frame builds
+                                                                                       // and culls nothing), so its mark is filled here - the positional rule
+                                                                                       // every optional pass follows (0 ms interval, labels never shift).
+                                                                                       this->gpu_mark_through(gpu_mark_id::hzb_cull_end);
                                                                                        // THE SPLIT MARK, before the pass: the geometry lane keeps the interval it
                                                                                        // always had ("scene" = this mark -> scene_end); the visibility slot reads ~0
                                                                                        this->gpu_mark(gpu_mark_id::visibility_raster_end);
