@@ -17,10 +17,12 @@
 
 ## Task 1: pure generation and policy adapter
 
-- [ ] Add tests first: valid upload matches leaf; swapped buffer/lease/type/count/stride/meshlet windows reject hierarchy; null source preserves old path. Observe missing adapter RED.
-- [ ] Add geometry/subtilis_selection.cppm and focused implementation if size warrants. Model policy facts explicitly (mask/blend, overlay, deforming, instanced, default pipeline, exact-depth redraw); derive force_finest without changing frame admission.
-- [ ] Build view_parameters from frozen matrices and render extent; test perspective/orthographic/invalid matrices, actual near extraction and nonuniform transforms. Invalid view gives complete finest.
-- [ ] Route supported identity to prepare_hierarchy, otherwise prepare_lod0/shared mismatch. Test no partial publication, count0, alias and capacity failure. Register headless CMake/CI and tidy; GREEN then commit.
+- [x] Retain normal_offset/uv_offset in build_statistics with failing-first metadata checks. Only64B/normal12/UV24 permits coarse; visibility admission rejects non64B stride, with pure admission regression. Update runtime facts in Task2.
+
+- [x] Add tests first: valid upload matches leaf; swapped buffer/lease/type/count/stride/meshlet windows reject hierarchy; null source preserves old path. Observe missing adapter RED.
+- [x] Add geometry/subtilis_selection.cppm and focused implementation if size warrants. Model policy facts explicitly (mask/blend, overlay, deforming, instanced, default pipeline, exact-depth redraw); derive force_finest without changing frame admission.
+- [x] Build view_parameters from frozen matrices and render extent; test perspective/orthographic/invalid matrices, actual near extraction and nonuniform transforms. Invalid view gives complete finest.
+- [x] Route supported identity to prepare_hierarchy, otherwise prepare_lod0/shared mismatch. Test no partial publication, count0, alias and capacity failure. Register headless CMake/CI and tidy; GREEN then commit.
 
 ## Task 2: actual runtime recording
 

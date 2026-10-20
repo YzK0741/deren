@@ -450,6 +450,7 @@ namespace {
         CHECK(refused([](leaf_admission_facts& f) { f.deforming = true; }) == admission::deforming);
         CHECK(refused([](leaf_admission_facts& f) { f.has_vertex_buffer = false; }) == admission::missing_geometry);
         CHECK(refused([](leaf_admission_facts& f) { f.has_index_buffer = false; }) == admission::missing_geometry);
+        CHECK(refused([](leaf_admission_facts& f) { f.vertex_stride = 32; }) == admission::incompatible_layout);
         CHECK(refused([](leaf_admission_facts& f) { f.has_meshlets = false; }) == admission::no_meshlet_run);
         // the MATERIAL clauses: a MASK material cannot be resolved (a written depth cannot be discarded), and an
         // index outside the host table would read a zero flag word and be carried as if it were a plain surface

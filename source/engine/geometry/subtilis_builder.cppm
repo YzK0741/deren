@@ -30,6 +30,7 @@ export namespace deren::engine::subtilis {
         std::uint64_t lod0_triangles = 0, coarse_triangles = 0, payload_bytes = 0, source_hash = 0;
         std::uint32_t rejected_topology = 0, rejected_reduction = 0, rejected_budget = 0;
         std::uint32_t schema_version = 1;
+        std::uint32_t normal_offset = 12, uv_offset = 24;
         deren::utility::vessel::vector<std::uint64_t> level_triangles;
     };
     inline constexpr std::string_view builder_dependency_revision = "9e1f07b159d3cb777f1c67ed31fc11fd117986f4";

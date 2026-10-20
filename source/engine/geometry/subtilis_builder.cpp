@@ -174,6 +174,8 @@ namespace deren::engine::subtilis {
         }
         auto& source = *decoded;
         build_statistics stats{};
+        stats.normal_offset = input.normal_offset;
+        stats.uv_offset = input.uv_offset;
         stats.source_hash = fingerprint(input, source, options);
         stats.lod0_triangles = source.indices.size() / 3;
         bd::vector<bd::logical_node> nodes;

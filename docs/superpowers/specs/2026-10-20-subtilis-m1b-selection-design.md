@@ -8,6 +8,8 @@
 
 有 source 但关联不一致时不读取其 hierarchy，返回完整 shared LOD0 和 source_mismatch。没有 source 时继续原有 prepare_lod0。已知损坏的原始共享表不在本轮新增修复范围，仍由既有 visibility admission 控制；关联失败不能悄悄使用别的代际的粗层。
 
+shader 的固定顶点布局已确认是64字节（normal12/UV24）。build_statistics 保留这两个构建偏移，自动纳入既有元数据预算；非标准属性偏移只能最细层。visibility admission 拒绝非64字节 stride，避免即使回退 LOD0 仍发生错误读取。此检查同样覆盖旧 source 为空的路径。
+
 ## 资格与视图
 
 仅静态、非实例、默认 pipeline 的主视图 opaque item 可选择粗层。MASK/BLEND、overlay、变形和其它非支持路径保持完整 LOD0。不能仅用 toon_family 判定 exact-depth：当前 frame_character 包含所有非背景 opaque 叶。character_forward feature 活跃时，所有非 environment 叶保守 force_finest；之后若改变实际消费列表，要同步此事实。阴影、BLAS、普通 geometry lane 完全不调用新的 selector。

@@ -419,20 +419,21 @@ export namespace deren::engine::visibility {
     // =============================================================================================
     enum class admission : std::uint8_t {
         admitted = 0,
-        disabled,          ///< [render] visibility_buffer is off: the old lane is the frame
-        no_pipeline,       ///< the raster and/or the resolve pass has no pipeline this session
-        no_scene,          ///< this frame has no graph-recordable scene (there is no G-buffer lane to replace)
-        no_draws,          ///< no visible opaque leaves: the old lane's clear is the whole frame
-        depth_equal_stage, ///< a re-shading stage tests depth with EXACT equality: it needs its own pipeline's depth
-        custom_pipeline,   ///< a leaf names its own pipeline (a different stage this path does not know)
-        instanced,         ///< an instanced draw: its world matrix comes from the instance table per workgroup
-        deforming,         ///< a skinned or morphed draw: one model matrix and one vertex fetch per item
-        missing_geometry,  ///< a leaf without its vertex or index buffer
-        no_meshlet_run,    ///< a leaf with no meshlets to dispatch
-        masked_material,   ///< an alphaMode MASK material: a resolve cannot cut a pixel whose depth is already written
-        missing_material,  ///< a leaf whose material index is outside the host table (a registration failure)
-        meshlet_overflow,  ///< one item's meshlet count past the packed id's 14-bit field
-        item_overflow,     ///< more visible items than the packed id's 10-bit field (or the pass's table) can hold
+        disabled,            ///< [render] visibility_buffer is off: the old lane is the frame
+        no_pipeline,         ///< the raster and/or the resolve pass has no pipeline this session
+        no_scene,            ///< this frame has no graph-recordable scene (there is no G-buffer lane to replace)
+        no_draws,            ///< no visible opaque leaves: the old lane's clear is the whole frame
+        depth_equal_stage,   ///< a re-shading stage tests depth with EXACT equality: it needs its own pipeline's depth
+        custom_pipeline,     ///< a leaf names its own pipeline (a different stage this path does not know)
+        instanced,           ///< an instanced draw: its world matrix comes from the instance table per workgroup
+        deforming,           ///< a skinned or morphed draw: one model matrix and one vertex fetch per item
+        missing_geometry,    ///< a leaf without its vertex or index buffer
+        no_meshlet_run,      ///< a leaf with no meshlets to dispatch
+        masked_material,     ///< an alphaMode MASK material: a resolve cannot cut a pixel whose depth is already written
+        missing_material,    ///< a leaf whose material index is outside the host table (a registration failure)
+        meshlet_overflow,    ///< one item's meshlet count past the packed id's 14-bit field
+        item_overflow,       ///< more visible items than the packed id's 10-bit field (or the pass's table) can hold
+        incompatible_layout, ///< shader fetches the fixed 64-byte interleaved vertex
     };
 
     /// @brief whether an admission verdict lets the frame record the visibility path
@@ -447,6 +448,8 @@ export namespace deren::engine::visibility {
             return "admitted";
         case admission::disabled:
             return "the [render] visibility_buffer switch is off";
+        case admission::incompatible_layout:
+            return "a leaf's vertex stride differs from the fixed 64-byte shader layout";
         case admission::no_pipeline:
             return "the visibility raster or resolve pipeline was not created";
         case admission::no_scene:
@@ -499,6 +502,7 @@ export namespace deren::engine::visibility {
         std::uint32_t material_flags = 0; ///< the material record's flag word (bit 4 = alphaMode MASK)
         std::uint32_t meshlet_count = 1;  ///< the run's size: the dispatch's groups, and the id's 14-bit field
         std::uint32_t item_index = 0;     ///< the row this leaf takes in the frame's item table
+        std::uint32_t vertex_stride = 64;
     };
 
     /// @brief CLASSIFY ONE LEAF against the path's clauses, first refusal wins
@@ -514,6 +518,9 @@ export namespace deren::engine::visibility {
         }
         if (!facts.has_vertex_buffer || !facts.has_index_buffer) {
             return admission::missing_geometry;
+        }
+        if (facts.vertex_stride != 64) {
+            return admission::incompatible_layout;
         }
         if (!facts.has_meshlets) {
             return admission::no_meshlet_run;
