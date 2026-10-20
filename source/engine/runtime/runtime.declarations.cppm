@@ -161,20 +161,25 @@ namespace deren::engine {
      * THIS partition would let a call site inline the concrete backend's `query_extension` and emit a
      * backend symbol into the engine half, which is what the boundary meter counts.
      *
-     * THE TWO MIRRORED CONSTANTS ARE THE ONE DELIBERATE DUPLICATION, and they are named so a reader
-     * cannot mistake them for shared ones: the backend's `gpu_timing_mark_capacity` (32) and
-     * `scene_texture_capacity` (128) live in `deren.vulkan.core`, which this half may not import. Both
-     * are capacities the ENGINE sizes its own arrays by, so a mismatch would be a silent overrun rather
-     * than an error - which is why each carries the number AND its origin here, and why a change on the
-     * backend side has to be made here in the same commit.
+     * ONE MIRRORED CONSTANT REMAINS, and it is named so a reader cannot mistake it for a shared one: the
+     * backend's `gpu_timing_mark_capacity` (32) lives in `deren.vulkan.core`, which this half may not
+     * import, while the ENGINE sizes its own per-frame mark table by it - so a mismatch would be a silent
+     * overrun rather than an error, and it carries the number AND its origin here.
+     *
+     * `scene_texture_capacity` IS NO LONGER A MIRRORED NUMBER: it is the grid's own texture run
+     * (`deren.engine.render_layout`, which BOTH halves compile), so this half aliases the same derivation
+     * the backend does instead of repeating a literal. That is what let the run grow from 512 to 1024
+     * slots without a second place to keep in step.
      */
     namespace runtime_detail {
         /// the timestamp pool's per-frame mark capacity, mirroring `deren::engine::gpu_timing_mark_capacity`
         /// (core.declarations.cppm:210) - the ENGINE's per-frame mark table is sized by it
         inline constexpr std::uint32_t gpu_timing_mark_capacity = 32;
-        /// the bindless texture array's capacity, mirroring `deren::engine::scene_texture_capacity`
-        /// (core.declarations.cppm:113) - the engine's own texture-view table refuses past it
-        inline constexpr std::uint32_t scene_texture_capacity = 128;
+        /// the bindless texture array's capacity, DERIVED from the shared slot grid
+        /// (`deren.engine.render_layout::scene_texture_capacity`: the run between `heap_slots::textures`
+        /// and `heap_slots::materials`) - the engine's own texture-view table refuses past it, and the
+        /// backend's `core::scene_texture_capacity` aliases the same derivation
+        inline constexpr std::uint32_t scene_texture_capacity = deren::engine::render_layout::scene_texture_capacity;
 
         /**
          * @brief THE GRAPHICS QUEUE'S FAMILY, derived at runtime because the contract has no accessor for

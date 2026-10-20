@@ -101,14 +101,14 @@ struct VisibilityResolvePush
 static const uint visibility_id_triangle_shift = 0u;
 static const uint visibility_id_triangle_mask = 0x7Fu;    // 7 bits
 static const uint visibility_id_meshlet_shift = 7u;
-static const uint visibility_id_meshlet_mask = 0x3FFFu;   // 14 bits
-static const uint visibility_id_item_shift = 21u;
-static const uint visibility_id_item_mask = 0x3FFu;       // 10 bits
+static const uint visibility_id_meshlet_mask = 0xFFFu;    // 12 bits
+static const uint visibility_id_item_shift = 19u;
+static const uint visibility_id_item_mask = 0xFFFu;       // 12 bits
 static const uint visibility_id_valid = 1u << 31u;
 /// the draw-item table's rows PER FRAME LANE (mirror of deren.engine.visibility::id_item_capacity): the host writes
 /// a frame's rows at `frame_slot * this + item`, so a resolve adds exactly this stride to the INDEX - the table is one
 /// descriptor with the lanes inside it, not a per-frame array of descriptors (see the item fetch below).
-static const uint visibility_item_capacity = 1024u;
+static const uint visibility_item_capacity = 4096u;
 
 // ---- 2. THE PER-FRAME DRAW-ITEM RECORD (mirror of deren.engine.visibility::draw_item, 112 bytes) ----
 // Field order and byte offsets are the C++ record's; `model` stays the LAST member because the host writes the
@@ -244,7 +244,7 @@ gbuffer_output resolve_pixel(const uint2 pixel,
     const uint id_meshlet = (packed >> visibility_id_meshlet_shift) & visibility_id_meshlet_mask;
     const uint id_triangle = (packed >> visibility_id_triangle_shift) & visibility_id_triangle_mask;
     // THE ITEM TABLE IS ONE DESCRIPTOR WITH PER-FRAME LANES INSIDE IT, not a per-frame array of slots: the host
-    // writes a frame's 1024 rows at `frame_slot * capacity + item` (runtime::record_visibility_items and
+    // writes a frame's 4096 rows at `frame_slot * capacity + item` (runtime::record_visibility_items and
     // `visibility_items_write`), and the descriptor sits at the single slot the host wrote it at - so the frame
     // slot is part of the INDEX, never added to the heap slot. (Measured the hard way: adding it to the slot
     // instead read the next array's descriptor - a storage IMAGE - as a structured buffer, and the device was

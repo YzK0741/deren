@@ -51,12 +51,12 @@ int main() {
     published[0] = {10, 3}; // exactly adjacent, valid
     run = sub::prepare_lod0(rows, space, clip, scratch, published, writer);
     CHECK(run.source == sub::run_source::visible);
-    deren::utility::vessel::vector<meshlet> large(16385);
-    run = sub::prepare_lod0(large, sub::reservation{0, 16385}, clip, scratch, {}, no_write);
+    deren::utility::vessel::vector<meshlet> large(4097);
+    run = sub::prepare_lod0(large, sub::reservation{0, 4097}, clip, scratch, {}, no_write);
     CHECK(run.reason == sub::fallback_reason::capacity);
     large.pop_back();
-    run = sub::prepare_lod0(large, sub::reservation{49152, 16384}, clip, scratch, {}, [](unsigned, auto) { return true; });
-    CHECK(run.source == sub::run_source::visible && run.count == 16384);
+    run = sub::prepare_lod0(large, sub::reservation{61440, 4096}, clip, scratch, {}, [](unsigned, auto) { return true; });
+    CHECK(run.source == sub::run_source::visible && run.count == 4096);
     for (auto& row : rows)
         row.center_x = 4;
     auto before = writes;

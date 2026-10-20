@@ -112,7 +112,7 @@ uint   level;       uint flags;        // flags：根/叶/材质边界锁定等
 | 运行时装配 | `runtime.frames.cppm`（`subtilis_lane_frame` 冻结）、`runtime.cpp`（选择+写表）、`runtime.post_graph.cpp`（M2 pass 插入） | 与 visibility lane 对称 |
 | GPU pass（M2） | `source/engine/pass/subtilis_select.cppm/.cpp` | 选择/剔除 compute |
 | shader（M2） | `source/shaders/geometry/subtilis_select.slang`；M1 **要改** 现有 `scene/visibility.slang` 的 mesh entry（加 bit0 分支，§5 任务 1），不改 `visibility_resolve.slang` | 语言/Slang 约束沿用现有流水线 |
-| 表/槽位 | 复用 `heap_slots::meshlets`/`meshlet_culled`（M1）；M2 新增 `heap_slots::subtilis_groups/clusters/visible` | `render_layout.cppm`；新槽只能追加在已用区域末尾（`heap_slot_count` 1024、现用 703），并同步 `source/shaders/common/heap_slot_constants.slang`（`test_render_resources` 对照两个镜像） |
+| 表/槽位 | 复用 `heap_slots::meshlets`/`meshlet_culled`（M1）；M2 新增 `heap_slots::subtilis_groups/clusters/visible` | `render_layout.cppm`；新槽只能追加在已用区域末尾（网格 2048 槽：纹理数组占 0..1023，其余已用槽从 1024 起、最高到 1307），并同步 `source/shaders/common/heap_slot_constants.slang`（`test_render_resources` 对照两个镜像） |
 | 测试 | `source/tests/test_subtilis.cpp`（CPU reference）；CMake 的 `VR_TEST_TARGETS` 注册（`CMakeLists.txt:1321`），并同步 `.github/workflows/ci.yml` 的 `--target` 列表 | 静态分析测试：覆盖/无缺口/父误差非减/确定性；`test_docs` 的第 6 条不变量要求两边一致，漏一边就是 CI 红 |
 | 配置 | `[render] subtilis = false`；`application_configuration.cppm/.cpp` + `config.example.toml` + `scripts/make_config.py` + 两个 fixture + `test_app_config.cpp` 同步 | 与 `visibility_buffer` 同级：它的七个接线点是 `application_configuration.cppm:284`、`application_configuration.cpp:270-272`、`config.example.toml:406`、`scripts/make_config.py:186/311/453`、`fixtures/config_full.toml:41` 与 `config_generated_defaults.toml:40`、`test_app_config.cpp:59/94/126/200` |
 | 文档/遥测 | 日志前缀 `subtilis:`；统计 `mesh_stat_subtilis_*`（选中/剔除/回退计数）；`docs/reviews/…-subtilis/` 存证据 | 沿用现有 stat lane 机制 |
@@ -290,3 +290,10 @@ Release 55/55、相关 ASan/UBSan 7/7、上传/绑定 44 项检查及新增模�
 已实现显式 uploaded_geometry 的身份/布局检查和当前帧视图适配，并在 record_visibility_items 消费完整 hierarchy cut。同一 run 控制可见表、resolve row、raster push 和 indirect；不支持策略保留最细层，来源不匹配回 shared LOD0，无来源保留原路径。character_forward 的保护覆盖所有非背景 opaque，不限 toon_family。
 
 本地 Release57/57、相关 sanitizer10/10；实际帧102项与纯适配51项检查。详见 [主视图选层验证](../../reviews/2026-10-20-subtilis-m1b-selection.md)。自动导入构建和真实 GPU 图像/性能验收仍未完成。
+
+
+## 17. Visibility4096项容量（2026-10-20）
+
+按用户要求将现有R32_UINT布局调整为valid1/item12/meshlet12/triangle7，最多4096个item，每item最多4096个meshlet；超大单item按既有整帧admission回退。普通共享meshlet表65536容量不变，CPU asset预算校验仍独立。主机、raster、resolve与帧槽行跨度同步变更，必须成套重编译shader。此前10/14bit和1024项记录是历史状态，不再是当前上限。
+
+原始Bistro2909个绘制对象，最大单primitive1395个meshlet，满足当前编码，无需按材质合并。边界测试先RED后GREEN，完整Release57/57、相关ASan/UBSan4/4通过。带纹理验收已完成：场景纹理数组容量同步 128→1024（网格 1024→2048 槽，materials 起点 512→1024），由网格推导单点定义；textured Bistro 实测 516 个运行时纹理槽、无白染降级，原始层级 2909 primitives/2906 可见项出图。证据与剩余项（纹理场景 Subtilis OFF/ON）见 docs/reviews/2026-10-20-bistro-textured/README.md。

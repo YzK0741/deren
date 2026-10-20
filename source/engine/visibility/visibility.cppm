@@ -42,8 +42,8 @@ export namespace deren::engine::visibility {
     // 1. THE PACKED ID (one R32_UINT texel of the visibility buffer)
     //
     //    bit 31    : valid - always set for a written id; 0 means "no geometry won this pixel"
-    //    bits 30:21: item            - which (primitive, instance) draw item
-    //    bits 20:7 : meshlet_in_item - the item's meshlet ORDER (culled-run survivor index or table index)
+    //    bits 30:19: item            - which (primitive, instance) draw item
+    //    bits 18:7 : meshlet_in_item - the item's meshlet ORDER (culled-run survivor index or table index)
     //    bits 6:0  : triangle        - the triangle inside that meshlet
     //
     // The layout is spelled as shifts and masks rather than as a struct with bitfields: the shader side
@@ -51,8 +51,8 @@ export namespace deren::engine::visibility {
     // renderer's. The 85-triangle mesh-workgroup limit is well inside the 128 a triangle field holds.
     // =============================================================================================
     inline constexpr std::uint32_t id_valid_bits = 1u;
-    inline constexpr std::uint32_t id_item_bits = 10u;
-    inline constexpr std::uint32_t id_meshlet_bits = 14u;
+    inline constexpr std::uint32_t id_item_bits = 12u;
+    inline constexpr std::uint32_t id_meshlet_bits = 12u;
     inline constexpr std::uint32_t id_triangle_bits = 7u;
 
     inline constexpr std::uint32_t id_triangle_shift = 0u;
@@ -66,6 +66,7 @@ export namespace deren::engine::visibility {
     inline constexpr std::uint32_t id_item_capacity = 1u << id_item_bits;
     inline constexpr std::uint32_t id_meshlet_capacity = 1u << id_meshlet_bits;
     inline constexpr std::uint32_t id_triangle_capacity = 1u << id_triangle_bits;
+    static_assert(id_meshlet_capacity == subtilis::visible_meshlet_capacity);
 
     /// the mask of one field, already shifted into place
     [[nodiscard]] constexpr std::uint32_t id_field_mask(std::uint32_t const bits, std::uint32_t const shift) noexcept {
@@ -127,7 +128,8 @@ export namespace deren::engine::visibility {
     // =============================================================================================
     /// where the item's meshlet records come from: the import-time table or this frame's host-culled lane
     enum class meshlet_source : std::uint32_t { table = 0u,
-                                                culled = 1u };
+                                                culled = 1u,
+    };
 
     /// the number of 32-bit lanes before the model matrix
     inline constexpr std::uint32_t draw_item_dwords = 12u;
@@ -256,7 +258,7 @@ export namespace deren::engine::visibility {
 
     /// One published run drives raster, resolve and dispatch together.
     inline void apply_meshlet_run(draw_item& item, push_block& block, subtilis::visible_run const& run) noexcept {
-        static_assert(id_meshlet_capacity == (1u << 14));
+        static_assert(id_meshlet_capacity == subtilis::visible_meshlet_capacity);
         bool const visible = run.source == subtilis::run_source::visible;
         item.meshlet_base = run.base;
         item.meshlet_table = static_cast<std::uint32_t>(visible ? meshlet_source::culled : meshlet_source::table);
@@ -398,8 +400,11 @@ export namespace deren::engine::visibility {
 
     /// @brief interpolate a float3 attribute at @p weights
     [[nodiscard]] constexpr std::array<float, 3> interpolate3(barycentrics const& weights, std::array<float, 3> const& a, std::array<float, 3> const& b, std::array<float, 3> const& c) noexcept {
-        return {weights.a * a[0] + weights.b * b[0] + weights.c * c[0], weights.a * a[1] + weights.b * b[1] + weights.c * c[1],
-                weights.a * a[2] + weights.b * b[2] + weights.c * c[2]};
+        return {
+            weights.a * a[0] + weights.b * b[0] + weights.c * c[0],
+            weights.a * a[1] + weights.b * b[1] + weights.c * c[1],
+            weights.a * a[2] + weights.b * b[2] + weights.c * c[2],
+        };
     }
 
     // =============================================================================================
@@ -431,8 +436,8 @@ export namespace deren::engine::visibility {
         no_meshlet_run,      ///< a leaf with no meshlets to dispatch
         masked_material,     ///< an alphaMode MASK material: a resolve cannot cut a pixel whose depth is already written
         missing_material,    ///< a leaf whose material index is outside the host table (a registration failure)
-        meshlet_overflow,    ///< one item's meshlet count past the packed id's 14-bit field
-        item_overflow,       ///< more visible items than the packed id's 10-bit field (or the pass's table) can hold
+        meshlet_overflow,    ///< one item's meshlet count past the packed id's 12-bit field
+        item_overflow,       ///< more visible items than the packed id's 12-bit field (or the pass's table) can hold
         incompatible_layout, ///< shader fetches the fixed 64-byte interleaved vertex
     };
 
@@ -500,7 +505,7 @@ export namespace deren::engine::visibility {
         bool has_meshlets = true;         ///< `meshlet_count != 0`: there is a run to dispatch
         bool material_index_valid = true; ///< the index is inside the host material table
         std::uint32_t material_flags = 0; ///< the material record's flag word (bit 4 = alphaMode MASK)
-        std::uint32_t meshlet_count = 1;  ///< the run's size: the dispatch's groups, and the id's 14-bit field
+        std::uint32_t meshlet_count = 1;  ///< the run's size: the dispatch's groups, and the id's 12-bit field
         std::uint32_t item_index = 0;     ///< the row this leaf takes in the frame's item table
         std::uint32_t vertex_stride = 64;
     };
@@ -544,7 +549,8 @@ export namespace deren::engine::visibility {
     /// that "off" and "cannot be carried" must have the SAME answer: the old geometry lane, recorded for every
     /// leaf. There is no third lane and no partial frame.
     enum class opaque_lane : std::uint8_t { geometry = 0,
-                                            visibility = 1 };
+                                            visibility = 1,
+    };
 
     [[nodiscard]] constexpr opaque_lane choose_opaque_lane(bool const enabled, admission const verdict) noexcept {
         return enabled && verdict == admission::admitted ? opaque_lane::visibility : opaque_lane::geometry;

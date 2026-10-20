@@ -126,7 +126,14 @@ namespace deren::vulkan {
     // veneer the boundary is built on can carry functions (a naked jump stub is a function) but NOT data.
     // `inline` gives the constant external linkage with a definition every importer may use, so each side
     // keeps its own copy and nothing crosses the boundary as data. The values are unchanged.
-    export inline constexpr uint32_t scene_texture_capacity = 128;
+    // THE VALUE IS THE ENGINE LAYOUT'S NOW, not a literal copied beside it: `deren.engine.render_layout` is
+    // compiled by BOTH halves (it already publishes the slot grid the array lives on), so aliasing its
+    // `scene_texture_capacity` is what makes "the texture run between the two slot names is the capacity" a
+    // single derivation instead of two numbers. The `inline` above still matters for the reason it always
+    // did: each image keeps its own copy of the VALUE and no data symbol crosses the boundary.
+    export inline constexpr uint32_t scene_texture_capacity = deren::engine::render_layout::scene_texture_capacity;
+    static_assert(scene_texture_capacity == deren::engine::render_layout::heap_slots::materials - deren::engine::render_layout::heap_slots::textures,
+                  "the bindless texture array's capacity is the grid's texture run");
     // material_push_constants: 6 uints + aligned mat4 = 96 bytes, see source/engine/scene_tree/scene_tree.cppm
     // MOVED INTO `deren.engine.render_layout` by the import-cleanup batch, for the reason `hdr_format` moved
     // (A1.0): `deren.engine.primitive` needs it for its exported push-block offsets, and it may not import a
@@ -1730,7 +1737,7 @@ namespace deren::vulkan {
         // baked indices and the captures were made against, so a change on either side must be a
         // deliberate edit HERE as well.
         static_assert(deren::engine::render_layout::heap_slot_base == 16384u, "the slot grid's base moved");
-        static_assert(deren::engine::render_layout::heap_slot_count == 1024u, "the slot grid's size moved");
+        static_assert(deren::engine::render_layout::heap_slot_count == 2048u, "the slot grid's size moved");
         static_assert(deren::engine::render_layout::heap_slot_stride == 64u, "the slot grid's stride moved");
         static_assert(deren::engine::render_layout::heap_image_capacity == 8u, "the per-image array capacity moved");
         static_assert(deren::engine::render_layout::heap_sampler_base == 2048u, "the sampler grid's base moved");

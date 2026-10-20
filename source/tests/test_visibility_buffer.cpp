@@ -31,7 +31,7 @@ namespace {
         struct case_t {
             std::uint32_t item, meshlet, triangle;
         };
-        case_t const cases[] = {{0u, 0u, 0u}, {1u, 0u, 0u}, {0u, 1u, 0u}, {0u, 0u, 1u}, {1023u, 16383u, 127u}, {512u, 4096u, 85u}};
+        case_t const cases[] = {{0u, 0u, 0u}, {1u, 0u, 0u}, {0u, 1u, 0u}, {0u, 0u, 1u}, {4095u, 4095u, 127u}, {2048u, 2048u, 85u}};
         for (auto const& c : cases) {
             auto const packed = pack_id(c.item, c.meshlet, c.triangle);
             CHECK(packed.has_value());
@@ -155,8 +155,8 @@ namespace {
         }
         // and the id's packing constants, on both sides: the C++ side is static_asserted below
         static_assert(id_meshlet_shift == 7u);
-        static_assert(id_meshlet_bits == 14u);
-        static_assert(id_item_shift == 21u);
+        static_assert(id_meshlet_bits == 12u);
+        static_assert(id_item_shift == 19u);
         static_assert(id_valid_shift == 31u);
         auto const contains = [&lines](char const* const needle) {
             for (auto const& text : lines) {
@@ -167,7 +167,7 @@ namespace {
             return false;
         };
         CHECK_MSG(contains("visibility_id_meshlet_shift = 7u"), "the shader's meshlet shift must stay 7");
-        CHECK_MSG(contains("visibility_id_item_shift = visibility_id_meshlet_shift + 14u"), "the shader's item shift must stay meshlet_shift + 14");
+        CHECK_MSG(contains("visibility_id_item_shift = visibility_id_meshlet_shift + 12u"), "the shader's item shift must stay meshlet_shift + 12");
         CHECK_MSG(contains("visibility_id_valid = 1u << 31u"), "the shader's valid bit must stay bit 31");
     }
 } // namespace
@@ -232,10 +232,10 @@ namespace {
         CHECK(resolved.meshlet_table_index == 105u);
         CHECK(resolved.first_index == 400u + 21u);
         // the meshlet order's field width is the id's own; a maximum-order id stays inside meshlet_base's run
-        auto const maximum = pack_id(1023u, 16383u, 85u);
+        auto const maximum = pack_id(4095u, 4095u, 85u);
         CHECK(maximum.has_value());
         auto const far = resolve_indices(item, maximum->value, 0u);
-        CHECK(far.meshlet_table_index == 100u + 16383u);
+        CHECK(far.meshlet_table_index == 100u + 4095u);
         CHECK(far.first_index == 85u * 3u);
     }
 
@@ -327,19 +327,19 @@ namespace {
             CHECK_MSG(fields[i] == expected[i], (std::string("the resolve shader's draw-item field ") + std::to_string(i) + " is '" + fields[i] + "', expected '" + expected[i] + "'").c_str());
         }
         // ---- the packed id's fields, pinned against the C++ constants
-        static_assert(id_triangle_bits == 7u && id_meshlet_bits == 14u && id_item_bits == 10u && id_valid_bits == 1u);
+        static_assert(id_triangle_bits == 7u && id_meshlet_bits == 12u && id_item_bits == 12u && id_valid_bits == 1u);
         CHECK_MSG(text_contains(code, "visibility_id_triangle_shift = 0u"), "the resolve shader's triangle shift must stay 0");
         CHECK_MSG(text_contains(code, "visibility_id_meshlet_shift = 7u"), "the resolve shader's meshlet shift must stay 7");
-        CHECK_MSG(text_contains(code, "visibility_id_item_shift = 21u"), "the resolve shader's item shift must stay 21");
+        CHECK_MSG(text_contains(code, "visibility_id_item_shift = 19u"), "the resolve shader's item shift must stay 19");
         CHECK_MSG(text_contains(code, "visibility_id_valid = 1u << 31u"), "the resolve shader's valid bit must stay bit 31");
         CHECK_MSG(text_contains(code, "visibility_id_triangle_mask = 0x7Fu"), "the resolve shader's triangle mask must stay 7 bits");
-        CHECK_MSG(text_contains(code, "visibility_id_meshlet_mask = 0x3FFFu"), "the resolve shader's meshlet mask must stay 14 bits");
-        CHECK_MSG(text_contains(code, "visibility_id_item_mask = 0x3FFu"), "the resolve shader's item mask must stay 10 bits");
+        CHECK_MSG(text_contains(code, "visibility_id_meshlet_mask = 0xFFFu"), "the resolve shader's meshlet mask must stay 12 bits");
+        CHECK_MSG(text_contains(code, "visibility_id_item_mask = 0xFFFu"), "the resolve shader's item mask must stay 12 bits");
         // ---- the item table's LANE ARITHMETIC: one descriptor with the per-frame lanes INSIDE it (measured: adding
         //      the frame slot to the heap slot instead read the next array's storage-image descriptor as a structured
         //      buffer, and the device was lost on the second frame slot)
-        static_assert(id_item_capacity == 1024u);
-        CHECK_MSG(text_contains(code, "visibility_item_capacity = 1024u"), "the resolve shader's per-frame item stride must stay 1024 rows");
+        static_assert(id_item_capacity == 4096u);
+        CHECK_MSG(text_contains(code, "visibility_item_capacity = 4096u"), "the resolve shader's per-frame item stride must stay 4096 rows");
         CHECK_MSG(text_contains(code, "push.frame_slot * visibility_item_capacity + id_item"), "the resolve must index the item table by frame-slot lane, not by heap slot");
         CHECK_MSG(!text_contains(code, "heap_slots_visibility_items + heap_frame_slot"), "the item table is ONE descriptor with per-frame rows, not a per-frame array of descriptors");
         // ---- the COMPUTE rules: no fragment-only statement, and the shared bodies are INCLUDED, not copied

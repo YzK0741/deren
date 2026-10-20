@@ -9,6 +9,7 @@ import deren.engine.meshlet;
 import deren.utility.shared;
 
 export namespace deren::engine::subtilis {
+    inline constexpr std::uint32_t visible_meshlet_capacity = 1u << 12;
     enum class run_source : std::uint32_t { shared = 0,
                                             visible = 1,
     };
@@ -68,7 +69,7 @@ export namespace deren::engine::subtilis {
     }
     [[nodiscard]] inline fallback_reason check_reservation(reservation space, std::size_t source_count,
                                                            std::span<reservation const> published) noexcept {
-        if (space.base > meshlet_capacity || space.count > meshlet_capacity - space.base || space.count > (1u << 14)) {
+        if (space.base > meshlet_capacity || space.count > meshlet_capacity - space.base || space.count > visible_meshlet_capacity) {
             return fallback_reason::capacity;
         }
         if (source_count != space.count) {

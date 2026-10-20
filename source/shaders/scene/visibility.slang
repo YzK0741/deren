@@ -17,8 +17,8 @@
 // THE PACKING IS `deren.engine.visibility`'s C++ layout, mirrored here by hand (a shader cannot include a C++
 // enum; the heap slot grid and the material lanes already follow that rule):
 //   bit 31    : valid (always 1 for a written id; the target's clear value is 0 = "no geometry")
-//   bits 30:21: item            (which per-frame draw item; 10 bits)
-//   bits 20:7 : meshlet_in_item (the item's meshlet order; 14 bits)
+//   bits 30:19: item            (which per-frame draw item; 12 bits)
+//   bits 18:7 : meshlet_in_item (the item's meshlet order; 12 bits)
 //   bits  6:0 : triangle        (meshlet-local, 7 bits; the 85-triangle workgroup limit fits)
 //
 // v0 SCOPE: static, non-instanced leaves only. `push.model` is the draw's model matrix (no instance table,
@@ -52,7 +52,7 @@ struct VisibilityPush
     // the model matrix FIRST, so the two scalar lanes and the geometry lanes need no padding: 64 + 4 + 4 + 32
     // = 104 bytes, and the host pushes exactly that many (every declared byte, the heap-native rule).
     VR_MAT4 model;            // the draw item's model matrix (static draws only in v0)
-    uint item_index;          // the per-frame draw item this dispatch belongs to (10 bits in the id)
+    uint item_index;          // the per-frame draw item this dispatch belongs to (12 bits in the id)
     uint frame_slot;          // which per-frame lane the camera reads through
     uint material_index;      // the material record (alpha test source); the explicit pad keeps geometry aligned
     uint pad;
@@ -72,7 +72,7 @@ struct VisibilityCamera
 
 // The id's field shifts, the C++ layout's constants spelled out (see deren.engine.visibility's static_asserts).
 static const uint visibility_id_meshlet_shift = 7u;
-static const uint visibility_id_item_shift = visibility_id_meshlet_shift + 14u;
+static const uint visibility_id_item_shift = visibility_id_meshlet_shift + 12u;
 static const uint visibility_id_valid = 1u << 31u;
 
 // One triangle's three vertices, plus the flat id every one of them carries: the fragment stage receives it

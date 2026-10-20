@@ -2685,10 +2685,10 @@ int32_t main() {
         }
         // (c5) STEP 5'S FOUR COLOUR LANES AND ITS GLOBAL FGD TEXTURE, in every place each of them has to exist -
         // and this step's list is LONGER than step 4's because one of its four data items is NOT a lane: the FGD LUT
-        // is a SHARED GLOBAL image with a heap slot of its own (`core::heap_slots::goo_fgd_lut`, 754), so its
+        // is a SHARED GLOBAL image with a heap slot of its own (`core::heap_slots::goo_fgd_lut`, 1266), so its
         // "sync points" are the two slot tables and the uploader rather than the lane vocabulary. The spec's §3.4
         // is the ruling and the two assertions that matter most are the FORMAT (`UNORM`, because the reference's
-        // data-block is `Non-Color`) and the SLOT (754, which is free only because `scene_head` takes 749 AND 750).
+        // data-block is `Non-Color`) and the SLOT (1266, which is free only because `scene_head` takes 1261 AND 1262).
         {
             std::size_t const enum_at = primitive.find("enum class toon_colour_lane");
             deren::utility::vessel::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
@@ -2766,7 +2766,7 @@ int32_t main() {
             // cannot see: that the host actually WRITES the slot, and that the write's format is `UNORM`.
             CHECK_MSG(character_forward.find("heap_slots_goo_fgd_lut") != deren::utility::vessel::string::npos, "the shader names the FGD LUT's heap slot");
             deren::utility::vessel::string const core = slurp("source/engine/render_layout/render_layout.cppm");
-            CHECK_MSG(core.find("goo_fgd_lut = heap_slot_base + 754u") != deren::utility::vessel::string::npos, "the host's own constant for it, at the slot the shader names");
+            CHECK_MSG(core.find("goo_fgd_lut = heap_slot_base + 1266u") != deren::utility::vessel::string::npos, "the host's own constant for it, at the slot the shader names");
             CHECK_MSG(constructor.find("runtime::set_goo_fgd_lut(") != deren::utility::vessel::string::npos, "the uploader the host writes it with");
             CHECK_MSG(constructor.find("fgd_desc.format = rhi::image_format::rgba8_unorm;") != deren::utility::vessel::string::npos,
                       "its format is UNORM and NOT sRGB: the reference's data-block is `Non-Color`, so an sRGB upload would decode all three FGD outputs once (abi 7: the named contract value maps 1:1 to VK_FORMAT_R8G8B8A8_UNORM in the backend)");

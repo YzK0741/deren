@@ -27,7 +27,8 @@
 
 import deren.utility.shared;
 import deren.engine.render_resource;
-import deren.engine.pass.upscale; // make_easu_constants: the ported FsrEasuCon, checked as arithmetic below
+import deren.engine.render_layout; // the slot grid: its texture run IS the bindless array's capacity, checked below
+import deren.engine.pass.upscale;  // make_easu_constants: the ported FsrEasuCon, checked as arithmetic below
 
 namespace {
     namespace rr = deren::engine::render_resource;
@@ -760,6 +761,30 @@ int32_t main() {
         CHECK_MSG(shader_scalars == host_scalars, "the grid's scalar constants differ between source/shaders/common/heap_slot_constants.slang and core.declarations.cppm");
         CHECK_MSG(shader_slots.size() == host_slots.size(), "the grid has a different number of arrays on the two sides");
         CHECK_MSG(shader_slots == host_slots, "a grid array's slot differs between source/shaders/common/heap_slot_constants.slang and core.declarations.cppm");
+
+        // ---- THE TEXTURE RUN IS THE BINDLESS ARRAY'S CAPACITY ----
+        //
+        // The array occupies the grid slots between `textures` and the material table, one slot per scene
+        // texture, and the RUNTIME refuses to upload past `scene_texture_capacity`. That capacity is DERIVED
+        // in `deren.engine.render_layout` (`materials - textures`), so the two parsed tables above and the
+        // C++ constant must agree - the shader has no capacity constant of its own, which is exactly why a
+        // drift here would be a silent overrun rather than an error.
+        {
+            auto const textures = host_slots.find("textures");
+            auto const materials = host_slots.find("materials");
+            auto const shader_textures = shader_slots.find("textures");
+            auto const shader_materials = shader_slots.find("materials");
+            CHECK_MSG(textures != host_slots.end() && materials != host_slots.end() && shader_textures != shader_slots.end() && shader_materials != shader_slots.end(),
+                      "the grid's texture or material slot is not declared");
+            if (textures != host_slots.end() && materials != host_slots.end() && shader_textures != shader_slots.end() && shader_materials != shader_slots.end()) {
+                CHECK_MSG(materials->second - textures->second == deren::engine::render_layout::scene_texture_capacity, "the host grid's texture run is not the bindless array's capacity");
+                CHECK_MSG(shader_materials->second - shader_textures->second == deren::engine::render_layout::scene_texture_capacity, "the shader grid's texture run is not the bindless array's capacity");
+            }
+        }
+        // ... AND THE CAPACITY IS AT LEAST WHAT THE ACCEPTANCE SCENE MEASURED: the textured Bistro asset
+        // needs the white fallback plus 516 distinct runtime texture slots (597 image files collapsed by the
+        // runtime's content+format dedup). A capacity below that silently paints the surplus textures white.
+        static_assert(deren::engine::render_layout::scene_texture_capacity >= 517u, "the bindless texture array cannot hold the textured Bistro acceptance scene");
         // ---- ... and every slot the header names must be one the HOST actually WRITES ----
         //
         // The comparison above keeps the two tables equal; this keeps them MEANINGFUL. A slot no host code ever

@@ -146,7 +146,10 @@ export namespace deren::engine::render_layout {
     /// @note THIS IS THE ONE COPY: it used to be duplicated in runtime:constructor, runtime:frames and
     ///       runtime.cpp, which is what a helper defined in terms of the stride below invites. It belongs
     ///       beside the constant it multiplies, and it is exported so those units can drop their own.
-    [[nodiscard]] inline constexpr std::uint64_t heap_slot_offset(uint32_t const slot) noexcept {
+    /// @note `constexpr` IMPLIES `inline` FOR A FUNCTION, so the explicit keyword here was redundant (the
+    ///       VARIABLES above need theirs - a constexpr variable is not implicitly inline, and without it the
+    ///       namespace-scope constant would have module/internal linkage and could not be exported).
+    [[nodiscard]] constexpr std::uint64_t heap_slot_offset(uint32_t const slot) noexcept {
         return static_cast<std::uint64_t>(slot) * heap_slot_stride;
     }
 
@@ -156,8 +159,10 @@ export namespace deren::engine::render_layout {
     // (source/tests/test_goo_toon_math.cpp greps this line by that name too). The C4458 that a lambda parameter of
     // this name caused in core.constructor.cppm is fixed THERE instead, by renaming the parameter - a local,
     // so the contract stays intact.
-    inline constexpr uint32_t heap_slot_base = 16384;  // 1 MiB / 64 B: the grid's slot 0
-    inline constexpr uint32_t heap_slot_count = 1024;  // 703 slots are in use, the rest is room to grow
+    inline constexpr uint32_t heap_slot_base = 16384; // 1 MiB / 64 B: the grid's slot 0
+    // 1308 slots are in use: the last is `scene_color_storage + heap_image_capacity - 1` (base + 1307), so the
+    // grid has 740 free slots after the used region - and the texture run at the front is what grew to 1024.
+    inline constexpr uint32_t heap_slot_count = 2048;  // 1308 slots are in use, the rest is room to grow
     inline constexpr uint32_t heap_image_capacity = 8; // per-swapchain-image arrays (3-4 images in practice)
     /// The SAMPLER heap is a second grid with its own base, and it cannot share the resource one: the API caps
     /// the sampler heap at 128 KiB, so 64 KiB - the reserved window the embedded-sampler path requires - is the
@@ -165,8 +170,8 @@ export namespace deren::engine::render_layout {
     inline constexpr uint32_t heap_sampler_base = 2048; // 64 KiB / 32 B
     inline constexpr std::uint64_t heap_sampler_stride = 32;
     struct heap_slots {
-        static constexpr uint32_t textures = heap_slot_base + 0u;    // binding 1, the bindless array
-        static constexpr uint32_t materials = heap_slot_base + 512u; // binding 5
+        static constexpr uint32_t textures = heap_slot_base + 0u;     // binding 1, the bindless array: scene_texture_capacity slots
+        static constexpr uint32_t materials = heap_slot_base + 1024u; // binding 5, one slot past the texture run
         /**
          * @brief the top level structure, binding 16, as a TWO-SLOT array - and the reason it is not beside the
          *        per-frame buffers above
@@ -179,7 +184,7 @@ export namespace deren::engine::render_layout {
          *       a silent wrong image later. It lives at the END of the used region because growing it in place
          *       would renumber every array after it.
          */
-        static constexpr uint32_t tlas = heap_slot_base + 703u;
+        static constexpr uint32_t tlas = heap_slot_base + 1215u;
         /**
          * @brief the MESHLET TABLE (docs/mesh_shaders.md step 3): one 48-byte record per meshlet
          *
@@ -190,7 +195,7 @@ export namespace deren::engine::render_layout {
          * @note it lives at the END of the used region for the reason stated there: the arrays above are
          *       numbered by their position, so growing one in place would renumber everything after it.
          */
-        static constexpr uint32_t meshlets = heap_slot_base + 745u;
+        static constexpr uint32_t meshlets = heap_slot_base + 1257u;
         /**
          * @brief the MESH CULLING COUNTERS (docs/mesh_shaders.md step 3, "what the culling buys"): one per-frame
          *        lane of 8 uints, added to by the mesh entries and read back by the host at shutdown
@@ -199,7 +204,7 @@ export namespace deren::engine::render_layout {
          *       is a heap descriptor - there is no binding model left to hang a counter off. The read-back is a
          *       plain mapped read after `wait_idle`, which is why the buffer is host-visible and coherent.
          */
-        static constexpr uint32_t meshlet_stats = heap_slot_base + 746u;
+        static constexpr uint32_t meshlet_stats = heap_slot_base + 1258u;
         /**
          * @brief THE HOST-CULLED MESHLET TABLE (docs/mesh_shaders.md step 3, the culling's cheapest stage): a
          *        per-frame lane of `meshlet_capacity` records, written by the host while it records a CULLED
@@ -211,7 +216,7 @@ export namespace deren::engine::render_layout {
          * @note the compaction is the whole point: the host writes SURVIVORS contiguously, so the dispatch's
          *       group count is the survivor count and no workgroup is launched for a culled meshlet.
          */
-        static constexpr uint32_t meshlet_culled = heap_slot_base + 747u;
+        static constexpr uint32_t meshlet_culled = heap_slot_base + 1259u;
         /**
          * @brief THE VISIBILITY ITEM TABLE (visibility-buffer v0.2b): a per-frame lane of
          *        `engine::visibility::id_item_capacity` draw_item records (112 B each), written by the host
@@ -222,30 +227,30 @@ export namespace deren::engine::render_layout {
          *       COMPUTE stage, so its only route to the records is a heap descriptor, exactly as the mesh
          *       stages reach the meshlet table.
          */
-        static constexpr uint32_t visibility_items = heap_slot_base + 755u;
+        static constexpr uint32_t visibility_items = heap_slot_base + 1267u;
         // THE TOON LANES THAT DO NOT FIT THE MATERIAL RECORD: one `uvec4` per material, written once at
         // import. x is the face SDF map's texture-array index (`_SDFLightmap`), y the metallic/gloss map's
         // (`_MetallicGlossMap`), and z and w are reserved for the lanes the rest of the character work
         // adds. See heap_slot_constants.glsl for why they are a buffer of their own rather than components
         // of the material record, and why it is one descriptor rather than a per-frame pair.
-        static constexpr uint32_t toon_lanes = heap_slot_base + 748u;
+        static constexpr uint32_t toon_lanes = heap_slot_base + 1260u;
         // THE HEAD FRAME the face SDF shades against, one block per frame slot because on a model whose
         // head turns it changes every frame. It is its own block rather than a field of the camera's: the
         // head frame belongs to the CHARACTER, not to the eye looking at it.
-        static constexpr uint32_t scene_head = heap_slot_base + 749u;
+        static constexpr uint32_t scene_head = heap_slot_base + 1261u;
         // THE TOON LIGHT RIG (`deren::engine::toon_rig`): the character stage's global numbers - the sun/head-light
         // split, their shadow-side colours and the chain's scalars - written once from the application's
         // config. ONE descriptor and not a per-frame pair, because the values are fixed for a run exactly as
         // the material table's and the toon lane table's are: nothing writes it while a frame is in flight.
         //
         // ONE SLOT PAST THE HEAD BLOCK AND NOT BESIDE IT, which is a MEASURED correction rather than
-        // spacing: `scene_head` above is a PER-FRAME-SLOT array, so it occupies 749 AND 750 (two frames in
-        // flight), and a rig placed at 750 was therefore overwritten every frame by the second slot's head
+        // spacing: `scene_head` above is a PER-FRAME-SLOT array, so it occupies 1261 AND 1262 (two frames in
+        // flight), and a rig placed at 1262 was therefore overwritten every frame by the second slot's head
         // frame. What that looked like was not a crash and not a validation error: the rig simply read as the
         // head frame's own numbers - `_DayStrength` came out of the head basis' first lane, i.e. zero - so
         // the two-state lighting silently sat in its NIGHT state for every frame of both captures. The
         // captures differed by 0 pixels before this line moved.
-        static constexpr uint32_t toon_rig = heap_slot_base + 751u;
+        static constexpr uint32_t toon_rig = heap_slot_base + 1263u;
         // THE MATERIAL COLOURS (see `deren::engine::toon_colour_lane`): one `vec4` per lane per material, written once
         // at import from the same sidecar the texture lanes come from. A buffer of its own because the value is
         // FOUR FLOATS and the material record has nowhere to put it here: the record is INLINE in the per-draw
@@ -259,18 +264,18 @@ export namespace deren::engine::render_layout {
         // lane blocks AND these six lanes' bytes, because `register_material` writes this table only AFTER its
         // early return - six lanes left out of the key are six lanes the second of two record-identical
         // materials reads from the first one. See the "材质去重键补上 colour lanes" section of `remaining_port_spec.md` for the probe.
-        static constexpr uint32_t toon_colours = heap_slot_base + 752u;
+        static constexpr uint32_t toon_colours = heap_slot_base + 1264u;
         /// THE ARTICLE'S POST LUT: see `runtime::set_post_lut` and `heap_slots_post_lut` in the shader's slot
         /// file, which `test_render_resources` holds against this spelling.
-        static constexpr uint32_t post_lut = heap_slot_base + 753u;
+        static constexpr uint32_t post_lut = heap_slot_base + 1265u;
         /**
          * THE GOO REFERENCE'S PRE-INTEGRATED FGD LOOKUP TABLE (see `runtime::set_goo_fgd_lut` and
          * `heap_slots_goo_fgd_lut` in the shader's slot file, which `test_render_resources` holds against this
          * spelling).
          *
-         * 754 AND NOT 750: `scene_head` is a PER-FRAME-SLOT array and occupies 749 AND 750 - the note on
+         * 1266 AND NOT 1262: `scene_head` is a PER-FRAME-SLOT array and occupies 1261 AND 1262 - the note on
          * `toon_rig` above records what happened to the last constant that forgot this - so the next free slot
-         * above the post LUT is 754.
+         * above the post LUT is 1266.
          *
          * IT IS A GLOBAL IMAGE RATHER THAN A MATERIAL LANE, which is the architecture ruling the step-5 spec
          * makes from the reference's own graph (§3.4): the Goo `GetPreIntegratedFGDGGXAndDisneyDiffuse` group
@@ -278,24 +283,24 @@ export namespace deren::engine::render_layout {
          * `sqrt(NoV)` / `perceptualRoughness` / `fresnel0` - never from a material's uv. Routing it through
          * `toon_slot` would need eleven sidecar rows pointing at one file, and zero new information.
          */
-        static constexpr uint32_t goo_fgd_lut = heap_slot_base + 754u;
-        static constexpr uint32_t scene_camera = heap_slot_base + 514u;        // binding 0, per frame slot
-        static constexpr uint32_t scene_light = heap_slot_base + 516u;         // binding 7, per frame slot
-        static constexpr uint32_t cluster_counts = heap_slot_base + 518u;      // binding 11, per frame slot
-        static constexpr uint32_t cluster_indices = heap_slot_base + 520u;     // binding 12, per frame slot
-        static constexpr uint32_t instance_transforms = heap_slot_base + 522u; // binding 6, per frame slot
+        static constexpr uint32_t goo_fgd_lut = heap_slot_base + 1266u;
+        static constexpr uint32_t scene_camera = heap_slot_base + 1026u;        // binding 0, per frame slot
+        static constexpr uint32_t scene_light = heap_slot_base + 1028u;         // binding 7, per frame slot
+        static constexpr uint32_t cluster_counts = heap_slot_base + 1030u;      // binding 11, per frame slot
+        static constexpr uint32_t cluster_indices = heap_slot_base + 1032u;     // binding 12, per frame slot
+        static constexpr uint32_t instance_transforms = heap_slot_base + 1034u; // binding 6, per frame slot
         /** @brief the transforms of the previous frame, kept for motion vectors and TAA reprojection */
-        static constexpr uint32_t previous_transforms = heap_slot_base + 524u; // binding 13, per frame slot
+        static constexpr uint32_t previous_transforms = heap_slot_base + 1036u; // binding 13, per frame slot
         /** @brief the skinned joint matrices for this frame, written by the skinning pass */
-        static constexpr uint32_t skin_matrices = heap_slot_base + 526u;   // binding 9, per frame slot
-        static constexpr uint32_t morph_data = heap_slot_base + 528u;      // binding 10, per frame slot
-        static constexpr uint32_t mask_instances = heap_slot_base + 530u;  // binding 17, per frame slot
-        static constexpr uint32_t env_cube = heap_slot_base + 532u;        // binding 2
-        static constexpr uint32_t irradiance_cube = heap_slot_base + 533u; // binding 3
-        static constexpr uint32_t brdf_lut = heap_slot_base + 534u;        // binding 4
-        static constexpr uint32_t shadow_map = heap_slot_base + 535u;      // binding 8, per image
+        static constexpr uint32_t skin_matrices = heap_slot_base + 1038u;   // binding 9, per frame slot
+        static constexpr uint32_t morph_data = heap_slot_base + 1040u;      // binding 10, per frame slot
+        static constexpr uint32_t mask_instances = heap_slot_base + 1042u;  // binding 17, per frame slot
+        static constexpr uint32_t env_cube = heap_slot_base + 1044u;        // binding 2
+        static constexpr uint32_t irradiance_cube = heap_slot_base + 1045u; // binding 3
+        static constexpr uint32_t brdf_lut = heap_slot_base + 1046u;        // binding 4
+        static constexpr uint32_t shadow_map = heap_slot_base + 1047u;      // binding 8, per image
         /** @brief the ray-traced visibility image, sampled by the lighting stage */
-        static constexpr uint32_t rt_visibility = heap_slot_base + 543u; // binding 15, per image
+        static constexpr uint32_t rt_visibility = heap_slot_base + 1055u; // binding 15, per image
         /**
          * @brief the SAME image as @ref rt_visibility, as a STORAGE descriptor instead of a sampled one
          *
@@ -305,12 +310,12 @@ export namespace deren::engine::render_layout {
          *       region for the same reason the TLAS does - growing an array in place would renumber every array
          *       after it.
          */
-        static constexpr uint32_t rt_visibility_storage = heap_slot_base + 711u;
-        static constexpr uint32_t gbuffer_albedo = heap_slot_base + 551u; // per image, then five in a row
-        static constexpr uint32_t gbuffer_normal = heap_slot_base + 559u;
-        static constexpr uint32_t gbuffer_material = heap_slot_base + 567u;
-        static constexpr uint32_t gbuffer_depth = heap_slot_base + 575u;
-        static constexpr uint32_t gbuffer_velocity = heap_slot_base + 583u;
+        static constexpr uint32_t rt_visibility_storage = heap_slot_base + 1223u;
+        static constexpr uint32_t gbuffer_albedo = heap_slot_base + 1063u; // per image, then five in a row
+        static constexpr uint32_t gbuffer_normal = heap_slot_base + 1071u;
+        static constexpr uint32_t gbuffer_material = heap_slot_base + 1079u;
+        static constexpr uint32_t gbuffer_depth = heap_slot_base + 1087u;
+        static constexpr uint32_t gbuffer_velocity = heap_slot_base + 1095u;
         /**
          * @brief the joint blocks as they were ONE FRAME AGO, per frame slot: the deformation half of a
          *        motion vector
@@ -325,31 +330,31 @@ export namespace deren::engine::render_layout {
          *       world matrices. It lives at the END of the used region for the same reason the TLAS and
          *       the two storage twins do: growing an array in place would renumber every array after it.
          */
-        static constexpr uint32_t skin_matrices_previous = heap_slot_base + 743u;
-        static constexpr uint32_t taa_current = heap_slot_base + 623u; // per image: TAA's pair
-        static constexpr uint32_t taa_history = heap_slot_base + 631u;
-        static constexpr uint32_t post_color = heap_slot_base + 639u; // per image: the post chain
-        static constexpr uint32_t bloom_l0 = heap_slot_base + 647u;
-        static constexpr uint32_t bloom_l1 = heap_slot_base + 655u;
-        static constexpr uint32_t bloom_l2 = heap_slot_base + 663u;
-        static constexpr uint32_t bloom_l3 = heap_slot_base + 671u;
-        static constexpr uint32_t display_color = heap_slot_base + 695u;
+        static constexpr uint32_t skin_matrices_previous = heap_slot_base + 1255u;
+        static constexpr uint32_t taa_current = heap_slot_base + 1135u; // per image: TAA's pair
+        static constexpr uint32_t taa_history = heap_slot_base + 1143u;
+        static constexpr uint32_t post_color = heap_slot_base + 1151u; // per image: the post chain
+        static constexpr uint32_t bloom_l0 = heap_slot_base + 1159u;
+        static constexpr uint32_t bloom_l1 = heap_slot_base + 1167u;
+        static constexpr uint32_t bloom_l2 = heap_slot_base + 1175u;
+        static constexpr uint32_t bloom_l3 = heap_slot_base + 1183u;
+        static constexpr uint32_t display_color = heap_slot_base + 1207u;
         /**
          * @brief the visibility buffer, per swapchain image: the resolve pass samples the id the raster wrote
          *
-         * @note THE SLOT RANGE IS 719..726, and it was chosen because it is FREE: it is the range the removed
-         *       MegaLights storage twins left behind (they lived at 719 and 735), which keeps every existing
+         * @note THE SLOT RANGE IS 1231..1238, and it was chosen because it is FREE: it is the range the removed
+         *       MegaLights storage twins left behind (they lived at 1231 and 1247), which keeps every existing
          *       per-image array's number unchanged. Adding this family at the end of the used region follows the
          *       same rule the TLAS, the storage twins and `skin_matrices_previous` state: growing an array in
          *       place would renumber every array after it.
          */
-        static constexpr uint32_t visibility = heap_slot_base + 719u;
-        /// 727..734 stay RESERVED: the capture-only depth the visibility work retired from the frame in v0.5 (the
+        static constexpr uint32_t visibility = heap_slot_base + 1231u;
+        /// 1239..1246 stay RESERVED: the capture-only depth the visibility work retired from the frame in v0.5 (the
         /// raster lane writes the shared gbuffer_depth). The constant went with the family's producer in the
         /// non-extension cleanup; the slots stay reserved for the v1 software raster's own private depth.
         /**
          * THE VISIBILITY RESOLVE'S FIVE OUTPUTS (visibility-buffer v0.4b): the SAME images as the G-buffer family,
-         * as STORAGE descriptors instead of sampled ones (756..795, `heap_image_capacity` each)
+         * as STORAGE descriptors instead of sampled ones (1268..1307, `heap_image_capacity` each)
          *
          * @note WHY TWINS RATHER THAN REUSING THE SAMPLED SLOTS: the resolve is a COMPUTE stage and writes its five
          *       targets as storage images, while the deferred lighting stage and the debug view SAMPLE the same
@@ -362,12 +367,35 @@ export namespace deren::engine::render_layout {
          * @note the sampled twins are `gbuffer_albedo` .. `gbuffer_velocity` and `taa_current` (the scene colour
          *       target's sampled slot), because the scene colour image is the TAA working image (family 5).
          */
-        static constexpr uint32_t gbuffer_albedo_storage = heap_slot_base + 756u;
-        static constexpr uint32_t gbuffer_normal_storage = heap_slot_base + 764u;
-        static constexpr uint32_t gbuffer_material_storage = heap_slot_base + 772u;
-        static constexpr uint32_t gbuffer_velocity_storage = heap_slot_base + 780u;
-        static constexpr uint32_t scene_color_storage = heap_slot_base + 788u;
+        static constexpr uint32_t gbuffer_albedo_storage = heap_slot_base + 1268u;
+        static constexpr uint32_t gbuffer_normal_storage = heap_slot_base + 1276u;
+        static constexpr uint32_t gbuffer_material_storage = heap_slot_base + 1284u;
+        static constexpr uint32_t gbuffer_velocity_storage = heap_slot_base + 1292u;
+        static constexpr uint32_t scene_color_storage = heap_slot_base + 1300u;
     };
+
+    /**
+     * @brief THE BINDLESS TEXTURE ARRAY'S CAPACITY: the length of the grid run that starts at
+     *        `heap_slots::textures` and ends where the material table begins.
+     *
+     * IT IS DERIVED FROM THE GRID, NOT A SECOND NUMBER: the run between the two slot names IS the array's
+     * size (the descriptor writes advance one grid slot per texture), so the static_assert below makes the
+     * derivation the definition. The backend's `core::scene_texture_capacity` and the runtime's
+     * `runtime_detail::scene_texture_capacity` both alias THIS constant - `deren.engine.render_layout` is
+     * compiled by both halves, which is what lets one number replace the pair of mirrored literals.
+     *
+     * 1024 AND THE MEASUREMENT THAT SET IT: the run was 512 slots and the old hard cap was 128, and neither
+     * could hold the textured Bistro acceptance asset: 6006 nodes, 254 materials, 811 glTF texture records,
+     * 597 distinct image files - which the runtime's content+format dedup collapses to 516 runtime slots,
+     * plus the white fallback at index 0. 1024 leaves 507 slots of headroom and keeps the whole used region
+     * (base + 1307) inside the grid's 2048 slots. The grid grew with it: 1024 slots could not hold both the
+     * 1024-slot texture run and the 512-slot region that used to follow it.
+     */
+    inline constexpr uint32_t scene_texture_capacity = 1024;
+    static_assert(heap_slots::materials - heap_slots::textures == scene_texture_capacity,
+                  "the texture run between the bindless array and the material table IS the array's capacity");
+    static_assert(heap_slots::scene_color_storage + heap_image_capacity <= heap_slot_base + heap_slot_count,
+                  "the highest used slot must stay inside the grid");
 
     // ================================================================================================
     // THE RENDER SCALE'S ONE CLAMP (③-D/E step 2's merged slice, ruling: ONE owner of the rule)

@@ -479,7 +479,7 @@ Two consequences worth knowing before doing it:
   seen from the other side: which SLOT is read is a shader index, and it is the host's job to keep the contents
   of every slot that index can name current.
 
-## The grid as it stands (measured at startup)
+## The grid as it stood before the textured acceptance (measured at startup, 2026-10-14)
 
 ```
 descriptor heap: available (VK_EXT_descriptor_heap, revision 1)
@@ -503,3 +503,34 @@ descriptor heap: slot grid at 1048576 (1024 slots x 64 B; textures 0 materials 5
   refused), and 64 KiB of sampler heap is *exactly* the reserved window the embedded-sampler path requires,
   i.e. no usable sampler space at all. They are 1088 KiB and 128 KiB now.
 - Still inert: nothing reads the grid, so the frame is unchanged (gate 9/9, `changed: 0`).
+
+
+## The textured acceptance's capacity growth (2026-10-20)
+
+The run above is the migration's snapshot; this section is the one place in this file that was allowed to
+change the GRID's numbers, and it records why. The bindless texture array's grid run was 512 slots
+(`textures = 0`, `materials = 512`) while the runtime's hard cap was 128, and neither could hold the textured
+Bistro acceptance asset: 6006 nodes, 254 materials, 811 glTF texture records, 597 distinct image files, which
+the runtime's content+format dedup collapses to **516 runtime texture slots** plus the white fallback at index
+0. The measured need is therefore 517 slots, above both old limits - and a capacity below it is silent, not an
+error: the runtime degrades every surplus texture to the white element.
+
+What changed:
+
+- **The texture run is the capacity.** `scene_texture_capacity = 1024` is DERIVED in
+  `source/engine/render_layout/render_layout.cppm` as `heap_slots::materials - heap_slots::textures`, and a
+  `static_assert` holds the equality. `core::scene_texture_capacity` and `runtime_detail::scene_texture_capacity`
+  both alias that derivation now; the old pair of mirrored literals (128 on each side) is gone, so there is no
+  second place for the number to drift.
+- **The grid grew to 2048 slots.** The texture run is slots 0..1023, the material table starts at 1024, and
+  every slot that used to live at `1024 + N` was renumbered by +512 (uniformly, so all relative distances and
+  the per-image array strides are unchanged). The highest used slot is `base + 1307` (the visibility resolve's
+  scene-colour storage twin, 1300..1307), leaving 740 free slots. The startup log now reads
+  `(2048 slots x 64 B; textures 0 materials 1024 tlas 1215 camera 1026 light 1028 ...)`.
+- **The heap still fits.** The resource heap's working size is 1280 KiB: 1 MiB grid base + 128 KiB grid
+  (2048 x 64 B) + the texture array's reserved block (1024 x the device's 32 B image stride) = 1184 KiB before
+  the material table's single slot, with validation clean in the textured capture.
+- **Contract tests changed with it.** `test_render_resources` now asserts that the host grid's texture run, the
+  shader grid's texture run and `render_layout::scene_texture_capacity` are the same number, and that the
+  capacity is at least what the acceptance scene measured (517). The shader side has no separate capacity
+  constant - it addresses `heap_slots_textures + index` - which is why a drift would have been silent.
