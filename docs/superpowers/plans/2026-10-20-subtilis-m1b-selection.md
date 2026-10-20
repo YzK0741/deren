@@ -26,10 +26,10 @@
 
 ## Task 2: actual runtime recording
 
-- [ ] Add portable runtime regressions for row/push/indirect count and source-table marker; observe old always-LOD0 behavior RED with a reducible uploaded grid.
-- [ ] Change record_visibility_items to build per-leaf policy/view, select exactly one run, keep existing apply_meshlet_run and publication ordering. character_forward active + !environment conservatively forces LOD0, regardless of toon_family.
-- [ ] Validate two frame slots, disabled and null-source old paths, MASK, exact-depth, invalid identity and publication failure. Retain existing culled-table graph ownership and host writer exclusion.
-- [ ] Full Release build/CTest, relevant sanitizer and new adapter tidy; fresh whole-change review, important fixes RED->GREEN, document exact evidence and remaining hardware acceptance; commit.
+- [x] Add portable runtime regressions for row/push/indirect count and source-table marker; observe old always-LOD0 behavior RED with a reducible uploaded grid.
+- [x] Change record_visibility_items to build per-leaf policy/view, select exactly one run, keep existing apply_meshlet_run and publication ordering. character_forward active + !environment conservatively forces LOD0, regardless of toon_family.
+- [x] Validate two frame slots, disabled and null-source old paths, MASK, exact-depth, invalid identity and publication failure. Retain existing culled-table graph ownership and host writer exclusion.
+- [x] Full Release build/CTest, relevant sanitizer and new adapter tidy; fresh whole-change review, important fixes RED->GREEN, document exact evidence and remaining hardware acceptance; commit.
 
 ## Review focus
 
@@ -38,3 +38,5 @@
 - Current camera near/render extent and jitter must agree with the raster frame; invalid view must not guess.
 - One selected run must govern raster, resolve and indirect, without exposing partial writes or cross-slot aliases.
 - Forced finest/shared fallback must retain complete LOD0 and existing reservation limits.
+
+Task 2 validation note: writer refusal is covered by the pure adapter; actual frames cover overlapping reservations. Environment coarse and ordinary-PBR character-forward finest are separate frame cases because the portable last-push probe also sees later character pushes of the same byte size. Combined hardware acceptance remains outstanding.

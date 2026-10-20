@@ -283,3 +283,10 @@ M2 复用已经证明正确的 run 协议：compute select 产生可见表与每
 在 §14 之后实现 `subtilis::upload_geometry` 与 `primitive_create_info::subtilis_geometry`。显式提供构建结果时，runtime 将完整索引 payload 上传为 uint32，并从同一 source 取得顶点、stride 和 LOD0 计数。CPU hierarchy、两个 GPU buffer 和 pass-chain 同代际持有；普通绘制、阴影与 BLAS 仍限定 LOD0 前缀。无 source 的旧路径保持原状，没有自动导入简化或运行时层级选层。
 
 Release 55/55、相关 ASan/UBSan 7/7、上传/绑定 44 项检查及新增模块静态检查通过。独立审查发现的构造 key 绕过已用负向编译检查复现并修复。下一步接主视图合法静态 opaque item 的 CPU cut 和帧槽发布；详见 [上传设计](2026-10-20-subtilis-m1b-upload-design.md) 与 [验证记录](../../reviews/2026-10-20-subtilis-m1b-upload.md)。
+
+
+## 16. M1b 主视图 CPU cut 接线（2026-10-20）
+
+已实现显式 uploaded_geometry 的身份/布局检查和当前帧视图适配，并在 record_visibility_items 消费完整 hierarchy cut。同一 run 控制可见表、resolve row、raster push 和 indirect；不支持策略保留最细层，来源不匹配回 shared LOD0，无来源保留原路径。character_forward 的保护覆盖所有非背景 opaque，不限 toon_family。
+
+本地 Release57/57、相关 sanitizer10/10；实际帧102项与纯适配51项检查。详见 [主视图选层验证](../../reviews/2026-10-20-subtilis-m1b-selection.md)。自动导入构建和真实 GPU 图像/性能验收仍未完成。
