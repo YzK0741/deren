@@ -160,9 +160,9 @@ export namespace deren::engine::render_layout {
     // this name caused in core.constructor.cppm is fixed THERE instead, by renaming the parameter - a local,
     // so the contract stays intact.
     inline constexpr uint32_t heap_slot_base = 16384; // 1 MiB / 64 B: the grid's slot 0
-    // 1308 slots are in use: the last is `scene_color_storage + heap_image_capacity - 1` (base + 1307), so the
-    // grid has 740 free slots after the used region - and the texture run at the front is what grew to 1024.
-    inline constexpr uint32_t heap_slot_count = 2048;  // 1308 slots are in use, the rest is room to grow
+    // 1314 slots are in use: the last is `hzb_commands` (base + 1313), so the grid has 734 free slots after the
+    // used region - and the texture run at the front is what grew to 1024.
+    inline constexpr uint32_t heap_slot_count = 2048;  // 1314 slots are in use, the rest is room to grow
     inline constexpr uint32_t heap_image_capacity = 8; // per-swapchain-image arrays (3-4 images in practice)
     /// The SAMPLER heap is a second grid with its own base, and it cannot share the resource one: the API caps
     /// the sampler heap at 128 KiB, so 64 KiB - the reserved window the embedded-sampler path requires - is the
@@ -373,6 +373,47 @@ export namespace deren::engine::render_layout {
         static constexpr uint32_t gbuffer_material_storage = heap_slot_base + 1284u;
         static constexpr uint32_t gbuffer_velocity_storage = heap_slot_base + 1292u;
         static constexpr uint32_t scene_color_storage = heap_slot_base + 1300u;
+        // ================================================================================================
+        // THE HZB OCCLUSION CULLING'S SIX TABLES (M3 phase A1, docs/superpowers/specs/2026-10-20-hzb-
+        // occlusion-design.md §5.1). They are APPENDED after the used region's last slot (base + 1307) rather than
+        // packed into a free window, the rule every new family above follows: growing an array in place would
+        // renumber every array after it.
+        //
+        // ONE DESCRIPTOR WITH AN INTERNAL PER-FRAME LANE, NOT A PER-FRAME PAIR. These tables' sizes are fixed per
+        // frame slot (hzb_levels' lane stride depends on the render extent, which the shader learns from its own
+        // header), so each descriptor is written once and a shader indexes
+        // `heap_at<...>(heap_slots_hzb_<table>)` and then `frame_slot * stride + index` - NEVER `+ heap_frame_slot`,
+        // which would read another frame's lane. That is a wrong picture rather than an error, so §5.3 asks for
+        // this warning on the slots themselves.
+        // ================================================================================================
+        /// HZB'S MAX PYRAMID, GPU-written by the build pass and GPU-read by the cull pass: per frame slot
+        /// `pyramid_words(extent)` floats, level 0 (the depth image) first, then one 2x2-max level per step until
+        /// 1x1 (§4.1). It is the one EXTENT-DEPENDENT table here: a resize rebuilds it and invalidates both lanes
+        /// (§5.2, §9.3).
+        static constexpr uint32_t hzb_levels = heap_slot_base + 1308u;
+        /// HZB'S HEADER, GPU-written by the build pass in the same dispatch as the pyramid: one `HzbHeader` per
+        /// frame slot - magic, extent, level count, and the view/proj/camera position that BUILT that pyramid
+        /// (§4.1). The CPU camera snapshot the phase-B gate compares is captured beside it (§9.2).
+        static constexpr uint32_t hzb_header = heap_slot_base + 1309u;
+        /// HZB'S PER-ITEM CANDIDATE DESCRIPTIONS, HOST-written before the frame records: per item
+        /// `{meshlet_base, candidate_count, source, pad}` (§4.3), so the cull pass walks an item's candidates
+        /// itself rather than the host enumerating them into a second table.
+        static constexpr uint32_t hzb_items = heap_slot_base + 1310u;
+        /// HZB'S CULL RESULTS, GPU-written by the cull pass: `flags[65536]` (one u32 per candidate: 0 = survivor,
+        /// 1 = culled), `pass1_count[4096]`, `pass2_count[4096]` and the 16-word stats block the host reads once at
+        /// shutdown (§4.3, §4.6, §10.3). One write per candidate, so no clear and no atomics are needed.
+        static constexpr uint32_t hzb_results = heap_slot_base + 1311u;
+        /// HZB'S COMPACTED SURVIVOR TABLE, GPU-written by the cull pass: a per-frame lane of `meshlet_capacity`
+        /// meshlet records, the survivors packed in ascending candidate order (§4.3). The mesh stage reads a record
+        /// from it exactly as it reads the host-culled table, so consuming HZB is a table swap rather than a second
+        /// index (§4.5).
+        static constexpr uint32_t hzb_survivors = heap_slot_base + 1312u;
+        /// HZB'S INDIRECT-COMMAND ALIAS: the heap STORAGE descriptor written AT THIS SLOT (by the scene-table
+        /// publication path, HOST-side) aliases @ref mesh_indirect_buffer - the same memory, NOT a new allocation.
+        /// The cull compute stage has to write each item's surviving group count into the per-item command word for
+        /// `draw_mesh_tasks_indirect` to launch fewer workgroups (§4.4), and that word only exists on the buffer the
+        /// draw reads; the buffer gains `buffer_flag::device_address` and this slot is only the descriptor's number.
+        static constexpr uint32_t hzb_commands = heap_slot_base + 1313u;
     };
 
     /**
@@ -389,13 +430,17 @@ export namespace deren::engine::render_layout {
      * could hold the textured Bistro acceptance asset: 6006 nodes, 254 materials, 811 glTF texture records,
      * 597 distinct image files - which the runtime's content+format dedup collapses to 516 runtime slots,
      * plus the white fallback at index 0. 1024 leaves 507 slots of headroom and keeps the whole used region
-     * (base + 1307) inside the grid's 2048 slots. The grid grew with it: 1024 slots could not hold both the
+     * (base + 1313) inside the grid's 2048 slots. The grid grew with it: 1024 slots could not hold both the
      * 1024-slot texture run and the 512-slot region that used to follow it.
      */
     inline constexpr uint32_t scene_texture_capacity = 1024;
     static_assert(heap_slots::materials - heap_slots::textures == scene_texture_capacity,
                   "the texture run between the bindless array and the material table IS the array's capacity");
     static_assert(heap_slots::scene_color_storage + heap_image_capacity <= heap_slot_base + heap_slot_count,
+                  "the highest used slot must stay inside the grid");
+    // `hzb_commands` is the highest used slot since phase A1, so it gets its own guard: the assert above would
+    // keep passing if an HZB family ever grew past the grid, because it only knows about the resolve's outputs.
+    static_assert(heap_slots::hzb_commands <= heap_slot_base + heap_slot_count - 1u,
                   "the highest used slot must stay inside the grid");
 
     // ================================================================================================

@@ -160,6 +160,33 @@ static const uint heap_slots_gbuffer_velocity_storage = heap_slot_base + 1292u;
 /// the scene colour target (`output_targets_pass::ids[5]` / the TAA working image): the resolve writes the emissive
 /// term there, and the old path CLEARS it to zero before the G-buffer writes - see gbuffer_body.slang.
 static const uint heap_slots_scene_color_storage = heap_slot_base + 1300u;
+
+// ---- THE HZB OCCLUSION CULLING'S SIX TABLES (M3 phase A1; docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md
+// ---- §5.1). Appended after the used region's last slot, the rule every array that cannot move into a free window
+// ---- follows (see the note on the resolve's five outputs above).
+//
+// ONE DESCRIPTOR WITH AN INTERNAL PER-FRAME LANE, NOT A PER-FRAME PAIR: these buffers' sizes are fixed per frame slot
+// (hzb_levels' lane stride depends on the render extent, which the build/cull shaders learn from the header), so the
+// accessor is `heap_at<...>(heap_slots_hzb_<table>)` and the INDEX is `frame_slot * stride + index` - NEVER
+// `heap_slots_hzb_<table> + heap_frame_slot`. The second spelling reads another frame's lane, which is a wrong
+// picture rather than an error (§5.3 of the spec says this warning belongs on the slots themselves).
+// the max pyramid the build pass writes and the cull pass reads: per frame slot `pyramid_words(extent)` floats,
+// level 0 (a copy of the depth image) then one 2x2-max level per step until 1x1
+static const uint heap_slots_hzb_levels = heap_slot_base + 1308u;
+// one HzbHeader per frame slot (magic/extent/level count + view, proj, camera position), written by the build pass in
+// the same dispatch as the pyramid so the HZB and the matrices that built it can never disagree
+static const uint heap_slots_hzb_header = heap_slot_base + 1309u;
+// per-item candidate descriptions, HOST-written before recording: {meshlet_base, candidate_count, source, pad}
+static const uint heap_slots_hzb_items = heap_slot_base + 1310u;
+// the cull pass's results: flags[65536] (u32 per candidate: 0 = survivor, 1 = culled) + pass1_count[4096] +
+// pass2_count[4096] + the stats block the host reads once at shutdown
+static const uint heap_slots_hzb_results = heap_slot_base + 1311u;
+// the compacted survivor records the cull pass writes, per-frame lane of meshlet_table_capacity records; the mesh
+// stage reads them exactly as it reads the host-culled table
+static const uint heap_slots_hzb_survivors = heap_slot_base + 1312u;
+// an ALIAS of the mesh indirect command buffer, not a new buffer: the HOST-written heap descriptor at this slot points
+// at it so the cull compute stage can write each item's surviving group count into the command word the draw later reads
+static const uint heap_slots_hzb_commands = heap_slot_base + 1313u;
 static const uint heap_slots_gbuffer_albedo = heap_slot_base + 1063u;
 static const uint heap_slots_gbuffer_normal = heap_slot_base + 1071u;
 static const uint heap_slots_gbuffer_material = heap_slot_base + 1079u;
@@ -175,8 +202,8 @@ static const uint heap_slots_bloom_l1 = heap_slot_base + 1167u;
 static const uint heap_slots_bloom_l2 = heap_slot_base + 1175u;
 static const uint heap_slots_bloom_l3 = heap_slot_base + 1183u;
 static const uint heap_slots_display_color = heap_slot_base + 1207u;
-// one past the last array: the highest slot any array above uses is base + 1307 (the visibility resolve's
-// scene-colour storage twin, 1300..1307), and the grid reserves 2048 - room for the next families without moving one
+// one past the last array: the highest slot any array above uses is base + 1313 (the HZB command alias, 1308..1313),
+// and the grid reserves 2048 - room for the next families without moving one
 static const uint heap_slot_count = 2048u;
 
 // THE SAMPLER HEAP IS A SECOND GRID, and its own base: the sampler heap is a separate heap in this API, and the

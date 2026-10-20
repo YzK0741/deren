@@ -18,6 +18,8 @@
 9. **调参实验（负结果，钩子已移除）**：运行时 cut 误差预算 1→4 px 只让选中记录降 ~1%、GPU 时间不动（画面差异已到 1.2-1.7%/0.3-1.6% 像素）；层级构建参数（target_ratio .35 / max_error .03）同样 ≤1% records、GPU 噪声内。两个"改数字拿性能"的假设都证伪——**剩余收益只能来自结构性 GPU 侧**：近景 HZB 两遍遮挡（M3，33% 可见三角形保守可剔）或远景软件光栅（M4，22% cluster <1px），参数调优无法触及。
 10. **M3 host 侧原型（已验证潜力后回退，见性能报告）**：逐帧深度回读 + CPU Hi-Z + 并行规划内保守球剔除。near：**35% 选中记录被剔除 → GPU visibility raster 20.79→14.16 ms（−32%）、GPU 帧 −28%**，但 host 成本 +11.2 ms CPU（帧变 CPU-bound），端到端只 −9.3%，且 0.314% 像素变化（近平depth 近似不够保守）→ 不发布、已回退并归档 `occlusion-prototype.patch`。结论：遮挡值得做，但**必须 GPU 侧**（HZB build + compute 剔除 → dispatch），才能拿到 −28% 而消掉 host 成本。这是 M3 的下一步形状。
 
+11. **M3 阶段 A1（已验收提交）**：新增 HZB 的 6 个堆槽位（`base+1308..1313`：levels/header/items/results/survivors/commands；最后一个是 `mesh_indirect_buffer` 的 descriptor 别名，不新分配），host/shader 镜像与网格 static_assert 同步；新增纯 CPU 模块 `deren.engine.visibility.hzb`（pyramid 布局公式、max-pyramid 构建、§6 保守球测试含修正后的近深度界/8 角点矩形、§9.2 字节级 scene gate、§4.3 确定性压紧）与 `test_hzb`（1031 checks，含把原型两个错误公式本地复现的 RED 判别用例）。CTest 58/58、test_render_resources 690、test_docs 385；阶段 A2（build shader/pass/图接线 + GPU 读回探针）待派。
+
 ## 变更文件（未提交）
 
 - 容量：`source/engine/render_layout/render_layout.cppm`、`source/shaders/common/heap_slot_constants.slang`、`source/backends/vulkan/core/core.declarations.cppm`、`source/backends/vulkan/core/descriptor_heap/descriptor_heap.cppm`（工作尺寸注释）、`source/engine/runtime/runtime.declarations.cppm`、`source/tests/test_render_resources.cpp`、`source/tests/test_goo_toon_math.cpp`。
