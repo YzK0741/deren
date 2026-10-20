@@ -684,10 +684,12 @@ namespace {
         std::uint32_t usage_mask = 0;
         std::uint64_t bytes = 0;
         deren::utility::vessel::vector<std::byte> content;
+        deren::utility::vessel::vector<std::byte> initial_content;
         explicit cpu_buffer(rhi::buffer_desc const& desc, std::shared_ptr<cpu_resource_registry> resources)
             : rhi::buffer("deren_buffer_cpu_probe")
             , registry(std::move(resources))
-            , bytes(desc.size) {
+            , bytes(desc.size)
+            , initial_content(desc.initial_bytes.begin(), desc.initial_bytes.end()) {
             switch (desc.usage) {
             case rhi::buffer_usage::vertex:
                 usage_mask |= usage_bit(rhi_sync::usage::vertex_buffer) | usage_bit(rhi_sync::usage::transfer_destination);
@@ -1804,6 +1806,16 @@ namespace deren::vk_test {
     }
     void probe_buffer_allocation_fill(deren::promise::rhi::api_core& core, std::uint8_t value) {
         static_cast<impl&>(core).buffer_allocation_fill = value;
+    }
+    std::span<std::byte const> probe_buffer_initial_bytes(deren::promise::rhi::api_core& core, deren::promise::rhi::buffer const& buffer) {
+        auto& registry = *static_cast<impl&>(core).resource_registry;
+        std::lock_guard lock(registry.mutex);
+        for (auto const* candidate : registry.buffers) {
+            if (candidate == &buffer) {
+                return static_cast<cpu_buffer const*>(candidate)->initial_content;
+            }
+        }
+        return {};
     }
     void probe_resource_failure(deren::promise::rhi::api_core& core, std::int32_t successful_creations) {
         static_cast<impl&>(core).resource_creations_until_failure = successful_creations;

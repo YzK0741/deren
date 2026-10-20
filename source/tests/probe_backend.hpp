@@ -39,6 +39,7 @@ namespace deren::vk_test {
     // Fail one image/buffer creation after N successful creations (portable probe only).
     [[nodiscard]] deren::promise::rhi::image const* probe_heap_image(deren::promise::rhi::api_core& core, std::uint64_t offset);
     void probe_buffer_allocation_fill(deren::promise::rhi::api_core& core, std::uint8_t value);
+    [[nodiscard]] std::span<std::byte const> probe_buffer_initial_bytes(deren::promise::rhi::api_core& core, deren::promise::rhi::buffer const& buffer);
     [[nodiscard]] std::uint64_t probe_live_image_count() noexcept;
     [[nodiscard]] std::uint64_t probe_idle_wait_count(deren::promise::rhi::api_core const& core) noexcept;
     [[nodiscard]] std::uint64_t probe_scoped_record_count(deren::promise::rhi::api_core const& core) noexcept;
