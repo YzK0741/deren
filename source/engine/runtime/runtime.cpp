@@ -8,8 +8,10 @@ module;
 #include <cstdlib>
 #include <cstring> // std::memcpy, for composing a pass's push block
 #include <fstream>
+#include <functional> // std::function: the per-item planning tasks a worker pool runs
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <iterator>        // std::prev: the ordered publication table's predecessor lookup
 #include <memory>          // std::shared_ptr: the frame's borrowed command buffer (see frame_command_buffer)
 #include <source_location> // the panic sites of the graphics-queue-family derivation
 #include <span>            // the byte spans the contract's buffer descriptors and the push endpoints take
@@ -1698,17 +1700,39 @@ namespace deren::engine {
         if (this->visibility_items_mapped == nullptr || this->mesh_indirect_mapped == nullptr || !this->mesh_indirect_buffer || this->frame_visible.empty()) {
             return false;
         }
-        deren::utility::vessel::vector<meshlet> selected;
-        deren::utility::vessel::vector<subtilis::reservation> published;
-        unsigned input_count = 0, selected_count = 0, fallback_count = 0;
-        std::uint64_t input_triangles = 0, selected_triangles = 0;
+        // ONE FRAME'S PER-ITEM PLAN. Everything a plan holds is either pure CPU or a write into the item's OWN
+        // slice of the host-culled meshlet lane - there is no cross-item order in it. That is what lets the
+        // planning phase below run in parallel; the command buffer and the shared push-data window stay the
+        // recording thread's (phase 4).
+        struct visibility_item_plan {
+            rhi::cull_mode cull = rhi::cull_mode::back;
+            vis::draw_item row = {};
+            vis::push_block block = {};
+            subtilis::visible_run run = {};
+            subtilis::reservation space = {};
+            std::uint32_t item_index = 0;
+            unsigned input_count = 0, selected_count = 0, fallback_count = 0;
+            std::uint64_t input_triangles = 0, selected_triangles = 0;
+        };
         bool const exact_depth_redraw = this->feature_active("character_forward");
         auto const extent = this->render_extent();
         auto* const commands = static_cast<rhi::mesh_task_command*>(this->mesh_indirect_mapped);
         std::uint32_t const frame_slot = this->frame_ring().position();
-        std::uint32_t item = 0;
-        for (primitive const* const leaf : this->frame_visible) {
-            if (leaf == nullptr || item >= runtime::visibility_item_capacity) {
+        std::uint32_t const capacity = runtime::visibility_item_capacity;
+        std::uint32_t const count = static_cast<std::uint32_t>(this->frame_visible.size());
+        if (count == 0u || count > capacity) {
+            return false; // the candidate run does not fit the item table
+        }
+        // ---- PHASE 1: THE CANDIDATE SCAN, SERIAL. The rules are the old ones: one candidate that cannot be
+        // carried refuses the WHOLE frame (a mixed frame must not be recorded), and the buffer addresses are
+        // RHI queries rather than CPU work, so they are not worth a worker. ----
+        deren::utility::vessel::vector<primitive const*> leaves(count);
+        deren::utility::vessel::vector<std::uint64_t> vertex_addresses(count);
+        deren::utility::vessel::vector<std::uint64_t> index_addresses(count);
+        deren::utility::vessel::vector<rhi::cull_mode> cull_modes(count);
+        for (std::uint32_t index = 0; index < count; ++index) {
+            primitive const* const leaf = this->frame_visible[index];
+            if (leaf == nullptr) {
                 return false;
             }
             if (!leaf->pipeline_name.empty() || (leaf->push.flags & 1u) != 0u || leaf->push.skin_base != 0u || leaf->push.morph_targets != 0u ||
@@ -1719,82 +1743,194 @@ namespace deren::engine {
             // flag bit 3) draws both faces, a single-sided material culls back faces. The raster pass binds ONE
             // pipeline and sets its own default (back) before this loop, so a two-sided item has to say so itself -
             // otherwise its back face would be culled here but drawn by the old path, i.e. a hole this lane invented.
-            command_buffer.set_cull_mode((this->material_flags_of(*leaf) & 8u) != 0u ? rhi::cull_mode::none : rhi::cull_mode::back);
-            std::uint64_t const vertex_address = this->buffer_address(*leaf->vertex_buffer);
-            std::uint64_t const index_address = this->buffer_address(*leaf->index_buffer);
-            if (vertex_address == 0u || index_address == 0u) {
+            cull_modes[index] = (this->material_flags_of(*leaf) & 8u) != 0u ? rhi::cull_mode::none : rhi::cull_mode::back;
+            vertex_addresses[index] = this->buffer_address(*leaf->vertex_buffer);
+            index_addresses[index] = this->buffer_address(*leaf->index_buffer);
+            if (vertex_addresses[index] == 0u || index_addresses[index] == 0u) {
                 return false;
             }
+            leaves[index] = leaf;
+        }
+        // ---- PHASE 2: PER-ITEM PLANNING, IN PARALLEL. The Subtilis cut is the per-item CPU cost this phase
+        // exists for (measured: ~3 us per item on the 2909-item Bistro scene, ~8.6 ms/frame serially). Each
+        // worker owns its scratch vectors, and the only shared write is the host-culled lane at the item's own
+        // `meshlet_base` run, so two workers never touch the same byte. The old serial loop carried `published`
+        // so an item whose run overlapped an ALREADY PUBLISHED one would fall back rather than overwrite it;
+        // that rule is item-order dependent, so it is resolved in phase 3 and only the few items that share a
+        // run with another item skip this phase and are planned in order. ----
+        deren::utility::vessel::vector<visibility_item_plan> plans(count);
+        deren::utility::vessel::vector<bool> ordered_planning(count, false);
+        // The publication sweep below needs each item's reservation BEFORE any planning, so the two
+        // item-order-independent fields are filled here, cheaply and serially.
+        for (std::uint32_t index = 0; index < count; ++index) {
+            plans[index].item_index = index;
+            plans[index].space = subtilis::reservation{leaves[index]->meshlet_base, leaves[index]->meshlet_count};
+        }
+        auto const plan_item = [&](std::uint32_t const index, std::span<subtilis::reservation const> const published,
+                                   deren::utility::vessel::vector<meshlet>& selected) {
+            primitive const& leaf = *leaves[index];
+            visibility_item_plan& plan = plans[index];
             std::array<float, 16> model = {};
-            std::memcpy(model.data(), &leaf->push.model, sizeof(model));
-            std::uint32_t const index_width = leaf->index_type == rhi::index_type::uint16 ? 2u : 4u;
-            vis::draw_item row = vis::make_draw_item(vertex_address, index_address, 0u, 0, index_width, leaf->meshlet_base,
-                                                     leaf->push.material_index.value, leaf->push.motion_base, model);
+            plan.item_index = index;
+            plan.cull = cull_modes[index];
+            std::memcpy(model.data(), &leaf.push.model, sizeof(model));
+            std::uint32_t const index_width = leaf.index_type == rhi::index_type::uint16 ? 2u : 4u;
+            plan.row = vis::make_draw_item(vertex_addresses[index], index_addresses[index], 0u, 0u, index_width, leaf.meshlet_base,
+                                           leaf.push.material_index.value, leaf.push.motion_base, model);
             // THE SCALAR ITEM BLOCK: the stage's own 104-byte shape (see deren.engine.visibility::push_block):
             // the item's model matrix, the item index the packed id carries and the frame slot whose camera lane
             // the stage reads, then the SAME eight geometry lanes the other mesh stages take - with `first_index`
             // carrying the item's MESHLET RUN base and `index_count` its meshlet count (the dispatch's groups).
-            vis::push_block block{};
-            std::memcpy(block.model.data(), &leaf->push.model, sizeof(block.model));
-            block.item_index = item;
-            block.frame_slot = frame_slot;
-            block.material_index = leaf->push.material_index.value; // the raster fragment's alpha test source (item 2)
-            block.geometry.vertex_address_low = static_cast<std::uint32_t>(vertex_address & 0xFFFFFFFFu);
-            block.geometry.vertex_address_high = static_cast<std::uint32_t>(vertex_address >> 32u);
-            block.geometry.index_address_low = static_cast<std::uint32_t>(index_address & 0xFFFFFFFFu);
-            block.geometry.index_address_high = static_cast<std::uint32_t>(index_address >> 32u);
-            block.geometry.first_index = leaf->meshlet_base;
-            block.geometry.index_count = leaf->meshlet_count;
-            block.geometry.base_vertex = 0;
-            block.geometry.index_width = index_width;
-            subtilis::reservation const space{leaf->meshlet_base, leaf->meshlet_count};
-            auto run = subtilis::shared_run(space);
+            plan.block = {};
+            std::memcpy(plan.block.model.data(), &leaf.push.model, sizeof(plan.block.model));
+            plan.block.item_index = index;
+            plan.block.frame_slot = frame_slot;
+            plan.block.material_index = leaf.push.material_index.value; // the raster fragment's alpha test source (item 2)
+            plan.block.geometry.vertex_address_low = static_cast<std::uint32_t>(vertex_addresses[index] & 0xFFFFFFFFu);
+            plan.block.geometry.vertex_address_high = static_cast<std::uint32_t>(vertex_addresses[index] >> 32u);
+            plan.block.geometry.index_address_low = static_cast<std::uint32_t>(index_addresses[index] & 0xFFFFFFFFu);
+            plan.block.geometry.index_address_high = static_cast<std::uint32_t>(index_addresses[index] >> 32u);
+            plan.block.geometry.first_index = leaf.meshlet_base;
+            plan.block.geometry.index_count = leaf.meshlet_count;
+            plan.block.geometry.base_vertex = 0;
+            plan.block.geometry.index_width = index_width;
+            plan.space = subtilis::reservation{leaf.meshlet_base, leaf.meshlet_count};
+            plan.run = subtilis::shared_run(plan.space);
+            plan.input_count = plan.selected_count = plan.fallback_count = 0u;
+            plan.input_triangles = plan.selected_triangles = 0u;
             if (this->subtilis_active_frame) {
-                auto const view = subtilis::make_item_view(leaf->push.model, this->current_ubo.view, this->current_ubo.proj, extent.width, extent.height);
-                subtilis::item_policy const policy{this->material_flags_of(*leaf), exact_depth_redraw && !leaf->environment};
-                run = subtilis::prepare_item(*leaf, policy, view, selected, published,
-                                             [this](unsigned base, std::span<meshlet const> records) {
-                                                 return runtime::meshlet_culled_write(this, base, std::as_bytes(records));
-                                             });
-                if (run.source == subtilis::run_source::visible && run.count != 0) {
-                    published.push_back(space);
-                }
-                input_count += space.count;
-                selected_count += run.count;
-                fallback_count += run.reason != subtilis::fallback_reason::none;
-                input_triangles += leaf->draw_index_count / 3;
-                if (run.source == subtilis::run_source::visible) {
+                auto const view = subtilis::make_item_view(leaf.push.model, this->current_ubo.view, this->current_ubo.proj, extent.width, extent.height);
+                subtilis::item_policy const policy{this->material_flags_of(leaf), exact_depth_redraw && !leaf.environment};
+                plan.run = subtilis::prepare_item(leaf, policy, view, selected, published,
+                                                  [this](unsigned base, std::span<meshlet const> records) {
+                                                      return runtime::meshlet_culled_write(this, base, std::as_bytes(records));
+                                                  });
+                plan.input_count = plan.space.count;
+                plan.selected_count = plan.run.count;
+                plan.fallback_count = plan.run.reason != subtilis::fallback_reason::none ? 1u : 0u;
+                plan.input_triangles = leaf.draw_index_count / 3;
+                if (plan.run.source == subtilis::run_source::visible) {
+                    std::uint64_t selected_triangles = 0;
                     for (auto const& record : selected) {
                         selected_triangles += record.index_count / 3;
                     }
+                    plan.selected_triangles = selected_triangles;
                 } else {
-                    selected_triangles += leaf->draw_index_count / 3;
+                    plan.selected_triangles = leaf.draw_index_count / 3;
                 }
             }
-            vis::apply_meshlet_run(row, block, run);
-            if (!runtime::visibility_items_write(this, item, std::as_bytes(std::span(&row, 1u)))) {
+            vis::apply_meshlet_run(plan.row, plan.block, plan.run);
+        };
+        // An item that shares any part of a meshlet run with ANOTHER item of this frame must be planned in item
+        // order (its publication rule depends on what came before it); everything else is independent. The
+        // sweep is O(n log n) and, in the real scenes, flags nothing at all.
+        {
+            deren::utility::vessel::vector<std::uint32_t> order(count);
+            for (std::uint32_t index = 0; index < count; ++index) {
+                order[index] = index;
+            }
+            std::sort(order.begin(), order.end(), [&](std::uint32_t a, std::uint32_t b) { return plans[a].space.base < plans[b].space.base; });
+            for (std::uint32_t position = 1; position < count; ++position) {
+                visibility_item_plan const& previous = plans[order[position - 1u]];
+                visibility_item_plan const& current = plans[order[position]];
+                if (previous.space.count != 0u && current.space.count != 0u &&
+                    std::uint64_t(previous.space.base) + previous.space.count > std::uint64_t(current.space.base)) {
+                    ordered_planning[order[position - 1u]] = true;
+                    ordered_planning[order[position]] = true;
+                }
+            }
+        }
+        auto const plan_range = [&](std::uint32_t const begin, std::uint32_t const end) {
+            deren::utility::vessel::vector<meshlet> selected;
+            for (std::uint32_t index = begin; index < end; ++index) {
+                if (!ordered_planning[index]) {
+                    plan_item(index, {}, selected);
+                }
+            }
+        };
+        // A small frame is not worth a pool round trip; the 2909-item Bistro frame is.
+        constexpr std::uint32_t parallel_threshold = 64u;
+        if (count >= parallel_threshold) {
+            // ONE PROCESS-WIDE POOL, created on first use and left alive: creating threads per frame is the
+            // very cost this phase is meant to remove. The cap is deliberate (the pool leaves the recording
+            // thread and the GPU-submit path their own cores; >8 workers does not pay for the atomics here).
+            static deren::utility::thread_pool planning_workers(std::clamp(static_cast<int32_t>(std::thread::hardware_concurrency()) - 1, 2, 8));
+            constexpr int32_t planning_priority = 1;
+            std::uint32_t const workers = static_cast<std::uint32_t>(planning_workers.thread_count());
+            deren::utility::vessel::vector<std::function<void()>> tasks;
+            tasks.reserve(workers);
+            for (std::uint32_t worker = 0; worker < workers; ++worker) {
+                std::uint32_t const begin = count * worker / workers;
+                std::uint32_t const end = count * (worker + 1u) / workers;
+                tasks.emplace_back([&plan_range, begin, end] { plan_range(begin, end); });
+            }
+            if (!planning_workers.post_batch(std::span<std::function<void()>>(tasks.data(), tasks.size()), planning_priority)) {
+                plan_range(0u, count); // the pool is shut down: one frame against it is not worth a retry
+            } else {
+                planning_workers.wait_until_priority_done(planning_priority);
+            }
+        } else {
+            plan_range(0u, count);
+        }
+        // ---- PHASE 3: THE PUBLICATION RULE, IN ITEM ORDER. A run that overlaps an EARLIER PUBLISHED run falls
+        // back to the shared one, exactly as the old per-item `published` scan answered - and an overlapping
+        // item is planned here, in order, with that set. An ordered interval table makes the normal (disjoint)
+        // frame one binary search per item; the old loop was a linear scan of every earlier run. ----
+        {
+            deren::utility::vessel::map<std::uint32_t, std::uint32_t> published; // run base -> one past its end
+            deren::utility::vessel::vector<subtilis::reservation> published_snapshot;
+            deren::utility::vessel::vector<meshlet> selected;
+            for (std::uint32_t index = 0; index < count; ++index) {
+                visibility_item_plan& plan = plans[index];
+                subtilis::reservation const space = plan.space;
+                if (ordered_planning[index]) {
+                    published_snapshot.clear();
+                    published_snapshot.reserve(published.size());
+                    for (auto const& [base, run_end] : published) {
+                        published_snapshot.push_back(subtilis::reservation{base, static_cast<std::uint32_t>(run_end - base)});
+                    }
+                    plan_item(index, std::span<subtilis::reservation const>(published_snapshot), selected);
+                }
+                if (plan.run.source == subtilis::run_source::visible && plan.run.count != 0u && space.count != 0u) {
+                    published.emplace(space.base, space.base + space.count);
+                }
+            }
+        }
+        // ---- PHASE 4: RECORD, SERIAL. Command-buffer state, the heap push window and the item table are the
+        // recording thread's by contract, and each item is recorded in its own index order - the one ordering
+        // this lane actually requires. ----
+        unsigned input_count = 0, selected_count = 0, fallback_count = 0;
+        std::uint64_t input_triangles = 0, selected_triangles = 0;
+        for (std::uint32_t index = 0; index < count; ++index) {
+            visibility_item_plan const& plan = plans[index];
+            command_buffer.set_cull_mode(plan.cull);
+            if (!runtime::visibility_items_write(this, index, std::as_bytes(std::span(&plan.row, 1u)))) {
                 return false;
             }
-            if (!runtime::push_raw_block(this, command_buffer, std::as_bytes(std::span(&block, 1u)))) {
+            if (!runtime::push_raw_block(this, command_buffer, std::as_bytes(std::span(&plan.block, 1u)))) {
                 return false;
             }
             // THE DISPATCH: one command per item, in the THIRD command run (the first two are the scene's
             // culled/unculled classes, which the old geometry lane still writes on a capture frame).
-            std::size_t const command_index = static_cast<std::size_t>(frame_slot) * runtime::mesh_command_capacity + runtime::visibility_command_run + item;
-            commands[command_index] = rhi::mesh_task_command{.groups_x = block.geometry.index_count, .groups_y = 1u, .groups_z = 1u};
+            std::size_t const command_index = static_cast<std::size_t>(frame_slot) * runtime::mesh_command_capacity + runtime::visibility_command_run + index;
+            commands[command_index] = rhi::mesh_task_command{.groups_x = plan.block.geometry.index_count, .groups_y = 1u, .groups_z = 1u};
             std::uint64_t const offset = static_cast<std::uint64_t>(command_index) * rhi::mesh_task_command_size;
             if (command_buffer.draw_mesh_tasks_indirect(*this->mesh_indirect_buffer, offset, 1u, rhi::mesh_task_command_size) != rhi::error::ok) {
                 return false;
             }
-            ++item;
+            input_count += plan.input_count;
+            selected_count += plan.selected_count;
+            fallback_count += plan.fallback_count;
+            input_triangles += plan.input_triangles;
+            selected_triangles += plan.selected_triangles;
         }
         if (this->subtilis_active_frame && !this->subtilis_logged) {
             this->subtilis_logged = true;
             deren::utility::log("subtilis: cut run publication: {} -> {} records, {} -> {} triangles, {} fallback item(s)",
                                 input_count, selected_count, input_triangles, selected_triangles, fallback_count);
         }
-        recorded = item;
-        return item > 0u;
+        recorded = count;
+        return count > 0u;
     }
 
     bool runtime::visibility_items_write(void* const owner, uint32_t const base, std::span<std::byte const> const records) {
