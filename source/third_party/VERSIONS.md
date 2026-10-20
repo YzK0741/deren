@@ -5,6 +5,15 @@ Pinned versions + local patches for the vendored code under `third_party/`
 uses; system-package equivalents (e.g. MSYS2 packages) are not vendored and
 are not listed here.
 
+## meshoptimizer
+
+- version: v1.3; revision `9e1f07b159d3cb777f1c67ed31fc11fd117986f4`
+- upstream: https://github.com/zeux/meshoptimizer
+- local changes: none; source/license manifest in `meshoptimizer/manifest.sha256`
+- license: MIT (`meshoptimizer/LICENSE.md`); Uses meshoptimizer. Copyright (c) 2016-2026, Arseny Kapoulkine.
+- build: private static allocator/clusterizer/partition/simplifier/indexgenerator target for the CPU Subtilis builder
+- provenance and archive SHA256: [meshoptimizer/VENDOR.md](meshoptimizer/VENDOR.md)
+
 ## Boost.Graph
 
 - version: 1.92.0; MSYS2 clang64 package revision 4

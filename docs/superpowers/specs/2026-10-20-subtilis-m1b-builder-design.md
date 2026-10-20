@@ -1,6 +1,6 @@
 # Subtilis M1b：索引层级构建器
 
-状态：待审阅；基线 `d9285550`。承接 [既有设计 §11、§13](2026-10-18-subtilis-design.md) 和已通过 CI 的 CPU asset/cut。
+状态：用户已批准并开始实施；基线 `d9285550`。承接 [既有设计 §11、§13](2026-10-18-subtilis-design.md) 和已通过 CI 的 CPU asset/cut。实施进度见 [builder 计划](../plans/2026-10-20-subtilis-m1b-builder.md)。
 
 ## 1. 目标与交付边界
 

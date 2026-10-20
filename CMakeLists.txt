@@ -721,6 +721,7 @@ target_sources(deren_engine
         source/engine/meshlet/meshlet.cppm
         source/engine/geometry/subtilis_lod.cppm
         source/engine/geometry/subtilis_asset.cppm
+        source/engine/geometry/subtilis_builder.cppm
         source/engine/geometry/subtilis.cppm
         source/engine/visibility/visibility.cppm
         source/engine/primitive/primitive.cppm
@@ -917,6 +918,21 @@ target_link_libraries(imgui
 # Compiled as its own plain-C target, mirroring the imgui policy above (vendored
 # code does not follow the project's -Werror set). static_utility links it (the hash functions are
 # pure and per-half - they are not process-wide state).
+add_library(meshoptimizer_vendored STATIC
+    source/third_party/meshoptimizer/src/allocator.cpp
+    source/third_party/meshoptimizer/src/clusterizer.cpp
+    source/third_party/meshoptimizer/src/partition.cpp
+    source/third_party/meshoptimizer/src/simplifier.cpp
+    source/third_party/meshoptimizer/src/indexgenerator.cpp
+)
+target_include_directories(meshoptimizer_vendored PRIVATE source/third_party/meshoptimizer/src)
+target_include_directories(deren_engine SYSTEM PRIVATE source/third_party/meshoptimizer/src)
+target_link_libraries(deren_engine PRIVATE meshoptimizer_vendored)
+target_sources(deren_engine PRIVATE
+    source/engine/geometry/subtilis_builder.cpp
+    source/engine/geometry/subtilis_builder_simplify.cpp
+)
+
 add_library(xxhash STATIC
         source/third_party/xxhash/xxhash.c
 )
@@ -1342,7 +1358,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_lod test_rhi_ownership test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass)
+    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_lod test_subtilis_builder test_rhi_ownership test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1450,6 +1466,7 @@ if(VR_BUILD_TESTS)
     )
     # the visibility vocabulary is pure CPU (packing + record layout); the engine link carries the module
     target_link_libraries(test_subtilis deren_engine vstd_lib)
+    target_link_libraries(test_subtilis_builder deren_engine vstd_lib)
     target_link_libraries(test_subtilis_asset deren_engine vstd_lib)
     target_link_libraries(test_subtilis_lod deren_engine vstd_lib)
     target_link_libraries(test_visibility_buffer
@@ -1786,7 +1803,7 @@ target_link_libraries(deren_gui_vulkan
 # so the meaning is unchanged, and the build recompiled exactly that one object and relinked its image
 # before reporting `ninja: no work to do`.
 # ================================================================================================
-set(VR_VENDORED_TARGETS imgui fastgltf_vendored xxhash mimalloc_vendored)
+set(VR_VENDORED_TARGETS imgui fastgltf_vendored xxhash mimalloc_vendored meshoptimizer_vendored)
 get_property(_deren_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(_deren_target IN LISTS _deren_targets)
     if(_deren_target IN_LIST VR_VENDORED_TARGETS)
