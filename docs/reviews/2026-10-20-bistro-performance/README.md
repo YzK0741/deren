@@ -80,6 +80,8 @@ validation 开启的 3×3 交叉矩阵给出一致结果（far −8.3%、near �
 - **亚像素 cluster 正好相反**：远景 **22% cluster / 21% 三角形 <1px**（Nanite 式软件光栅的触发条件），近景只有 3%。
 - 结论：**M3（HZB 两遍遮挡）主攻近景/大场景内部，M4（软件光栅）主攻远景**，两者互补；应先按目标相机分布选一个做，而不是同时铺开。
 
+**机内独立见证（2026-10-20 追加）**：`meshlet_stats` 从 8 个计数器扩展到 16 个后，visibility raster lane 现在自己报告 frustum cull（ids 8..11）：far 相机 **0 / 50,808 = 0%**、near 相机 **97,464 / 5,754,830 = 1.694%**（131 个 dispatch 帧的会话累计），与离线探针的 0% / 1.9% 一致，且 emitted+culled 恰等于 workgroups。这组计数器就是 M3 将来衡量"dispatch 前剔除能省多少 launch"的机内指标（每次采集的 shutdown 日志直接可读）。
+
 ## CPU 选层并行化（已实现并实测）
 
 上一节数据说明 GPU 侧还有大改的空间，但 CPU 侧的 8.6 ms/帧也得先处理掉（它现在被 GPU 空档掩盖，一旦 GPU 变快就会暴露）。`record_visibility_items` 已重构为四阶段：

@@ -99,6 +99,10 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
     const bool host_culled = (geometry.base_vertex & 1u) != 0u;
     const MeshletRecord meshlet = host_culled ? culled_meshlet_at(push.frame_slot, geometry.first_index + group_id.x)
                                             : meshlet_at(geometry.first_index + group_id.x);
+    // THIS LANE'S OWN COUNTERS (mesh_geometry.slang's ids 8..11): the pbr/shadow meshlet entries count themselves,
+    // but they are different stages, so without these the cull below had no in-engine evidence - only the offline
+    // probe. One atomic per workgroup, the rule the other mesh entries follow.
+    mesh_stat_add(push.frame_slot, mesh_stat_visibility_workgroups, 1u);
 
     // THE SAME CONSERVATIVE CULL pbr's meshlet entry does: the record's object-space sphere pushed through the
     // draw's model and the camera's view*proj, the radius scaled by an upper bound on both matrices' axis scales.
@@ -111,6 +115,9 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
     const float radius = meshlet.radius * matrix_max_axis_scale(push.model) * matrix_max_axis_scale(view_proj);
     if (!clip_sphere_visible(clip_center, radius))
     {
+        // ... and the count that matters: a workgroup the test rejected is the number of dispatches a compute
+        // pass that culled BEFORE this dispatch would not have recorded at all (docs/mesh_shaders.md step 3).
+        mesh_stat_add(push.frame_slot, mesh_stat_visibility_culled, 1u);
         SetMeshOutputCounts(0u, 0u);
         return;
     }
@@ -121,6 +128,9 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
     // rasterized for it.
     const uint triangle_count = min(meshlet.index_count, mesh_triangles_per_workgroup * mesh_indices_per_triangle) / mesh_indices_per_triangle;
     SetMeshOutputCounts(triangle_count * mesh_indices_per_triangle, triangle_count);
+    // the workgroup emitted: its triangles are the second half of what a pre-dispatch cull would leave untouched
+    mesh_stat_add(push.frame_slot, mesh_stat_visibility_emitted, 1u);
+    mesh_stat_add(push.frame_slot, mesh_stat_visibility_triangles, triangle_count);
 
     // THE ID IS THE MESHLET'S ORDER INSIDE THE ITEM, not its table index: the resolve pass reads the item's
     // record to find the run's base, so the two halves agree on the order the dispatch was built with.

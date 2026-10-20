@@ -509,16 +509,23 @@ namespace deren::engine {
     // mapped counter buffer after `wait_idle`: the sums are per session, and the two DERIVED numbers are the point
     // of the line - the share of workgroups the frustum test rejected, and what that share means for a compute pass
     // (a rejected meshlet costs a workgroup launch today, and would cost nothing at all if the culling happened
-    // before the dispatch).
+    // before the dispatch). The VISIBILITY raster lane reports the same four numbers on its own line: it is a third
+    // mesh stage, so its workgroups are not in the meshlet entries' totals and a pre-dispatch cull for it needs its
+    // own witness.
     void runtime::log_meshlet_stats() const {
         if (this->meshlet_stats_mapped == nullptr) {
             return;
         }
         auto const* const counters = static_cast<uint32_t const*>(this->meshlet_stats_mapped);
-        uint64_t total[8] = {};
+        // SIXTEEN IS THE SHADER'S `mesh_stat_stride` (mesh_geometry.slang), not the number of ids this function
+        // happens to name: a sum that used the latter would read a slot's lane from the wrong offset as soon as a
+        // lane is added, and the totals would still look plausible - the counter buffer is one descriptor with the
+        // per-frame lanes inside it, so a wrong stride is a silent cross-slot read.
+        constexpr uint32_t stat_stride = 16u;
+        uint64_t total[stat_stride] = {};
         for (int32_t slot = 0; slot < static_cast<int32_t>(this->frame_ring().slot_count()); ++slot) {
-            for (uint32_t counter = 0; counter < 8u; ++counter) {
-                total[counter] += counters[static_cast<std::size_t>(slot) * 8u + counter];
+            for (uint32_t counter = 0; counter < stat_stride; ++counter) {
+                total[counter] += counters[static_cast<std::size_t>(slot) * stat_stride + counter];
             }
         }
         uint64_t const workgroups = total[0];
@@ -542,19 +549,44 @@ namespace deren::engine {
                                 visibility_clipped,
                                 visibility_depth_mismatch);
         }
-        if (workgroups == 0u && mesh_workgroups == 0u) {
+        // THE VISIBILITY LANE'S OWN CULL TOTALS (mesh_geometry.slang's ids 8..11): a third mesh stage, and the
+        // reason this line exists is the decision it informs - a compute pass that culled the visibility meshlets
+        // BEFORE the dispatch would not launch `culled` of those workgroups at all.
+        uint64_t const visibility_workgroups = total[8];
+        uint64_t const visibility_culled = total[9];
+        uint64_t const visibility_emitted = total[10];
+        uint64_t const visibility_triangles = total[11];
+        // EACH LANE DECIDES ITS OWN SILENCE: a session can run the visibility raster without either meshlet entry
+        // (or the other way round), and the all-zero requirement is "no mesh stage ran", not "the pbr/shadow totals
+        // are zero" - the latter would suppress a visibility line that has real numbers.
+        bool const mesh_lane_ran = workgroups != 0u || mesh_workgroups != 0u;
+        bool const visibility_lane_ran = visibility_workgroups != 0u || visibility_culled != 0u || visibility_emitted != 0u || visibility_triangles != 0u;
+        if (!mesh_lane_ran && !visibility_lane_ran) {
             return; // no mesh stage ran: a vertex-path session says nothing rather than reporting zeroes
         }
-        deren::utility::log("mesh culling: {} meshlet workgroups, {} emitted their triangles, {} were culled ({}% of the workgroups emitted nothing), {} triangles from meshlets",
-                            workgroups,
-                            emitted,
-                            culled,
-                            workgroups == 0u ? 0u : (culled * 100u) / workgroups,
-                            triangles);
-        deren::utility::log("mesh culling: {} workgroups of the NON-meshlet mesh path ran too, so this session's geometry cost {} workgroup launches either way - a compute pass that culled first would record {} fewer",
-                            mesh_workgroups,
-                            workgroups + mesh_workgroups,
-                            culled);
+        // THE EXISTING LINES ARE UNCHANGED (same condition, same text, same order) - they describe the pbr/shadow
+        // meshlet entries and the non-meshlet mesh path, which the visibility lane's counters do not touch.
+        if (mesh_lane_ran) {
+            deren::utility::log("mesh culling: {} meshlet workgroups, {} emitted their triangles, {} were culled ({}% of the workgroups emitted nothing), {} triangles from meshlets",
+                                workgroups,
+                                emitted,
+                                culled,
+                                workgroups == 0u ? 0u : (culled * 100u) / workgroups,
+                                triangles);
+            deren::utility::log("mesh culling: {} workgroups of the NON-meshlet mesh path ran too, so this session's geometry cost {} workgroup launches either way - a compute pass that culled first would record {} fewer",
+                                mesh_workgroups,
+                                workgroups + mesh_workgroups,
+                                culled);
+        }
+        if (visibility_lane_ran) {
+            deren::utility::log("mesh culling (visibility lane): {} meshlet workgroups, {} emitted their triangles, {} were culled ({}% of the workgroups emitted nothing), {} triangles from meshlets - a compute pass that culled before the dispatch would record {} fewer",
+                                visibility_workgroups,
+                                visibility_emitted,
+                                visibility_culled,
+                                visibility_workgroups == 0u ? 0u : (visibility_culled * 100u) / visibility_workgroups,
+                                visibility_triangles,
+                                visibility_culled);
+        }
     }
 
     std::pair<rhi::shared_object<rhi::image>, rhi::shared_object<rhi::image_view>> runtime::create_shared_image(render_resource::resource_id id, rhi::image_desc desc) {
@@ -1004,16 +1036,21 @@ namespace deren::engine {
             // was the reason a null handle could silently send every dispatch down the DIRECT path.
         }
 
-        // ---- THE MESH CULLING COUNTERS (docs/mesh_shaders.md step 3, "what the culling buys"): one lane of eight
+        // ---- THE MESH CULLING COUNTERS (docs/mesh_shaders.md step 3, "what the culling buys"): one lane of sixteen
         //      uints per frame in flight, on the heap because a mesh stage has no other way to reach memory, and
         //      host-visible because the host reads it back once, at shutdown. Zeroed here; the entries only add.
+        //      SIXTEEN and not eight since the visibility raster lane reports its own four (mesh_geometry.slang's ids
+        //      8..11): the buffer has to hold every lane's counters or a lane's last frame slot writes past the end.
+        //      The shader's `mesh_stat_stride` and this size are one contract, pinned only by this comment and the
+        //      shutdown log's plausibility (a mismatch is an out-of-bounds atomic write, not a build error).
         {
 
-            // Allocation and zero initialization are provided by scene_tables_pass.
+            // Allocation and zero initialization are provided by scene_tables_pass - THE ALLOCATION SIZE IS THAT
+            // PASS'S `descriptions()`, which is where the OTHER copy of this 16 lives; both have to move together.
             if (contract_heap_ready(this->rhi_face())) {
                 bool const written = this->write_heap_buffer(*this->meshlet_stats_buffer,
                                                              deren::engine::render_layout::heap_slots::meshlet_stats,
-                                                             static_cast<std::uint64_t>(this->frame_ring().slot_count()) * 8u * sizeof(uint32_t),
+                                                             static_cast<std::uint64_t>(this->frame_ring().slot_count()) * 16u * sizeof(uint32_t),
                                                              rhi::descriptor_type::storage_buffer);
                 if (!written) {
                     deren::utility::log("descriptor heap: the mesh culling counters were NOT written - the counters stay zero");

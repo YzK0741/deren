@@ -605,8 +605,9 @@ the counts the GPU used are demonstrably the ones in the table.
 and a meshlet nobody dispatched are the same pixels, so the culling needed a witness of its own: the mesh entries now
 add to counters on the heap (slot `meshlet_stats`, `deren::engine::render_layout::heap_slots::meshlet_stats` - the heap is a mesh stage's
 ONLY route to memory) and the host reads the buffer back once, at shutdown, where `wait_idle` has already made the
-numbers final. One atomic per workgroup per counter, eight uints per frame in flight, cumulative for the session -
-so the figures below are totals over a scenario's 40 frames and are comparable between runs:
+numbers final. One atomic per workgroup per counter, sixteen uints per frame in flight (the pbr/shadow meshlet
+entries use ids 0..7; the visibility raster lane reports its own frustum cull in ids 8..11), cumulative for the
+session - so the figures below are totals over a scenario's 40 frames and are comparable between runs:
 
 | scenario (40 frames) | meshlet workgroups | emitted | culled | share culled | triangles emitted |
 | --- | --- | --- | --- | --- | --- |

@@ -198,7 +198,8 @@ export namespace deren::engine::render_layout {
         static constexpr uint32_t meshlets = heap_slot_base + 1257u;
         /**
          * @brief the MESH CULLING COUNTERS (docs/mesh_shaders.md step 3, "what the culling buys"): one per-frame
-         *        lane of 8 uints, added to by the mesh entries and read back by the host at shutdown
+         *        lane of 16 uints, added to by the mesh entries (and by the visibility raster lane's ids 8..11,
+         *        which report that lane's own frustum cull) and read back by the host at shutdown
          *
          * @note ON THE HEAP rather than in a host-only buffer, because a mesh stage's only way to reach memory
          *       is a heap descriptor - there is no binding model left to hang a counter off. The read-back is a

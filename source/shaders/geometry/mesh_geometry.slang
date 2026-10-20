@@ -168,7 +168,7 @@ static const uint meshlet_table_capacity = 65536u;
 // per-frame buffer in this renderer has one: the recording of frame N+1 must not add to totals the GPU is still
 // reading for frame N.
 // =============================================================================================================
-static const uint mesh_stat_stride = 8u;
+static const uint mesh_stat_stride = 16u;
 static const uint mesh_stat_workgroups = 0u;      // meshlet workgroups dispatched = meshlets the stage looked at
 static const uint mesh_stat_culled = 1u;         // ... rejected by the frustum test, emitting nothing
 static const uint mesh_stat_emitted = 2u;        // ... that emitted their triangles
@@ -187,6 +187,16 @@ static const uint mesh_stat_visibility_depth_mismatch = 6u;
 // the resolve's pixels whose triangle crossed the NEAR PLANE (item 3's size: every one of these is a
 // vertex behind the eye, which v0 cannot rebuild and the clip will recover)
 static const uint mesh_stat_visibility_clipped = 7u;
+// THE VISIBILITY RASTER LANE'S OWN CULL COUNTERS (ids 8..11), because the counters above cover the pbr/shadow
+// meshLET entries only: the visibility mesh entry culls per meshlet with the same frustum test but its workgroups
+// are a different stage's, so a pre-dispatch compute cull for THAT lane had no in-engine number to justify it -
+// only the offline probe. `visibility_culled` is the lane's `mesh_stat_culled`: launched workgroups the test
+// rejected, i.e. the dispatches a compute pass that culled before the dispatch would not record (docs/
+// mesh_shaders.md step 3's argument, now with the visibility lane's own number in the shutdown log).
+static const uint mesh_stat_visibility_workgroups = 8u;  // visibility mesh workgroups dispatched = meshlets it looked at
+static const uint mesh_stat_visibility_culled = 9u;      // ... rejected by the same frustum test, emitting nothing
+static const uint mesh_stat_visibility_emitted = 10u;    // ... that emitted their triangles
+static const uint mesh_stat_visibility_triangles = 11u;  // triangles those meshlets emitted
 
 /// @brief add @p value to one of this frame's mesh counters (see the block comment above)
 export void mesh_stat_add(const uint frame_slot, const uint counter, const uint value)

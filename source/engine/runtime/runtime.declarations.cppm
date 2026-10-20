@@ -2004,7 +2004,7 @@ namespace deren::engine {
          * @brief THE MESH CULLING COUNTERS (docs/mesh_shaders.md step 3, "what the culling buys"): a mesh entry adds
          *        to one per workgroup, the host reads the buffer back once at shutdown and logs the totals
          *
-         * `MAX_FRAMES_IN_FLIGHT` lanes of `mesh_stat_stride` (8) uints, on the heap at
+         * `MAX_FRAMES_IN_FLIGHT` lanes of `mesh_stat_stride` (16) uints, on the heap at
          * `deren::engine::render_layout::heap_slots::meshlet_stats` - the only way a mesh stage can reach memory. Host-visible and coherent
          * because the read-back is a plain mapped read after `wait_idle`, and the counters are cumulative for the
          * whole session: the numbers the doc quotes are totals over a fixed scenario, which is what makes them
@@ -2013,6 +2013,12 @@ namespace deren::engine {
          * WHAT IT ANSWERS: how many meshlets the frustum test rejected. That number is BOTH the culling's effect on
          * the mesh entry AND - because a rejected meshlet still costs a workgroup launch - the number of dispatches a
          * compute pass that culled before the dispatch would not have recorded at all.
+         *
+         * THE LAST FOUR OF THE SIXTEEN ARE THE VISIBILITY RASTER LANE'S (ids 8..11, mesh_geometry.slang): that entry
+         * is a separate mesh stage, so its workgroups are not the pbr/shadow meshlet entries' and its cull needed its
+         * own in-engine witness. The allocation/environment size lives in `scene_tables_pass::descriptions` and the
+         * heap descriptor write in the constructor - the three numbers (shader stride, allocation, descriptor size)
+         * are ONE contract with no compiler between them.
          */
         render_resource::instances::borrowed<rhi::buffer> meshlet_stats_buffer = {};
         void* meshlet_stats_mapped = nullptr;
