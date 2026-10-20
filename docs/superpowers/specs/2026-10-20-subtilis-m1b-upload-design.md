@@ -1,5 +1,7 @@
 # Subtilis M1b：上传代际绑定
 
+状态：显式上传与 runtime 创建已实现，完成本地验证和独立审查修复；证据见 [验证记录](../../reviews/2026-10-20-subtilis-m1b-upload.md)。实际选层及硬件验收仍待后续。
+
 承接已批准 builder 设计 §11 及用户的“继续”。本轮实现已有几何上传通路的下一步，不启用每帧层级选择或导入时自动简化。
 
 `subtilis::uploaded_geometry` 是只读共享对象，统一持有 `shared_ptr<built_geometry const>`、顶点/index GPU buffer 和现有 pass-chain。索引上传完整 uint32 payload，普通绘制、阴影和 BLAS 的 index_count 始终只覆盖 LOD0 前缀。CPU hierarchy 不单独替换，记录 first_index 与该代际的完整 payload 一致。

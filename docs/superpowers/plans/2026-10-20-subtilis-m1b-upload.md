@@ -22,9 +22,9 @@
 
 ## Task 2: primitive/runtime explicit source
 
-- [ ] Add failed-first binding/destroy tests and runtime creation coverage using the portable probe.
-- [ ] Add optional primitive_create_info::subtilis_geometry; immutable primitive generation member and bind helper. Create from source-derived bytes and counts; original null-source upload unchanged. Destroy drops views and generation before resource owner.
-- [ ] Verify two generations and old leases; run complete Release + relevant ASan/UBSan + new module tidy. Fresh whole-change review, fix important issues with RED/GREEN; document evidence and next selector entry; commit.
+- [x] Add failed-first binding/destroy tests and runtime creation coverage using the portable probe.
+- [x] Add optional primitive_create_info::subtilis_geometry; immutable primitive generation member and bind helper. Create from source-derived bytes and counts; original null-source upload unchanged. Destroy drops views and generation before resource owner.
+- [x] Verify two generations and old leases; run complete Release + relevant ASan/UBSan + new module tidy. Fresh whole-change review, fix important issues with RED/GREEN; document evidence and next selector entry; commit.
 
 ## Review focus
 

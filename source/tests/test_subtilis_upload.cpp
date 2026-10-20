@@ -16,6 +16,9 @@ namespace sub = deren::engine::subtilis;
 namespace rhi = deren::promise::rhi;
 namespace {
     template <class T>
+    concept forgeable_generation = requires { T({}, {}, {}, {}, {}); };
+    static_assert(!forgeable_generation<sub::uploaded_geometry>);
+    template <class T>
     auto bytes(std::span<T> data) {
         return std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const*>(data.data()), data.size_bytes()};
     }

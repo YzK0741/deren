@@ -10,6 +10,8 @@ import deren.engine.render_resource.instances;
 export namespace deren::engine::subtilis {
     namespace upload_rhi = deren::promise::rhi;
     class uploaded_geometry;
+    /// The source must remain immutable through every alias after publication;
+    /// do not move-assign or modify it through a separately retained mutable owner.
     [[nodiscard]] std::expected<std::shared_ptr<uploaded_geometry const>, upload_rhi::error>
     upload_geometry(upload_rhi::shared_object<upload_rhi::api_core> const& device,
                     std::shared_ptr<built_geometry const> source,
@@ -17,7 +19,9 @@ export namespace deren::engine::subtilis {
     /// One immutable CPU hierarchy and its complete GPU payload. Borrowed buffers
     /// are valid while this generation (or a view's lease of it) is retained.
     class uploaded_geometry {
-        struct construction_key {};
+        struct construction_key {
+            explicit construction_key() = default;
+        };
         std::shared_ptr<void const> resources_;
         std::shared_ptr<built_geometry const> source_;
         std::shared_ptr<render_resource::instances::generation const> vertices_, indices_;

@@ -100,3 +100,5 @@ coarse records 各组独占，重新分配连续区间；其 first_index 始终�
 仅主视图的合法静态 opaque item 参与真正的 LOD cut；MASK、toon exact-depth 重着色、变形、阴影和 BLAS 保持 LOD0。CPU cut 发布完整可见记录后，raster/resolve/indirect 使用同一 run；失败恢复完整 shared LOD0。先做上传/代际测试，再进行相机距离序列、接缝、resize/TAA 的视觉与性能验收。
 
 这些原则沿用既有设计；本子阶段不提前冻结 runtime attach API、缓存文件格式或公开更多配置开关。
+
+后续进度：显式上传与代际绑定已在 [上传子阶段](2026-10-20-subtilis-m1b-upload-design.md) 实现。主视图 CPU cut、实际资产图像和性能验收仍未启用。

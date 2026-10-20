@@ -254,7 +254,7 @@ M2 复用已经证明正确的 run 协议：compute select 产生可见表与每
 
 实际接线补充了两条共享表约束：同帧已发布区间不能被后续 alias item 覆写；启用的 visibility 帧禁止其它 camera host-cull 写者覆写该表，toon 仍以 LOD0 做 exact-depth 重着色。图的 raster/resolve 分别声明可选 culled-table 的 mesh/compute 读取。OFF 不增加这两个可选读取。
 
-当前运行时交付是 LOD0 选择/记录通路，尚无真实层级资产上传或 GPU select。M1b 的独立 CPU 基础见 §13，CPU builder 见 §14，尚未改变运行时选层。配置需要同时开启 `visibility_buffer = true` 和 `subtilis = true`；不满足 admission 的帧仍整体使用几何 lane。
+默认运行时仍是 LOD0 选择/记录通路，尚未自动导入真实层级资产或接入 GPU select。M1b 的独立 CPU 基础见 §13，CPU builder 见 §14，显式上传入口见 §15，尚未改变运行时选层。配置需要同时开启 `visibility_buffer = true` 和 `subtilis = true`；不满足 admission 的帧仍整体使用几何 lane。
 
 证据与限制见 [M1a 记录](../../reviews/2026-10-19-subtilis-m1a.md)，执行进度见 [实施计划](../plans/2026-10-19-subtilis-m1a.md)。
 
@@ -277,3 +277,9 @@ M2 复用已经证明正确的 run 协议：compute select 产生可见表与每
 规则网格实测 2048 → 510 三角形、25 → 6 条根记录；group_size=2 得到三层父级。Release 54/54、Subtilis ASan/UBSan 4/4、builder 70 项检查和新增模块静态检查通过。独立审查发现的上游浮点中间溢出已用失败回归验证并修复，异常数值候选保留完整细节。
 
 此处仍未接入真实多级几何上传，运行时绘制量和视觉/性能收益尚未验收。下一步把同一构建结果绑定到一个资源代际，再接主视图合法静态 opaque item 的 CPU cut。完整边界、范围与后续策略见 [builder 设计](2026-10-20-subtilis-m1b-builder-design.md) 和 [验证记录](../../reviews/2026-10-20-subtilis-m1b-builder.md)。
+
+## 15. M1b 显式上传代际（2026-10-20）
+
+在 §14 之后实现 `subtilis::upload_geometry` 与 `primitive_create_info::subtilis_geometry`。显式提供构建结果时，runtime 将完整索引 payload 上传为 uint32，并从同一 source 取得顶点、stride 和 LOD0 计数。CPU hierarchy、两个 GPU buffer 和 pass-chain 同代际持有；普通绘制、阴影与 BLAS 仍限定 LOD0 前缀。无 source 的旧路径保持原状，没有自动导入简化或运行时层级选层。
+
+Release 55/55、相关 ASan/UBSan 7/7、上传/绑定 44 项检查及新增模块静态检查通过。独立审查发现的构造 key 绕过已用负向编译检查复现并修复。下一步接主视图合法静态 opaque item 的 CPU cut 和帧槽发布；详见 [上传设计](2026-10-20-subtilis-m1b-upload-design.md) 与 [验证记录](../../reviews/2026-10-20-subtilis-m1b-upload.md)。
