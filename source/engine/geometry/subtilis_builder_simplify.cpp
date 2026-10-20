@@ -1,6 +1,7 @@
 module;
 #include <algorithm>
 #include <array>
+#include <cfenv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -73,9 +74,21 @@ namespace deren::engine::subtilis::builder_detail {
             auto input_triangles = local_indices.size() / 3;
             std::size_t target_triangles = std::max<std::size_t>(1, static_cast<std::size_t>(double(input_triangles) * options.target_ratio));
             float step_error = 0;
+            // Upstream can discard NaN intermediate errors while returning a finite
+            // result. Isolate its floating-point status and keep the children if
+            // any arithmetic overflows or becomes invalid. Restore caller state.
+            std::fenv_t environment;
+            if (std::feholdexcept(&environment) != 0) {
+                return std::unexpected(rejection::topology);
+            }
             auto count = meshopt_simplifyWithAttributes(simplified.data(), local_indices.data(), local_indices.size(), positions[0].data(), positions.size(), 3 * sizeof(float),
                                                         attributes[0].data(), 5 * sizeof(float), weights.data(), weights.size(), locks.data(),
                                                         target_triangles * 3, options.max_error, meshopt_SimplifyLockBorder | meshopt_SimplifyErrorAbsolute, &step_error);
+            int arithmetic_errors = std::fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW);
+            int restored = std::fesetenv(&environment);
+            if (arithmetic_errors || restored != 0) {
+                return std::unexpected(rejection::topology);
+            }
             if (!count || count % 3 || count >= local_indices.size()) {
                 return std::unexpected(rejection::reduction);
             }

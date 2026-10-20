@@ -56,7 +56,7 @@ API in deren::engine::subtilis:
 - [x] Add a small multi-level grid with group_size=2; enumerate bounded legal cuts and compare combined oriented boundary multisets with LOD0. Check no simultaneous parent/child and valid index windows. Verify 3+ levels, unequal-depth branches, depth stop and budget failure without partial payload.
 - [x] Add repeated-input equality (records/groups/indices/metadata), concurrent first-use allocator initialization, source ownership after input destruction and conservative sphere containment. Feed built hierarchy into select_cut/prepare_hierarchy to demonstrate fewer records for a valid coarse view and complete forced finest.
 - [x] Run complete Release build + CTest, exact relevant ASan/UBSan tests, and tidy on changed builder sources. Tests requiring hardlinks/subprocesses use the established permissions.
-- [ ] Fresh review of whole diff against spec; repair important findings with RED/GREEN. Update design status/evidence and next upload entry; commit validated results, no unsolicited push.
+- [x] Fresh review of whole diff against spec; repair important findings with RED/GREEN. Update design status/evidence and next upload entry; commit validated results, no unsolicited push.
 
 ## Review focus
 

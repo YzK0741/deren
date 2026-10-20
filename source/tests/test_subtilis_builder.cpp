@@ -2,6 +2,7 @@
 
 #include <array>
 #include <atomic>
+#include <cfenv>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -455,5 +456,29 @@ int main() {
         }
         CHECK(enclosed);
     }
+    // Finite attributes can still overflow upstream quadrics. A NaN intermediate
+    // must not become an accepted nonplanar simplification with zero error.
+    auto curved_vertices = grid;
+    for (auto& v : curved_vertices) {
+        v.position[2] = .01f * (v.position[0] * v.position[0] + v.position[1] * v.position[1]);
+    }
+    auto curved_input = grid_input;
+    curved_input.geometry.vertex_data = bytes(std::span(curved_vertices));
+    options = {};
+    options.max_error = 0;
+    options.normal_weight = std::numeric_limits<float>::max();
+    std::fenv_t caller_environment;
+    CHECK(std::fegetenv(&caller_environment) == 0);
+    CHECK(std::feclearexcept(FE_ALL_EXCEPT) == 0 && std::feraiseexcept(FE_DIVBYZERO) == 0);
+    auto unsafe_numeric = sub::build(curved_input, options);
+    CHECK(unsafe_numeric && unsafe_numeric->statistics().coarse_triangles == unsafe_numeric->statistics().lod0_triangles);
+    CHECK(std::fetestexcept(FE_INVALID | FE_OVERFLOW) == 0 && std::fetestexcept(FE_DIVBYZERO) != 0);
+    CHECK(std::fesetenv(&caller_environment) == 0);
+    for (auto& v : curved_vertices) {
+        v.uv = {1e30f, 1e30f};
+    }
+    options.normal_weight = .1f;
+    unsafe_numeric = sub::build(curved_input, options);
+    CHECK(unsafe_numeric && unsafe_numeric->statistics().coarse_triangles == unsafe_numeric->statistics().lod0_triangles);
     return deren::vk_test::finish("test_subtilis_builder");
 }
