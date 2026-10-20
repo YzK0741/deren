@@ -33,18 +33,21 @@ namespace deren::engine::subtilis::builder_detail {
             vector<std::array<std::uint32_t, 4>> faces;
             faces.reserve(count);
             for (std::uint32_t i = 0; i < count; ++i) {
-                std::array<std::uint32_t, 3> corners{t.class_of[indices[i * 3]], t.class_of[indices[i * 3 + 1]], t.class_of[indices[i * 3 + 2]]};
+                auto first = std::size_t(i) * 3;
+                std::array<std::uint32_t, 3> corners{t.class_of[indices[first]], t.class_of[indices[first + 1]], t.class_of[indices[first + 2]]};
                 for (unsigned k = 0; k < 3; ++k) {
-                    auto a = corners[k], b = corners[(k + 1) % 3];
+                    auto a = corners[k];
+                    auto b = corners[(k + 1) % 3];
                     if (a == b) {
                         out.unsafe[i] = 1;
                     }
                     out.edges.push_back({std::min(a, b), std::max(a, b), i, a < b ? 1u : 0u});
                 }
-                auto const& a = data.positions[indices[i * 3]];
-                auto const& b = data.positions[indices[i * 3 + 1]];
-                auto const& c = data.positions[indices[i * 3 + 2]];
-                std::array<double, 3> ab{}, ac{};
+                auto const& a = data.positions[indices[first]];
+                auto const& b = data.positions[indices[first + 1]];
+                auto const& c = data.positions[indices[first + 2]];
+                std::array<double, 3> ab{};
+                std::array<double, 3> ac{};
                 for (unsigned k = 0; k < 3; ++k) {
                     ab[k] = double(b[k]) - a[k];
                     ac[k] = double(c[k]) - a[k];
@@ -73,7 +76,8 @@ namespace deren::engine::subtilis::builder_detail {
                     }
                 }
                 for (std::size_t i = first + 1; i < end; ++i) {
-                    auto a = out.root(out.edges[first][2]), b = out.root(out.edges[i][2]);
+                    auto a = out.root(out.edges[first][2]);
+                    auto b = out.root(out.edges[i][2]);
                     out.parent[std::max(a, b)] = std::min(a, b);
                 }
                 first = end;
@@ -129,7 +133,8 @@ namespace deren::engine::subtilis::builder_detail {
             if (t.unsafe_triangles[id]) {
                 return result;
             }
-            indices.insert(indices.end(), data.indices.begin() + std::size_t(id) * 3, data.indices.begin() + std::size_t(id) * 3 + 3);
+            auto triangle = std::span(data.indices).subspan(std::size_t(id) * 3, 3);
+            indices.insert(indices.end(), triangle.begin(), triangle.end());
         }
         auto g = graph(data, t, indices);
         if (std::find(g.unsafe.begin(), g.unsafe.end(), 1) != g.unsafe.end()) {

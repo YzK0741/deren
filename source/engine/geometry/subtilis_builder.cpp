@@ -74,10 +74,12 @@ namespace deren::engine::subtilis {
                 (std::uint64_t(g.index_count) + meshlet_max_indices - 1) / meshlet_max_indices > (1u << 14)) {
                 return std::unexpected(build_error::capacity);
             }
-            result.vertices.assign(g.vertex_data.begin(), g.vertex_data.begin() + static_cast<std::size_t>(vertex_bytes));
+            auto vertex_window = g.vertex_data.first(static_cast<std::size_t>(vertex_bytes));
+            result.vertices.assign(vertex_window.begin(), vertex_window.end());
             result.positions.resize(g.vertex_count);
             result.attributes.resize(g.vertex_count);
-            std::array<double, 3> low{}, high{};
+            std::array<double, 3> low{};
+            std::array<double, 3> high{};
             for (std::uint32_t i = 0; i < g.vertex_count; ++i) {
                 auto* bytes = result.vertices.data() + std::size_t(i) * g.vertex_stride;
                 std::memcpy(result.positions[i].data(), bytes, 12);
@@ -93,16 +95,11 @@ namespace deren::engine::subtilis {
                         return std::unexpected(build_error::invalid_geometry);
                     }
                 }
-                for (unsigned axis = 0; axis < 3; ++axis) {
-                    double v = result.positions[i][axis];
-                    low[axis] = i ? std::min(low[axis], v) : v;
-                    high[axis] = i ? std::max(high[axis], v) : v;
-                }
             }
             result.indices.reserve(g.index_count);
             for (std::uint32_t i = 0; i < g.index_count; ++i) {
                 std::uint32_t value = 0;
-                auto* bytes = g.index_data.data() + (std::uint64_t(g.first_index) + i) * g.index_width;
+                auto const* bytes = g.index_data.data() + (std::uint64_t(g.first_index) + i) * g.index_width;
                 if (g.index_width == 2) {
                     std::uint16_t short_value = 0;
                     std::memcpy(&short_value, bytes, 2);
@@ -132,7 +129,8 @@ namespace deren::engine::subtilis {
         if (indices.empty() || indices.size() > meshlet_max_indices || indices.size() % 3) {
             return std::unexpected(build_error::invalid_geometry);
         }
-        std::array<double, 3> lo{}, hi{};
+        std::array<double, 3> lo{};
+        std::array<double, 3> hi{};
         for (std::size_t i = 0; i < indices.size(); ++i) {
             auto const& position = data.positions[indices[i]];
             for (unsigned axis = 0; axis < 3; ++axis) {

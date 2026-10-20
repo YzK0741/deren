@@ -22,7 +22,8 @@ namespace deren::engine::subtilis::builder_detail {
     namespace {
         enum class rejection { topology,
                                reduction,
-                               budget };
+                               budget,
+        };
         std::expected<logical_node, rejection> parent_node(source const& data, topology const& topology,
                                                            vector<logical_node> const& nodes, vector<std::uint32_t> const& children,
                                                            build_options const& options) {
@@ -69,10 +70,11 @@ namespace deren::engine::subtilis::builder_detail {
             }
             vector<std::uint32_t> simplified(local_indices.size());
             std::array<float, 5> weights{options.normal_weight, options.normal_weight, options.normal_weight, options.uv_weight, options.uv_weight};
-            std::size_t target_triangles = std::max<std::size_t>(1, static_cast<std::size_t>(double(local_indices.size() / 3) * options.target_ratio));
+            auto input_triangles = local_indices.size() / 3;
+            std::size_t target_triangles = std::max<std::size_t>(1, static_cast<std::size_t>(double(input_triangles) * options.target_ratio));
             float step_error = 0;
-            auto count = meshopt_simplifyWithAttributes(simplified.data(), local_indices.data(), local_indices.size(), positions[0].data(), positions.size(), sizeof(positions[0]),
-                                                        attributes[0].data(), sizeof(attributes[0]), weights.data(), weights.size(), locks.data(),
+            auto count = meshopt_simplifyWithAttributes(simplified.data(), local_indices.data(), local_indices.size(), positions[0].data(), positions.size(), 3 * sizeof(float),
+                                                        attributes[0].data(), 5 * sizeof(float), weights.data(), weights.size(), locks.data(),
                                                         target_triangles * 3, options.max_error, meshopt_SimplifyLockBorder | meshopt_SimplifyErrorAbsolute, &step_error);
             if (!count || count % 3 || count >= local_indices.size()) {
                 return std::unexpected(rejection::reduction);
@@ -97,7 +99,7 @@ namespace deren::engine::subtilis::builder_detail {
             vector<std::uint32_t> vertices(count);
             vector<unsigned char> triangles(count);
             auto cluster_count = meshopt_buildMeshlets(meshlets.data(), vertices.data(), triangles.data(), simplified.data(), count,
-                                                       positions[0].data(), positions.size(), sizeof(positions[0]), 255, meshlet_max_triangles, 0);
+                                                       positions[0].data(), positions.size(), 3 * sizeof(float), 255, meshlet_max_triangles, 0);
             if (!cluster_count || cluster_count >= previous_records) {
                 return std::unexpected(rejection::reduction);
             }
@@ -159,13 +161,15 @@ namespace deren::engine::subtilis::builder_detail {
         std::uint64_t finished_triangles = 0;
         auto stable_order = [&](auto a, auto b) { return nodes[a].source_triangles.front() < nodes[b].source_triangles.front(); };
         for (std::uint32_t depth = 0; depth < options.max_depth && frontier.size() > 1; ++depth) {
-            vector<std::uint32_t> indices, counts, partitions(frontier.size());
+            vector<std::uint32_t> indices;
+            vector<std::uint32_t> counts;
+            vector<std::uint32_t> partitions(frontier.size());
             for (auto id : frontier) {
                 indices.insert(indices.end(), nodes[id].indices.begin(), nodes[id].indices.end());
                 counts.push_back(static_cast<std::uint32_t>(nodes[id].indices.size()));
             }
             auto partition_count = meshopt_partitionClusters(partitions.data(), indices.data(), indices.size(), counts.data(), counts.size(),
-                                                             positions[0].data(), positions.size(), sizeof(positions[0]), options.group_size);
+                                                             positions[0].data(), positions.size(), 3 * sizeof(float), options.group_size);
             vector<vector<std::uint32_t>> groups(partition_count);
             for (std::size_t i = 0; i < frontier.size(); ++i) {
                 groups[partitions[i]].push_back(frontier[i]);

@@ -163,6 +163,10 @@ jobs:
           TIDY_FILES="source/engine/geometry/subtilis.cppm \
             source/engine/geometry/subtilis_asset.cppm \
             source/engine/geometry/subtilis_lod.cppm \
+            source/engine/geometry/subtilis_builder.cppm \
+            source/engine/geometry/subtilis_builder.cpp \
+            source/engine/geometry/subtilis_builder_simplify.cpp \
+            source/engine/geometry/subtilis_builder_topology.cpp \
             source/engine/gaussian_splatting/gaussian_splatting.cppm \
             source/engine/gaussian_splatting/gaussian_splatting.cpp \
             source/engine/gaussian_splatting/gaussian_splatting.gpu.cpp \
