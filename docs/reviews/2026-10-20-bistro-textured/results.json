@@ -1,0 +1,242 @@
+{
+  "capacity_4096_original_hierarchy": {
+    "config": "capacity4096.toml",
+    "camera": [
+      35.0,
+      18.0,
+      140.0,
+      0.0,
+      -83.071,
+      0.0
+    ],
+    "asset": "D:/deren-assets/bistro/bistro-geometry.gltf (no textures)",
+    "nodes": 6006,
+    "primitives": 2909,
+    "visibility_items_admitted": 2906,
+    "item_capacity": 4096,
+    "meshlet_capacity_per_item": 4096,
+    "visibility_overflow_or_fallback": 0,
+    "validation_findings": 0,
+    "frames_averaged": 31,
+    "gpu_total_ms": 29.28,
+    "screenshot": "capacity4096-original-hierarchy.webp",
+    "screenshot_stats": {
+      "mean_rgb": 37.2713,
+      "mean_channel_max_8bit": 40.0509,
+      "max_channel_8bit": 232,
+      "pure_white_pct": 0.0,
+      "unique_colours": 4513
+    }
+  },
+  "textured_original_hierarchy": {
+    "asset": "D:/deren-assets/bistro/textured-verified/bistro-core-mr.gltf",
+    "scene_textures_loaded": 811,
+    "runtime_texture_descriptors_written": 516,
+    "texture_array_capacity": 1024,
+    "texture_capacity_overflow_or_white_degradation": 0,
+    "validation_findings": 0,
+    "runs": {
+      "albedo_far": {
+        "camera": [
+          35.0,
+          18.0,
+          140.0,
+          0.0,
+          -83.071,
+          0.0
+        ],
+        "visibility_items": 2906,
+        "frames_averaged": 31,
+        "gpu_total_ms": 26.34,
+        "screenshot": "textured-albedo-far.webp",
+        "screenshot_stats": {
+          "mean_rgb": 23.0433,
+          "mean_channel_max_8bit": 23.8253,
+          "max_channel_8bit": 232,
+          "pure_white_pct": 0.0,
+          "unique_colours": 2074
+        }
+      },
+      "lit_far": {
+        "camera": [
+          35.0,
+          18.0,
+          140.0,
+          0.0,
+          -83.071,
+          0.0
+        ],
+        "visibility_items": 2906,
+        "frames_averaged": 31,
+        "gpu_total_ms": 26.9,
+        "screenshot": "textured-lit-far.webp",
+        "screenshot_stats": {
+          "mean_rgb": 103.0193,
+          "mean_channel_max_8bit": 116.2493,
+          "max_channel_8bit": 255,
+          "pure_white_pct": 0.0014,
+          "unique_colours": 22038
+        }
+      },
+      "albedo_near": {
+        "camera": [
+          35.0,
+          8.0,
+          42.0,
+          0.0,
+          -88.0,
+          0.0
+        ],
+        "visibility_items": 2840,
+        "frames_averaged": 31,
+        "gpu_total_ms": 23.74,
+        "screenshot": "textured-albedo-near.webp",
+        "screenshot_stats": {
+          "mean_rgb": 137.0071,
+          "mean_channel_max_8bit": 142.6222,
+          "max_channel_8bit": 232,
+          "pure_white_pct": 0.0,
+          "unique_colours": 10614
+        }
+      },
+      "lit_near": {
+        "camera": [
+          35.0,
+          8.0,
+          42.0,
+          0.0,
+          -88.0,
+          0.0
+        ],
+        "visibility_items": 2840,
+        "frames_averaged": 31,
+        "gpu_total_ms": 23.71,
+        "screenshot": "textured-lit-near.webp",
+        "screenshot_stats": {
+          "mean_rgb": 149.2786,
+          "mean_channel_max_8bit": 155.9977,
+          "max_channel_8bit": 255,
+          "pure_white_pct": 0.0004,
+          "unique_colours": 77044
+        }
+      }
+    }
+  },
+  "regressions": {
+    "grid_renumbering_pixel_identical": true,
+    "grid_renumbering_note": "the original-hierarchy geometry frame rendered before and after the texture-run growth (+512 on every slot after textures, grid 1024 -> 2048) is pixel-identical",
+    "final_binary_reproducible": true,
+    "final_binary_note": "the capacity frame and the textured albedo frame captured with the final build are pixel-identical to the runs captured before the cosmetic tidy fix"
+  },
+  "tests": {
+    "release_ctest": "57/57 passed",
+    "asan_ubsan_targeted": "6/6 passed (render_resources, goo_toon_math, visibility_buffer, subtilis, subtilis_selection, subtilis_frame)",
+    "clang_tidy_capacity_modules": "clean (subtilis.cppm, visibility.cppm, render_layout.cppm)",
+    "docs_test_checks": 383,
+    "render_resources_checks": 665
+  },
+  "pbr_acceptance": {
+    "pbr_pipeline": "deferred metallic-roughness: G-buffer (albedo+metallic, world normal+roughness, AO, flags) -> shading.slang GGX + split-sum IBL (prefiltered env, irradiance, BRDF LUT) + directional sun + cascaded shadow maps",
+    "shadow": "enabled (3 cascades, 2909 casters dispatched by the mesh stage)",
+    "lit_runs": {
+      "far": {
+        "visibility_items": 2906,
+        "textures": 516,
+        "validation_findings": 0,
+        "frames_averaged": 31,
+        "gpu_total_ms_with_shadow": 84.71,
+        "gpu_total_ms_without_shadow_reference": 26.9,
+        "screenshot": "pbr-lit-far.webp",
+        "screenshot_stats": {
+          "mean_rgb": 102.0219,
+          "max_channel_8bit": 255,
+          "unique_colours": 23886
+        }
+      },
+      "near": {
+        "visibility_items": 2840,
+        "textures": 516,
+        "validation_findings": 0,
+        "frames_averaged": 31,
+        "gpu_total_ms_with_shadow": 126.98,
+        "screenshot": "pbr-lit-near.webp",
+        "screenshot_stats": {
+          "mean_rgb": 140.4359,
+          "max_channel_8bit": 255,
+          "unique_colours": 85254
+        }
+      }
+    },
+    "gbuffer_channels": {
+      "normal": {
+        "screenshot": "pbr-normal-near.webp",
+        "note": "world normals encoded n*0.5+0.5; rich window/frame/brick relief shows the normal maps are sampled"
+      },
+      "roughness": {
+        "screenshot": "pbr-roughness-near.webp",
+        "channel_analysis": {
+          "foreground_pixels": 822563,
+          "gray_mean": 200.26,
+          "gray_std": 15.31,
+          "unique_gray_values": 25,
+          "value_histogram_8_bins": [
+            0,
+            0,
+            5,
+            0,
+            27816,
+            149816,
+            623197,
+            21729
+          ]
+        }
+      },
+      "metallic": {
+        "screenshot": "pbr-metallic-near.webp",
+        "channel_analysis": {
+          "foreground_pixels": 133747,
+          "gray_mean": 114.2,
+          "gray_std": 80.69,
+          "unique_gray_values": 90,
+          "value_histogram_8_bins": [
+            59,
+            87085,
+            713,
+            482,
+            30,
+            13,
+            11330,
+            34035
+          ]
+        },
+        "note": "black = dielectric (most of the scene); bright pixels are the converted metal trim/frames, and the low-metallic band is the approximate specular-to-metal leakage of the Khronos mapping"
+      },
+      "ao": {
+        "screenshot": "pbr-ao-near.webp",
+        "channel_analysis": {
+          "foreground_pixels": 860213,
+          "gray_mean": 232.0,
+          "gray_std": 0.0,
+          "unique_gray_values": 1,
+          "value_histogram_8_bins": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            860213
+          ]
+        },
+        "note": "FLAT: the upstream Bistro glTF has no occlusionTexture on any of the 254 materials, so the G-buffer AO is 1.0 everywhere. The engine supports the AO map; this asset does not carry one."
+      }
+    },
+    "limitations": [
+      "the spec/gloss -> metallic/roughness conversion is the Khronos reference approximation, so the metallic channel is not ground truth",
+      "KHR_materials_transmission (18 materials, shop windows) is outside acceptance and renders as opaque",
+      "no occlusion textures in the upstream asset",
+      "enabling the 3-cascade shadow pass roughly triples the GPU frame time on this scene (single-session numbers, not a benchmark); the shadow line reads 0.00 ms while visibility raster absorbs it, so the per-pass split is not reliable with shadows on"
+    ]
+  }
+}

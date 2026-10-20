@@ -1,0 +1,68 @@
+{
+  "far-on-1": {
+    "gpu_total": 29.51,
+    "gpu_visibility": 28.4,
+    "wall_frame_ms": 28.33,
+    "cpu_post": 7.48,
+    "cpu_pace": 19.92,
+    "cpu_total": 28.89,
+    "cpu_active": 8.97,
+    "cut": {
+      "input_records": 50808,
+      "selected_records": 45493,
+      "input_triangles": 4208625,
+      "selected_triangles": 3727209,
+      "triangle_reduction_pct": 11.44
+    }
+  },
+  "far-off-1": {
+    "gpu_total": 30.57,
+    "gpu_visibility": 29.5,
+    "wall_frame_ms": 30.0,
+    "cpu_post": 4.16,
+    "cpu_pace": 25.79,
+    "cpu_total": 30.9,
+    "cpu_active": 5.11
+  },
+  "far-on-2": {
+    "gpu_total": 27.19,
+    "gpu_visibility": 26.25,
+    "wall_frame_ms": 25.9,
+    "cpu_post": 6.28,
+    "cpu_pace": 19.21,
+    "cpu_total": 26.44,
+    "cpu_active": 7.23,
+    "cut": {
+      "input_records": 50808,
+      "selected_records": 45493,
+      "input_triangles": 4208625,
+      "selected_triangles": 3727209,
+      "triangle_reduction_pct": 11.44
+    }
+  },
+  "near-on-1": {
+    "gpu_total": 24.71,
+    "gpu_visibility": 23.29,
+    "wall_frame_ms": 22.95,
+    "cpu_post": 6.28,
+    "cpu_pace": 16.41,
+    "cpu_total": 23.75,
+    "cpu_active": 7.34,
+    "cut": {
+      "input_records": 43930,
+      "selected_records": 38864,
+      "input_triangles": 3626626,
+      "selected_triangles": 3175714,
+      "triangle_reduction_pct": 12.43
+    }
+  },
+  "near-off-1": {
+    "gpu_total": 26.02,
+    "gpu_visibility": 24.55,
+    "wall_frame_ms": 24.39,
+    "cpu_post": 4.07,
+    "cpu_pace": 19.87,
+    "cpu_total": 24.82,
+    "cpu_active": 4.95
+  }
+}

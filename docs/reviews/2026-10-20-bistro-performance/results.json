@@ -1,0 +1,424 @@
+{
+  "question": "Subtilis LOD 与 4096-item 容量对 4.2M 三角形 / 2909 绘制对象 Bistro 场景的实际渲染增益",
+  "asset": "D:/deren-assets/bistro/bistro-geometry.gltf (6006 nodes, 254 materials, 2909 primitives, 0 textures)",
+  "config": {
+    "render": "deferred lit path, shadow/taa/fxaa/bloom/ssao off, 1280x720, 130-frame offscreen captures",
+    "validation": "off for the 2x2 wall/CPU matrix, on for the 3x3 GPU cross-check matrix",
+    "temporary_builder_probe": "DEREN_BISTRO_BUILD builds the Subtilis hierarchies at import; applied identically to OFF and ON, reverted after the runs (patch archived here)"
+  },
+  "capacity_unlock_vs_old_1024_build": {
+    "note": "the same scene on the previous build (1024-item admission) fell back to the legacy whole-frame geometry path; those numbers are the prior review logs (16-frame captures, gbuffer_debug=on, far camera)",
+    "old_fallback_off_gpu_total_ms": 178.53,
+    "old_fallback_on_gpu_total_ms": 168.36,
+    "old_fallback_scene_pass_ms": {
+      "off": 177.8,
+      "on": 167.73
+    },
+    "new_off_gpu_total_ms": 26.72,
+    "new_on_gpu_total_ms": 24.51,
+    "speedup_off": 6.68,
+    "speedup_on": 6.87,
+    "new_off_scene_pass_ms": 0.28
+  },
+  "subtilis_off_on": {
+    "far": {
+      "off": {
+        "noval_gpu_visibility_raster_ms": 26.22,
+        "noval_gpu_total_ms": 26.975,
+        "noval_wall_frame_ms": 25.25,
+        "noval_cpu_active_ms": 6.645,
+        "noval_record_visibility_items_ms": 4.97,
+        "noval_cut_cpu_ms": 0.076,
+        "val_gpu_visibility_raster_ms": 25.98,
+        "val_gpu_total_ms": 26.72,
+        "cut": null,
+        "validation_findings": 0,
+        "runs": [
+          "noval-far-off-1",
+          "noval-far-off-2",
+          "val-far-off-1",
+          "val-far-off-2",
+          "val-far-off-3"
+        ]
+      },
+      "on": {
+        "noval_gpu_visibility_raster_ms": 23.89,
+        "noval_gpu_total_ms": 24.63,
+        "noval_wall_frame_ms": 23.18,
+        "noval_cpu_active_ms": 15.255,
+        "noval_record_visibility_items_ms": 13.761,
+        "noval_cut_cpu_ms": 8.681,
+        "val_gpu_visibility_raster_ms": 23.79,
+        "val_gpu_total_ms": 24.51,
+        "cut": {
+          "input_records": 50808,
+          "selected_records": 45493,
+          "input_triangles": 4208625,
+          "selected_triangles": 3727209,
+          "fallback_items": 0,
+          "coarse_records": 9451,
+          "triangle_reduction_pct": 11.44,
+          "record_reduction_pct": 10.46
+        },
+        "validation_findings": 0,
+        "runs": [
+          "noval-far-on-1",
+          "noval-far-on-2",
+          "val-far-on-1",
+          "val-far-on-2",
+          "val-far-on-3"
+        ]
+      },
+      "delta": {
+        "gpu_total_ms": -2.345,
+        "gpu_total_pct": -8.69,
+        "visibility_raster_ms": -2.33,
+        "visibility_raster_pct": -8.89,
+        "wall_frame_ms": -2.07,
+        "wall_frame_pct": -8.2,
+        "val_gpu_total_ms": -2.21,
+        "val_gpu_total_pct": -8.27,
+        "cut_cpu_ms": 8.605,
+        "record_visibility_items_ms": 8.791
+      }
+    },
+    "near": {
+      "off": {
+        "noval_gpu_visibility_raster_ms": 23.0,
+        "noval_gpu_total_ms": 24.025,
+        "noval_wall_frame_ms": 22.67,
+        "noval_cpu_active_ms": 6.045,
+        "noval_record_visibility_items_ms": 4.557,
+        "noval_cut_cpu_ms": 0.072,
+        "val_gpu_visibility_raster_ms": 23.09,
+        "val_gpu_total_ms": 24.16,
+        "cut": null,
+        "validation_findings": 0,
+        "runs": [
+          "noval-near-off-1",
+          "noval-near-off-2",
+          "val-near-off-1",
+          "val-near-off-2",
+          "val-near-off-3"
+        ]
+      },
+      "on": {
+        "noval_gpu_visibility_raster_ms": 20.945,
+        "noval_gpu_total_ms": 21.945,
+        "noval_wall_frame_ms": 20.825,
+        "noval_cpu_active_ms": 15.45,
+        "noval_record_visibility_items_ms": 13.815,
+        "noval_cut_cpu_ms": 8.691,
+        "val_gpu_visibility_raster_ms": 20.9,
+        "val_gpu_total_ms": 21.92,
+        "cut": {
+          "input_records": 43930,
+          "selected_records": 38864,
+          "input_triangles": 3626626,
+          "selected_triangles": 3175714,
+          "fallback_items": 0,
+          "coarse_records": 7342,
+          "triangle_reduction_pct": 12.43,
+          "record_reduction_pct": 11.53
+        },
+        "validation_findings": 0,
+        "runs": [
+          "noval-near-on-1",
+          "noval-near-on-2",
+          "val-near-on-1",
+          "val-near-on-2",
+          "val-near-on-3"
+        ]
+      },
+      "delta": {
+        "gpu_total_ms": -2.08,
+        "gpu_total_pct": -8.66,
+        "visibility_raster_ms": -2.055,
+        "visibility_raster_pct": -8.93,
+        "wall_frame_ms": -1.85,
+        "wall_frame_pct": -8.14,
+        "val_gpu_total_ms": -2.24,
+        "val_gpu_total_pct": -9.27,
+        "cut_cpu_ms": 8.619,
+        "record_visibility_items_ms": 9.258
+      }
+    }
+  },
+  "image_quality_off_vs_on": {
+    "far": {
+      "changed_pct": 0.93815,
+      "mean_channel_max_8bit": 0.01998,
+      "gt4_pct": 0.05642,
+      "max_diff_8bit": 84,
+      "different_pixels": 8646
+    },
+    "near": {
+      "changed_pct": 0.09842,
+      "mean_channel_max_8bit": 0.00168,
+      "gt4_pct": 0.00434,
+      "max_diff_8bit": 64,
+      "different_pixels": 907
+    }
+  },
+  "screenshots": {
+    "far_off": {
+      "mean_rgb": 118.248,
+      "unique_colours": 5714
+    },
+    "far_on": {
+      "mean_rgb": 118.24,
+      "unique_colours": 5757
+    }
+  },
+  "measurement_probes_2026_10_20": {
+    "method": {
+      "cluster_dump": "temporary engine probe DEREN_CLUSTER_PROBE_DUMP: camera view/proj, extent, and every visible item's world matrix + its meshlets' object-space bounding spheres/triangle counts, dumped on the first recorded frame (2-frame OFF capture, i.e. the full dispatch candidate set)",
+      "depth_dump": "existing engine path DEREN_DEPTH_PROBE_CAPTURE: raw D32 depth of the screenshot frame",
+      "offline_analysis": "scripts/measure/cluster_occlusion_probe.py - frustum test matching the mesh stage (conservative sphere), max-depth pyramid HZB occlusion test biased CONSERVATIVE (lower bound), projected cluster diameter bins",
+      "validation": "projected sphere centres land on rendered geometry 99.74% (far) / 99.35% (near); depth foreground cover 17.36% (far) / 93.34% (near) matches the screenshots; the y convention is verified, and for the near camera both conventions agree within 0.35 pp"
+    },
+    "far": {
+      "extent": [
+        1280,
+        720
+      ],
+      "y_flip": false,
+      "meshlets": {
+        "total": 50808,
+        "frustum_culled": 0,
+        "frustum_culled_pct": 0.0
+      },
+      "triangles": {
+        "total": 4208625,
+        "frustum_culled": 0,
+        "frustum_culled_pct": 0.0
+      },
+      "occlusion_off_frustum_visible": {
+        "meshlets": 207,
+        "pct_of_visible_meshlets": 0.41,
+        "pct_of_all_meshlets": 0.41,
+        "triangles": 13936,
+        "triangles_pct_of_visible": 0.33,
+        "triangles_pct_of_all": 0.33
+      },
+      "subpixel_clusters": {
+        "diameter_below_1px_pct": 22.05,
+        "diameter_below_2px_pct": 38.57,
+        "triangles_below_1px_pct_of_visible": 21.13,
+        "triangles_below_2px_pct_of_visible": 37.6
+      },
+      "validation": {
+        "projected_centres": 50808,
+        "centres_inside_frame_pct": 100.0,
+        "centres_on_rendered_geometry_pct": 99.74,
+        "depth_foreground_cover_pct": 17.36
+      }
+    },
+    "near": {
+      "extent": [
+        1280,
+        720
+      ],
+      "y_flip": true,
+      "meshlets": {
+        "total": 43930,
+        "frustum_culled": 834,
+        "frustum_culled_pct": 1.9
+      },
+      "triangles": {
+        "total": 3626626,
+        "frustum_culled": 70227,
+        "frustum_culled_pct": 1.94
+      },
+      "occlusion_off_frustum_visible": {
+        "meshlets": 14341,
+        "pct_of_visible_meshlets": 33.28,
+        "pct_of_all_meshlets": 32.65,
+        "triangles": 1156639,
+        "triangles_pct_of_visible": 32.52,
+        "triangles_pct_of_all": 31.89
+      },
+      "subpixel_clusters": {
+        "diameter_below_1px_pct": 3.09,
+        "diameter_below_2px_pct": 13.36,
+        "triangles_below_1px_pct_of_visible": 2.72,
+        "triangles_below_2px_pct_of_visible": 12.43
+      },
+      "validation": {
+        "projected_centres": 43096,
+        "centres_inside_frame_pct": 99.34,
+        "centres_on_rendered_geometry_pct": 99.35,
+        "depth_foreground_cover_pct": 93.34
+      }
+    },
+    "reading": {
+      "frustum": "the visibility lane already culls only 0-2% at the meshlet level: a compute pass that culled BEFORE the dispatch has no frustum-only win worth building",
+      "occlusion": "occlusion is the real headroom, and it is camera-dependent: far 0.4% of visible triangles vs near 32.5% (conservative lower bound) - an HZB two-pass target for interior/street views, near-useless for the distant overview",
+      "subpixel": "subpixel clusters are the opposite: far 22% of clusters (21% of triangles) below 1 px vs near 3% - the software-raster (Nanite-style) criterion is met at distance, not up close"
+    }
+  },
+  "cpu_selection_parallelization": {
+    "change": "record_visibility_items split into: serial candidate scan -> parallel per-item planning (process-wide 2-8 thread pool, per-worker scratch, disjoint writes into the host-culled lane) -> item-ordered publication rule resolved with an ordered interval table (overlapping items re-planned in order) -> serial recording; the old per-item O(n^2) published scan is gone",
+    "correctness": {
+      "cut_identical_to_serial": true,
+      "far_cut": {
+        "input_records": 50808,
+        "selected_records": 45493,
+        "input_triangles": 4208625,
+        "selected_triangles": 3727209,
+        "triangle_reduction_pct": 11.44
+      },
+      "near_cut": {
+        "input_records": 43930,
+        "selected_records": 38864,
+        "input_triangles": 3626626,
+        "selected_triangles": 3175714,
+        "triangle_reduction_pct": 12.43
+      },
+      "screenshots_pixel_identical_to_serial": {
+        "far_on": true,
+        "near_on": true,
+        "far_off": true
+      },
+      "overlap_semantics": "test_subtilis_frame alias case (two items sharing meshlet_base) still falls back the later item to the shared run - covered by the full CTest"
+    },
+    "cpu_cost": {
+      "baseline_cpu_post_ms": {
+        "far_on_cpu_post_ms": 13.93,
+        "far_off_cpu_post_ms": 6.07,
+        "near_on_cpu_post_ms": 14.57
+      },
+      "parallel_cpu_post_ms": {
+        "far_on": [
+          7.48,
+          6.28
+        ],
+        "far_off": 4.16,
+        "near_on": 6.28
+      },
+      "selection_cost_estimate_ms": {
+        "serial": 8.6,
+        "parallel": "~2 (post phase minus the OFF path)"
+      }
+    },
+    "gpu_frame": {
+      "far_off_ms": 30.57,
+      "far_on_ms": 29.51,
+      "near_off_ms": 26.02,
+      "near_on_ms": 24.71,
+      "note": "the GPU delta this session is smaller than the first matrix (-1.06/-1.31 ms against -2.2 ms); the absolute GPU times also drifted ~2-4 ms across sessions on this laptop, so the relative gain stays in the measured 4-9% range. The parallelization itself does not change GPU work."
+    },
+    "tests": {
+      "release_ctest": "57/57",
+      "asan_ubsan_targeted": "6/6",
+      "docs": "383 checks"
+    }
+  },
+  "tuning_experiments_2026_10_20": {
+    "runtime_screen_error_budget": {
+      "hook": "temporary DEREN_SUBTILIS_ERROR_PX override on view_parameters.target_error_px (default 1 px); removed again",
+      "far": {
+        "1": {
+          "gpu_visibility_ms": 27.42,
+          "records": 45493,
+          "record_reduction_pct": 10.46,
+          "triangle_reduction_pct": 11.44,
+          "changed_pct_vs_1px": 0.0,
+          "mean_diff_vs_1px": 0.0
+        },
+        "2": {
+          "gpu_visibility_ms": 27.96,
+          "records": 45093,
+          "record_reduction_pct": 11.25,
+          "triangle_reduction_pct": 12.29,
+          "changed_pct_vs_1px": 1.1798,
+          "mean_diff_vs_1px": 0.02538
+        },
+        "3": {
+          "gpu_visibility_ms": 27.98,
+          "records": 44979,
+          "record_reduction_pct": 11.47,
+          "triangle_reduction_pct": 12.45,
+          "changed_pct_vs_1px": 1.4133,
+          "mean_diff_vs_1px": 0.03239
+        },
+        "4": {
+          "gpu_visibility_ms": 27.7,
+          "records": 44920,
+          "record_reduction_pct": 11.59,
+          "triangle_reduction_pct": 12.52,
+          "changed_pct_vs_1px": 1.7145,
+          "mean_diff_vs_1px": 0.04166
+        }
+      },
+      "near": {
+        "1": {
+          "gpu_visibility_ms": 24.12,
+          "records": 38864,
+          "record_reduction_pct": 11.53,
+          "changed_pct_vs_1px": 0.0,
+          "mean_diff_vs_1px": 0.0
+        },
+        "2": {
+          "gpu_visibility_ms": 24.89,
+          "records": 38532,
+          "record_reduction_pct": 12.29,
+          "changed_pct_vs_1px": 0.3179,
+          "mean_diff_vs_1px": 0.00873
+        },
+        "3": {
+          "gpu_visibility_ms": 23.93,
+          "records": 38312,
+          "record_reduction_pct": 12.79,
+          "changed_pct_vs_1px": 0.9145,
+          "mean_diff_vs_1px": 0.01974
+        },
+        "4": {
+          "gpu_visibility_ms": 23.78,
+          "records": 38176,
+          "record_reduction_pct": 13.1,
+          "changed_pct_vs_1px": 1.5876,
+          "mean_diff_vs_1px": 0.04165
+        }
+      },
+      "result": "1 -> 4 px changes the selected record count by only ~1% and the GPU time not at all (inside the session noise): the cut is NOT limited by its error budget, so a runtime quality/perf knob here is not worth wiring."
+    },
+    "builder_options": {
+      "hook": "temporary DEREN_BISTRO_OPTIONS \"target_ratio,max_error\" on build_options (defaults target_ratio .5, max_error .01); removed again",
+      "far": {
+        "far-ratio35": {
+          "label": "target_ratio .35",
+          "gpu_visibility_ms": 27.9,
+          "records": 45638,
+          "record_reduction_pct": 10.18,
+          "changed_pct_vs_default": 0.2724
+        },
+        "far-error03": {
+          "label": "max_error .03",
+          "gpu_visibility_ms": 27.73,
+          "records": 45002,
+          "record_reduction_pct": 11.43,
+          "changed_pct_vs_default": 0.2645
+        },
+        "far-ratio35-error03": {
+          "label": "ratio .35 + error .03",
+          "gpu_visibility_ms": 26.98,
+          "records": 45042,
+          "record_reduction_pct": 11.35,
+          "changed_pct_vs_default": 0.4276
+        }
+      },
+      "near": {
+        "near-ratio35-error03": {
+          "label": "ratio .35 + error .03",
+          "gpu_visibility_ms": 23.98,
+          "records": 38487,
+          "record_reduction_pct": 12.39,
+          "changed_pct_vs_default": 0.4021
+        }
+      },
+      "result": "target_ratio .35 / max_error .03 (alone or together) move the selected record count by <= 1% and the GPU time not at all: the hierarchy parameters are not leaving measurable savings on the table either."
+    },
+    "conclusion": "Both cheap tuning levers are exhausted. The measured remaining headroom is structural: near-view occlusion (33% of visible triangles, conservative lower bound -> HZB two-pass) and far-view subpixel clusters (22% below 1 px -> software raster). Those are the next implementation steps; neither is reachable by parameter tuning."
+  }
+}

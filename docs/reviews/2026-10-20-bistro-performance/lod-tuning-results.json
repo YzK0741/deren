@@ -1,0 +1,102 @@
+{
+  "far": {
+    "1": {
+      "gpu_total": 28.46,
+      "gpu_visibility": 27.42,
+      "frame_ms": 27.84,
+      "records": 45493,
+      "triangles": 3727209,
+      "record_reduction_pct": 10.46,
+      "triangle_reduction_pct": 11.44,
+      "changed_pct_vs_e1": 0.0,
+      "mean_diff_vs_e1": 0.0,
+      "max_diff_vs_e1": 0
+    },
+    "2": {
+      "gpu_total": 29.05,
+      "gpu_visibility": 27.96,
+      "frame_ms": 27.78,
+      "records": 45093,
+      "triangles": 3691321,
+      "record_reduction_pct": 11.25,
+      "triangle_reduction_pct": 12.29,
+      "changed_pct_vs_e1": 1.1798,
+      "mean_diff_vs_e1": 0.02538,
+      "max_diff_vs_e1": 97
+    },
+    "3": {
+      "gpu_total": 29.02,
+      "gpu_visibility": 27.98,
+      "frame_ms": 27.84,
+      "records": 44979,
+      "triangles": 3684505,
+      "record_reduction_pct": 11.47,
+      "triangle_reduction_pct": 12.45,
+      "changed_pct_vs_e1": 1.4133,
+      "mean_diff_vs_e1": 0.03239,
+      "max_diff_vs_e1": 97
+    },
+    "4": {
+      "gpu_total": 28.71,
+      "gpu_visibility": 27.7,
+      "frame_ms": 27.3,
+      "records": 44920,
+      "triangles": 3681515,
+      "record_reduction_pct": 11.59,
+      "triangle_reduction_pct": 12.52,
+      "changed_pct_vs_e1": 1.7145,
+      "mean_diff_vs_e1": 0.04166,
+      "max_diff_vs_e1": 97
+    }
+  },
+  "near": {
+    "1": {
+      "gpu_total": 25.65,
+      "gpu_visibility": 24.12,
+      "frame_ms": 24.52,
+      "records": 38864,
+      "triangles": 3175714,
+      "record_reduction_pct": 11.53,
+      "triangle_reduction_pct": 12.43,
+      "changed_pct_vs_e1": 0.0,
+      "mean_diff_vs_e1": 0.0,
+      "max_diff_vs_e1": 0
+    },
+    "2": {
+      "gpu_total": 26.6,
+      "gpu_visibility": 24.89,
+      "frame_ms": 25.12,
+      "records": 38532,
+      "triangles": 3144825,
+      "record_reduction_pct": 12.29,
+      "triangle_reduction_pct": 13.29,
+      "changed_pct_vs_e1": 0.3179,
+      "mean_diff_vs_e1": 0.00873,
+      "max_diff_vs_e1": 98
+    },
+    "3": {
+      "gpu_total": 25.33,
+      "gpu_visibility": 23.93,
+      "frame_ms": 24.39,
+      "records": 38312,
+      "triangles": 3124050,
+      "record_reduction_pct": 12.79,
+      "triangle_reduction_pct": 13.86,
+      "changed_pct_vs_e1": 0.9145,
+      "mean_diff_vs_e1": 0.01974,
+      "max_diff_vs_e1": 98
+    },
+    "4": {
+      "gpu_total": 25.45,
+      "gpu_visibility": 23.78,
+      "frame_ms": 24.29,
+      "records": 38176,
+      "triangles": 3111503,
+      "record_reduction_pct": 13.1,
+      "triangle_reduction_pct": 14.2,
+      "changed_pct_vs_e1": 1.5876,
+      "mean_diff_vs_e1": 0.04165,
+      "max_diff_vs_e1": 120
+    }
+  }
+}

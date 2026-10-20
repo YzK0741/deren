@@ -1,0 +1,43 @@
+{
+  "upstream": {
+    "repository": "https://github.com/zeux/niagara_bistro",
+    "tree": "2bdb6a410f8ebd475d3737e7c8e038ed2b00b02e",
+    "bistro_gltf_blob": "83bc8307a00dd54b0fa2fdb10cc890b2955c8b0e",
+    "bistro_bin_blob": "f6c918e6e5fa9b0f0dc3b51d6b6be286783fb8c9",
+    "bistro_anim_bin_blob": "cd635e750025c93e46f425f860a8fc4b69fb9cd3"
+  },
+  "license": "CC BY 4.0, Amazon Lumberyard Bistro (Amazon Lumberyard / NVIDIA ORCA, 2017)",
+  "prepared": {
+    "directory": "D:/deren-assets/bistro/textured-verified",
+    "specgloss_gltf": "bistro-specgloss.gltf",
+    "core_metallic_roughness_gltf": "bistro-core-mr.gltf",
+    "nodes": 6006,
+    "meshes": 551,
+    "materials": 254,
+    "triangle_records_in_meshes": 1753630,
+    "draw_triangles_after_node_instancing": 4209006,
+    "gltf_texture_records": 811,
+    "referenced_image_files": 597,
+    "runtime_texture_slots_content_deduped": 516,
+    "png_texture_files": 811,
+    "converted_specgloss_materials": 234,
+    "isolated_buffers": [
+      "source-buffer-0.bin",
+      "source-buffer-1.bin"
+    ],
+    "buffers_byte_identical_to_upstream": true,
+    "unsupported_or_unverified": [
+      "KHR_materials_transmission (18 materials) is outside acceptance",
+      "normal-map orientation is supplied as decoded, not reference-verified",
+      "spec/gloss to metallic/roughness is the Khronos reference approximation, not glTF-Transform output",
+      "upstream Bistro carries no occlusionTexture, so G-buffer AO is 1.0 for every material"
+    ],
+    "material_texture_slot_coverage": {
+      "base_color": 234,
+      "metallic_roughness": 234,
+      "normal": 207,
+      "occlusion": 0,
+      "emissive": 13
+    }
+  }
+}

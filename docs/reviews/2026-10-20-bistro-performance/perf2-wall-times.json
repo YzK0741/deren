@@ -1,0 +1,52 @@
+[
+  {
+    "tag": "load-off",
+    "elapsed_s": 21.95,
+    "frames": 3
+  },
+  {
+    "tag": "load-on",
+    "elapsed_s": 19.58,
+    "frames": 3
+  },
+  {
+    "tag": "far-off-1",
+    "elapsed_s": 23.71,
+    "frames": 130
+  },
+  {
+    "tag": "far-on-1",
+    "elapsed_s": 23.37,
+    "frames": 130
+  },
+  {
+    "tag": "far-on-2",
+    "elapsed_s": 23.11,
+    "frames": 130
+  },
+  {
+    "tag": "far-off-2",
+    "elapsed_s": 23.07,
+    "frames": 130
+  },
+  {
+    "tag": "near-off-1",
+    "elapsed_s": 23.1,
+    "frames": 130
+  },
+  {
+    "tag": "near-on-1",
+    "elapsed_s": 22.83,
+    "frames": 130
+  },
+  {
+    "tag": "near-on-2",
+    "elapsed_s": 22.53,
+    "frames": 130
+  },
+  {
+    "tag": "near-off-2",
+    "elapsed_s": 23.14,
+    "frames": 130
+  }
+]

@@ -1,0 +1,1414 @@
+{
+  "config": {
+    "shadow": false,
+    "taa": false,
+    "fxaa": false,
+    "gbuffer_debug": false,
+    "frames_per_run": 130,
+    "capture": "130-frame offscreen capture, 1280x720"
+  },
+  "runs": {
+    "far-off-1": {
+      "log": "perf-far-off-1.log",
+      "gpu": {
+        "frames": 129,
+        "visibility_raster_ms": 25.85,
+        "scene_ms": 0.3,
+        "lighting_ms": 0.07,
+        "total_ms": 26.6,
+        "passes": {
+          "rt": 0.0,
+          "shadow": 0.0,
+          "visibility raster": 25.85,
+          "scene": 0.3,
+          "rt shadow": 0.0,
+          "lighting": 0.07,
+          "gaussian prepare": 0.16,
+          "gaussian sort": 0.0,
+          "gaussian finalize": 0.0,
+          "gaussian raster": 0.0,
+          "transparent": 0.0,
+          "taa": 0.04,
+          "debug": 0.0,
+          "bloom": 0.0,
+          "composite": 0.18,
+          "fxaa": 0.0,
+          "tail": 0.0
+        }
+      },
+      "gpu_windows": [
+        {
+          "frames": 38,
+          "total_ms": 28.58
+        },
+        {
+          "frames": 40,
+          "total_ms": 25.81
+        },
+        {
+          "frames": 40,
+          "total_ms": 25.75
+        }
+      ],
+      "cpu_windows": [
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 142.63,
+            "begin": 0.88,
+            "scene": 0.15,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 19.26,
+            "submit": 0.23,
+            "submit-queue*": 0.22,
+            "present*": 0.0
+          },
+          "total_ms": 163.15
+        },
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 6.28,
+            "begin": 0.79,
+            "scene": 0.13,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 18.27,
+            "submit": 0.25,
+            "submit-queue*": 0.25,
+            "present*": 0.0
+          },
+          "total_ms": 25.73
+        }
+      ],
+      "cpu_mean": {
+        "pace": 74.455,
+        "begin": 0.835,
+        "scene": 0.14,
+        "cluster*": 0.0,
+        "shadow*": 0.0,
+        "post": 18.765,
+        "submit": 0.24,
+        "submit-queue*": 0.235,
+        "present*": 0.0
+      },
+      "cpu_total_mean": 94.44,
+      "scene": {
+        "textures": 0,
+        "materials": 254,
+        "primitives": 2909
+      },
+      "built_hierarchies": 5,
+      "validation_findings": 0
+    },
+    "far-off-2": {
+      "log": "perf-far-off-2.log",
+      "gpu": {
+        "frames": 129,
+        "visibility_raster_ms": 25.98,
+        "scene_ms": 0.27,
+        "lighting_ms": 0.07,
+        "total_ms": 26.72,
+        "passes": {
+          "rt": 0.0,
+          "shadow": 0.0,
+          "visibility raster": 25.98,
+          "scene": 0.27,
+          "rt shadow": 0.0,
+          "lighting": 0.07,
+          "gaussian prepare": 0.16,
+          "gaussian sort": 0.0,
+          "gaussian finalize": 0.0,
+          "gaussian raster": 0.0,
+          "transparent": 0.0,
+          "taa": 0.05,
+          "debug": 0.0,
+          "bloom": 0.0,
+          "composite": 0.18,
+          "fxaa": 0.0,
+          "tail": 0.0
+        }
+      },
+      "gpu_windows": [
+        {
+          "frames": 37,
+          "total_ms": 29.03
+        },
+        {
+          "frames": 40,
+          "total_ms": 25.92
+        },
+        {
+          "frames": 40,
+          "total_ms": 25.71
+        }
+      ],
+      "cpu_windows": [
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 137.6,
+            "begin": 0.84,
+            "scene": 0.15,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 19.23,
+            "submit": 0.21,
+            "submit-queue*": 0.21,
+            "present*": 0.0
+          },
+          "total_ms": 158.03
+        },
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 6.08,
+            "begin": 0.81,
+            "scene": 0.15,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 18.54,
+            "submit": 0.26,
+            "submit-queue*": 0.25,
+            "present*": 0.0
+          },
+          "total_ms": 25.84
+        }
+      ],
+      "cpu_mean": {
+        "pace": 71.84,
+        "begin": 0.825,
+        "scene": 0.15,
+        "cluster*": 0.0,
+        "shadow*": 0.0,
+        "post": 18.885,
+        "submit": 0.235,
+        "submit-queue*": 0.23,
+        "present*": 0.0
+      },
+      "cpu_total_mean": 91.935,
+      "scene": {
+        "textures": 0,
+        "materials": 254,
+        "primitives": 2909
+      },
+      "built_hierarchies": 5,
+      "validation_findings": 0
+    },
+    "far-off-3": {
+      "log": "perf-far-off-3.log",
+      "gpu": {
+        "frames": 129,
+        "visibility_raster_ms": 27.73,
+        "scene_ms": 0.34,
+        "lighting_ms": 0.1,
+        "total_ms": 28.62,
+        "passes": {
+          "rt": 0.0,
+          "shadow": 0.0,
+          "visibility raster": 27.73,
+          "scene": 0.34,
+          "rt shadow": 0.0,
+          "lighting": 0.1,
+          "gaussian prepare": 0.19,
+          "gaussian sort": 0.0,
+          "gaussian finalize": 0.0,
+          "gaussian raster": 0.0,
+          "transparent": 0.0,
+          "taa": 0.06,
+          "debug": 0.0,
+          "bloom": 0.0,
+          "composite": 0.2,
+          "fxaa": 0.0,
+          "tail": 0.0
+        }
+      },
+      "gpu_windows": [
+        {
+          "frames": 32,
+          "total_ms": 36.89
+        },
+        {
+          "frames": 40,
+          "total_ms": 26.13
+        },
+        {
+          "frames": 40,
+          "total_ms": 25.68
+        }
+      ],
+      "cpu_windows": [
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 137.72,
+            "begin": 0.98,
+            "scene": 0.17,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 21.0,
+            "submit": 0.31,
+            "submit-queue*": 0.3,
+            "present*": 0.0
+          },
+          "total_ms": 160.18
+        },
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 5.75,
+            "begin": 0.82,
+            "scene": 0.14,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 18.76,
+            "submit": 0.26,
+            "submit-queue*": 0.25,
+            "present*": 0.0
+          },
+          "total_ms": 25.73
+        }
+      ],
+      "cpu_mean": {
+        "pace": 71.735,
+        "begin": 0.9,
+        "scene": 0.155,
+        "cluster*": 0.0,
+        "shadow*": 0.0,
+        "post": 19.88,
+        "submit": 0.285,
+        "submit-queue*": 0.275,
+        "present*": 0.0
+      },
+      "cpu_total_mean": 92.955,
+      "scene": {
+        "textures": 0,
+        "materials": 254,
+        "primitives": 2909
+      },
+      "built_hierarchies": 5,
+      "validation_findings": 0
+    },
+    "far-on-1": {
+      "log": "perf-far-on-1.log",
+      "gpu": {
+        "frames": 129,
+        "visibility_raster_ms": 23.79,
+        "scene_ms": 0.27,
+        "lighting_ms": 0.07,
+        "total_ms": 24.51,
+        "passes": {
+          "rt": 0.0,
+          "shadow": 0.0,
+          "visibility raster": 23.79,
+          "scene": 0.27,
+          "rt shadow": 0.0,
+          "lighting": 0.07,
+          "gaussian prepare": 0.16,
+          "gaussian sort": 0.0,
+          "gaussian finalize": 0.0,
+          "gaussian raster": 0.0,
+          "transparent": 0.0,
+          "taa": 0.04,
+          "debug": 0.0,
+          "bloom": 0.0,
+          "composite": 0.18,
+          "fxaa": 0.0,
+          "tail": 0.0
+        }
+      },
+      "gpu_windows": [
+        {
+          "frames": 35,
+          "total_ms": 26.71
+        },
+        {
+          "frames": 37,
+          "total_ms": 23.8
+        },
+        {
+          "frames": 36,
+          "total_ms": 23.6
+        }
+      ],
+      "cpu_windows": [
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 126.4,
+            "begin": 0.83,
+            "scene": 0.14,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 28.53,
+            "submit": 0.21,
+            "submit-queue*": 0.2,
+            "present*": 0.0
+          },
+          "total_ms": 156.11
+        },
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 0.15,
+            "begin": 0.72,
+            "scene": 0.12,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 27.39,
+            "submit": 0.25,
+            "submit-queue*": 0.24,
+            "present*": 0.0
+          },
+          "total_ms": 28.63
+        }
+      ],
+      "cpu_mean": {
+        "pace": 63.275,
+        "begin": 0.775,
+        "scene": 0.13,
+        "cluster*": 0.0,
+        "shadow*": 0.0,
+        "post": 27.96,
+        "submit": 0.23,
+        "submit-queue*": 0.22,
+        "present*": 0.0
+      },
+      "cpu_total_mean": 92.37,
+      "cut": {
+        "input_records": 50808,
+        "selected_records": 45493,
+        "input_triangles": 4208625,
+        "selected_triangles": 3727209,
+        "fallback_items": 0,
+        "coarse_records": 9451,
+        "triangle_reduction_pct": 11.44
+      },
+      "scene": {
+        "textures": 0,
+        "materials": 254,
+        "primitives": 2909
+      },
+      "built_hierarchies": 5,
+      "validation_findings": 0
+    },
+    "far-on-2": {
+      "log": "perf-far-on-2.log",
+      "gpu": {
+        "frames": 129,
+        "visibility_raster_ms": 23.76,
+        "scene_ms": 0.29,
+        "lighting_ms": 0.07,
+        "total_ms": 24.49,
+        "passes": {
+          "rt": 0.0,
+          "shadow": 0.0,
+          "visibility raster": 23.76,
+          "scene": 0.29,
+          "rt shadow": 0.0,
+          "lighting": 0.07,
+          "gaussian prepare": 0.15,
+          "gaussian sort": 0.0,
+          "gaussian finalize": 0.0,
+          "gaussian raster": 0.0,
+          "transparent": 0.0,
+          "taa": 0.04,
+          "debug": 0.0,
+          "bloom": 0.0,
+          "composite": 0.18,
+          "fxaa": 0.0,
+          "tail": 0.0
+        }
+      },
+      "gpu_windows": [
+        {
+          "frames": 35,
+          "total_ms": 26.78
+        },
+        {
+          "frames": 35,
+          "total_ms": 23.65
+        },
+        {
+          "frames": 37,
+          "total_ms": 23.61
+        }
+      ],
+      "cpu_windows": [
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 129.4,
+            "begin": 0.89,
+            "scene": 0.15,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 28.99,
+            "submit": 0.22,
+            "submit-queue*": 0.21,
+            "present*": 0.0
+          },
+          "total_ms": 159.66
+        },
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 0.15,
+            "begin": 0.76,
+            "scene": 0.14,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 27.25,
+            "submit": 0.25,
+            "submit-queue*": 0.24,
+            "present*": 0.0
+          },
+          "total_ms": 28.54
+        }
+      ],
+      "cpu_mean": {
+        "pace": 64.775,
+        "begin": 0.825,
+        "scene": 0.145,
+        "cluster*": 0.0,
+        "shadow*": 0.0,
+        "post": 28.12,
+        "submit": 0.235,
+        "submit-queue*": 0.225,
+        "present*": 0.0
+      },
+      "cpu_total_mean": 94.1,
+      "cut": {
+        "input_records": 50808,
+        "selected_records": 45493,
+        "input_triangles": 4208625,
+        "selected_triangles": 3727209,
+        "fallback_items": 0,
+        "coarse_records": 9451,
+        "triangle_reduction_pct": 11.44
+      },
+      "scene": {
+        "textures": 0,
+        "materials": 254,
+        "primitives": 2909
+      },
+      "built_hierarchies": 5,
+      "validation_findings": 0
+    },
+    "far-on-3": {
+      "log": "perf-far-on-3.log",
+      "gpu": {
+        "frames": 129,
+        "visibility_raster_ms": 24.24,
+        "scene_ms": 0.26,
+        "lighting_ms": 0.08,
+        "total_ms": 24.96,
+        "passes": {
+          "rt": 0.0,
+          "shadow": 0.0,
+          "visibility raster": 24.24,
+          "scene": 0.26,
+          "rt shadow": 0.0,
+          "lighting": 0.08,
+          "gaussian prepare": 0.16,
+          "gaussian sort": 0.0,
+          "gaussian finalize": 0.0,
+          "gaussian raster": 0.0,
+          "transparent": 0.0,
+          "taa": 0.04,
+          "debug": 0.0,
+          "bloom": 0.0,
+          "composite": 0.18,
+          "fxaa": 0.0,
+          "tail": 0.0
+        }
+      },
+      "gpu_windows": [
+        {
+          "frames": 34,
+          "total_ms": 28.32
+        },
+        {
+          "frames": 34,
+          "total_ms": 23.84
+        },
+        {
+          "frames": 36,
+          "total_ms": 23.71
+        }
+      ],
+      "cpu_windows": [
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 125.63,
+            "begin": 0.9,
+            "scene": 0.15,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 29.53,
+            "submit": 0.22,
+            "submit-queue*": 0.21,
+            "present*": 0.0
+          },
+          "total_ms": 156.43
+        },
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 0.16,
+            "begin": 0.76,
+            "scene": 0.13,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 28.0,
+            "submit": 0.25,
+            "submit-queue*": 0.25,
+            "present*": 0.0
+          },
+          "total_ms": 29.3
+        }
+      ],
+      "cpu_mean": {
+        "pace": 62.895,
+        "begin": 0.83,
+        "scene": 0.14,
+        "cluster*": 0.0,
+        "shadow*": 0.0,
+        "post": 28.765,
+        "submit": 0.235,
+        "submit-queue*": 0.23,
+        "present*": 0.0
+      },
+      "cpu_total_mean": 92.865,
+      "cut": {
+        "input_records": 50808,
+        "selected_records": 45493,
+        "input_triangles": 4208625,
+        "selected_triangles": 3727209,
+        "fallback_items": 0,
+        "coarse_records": 9451,
+        "triangle_reduction_pct": 11.44
+      },
+      "scene": {
+        "textures": 0,
+        "materials": 254,
+        "primitives": 2909
+      },
+      "built_hierarchies": 5,
+      "validation_findings": 0
+    },
+    "near-off-1": {
+      "log": "perf-near-off-1.log",
+      "gpu": {
+        "frames": 129,
+        "visibility_raster_ms": 23.06,
+        "scene_ms": 0.42,
+        "lighting_ms": 0.14,
+        "total_ms": 24.02,
+        "passes": {
+          "rt": 0.0,
+          "shadow": 0.0,
+          "visibility raster": 23.06,
+          "scene": 0.42,
+          "rt shadow": 0.0,
+          "lighting": 0.14,
+          "gaussian prepare": 0.17,
+          "gaussian sort": 0.0,
+          "gaussian finalize": 0.0,
+          "gaussian raster": 0.0,
+          "transparent": 0.0,
+          "taa": 0.04,
+          "debug": 0.0,
+          "bloom": 0.0,
+          "composite": 0.19,
+          "fxaa": 0.0,
+          "tail": 0.0
+        }
+      },
+      "gpu_windows": [
+        {
+          "frames": 41,
+          "total_ms": 25.86
+        },
+        {
+          "frames": 44,
+          "total_ms": 23.24
+        }
+      ],
+      "cpu_windows": [
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 123.76,
+            "begin": 0.96,
+            "scene": 0.16,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 20.06,
+            "submit": 0.22,
+            "submit-queue*": 0.21,
+            "present*": 0.0
+          },
+          "total_ms": 145.16
+        },
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 4.28,
+            "begin": 0.8,
+            "scene": 0.14,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 17.79,
+            "submit": 0.26,
+            "submit-queue*": 0.25,
+            "present*": 0.0
+          },
+          "total_ms": 23.26
+        }
+      ],
+      "cpu_mean": {
+        "pace": 64.02,
+        "begin": 0.88,
+        "scene": 0.15,
+        "cluster*": 0.0,
+        "shadow*": 0.0,
+        "post": 18.925,
+        "submit": 0.24,
+        "submit-queue*": 0.23,
+        "present*": 0.0
+      },
+      "cpu_total_mean": 84.21,
+      "scene": {
+        "textures": 0,
+        "materials": 254,
+        "primitives": 2909
+      },
+      "built_hierarchies": 5,
+      "validation_findings": 0
+    },
+    "near-off-2": {
+      "log": "perf-near-off-2.log",
+      "gpu": {
+        "frames": 129,
+        "visibility_raster_ms": 23.09,
+        "scene_ms": 0.61,
+        "lighting_ms": 0.14,
+        "total_ms": 24.23,
+        "passes": {
+          "rt": 0.0,
+          "shadow": 0.0,
+          "visibility raster": 23.09,
+          "scene": 0.61,
+          "rt shadow": 0.0,
+          "lighting": 0.14,
+          "gaussian prepare": 0.15,
+          "gaussian sort": 0.0,
+          "gaussian finalize": 0.0,
+          "gaussian raster": 0.0,
+          "transparent": 0.0,
+          "taa": 0.05,
+          "debug": 0.0,
+          "bloom": 0.0,
+          "composite": 0.18,
+          "fxaa": 0.0,
+          "tail": 0.0
+        }
+      },
+      "gpu_windows": [
+        {
+          "frames": 42,
+          "total_ms": 26.0
+        },
+        {
+          "frames": 44,
+          "total_ms": 23.24
+        }
+      ],
+      "cpu_windows": [
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 128.27,
+            "begin": 0.91,
+            "scene": 0.16,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 19.63,
+            "submit": 0.24,
+            "submit-queue*": 0.23,
+            "present*": 0.0
+          },
+          "total_ms": 149.21
+        },
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 2.93,
+            "begin": 0.86,
+            "scene": 0.16,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 19.31,
+            "submit": 0.26,
+            "submit-queue*": 0.25,
+            "present*": 0.0
+          },
+          "total_ms": 23.52
+        }
+      ],
+      "cpu_mean": {
+        "pace": 65.6,
+        "begin": 0.885,
+        "scene": 0.16,
+        "cluster*": 0.0,
+        "shadow*": 0.0,
+        "post": 19.47,
+        "submit": 0.25,
+        "submit-queue*": 0.24,
+        "present*": 0.0
+      },
+      "cpu_total_mean": 86.365,
+      "scene": {
+        "textures": 0,
+        "materials": 254,
+        "primitives": 2909
+      },
+      "built_hierarchies": 5,
+      "validation_findings": 0
+    },
+    "near-off-3": {
+      "log": "perf-near-off-3.log",
+      "gpu": {
+        "frames": 129,
+        "visibility_raster_ms": 23.18,
+        "scene_ms": 0.45,
+        "lighting_ms": 0.14,
+        "total_ms": 24.16,
+        "passes": {
+          "rt": 0.0,
+          "shadow": 0.0,
+          "visibility raster": 23.18,
+          "scene": 0.45,
+          "rt shadow": 0.0,
+          "lighting": 0.14,
+          "gaussian prepare": 0.17,
+          "gaussian sort": 0.0,
+          "gaussian finalize": 0.0,
+          "gaussian raster": 0.0,
+          "transparent": 0.0,
+          "taa": 0.04,
+          "debug": 0.0,
+          "bloom": 0.0,
+          "composite": 0.18,
+          "fxaa": 0.0,
+          "tail": 0.0
+        }
+      },
+      "gpu_windows": [
+        {
+          "frames": 41,
+          "total_ms": 26.11
+        },
+        {
+          "frames": 44,
+          "total_ms": 23.33
+        },
+        {
+          "frames": 44,
+          "total_ms": 23.18
+        }
+      ],
+      "cpu_windows": [
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 123.9,
+            "begin": 0.92,
+            "scene": 0.16,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 20.11,
+            "submit": 0.23,
+            "submit-queue*": 0.22,
+            "present*": 0.0
+          },
+          "total_ms": 145.32
+        },
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 4.29,
+            "begin": 0.76,
+            "scene": 0.13,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 17.78,
+            "submit": 0.25,
+            "submit-queue*": 0.24,
+            "present*": 0.0
+          },
+          "total_ms": 23.22
+        }
+      ],
+      "cpu_mean": {
+        "pace": 64.095,
+        "begin": 0.84,
+        "scene": 0.145,
+        "cluster*": 0.0,
+        "shadow*": 0.0,
+        "post": 18.945,
+        "submit": 0.24,
+        "submit-queue*": 0.23,
+        "present*": 0.0
+      },
+      "cpu_total_mean": 84.27,
+      "scene": {
+        "textures": 0,
+        "materials": 254,
+        "primitives": 2909
+      },
+      "built_hierarchies": 5,
+      "validation_findings": 0
+    },
+    "near-on-1": {
+      "log": "perf-near-on-1.log",
+      "gpu": {
+        "frames": 129,
+        "visibility_raster_ms": 20.9,
+        "scene_ms": 0.44,
+        "lighting_ms": 0.14,
+        "total_ms": 21.92,
+        "passes": {
+          "rt": 0.0,
+          "shadow": 0.0,
+          "visibility raster": 20.9,
+          "scene": 0.44,
+          "rt shadow": 0.0,
+          "lighting": 0.14,
+          "gaussian prepare": 0.19,
+          "gaussian sort": 0.0,
+          "gaussian finalize": 0.0,
+          "gaussian raster": 0.0,
+          "transparent": 0.0,
+          "taa": 0.07,
+          "debug": 0.0,
+          "bloom": 0.0,
+          "composite": 0.18,
+          "fxaa": 0.0,
+          "tail": 0.0
+        }
+      },
+      "gpu_windows": [
+        {
+          "frames": 36,
+          "total_ms": 23.83
+        },
+        {
+          "frames": 38,
+          "total_ms": 21.26
+        },
+        {
+          "frames": 37,
+          "total_ms": 21.07
+        }
+      ],
+      "cpu_windows": [
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 122.81,
+            "begin": 0.82,
+            "scene": 0.14,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 27.64,
+            "submit": 0.21,
+            "submit-queue*": 0.2,
+            "present*": 0.0
+          },
+          "total_ms": 151.62
+        },
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 0.15,
+            "begin": 0.75,
+            "scene": 0.13,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 26.49,
+            "submit": 0.24,
+            "submit-queue*": 0.23,
+            "present*": 0.0
+          },
+          "total_ms": 27.76
+        }
+      ],
+      "cpu_mean": {
+        "pace": 61.48,
+        "begin": 0.785,
+        "scene": 0.135,
+        "cluster*": 0.0,
+        "shadow*": 0.0,
+        "post": 27.065,
+        "submit": 0.225,
+        "submit-queue*": 0.215,
+        "present*": 0.0
+      },
+      "cpu_total_mean": 89.69,
+      "cut": {
+        "input_records": 43930,
+        "selected_records": 38864,
+        "input_triangles": 3626626,
+        "selected_triangles": 3175714,
+        "fallback_items": 0,
+        "coarse_records": 7342,
+        "triangle_reduction_pct": 12.43
+      },
+      "scene": {
+        "textures": 0,
+        "materials": 254,
+        "primitives": 2909
+      },
+      "built_hierarchies": 5,
+      "validation_findings": 0
+    },
+    "near-on-2": {
+      "log": "perf-near-on-2.log",
+      "gpu": {
+        "frames": 129,
+        "visibility_raster_ms": 21.12,
+        "scene_ms": 0.43,
+        "lighting_ms": 0.14,
+        "total_ms": 22.12,
+        "passes": {
+          "rt": 0.0,
+          "shadow": 0.0,
+          "visibility raster": 21.12,
+          "scene": 0.43,
+          "rt shadow": 0.0,
+          "lighting": 0.14,
+          "gaussian prepare": 0.18,
+          "gaussian sort": 0.0,
+          "gaussian finalize": 0.0,
+          "gaussian raster": 0.0,
+          "transparent": 0.0,
+          "taa": 0.07,
+          "debug": 0.0,
+          "bloom": 0.0,
+          "composite": 0.18,
+          "fxaa": 0.0,
+          "tail": 0.0
+        }
+      },
+      "gpu_windows": [
+        {
+          "frames": 34,
+          "total_ms": 24.76
+        },
+        {
+          "frames": 37,
+          "total_ms": 21.24
+        },
+        {
+          "frames": 38,
+          "total_ms": 21.1
+        }
+      ],
+      "cpu_windows": [
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 120.87,
+            "begin": 0.88,
+            "scene": 0.15,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 28.01,
+            "submit": 0.22,
+            "submit-queue*": 0.21,
+            "present*": 0.0
+          },
+          "total_ms": 150.13
+        },
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 0.15,
+            "begin": 0.75,
+            "scene": 0.13,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 26.52,
+            "submit": 0.24,
+            "submit-queue*": 0.24,
+            "present*": 0.0
+          },
+          "total_ms": 27.79
+        }
+      ],
+      "cpu_mean": {
+        "pace": 60.51,
+        "begin": 0.815,
+        "scene": 0.14,
+        "cluster*": 0.0,
+        "shadow*": 0.0,
+        "post": 27.265,
+        "submit": 0.23,
+        "submit-queue*": 0.225,
+        "present*": 0.0
+      },
+      "cpu_total_mean": 88.96,
+      "cut": {
+        "input_records": 43930,
+        "selected_records": 38864,
+        "input_triangles": 3626626,
+        "selected_triangles": 3175714,
+        "fallback_items": 0,
+        "coarse_records": 7342,
+        "triangle_reduction_pct": 12.43
+      },
+      "scene": {
+        "textures": 0,
+        "materials": 254,
+        "primitives": 2909
+      },
+      "built_hierarchies": 5,
+      "validation_findings": 0
+    },
+    "near-on-3": {
+      "log": "perf-near-on-3.log",
+      "gpu": {
+        "frames": 129,
+        "visibility_raster_ms": 20.8,
+        "scene_ms": 0.42,
+        "lighting_ms": 0.14,
+        "total_ms": 21.79,
+        "passes": {
+          "rt": 0.0,
+          "shadow": 0.0,
+          "visibility raster": 20.8,
+          "scene": 0.42,
+          "rt shadow": 0.0,
+          "lighting": 0.14,
+          "gaussian prepare": 0.18,
+          "gaussian sort": 0.0,
+          "gaussian finalize": 0.0,
+          "gaussian raster": 0.0,
+          "transparent": 0.0,
+          "taa": 0.07,
+          "debug": 0.0,
+          "bloom": 0.0,
+          "composite": 0.18,
+          "fxaa": 0.0,
+          "tail": 0.0
+        }
+      },
+      "gpu_windows": [
+        {
+          "frames": 33,
+          "total_ms": 23.56
+        },
+        {
+          "frames": 36,
+          "total_ms": 21.23
+        },
+        {
+          "frames": 36,
+          "total_ms": 21.16
+        }
+      ],
+      "cpu_windows": [
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 121.69,
+            "begin": 0.91,
+            "scene": 0.15,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 29.08,
+            "submit": 0.22,
+            "submit-queue*": 0.22,
+            "present*": 0.0
+          },
+          "total_ms": 152.06
+        },
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 0.16,
+            "begin": 0.8,
+            "scene": 0.13,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 27.31,
+            "submit": 0.26,
+            "submit-queue*": 0.25,
+            "present*": 0.0
+          },
+          "total_ms": 28.66
+        }
+      ],
+      "cpu_mean": {
+        "pace": 60.925,
+        "begin": 0.855,
+        "scene": 0.14,
+        "cluster*": 0.0,
+        "shadow*": 0.0,
+        "post": 28.195,
+        "submit": 0.24,
+        "submit-queue*": 0.235,
+        "present*": 0.0
+      },
+      "cpu_total_mean": 90.36,
+      "cut": {
+        "input_records": 43930,
+        "selected_records": 38864,
+        "input_triangles": 3626626,
+        "selected_triangles": 3175714,
+        "fallback_items": 0,
+        "coarse_records": 7342,
+        "triangle_reduction_pct": 12.43
+      },
+      "scene": {
+        "textures": 0,
+        "materials": 254,
+        "primitives": 2909
+      },
+      "built_hierarchies": 5,
+      "validation_findings": 0
+    },
+    "warmup": {
+      "log": "perf-warmup.log",
+      "gpu": {
+        "frames": 129,
+        "visibility_raster_ms": 25.91,
+        "scene_ms": 0.26,
+        "lighting_ms": 0.07,
+        "total_ms": 26.65,
+        "passes": {
+          "rt": 0.0,
+          "shadow": 0.0,
+          "visibility raster": 25.91,
+          "scene": 0.26,
+          "rt shadow": 0.0,
+          "lighting": 0.07,
+          "gaussian prepare": 0.16,
+          "gaussian sort": 0.0,
+          "gaussian finalize": 0.0,
+          "gaussian raster": 0.0,
+          "transparent": 0.0,
+          "taa": 0.06,
+          "debug": 0.0,
+          "bloom": 0.0,
+          "composite": 0.18,
+          "fxaa": 0.0,
+          "tail": 0.0
+        }
+      },
+      "gpu_windows": [
+        {
+          "frames": 37,
+          "total_ms": 28.92
+        },
+        {
+          "frames": 40,
+          "total_ms": 25.75
+        },
+        {
+          "frames": 40,
+          "total_ms": 25.74
+        }
+      ],
+      "cpu_windows": [
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 136.55,
+            "begin": 0.87,
+            "scene": 0.14,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 18.82,
+            "submit": 0.22,
+            "submit-queue*": 0.21,
+            "present*": 0.0
+          },
+          "total_ms": 156.61
+        },
+        {
+          "frames": 60,
+          "phases": {
+            "pace": 4.86,
+            "begin": 0.9,
+            "scene": 0.16,
+            "cluster*": 0.0,
+            "shadow*": 0.0,
+            "post": 19.83,
+            "submit": 0.26,
+            "submit-queue*": 0.25,
+            "present*": 0.0
+          },
+          "total_ms": 26.02
+        }
+      ],
+      "cpu_mean": {
+        "pace": 70.705,
+        "begin": 0.885,
+        "scene": 0.15,
+        "cluster*": 0.0,
+        "shadow*": 0.0,
+        "post": 19.325,
+        "submit": 0.24,
+        "submit-queue*": 0.23,
+        "present*": 0.0
+      },
+      "cpu_total_mean": 91.315,
+      "scene": {
+        "textures": 0,
+        "materials": 254,
+        "primitives": 2909
+      },
+      "built_hierarchies": 5,
+      "validation_findings": 0
+    }
+  },
+  "summary": {
+    "far": {
+      "off": {
+        "runs": 3,
+        "gpu_visibility_raster_ms_median": 25.98,
+        "gpu_total_ms_median": 26.72,
+        "gpu_total_ms_runs": [
+          26.6,
+          26.72,
+          28.62
+        ],
+        "gpu_visibility_ms_runs": [
+          25.85,
+          25.98,
+          27.73
+        ],
+        "cpu_scene_ms_median": 0.15,
+        "cpu_total_ms_median": 92.955,
+        "cpu_scene_ms_runs": [
+          0.14,
+          0.15,
+          0.155
+        ],
+        "cut": null,
+        "validation_findings": 0
+      },
+      "on": {
+        "runs": 3,
+        "gpu_visibility_raster_ms_median": 23.79,
+        "gpu_total_ms_median": 24.51,
+        "gpu_total_ms_runs": [
+          24.51,
+          24.49,
+          24.96
+        ],
+        "gpu_visibility_ms_runs": [
+          23.79,
+          23.76,
+          24.24
+        ],
+        "cpu_scene_ms_median": 0.14,
+        "cpu_total_ms_median": 92.865,
+        "cpu_scene_ms_runs": [
+          0.13,
+          0.145,
+          0.14
+        ],
+        "cut": {
+          "input_records": 50808,
+          "selected_records": 45493,
+          "input_triangles": 4208625,
+          "selected_triangles": 3727209,
+          "fallback_items": 0,
+          "coarse_records": 9451,
+          "triangle_reduction_pct": 11.44
+        },
+        "validation_findings": 0
+      },
+      "delta": {
+        "gpu_visibility_raster_ms": -2.19,
+        "gpu_visibility_raster_pct": -8.43,
+        "gpu_total_ms": -2.21,
+        "gpu_total_pct": -8.27,
+        "cpu_scene_ms": -0.01,
+        "cpu_total_ms": -0.09
+      }
+    },
+    "near": {
+      "off": {
+        "runs": 3,
+        "gpu_visibility_raster_ms_median": 23.09,
+        "gpu_total_ms_median": 24.16,
+        "gpu_total_ms_runs": [
+          24.02,
+          24.23,
+          24.16
+        ],
+        "gpu_visibility_ms_runs": [
+          23.06,
+          23.09,
+          23.18
+        ],
+        "cpu_scene_ms_median": 0.15,
+        "cpu_total_ms_median": 84.27,
+        "cpu_scene_ms_runs": [
+          0.15,
+          0.16,
+          0.145
+        ],
+        "cut": null,
+        "validation_findings": 0
+      },
+      "on": {
+        "runs": 3,
+        "gpu_visibility_raster_ms_median": 20.9,
+        "gpu_total_ms_median": 21.92,
+        "gpu_total_ms_runs": [
+          21.92,
+          22.12,
+          21.79
+        ],
+        "gpu_visibility_ms_runs": [
+          20.9,
+          21.12,
+          20.8
+        ],
+        "cpu_scene_ms_median": 0.14,
+        "cpu_total_ms_median": 89.69,
+        "cpu_scene_ms_runs": [
+          0.135,
+          0.14,
+          0.14
+        ],
+        "cut": {
+          "input_records": 43930,
+          "selected_records": 38864,
+          "input_triangles": 3626626,
+          "selected_triangles": 3175714,
+          "fallback_items": 0,
+          "coarse_records": 7342,
+          "triangle_reduction_pct": 12.43
+        },
+        "validation_findings": 0
+      },
+      "delta": {
+        "gpu_visibility_raster_ms": -2.19,
+        "gpu_visibility_raster_pct": -9.48,
+        "gpu_total_ms": -2.24,
+        "gpu_total_pct": -9.27,
+        "cpu_scene_ms": -0.01,
+        "cpu_total_ms": 5.42
+      }
+    }
+  }
+}
