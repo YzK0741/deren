@@ -6,7 +6,7 @@
 **Architecture:** 复用已接受的 converter CPU 模块（types/codec/digest/dag/cut）在 root 侧编译为静态资产库；engine 新增 DAG 层级（cluster producer/consumer + group fine/coarse 引用 + LOD 球/error + roots/leaves）与移植自 converter reference 的 CPU DAG cut；gltf_loader 只提取 payload 原始字节与扩展字段，import 时由 engine 完成解码/身份/结构校验/翻译并共享 generation；每帧 item cut 继续走 M1b 的 run/发布/HZB 管线，raster/resolve 数学不变。
 **Tech Stack:** CMake 4.3、C++23 modules、Clang64/libc++、vessel/mimalloc、yyjson 0.12.0（root 已有 `yyjson_vendored`）、fastgltf 0.9/simdjson（仅在 deren_assets/gltf_loader）、meshoptimizer v1.3（只给现有 builder/forest 参考路径，本 feature 的 import 不使用 builder）。无 CUDA/Vulkan 依赖给新 CPU 测试。
 **Spec:** `docs/superpowers/specs/2026-10-21-object-lod-runtime-design.md`。代码基线 `f4d3b8e7`（converter Task 1-8 已接受）。计划时 HEAD `f4d3b8e7`。
-**状态：** 已评审通过（2026-10-21：Q1 seam = 方案 C、Q2 单一 `subtilis` 开关、Q4 TANGENT-stripped 派生测量资产；Q3/Q5/Q6 按推荐默认）。用户决定**先提交文档、暂不开工**；实施从 Task 1 开始，逐任务独立验收/本地提交/不 push。
+**状态：** 已评审通过（2026-10-21：Q1 seam = 方案 C、Q2 单一 `subtilis` 开关、Q4 TANGENT-stripped 派生测量资产；Q3/Q5/Q6 按推荐默认）。用户于 2026-10-22 明确恢复实施；Task 1 已验收，接下来从 Task 2 继续，逐任务独立验收/本地提交/不 push。
 
 ## Global Constraints
 
@@ -71,16 +71,16 @@
 **Interfaces**：`dag_asset`（§公共类型约定）；`dag_error` 枚举（invalid_cluster/invalid_range/invalid_hierarchy/invalid_error/invalid_lod0_coverage/capacity）；`dag_asset::make(clusters, groups, references, leaves, roots, lod0_index_count) -> expected<dag_asset, dag_error>`。
 
 **RED**：
-- [ ] 写测试：合法 cross-DAG（照 converter 设计 spec §3.1 的 G0/G1→G2/G3 语义构造，或复用 `source/tests/subtilis_dag_fixtures.hpp` 的 cross_dag）被接受；非法输入逐项拒绝：group 依赖倒序、producer/consumer 越界重复、LEAVES/ROOTS 覆盖不精确、fine/coarse 范围越界重叠、LOD0 叶簇不连续/不覆盖、sphere 非有限/半径负、error 非法/父小于子、cluster window 越界/非 3 倍数/<0、capacity 触发。
-- [ ] 运行 `ctest --test-dir build-release-dyn-clang64 -R '^test_subtilis_dag_asset$'` 确认 RED（缺模块/接口或断言失败），记录输出。
+- [x] 写测试：合法 cross-DAG（照 converter 设计 spec §3.1 的 G0/G1→G2/G3 语义构造，或复用 `source/tests/subtilis_dag_fixtures.hpp` 的 cross_dag）被接受；非法输入逐项拒绝：group 依赖倒序、producer/consumer 越界重复、LEAVES/ROOTS 覆盖不精确、fine/coarse 范围越界重叠、LOD0 叶簇不连续/不覆盖、sphere 非有限/半径负、error 非法/父小于子、cluster window 越界/非 3 倍数/<0、capacity 触发。
+- [x] 运行 `ctest --test-dir build-release-dyn-clang64 -R '^test_subtilis_dag_asset$'` 确认 RED（缺模块/接口或断言失败），记录输出。
 
 **GREEN**：
-- [ ] 实现建设期校验：bottom-up 拓扑序、唯一 producer/consumer、fine/coarse 引用范围、LEAVES=producer NONE 集合、ROOTS=consumer NONE 集合、LOD0 叶簇按 first_index 平铺、error 单调（依赖 group error ≤ 本 group error，允许相等与 `nextafter` 浮点保守处理）、LOD 球包含依赖球/自身 cluster 球（可选初始版本用离线已验证 + 本层保守检查）、capacity（record 数、u32 边界、`lod0_clusters().size()`/reservation 上界 ≤ 4096 由 Task 5 用，不在本层拒绝大 asset）。
-- [ ] `operator==`/确定性视图，无堆分配外副作用；只读 views。
+- [x] 实现建设期校验：bottom-up 拓扑序、唯一 producer/consumer、fine/coarse 引用范围、LEAVES=producer NONE 集合、ROOTS=consumer NONE 集合、LOD0 叶簇按 first_index 平铺、error 单调（依赖 group error ≤ 本 group error，允许相等与 `nextafter` 浮点保守处理）、LOD 球包含依赖球/自身 cluster 球（可选初始版本用离线已验证 + 本层保守检查）、capacity（record 数、u32 边界、`lod0_clusters().size()`/reservation 上界 ≤ 4096 由 Task 5 用，不在本层拒绝大 asset）。
+- [x] `operator==`/确定性视图，无堆分配外副作用；只读 views。
 
 **Acceptance**：
-- [ ] `cmake --build build-release-dyn-clang64 --target test_subtilis_dag_asset -j12` + `ctest -R '^test_subtilis_dag_asset$'` 通过；`test_docs` 通过（VR_TEST_TARGETS 与 ci.yml 同步）；ASan/UBSan 构建同 target 通过（`build-asan` 或当前 ASan 树）。
-- [ ] 无 Vulkan/设备依赖（测试只链接 `deren_engine`/`vstd_lib` 的 CPU 部分，如 `test_meshlet` 模式）。
+- [x] `cmake --build build-release-dyn-clang64 --target test_subtilis_dag_asset -j12` + `ctest -R '^test_subtilis_dag_asset$'` 通过；`test_docs` 通过（VR_TEST_TARGETS 与 ci.yml 同步）；ASan/UBSan 构建同 target 通过（`build-asan` 或当前 ASan 树）。
+- [x] 无 Vulkan/设备依赖（测试只链接 `deren_engine`/`vstd_lib` 的 CPU 部分，如 `test_meshlet` 模式）。
 
 ## Task 2 — root 复用转换器 CPU 资产库 + fixture + DAG cut reference（与 converter reference 交叉校验）
 
