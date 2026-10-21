@@ -21,6 +21,7 @@ namespace deren::tools::subtilis {
         yyjson_mut_doc* json = nullptr;
         fastgltf::Asset parsed;
         vector<byte> binary;
+        vector<std::pair<primitive_key, vector<std::uint32_t>>> index_overrides;
         path source_path;
         asset::limits limits;
         bool self_contained = false;
@@ -51,4 +52,5 @@ namespace deren::tools::subtilis {
     result<void> preflight_references(document const&);
     bool eligible(document const&, primitive_key, bool skinned_mesh);
     result<vector<byte>> make_glb(std::string_view, std::span<byte const>, asset::limits const&);
+    result<void> publish_no_replace(path const& staging, path const& target);
 } // namespace deren::tools::subtilis

@@ -120,13 +120,13 @@
 - `result<build_result> build_serial(source_geometry, build_options const&, build_limits const&)`作为稳定参考，Task7沿用同一候选/提交逻辑。
 - `result<command> parse_arguments(span<string_view const>)`、`int run(command const&)`；command变体为build/inspect/validate/export_cut，各参数对应spec CLI；typed错误映射固定退出码。
 
-- [ ] RED：合成网格自动产生跨组重新分配，至少一个producer的粗cluster被两个不同consumer使用；多根、无进展carry、终止轮数正确；不是手工夹具或“全部LOD0”冒充自动DAG。
-- [ ] RED：误差累计与LOD球嵌套；固定参数重复运行ID/payload稳定；每轮接受前验证边界，group拓扑顺序和互反引用一致。build后直接make_asset/full validation通过。
-- [ ] 先跑`test_subtilis_dag_builder` RED，再实现每轮frontier分区→候选→稳定提交→下一轮；分区单位为cluster，允许拆分上层生成集合。build返回拥有输入的资产，不引用调用者临时数据。
-- [ ] CLI RED→GREEN：对自包含GLB完成build、inspect、validate --full及多个model-error cut导出；inspect/validate输出与算法返回值交叉检查。未适用目标报告skip；零可转换目标非0；LOD0-only成功必须明示无收益。
-- [ ] CLI smoke：`deren-subtilis build fixture.glb -o cooked.glb --threads 1 --report build.json`、`deren-subtilis validate cooked.glb --full`、`deren-subtilis export-cut cooked.glb --error 0.01 -o cut.glb`均exit0。`--threads`为正整数，0或非法数值为用法错误；此任务缺省为1，Task7前只接受1，明确拒绝尚未实现的并行请求。
-- [ ] export-cut写标准indices/accessor，移除已失效DEREN声明（仅无剩余使用时移除extensionsUsed项），源材质/属性/node保持；不把整个cluster索引流当作一次正常绘制。
-- [ ] 本地提交：`feat: build cluster DAGs and expose the conversion CLI`。
+- [x] RED：合成网格自动产生跨组重新分配，至少一个producer的粗cluster被两个不同consumer使用；多根、无进展carry、终止轮数正确；不是手工夹具或“全部LOD0”冒充自动DAG。
+- [x] RED：误差累计与LOD球嵌套；固定参数重复运行ID/payload稳定；每轮接受前验证边界，group拓扑顺序和互反引用一致。build后直接make_asset/full validation通过。
+- [x] 先跑`test_subtilis_dag_builder` RED，再实现每轮frontier分区→候选→稳定提交→下一轮；分区单位为cluster，允许拆分上层生成集合。build返回拥有输入的资产，不引用调用者临时数据。
+- [x] CLI RED→GREEN：对自包含GLB完成build、inspect、validate --full及多个model-error cut导出；inspect/validate输出与算法返回值交叉检查。未适用目标报告skip；零可转换目标非0；LOD0-only成功必须明示无收益。
+- [x] CLI smoke：`deren-subtilis build fixture.glb -o cooked.glb --threads 1 --report build.json`、`deren-subtilis validate cooked.glb --full`、`deren-subtilis export-cut cooked.glb --error 0.01 -o cut.glb`均exit0。`--threads`为正整数，0或非法数值为用法错误；此任务缺省为1，Task7前只接受1，明确拒绝尚未实现的并行请求。
+- [x] export-cut写标准indices/accessor，移除已失效DEREN声明（仅无剩余使用时移除extensionsUsed项），源材质/属性/node保持；不把整个cluster索引流当作一次正常绘制。
+- [x] 本地提交：`feat: build cluster DAGs and expose the conversion CLI`。
 
 ## Task 6 — 完整资源包装、重复转换与失败原子性
 

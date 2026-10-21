@@ -106,4 +106,28 @@ LOD0 coverage, partitions, shared boundaries, UV/normal seams, disconnected
 components, duplicate/nonmanifold faces, invalid options/nonfinite indices and
 scale invariance pass. Release 4/4 CTest (0.20s), ASan/UBSan 4/4 (1.23s).
 
-Task 5 onward remains pending; the converter CLI is not ready yet.
+## Task 5: serial DAG construction and working CLI
+
+- Serial rounds partition the active frontier, prepare immutable candidates and
+  assign accepted global IDs in stable order. Declined regions carry forward;
+  local error accumulates with dependency error and nested spheres round outward.
+- A generated 32x32 grid yields eight groups and two producers whose coarse
+  clusters feed distinct consumers. The test scans actual references; a hand DAG
+  or an all-LOD0 result cannot satisfy this witness. Repeated payload bytes match.
+- `build`, `inspect`, `validate --full` and `export-cut` now work for self-contained
+  GLBs. Exported indices match CPU cut selection at three thresholds, and decoded
+  source attributes remain exact. Tests cover skipped/strict/zero-target cases
+  and explicit LOD0-only reporting.
+- Destination-volume staging validates the generated GLB before publishing without
+  replacing an existing target. Full packaging, overwrite/reuse policy, external
+  resources, parallelism and real-scene/CI acceptance remain Tasks 6–8.
+
+Validation: Task 5 initial builder/CLI RED recorded in the execution workspace.
+Release 5/5 (0.37s), ASan/UBSan 5/5 (2.07s before the final strict/partial test
+addition). Actual executable smoke: build/report, inspect, full validate and cut
+export all exit 0; preview instance/attribute identities checked independently.
+Usage and current limitations are in `tools/subtilis/README.md`.
+
+Ruling: minimal validated, no-replace staging was pulled forward from Task 6 to
+make Task 5's CLI output safe to try. It costs a later packaging refactor; full
+transaction/resource guarantees are still Task 6 acceptance requirements.

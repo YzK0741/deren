@@ -214,7 +214,10 @@ namespace deren::tools::subtilis {
                 return fail("textured primitive has no UV0");
             out.uv0.resize(count, {0, 0});
         }
-        if (p.indicesAccessor) {
+        auto override = std::find_if(d.state->index_overrides.rbegin(), d.state->index_overrides.rend(), [&](auto const& item) { return item.first == key; });
+        if (override != d.state->index_overrides.rend())
+            out.indices = override->second;
+        else if (p.indicesAccessor) {
             auto const& acc = a.accessors[*p.indicesAccessor];
             if (acc.type != fastgltf::AccessorType::Scalar || acc.normalized || (acc.componentType != fastgltf::ComponentType::UnsignedByte && acc.componentType != fastgltf::ComponentType::UnsignedShort && acc.componentType != fastgltf::ComponentType::UnsignedInt))
                 return fail("invalid index accessor");

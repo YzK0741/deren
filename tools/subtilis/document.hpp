@@ -34,4 +34,5 @@ namespace deren::tools::subtilis {
     result<vector<byte>> payload_bytes(document const&, primitive_key);
     result<vector<byte>> serialize_embedded_glb(document const&);
     result<string> serialize_json(document const&);
+    result<void> replace_indices(document&, primitive_key, std::span<std::uint32_t const>);
 } // namespace deren::tools::subtilis

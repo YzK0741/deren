@@ -202,5 +202,64 @@ int main() {
     auto out_of_range = source;
     out_of_range.indices[0] = UINT32_MAX;
     CHECK(!bd::cluster_lod0(out_of_range, options));
+    auto built = sub::build_serial(source, options, {});
+    CHECK(built);
+    if (built) {
+        CHECK(!built->report.lod0_only && built->report.rounds <= options.max_rounds);
+        CHECK(sub::validate_structure(built->asset.data(), {}));
+        auto again = sub::build_serial(source, options, {});
+        CHECK(again);
+        if (again) {
+            auto a = sub::encode(built->asset.data(), {}), b = sub::encode(again->asset.data(), {});
+            CHECK(a && b && *a == *b);
+        }
+        sub::cut_parameters cut;
+        cut.threshold = 100;
+        auto selected = sub::select_cut(built->asset, cut);
+        CHECK(selected && selected->size() == built->asset.data().roots.size());
+    }
+    bool crosses = false;
+    for (auto size : {32u, 40u, 48u, 64u}) {
+        auto large = grid(size);
+        auto dag = sub::build_serial(std::move(large), options, {});
+        CHECK(dag);
+        if (dag && dag->report.cross_group_repartitions) {
+            sub::vector<sub::vector<std::uint32_t>> consumers(dag->asset.data().groups.size());
+            for (auto const& c : dag->asset.data().clusters)
+                if (c.producer != sub::none && c.consumer != sub::none)
+                    consumers[c.producer].push_back(c.consumer);
+            bool witnessed = false;
+            for (auto& ids : consumers) {
+                std::sort(ids.begin(), ids.end());
+                ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+                if (ids.size() > 1)
+                    witnessed = true;
+            }
+            CHECK(witnessed);
+            deren::vk_test::write_line("automatic DAG witness: grid={}, groups={}, crossing producers={}", size, dag->asset.data().groups.size(), dag->report.cross_group_repartitions);
+            crosses = witnessed;
+            break;
+        }
+    }
+    CHECK(crosses);
+    auto single = source;
+    single.indices = {0, 1, 18};
+    auto unchanged = sub::build_serial(single, options, {});
+    CHECK(unchanged && unchanged->report.lod0_only && unchanged->report.rejected[static_cast<size_t>(bd::rejection_reason::no_progress)] > 0);
+    sub::build_limits small;
+    small.max_known_work_bytes = 1;
+    CHECK(!sub::build_serial(source, options, small));
+    small = {};
+    small.max_output_bytes = 1;
+    CHECK(!sub::build_serial(source, options, small));
+    sub::execution_options parallel;
+    parallel.threads = 2;
+    CHECK(!sub::build(source, options, parallel));
+    auto one_round = options;
+    one_round.max_rounds = 1;
+    auto bounded = sub::build_serial(source, one_round, {});
+    CHECK(bounded && bounded->report.rounds == 1 && bounded->asset.data().groups.size() > 0);
+    auto islands = sub::build_serial(disconnected, options, {});
+    CHECK(islands && islands->asset.data().roots.size() > 1);
     return deren::vk_test::finish("subtilis_dag_builder");
 }
