@@ -1,6 +1,6 @@
 # Bistro：纹理资产 + 4096 容量真机验收（2026-10-20）
 
-完成两项**容量契约的真实 GPU 验收**并且都有 RED→GREEN 证据：①可见性打包 ID 的 item 容量 4096（原始未合并层级 2909 个绘制对象，2906 项实际入表，无回退）；②场景纹理数组容量 1024（网格扩到 2048 槽；textured Bistro 实测只需 516 个运行时纹理槽，全部写入、无白染降级、validation 干净）。带纹理资产的 albedo 与 lit 视图在远/近两个固定相机下都已出图；**PBR 路径另行验收**（开阴影的 lit 渲染 + G-buffer 的 normal/roughness/metallic/AO 通道），normal 与 roughness/metallic 贴图确认被 PBR 着色消费。**纹理场景的 Subtilis OFF/ON 对照仍未做**（需要临时 builder 补丁，本轮未应用任何临时生产补丁），且本轮所有改动未提交、未 push。
+完成两项**容量契约的真实 GPU 验收**并且都有 RED→GREEN 证据：①可见性打包 ID 的 item 容量 4096（原始未合并层级 2909 个绘制对象，2906 项实际入表，无回退）；②场景纹理数组容量 1024（网格扩到 2048 槽；textured Bistro 实测只需 516 个运行时纹理槽，全部写入、无白染降级、validation 干净）。带纹理资产的 albedo 与 lit 视图在远/近两个固定相机下都已出图；**PBR 路径另行验收**（开阴影的 lit 渲染 + G-buffer 的 normal/roughness/metallic/AO 通道），normal 与 roughness/metallic 贴图确认被 PBR 着色消费。**纹理场景的 Subtilis OFF/ON 对照仍未做**（需要临时 builder 补丁，本轮未应用任何临时生产补丁），本轮改动随后已提交（`e1ba1568` 等，见 `progress.md`）。
 
 ## 资产、许可与处理
 

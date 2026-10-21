@@ -1098,6 +1098,7 @@ INPUT                  = ./docs/managed_resources.md \
 				./docs/runtime_split.md \
 				./docs/mesh_shaders.md \
 				./docs/visibility_buffer.md \
+./docs/subtilis.md \
 				./docs/deformation_motion_vectors.md \
 				./docs/gltf_loader_usage.md \
                          ./docs/gaussian_loader.md \

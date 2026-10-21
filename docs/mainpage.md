@@ -66,10 +66,11 @@ implementation details, measured results and the limits of each feature.
   G-buffer targets from it. It is off by default, falls back per frame for geometry it cannot name, and is
   gated by its own frozen reference set. See \ref md_docs_2visibility__buffer "The visibility buffer lane"
   for the pipeline, the admission rules and the measured cost.
-- **Hierarchical geometry (Subtilis, in design).** The clustered, hierarchy-selected LOD design that replaces
-  the visibility lane's per-item meshlet set with cluster groups and a screen-error cut is written down in
-  `docs/superpowers/specs/2026-10-18-subtilis-design.md` (design phase; nothing in the frame path depends on
-  it yet).
+- **Hierarchical geometry (Subtilis).** The static opaque cluster-LOD lane is implemented: an offline-style
+  builder produces a unique-parent cluster forest, an explicit upload ties it to a resource generation, and a
+  deterministic CPU screen-error cut feeds the visibility lane's per-frame meshlet set (default off, with the
+  complete LOD0 run as the fallback). See \ref md_docs_2subtilis "Subtilis" for the current scope, the measured
+  numbers and the milestone status (M2 GPU selection / M4 software raster / M5 streaming remain open).
 - **Ray-traced shadows.** `deren.engine.pass.ray_traced_shadow` sits beside the cascade path; see
   the module documentation and `docs/reference/` for the source notes it was built from.
 - **A toon character pipeline.** Per-material families (base / skin / face / hair / eye /
@@ -122,17 +123,18 @@ finally the migration history.
 | 5 | \subpage md_docs_2runtime__split "Runtime split" | How the runtime, the scene tree and the render environment divide the frame between them. |
 | 6 | \subpage md_docs_2mesh__shaders "Mesh shaders" | The mesh-shader geometry path: what it replaced, what it measured. |
 | 7 | \subpage md_docs_2visibility__buffer "The visibility buffer lane" | An experimental opaque producer: packed id raster plus a compute resolve, its gate and its measured limits. |
-| 8 | \subpage md_docs_2deformation__motion__vectors "Deformation motion vectors" | Why a deforming mesh needs more than a camera motion vector, and what was stored. |
-| 9 | \subpage md_docs_2gltf__loader__usage "glTF loader usage" | Loading models, animations, skins, morph targets and punctual lights. |
-| 10 | \subpage md_docs_2gaussian__loader "Gaussian PLY loader" | Trained PLY conventions, validation, limits and loading diagnostics. |
-| 11 | \subpage md_docs_2gaussian__splatting "Gaussian splatting" | Viewer setup, GPU preparation/sorting/cache, rendering rules, measurements and repaired failures. |
-| 12 | \subpage md_docs_2slang__migration "Slang migration" | Moving the shaders to Slang and compiling to SPIR-V. |
-| 13 | \subpage md_docs_2descriptor__heap__migration "Descriptor heap migration" | Replacing descriptor sets with a renderer-managed heap. |
-| 14 | \subpage md_docs_2descriptor__heap__handover "Descriptor heap handover" | How the heap is handed to the passes, and the constraints that imposes. |
-| 15 | \subpage md_docs_2migration__tradeoffs "Migration tradeoffs" | What each of those migrations cost, and what was given up for it. |
-| 16 | \subpage md_docs_2compiler__tolerance "Compiler tolerance" | What the build needs from a toolchain, what a second one (GCC) measured, and what still stops it. |
-| 17 | \subpage md_docs_2unified__image__layouts "Unified image layouts" | One layout vocabulary for render targets, uploads and read-back. |
-| 18 | \subpage md_docs_2host__image__copy "Host image copy" | The VK_EXT_host_image_copy path: a texture uploaded without a staging buffer. |
+| 8 | \subpage md_docs_2subtilis "Subtilis (hierarchical cluster LOD)" | The static opaque cluster-LOD lane: asset builder, explicit upload, CPU screen-error cut, measured gains, fallbacks and open milestones. |
+| 9 | \subpage md_docs_2deformation__motion__vectors "Deformation motion vectors" | Why a deforming mesh needs more than a camera motion vector, and what was stored. |
+| 10 | \subpage md_docs_2gltf__loader__usage "glTF loader usage" | Loading models, animations, skins, morph targets and punctual lights. |
+| 11 | \subpage md_docs_2gaussian__loader "Gaussian PLY loader" | Trained PLY conventions, validation, limits and loading diagnostics. |
+| 12 | \subpage md_docs_2gaussian__splatting "Gaussian splatting" | Viewer setup, GPU preparation/sorting/cache, rendering rules, measurements and repaired failures. |
+| 13 | \subpage md_docs_2slang__migration "Slang migration" | Moving the shaders to Slang and compiling to SPIR-V. |
+| 14 | \subpage md_docs_2descriptor__heap__migration "Descriptor heap migration" | Replacing descriptor sets with a renderer-managed heap. |
+| 15 | \subpage md_docs_2descriptor__heap__handover "Descriptor heap handover" | How the heap is handed to the passes, and the constraints that imposes. |
+| 16 | \subpage md_docs_2migration__tradeoffs "Migration tradeoffs" | What each of those migrations cost, and what was given up for it. |
+| 17 | \subpage md_docs_2compiler__tolerance "Compiler tolerance" | What the build needs from a toolchain, what a second one (GCC) measured, and what still stops it. |
+| 18 | \subpage md_docs_2unified__image__layouts "Unified image layouts" | One layout vocabulary for render targets, uploads and read-back. |
+| 19 | \subpage md_docs_2host__image__copy "Host image copy" | The VK_EXT_host_image_copy path: a texture uploaded without a staging buffer. |
 
 Seven further pages sit in the manual's `INPUT` ahead of this one and are not part of the numbered
 reading path: the passchain resource pages (\ref managed_resources "Passchain-managed resources",

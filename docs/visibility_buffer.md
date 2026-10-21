@@ -5,6 +5,10 @@ current shape, its admission rules, its gate and its measured limits. The design
 `docs/superpowers/plans/2026-10-17-visibility-buffer.md`; the measurements and known differences are in
 `docs/reviews/2026-10-18-visibility-buffer-ab.md` (with the follow-up probe record beside it).
 
+**The LOD above this lane is Subtilis**: its screen-error cut chooses which cluster records this lane rasterizes
+(off by default). See [Subtilis](subtilis.md) for the builder, the cut, the capacity contract and the measured
+numbers that the OFF/ON evidence in this page predates.
+
 ## What it is
 
 The deferred scene path has two interchangeable opaque producers:
