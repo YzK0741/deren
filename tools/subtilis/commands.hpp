@@ -20,6 +20,7 @@ namespace deren::tools::subtilis {
         std::optional<path> report;
         asset::build_options options;
         asset::execution_options execution;
+        output_format format = output_format::glb;
         bool strict = false;
         bool overwrite = false;
     };
@@ -33,6 +34,7 @@ namespace deren::tools::subtilis {
     struct export_cut_command {
         path input, output;
         float error = 0;
+        output_format format = output_format::glb;
         bool overwrite = false;
     };
     using command = std::variant<build_command, inspect_command, validate_command, export_cut_command>;

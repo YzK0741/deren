@@ -132,37 +132,42 @@ Ruling: minimal validated, no-replace staging was pulled forward from Task 6 to
 make Task 5's CLI output safe to try. It costs a later packaging refactor; full
 transaction/resource guarantees are still Task 6 acceptance requirements.
 
-## Task 6: partial implementation, not complete
+## Task 6: complete (finish pass 2026-10-21)
 
-Task 5 commit: `de785b74`. Task 6 partial commit: `dbfc37c0`.
-Paused at 5h usage 95% / remaining 5%, as requested. No push.
+Base for the finish pass: `d3e371b7` (includes the paused partial work of `dbfc37c0` and `d3e371b7`).
 
-- Added bounded local-resource snapshots, percent-escaped URIs and validated
-  base64 data URIs. Original buffer/accessor IDs survive document editing;
-  non-embedded input gets a dedicated appended buffer.
-- GLB packaging merges known buffer references, keeps original geometry exact,
-  embeds PNG/JPEG bytes and validates MIME signatures. Unknown extensions or
-  buffer metadata prevent unsafe relocation. No network resources are fetched.
-- Full-valid source/build-compatible payloads are reused without growth.
-  Incompatible/corrupt payloads fail even when their primitive is now ineligible.
-- Extracted package validation/publication from CLI commands. Added the typed
-  `convert_file` API and `write_package`; CLI and API share construction logic.
-- `--overwrite` uses atomic file replacement, forbids source/report aliases and
-  leaves prior bytes intact on publication failure. Windows read-only-target,
-  directory-target failure and temporary cleanup tests pass. Count-only GLB
-  length checks cover the u32 boundary, >4GiB and UINT64_MAX without allocating
-  large buffers; the writer uses the same checked calculation.
+- Transactional glTF directory-package output implemented end-to-end. `--format glb|gltf`
+  (default glb) selects the output; `--format gltf -o out.gltf` creates the package
+  directory `out/` containing `out.gltf` plus relocated resources (`out.bin` for the
+  embedded/appended buffer, `bufferN.bin` for external buffers, `imageN.png`/`imageN.jpeg`
+  for external PNG/JPEG images, all referenced by percent-encoded relative URIs). The
+  package stages into `.subtilis-package-*` under the destination's parent, every staged
+  file is SHA-256-verified against what was written, the staged document is fully
+  validated, and the package is published by directory rename. Overwrite moves the old
+  target aside, renames the staging directory in and removes the old target, rolling the
+  old target back if publication fails. Existing targets are refused without
+  `--overwrite`, source-inside-package and report-inside-package are refused, and the
+  single-file GLB path keeps its semantics (now explicitly refusing directory and
+  read-only targets).
+- Test-only fault-injection seam `package_detail::sink_ops` (production entry points pass
+  `nullptr`; no environment variable or config key can inject): forced short write (error
+  reported), silent short resource write (caught by the staged hash verification), close
+  failure and injected rename failures all leave source and prior-target bytes untouched,
+  clean staging and return typed io errors. The GLB writer uses the same seam.
+- Resource/DOM checks: per-file staged hashes, full staged validation, and exhaustive
+  DOM/resource-identity checks cover external buffers/images, base64 data URIs (kept
+  inline unchanged), percent escaping, multiple buffers, the rich document (buffers,
+  bufferViews, images, animations, unknown extensions, array IDs and payload views) and
+  the unknown-extension refusal arm for GLB with a working glTF package fallback.
+- Validation: standalone Release CTest 5/5 (0.36s, converter 516 checks PASS); standalone
+  ASan/UBSan gate result below. The cross-volume check is present but reports SKIPPED in
+  this harness because the test process receives an access-denied probe on `D:` (see the
+  test NOTE); same-volume staging-on-destination-parent logic and publication renames are
+  covered by the injected-path tests. Root build files unchanged since Task 1; root
+  CTest 58/58 remains the relevant regression.
+- No commit from the implementer: the Lead accepts and commits.
 
-RED witnessed for reuse, external buffers, image embedding, overwrite, hidden
-corrupt payload classification and converter API. Latest Release 5/5 (0.51s),
-ASan/UBSan 5/5 (2.75s), built with `-j12`. Root build files unchanged since Task 1.
-
-Remaining Task 6 acceptance: transactional **glTF directory-package output**
-(the public format enum currently rejects gltf explicitly), controlled short-write
-and close-failure injection, exhaustive
-resource hashes/core-DOM checks, then the whole Task 6 completion gate. No Task 6
-checkbox is marked complete. Task 7 parallel scheduling and Task 8 real assets,
-core validator, independent CI and final fresh whole-change review remain pending.
-
-Resume from this checkpoint and `.superpowers/sdd/2026-10-21-subtilis-gltf/progress.md`;
-do not redo Tasks 1–5 or claim final converter acceptance.
+Remaining work: Task 7 (deterministic multi-core scheduling, workspace budgets and stage
+profiling) and Task 8 (real assets, Khronos validator, independent CPU-tool CI, final
+fresh whole-change review, docs/archive). Do not redo Tasks 1-6 and do not claim final
+converter acceptance.

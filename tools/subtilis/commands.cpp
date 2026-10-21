@@ -1,6 +1,7 @@
 #include "commands.hpp"
 
 #include "document_internal.hpp"
+#include "package_internal.hpp"
 
 #include <atomic>
 #include <charconv>
@@ -134,20 +135,26 @@ namespace deren::tools::subtilis {
         }
         int execute(build_command const& c) {
             std::error_code ec;
-            if (same_path(c.input, c.output) || (c.report && (same_path(c.input, *c.report) || same_path(c.output, *c.report))))
+            bool const package = c.format == output_format::gltf;
+            path const target = package ? package_detail::package_dir_for_cli_output(c.output) : c.output;
+            if (target.empty())
+                return diagnostic(5, asset::error{asset::error_code::io, "invalid package output path", {}, {}});
+            if (same_path(c.input, target) || (c.report && (same_path(c.input, *c.report) || same_path(target, *c.report))))
                 return diagnostic(5, asset::error{asset::error_code::io, "input, output and report paths must differ", {}, {}});
-            if ((std::filesystem::exists(c.output, ec) && !c.overwrite) || ec)
+            if (package && c.report && package_detail::path_inside(*c.report, target))
+                return diagnostic(5, asset::error{asset::error_code::io, "report file cannot live inside the package directory", {}, {}});
+            if ((std::filesystem::exists(target, ec) && !c.overwrite) || ec)
                 return diagnostic(5, asset::error{asset::error_code::io, "output already exists", {}, {}});
             if (c.report && ((std::filesystem::exists(*c.report, ec) && !c.overwrite) || ec))
                 return diagnostic(5, asset::error{asset::error_code::io, "report already exists", {}, {}});
             auto d = read_document(c.input, {});
             if (!d)
                 return diagnostic(3, d.error());
-            conversion_options options{c.options, c.execution, {output_format::glb, c.overwrite}, c.strict};
+            conversion_options options{c.options, c.execution, {c.format, c.overwrite}, c.strict};
             auto prepared = prepare_conversion(&*d, options);
             if (!prepared)
                 return diagnostic(prepared.error().exit_code, prepared.error().detail);
-            auto written = write_package(*d, c.output, {output_format::glb, c.overwrite});
+            auto written = write_package(*d, target, {c.format, c.overwrite});
             if (!written)
                 return diagnostic(5, written.error());
             auto report = std::move(prepared->json);
@@ -188,6 +195,15 @@ namespace deren::tools::subtilis {
             return 0;
         }
         int execute(export_cut_command const& c) {
+            std::error_code ec;
+            bool const package = c.format == output_format::gltf;
+            path const target = package ? package_detail::package_dir_for_cli_output(c.output) : c.output;
+            if (target.empty())
+                return diagnostic(5, asset::error{asset::error_code::io, "invalid package output path", {}, {}});
+            if (same_path(c.input, target))
+                return diagnostic(5, asset::error{asset::error_code::io, "source file cannot be overwritten", {}, {}});
+            if ((std::filesystem::exists(target, ec) && !c.overwrite) || ec)
+                return diagnostic(5, asset::error{asset::error_code::io, "output already exists", {}, {}});
             auto d = read_document(c.input, {});
             if (!d)
                 return diagnostic(3, d.error());
@@ -213,17 +229,20 @@ namespace deren::tools::subtilis {
                 if (!replaced)
                     return diagnostic(4, replaced.error());
             }
-            auto written = write_package(*d, c.output, {output_format::glb, c.overwrite});
+            auto written = write_package(*d, target, {c.format, c.overwrite});
             if (!written)
                 return diagnostic(5, written.error());
             return 0;
         }
     } // namespace
     result<conversion_report> convert_file(path const& input, path const& output, conversion_options const& options) {
-        if (same_path(input, output))
+        path const target = options.write.format == output_format::gltf ? package_detail::package_dir_for_cli_output(output) : output;
+        if (target.empty())
+            return fail("invalid package output path", asset::error_code::io);
+        if (same_path(input, target) || (options.write.format == output_format::gltf && package_detail::path_inside(input, target)))
             return fail("source file cannot be overwritten", asset::error_code::io);
         std::error_code ec;
-        if ((std::filesystem::exists(output, ec) && !options.write.overwrite) || ec)
+        if ((std::filesystem::exists(target, ec) && !options.write.overwrite) || ec)
             return fail("output already exists or cannot be inspected", asset::error_code::io);
         auto d = read_document(input, {});
         if (!d)
@@ -231,13 +250,13 @@ namespace deren::tools::subtilis {
         auto report = prepare_conversion(&*d, options);
         if (!report)
             return std::unexpected(report.error().detail);
-        auto written = write_package(*d, output, options.write);
+        auto written = write_package(*d, target, options.write);
         if (!written)
             return std::unexpected(written.error());
         return std::move(*report);
     }
     result<command> parse_arguments(std::span<std::string_view const> args) {
-        auto usage = []() { return fail("usage: build INPUT -o OUTPUT.glb [--threads 1] [--report JSON] [--strict] [--overwrite] | inspect INPUT | validate INPUT [--full] | export-cut INPUT --error MODEL_ERROR -o OUTPUT.glb [--overwrite]"); };
+        auto usage = []() { return fail("usage: build INPUT -o OUTPUT.{glb|gltf} [--format glb|gltf] [--threads 1] [--report JSON] [--strict] [--overwrite] | inspect INPUT | validate INPUT [--full] | export-cut INPUT --error MODEL_ERROR -o OUTPUT.{glb|gltf} [--format glb|gltf] [--overwrite]"); };
         if (args.size() < 2 || args[1].empty() || args[1].starts_with('-'))
             return usage();
         path input(args[1]);
@@ -257,6 +276,7 @@ namespace deren::tools::subtilis {
         build.input = input;
         export_cut_command cut;
         cut.input = input;
+        output_format format = output_format::glb;
         bool output = false, error = false;
         for (size_t i = 2; i < args.size(); ++i) {
             auto option = args[i];
@@ -284,6 +304,13 @@ namespace deren::tools::subtilis {
                 if (converted.ec != std::errc{} || converted.ptr != value.data() + value.size() || threads != 1)
                     return fail("only --threads 1 is available before parallel scheduling");
                 build.execution.threads = threads;
+            } else if (option == "--format") {
+                if (value == "glb")
+                    format = output_format::glb;
+                else if (value == "gltf")
+                    format = output_format::gltf;
+                else
+                    return fail("unknown output format (expected glb or gltf)");
             } else if (option == "--error" && args[0] == "export-cut") {
                 auto converted = std::from_chars(value.data(), value.data() + value.size(), cut.error);
                 if (converted.ec != std::errc{} || converted.ptr != value.data() + value.size() || !std::isfinite(cut.error) || cut.error < 0)
@@ -292,8 +319,16 @@ namespace deren::tools::subtilis {
             } else
                 return usage();
         }
-        if (!output || build.output.empty() || build.output.extension() != ".glb")
-            return fail("embedded converter output must be a .glb file");
+        if (!output || build.output.empty() || cut.output.empty())
+            return usage();
+        auto const output_ok = [&](path const& output_path) {
+            if (format == output_format::gltf)
+                return output_path.extension() == ".gltf" && !package_detail::package_dir_for_cli_output(output_path).empty();
+            return output_path.extension() == ".glb";
+        };
+        if (!output_ok(build.output))
+            return fail(format == output_format::gltf ? "glTF package output must be a .gltf path (its stem names the package directory)" : "embedded converter output must be a .glb file");
+        build.format = cut.format = format;
         if (args[0] == "build") {
             if (build.report && build.report->lexically_normal() == build.output.lexically_normal())
                 return fail("asset and report paths must differ");

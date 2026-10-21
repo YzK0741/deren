@@ -26,12 +26,22 @@ threshold and removes the consumed extension. Material, attributes and instances
 keep their original identities. Exported files can be opened by standard GLB
 viewers. Unreferenced old binary ranges are retained to preserve other IDs.
 
-Current milestone: local glTF/GLB and base64 data URI input, GLB output, one CPU
-thread. Local buffer URIs support percent escaping. Known buffer references can
-merge into GLB; PNG/JPEG resources can embed without changing their bytes.
-Unknown extensions or buffer metadata that cannot relocate safely cause an
-explicit error. The glTF directory-package fallback is still pending.
-Requests for other thread counts fail explicitly.
+Current milestone: local glTF/GLB and base64 data URI input, GLB or glTF
+directory-package output, one CPU thread. Local buffer URIs support percent
+escaping. Known buffer references can merge into GLB; PNG/JPEG resources can
+embed without changing their bytes. Unknown extensions or buffer metadata that
+cannot relocate safely cause an explicit error for GLB and are preserved by the
+glTF package. Requests for other thread counts fail explicitly.
+
+`--format glb` (the default) keeps the embedded single-file output: `-o
+cooked.glb` writes one GLB. `--format gltf` writes a relocatable package
+directory: `-o cooked.gltf` creates `cooked/` containing `cooked.gltf` plus its
+resources (`cooked.bin` for the embedded/appended buffer, `bufferN.bin` for each
+original external buffer, `imageN.png`/`imageN.jpeg` for external PNG/JPEG
+images, all referenced by percent-encoded relative URIs). The package stages on
+the destination volume and is published atomically: an existing directory or
+file is refused unless `--overwrite`, and a failed publication leaves the source
+and any previous package untouched.
 
 An existing payload is fully validated and reused when its source/build identity
 matches. `reused` counts these primitives; the payload is not appended again.
@@ -50,9 +60,12 @@ overwrites are always refused, including equivalent paths. Asset publication use
 a temporary file on the destination volume and validates it before publishing;
 the optional report is published afterwards.
 
-The host API exposes `convert_file` with typed options/report and `write_package`.
-The `gltf` output-format value currently returns an explicit unsupported-output
-error; it must not be treated as an implemented directory-package writer.
+The host API exposes `convert_file` with typed options/report and
+`write_package`; for `output_format::gltf` the `write_package` target is the
+package directory (the CLI maps `-o out.gltf` to `out/`). Package resources are
+written through a small publication seam so the test target can inject short
+writes, close failures and final rename failures; production entry points never
+inject.
 
 The wire format and canonical identity are documented in
 [`docs/extensions/DEREN_subtilis`](../../docs/extensions/DEREN_subtilis/README.md).

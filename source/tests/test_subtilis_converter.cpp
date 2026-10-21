@@ -1,18 +1,1028 @@
 #include "../../tools/subtilis/commands.hpp"
+#include "../../tools/subtilis/package_internal.hpp"
 #include "../../tools/subtilis/package_limits.hpp"
 #include "subtilis_dag_fixtures.hpp"
 #include "vk_test.h"
 
+#include <algorithm>
 #include <bit>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <optional>
+#include <span>
+#include <string>
 #include <yyjson.h>
 namespace tool = deren::tools::subtilis;
 namespace sub = deren::asset::subtilis;
 #include "subtilis_document_fixtures.hpp"
 using namespace subtilis_document_fixture;
+
+namespace {
+    // Forward declarations keep the Task 6 directory-package block self-contained.
+    void fault_injection_tests(tool::path const& root);
+    void cross_volume_tests(tool::path const& root, tool::path const& rich_source);
+    std::string relative_generic(tool::path const& file, tool::path const& root);
+
+    // ------------------------------------------------------------------ Task 6 helpers
+    tool::path path_from_utf8(std::string_view text) {
+        return tool::path(std::u8string(reinterpret_cast<char8_t const*>(text.data()), text.size()));
+    }
+    std::string read_text(tool::path const& file) {
+        std::ifstream in(file, std::ios::binary);
+        std::string text((std::istreambuf_iterator<char>(in)), {});
+        return text;
+    }
+    void write_text(tool::path const& file, std::string_view text) {
+        std::ofstream out(file, std::ios::binary);
+        out.write(text.data(), static_cast<std::streamsize>(text.size()));
+        CHECK(out.good());
+    }
+    void write_text(tool::path const& file, char const* text) {
+        write_text(file, std::string_view(text));
+    }
+    void write_text(tool::path const& file, sub::string const& text) {
+        write_text(file, std::string_view(text.data(), text.size()));
+    }
+    sub::string as_sub_string(std::string const& text) {
+        return sub::string(text.data(), text.size());
+    }
+    sub::vector<std::byte> read_bytes(tool::path const& file) {
+        auto text = read_text(file);
+        auto raw = std::as_bytes(std::span(text));
+        return sub::vector<std::byte>(raw.begin(), raw.end());
+    }
+    void write_bytes(tool::path const& file, std::span<std::byte const> bytes) {
+        std::ofstream out(file, std::ios::binary);
+        out.write(reinterpret_cast<char const*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+        CHECK(out.good());
+    }
+    sub::digest hash_bytes(std::span<std::byte const> bytes) {
+        return sub::sha256(bytes);
+    }
+    bool same_bytes(std::span<std::byte const> a, std::span<std::byte const> b) {
+        return a.size() == b.size() && hash_bytes(a) == hash_bytes(b);
+    }
+    std::string hex_digest(sub::digest const& value) {
+        constexpr char digits[] = "0123456789abcdef";
+        std::string text;
+        for (auto byte_value : value) {
+            auto c = std::to_integer<unsigned>(byte_value);
+            text += digits[c >> 4];
+            text += digits[c & 15];
+        }
+        return text;
+    }
+    std::string percent_encode(std::string_view decoded) {
+        constexpr char digits[] = "0123456789ABCDEF";
+        std::string encoded;
+        for (char raw : decoded) {
+            auto c = static_cast<unsigned char>(raw);
+            bool unreserved = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~';
+            if (unreserved) {
+                encoded += static_cast<char>(c);
+            } else {
+                encoded += '%';
+                encoded += digits[c >> 4];
+                encoded += digits[c & 15];
+            }
+        }
+        return encoded;
+    }
+    std::optional<std::string> percent_decode(std::string_view uri) {
+        auto hex = [](char c) -> int {if(c>='0'&&c<='9')return c-'0';if(c>='a'&&c<='f')return c-'a'+10;if(c>='A'&&c<='F')return c-'A'+10;return -1; };
+        std::string decoded;
+        for (size_t i = 0; i < uri.size(); ++i) {
+            char c = uri[i];
+            if (c == '%') {
+                if (uri.size() - i < 3)
+                    return std::nullopt;
+                auto high = hex(uri[i + 1]), low = hex(uri[i + 2]);
+                if (high < 0 || low < 0)
+                    return std::nullopt;
+                c = static_cast<char>(high * 16 + low);
+                i += 2;
+            }
+            if (!c || c == ':' || c == '?' || c == '#' || c == '\\')
+                return std::nullopt;
+            decoded += c;
+        }
+        auto relative = path_from_utf8(decoded);
+        if (relative.empty() || relative.is_absolute() || relative.has_root_path())
+            return std::nullopt;
+        for (auto const& part : relative)
+            if (part == ".." || part == ".")
+                return std::nullopt;
+        return decoded;
+    }
+    // Verifies one generated resource URI: relative, canonical percent encoding, exists
+    // inside the package, and its bytes hash to the expected source resource bytes.
+    void check_uri_resource(tool::path const& package, std::string const& uri, std::span<std::byte const> expected) {
+        auto decoded = percent_decode(uri);
+        CHECK_MSG(decoded.has_value(), uri.c_str());
+        if (!decoded)
+            return;
+        CHECK_MSG(percent_encode(*decoded) == uri, uri.c_str());
+        auto file = package / path_from_utf8(*decoded);
+        std::error_code ec;
+        CHECK_MSG(std::filesystem::is_regular_file(file, ec) && !ec, uri.c_str());
+        auto bytes = read_bytes(file);
+        CHECK_MSG(same_bytes(bytes, expected), uri.c_str());
+    }
+    void check_no_staging(tool::path const& root) {
+        std::error_code ec;
+        if (!std::filesystem::exists(root, ec))
+            return;
+        for (auto const& entry : std::filesystem::recursive_directory_iterator(root, ec)) {
+            if (ec)
+                break;
+            auto name = entry.path().filename().string();
+            CHECK_MSG(!name.starts_with(".subtilis-"), entry.path().generic_string().c_str());
+        }
+    }
+    std::map<std::string, std::string> tree_hashes(tool::path const& root) {
+        std::map<std::string, std::string> result;
+        std::error_code ec;
+        if (!std::filesystem::exists(root, ec))
+            return result;
+        for (auto const& entry : std::filesystem::recursive_directory_iterator(root, ec)) {
+            if (ec)
+                break;
+            std::error_code file_error;
+            if (!entry.is_regular_file(file_error) || file_error)
+                continue;
+            auto relative = std::filesystem::relative(entry.path(), root, file_error);
+            if (file_error)
+                continue;
+            result[relative.generic_string()] = hex_digest(hash_bytes(read_bytes(entry.path())));
+        }
+        return result;
+    }
+    std::vector<std::string> directory_files(tool::path const& root) {
+        std::vector<std::string> names;
+        std::error_code ec;
+        for (auto const& entry : std::filesystem::directory_iterator(root, ec)) {
+            if (ec)
+                break;
+            if (entry.is_regular_file(ec) && !ec)
+                names.push_back(entry.path().filename().generic_string());
+        }
+        std::sort(names.begin(), names.end());
+        return names;
+    }
+    yyjson_val* first_primitive(yyjson_val* root_value) {
+        return yyjson_arr_get(yyjson_obj_get(yyjson_arr_get(yyjson_obj_get(root_value, "meshes"), 0), "primitives"), 0);
+    }
+    yyjson_val* json_member(yyjson_val* object, char const* key) {
+        return yyjson_obj_get(object, key);
+    }
+    int run_cli(std::vector<std::string> const& parts) {
+        std::vector<std::string_view> arguments;
+        arguments.reserve(parts.size());
+        for (auto const& part : parts)
+            arguments.push_back(part);
+        auto parsed = tool::parse_arguments(arguments);
+        CHECK(parsed);
+        if (!parsed)
+            return -1;
+        return tool::run(*parsed);
+    }
+    bool parse_fails(std::vector<std::string> const& parts) {
+        std::vector<std::string_view> arguments;
+        arguments.reserve(parts.size());
+        for (auto const& part : parts)
+            arguments.push_back(part);
+        auto parsed = tool::parse_arguments(arguments);
+        if (parsed)
+            CHECK_MSG(false, parts.empty() ? "" : parts.back().c_str());
+        return !parsed;
+    }
+    bool json_array_contains(yyjson_val* array, std::string_view name) {
+        for (size_t i = 0; i < yyjson_arr_size(array); ++i) {
+            auto* value = yyjson_arr_get(array, i);
+            if (yyjson_is_str(value) && std::string_view(yyjson_get_str(value)) == name)
+                return true;
+        }
+        return false;
+    }
+    bool json_values_equal(yyjson_val* before, yyjson_val* after) {
+        if (!before || !after)
+            return before == after;
+        return yyjson_equals(before, after);
+    }
+    void check_object_members_equal(yyjson_val* before, yyjson_val* after, std::initializer_list<char const*> names) {
+        for (auto name : names)
+            CHECK_MSG(json_values_equal(yyjson_obj_get(before, name), yyjson_obj_get(after, name)), name);
+    }
+    void check_same_json_value(yyjson_val* before, yyjson_val* after, char const* label) {
+        CHECK_MSG(json_values_equal(before, after), label);
+    }
+
+    // ------------------------------------------------------------------ rich source fixture
+    struct rich_fixture {
+        sub::string json;
+        sub::vector<std::byte> geometry, animation, png;
+    };
+    rich_fixture write_rich_fixture(tool::path const& directory, fixture const& base, sub::vector<std::byte> const& png) {
+        rich_fixture rich;
+        rich.geometry = base.bin;
+        rich.png = png;
+        for (float value : {0.f, 1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f})
+            put(rich.animation, std::bit_cast<std::uint32_t>(value));
+        rich.json = edit_json(base.json, [&](auto* d, auto* root) {
+            auto* buffers = yyjson_mut_obj_get(root, "buffers");
+            auto* first = yyjson_mut_arr_get_first(buffers);
+            yyjson_mut_obj_remove_key(first, "uri");
+            yyjson_mut_obj_add_str(d, first, "uri", "geometry%20data.bin");
+            yyjson_mut_obj_add_str(d, first, "name", "geometry-source");
+            auto* second = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_str(d, second, "uri", "animation data.bin");
+            yyjson_mut_obj_add_uint(d, second, "byteLength", rich.animation.size());
+            yyjson_mut_obj_add_str(d, second, "name", "animation-source");
+            yyjson_mut_arr_append(buffers, second);
+            auto* views = yyjson_mut_obj_get(root, "bufferViews");
+            auto* time_view = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_uint(d, time_view, "buffer", 1);
+            yyjson_mut_obj_add_uint(d, time_view, "byteOffset", 0);
+            yyjson_mut_obj_add_uint(d, time_view, "byteLength", 8);
+            yyjson_mut_arr_append(views, time_view);
+            auto* move_view = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_uint(d, move_view, "buffer", 1);
+            yyjson_mut_obj_add_uint(d, move_view, "byteOffset", 8);
+            yyjson_mut_obj_add_uint(d, move_view, "byteLength", 24);
+            yyjson_mut_arr_append(views, move_view);
+            auto* accessors = yyjson_mut_obj_get(root, "accessors");
+            auto* time_accessor = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_uint(d, time_accessor, "bufferView", 4);
+            yyjson_mut_obj_add_uint(d, time_accessor, "componentType", 5126);
+            yyjson_mut_obj_add_uint(d, time_accessor, "count", 2);
+            yyjson_mut_obj_add_str(d, time_accessor, "type", "SCALAR");
+            auto* time_min = yyjson_mut_arr(d);
+            auto* time_max = yyjson_mut_arr(d);
+            yyjson_mut_arr_add_real(d, time_min, 0);
+            yyjson_mut_arr_add_real(d, time_max, 1);
+            yyjson_mut_obj_add_val(d, time_accessor, "min", time_min);
+            yyjson_mut_obj_add_val(d, time_accessor, "max", time_max);
+            yyjson_mut_arr_append(accessors, time_accessor);
+            auto* move_accessor = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_uint(d, move_accessor, "bufferView", 5);
+            yyjson_mut_obj_add_uint(d, move_accessor, "componentType", 5126);
+            yyjson_mut_obj_add_uint(d, move_accessor, "count", 2);
+            yyjson_mut_obj_add_str(d, move_accessor, "type", "VEC3");
+            yyjson_mut_arr_append(accessors, move_accessor);
+            auto* animations = yyjson_mut_arr(d);
+            auto* animation = yyjson_mut_obj(d);
+            auto* samplers = yyjson_mut_arr(d);
+            auto* sampler = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_uint(d, sampler, "input", 4);
+            yyjson_mut_obj_add_uint(d, sampler, "output", 5);
+            yyjson_mut_arr_append(samplers, sampler);
+            yyjson_mut_obj_add_val(d, animation, "samplers", samplers);
+            auto* channels = yyjson_mut_arr(d);
+            auto* channel = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_uint(d, channel, "sampler", 0);
+            auto* channel_target = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_uint(d, channel_target, "node", 1);
+            yyjson_mut_obj_add_str(d, channel_target, "path", "translation");
+            yyjson_mut_obj_add_val(d, channel, "target", channel_target);
+            yyjson_mut_arr_append(channels, channel);
+            yyjson_mut_obj_add_val(d, animation, "channels", channels);
+            yyjson_mut_arr_append(animations, animation);
+            yyjson_mut_obj_add_val(d, root, "animations", animations);
+            auto* images = yyjson_mut_arr(d);
+            auto* image = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_str(d, image, "uri", "pixel.png");
+            yyjson_mut_obj_add_str(d, image, "name", "pixel-image");
+            yyjson_mut_arr_append(images, image);
+            yyjson_mut_obj_add_val(d, root, "images", images);
+            auto* textures = yyjson_mut_arr(d);
+            auto* texture = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_uint(d, texture, "source", 0);
+            yyjson_mut_arr_append(textures, texture);
+            yyjson_mut_obj_add_val(d, root, "textures", textures);
+            auto* material = yyjson_mut_arr_get_first(yyjson_mut_obj_get(root, "materials"));
+            auto* pbr = yyjson_mut_obj(d);
+            auto* texture_info = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_uint(d, texture_info, "index", 0);
+            yyjson_mut_obj_add_val(d, pbr, "baseColorTexture", texture_info);
+            yyjson_mut_obj_add_val(d, material, "pbrMetallicRoughness", pbr);
+        });
+        write_bytes(directory / "geometry data.bin", rich.geometry);
+        write_bytes(directory / "animation data.bin", rich.animation);
+        write_bytes(directory / "pixel.png", rich.png);
+        write_text(directory / "rich.gltf", rich.json);
+        return rich;
+    }
+    // The rich source carries an unknown (optional) extension on purpose: GLB packaging
+    // must refuse it, while the directory package must preserve it and its binary
+    // semantics (buffer IDs and bufferView ranges stay identical).
+    void check_package_dom(std::string_view input_text, std::string_view output_text, tool::path const& package, rich_fixture const& rich, std::span<std::byte const> expected_payload) {
+        auto* before = yyjson_read(input_text.data(), input_text.size(), 0);
+        auto* after = yyjson_read(output_text.data(), output_text.size(), 0);
+        CHECK(before && after);
+        if (!before || !after) {
+            yyjson_doc_free(before);
+            yyjson_doc_free(after);
+            return;
+        }
+        auto* a = yyjson_doc_get_root(before);
+        auto* b = yyjson_doc_get_root(after);
+        // Every top-level value with stable IDs is preserved exactly (extension list
+        // legitimately grows by DEREN_subtilis; buffers/images relocate their URIs).
+        for (auto key : {"asset", "scene", "scenes", "nodes", "materials", "accessors", "animations", "textures", "samplers", "skins", "cameras", "extras", "extensions"})
+            check_same_json_value(yyjson_obj_get(a, key), yyjson_obj_get(b, key), key);
+        auto* used_before = yyjson_obj_get(a, "extensionsUsed");
+        auto* used_after = yyjson_obj_get(b, "extensionsUsed");
+        CHECK(yyjson_is_arr(used_after));
+        for (size_t i = 0; i < yyjson_arr_size(used_before); ++i) {
+            auto* name = yyjson_arr_get(used_before, i);
+            CHECK(yyjson_is_str(name) && json_array_contains(used_after, std::string_view(yyjson_get_str(name))));
+        }
+        CHECK(json_array_contains(used_after, "DEREN_subtilis"));
+        // Meshes: identity of every non-relocated field; only primitive extensions change.
+        auto* meshes_before = yyjson_obj_get(a, "meshes");
+        auto* meshes_after = yyjson_obj_get(b, "meshes");
+        CHECK(yyjson_arr_size(meshes_before) == yyjson_arr_size(meshes_after));
+        for (size_t m = 0; m < yyjson_arr_size(meshes_before); ++m) {
+            auto* mesh_before = yyjson_arr_get(meshes_before, m);
+            auto* mesh_after = yyjson_arr_get(meshes_after, m);
+            check_object_members_equal(mesh_before, mesh_after, {"name", "extras", "extensions", "weights"});
+            auto* prims_before = yyjson_obj_get(mesh_before, "primitives");
+            auto* prims_after = yyjson_obj_get(mesh_after, "primitives");
+            CHECK(yyjson_arr_size(prims_before) == yyjson_arr_size(prims_after));
+            for (size_t p = 0; p < yyjson_arr_size(prims_before); ++p) {
+                auto* prim_before = yyjson_arr_get(prims_before, p);
+                auto* prim_after = yyjson_arr_get(prims_after, p);
+                for (auto key : {"attributes", "indices", "material", "mode", "targets"})
+                    check_same_json_value(yyjson_obj_get(prim_before, key), yyjson_obj_get(prim_after, key), key);
+                auto* ext_before = yyjson_obj_get(prim_before, "extensions");
+                auto* ext_after = yyjson_obj_get(prim_after, "extensions");
+                yyjson_obj_iter iterator = yyjson_obj_iter_with(ext_before);
+                while (auto* key = yyjson_obj_iter_next(&iterator))
+                    check_same_json_value(yyjson_obj_iter_get_val(key), yyjson_obj_get(ext_after, yyjson_get_str(key)), "primitive extension member");
+                CHECK(yyjson_obj_get(ext_after, "DEREN_subtilis") != nullptr);
+            }
+        }
+        // Buffer views keep their array IDs; only payload views are appended.
+        auto* views_before = yyjson_obj_get(a, "bufferViews");
+        auto* views_after = yyjson_obj_get(b, "bufferViews");
+        CHECK(yyjson_arr_size(views_after) > yyjson_arr_size(views_before));
+        for (size_t i = 0; i < yyjson_arr_size(views_before); ++i)
+            check_same_json_value(yyjson_arr_get(views_before, i), yyjson_arr_get(views_after, i), "bufferView identity");
+        // Buffers: original IDs and metadata survive; local URIs relocate to package files
+        // whose bytes hash back to the snapshotted source resource.
+        auto* buffers_before = yyjson_obj_get(a, "buffers");
+        auto* buffers_after = yyjson_obj_get(b, "buffers");
+        CHECK(yyjson_arr_size(buffers_after) == yyjson_arr_size(buffers_before) + 1);
+        for (size_t i = 0; i < yyjson_arr_size(buffers_before); ++i) {
+            auto* buffer_before = yyjson_arr_get(buffers_before, i);
+            auto* buffer_after = yyjson_arr_get(buffers_after, i);
+            check_object_members_equal(buffer_before, buffer_after, {"byteLength", "name", "extras", "extensions"});
+            auto* uri_before = yyjson_obj_get(buffer_before, "uri");
+            auto* uri_after = yyjson_obj_get(buffer_after, "uri");
+            CHECK(yyjson_is_str(uri_after));
+            auto text = std::string(yyjson_get_str(uri_after), yyjson_get_len(uri_after));
+            if (yyjson_is_str(uri_before) && std::string_view(yyjson_get_str(uri_before)).starts_with("data:")) {
+                check_same_json_value(uri_before, uri_after, "data URI buffer identity");
+            } else if (i == 0) {
+                check_uri_resource(package, text, rich.geometry);
+            } else {
+                check_uri_resource(package, text, rich.animation);
+            }
+        }
+        auto* payload_buffer = yyjson_arr_get(buffers_after, yyjson_arr_size(buffers_before));
+        auto* payload_uri = json_member(payload_buffer, "uri");
+        CHECK(yyjson_is_str(payload_uri));
+        auto payload_uri_text = std::string(yyjson_get_str(payload_uri), yyjson_get_len(payload_uri));
+        auto payload_decoded = percent_decode(payload_uri_text);
+        CHECK(payload_decoded.has_value());
+        CHECK(yyjson_get_uint(json_member(payload_buffer, "byteLength")) == expected_payload.size());
+        if (!payload_decoded)
+            return;
+        auto payload_file = read_bytes(package / path_from_utf8(*payload_decoded));
+        // Images: URIs relocate with the MIME-derived extension; data URIs stay inline.
+        auto* images_before = yyjson_obj_get(a, "images");
+        auto* images_after = yyjson_obj_get(b, "images");
+        CHECK(yyjson_arr_size(images_before) == yyjson_arr_size(images_after));
+        for (size_t i = 0; i < yyjson_arr_size(images_before); ++i) {
+            auto* image_before = yyjson_arr_get(images_before, i);
+            auto* image_after = yyjson_arr_get(images_after, i);
+            check_object_members_equal(image_before, image_after, {"name", "extras", "extensions", "bufferView"});
+            auto* uri_before = yyjson_obj_get(image_before, "uri");
+            auto* uri_after = yyjson_obj_get(image_after, "uri");
+            if (yyjson_is_str(uri_before) && std::string_view(yyjson_get_str(uri_before)).starts_with("data:")) {
+                check_same_json_value(uri_before, uri_after, "data URI image identity");
+                continue;
+            }
+            CHECK(yyjson_is_str(uri_after));
+            // MIME sniffing must give a PNG extension and the matching declared type.
+            auto mime = json_member(image_after, "mimeType");
+            CHECK(yyjson_is_str(mime) && std::string_view(yyjson_get_str(mime)) == "image/png");
+            auto uri_text = std::string(yyjson_get_str(uri_after), yyjson_get_len(uri_after));
+            CHECK(uri_text.ends_with(".png"));
+            check_uri_resource(package, uri_text, rich.png);
+        }
+        // The payload bufferView points at the appended buffer with the expected range and
+        // the same DEREN wire bytes as the payload extracted from an equivalent GLB build.
+        auto* extension = json_member(json_member(first_primitive(b), "extensions"), "DEREN_subtilis");
+        CHECK(extension);
+        if (!extension) {
+            yyjson_doc_free(before);
+            yyjson_doc_free(after);
+            return;
+        }
+        CHECK(yyjson_get_uint(json_member(extension, "version")) == 1);
+        CHECK(std::string_view(yyjson_get_str(json_member(extension, "profile"))) == "shared-vertices");
+        auto view_id = yyjson_get_uint(json_member(extension, "bufferView"));
+        auto* payload_view = yyjson_arr_get(views_after, view_id);
+        CHECK(yyjson_get_uint(json_member(payload_view, "buffer")) == yyjson_arr_size(buffers_before));
+        auto offset = yyjson_get_uint(json_member(payload_view, "byteOffset"));
+        auto length = yyjson_get_uint(json_member(payload_view, "byteLength"));
+        CHECK(length == expected_payload.size());
+        CHECK(offset <= payload_file.size() && length <= payload_file.size() - offset);
+        if (offset <= payload_file.size() && length <= payload_file.size() - offset && length == expected_payload.size()) {
+            auto slice = std::span(payload_file).subspan(static_cast<size_t>(offset), static_cast<size_t>(length));
+            CHECK(same_bytes(slice, expected_payload));
+            auto decoded = sub::decode(slice, {});
+            CHECK(decoded);
+            if (decoded)
+                CHECK(sub::validate_structure(*decoded, {}));
+        }
+        yyjson_doc_free(before);
+        yyjson_doc_free(after);
+    }
+
+    // ------------------------------------------------------------------ fault injection seam
+    struct fault_plan {
+        enum class write_mode { normal,
+                                error_short,
+                                silent_short,
+                                close_failure } mode = write_mode::normal;
+        size_t limit = 0;
+        std::string only_file;
+        std::vector<tool::path> opened;
+        std::vector<tool::path> renamed;
+        int fail_rename_call = 0;
+        int rename_calls = 0;
+    };
+    class fault_sink final : public tool::package_detail::byte_sink {
+        std::ofstream out_;
+        fault_plan* plan_ = nullptr;
+        bool injected_ = false;
+
+    public:
+        fault_sink(tool::path const& file, fault_plan* plan, bool injected)
+            : out_(file, std::ios::binary)
+            , plan_(plan)
+            , injected_(injected) {
+        }
+        bool is_open() const {
+            return out_.is_open();
+        }
+        tool::result<void> write(std::span<std::byte const> bytes) override {
+            auto count = bytes.size();
+            if (injected_ && (plan_->mode == fault_plan::write_mode::error_short || plan_->mode == fault_plan::write_mode::silent_short))
+                count = std::min(count, plan_->limit);
+            out_.write(reinterpret_cast<char const*>(bytes.data()), static_cast<std::streamsize>(count));
+            if (injected_ && plan_->mode == fault_plan::write_mode::error_short)
+                return std::unexpected(sub::error{sub::error_code::io, "simulated short write", {}, {}});
+            if (!out_)
+                return std::unexpected(sub::error{sub::error_code::io, "output write failed", {}, {}});
+            return {};
+        }
+        tool::result<void> close() override {
+            out_.close();
+            if (injected_ && plan_->mode == fault_plan::write_mode::close_failure)
+                return std::unexpected(sub::error{sub::error_code::io, "simulated close failure", {}, {}});
+            if (!out_)
+                return std::unexpected(sub::error{sub::error_code::io, "output close failed", {}, {}});
+            return {};
+        }
+    };
+    tool::result<std::unique_ptr<tool::package_detail::byte_sink>> fault_open(tool::path const& file, void* context) {
+        auto* plan = static_cast<fault_plan*>(context);
+        plan->opened.push_back(file);
+        bool injected = plan->only_file.empty() || file.filename().string().find(plan->only_file) != std::string::npos;
+        auto sink = std::make_unique<fault_sink>(file, plan, injected);
+        if (!sink->is_open())
+            return std::unexpected(sub::error{sub::error_code::io, "cannot create staging file", {}, {}});
+        return std::unique_ptr<tool::package_detail::byte_sink>(std::move(sink));
+    }
+    tool::result<void> fault_rename(tool::path const& from, tool::path const& to, void* context) {
+        auto* plan = static_cast<fault_plan*>(context);
+        ++plan->rename_calls;
+        plan->renamed.push_back(from);
+        if (plan->fail_rename_call == plan->rename_calls)
+            return std::unexpected(sub::error{sub::error_code::io, "simulated final publication failure", {}, {}});
+        return tool::package_detail::move_path(from, to);
+    }
+    struct injected_ops {
+        tool::package_detail::sink_ops ops;
+        fault_plan plan;
+        explicit injected_ops(fault_plan::write_mode mode = fault_plan::write_mode::normal, size_t limit = 0, std::string only = {}, int fail_rename = 0) {
+            plan.mode = mode;
+            plan.limit = limit;
+            plan.only_file = std::move(only);
+            plan.fail_rename_call = fail_rename;
+            ops.open = &fault_open;
+            ops.rename = &fault_rename;
+            ops.context = &plan;
+        }
+    };
+
+    // ------------------------------------------------------------------ directory package tests
+    void directory_package_tests(tool::path const& dir, fixture const& base, sub::vector<std::byte> const& png) {
+        std::error_code ec;
+        auto root = dir / "task6-packages";
+        std::filesystem::create_directory(root, ec);
+        CHECK(!ec);
+        auto input_glb = (dir / "input.glb").generic_string();
+        auto cooked_glb = (dir / "cooked.glb").generic_string();
+
+        // A. CLI --format selection, package layout and independent read-back validation.
+        auto package_out = (root / "cooked.gltf").generic_string();
+        auto package_dir = root / "cooked";
+        auto package_json = tool::package_detail::package_json_path(package_dir);
+        CHECK(package_json == package_dir / "cooked.gltf");
+        CHECK(!std::filesystem::exists(package_dir, ec));
+        CHECK(run_cli({"build", input_glb, "-o", package_out, "--format", "gltf"}) == 0);
+        CHECK(std::filesystem::is_directory(package_dir, ec) && !ec);
+        CHECK(std::filesystem::is_regular_file(package_json, ec) && !ec);
+        CHECK(std::filesystem::is_regular_file(package_dir / "cooked.bin", ec) && !ec);
+        CHECK(directory_files(package_dir) == (std::vector<std::string>{"cooked.bin", "cooked.gltf"}));
+        CHECK(!std::filesystem::exists(root / "cooked.gltf", ec));
+        check_no_staging(root);
+        auto package_json_text = package_json.generic_string();
+        CHECK(run_cli({"validate", package_json_text, "--full"}) == 0);
+        CHECK(run_cli({"inspect", package_json_text}) == 0);
+        {
+            // The package can be read back with only the tool's public document API.
+            auto doc = tool::read_document(package_json, {});
+            CHECK(doc);
+            if (doc) {
+                auto wire = tool::payload_bytes(*doc, {0, 0});
+                auto geometry = tool::extract_geometry(*doc, {0, 0});
+                CHECK(wire && geometry);
+                auto payload = wire ? sub::decode(*wire, {}) : sub::result<sub::payload>(std::unexpected(sub::error{sub::error_code::invalid_input, "missing", {}, {}}));
+                CHECK(payload);
+                if (geometry && payload) {
+                    auto asset = sub::make_asset(std::move(*geometry), std::move(*payload), {});
+                    CHECK(asset);
+                }
+            }
+        }
+        {
+            auto source = tool::read_document(dir / "input.glb", {});
+            CHECK(source);
+            if (source)
+                CHECK(!tool::payload_bytes(*source, {0, 0}));
+        }
+        // Format selection is explicit; the old default must not silently write a package.
+        CHECK(parse_fails({"build", input_glb, "-o", (root / "default.gltf").generic_string()}));
+        CHECK(parse_fails({"build", input_glb, "-o", (root / "wrong.glb").generic_string(), "--format", "gltf"}));
+        CHECK(parse_fails({"build", input_glb, "-o", (root / "noext").generic_string(), "--format", "gltf"}));
+        CHECK(parse_fails({"build", input_glb, "-o", (root / "bad-format.glb").generic_string(), "--format", "weird"}));
+        CHECK(parse_fails({"build", input_glb, "-o", (root / "swapped.gltf").generic_string(), "--format", "glb"}));
+        CHECK(run_cli({"build", input_glb, "-o", (root / "explicit.glb").generic_string(), "--format", "glb"}) == 0);
+        CHECK(std::filesystem::is_regular_file(root / "explicit.glb", ec) && !ec);
+        // Existing package is refused without --overwrite and its bytes are untouched.
+        auto prior = tree_hashes(package_dir);
+        CHECK(!prior.empty());
+        CHECK(run_cli({"build", input_glb, "-o", package_out, "--format", "gltf"}) == 5);
+        CHECK(tree_hashes(package_dir) == prior);
+        // The source may not be consumed by the publication it would replace.
+        CHECK(run_cli({"build", package_json_text, "-o", package_out, "--format", "gltf", "--overwrite"}) == 5);
+        CHECK(tree_hashes(package_dir) == prior);
+        // Nor may the optional report live inside the package being replaced.
+        CHECK(run_cli({"build", input_glb, "-o", package_out, "--format", "gltf", "--report", (package_dir / "build-report.json").generic_string(), "--overwrite"}) == 5);
+        CHECK(tree_hashes(package_dir) == prior);
+        // --overwrite replaces the whole package directory, including stale files.
+        write_text(package_dir / "stale-marker.txt", "stale");
+        CHECK(run_cli({"build", input_glb, "-o", package_out, "--format", "gltf", "--overwrite"}) == 0);
+        CHECK(!std::filesystem::exists(package_dir / "stale-marker.txt", ec));
+        CHECK(std::filesystem::is_regular_file(package_json, ec) && !ec);
+        check_no_staging(root);
+        // An existing regular file at the package path can be replaced with --overwrite.
+        write_text(root / "file-target", "old file");
+        CHECK(run_cli({"build", input_glb, "-o", (root / "file-target.gltf").generic_string(), "--format", "gltf", "--overwrite"}) == 0);
+        CHECK(std::filesystem::is_directory(root / "file-target", ec) && !ec);
+        CHECK(std::filesystem::is_regular_file(root / "file-target" / "file-target.gltf", ec) && !ec);
+        // export-cut accepts the same directory package format.
+        CHECK(run_cli({"export-cut", cooked_glb, "--error", "0.01", "-o", (root / "cut.gltf").generic_string(), "--format", "gltf"}) == 0);
+        {
+            auto cut_json = tool::package_detail::package_json_path(root / "cut");
+            auto cut_doc = tool::read_document(cut_json, {});
+            CHECK(cut_doc);
+            if (cut_doc) {
+                auto text = tool::serialize_json(*cut_doc);
+                CHECK(text && text->find("DEREN_subtilis") == sub::string::npos);
+                auto geometry = tool::extract_geometry(*cut_doc, {0, 0});
+                CHECK(geometry && !geometry->indices.empty());
+            }
+        }
+
+        // B. Data URI resources stay inline in the package.
+        CHECK(run_cli({"build", (dir / "data.gltf").generic_string(), "-o", (root / "data-out.gltf").generic_string(), "--format", "gltf"}) == 0);
+        {
+            auto data_dir = root / "data-out";
+            CHECK(directory_files(data_dir) == (std::vector<std::string>{"data-out.bin", "data-out.gltf"}));
+            auto input_text = read_text(dir / "data.gltf");
+            auto output_text = read_text(tool::package_detail::package_json_path(data_dir));
+            auto* input_root = yyjson_read(input_text.data(), input_text.size(), 0);
+            auto* output_root = yyjson_read(output_text.data(), output_text.size(), 0);
+            CHECK(input_root && output_root);
+            if (input_root && output_root) {
+                auto* input_buffers = yyjson_obj_get(yyjson_doc_get_root(input_root), "buffers");
+                auto* output_buffers = yyjson_obj_get(yyjson_doc_get_root(output_root), "buffers");
+                check_same_json_value(yyjson_obj_get(yyjson_arr_get(input_buffers, 0), "uri"), yyjson_obj_get(yyjson_arr_get(output_buffers, 0), "uri"), "data URI buffer identity");
+                auto* input_images = yyjson_obj_get(yyjson_doc_get_root(input_root), "images");
+                auto* output_images = yyjson_obj_get(yyjson_doc_get_root(output_root), "images");
+                check_same_json_value(yyjson_obj_get(yyjson_arr_get(input_images, 0), "uri"), yyjson_obj_get(yyjson_arr_get(output_images, 0), "uri"), "data URI image identity");
+            }
+            yyjson_doc_free(input_root);
+            yyjson_doc_free(output_root);
+            CHECK(run_cli({"validate", tool::package_detail::package_json_path(data_dir).generic_string(), "--full"}) == 0);
+        }
+
+        // C. External resources: buffers relocate with every ID and byte preserved.
+        auto geometry_bin = dir / "geometry data.bin";
+        auto geometry_before = hash_bytes(read_bytes(geometry_bin));
+        CHECK(run_cli({"build", (dir / "external.gltf").generic_string(), "-o", (root / "external-out.gltf").generic_string(), "--format", "gltf"}) == 0);
+        {
+            auto external_dir = root / "external-out";
+            CHECK(directory_files(external_dir) == (std::vector<std::string>{"buffer0.bin", "external-out.bin", "external-out.gltf"}));
+            CHECK(hash_bytes(read_bytes(external_dir / "buffer0.bin")) == geometry_before);
+            CHECK(hash_bytes(read_bytes(geometry_bin)) == geometry_before);
+            CHECK(run_cli({"validate", tool::package_detail::package_json_path(external_dir).generic_string(), "--full"}) == 0);
+            auto packaged = tool::read_document(tool::package_detail::package_json_path(external_dir), {});
+            CHECK(packaged);
+            if (packaged) {
+                auto geometry = tool::extract_geometry(*packaged, {0, 0});
+                auto original = subtilis_fixture::cross_dag().source;
+                CHECK(geometry && geometry->positions == original.positions && geometry->indices == original.indices);
+            }
+        }
+        // D. Several external buffers keep their buffer IDs in a package.
+        CHECK(run_cli({"build", (dir / "multiple.gltf").generic_string(), "-o", (root / "multiple-out.gltf").generic_string(), "--format", "gltf"}) == 0);
+        {
+            auto multiple_dir = root / "multiple-out";
+            CHECK(hash_bytes(read_bytes(multiple_dir / "buffer0.bin")) == hash_bytes(read_bytes(dir / "attributes.bin")));
+            CHECK(hash_bytes(read_bytes(multiple_dir / "buffer1.bin")) == hash_bytes(read_bytes(dir / "indices.bin")));
+            CHECK(run_cli({"validate", tool::package_detail::package_json_path(multiple_dir).generic_string(), "--full"}) == 0);
+            auto multiple = tool::read_document(tool::package_detail::package_json_path(multiple_dir), {});
+            CHECK(multiple);
+            if (multiple) {
+                auto geometry = tool::extract_geometry(*multiple, {0, 0});
+                auto original = subtilis_fixture::cross_dag().source;
+                CHECK(geometry && geometry->positions == original.positions && geometry->indices == original.indices);
+            }
+        }
+        // E. Images relocate with a MIME-derived extension and preserved bytes.
+        CHECK(run_cli({"build", (dir / "images.gltf").generic_string(), "-o", (root / "images-out.gltf").generic_string(), "--format", "gltf"}) == 0);
+        {
+            auto images_dir = root / "images-out";
+            CHECK(std::filesystem::is_regular_file(images_dir / "image0.png", ec) && !ec);
+            CHECK(hash_bytes(read_bytes(images_dir / "image0.png")) == hash_bytes(png));
+            auto output_text = read_text(tool::package_detail::package_json_path(images_dir));
+            auto* output_root = yyjson_read(output_text.data(), output_text.size(), 0);
+            CHECK(output_root);
+            if (output_root) {
+                auto* image = yyjson_arr_get_first(yyjson_obj_get(yyjson_doc_get_root(output_root), "images"));
+                auto* uri = yyjson_obj_get(image, "uri");
+                auto* mime = yyjson_obj_get(image, "mimeType");
+                CHECK(yyjson_is_str(uri) && std::string_view(yyjson_get_str(uri)) == "image0.png");
+                CHECK(yyjson_is_str(mime) && std::string_view(yyjson_get_str(mime)) == "image/png");
+                CHECK(yyjson_obj_get(image, "bufferView") == nullptr);
+            }
+            yyjson_doc_free(output_root);
+            CHECK(run_cli({"validate", tool::package_detail::package_json_path(images_dir).generic_string(), "--full"}) == 0);
+        }
+        // F. Unknown binary semantics: GLB packaging refuses, the package preserves the DOM.
+        CHECK(run_cli({"build", (dir / "unknown.gltf").generic_string(), "-o", (root / "unknown.glb").generic_string()}) == 5);
+        CHECK(run_cli({"build", (dir / "unknown.gltf").generic_string(), "-o", (root / "unknown-out.gltf").generic_string(), "--format", "gltf"}) == 0);
+        {
+            auto output_text = read_text(tool::package_detail::package_json_path(root / "unknown-out"));
+            auto* output_root = yyjson_read(output_text.data(), output_text.size(), 0);
+            CHECK(output_root);
+            if (output_root) {
+                auto* used = yyjson_obj_get(yyjson_doc_get_root(output_root), "extensionsUsed");
+                CHECK(yyjson_is_arr(used) && json_array_contains(used, "VENDOR_binary"));
+            }
+            yyjson_doc_free(output_root);
+            CHECK(run_cli({"validate", tool::package_detail::package_json_path(root / "unknown-out").generic_string(), "--full"}) == 0);
+        }
+        // G. Buffer metadata that prevents a lossless GLB merge is preserved in a package.
+        auto multiple_text = read_text(dir / "multiple.gltf");
+        auto metadata_text = edit_json(as_sub_string(multiple_text), [](auto* d, auto* root) {
+            auto* second = yyjson_mut_arr_get(yyjson_mut_obj_get(root, "buffers"), 1);
+            yyjson_mut_obj_add_str(d, second, "name", "second-buffer");
+        });
+        auto metadata_input = dir / "metadata.gltf";
+        write_text(metadata_input, metadata_text);
+        CHECK(run_cli({"build", metadata_input.generic_string(), "-o", (root / "metadata.glb").generic_string()}) == 5);
+        CHECK(run_cli({"build", metadata_input.generic_string(), "-o", (root / "metadata-out.gltf").generic_string(), "--format", "gltf"}) == 0);
+        {
+            auto output_text = read_text(tool::package_detail::package_json_path(root / "metadata-out"));
+            auto* output_root = yyjson_read(output_text.data(), output_text.size(), 0);
+            CHECK(output_root);
+            if (output_root) {
+                auto* second = yyjson_arr_get(yyjson_obj_get(yyjson_doc_get_root(output_root), "buffers"), 1);
+                auto* name = yyjson_obj_get(second, "name");
+                CHECK(yyjson_is_str(name) && std::string_view(yyjson_get_str(name)) == "second-buffer");
+            }
+            yyjson_doc_free(output_root);
+            CHECK(run_cli({"validate", tool::package_detail::package_json_path(root / "metadata-out").generic_string(), "--full"}) == 0);
+        }
+        // H. Package directory names with spaces exercise percent-encoded URIs.
+        CHECK(run_cli({"build", input_glb, "-o", (root / "out package.gltf").generic_string(), "--format", "gltf"}) == 0);
+        {
+            auto spaced = root / "out package";
+            CHECK(directory_files(spaced) == (std::vector<std::string>{"out package.bin", "out package.gltf"}));
+            auto output_text = read_text(spaced / "out package.gltf");
+            auto* output_root = yyjson_read(output_text.data(), output_text.size(), 0);
+            CHECK(output_root);
+            if (output_root) {
+                auto* uri = yyjson_obj_get(yyjson_arr_get_first(yyjson_obj_get(yyjson_doc_get_root(output_root), "buffers")), "uri");
+                CHECK(yyjson_is_str(uri) && std::string_view(yyjson_get_str(uri)) == "out%20package.bin");
+                auto decoded = percent_decode(yyjson_get_str(uri));
+                CHECK(decoded && *decoded == "out package.bin");
+            }
+            yyjson_doc_free(output_root);
+            CHECK(run_cli({"validate", (spaced / "out package.gltf").generic_string(), "--full"}) == 0);
+        }
+
+        // I. Rich document: external buffers plus an animation, image and unknown extension.
+        auto rich_source = root / "rich-src";
+        std::filesystem::create_directory(rich_source, ec);
+        CHECK(!ec);
+        auto rich = write_rich_fixture(rich_source, base, png);
+        auto rich_inputs_before = tree_hashes(rich_source);
+        auto clean_text = edit_json(rich.json, [](auto*, auto* root) {
+            yyjson_mut_obj_remove_key(root, "extensions");
+            yyjson_mut_obj_remove_key(root, "extensionsUsed");
+            // GLB packaging refuses per-buffer metadata; strip the fixture's names for the clean arm.
+            auto* buffers = yyjson_mut_obj_get(root, "buffers");
+            for (size_t i = 0; i < yyjson_mut_arr_size(buffers); ++i)
+                yyjson_mut_obj_remove_key(yyjson_mut_arr_get(buffers, i), "name");
+        });
+        write_text(rich_source / "rich-clean.gltf", clean_text);
+        CHECK(run_cli({"build", (rich_source / "rich-clean.gltf").generic_string(), "-o", (root / "rich-clean.glb").generic_string()}) == 0);
+        auto clean_glb = tool::read_document(root / "rich-clean.glb", {});
+        CHECK(clean_glb);
+        auto expected_payload = clean_glb ? tool::payload_bytes(*clean_glb, {0, 0}) : sub::result<sub::vector<std::byte>>(std::unexpected(sub::error{sub::error_code::invalid_input, "missing", {}, {}}));
+        CHECK(expected_payload);
+        CHECK(run_cli({"build", (rich_source / "rich.gltf").generic_string(), "-o", (root / "rich-out.gltf").generic_string(), "--format", "gltf"}) == 0);
+        auto rich_out = root / "rich-out";
+        CHECK(directory_files(rich_out) == (std::vector<std::string>{"buffer0.bin", "buffer1.bin", "image0.png", "rich-out.bin", "rich-out.gltf"}));
+        // Source resources and the source document itself are never mutated.
+        rich_inputs_before.erase(relative_generic(rich_source / "rich-clean.gltf", rich_source));
+        auto rich_inputs_after = tree_hashes(rich_source);
+        rich_inputs_after.erase(relative_generic(rich_source / "rich-clean.gltf", rich_source));
+        CHECK(rich_inputs_before == rich_inputs_after);
+        CHECK(hash_bytes(read_bytes(rich_out / "buffer0.bin")) == hash_bytes(rich.geometry));
+        CHECK(hash_bytes(read_bytes(rich_out / "buffer1.bin")) == hash_bytes(rich.animation));
+        CHECK(hash_bytes(read_bytes(rich_out / "image0.png")) == hash_bytes(rich.png));
+        if (expected_payload)
+            check_package_dom(std::string_view(rich.json.data(), rich.json.size()), read_text(rich_out / "rich-out.gltf"), rich_out, rich, *expected_payload);
+        CHECK(run_cli({"validate", (rich_out / "rich-out.gltf").generic_string(), "--full"}) == 0);
+        // The package is relocatable: copying the directory keeps it readable, because all
+        // URIs are relative to the entry JSON.
+        {
+            auto relocated = root / "relocated";
+            std::filesystem::copy(rich_out, relocated, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing, ec);
+            CHECK(!ec);
+            CHECK(run_cli({"validate", (relocated / "rich-out.gltf").generic_string(), "--full"}) == 0);
+        }
+        // The same input and output name in different directories is byte-for-byte identical.
+        {
+            std::filesystem::create_directory(root / "det-a", ec);
+            std::filesystem::create_directory(root / "det-b", ec);
+            CHECK(run_cli({"build", (rich_source / "rich.gltf").generic_string(), "-o", (root / "det-a" / "same.gltf").generic_string(), "--format", "gltf"}) == 0);
+            CHECK(run_cli({"build", (rich_source / "rich.gltf").generic_string(), "-o", (root / "det-b" / "same.gltf").generic_string(), "--format", "gltf"}) == 0);
+            auto a = tree_hashes(root / "det-a" / "same");
+            auto b = tree_hashes(root / "det-b" / "same");
+            CHECK(a == b);
+        }
+
+        // J. Test-only fault injection: partial writes, close failures and final
+        //    publication failures must never publish a partial package.
+        fault_injection_tests(root);
+        // K. Cross-volume destination: staging must happen on the destination volume.
+        cross_volume_tests(root, rich_source);
+    }
+
+    std::string relative_generic(tool::path const& file, tool::path const& root) {
+        std::error_code ec;
+        auto value = std::filesystem::relative(file, root, ec);
+        return ec ? file.generic_string() : value.generic_string();
+    }
+
+    void fault_injection_tests(tool::path const& root) {
+        std::error_code ec;
+        auto source_file = root / "rich-src" / "rich.gltf";
+        auto source = tool::read_document(source_file, {});
+        CHECK(source);
+        if (!source)
+            return;
+        auto target = root / "faults" / "out";
+        std::filesystem::create_directories(target.parent_path(), ec);
+        CHECK(!ec);
+        CHECK(tool::package_detail::write_gltf_package_impl(*source, target, false, nullptr));
+        auto prior = tree_hashes(target);
+        CHECK(!prior.empty());
+        // 1) A reported short write on the entry JSON aborts before publication.
+        {
+            injected_ops injection(fault_plan::write_mode::error_short, 8, "out.gltf");
+            auto failed = tool::package_detail::write_gltf_package_impl(*source, target, true, &injection.ops);
+            CHECK(!failed);
+            if (!failed)
+                CHECK(failed.error().code == sub::error_code::io);
+            CHECK(tree_hashes(target) == prior);
+            check_no_staging(root / "faults");
+        }
+        // 2) A silently short resource write is caught by the staged hash validation.
+        {
+            injected_ops injection(fault_plan::write_mode::silent_short, 4, "buffer0.bin");
+            auto failed = tool::package_detail::write_gltf_package_impl(*source, target, true, &injection.ops);
+            CHECK(!failed);
+            if (!failed)
+                CHECK(failed.error().code == sub::error_code::io);
+            CHECK(tree_hashes(target) == prior);
+            check_no_staging(root / "faults");
+        }
+        // 3) A close failure is reported and the prior package survives.
+        {
+            injected_ops injection(fault_plan::write_mode::close_failure, 0, "out.gltf");
+            auto failed = tool::package_detail::write_gltf_package_impl(*source, target, true, &injection.ops);
+            CHECK(!failed);
+            if (!failed)
+                CHECK(failed.error().context.find("close") != sub::string::npos);
+            CHECK(tree_hashes(target) == prior);
+            check_no_staging(root / "faults");
+        }
+        // 4) A final directory rename failure leaves an absent target absent.
+        {
+            auto absent = root / "faults" / "absent";
+            injected_ops injection(fault_plan::write_mode::normal, 0, {}, 1);
+            auto failed = tool::package_detail::write_gltf_package_impl(*source, absent, false, &injection.ops);
+            CHECK(!failed);
+            if (!failed)
+                CHECK(failed.error().code == sub::error_code::io);
+            CHECK(!std::filesystem::exists(absent, ec));
+            check_no_staging(root / "faults");
+        }
+        // 5) In --overwrite mode a failure after the old target was moved aside restores it.
+        {
+            injected_ops injection(fault_plan::write_mode::normal, 0, {}, 2);
+            auto failed = tool::package_detail::write_gltf_package_impl(*source, target, true, &injection.ops);
+            CHECK(!failed);
+            if (!failed)
+                CHECK(failed.error().code == sub::error_code::io);
+            CHECK(injection.plan.rename_calls == 3); // old aside, failed publish, rollback
+            CHECK(tree_hashes(target) == prior);
+            check_no_staging(root / "faults");
+        }
+        // 6) GLB path: reported short write, close failure and publish failure all keep the
+        //    previous target bytes and clean the staging file.
+        auto glb_bytes = read_bytes(root.parent_path() / "cooked.glb");
+        CHECK(!glb_bytes.empty());
+        auto glb_target = root / "faults" / "prior.glb";
+        auto old_glb = std::string("previous staged bytes");
+        write_text(glb_target, old_glb);
+        auto old_glb_bytes = read_bytes(glb_target);
+        {
+            injected_ops injection(fault_plan::write_mode::error_short, 8, "artifact");
+            auto failed = tool::package_detail::write_bytes_staged_impl(glb_target, glb_bytes, true, true, &injection.ops);
+            CHECK(!failed);
+            if (!failed)
+                CHECK(failed.error().code == sub::error_code::io);
+            CHECK(same_bytes(read_bytes(glb_target), old_glb_bytes));
+            check_no_staging(root / "faults");
+        }
+        {
+            injected_ops injection(fault_plan::write_mode::silent_short, 8, "artifact");
+            auto failed = tool::package_detail::write_bytes_staged_impl(glb_target, glb_bytes, true, true, &injection.ops);
+            CHECK(!failed);
+            if (!failed)
+                CHECK(failed.error().code == sub::error_code::invalid_input); // staged GLB failed full validation
+            CHECK(same_bytes(read_bytes(glb_target), old_glb_bytes));
+            check_no_staging(root / "faults");
+        }
+        {
+            injected_ops injection(fault_plan::write_mode::close_failure, 0, "artifact");
+            auto failed = tool::package_detail::write_bytes_staged_impl(glb_target, glb_bytes, true, true, &injection.ops);
+            CHECK(!failed);
+            if (!failed)
+                CHECK(failed.error().context.find("close") != sub::string::npos);
+            CHECK(same_bytes(read_bytes(glb_target), old_glb_bytes));
+            check_no_staging(root / "faults");
+        }
+        {
+            injected_ops injection(fault_plan::write_mode::normal, 0, {}, 1);
+            auto failed = tool::package_detail::write_bytes_staged_impl(glb_target, glb_bytes, true, true, &injection.ops);
+            CHECK(!failed);
+            if (!failed)
+                CHECK(failed.error().code == sub::error_code::io);
+            CHECK(same_bytes(read_bytes(glb_target), old_glb_bytes));
+            check_no_staging(root / "faults");
+        }
+    }
+
+    std::optional<tool::path> other_writable_volume(tool::path const& directory, std::string& last_error) {
+        std::error_code ec;
+        auto absolute = std::filesystem::absolute(directory, ec);
+        if (ec) {
+            last_error = ec.message();
+            return std::nullopt;
+        }
+        auto current_root = absolute.root_name();
+        auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+        for (char letter = 'C'; letter <= 'Z'; ++letter) {
+            tool::path root = tool::path(std::string(1, letter) + ":\\");
+            if (root.root_name() == current_root)
+                continue;
+            if (!std::filesystem::exists(root, ec) || ec) {
+                ec.clear();
+                continue;
+            }
+            std::array<tool::path, 2> candidates{root, root / "deren-assets"};
+            for (auto const& candidate : candidates) {
+                if (!std::filesystem::is_directory(candidate, ec) || ec) {
+                    ec.clear();
+                    continue;
+                }
+                auto probe = candidate / tool::path(deren::utility::vessel::format("deren-subtilis-volume-probe-{}", stamp).c_str());
+                if (std::filesystem::create_directory(probe, ec) && !ec) {
+                    std::error_code ignored;
+                    std::filesystem::remove(probe, ignored);
+                    return candidate;
+                }
+                last_error = ec.message();
+                ec.clear();
+            }
+        }
+        return std::nullopt;
+    }
+
+    void cross_volume_tests(tool::path const& root, tool::path const& rich_source) {
+        std::string probe_error;
+        auto other = other_writable_volume(root, probe_error);
+        if (!other) {
+            deren::vk_test::write_line("[subtilis_converter] NOTE: cross-volume glTF package check SKIPPED (no second writable volume available to this process; last probe error: '{}') - same-volume staging/publish semantics are covered by the fault-injection tests", probe_error);
+            CHECK(true);
+            return;
+        }
+        auto source = tool::read_document(rich_source / "rich.gltf", {});
+        CHECK(source);
+        if (!source) {
+            deren::vk_test::write_line("[subtilis_converter] NOTE: cross-volume glTF package check SKIPPED (source unreadable)");
+            return;
+        }
+        auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+        auto base = *other / tool::path(deren::utility::vessel::format("deren-subtilis-cross-{}", stamp).c_str());
+        std::error_code ec;
+        std::filesystem::create_directories(base, ec);
+        CHECK(!ec);
+        if (ec)
+            return;
+        auto target = base / "remote";
+        fault_plan plan; // pass-through sink that records every staged path
+        tool::package_detail::sink_ops ops;
+        ops.open = &fault_open;
+        ops.context = &plan;
+        auto written = tool::package_detail::write_gltf_package_impl(*source, target, false, &ops);
+        CHECK(written);
+        CHECK(!plan.opened.empty());
+        auto destination_root = std::filesystem::absolute(target, ec).root_name();
+        size_t staged_on_destination = 0;
+        for (auto const& file : plan.opened) {
+            auto absolute = std::filesystem::absolute(file, ec);
+            if (ec) {
+                ec.clear();
+                continue;
+            }
+            auto volume = absolute.root_name();
+            bool inside_staging = absolute.parent_path().filename().string().starts_with(".subtilis-");
+            bool within_destination = tool::package_detail::path_inside(absolute, base);
+            CHECK(volume == destination_root);
+            CHECK(inside_staging);
+            CHECK(within_destination);
+            if (volume == destination_root && inside_staging && within_destination)
+                ++staged_on_destination;
+        }
+        CHECK(staged_on_destination == plan.opened.size());
+        auto json = tool::package_detail::package_json_path(target).generic_string();
+        CHECK(run_cli({"validate", json, "--full"}) == 0);
+        // Destination bytes hash back to the source resources even across volumes.
+        CHECK(hash_bytes(read_bytes(target / "buffer0.bin")) == hash_bytes(read_bytes(rich_source / "geometry data.bin")));
+        if (written)
+            deren::vk_test::write_line("[subtilis_converter] NOTE: cross-volume glTF package check PERFORMED (source on {}, destination/staging on {})", std::filesystem::absolute(rich_source, ec).root_name().string(), destination_root.string());
+        std::filesystem::remove_all(base, ec);
+        CHECK(!ec);
+    }
+} // namespace
 int main() {
     CHECK(!tool::package_detail::glb_length(UINT64_MAX, 0, {}));
     CHECK(!tool::package_detail::glb_length(20, (uint64_t(1) << 32) + 1, {}));
@@ -479,6 +1489,7 @@ int main() {
     std::filesystem::permissions(dir / "readonly.glb", std::filesystem::perms::owner_all, ec);
     CHECK(!ec);
 #endif
+    directory_package_tests(dir, f, png);
     std::filesystem::remove_all(dir, ec);
     CHECK(!ec);
     return deren::vk_test::finish("subtilis_converter");

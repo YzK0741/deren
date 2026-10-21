@@ -136,12 +136,12 @@
 - `result<void> write_package(document const&, path const&, write_options const&)`，write_options含overwrite和gltf/glb输出类型；staging完成并full validate后发布。
 - `result<conversion_report> convert_file(path const& input, path const& output, conversion_options const&)`，串行构建每个eligible primitive，之后Task7接入同接口。
 
-- [ ] RED：外部buffer/image、data URI、URI转义、输出新目录、多个buffer的GLB合并；已知引用可重定位，未知二进制语义拒绝危险GLB打包但保留glTF输出。测试>4GiB长度计算溢出用稀疏/计数夹具，不实际写满C盘。
-- [ ] RED：原地覆盖、已有目标、只读/短写/最终替换失败；源文件和已有目标字节不变，不遗留被当作成功产物的半包。目录输出先完成staging再发布，跨卷使用目的卷staging。
-- [ ] RED：source/buildHash相同且full valid则复用、不追加；过期source、不同参数、损坏已有payload明确拒绝并要求从源重建，不静默再append。strict/partial对构建失败和不适用目标分类符合spec。
-- [ ] `test_subtilis_converter`确认RED；实现有界资源读取、原索引保持的追加、MIME正确的image嵌入和事务式发布。参数/线程元数据仅放报告，资产构建参数保持canonical顺序。
-- [ ] GREEN：输入/输出资源逐项hash、core DOM语义、实例身份、临时文件清理和失败原子性全部通过。
-- [ ] 本地提交：`feat: package Subtilis glTF assets without losing source resources`。
+- [x] RED：外部buffer/image、data URI、URI转义、输出新目录、多个buffer的GLB合并；已知引用可重定位，未知二进制语义拒绝危险GLB打包但保留glTF输出。测试>4GiB长度计算溢出用稀疏/计数夹具，不实际写满C盘。
+- [x] RED：原地覆盖、已有目标、只读/短写/最终替换失败；源文件和已有目标字节不变，不遗留被当作成功产物的半包。目录输出先完成staging再发布，跨卷使用目的卷staging。
+- [x] RED：source/buildHash相同且full valid则复用、不追加；过期source、不同参数、损坏已有payload明确拒绝并要求从源重建，不静默再append。strict/partial对构建失败和不适用目标分类符合spec。
+- [x] `test_subtilis_converter`确认RED；实现有界资源读取、原索引保持的追加、MIME正确的image嵌入和事务式发布。参数/线程元数据仅放报告，资产构建参数保持canonical顺序。
+- [x] GREEN：输入/输出资源逐项hash、core DOM语义、实例身份、临时文件清理和失败原子性全部通过。
+- [x] 本地提交：`feat: package Subtilis glTF assets without losing source resources`。
 
 ## Task 7 — 确定性多核调度、工作集与阶段剖析
 
