@@ -167,13 +167,13 @@
 - [x] Khronos core validator固定`2.0.0-dev.3.10`（官方release；单独工具依赖，不进普通CMake构建），校验普通输出与export-cut。使用官方CLI `gltf_validator --stdout <file>`，verify脚本解析numErrors，记录自有扩展unsupported info，不能忽略core errors；另运行`deren-subtilis validate --full`，两者都成功才接受。
 - [x] 按完整/LOD0/多个阈值cut检查场景、轮廓、材质缝和边界；LOD0几何多重集与core资源语义精确一致，简化画面变化单独报告。没有自动图像工具时保留标准GLB预览供直接审阅，不能宣称未检查的像素质量。
 - [x] 新增独立CPU工具CI：不安装Vulkan/CUDA可配置、构建并运行全部新测试；小fixture不下载Bistro。ASan/UBSan覆盖codec、DAG、builder、parallel和IO失败路径。根构建回归按Task1规则与最终集成改动范围运行。
-- [ ] 一名fresh只读whole-change reviewer检查5个Review Focus及spec coverage；Critical/Important修复须有复现与GREEN，Minor记账；按executing-plans规则执行最终审查，不启动任务级agents或重复审查流程。
+- [x] 一名fresh只读whole-change reviewer检查5个Review Focus及spec coverage；Critical/Important修复须有复现与GREEN，Minor记账；按executing-plans规则执行最终审查，不启动任务级agents或重复审查流程。
 - [x] 更新spec/计划状态和真实证据报告，本地提交最终文档。重产物归档D盘，核对每个SHA256后清理当前任务副本，保留恢复记录；不推送。
 
 ## 自查与交接
 
 覆盖：spec1–2→Task1/8；DAG关系/误差/cut→Task2/5；边界/几何profile→Task3/4；wire/hash→Task1/2；保真与CLI→Task3/5/6；并行/预算/剖析→Task7/8。5个Review Focus均有具体负控或对照；所有跨任务接口以上述签名为准。
 
-当前只完成计划，未创建生产文件或vendor依赖，所有任务仍未勾选。执行沿用当前会话native方式；该计划需用户审阅后再进入实现。推荐首先执行Task1–3，交付一个可验证手工DAG文件的最小闭环，再推进自动builder；这是实施节奏，不削减最终转换器范围。
+执行完成（2026-10-21，本地 master，未推送）：Task 1–8 全部勾选。实现提交链 `dbfc37c0..20e05cb9`（packaging `1e3df1e7`、parallel `071cfdd5`、two-graph validator fix `ed8aa587`、Task 8 evidence `20e05cb9`、review I-1 fix 与最终文档见后续本地提交）。独立 fresh 只读 whole-change review：`docs/reviews/2026-10-21-subtilis-converter-review.md`，no Critical / 1 Important（self-contained GLB 未应用 GLB relocation 安全规则）已按复现 RED→GREEN 修复并回归，9 项 Minor 记账处置（M-1 由同一 helper 加固、M-2/M-5..M-9 记录/豁免、M-3 死代码不在此 bounded fix 移除、M-4 修复）；review 的 section-6 residuals 已写入 checkpoint 验收记录，包括 Windows ASan 无 LSan、峰值内存为采样下界、CPU CI 未在 GitHub 实际运行、跨卷 staging 在本 harness 跳过、plan 指定 bistro-geometry.gltf 因 TANGENT 按 profile 不适用（已记录并选用 profile 匹配的 bistro-merged.gltf，非静默替换）。最终门槛：standalone Release 6/6 与 ASan/UBSan 6/6（direct counts codec71/dag297/document192/dag_builder4705/parallel583/converter587，全部0 failed）、`test_docs` 395/0、root CTest 58/58、`git diff --check` clean；真实资产 Bistro 输出 threads 1/2/12 逐字一致（247,474,732 B，sha256 b235aa40…40b47），Khronos validator 0 errors/0 warnings，重产物归档 `D:/deren-assets/2026-10-21-subtilis-converter/`（62 files/1,343.8 MiB，SHA256 manifest 0 mismatch）。
 
 依赖参考：[yyjson固定commit](https://github.com/ibireme/yyjson/commit/8b4a38dc994a110abaec8a400615567bd996105f)、[Khronos validator release](https://github.com/KhronosGroup/glTF-Validator/releases)。新依赖落盘后必须将实际文件SHA256写进manifest并检查，不能用版本名代替内容核验。
