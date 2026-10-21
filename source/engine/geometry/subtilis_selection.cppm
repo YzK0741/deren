@@ -91,6 +91,8 @@ export namespace deren::engine::subtilis {
                !leaf.transparent && !leaf.overlay_kind && leaf.pipeline_name.empty() &&
                !(leaf.push.flags & 1u) && !leaf.push.skin_base && !leaf.push.morph_targets;
     }
+    /// @brief plan one item frame run: the hierarchy cut, or the complete shared LOD0 fallback.
+    /// @details The feature overview, the measured numbers and the document index are in @ref md_docs_2subtilis.
     template <class Publish>
     [[nodiscard]] visible_run prepare_item(primitive const& leaf, item_policy const& policy, item_view const& frame,
                                            deren::utility::vessel::vector<meshlet>& scratch,

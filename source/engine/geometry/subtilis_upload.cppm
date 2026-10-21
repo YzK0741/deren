@@ -12,6 +12,7 @@ export namespace deren::engine::subtilis {
     class uploaded_geometry;
     /// The source must remain immutable through every alias after publication;
     /// do not move-assign or modify it through a separately retained mutable owner.
+    /// @details The feature overview, the measured numbers and the document index are in @ref md_docs_2subtilis.
     [[nodiscard]] std::expected<std::shared_ptr<uploaded_geometry const>, upload_rhi::error>
     upload_geometry(upload_rhi::shared_object<upload_rhi::api_core> const& device,
                     std::shared_ptr<built_geometry const> source,

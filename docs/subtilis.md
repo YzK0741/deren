@@ -42,7 +42,7 @@ comparison matters):
 | Per-frame cut | `subtilis::prepare_item` uses the current model, frozen view/jittered projection and render extent; picks a complete run, or LOD0 on any fallback | `runtime.cpp` (`record_visibility_items`), `subtilis_selection.cppm`, `subtilis_lod.cppm` |
 | Publication | one run drives the visible record table, the resolve `draw_item` row, the raster push block and the indirect group count - no half-published metadata | `runtime.cpp`, `visibility.cppm` |
 | Raster/resolve | the visibility lane consumes the run exactly as it consumed host-culled LOD0 records | `source/shaders/scene/visibility.slang`, `visibility_resolve.slang` |
-| Occlusion (M3) | the HZB cull/recovery lanes treat the cut-selected records as their candidate set, so occlusion composes after LOD | `source/engine/pass/hzb_cull.*`, `hzb.slang`, [2026-10-21 recovery report](reviews/2026-10-21-hzb-recovery.md) |
+| Occlusion (M3) | the HZB cull/recovery lanes treat the cut-selected records as their candidate set, so occlusion composes after LOD | `source/engine/pass/hzb_cull.*`, `hzb.slang`, `docs/reviews/2026-10-21-hzb-recovery.md` |
 
 **Strategy guard-rails.** MASK/BLEND materials, non-standard attribute offsets, exact-depth redraws (toon
 `character_forward`) and any unsupported view force the finest run; shadows and BLAS never consume the cut.
@@ -117,12 +117,12 @@ OFF/ON):
 | Visible items (of 4,096) | 2,906 | 2,840 |
 | Image vs OFF | 0.938% pixels changed, mean channel delta 0.020 | 0.098%, 0.0017 |
 
-The cut cost was then **parallelized**: `post` phase 8.6 -> **~2 ms** (far ON 13.93 -> 6.28/7.48 ms,
+The cut cost was then **parallelized**: `post` phase 8.6 -> **about 2 ms** (far ON 13.93 -> 6.28/7.48 ms,
 near 14.57 -> 6.28 ms) with byte-identical cuts and pixel-identical screenshots; the end-to-end frame does
 not move because the frame is GPU-bound, but the CPU headroom is what M2/M3/streaming will spend.
 
 **Capacity prerequisite** (not a Subtilis gain): the 1024-item build fell back to the legacy path at
-178.5 ms GPU frame; the 4096-item build runs the meshlet lane at 26.7-27.0 ms (**~6.6x**) and is what makes
+178.5 ms GPU frame; the 4096-item build runs the meshlet lane at 26.7-27.0 ms (**about 6.6x**) and is what makes
 Subtilis effective on a 2909-item scene at all (`visibility raster: recorded 2906 item(s)`).
 
 **Occlusion composes after the cut (M3, 2026-10-21).** The exact HZB test rejects far 71.51% / near 92.83%
@@ -167,53 +167,51 @@ geometry-scene image differences above are LOD edge differences, not pixel ident
 
 ## 9. Document index
 
-**Design (authoritative architecture):**
-- [Subtilis design: lightweight hierarchical LOD](superpowers/specs/2026-10-18-subtilis-design.md) -
-  the main design; sections 12-17 are the *actual implemented scope* per step and supersede the earlier
-  drafts where they conflict.
-- [M1b builder design](superpowers/specs/2026-10-20-subtilis-m1b-builder-design.md) (implemented),
-  [M1b upload design](superpowers/specs/2026-10-20-subtilis-m1b-upload-design.md) (implemented),
-  [M1b selection design](superpowers/specs/2026-10-20-subtilis-m1b-selection-design.md) (implemented).
+The dated records below stay in the repository as the authoritative evidence for each step and are **not part
+of this manual** (the manual's reference chapters cover the API; this chapter is the feature overview). Paths
+are repository-relative.
 
-**Implementation plans:** [M1a](superpowers/plans/2026-10-19-subtilis-m1a.md),
-[M1b foundation](superpowers/plans/2026-10-20-subtilis-m1b-foundation.md),
-[M1b builder](superpowers/plans/2026-10-20-subtilis-m1b-builder.md),
-[M1b upload](superpowers/plans/2026-10-20-subtilis-m1b-upload.md),
-[M1b selection](superpowers/plans/2026-10-20-subtilis-m1b-selection.md), plus the related
-[review-fixes + Subtilis batch](superpowers/plans/2026-10-19-review-fixes-and-subtilis.md).
+**Design (authoritative architecture):**
+- `docs/superpowers/specs/2026-10-18-subtilis-design.md` - the main design; sections 12-17 are the actually
+  implemented scope per step and supersede the earlier drafts where they conflict.
+- `docs/superpowers/specs/2026-10-20-subtilis-m1b-builder-design.md` (implemented),
+  `docs/superpowers/specs/2026-10-20-subtilis-m1b-upload-design.md` (implemented),
+  `docs/superpowers/specs/2026-10-20-subtilis-m1b-selection-design.md` (implemented).
+
+**Implementation plans:** `docs/superpowers/plans/2026-10-19-subtilis-m1a.md`,
+`docs/superpowers/plans/2026-10-20-subtilis-m1b-foundation.md`,
+`docs/superpowers/plans/2026-10-20-subtilis-m1b-builder.md`,
+`docs/superpowers/plans/2026-10-20-subtilis-m1b-upload.md`,
+`docs/superpowers/plans/2026-10-20-subtilis-m1b-selection.md`, plus the related
+`docs/superpowers/plans/2026-10-19-review-fixes-and-subtilis.md`.
 
 **Step acceptance records (chronological):**
-- [M1a LOD0 visible-run bridge](reviews/2026-10-19-subtilis-m1a.md) - accepted; CTest 51/51 at the time.
-- [M1b CPU foundation](reviews/2026-10-20-subtilis-m1b-foundation.md) - asset + cut reference; CTest 53/53.
-- [M1b CPU builder](reviews/2026-10-20-subtilis-m1b-builder.md) - meshoptimizer build; CTest 54/54, 70 builder checks.
-- [M1b explicit upload](reviews/2026-10-20-subtilis-m1b-upload.md) - generation/bind; CTest 55/55, 44 checks.
-- [M1b main-view selection](reviews/2026-10-20-subtilis-m1b-selection.md) - CPU cut in the frame; CTest 57/57.
-- [Selection checkpoint](reviews/2026-10-20-subtilis-selection-checkpoint.md) - historical pause note, superseded (kept for the record).
+- `docs/reviews/2026-10-19-subtilis-m1a.md` - accepted; CTest 51/51 at the time.
+- `docs/reviews/2026-10-20-subtilis-m1b-foundation.md` - asset + cut reference; CTest 53/53.
+- `docs/reviews/2026-10-20-subtilis-m1b-builder.md` - meshoptimizer build; CTest 54/54, 70 builder checks.
+- `docs/reviews/2026-10-20-subtilis-m1b-upload.md` - generation/bind; CTest 55/55, 44 checks.
+- `docs/reviews/2026-10-20-subtilis-m1b-selection.md` - CPU cut in the frame; CTest 57/57.
+- `docs/reviews/2026-10-20-subtilis-selection-checkpoint.md` - historical pause note, superseded.
 
 **Real-scene evidence:**
-- [Bistro: first unmerged-scene OFF/ON](reviews/2026-10-20-bistro/README.md) - historical: the 1024-item build
-  forced a whole-frame fallback, so this round proves the task could not produce evidence yet; keep as the
-  baseline that motivated the capacity work.
-- [Bistro: capacity + Subtilis performance matrix](reviews/2026-10-20-bistro-performance/README.md) - the
-  OFF/ON numbers, the 6.6x capacity unlock, the probes, the CPU-selection parallelization and the tuning
-  experiments (negative results included).
-- [Bistro: textured asset + 4096 item capacity real-GPU acceptance](reviews/2026-10-20-bistro-textured/README.md) -
-  2906 visible items, 516 texture slots, PBR channel captures; textured Subtilis OFF/ON remains open.
-- [HZB occlusion culling + camera recovery](reviews/2026-10-21-hzb-recovery.md) - the M3 lane that consumes
-  the cut records; measured -78.6%/-61.6% GPU frame on moving Bistro views.
+- `docs/reviews/2026-10-20-bistro/README.md` - historical: the 1024-item build forced a whole-frame fallback,
+  so that round could not produce Subtilis evidence; it is the baseline that motivated the capacity work.
+- `docs/reviews/2026-10-20-bistro-performance/README.md` - the OFF/ON numbers, the 6.6x capacity unlock, the
+  probes, the CPU-selection parallelization and the tuning experiments (negative results included).
+- `docs/reviews/2026-10-20-bistro-textured/README.md` - 2906 visible items, 516 texture slots, PBR channel
+  captures; textured Subtilis OFF/ON remains open.
+- `docs/reviews/2026-10-21-hzb-recovery.md` - the M3 lane that consumes the cut records; measured
+  -78.6%/-61.6% GPU frame on moving Bistro views.
 
-**Consumers / adjacent topics:** [visibility buffer lane](visibility_buffer.md), [mesh shaders](mesh_shaders.md),
-and the project README's feature list.
+**Consumers / adjacent manual pages:** the visibility-buffer lane (\ref md_docs_2visibility__buffer "The visibility buffer lane") and the mesh-shader path (\ref md_docs_2mesh__shaders "Mesh shaders"); the project README's feature list is repository-level.
 
 ## 10. Milestone status
 
-| Milestone | Scope | Status |
-| --- | --- | --- |
-| M1a | LOD0 visible-run bridge over the visibility lane | **done** 2026-10-19 |
-| M1b | hierarchy asset, CPU builder, explicit upload, main-view CPU cut | **done** 2026-10-20 |
-| (prerequisite) | packed id 4096 items / 4096 meshlets per item + 1024-slot texture array | **done** 2026-10-20 |
-| M2 | GPU-side cut selection + finalize, indirect parameters | **not implemented** |
-| M3 | Hi-Z occlusion culling | **implemented as the HZB lane** 2026-10-21 (history prediction + current-frame recovery; default off, measured on Bistro) |
-| M4 | software raster for sub-pixel clusters | **not started** (probe: 22% of far clusters <1 px) |
-| M5 | streaming/paging | **not started** |
-| asset pipeline | automatic import-time build + on-disk cache | **not implemented** (explicit API only) |
+- M1a - LOD0 visible-run bridge over the visibility lane: **done** 2026-10-19.
+- M1b - hierarchy asset, CPU builder, explicit upload, main-view CPU cut: **done** 2026-10-20.
+- (prerequisite) packed id 4096 items / 4096 meshlets per item + 1024-slot texture array: **done** 2026-10-20.
+- M2 - GPU-side cut selection + finalize, indirect parameters: **not implemented**.
+- M3 - Hi-Z occlusion culling: **implemented as the HZB lane** 2026-10-21 (history prediction + current-frame recovery; default off, measured on Bistro).
+- M4 - software raster for sub-pixel clusters: **not started** (probe: 22% of far clusters <1 px).
+- M5 - streaming/paging: **not started**.
+- asset pipeline - automatic import-time build + on-disk cache: **not implemented** (explicit API only).

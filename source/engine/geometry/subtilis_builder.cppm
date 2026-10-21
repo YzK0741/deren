@@ -109,6 +109,8 @@ export namespace deren::engine::subtilis {
         build_statistics statistics_;
         std::uint32_t stride_, vertex_count_, lod0_count_;
     };
+    /// @brief build a hierarchical cluster LOD from LOD0 geometry and options.
+    /// @details The feature overview, the measured numbers and the document index are in @ref md_docs_2subtilis.
     [[nodiscard]] std::expected<built_geometry, build_error> build(build_input const& input, build_options const& options = {});
 } // namespace deren::engine::subtilis
 
