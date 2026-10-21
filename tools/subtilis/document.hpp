@@ -35,4 +35,11 @@ namespace deren::tools::subtilis {
     result<vector<byte>> serialize_embedded_glb(document const&);
     result<string> serialize_json(document const&);
     result<void> replace_indices(document&, primitive_key, std::span<std::uint32_t const>);
+    enum class output_format { glb,
+                               gltf };
+    struct write_options {
+        output_format format = output_format::glb;
+        bool overwrite = false;
+    };
+    result<void> write_package(document const&, path const&, write_options const&);
 } // namespace deren::tools::subtilis

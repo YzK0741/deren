@@ -26,9 +26,16 @@ threshold and removes the consumed extension. Material, attributes and instances
 keep their original identities. Exported files can be opened by standard GLB
 viewers. Unreferenced old binary ranges are retained to preserve other IDs.
 
-Current milestone: self-contained GLB input/output, one CPU thread, no overwrite.
-External-resource packaging, repeat-conversion reuse and parallel scheduling are
-the next milestones. Requests for other thread counts fail explicitly.
+Current milestone: local glTF/GLB and base64 data URI input, GLB output, one CPU
+thread. Local buffer URIs support percent escaping. Known buffer references can
+merge into GLB; PNG/JPEG resources can embed without changing their bytes.
+Unknown extensions or buffer metadata that cannot relocate safely cause an
+explicit error. The glTF directory-package fallback is still pending.
+Requests for other thread counts fail explicitly.
+
+An existing payload is fully validated and reused when its source/build identity
+matches. `reused` counts these primitives; the payload is not appended again.
+Mismatching or damaged payloads require rebuilding from the original source.
 
 Ineligible primitives are preserved and counted as skipped; `--strict` rejects
 any skip. Zero eligible primitives is an error. A valid asset without accepted
@@ -38,8 +45,14 @@ known work estimates and wall time. Estimates are not process peak memory.
 
 Exit codes: 0 success, 2 command usage, 3 invalid input/validation, 4 construction
 or eligibility failure, 5 output failure. Existing asset/report files are refused.
-Asset publication uses a temporary file on the destination volume and validates
-it before publishing; the optional report is published afterwards.
+Pass `--overwrite` to replace an existing output/report atomically. Source-file
+overwrites are always refused, including equivalent paths. Asset publication uses
+a temporary file on the destination volume and validates it before publishing;
+the optional report is published afterwards.
+
+The host API exposes `convert_file` with typed options/report and `write_package`.
+The `gltf` output-format value currently returns an explicit unsupported-output
+error; it must not be treated as an implemented directory-package writer.
 
 The wire format and canonical identity are documented in
 [`docs/extensions/DEREN_subtilis`](../../docs/extensions/DEREN_subtilis/README.md).

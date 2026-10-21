@@ -21,6 +21,9 @@ namespace deren::tools::subtilis {
         yyjson_mut_doc* json = nullptr;
         fastgltf::Asset parsed;
         vector<byte> binary;
+        vector<vector<byte>> external_buffers;
+        vector<vector<byte>> image_resources;
+        uint32_t append_buffer = asset::none;
         vector<std::pair<primitive_key, vector<std::uint32_t>>> index_overrides;
         path source_path;
         asset::limits limits;
@@ -53,4 +56,14 @@ namespace deren::tools::subtilis {
     bool eligible(document const&, primitive_key, bool skinned_mesh);
     result<vector<byte>> make_glb(std::string_view, std::span<byte const>, asset::limits const&);
     result<void> publish_no_replace(path const& staging, path const& target);
+    result<void> publish_replace(path const& staging, path const& target);
+    bool same_path(path const&, path const&);
+    vector<primitive_key> asset_keys(document const&);
+    result<asset::validated_asset> full_asset(document const&, primitive_key);
+    result<uint64_t> verify_file(path const&, bool);
+    result<void> write_bytes_staged(path const&, std::span<byte const>, bool verify_glb, bool overwrite = false);
+    result<vector<byte>> read_local_resource(path const& parent, std::string_view uri, uint64_t max_bytes);
+    std::span<byte const> buffer_bytes(document const&, uint32_t);
+    result<void> ensure_append_buffer(document&);
+    result<vector<byte>> pack_glb(document const&);
 } // namespace deren::tools::subtilis

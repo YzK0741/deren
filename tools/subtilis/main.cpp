@@ -3,7 +3,7 @@
 #include <cstdio>
 int main(int argc, char** argv) {
     if (argc == 2 && std::string_view(argv[1]) == "--help") {
-        std::puts("deren-subtilis build INPUT -o OUTPUT.glb [--threads 1] [--report JSON] [--strict]\n               inspect INPUT\n               validate INPUT [--full]\n               export-cut INPUT --error MODEL_ERROR -o OUTPUT.glb");
+        std::puts("deren-subtilis build INPUT -o OUTPUT.glb [--threads 1] [--report JSON] [--strict] [--overwrite]\n               inspect INPUT\n               validate INPUT [--full]\n               export-cut INPUT --error MODEL_ERROR -o OUTPUT.glb [--overwrite]");
         return 0;
     }
     deren::tools::subtilis::vector<std::string_view> arguments;

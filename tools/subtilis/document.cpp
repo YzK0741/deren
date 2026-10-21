@@ -49,12 +49,14 @@ namespace deren::tools::subtilis {
         return out;
     }
     result<vector<byte>> serialize_embedded_glb(document const& d) {
-        if (!d.state || !d.state->self_contained)
-            return fail("GLB packaging requires embedded input buffers");
+        if (!d.state)
+            return fail("empty document");
+        if (!d.state->self_contained)
+            return pack_glb(d);
         auto* images = member(root(d), "images");
         for (size_t i = 0; i < yyjson_mut_arr_size(images); ++i)
             if (member(yyjson_mut_arr_get(images, i), "uri"))
-                return fail("image resource packaging required");
+                return pack_glb(d);
         auto json = serialize_json(d);
         if (!json)
             return std::unexpected(json.error());
@@ -110,6 +112,7 @@ namespace deren::tools::subtilis {
         uint64_t total = 0;
         if (yyjson_mut_arr_size(buffers) > lim.max_records)
             return fail("buffer record limit", asset::error_code::capacity);
+        d.state->external_buffers.resize(yyjson_mut_arr_size(buffers));
         for (size_t i = 0; i < yyjson_mut_arr_size(buffers); ++i) {
             auto* buffer = yyjson_mut_arr_get(buffers, i);
             auto* n = member(buffer, "byteLength");
@@ -119,10 +122,38 @@ namespace deren::tools::subtilis {
             if (size > lim.max_input_bytes - total)
                 return fail("decoded buffer byte limit", asset::error_code::capacity);
             total += size;
-            if (auto* uri = member(buffer, "uri"); uri && (!yyjson_mut_is_str(uri) || !std::string_view(yyjson_mut_get_str(uri)).starts_with("data:")))
-                return fail("external buffer loading is not available in embedded input mode");
+            if (auto* uri = member(buffer, "uri")) {
+                if (!yyjson_mut_is_str(uri))
+                    return fail("invalid buffer URI");
+                auto value = std::string_view(yyjson_mut_get_str(uri), yyjson_mut_get_len(uri));
+                {
+                    auto resource = read_local_resource(file.parent_path(), value, lim.max_input_bytes - total + size);
+                    if (!resource)
+                        return std::unexpected(resource.error());
+                    if (resource->size() < size)
+                        return fail("buffer shorter than byteLength");
+                    total += resource->size() - size;
+                    d.state->external_buffers[i] = std::move(*resource);
+                }
+            }
         }
+        auto* images = member(root(d), "images");
+        if (yyjson_mut_arr_size(images) > lim.max_records)
+            return fail("image record limit", asset::error_code::capacity);
+        d.state->image_resources.resize(yyjson_mut_arr_size(images));
+        for (size_t i = 0; i < yyjson_mut_arr_size(images); ++i)
+            if (auto* uri = member(yyjson_mut_arr_get(images, i), "uri")) {
+                if (!yyjson_mut_is_str(uri))
+                    return fail("invalid image URI");
+                auto bytes = read_local_resource(file.parent_path(), std::string_view(yyjson_mut_get_str(uri), yyjson_mut_get_len(uri)), lim.max_input_bytes - total);
+                if (!bytes)
+                    return std::unexpected(bytes.error());
+                total += bytes->size();
+                d.state->image_resources[i] = std::move(*bytes);
+            }
         d.state->self_contained = is_glb && yyjson_mut_arr_size(buffers) <= 1 && !member(yyjson_mut_arr_get(buffers, 0), "uri");
+        if (is_glb && yyjson_mut_arr_size(buffers) && !member(yyjson_mut_arr_get(buffers, 0), "uri"))
+            d.state->append_buffer = 0;
         // Filter only our supported required extension in a parser-owned temporary copy.
         auto* original_required = member(root(d), "extensionsRequired");
         auto* used = member(root(d), "extensionsUsed");
@@ -174,6 +205,13 @@ namespace deren::tools::subtilis {
         if (!parsed)
             return fail("glTF parser rejected input/required extension");
         d.state->parsed = std::move(parsed.get());
+        for (size_t i = 0; i < d.state->external_buffers.size(); ++i)
+            if (!d.state->external_buffers[i].empty()) {
+                if (i >= d.state->parsed.buffers.size())
+                    return fail("parsed buffer count differs");
+                auto const& bytes = d.state->external_buffers[i];
+                d.state->parsed.buffers[i].data = fastgltf::sources::ByteView{fastgltf::span<byte const>(bytes.data(), bytes.size()), fastgltf::MimeType::None};
+            }
         auto references = preflight_references(d);
         if (!references)
             return std::unexpected(references.error());
@@ -225,20 +263,21 @@ namespace deren::tools::subtilis {
         auto* buffer = member(bv, "buffer");
         auto* offset = member(bv, "byteOffset");
         auto* length = member(bv, "byteLength");
-        if (!yyjson_mut_is_uint(buffer) || yyjson_mut_get_uint(buffer) != 0 || !yyjson_mut_is_uint(length) || member(bv, "target") || (offset && !yyjson_mut_is_uint(offset)))
+        if (!yyjson_mut_is_uint(buffer) || yyjson_mut_get_uint(buffer) > UINT32_MAX || !yyjson_mut_is_uint(length) || member(bv, "target") || (offset && !yyjson_mut_is_uint(offset)))
             return fail("invalid payload bufferView");
         uint64_t at = offset ? yyjson_mut_get_uint(offset) : 0, n = yyjson_mut_get_uint(length);
-        if (!d.state || !d.state->self_contained || at > d.state->binary.size() || n > d.state->binary.size() - at || n > d.state->limits.max_payload_bytes)
+        auto backing = buffer_bytes(d, static_cast<uint32_t>(yyjson_mut_get_uint(buffer)));
+        if (!d.state || at > backing.size() || n > backing.size() - at || n > d.state->limits.max_payload_bytes)
             return fail("payload range exceeds buffer");
-        auto bytes = std::span(d.state->binary).subspan(static_cast<size_t>(at), static_cast<size_t>(n));
+        auto bytes = backing.subspan(static_cast<size_t>(at), static_cast<size_t>(n));
         auto payload = asset::decode(bytes, d.state->limits);
         if (!payload)
             return std::unexpected(payload.error());
         return vector<byte>(bytes.begin(), bytes.end());
     }
     result<void> attach_payload(document& d, primitive_key key, std::span<byte const> bytes) {
-        if (!d.state || !d.state->self_contained || !primitive_value(d, key))
-            return fail("payload append requires an embedded primitive");
+        if (!d.state || !primitive_value(d, key))
+            return fail("payload append requires a valid primitive");
         bool skinned = false;
         for (auto const& node : d.state->parsed.nodes)
             if (node.meshIndex && *node.meshIndex == key.mesh && node.skinIndex)
@@ -258,6 +297,9 @@ namespace deren::tools::subtilis {
         auto* extensions = member(primitive, "extensions");
         if (member(extensions, "DEREN_subtilis"))
             return fail("primitive already has a Subtilis payload");
+        auto prepared = ensure_append_buffer(d);
+        if (!prepared)
+            return prepared;
         auto at = (uint64_t(d.state->binary.size()) + 7) & ~uint64_t(7);
         if (at > d.state->limits.max_input_bytes || bytes.size() > d.state->limits.max_input_bytes - at)
             return fail("append byte limit", asset::error_code::capacity);
@@ -268,7 +310,7 @@ namespace deren::tools::subtilis {
             yyjson_mut_obj_add_val(json, root(d), "bufferViews", views);
         }
         auto* bv = yyjson_mut_obj(json);
-        yyjson_mut_obj_add_uint(json, bv, "buffer", 0);
+        yyjson_mut_obj_add_uint(json, bv, "buffer", d.state->append_buffer);
         yyjson_mut_obj_add_uint(json, bv, "byteOffset", at);
         yyjson_mut_obj_add_uint(json, bv, "byteLength", bytes.size());
         auto index = yyjson_mut_arr_size(views);
@@ -297,7 +339,7 @@ namespace deren::tools::subtilis {
             yyjson_mut_arr_add_str(json, used, "DEREN_subtilis");
         d.state->binary.resize(static_cast<size_t>(at), byte{0});
         d.state->binary.insert(d.state->binary.end(), bytes.begin(), bytes.end());
-        auto* buffer = yyjson_mut_arr_get(member(root(d), "buffers"), 0);
+        auto* buffer = yyjson_mut_arr_get(member(root(d), "buffers"), d.state->append_buffer);
         yyjson_mut_set_uint(member(buffer, "byteLength"), d.state->binary.size());
         return {};
     }

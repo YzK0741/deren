@@ -123,11 +123,43 @@ scale invariance pass. Release 4/4 CTest (0.20s), ASan/UBSan 4/4 (1.23s).
   resources, parallelism and real-scene/CI acceptance remain Tasks 6–8.
 
 Validation: Task 5 initial builder/CLI RED recorded in the execution workspace.
-Release 5/5 (0.37s), ASan/UBSan 5/5 (2.07s before the final strict/partial test
-addition). Actual executable smoke: build/report, inspect, full validate and cut
+Release 5/5 (0.37s), ASan/UBSan 5/5 (2.10s). Actual executable smoke:
+build/report, inspect, full validate and cut
 export all exit 0; preview instance/attribute identities checked independently.
 Usage and current limitations are in `tools/subtilis/README.md`.
 
 Ruling: minimal validated, no-replace staging was pulled forward from Task 6 to
 make Task 5's CLI output safe to try. It costs a later packaging refactor; full
 transaction/resource guarantees are still Task 6 acceptance requirements.
+
+## Task 6: partial implementation, not complete
+
+Task 5 commit: `de785b74`. Task 6 continues from that base.
+
+- Added bounded local-resource snapshots, percent-escaped URIs and validated
+  base64 data URIs. Original buffer/accessor IDs survive document editing;
+  non-embedded input gets a dedicated appended buffer.
+- GLB packaging merges known buffer references, keeps original geometry exact,
+  embeds PNG/JPEG bytes and validates MIME signatures. Unknown extensions or
+  buffer metadata prevent unsafe relocation. No network resources are fetched.
+- Full-valid source/build-compatible payloads are reused without growth.
+  Incompatible/corrupt payloads fail even when their primitive is now ineligible.
+- Extracted package validation/publication from CLI commands. Added the typed
+  `convert_file` API and `write_package`; CLI and API share construction logic.
+- `--overwrite` uses atomic file replacement, forbids source/report aliases and
+  leaves prior bytes intact on publication failure. Windows read-only-target,
+  directory-target failure and temporary cleanup tests pass.
+
+RED witnessed for reuse, external buffers, image embedding, overwrite, hidden
+corrupt payload classification and converter API. Latest Release 5/5 (0.51s),
+ASan/UBSan 5/5 (2.75s), built with `-j12`. Root build files unchanged since Task 1.
+
+Remaining Task 6 acceptance: transactional **glTF directory-package output**
+(the public format enum currently rejects gltf explicitly), controlled short-write
+and close-failure injection, counted >4GiB packaging overflow fixtures, exhaustive
+resource hashes/core-DOM checks, then the whole Task 6 completion gate. No Task 6
+checkbox is marked complete. Task 7 parallel scheduling and Task 8 real assets,
+core validator, independent CI and final fresh whole-change review remain pending.
+
+Resume from this checkpoint and `.superpowers/sdd/2026-10-21-subtilis-gltf/progress.md`;
+do not redo Tasks 1–5 or claim final converter acceptance.
