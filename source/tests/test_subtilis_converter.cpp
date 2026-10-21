@@ -1,6 +1,6 @@
 #include "../../tools/subtilis/commands.hpp"
-#include "../../tools/subtilis/package_internal.hpp"
 #include "../../tools/subtilis/document_internal.hpp"
+#include "../../tools/subtilis/package_internal.hpp"
 #include "../../tools/subtilis/package_limits.hpp"
 #include "subtilis_dag_fixtures.hpp"
 #include "vk_test.h"
