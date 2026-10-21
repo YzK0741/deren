@@ -35,11 +35,21 @@ target_include_directories(subtilis_document SYSTEM PRIVATE ${DEREN_REPO_ROOT}/s
 add_executable(test_subtilis_document ${DEREN_REPO_ROOT}/source/tests/test_subtilis_document.cpp)
 target_link_libraries(test_subtilis_document PRIVATE subtilis_document yyjson_vendored)
 add_test(NAME test_subtilis_document COMMAND test_subtilis_document)
+add_library(subtilis_builder STATIC)
+target_sources(subtilis_builder PUBLIC FILE_SET CXX_MODULES BASE_DIRS ${DEREN_REPO_ROOT} FILES
+    ${DEREN_REPO_ROOT}/source/asset/subtilis/builder.cppm
+    PRIVATE ${DEREN_REPO_ROOT}/source/asset/subtilis/reduce.cpp
+    ${DEREN_REPO_ROOT}/source/asset/subtilis/topology.cpp)
+target_link_libraries(subtilis_builder PUBLIC subtilis_dag PRIVATE meshoptimizer_vendored)
+target_include_directories(subtilis_builder SYSTEM PRIVATE ${DEREN_REPO_ROOT}/source/third_party/meshoptimizer/src)
+add_executable(test_subtilis_dag_builder ${DEREN_REPO_ROOT}/source/tests/test_subtilis_dag_builder.cpp)
+target_link_libraries(test_subtilis_dag_builder PRIVATE subtilis_builder)
+add_test(NAME test_subtilis_dag_builder COMMAND test_subtilis_dag_builder)
 add_executable(test_subtilis_codec ${DEREN_REPO_ROOT}/source/tests/test_subtilis_codec.cpp)
 target_link_libraries(test_subtilis_codec PRIVATE subtilis_codec)
 add_test(NAME test_subtilis_codec COMMAND test_subtilis_codec)
 # Use one canonical option list across public module providers and consumers.
-foreach(target vstd_lib shared_utility subtilis_codec test_subtilis_codec subtilis_dag test_subtilis_dag subtilis_document test_subtilis_document)
+foreach(target vstd_lib shared_utility subtilis_codec test_subtilis_codec subtilis_dag test_subtilis_dag subtilis_document test_subtilis_document subtilis_builder test_subtilis_dag_builder)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /WX /permissive- /Zc:__cplusplus /utf-8 /bigobj /EHsc)
     else()

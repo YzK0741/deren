@@ -84,4 +84,26 @@ ASan/UBSan 3/3 pass (1.04s). Root dependencies unchanged since Task 1.
 External-resource loading/packaging and transactional output remain Task 6;
 embedded-mode helper rejects resource relocation it cannot yet preserve.
 
-Task 4 onward remains pending; the converter CLI is not ready yet.
+## Task 4: spatial clustering and constrained reduction candidates
+
+- LOD0 and reduced meshlets use meshoptimizer with the profile's 256-vertex /
+  85-triangle limits and cone weight zero. Original vertex IDs and source
+  triangle multiplicity/winding remain intact; bounds round outward.
+- Partitions use meshopt_partitionClusters and stable group/member order.
+- Reduction uses meshopt_simplifyWithAttributes with immutable source data,
+  primitive-diagonal normalization, fixed normal/UV weights, explicit seam/border
+  locks and isolated floating-point status. Only strictly smaller valid candidates
+  are accepted; no-progress/unsafe regions retain their original representation.
+- Position and attribute boundary signatures plus source-component ownership are
+  checked again after simplification. This builder topology remains independently
+  checked by Task 2's full asset validator when assembled in Task 5.
+- Topology reuse adds an optional private cached-topology argument to reduce_group,
+  avoiding a whole-source analysis for each candidate; four-argument callers retain
+  the original convenience form. This is not a public consumer API.
+
+Validation: witnessed initial leaf-clustering RED. Curved-grid reduction, exact
+LOD0 coverage, partitions, shared boundaries, UV/normal seams, disconnected
+components, duplicate/nonmanifold faces, invalid options/nonfinite indices and
+scale invariance pass. Release 4/4 CTest (0.20s), ASan/UBSan 4/4 (1.23s).
+
+Task 5 onward remains pending; the converter CLI is not ready yet.

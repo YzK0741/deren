@@ -105,11 +105,11 @@
 - `result<reduction_candidate> reduce_group(source_geometry const&, span<cluster_input const>, build_options const&, primitive_scale)`；返回私有粗索引/cluster和local_error，不直接分配全局ID或修改DAG。
 - `boundary_signature boundary_of(source_geometry const&, span<uint32_t const>)`：有向外边界多重集和属性缝身份；unsafe拓扑给明确拒绝原因。
 
-- [ ] RED：曲面网格的leaf≤85tri/256vertex且精确覆盖源；两组共享边、UV缝/硬法线、重复位置不同属性、断开组件与非流形；合法简化真正减量，细粗外边界相同，非法/无进展候选保留原几何并报告。
-- [ ] RED：无NaN/越界/反向面、拒绝通过删源三角形伪造LOD0；normal/UV属性尺度固定于primitive，不随group层级缩小。max_rounds/ratio/error参数非法值拒绝。
-- [ ] `test_subtilis_dag_builder`先RED；初始及粗层聚类用`meshopt_buildMeshlets(max_vertices=256,max_triangles=85,cone_weight=0)`并还原到原始顶点ID，分区用`meshopt_partitionClusters`，简化用`meshopt_simplifyWithAttributes`。位置等价不焊接实际属性；锁当前组外边界，重算候选边界和bounds后才接受。第三方allocator只安装一次。
-- [ ] GREEN：上述语义与已知减量fixture通过；任务候选可独立构建/销毁，没有共享输出区写入。
-- [ ] 本地提交：`feat: build constrained cluster reduction candidates`。
+- [x] RED：曲面网格的leaf≤85tri/256vertex且精确覆盖源；两组共享边、UV缝/硬法线、重复位置不同属性、断开组件与非流形；合法简化真正减量，细粗外边界相同，非法/无进展候选保留原几何并报告。
+- [x] RED：无NaN/越界/反向面、拒绝通过删源三角形伪造LOD0；normal/UV属性尺度固定于primitive，不随group层级缩小。max_rounds/ratio/error参数非法值拒绝。
+- [x] `test_subtilis_dag_builder`先RED；初始及粗层聚类用`meshopt_buildMeshlets(max_vertices=256,max_triangles=85,cone_weight=0)`并还原到原始顶点ID，分区用`meshopt_partitionClusters`，简化用`meshopt_simplifyWithAttributes`。位置等价不焊接实际属性；锁当前组外边界，重算候选边界和bounds后才接受。第三方allocator只安装一次。
+- [x] GREEN：上述语义与已知减量fixture通过；任务候选可独立构建/销毁，没有共享输出区写入。
+- [x] 本地提交：`feat: build constrained cluster reduction candidates`。
 
 ## Task 5 — 串行DAG builder与最小可用CLI
 
