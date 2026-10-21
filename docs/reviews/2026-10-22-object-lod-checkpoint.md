@@ -56,3 +56,26 @@ Validation: initial cut stub RED (590 failures); raw closure regression RED
 (2 failures). Root Release build/full CTest **60/60** (42.69s), ASan/UBSan DAG
 tests **2/2** (1.71s), independent converter CTest **6/6** (1.42s). No GPU
 performance or runtime adoption is claimed at this step.
+
+## Task 3: CPU payload import and fallback classification
+
+- `import_payload` accepts the loader's 64B interleaved vertices and 16/32-bit
+  indices, reuses the wire decoder/structural validator/source fingerprint, and
+  creates an owning DAG plus the exact combined index stream. Normal cones make
+  no claim (`axis=0, cone_cos=0`); original vertex data is copied unchanged.
+- Immutable imported data can be shared; cache identity is
+  `{sourceHash, SHA-256(wire bytes)}`, with buildHash retained separately.
+- Tests cover invalid extension/wire, profile/material rejection, source/NaN/
+  index mismatches, invalid DAG, LOD0-only and >4096 leaves. Source ownership,
+  repeat identity and equivalent 16/32-bit core indices also pass. Table budgets
+  and frame/admission policies belong to Tasks 4–6, not this pure function.
+- Production import does not call `make_asset` or repeat geometric boundary
+  analysis; full fixture validation remains in Task 2.
+
+Ruling: the brief's `3*index_count` was a unit typo. `import_input.index_count`
+already counts indices, so the LOD0 prefix must equal that count, per spec §4.3.
+Callers must supply index counts, not triangle counts.
+
+Validation: initial import stub RED (12 failures). Root Release build/full CTest
+**61/61** (42.76s), ASan/UBSan import **1/1** (1.00s). Loader extraction and actual
+GPU adoption still follow in Tasks 4/5.

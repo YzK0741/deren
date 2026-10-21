@@ -6,7 +6,7 @@
 **Architecture:** 复用已接受的 converter CPU 模块（types/codec/digest/dag/cut）在 root 侧编译为静态资产库；engine 新增 DAG 层级（cluster producer/consumer + group fine/coarse 引用 + LOD 球/error + roots/leaves）与移植自 converter reference 的 CPU DAG cut；gltf_loader 只提取 payload 原始字节与扩展字段，import 时由 engine 完成解码/身份/结构校验/翻译并共享 generation；每帧 item cut 继续走 M1b 的 run/发布/HZB 管线，raster/resolve 数学不变。
 **Tech Stack:** CMake 4.3、C++23 modules、Clang64/libc++、vessel/mimalloc、yyjson 0.12.0（root 已有 `yyjson_vendored`）、fastgltf 0.9/simdjson（仅在 deren_assets/gltf_loader）、meshoptimizer v1.3（只给现有 builder/forest 参考路径，本 feature 的 import 不使用 builder）。无 CUDA/Vulkan 依赖给新 CPU 测试。
 **Spec:** `docs/superpowers/specs/2026-10-21-object-lod-runtime-design.md`。代码基线 `f4d3b8e7`（converter Task 1-8 已接受）。计划时 HEAD `f4d3b8e7`。
-**状态：** 已评审通过（2026-10-21：Q1 seam = 方案 C、Q2 单一 `subtilis` 开关、Q4 TANGENT-stripped 派生测量资产；Q3/Q5/Q6 按推荐默认）。用户于 2026-10-22 明确恢复实施；Tasks 1–2 已验收，接下来从 Task 3 继续，逐任务独立验收/本地提交/不 push。
+**状态：** 已评审通过（2026-10-21：Q1 seam = 方案 C、Q2 单一 `subtilis` 开关、Q4 TANGENT-stripped 派生测量资产；Q3/Q5/Q6 按推荐默认）。用户于 2026-10-22 明确恢复实施；Tasks 1–3 已验收，接下来从 Task 4 继续，逐任务独立验收/本地提交/不 push。
 
 ## Global Constraints
 
@@ -114,14 +114,14 @@
 **Interfaces**：`import_report`/`import_decision`：`struct import_input { span<const uint8_t> payload_bytes; uint32_t version; string_view profile; bool profile_attributes; bool material_opaque; span<const uint8_t> vertex_bytes; uint32_t vertex_stride, vertex_count; span<const uint8_t> index_bytes; uint32_t index_width, index_count; }`；`expected<imported_asset, import_failure>`，`import_failure` 枚举与 spec §4.4 表一致；`imported_asset` 拥有 `dag_asset`、`built_geometry` 所需数据（vertices/indices/lod0_clusters）、sourceHash/buildHash 记录。
 
 **RED**：
-- [ ] 测试用例：合法 fixture → adopted，`lod0_index_count`/叶簇/index 前缀正确；sourceHash 不匹配 → `source_mismatch`；version≠1/profile 非法/bufferView 越界/坏 wire → `invalid_payload`；属性集合不符 → `profile_mismatch`；非 OPAQUE → `material_not_opaque`；LOD0-only（groups 空）→ `lod0_only`；叶簇 >4096 或 capacity → `capacity_item`；非法 DAG → `invalid_dag`；全部 typed 返回且不 panic/不 partial 输出。
-- [ ] 先运行确认 RED。
+- [x] 测试用例：合法 fixture → adopted，`lod0_index_count`/叶簇/index 前缀正确；sourceHash 不匹配 → `source_mismatch`；version≠1/profile 非法/bufferView 越界/坏 wire → `invalid_payload`；属性集合不符 → `profile_mismatch`；非 OPAQUE → `material_not_opaque`；LOD0-only（groups 空）→ `lod0_only`；叶簇 >4096 或 capacity → `capacity_item`；非法 DAG → `invalid_dag`；全部 typed 返回且不 panic/不 partial 输出。
+- [x] 先运行确认 RED。
 
 **GREEN**：
-- [ ] 解码复用 `deren::asset::subtilis::decode` + `validate_structure`；source geometry 从 64B interleaved vertex + index bytes 重建（position/normal/uv0；缺 TEXCOORD_0 且材质不需要 UV 时按转换器规则补 0；用 `source_digest` 重算并与 payload `sourceHash` 比较）。
-- [ ] 翻译按 spec §4.3（cluster meshlet record：base_vertex=0/pad=0/axis=0/cone_cos=0/几何球；groups 引用范围直接映射；INDICES 原样；LOD0 叶簇按 first_index 排序平铺；校验 `lod0_index_count == 3*index_count` 且 LOD0 窗口平铺）。
-- [ ] DAG 校验复用 `make_asset`？——**不**：生产 import 不做完整几何校验（spec §3.4）；本任务只调用 `validate_structure` + 新 `dag_asset::make` + sourceHash/覆盖率检查；完整 `make_asset` 只在测试（Task 2/本任务 fixture）里调用做交叉验证。
-- [ ] 多实例共享设计先落数据侧：`imported_asset` 可被 `std::shared_ptr` 共享；键为 `{sourceHash, SHA-256(payload_bytes)}`（Task 4 接 loader 时使用）。
+- [x] 解码复用 `deren::asset::subtilis::decode` + `validate_structure`；source geometry 从 64B interleaved vertex + index bytes 重建（position/normal/uv0；缺 TEXCOORD_0 且材质不需要 UV 时按转换器规则补 0；用 `source_digest` 重算并与 payload `sourceHash` 比较）。
+- [x] 翻译按 spec §4.3（cluster meshlet record：base_vertex=0/pad=0/axis=0/cone_cos=0/几何球；groups 引用范围直接映射；INDICES 原样；LOD0 叶簇按 first_index 排序平铺；校验 `lod0_index_count == index_count` 且 LOD0 窗口平铺）。
+- [x] DAG 校验复用 `make_asset`？——**不**：生产 import 不做完整几何校验（spec §3.4）；本任务只调用 `validate_structure` + 新 `dag_asset::make` + sourceHash/覆盖率检查；完整 `make_asset` 只在测试（Task 2/本任务 fixture）里调用做交叉验证。
+- [x] 多实例共享设计先落数据侧：`imported_asset` 可被 `std::shared_ptr` 共享；键为 `{sourceHash, SHA-256(payload_bytes)}`（Task 4 接 loader 时使用）。
 
 **Acceptance**：`ctest -R '^test_subtilis_import$'`（CPU 部分）绿；无 Vulkan 依赖；ASan 绿；spec §4.4 表每行有对应用例（打印覆盖清单）。
 
