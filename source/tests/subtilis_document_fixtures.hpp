@@ -58,7 +58,10 @@ namespace subtilis_document_fixture {
         yyjson_mut_doc_free(doc);
         return out;
     }
-    inline fixture make_fixture(sub::source_geometry const& s) {
+    // Default fixture: no unknown extensions, so GLB packaging/relocation is allowed (the unknown
+    // extension semantics rule refuses unknown extensions for GLB). Pass with_unknown_extension=true
+    // for the preservation/refusal arms that exercise an unknown optional extension.
+    inline fixture make_fixture(sub::source_geometry const& s, bool with_unknown_extension = false) {
         fixture f;
         for (auto const& row : s.positions)
             for (float v : row)
@@ -81,6 +84,11 @@ namespace subtilis_document_fixture {
         substitute("@L@", s.indices.size() * 4);
         substitute("@V@", s.positions.size());
         substitute("@C@", s.indices.size());
+        if (!with_unknown_extension)
+            f.json = edit_json(f.json, [](auto*, auto* root) {
+                yyjson_mut_obj_remove_key(root, "extensions");
+                yyjson_mut_obj_remove_key(root, "extensionsUsed");
+            });
         return f;
     }
 } // namespace subtilis_document_fixture

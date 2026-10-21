@@ -53,6 +53,11 @@ namespace deren::tools::subtilis {
     result<vector<byte>> serialize_embedded_glb(document const& d) {
         if (!d.state)
             return fail("empty document");
+        // Shared GLB-relocation precondition (both the fast self-contained path and the merging
+        // writer below were checked separately before; a self-contained GLB short-circuited past it).
+        auto safe = glb_relocation_safe(d);
+        if (!safe)
+            return std::unexpected(safe.error());
         if (!d.state->self_contained)
             return pack_glb(d);
         auto* images = member(root(d), "images");

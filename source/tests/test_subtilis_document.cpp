@@ -51,7 +51,7 @@ int main() {
             auto raw = tool::payload_bytes(*reloaded, {0, 0});
             CHECK(raw && *raw == *wire);
             auto json = tool::serialize_json(*reloaded);
-            CHECK(json && json->find("18446744073709551615") != sub::string::npos && json->find("keep me") != sub::string::npos);
+            CHECK(json);
             if (json) {
                 auto* before = yyjson_read(f.json.data(), f.json.size(), 0);
                 auto* after = yyjson_read(json->data(), json->size(), 0);
@@ -59,13 +59,16 @@ int main() {
                 if (before && after) {
                     auto* a = yyjson_doc_get_root(before);
                     auto* b = yyjson_doc_get_root(after);
-                    for (auto key : {"nodes", "scenes", "materials", "accessors", "extras", "extensions"})
-                        CHECK(yyjson_equals(yyjson_obj_get(a, key), yyjson_obj_get(b, key)));
+                    auto same = [](yyjson_val* left, yyjson_val* right) { return left == nullptr || right == nullptr ? left == right : yyjson_equals(left, right); };
+                    for (auto key : {"nodes", "scenes", "materials", "accessors", "extras"})
+                        CHECK(same(yyjson_obj_get(a, key), yyjson_obj_get(b, key)));
+                    // The default fixture deliberately carries no unknown extensions (GLB relocation
+                    // must not guess their semantics); the unknown-extension preservation arm below
+                    // covers the DOM path.
+                    CHECK(yyjson_obj_get(a, "extensions") == nullptr && yyjson_obj_get(b, "extensions") == nullptr);
                     auto primitive = [](yyjson_val* root) { return yyjson_arr_get(yyjson_obj_get(yyjson_arr_get(yyjson_obj_get(root, "meshes"), 0), "primitives"), 0); };
                     for (auto key : {"attributes", "indices", "material"})
-                        CHECK(yyjson_equals(yyjson_obj_get(primitive(a), key), yyjson_obj_get(primitive(b), key)));
-                    auto* metadata = yyjson_obj_get(yyjson_obj_get(yyjson_obj_get(yyjson_obj_get(b, "extensions"), "VENDOR_metadata"), "nested"), "u");
-                    CHECK(yyjson_is_uint(metadata) && yyjson_get_uint(metadata) == UINT64_MAX);
+                        CHECK(same(yyjson_obj_get(primitive(a), key), yyjson_obj_get(primitive(b), key)));
                     for (size_t i = 0; i < 4; ++i)
                         CHECK(yyjson_equals(yyjson_arr_get(yyjson_obj_get(a, "bufferViews"), i), yyjson_arr_get(yyjson_obj_get(b, "bufferViews"), i)));
                 }
@@ -81,8 +84,18 @@ int main() {
                     auto saved = tool::serialize_json(*required_doc);
                     CHECK(saved && saved->find("\"extensionsRequired\":[\"DEREN_subtilis\"]") != sub::string::npos);
                 }
-                replace(required_json, "\"VENDOR_metadata\",\"DEREN_subtilis\"", "\"VENDOR_metadata\"");
-                write(dir / "not-used.glb", glb(required_json, cooked_bin));
+                // A required extension that extensionsUsed does not declare is invalid.
+                auto not_used_json = edit_json(required_json, [](auto*, auto* root) {
+                    auto* used = yyjson_mut_obj_get(root, "extensionsUsed");
+                    if (!yyjson_mut_is_arr(used))
+                        return;
+                    for (size_t i = yyjson_mut_arr_size(used); i-- > 0;) {
+                        auto* value = yyjson_mut_arr_get(used, i);
+                        if (yyjson_mut_is_str(value) && std::string_view(yyjson_mut_get_str(value)) == "DEREN_subtilis")
+                            yyjson_mut_arr_remove(used, i);
+                    }
+                });
+                write(dir / "not-used.glb", glb(not_used_json, cooked_bin));
                 CHECK(!tool::read_document(dir / "not-used.glb", {}));
             }
             auto source = tool::extract_geometry(*reloaded, {0, 0});
@@ -99,6 +112,54 @@ int main() {
                 }
             }
         }
+    }
+    // Unknown optional extension: the DOM stays readable/serializable (glTF package path), but a
+    // single-file GLB output must refuse because the extension's binary/external-reference semantics
+    // cannot be relocated safely. Both GLB writers are covered: no-image (the self-contained fast
+    // path) and data-URI-image (the merging path).
+    {
+        auto unknown = make_fixture(fixture.source, true);
+        write(dir / "unknown-metadata.glb", glb(unknown.json, unknown.bin));
+        auto unknown_doc = tool::read_document(dir / "unknown-metadata.glb", {});
+        CHECK(unknown_doc);
+        if (unknown_doc) {
+            auto saved = tool::serialize_json(*unknown_doc);
+            CHECK(saved && saved->find("VENDOR_metadata") != sub::string::npos && saved->find("18446744073709551615") != sub::string::npos && saved->find("keep me") != sub::string::npos);
+            auto refused = tool::serialize_embedded_glb(*unknown_doc);
+            CHECK(!refused);
+            if (!refused)
+                CHECK(refused.error().code == sub::error_code::io);
+            auto with_image = edit_json(unknown.json, [](auto* d, auto* root) {
+                auto* images = yyjson_mut_arr(d);
+                auto* image = yyjson_mut_obj(d);
+                yyjson_mut_obj_add_str(d, image, "uri", "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ9sAAAAASUVORK5CYII=");
+                yyjson_mut_arr_append(images, image);
+                yyjson_mut_obj_add_val(d, root, "images", images);
+            });
+            write(dir / "unknown-metadata-image.glb", glb(with_image, unknown.bin));
+            auto image_doc = tool::read_document(dir / "unknown-metadata-image.glb", {});
+            CHECK(image_doc);
+            if (image_doc) {
+                auto image_refused = tool::serialize_embedded_glb(*image_doc);
+                CHECK(!image_refused);
+                if (!image_refused)
+                    CHECK(image_refused.error().code == sub::error_code::io);
+            }
+        }
+    }
+    // Known relocation-safe extension names are still accepted for GLB output.
+    {
+        auto known = make_fixture(fixture.source);
+        known.json = edit_json(known.json, [](auto* d, auto* root) {
+            auto* used = yyjson_mut_arr(d);
+            yyjson_mut_arr_add_str(d, used, "KHR_mesh_quantization");
+            yyjson_mut_obj_add_val(d, root, "extensionsUsed", used);
+        });
+        write(dir / "known-extension.glb", glb(known.json, known.bin));
+        auto known_doc = tool::read_document(dir / "known-extension.glb", {});
+        CHECK(known_doc);
+        if (known_doc)
+            CHECK(tool::serialize_embedded_glb(*known_doc));
     }
     auto check_eligible = [&](sub::string json, size_t expected) {write(dir/"variant.glb",glb(std::move(json),f.bin)); auto d=tool::read_document(dir/"variant.glb",{});CHECK(d);if(d){auto e=tool::eligible_primitives(*d);CHECK(e && e->size()==expected);} };
     auto no_normal = f.json;
@@ -261,19 +322,37 @@ int main() {
         yyjson_mut_obj_add_val(d, root, "textures", textures);
     });
     check_eligible(textured_no_uv, 0);
-    auto required = f.json;
-    replace(required, "\"extensionsUsed\":", "\"extensionsRequired\":[\"UNKNOWN_required\"],\"extensionsUsed\":");
-    write(dir / "unknown.glb", glb(required, f.bin));
+    auto unknown_required = edit_json(f.json, [](auto* d, auto* root) {
+        auto* required_list = yyjson_mut_arr(d);
+        yyjson_mut_arr_add_str(d, required_list, "UNKNOWN_required");
+        yyjson_mut_obj_add_val(d, root, "extensionsRequired", required_list);
+    });
+    write(dir / "unknown.glb", glb(unknown_required, f.bin));
     CHECK(!tool::read_document(dir / "unknown.glb", {}));
     // A known name does not make an unsupported major/profile usable when required.
-    auto bad_required = f.json;
-    replace(bad_required, "\"attributes\":", "\"extensions\":{\"DEREN_subtilis\":{\"version\":2,\"profile\":\"shared-vertices\",\"bufferView\":0}},\"attributes\":");
-    replace(bad_required, "\"extensionsUsed\":[\"VENDOR_metadata\"]", "\"extensionsUsed\":[\"VENDOR_metadata\",\"DEREN_subtilis\"],\"extensionsRequired\":[\"DEREN_subtilis\"]");
+    auto bad_required = edit_json(f.json, [](auto* d, auto* root) {
+        auto* primitive = yyjson_mut_arr_get(yyjson_mut_obj_get(yyjson_mut_arr_get(yyjson_mut_obj_get(root, "meshes"), 0), "primitives"), 0);
+        auto* extensions = yyjson_mut_obj(d);
+        auto* payload = yyjson_mut_obj(d);
+        yyjson_mut_obj_add_uint(d, payload, "version", 2);
+        yyjson_mut_obj_add_str(d, payload, "profile", "shared-vertices");
+        yyjson_mut_obj_add_uint(d, payload, "bufferView", 0);
+        yyjson_mut_obj_add_val(d, extensions, "DEREN_subtilis", payload);
+        yyjson_mut_obj_add_val(d, primitive, "extensions", extensions);
+        auto* used = yyjson_mut_arr(d);
+        yyjson_mut_arr_add_str(d, used, "DEREN_subtilis");
+        yyjson_mut_obj_add_val(d, root, "extensionsUsed", used);
+        auto* required_list = yyjson_mut_arr(d);
+        yyjson_mut_arr_add_str(d, required_list, "DEREN_subtilis");
+        yyjson_mut_obj_add_val(d, root, "extensionsRequired", required_list);
+    });
     write(dir / "unsupported.glb", glb(bad_required, f.bin));
     CHECK(!tool::read_document(dir / "unsupported.glb", {}));
     // Unsupported optional payload leaves ordinary LOD0 readable.
-    replace(bad_required, ",\"extensionsRequired\":[\"DEREN_subtilis\"]", "");
-    write(dir / "optional.glb", glb(bad_required, f.bin));
+    auto optional = edit_json(bad_required, [](auto*, auto* root) {
+        yyjson_mut_obj_remove_key(root, "extensionsRequired");
+    });
+    write(dir / "optional.glb", glb(optional, f.bin));
     CHECK(tool::read_document(dir / "optional.glb", {}));
     auto bad_window = f.json;
     replace(bad_window, "\"bufferView\":0,\"componentType\":5126", "\"bufferView\":0,\"byteOffset\":18446744073709551612,\"componentType\":5126");

@@ -334,3 +334,113 @@ cross-group repartitions) and all 254 Bistro primitives now build+validate at th
 byte-identical payloads. Files: `source/asset/subtilis/dag.cpp` and
 `source/tests/test_subtilis_dag_builder.cpp` (only). This must be reviewed/committed separately
 from the Task 8 evidence documentation.
+## Fresh-review disposition (review 2026-10-21, review report docs/reviews/2026-10-21-subtilis-converter-review.md)
+
+Reviewed commit: `20e05cb9` (Task 8). The review found no Critical issues, one Important finding (I-1)
+and minors M-1..M-9. I-1 was fixed in the follow-up worktree change described below; the minors are
+recorded with the Lead's decisions and the reviewer's section-6 residuals are carried into this record.
+
+### I-1 fixed: one GLB relocation-safety precondition for both GLB writers
+
+Requirement: design spec line 168 and tools/subtilis/README ("unknown binary-reference semantics must
+not be guessed; refuse that GLB output"). The rule used to run only on the non-self-contained/merging
+path: `serialize_embedded_glb()` short-circuited self-contained GLB inputs to `make_glb()` with no
+extension check, and `pack_glb()`'s allowlist was guarded by `!self_contained`. A self-contained GLB
+with an unknown extension (even one whose URI became dangling after relocation) therefore converted
+successfully while the same extension in a non-self-contained glTF correctly failed (review I-1).
+
+Fix (smallest defensible shape, no wire/identity change): a single
+`result<void> glb_relocation_safe(document const&)` in `tools/subtilis/resources.cpp` (declared in
+`tools/subtilis/document_internal.hpp`) is now called from BOTH GLB writers - the top of
+`serialize_embedded_glb()` (covers the self-contained fast path before it branches) and the top of
+`pack_glb()` (the `!self_contained` guard is gone, so the two writers cannot disagree). It scans the
+document DOM recursively (skipping arbitrary `extras`): every name in `extensionsUsed`/
+`extensionsRequired` and every object under any `extensions` member must be in the existing known
+relocatable allowlist (`DEREN_subtilis`, `KHR_mesh_quantization`, `KHR_texture_transform`,
+`KHR_materials_unlit`, `KHR_lights_punctual`); unknown/invalid entries return a typed
+`asset::error_code::io` error with the existing message ("unknown extension prevents safe GLB
+relocation; use a glTF package"), which the CLI reports as exit 5. DOM-based scanning also hardens
+M-1: a non-conformant extension object that is not listed in `extensionsUsed` no longer bypasses the
+rule (strict decision, covered by a test).
+
+RED evidence (pre-fix `20e05cb9` code, probes rebuilt from the archived known-extension
+`outputs/small.glb` by editing only the JSON chunk):
+- self-contained GLB + `extensionsUsed:["VENDOR_binary"]` + root `VENDOR_binary.uri="vendor-blob.bin"`,
+  no images (fast `make_glb` path): CLI exit 0, 97,768-byte output written.
+- same + data-URI PNG image (forces `pack_glb`): CLI exit 0, output written and still containing
+  `{"VENDOR_binary":{"uri":"vendor-blob.bin"}}` relative to the new location (dangling after relocation).
+- extension object present but not listed in `extensionsUsed` (M-1 non-conformant): CLI exit 0.
+- non-self-contained glTF with the same extension: CLI exit 5 (the pre-existing correct arm).
+- New regression tests against the pre-fix code: `test_subtilis_document` 190 checks / 2 failed
+  (`CHECK(!refused)`, `CHECK(!image_refused)`); `test_subtilis_converter` 588 checks / 13 failed
+  (self-contained GLB exit-5/absent-output expectations, typed-io assertions on both writers, and the
+  unlisted-extension arm).
+
+GREEN evidence (fixed worktree):
+- same three probes: CLI exit 5 with "unknown extension prevents safe GLB relocation; use a glTF
+  package"; no output file is created; a pre-existing target stays byte-identical with `--overwrite`;
+  no staging leftovers.
+- `--format gltf` package output on the same self-contained GLB still succeeds and preserves
+  `extensionsUsed:["VENDOR_binary"]` and the extension object (package path untouched).
+- both GLB writers report the same typed io error through the host API (`tool::write_package` and a
+  direct `tool::pack_glb` call) for the self-contained fast, self-contained merging and non-self-contained
+  arms; known extension `KHR_mesh_quantization` remains accepted.
+- positive control known-extension cooked GLB (archived `outputs/small.glb`, sha256
+  `451dcd9a13950045d47ace7c89fe2b7245961a65af9accfbd1966615976ec36d`): before and after the fix the
+  conversion exits 0, reports `reused=1`/`converted=0`, the output is byte-identical
+  (same `451dcd9a...` sha) and `deren-subtilis validate --full` passes. The real-asset matrix output is
+  also unchanged (bistro-merged rebuild sha `b235aa40...40b47`, 247,474,732 bytes).
+- tests GREEN: `test_subtilis_document` 192 checks / 0 failed (reviewed baseline 153; the new arms add
+  39 checks), `test_subtilis_converter` 587 checks / 0 failed (reviewed baseline 518; the I-1 arms add
+  69 checks). With the pre-fix code plus the new tests the same binaries reported document 190/2 failed
+  and converter 588/13 failed (the RED run counts one extra check because an arm proceeds past a
+  failing expectation before aborting).
+- fixture bookkeeping needed by the new rule: `make_fixture()` now produces a fixture without unknown
+  extensions by default (so existing GLB-output arms exercise the safe path), with
+  `make_fixture(source, true)` for the preservation/refusal arms; the rich package-preservation fixture
+  re-adds its own unknown optional extension explicitly, so the glTF-package preservation coverage is
+  kept.
+
+### Minors M-1..M-9 disposition (Lead decisions; not all implemented)
+
+- M-1 (extension object not listed in `extensionsUsed` bypassed the allowlist) - HARDENED as part of
+  the I-1 helper (DOM scan above; strict refusal test added). Not merely recorded.
+- M-2 (`..`/parent URI reads) - explicit decision: accepted/documented (path traversal within the
+  caller-readable filesystem; the tool is not a sandbox and input byte limits still apply). Not changed.
+- M-3 (`publish_replace`/`publish_no_replace` dead helpers) - acknowledged dead code; removal not in
+  this bounded fix. Not changed.
+- M-4 (unused variable `canonical` in `scripts/measure/verify_subtilis_converter.py`) - FIXED (line
+  removed); gate `--self-test` still 11/11.
+- M-5 (`--help` omission in the CLI usage output) - acknowledged; not in scope. Not changed.
+- M-6 (plan Task 8 bullet literally names bistro-geometry.gltf while the accepted real asset is
+  bistro-merged.gltf) - recorded in the Task 8 evidence report (specified-input.json shows the
+  TANGENT-ineligible result; real-asset.json documents the substitution); no code change.
+- M-7 (DLL note) - acknowledged as recorded, non-blocking.
+- M-8, M-9 - acknowledged non-blocking as recorded by the reviewer.
+
+### Reviewer section-6 residuals carried into the acceptance record
+
+6.1 Windows ASan has no LeakSanitizer (Linux LSan remains the follow-up; the sanitizer CI job documents
+this). 6.2 Converter peak memory is a 20 ms-polled working-set lower bound, and meshoptimizer
+temporaries are not provably bounded; Linux CI peak-RSS/LSan is still the right place to bound it. 6.3
+The independent CPU CI workflow was never executed on a GitHub runner in this session (local-commit
+rule); only its assertions were simulated locally. 6.4 The cross-volume staging test arm exists but
+SKIPPED in this environment (no second writable volume for the test process); cross-volume behaviour is
+reasoned-by-inspection, not measured. 6.5 `bistro-geometry.gltf` is TANGENT-ineligible (recorded, not
+silently skipped). 6.6 Multiple simultaneous reduction failures report one of the failing tasks'
+typed errors (failure-message determinism not asserted; success-path determinism is). 6.7 Measurement
+medians/per-round data were independently recomputed by the reviewer and matched the archived JSONs.
+6.8 The earlier seam-sharing validator fix's RED half was manually witnessed (test counts recorded);
+the reviewer verified the GREEN from the committed tree. The reviewer also did not re-run the root
+engine suite in this environment: root CTest 58/58 remains the unchanged regression and is the Lead's
+final gate before committing.
+
+### Review follow-up files changed
+
+`tools/subtilis/document_internal.hpp`, `tools/subtilis/resources.cpp`, `tools/subtilis/document.cpp`,
+`tools/subtilis/README.md` (claim now states both GLB input forms), `source/tests/subtilis_document_fixtures.hpp`,
+`source/tests/test_subtilis_document.cpp`, `source/tests/test_subtilis_converter.cpp`,
+`scripts/measure/verify_subtilis_converter.py` (M-4). No wire-format, identity, root engine/CMake or
+`.github/workflows/ci.yml` change. `cmake --build build-subtilis` and `build-subtilis-asan` clean;
+standalone Release CTest 6/6 (1.47 s) and ASan/UBSan 6/6 (25.21 s) green; `test_docs` 395 checks/0
+failed. No commit from the implementer: the Lead reviews and commits.

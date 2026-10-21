@@ -1,5 +1,6 @@
 #include "../../tools/subtilis/commands.hpp"
 #include "../../tools/subtilis/package_internal.hpp"
+#include "../../tools/subtilis/document_internal.hpp"
 #include "../../tools/subtilis/package_limits.hpp"
 #include "subtilis_dag_fixtures.hpp"
 #include "vk_test.h"
@@ -308,6 +309,22 @@ namespace {
             yyjson_mut_obj_add_uint(d, texture_info, "index", 0);
             yyjson_mut_obj_add_val(d, pbr, "baseColorTexture", texture_info);
             yyjson_mut_obj_add_val(d, material, "pbrMetallicRoughness", pbr);
+            // Unknown optional extension: the glTF package must preserve it (GLB relocation refuses
+            // it, which the self-contained-GLB regression in section F2 covers).
+            auto* used = yyjson_mut_obj_get(root, "extensionsUsed");
+            if (!used) {
+                used = yyjson_mut_arr(d);
+                yyjson_mut_obj_add_val(d, root, "extensionsUsed", used);
+            }
+            yyjson_mut_arr_add_str(d, used, "VENDOR_metadata");
+            auto* extensions = yyjson_mut_obj(d);
+            auto* metadata = yyjson_mut_obj(d);
+            auto* nested = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_uint(d, nested, "u", UINT64_MAX);
+            yyjson_mut_obj_add_str(d, nested, "text", "keep me");
+            yyjson_mut_obj_add_val(d, metadata, "nested", nested);
+            yyjson_mut_obj_add_val(d, extensions, "VENDOR_metadata", metadata);
+            yyjson_mut_obj_add_val(d, root, "extensions", extensions);
         });
         write_bytes(directory / "geometry data.bin", rich.geometry);
         write_bytes(directory / "animation data.bin", rich.animation);
@@ -713,6 +730,102 @@ namespace {
             yyjson_doc_free(output_root);
             CHECK(run_cli({"validate", tool::package_detail::package_json_path(root / "unknown-out").generic_string(), "--full"}) == 0);
         }
+        // F2. Review I-1 regression: the GLB relocation-safety rule is one shared precondition for
+        // BOTH GLB writers, so a self-contained GLB input cannot bypass it. Before the fix these
+        // probes exited 0 and the relocated output kept the dangling unknown-extension URI.
+        auto bad_extension_json = edit_json(base.json, [](auto* d, auto* root) {
+            auto* used = yyjson_mut_arr(d);
+            yyjson_mut_arr_add_str(d, used, "VENDOR_binary");
+            yyjson_mut_obj_add_val(d, root, "extensionsUsed", used);
+            auto* extensions = yyjson_mut_obj(d);
+            auto* binary = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_str(d, binary, "uri", "vendor-blob.bin");
+            yyjson_mut_obj_add_val(d, extensions, "VENDOR_binary", binary);
+            yyjson_mut_obj_add_val(d, root, "extensions", extensions);
+        });
+        auto bad_self_contained = dir / "unknown-self-contained.glb";
+        write(bad_self_contained, glb(bad_extension_json, base.bin));
+        // (a) self-contained GLB + unknown binary extension, no image: the fast GLB writer refuses.
+        CHECK(run_cli({"build", bad_self_contained.generic_string(), "-o", (root / "bad-self.glb").generic_string()}) == 5);
+        CHECK(!std::filesystem::exists(root / "bad-self.glb", ec));
+        auto sentinel = root / "bad-self-target.glb";
+        write_text(sentinel, "sentinel");
+        CHECK(run_cli({"build", bad_self_contained.generic_string(), "-o", sentinel.generic_string(), "--overwrite"}) == 5);
+        CHECK(read_text(sentinel) == "sentinel");
+        check_no_staging(root);
+        auto bad_doc = tool::read_document(bad_self_contained, {});
+        CHECK(bad_doc);
+        if (bad_doc) {
+            auto direct = tool::write_package(*bad_doc, root / "bad-self-direct.glb", {});
+            CHECK(!direct && direct.error().code == sub::error_code::io);
+            auto packed = tool::pack_glb(*bad_doc); // second writer, no CLI wrapper
+            CHECK(!packed && packed.error().code == sub::error_code::io);
+        }
+        // The same self-contained GLB with a data-URI image selects the merging writer; that writer
+        // applies the same precondition (it used to skip its allowlist for self-contained inputs).
+        auto bad_image_json = edit_json(bad_extension_json, [](auto* d, auto* root) {
+            auto* images = yyjson_mut_arr(d);
+            auto* image = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_str(d, image, "uri", "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ9sAAAAASUVORK5CYII=");
+            yyjson_mut_arr_append(images, image);
+            yyjson_mut_obj_add_val(d, root, "images", images);
+        });
+        auto bad_image_glb = dir / "unknown-self-contained-image.glb";
+        write(bad_image_glb, glb(bad_image_json, base.bin));
+        CHECK(run_cli({"build", bad_image_glb.generic_string(), "-o", (root / "bad-self-image.glb").generic_string()}) == 5);
+        CHECK(!std::filesystem::exists(root / "bad-self-image.glb", ec));
+        auto bad_image_doc = tool::read_document(bad_image_glb, {});
+        CHECK(bad_image_doc);
+        if (bad_image_doc) {
+            auto packed = tool::pack_glb(*bad_image_doc);
+            CHECK(!packed && packed.error().code == sub::error_code::io);
+        }
+        // (b) the same bad extension in a non-self-contained glTF still fails (arm F above), and its
+        // merging writer reports the same typed error.
+        auto unknown_doc = tool::read_document(dir / "unknown.gltf", {});
+        CHECK(unknown_doc);
+        if (unknown_doc) {
+            auto packed = tool::pack_glb(*unknown_doc);
+            CHECK(!packed && packed.error().code == sub::error_code::io);
+        }
+        // (c) M-1 strict decision: an unknown extension object that is NOT listed in extensionsUsed
+        // must not bypass the same helper (non-conformant input, refused rather than guessed).
+        auto unlisted_json = edit_json(base.json, [](auto* d, auto* root) {
+            auto* extensions = yyjson_mut_obj(d);
+            auto* binary = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_str(d, binary, "uri", "vendor-blob.bin");
+            yyjson_mut_obj_add_val(d, extensions, "VENDOR_binary", binary);
+            yyjson_mut_obj_add_val(d, root, "extensions", extensions);
+        });
+        auto unlisted_glb = dir / "unknown-unlisted.glb";
+        write(unlisted_glb, glb(unlisted_json, base.bin));
+        CHECK(run_cli({"build", unlisted_glb.generic_string(), "-o", (root / "unlisted.glb").generic_string()}) == 5);
+        CHECK(!std::filesystem::exists(root / "unlisted.glb", ec));
+        auto unlisted_doc = tool::read_document(unlisted_glb, {});
+        CHECK(unlisted_doc);
+        if (unlisted_doc) {
+            auto packed = tool::pack_glb(*unlisted_doc);
+            CHECK(!packed && packed.error().code == sub::error_code::io);
+        }
+        // Known relocation-safe extension names remain accepted for GLB output.
+        auto known_json = edit_json(base.json, [](auto* d, auto* root) {
+            auto* used = yyjson_mut_arr(d);
+            yyjson_mut_arr_add_str(d, used, "KHR_mesh_quantization");
+            yyjson_mut_obj_add_val(d, root, "extensionsUsed", used);
+        });
+        auto known_glb = dir / "known-extension.glb";
+        write(known_glb, glb(known_json, base.bin));
+        CHECK(run_cli({"build", known_glb.generic_string(), "-o", (root / "known-extension.glb").generic_string()}) == 0);
+        // (d) positive control: a known-extension cooked GLB reuses its payload and re-serializes to
+        // byte-identical bytes (the reviewer's 451dcd9a... archived-asset check is reproduced in the
+        // task report; this is the same arm on the committed fixture).
+        auto known_cooked_bytes = read_bytes(dir / "cooked.glb");
+        CHECK(!known_cooked_bytes.empty());
+        auto reused_known = root / "known-reused.glb";
+        auto reuse_report = tool::convert_file(dir / "cooked.glb", reused_known, {});
+        CHECK(reuse_report && reuse_report->reused == 1 && reuse_report->converted == 0);
+        CHECK(read_bytes(reused_known) == known_cooked_bytes);
+
         // G. Buffer metadata that prevents a lossless GLB merge is preserved in a package.
         auto multiple_text = read_text(dir / "multiple.gltf");
         auto metadata_text = edit_json(as_sub_string(multiple_text), [](auto* d, auto* root) {

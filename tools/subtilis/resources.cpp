@@ -3,6 +3,76 @@
 #include <fastgltf/base64.hpp>
 
 namespace deren::tools::subtilis {
+    namespace {
+        // Extensions whose binary/external-reference semantics the tool models well enough to
+        // re-serialize a GLB at a new location. Anything else could carry a URI that becomes
+        // dangling after the relocation, which the design explicitly refuses to guess.
+        bool known_glb_extension(std::string_view name) {
+            return name == "DEREN_subtilis" || name == "KHR_mesh_quantization" || name == "KHR_texture_transform" || name == "KHR_materials_unlit" || name == "KHR_lights_punctual";
+        }
+        result<void> check_relocatable_extensions(yyjson_mut_val* value) {
+            if (!value)
+                return {};
+            if (yyjson_mut_is_obj(value)) {
+                yyjson_mut_obj_iter iterator;
+                yyjson_mut_obj_iter_init(value, &iterator);
+                while (auto* key = yyjson_mut_obj_iter_next(&iterator)) {
+                    auto* child = yyjson_mut_obj_iter_get_val(key);
+                    std::string_view name(yyjson_mut_get_str(key));
+                    if (name == "extras")
+                        continue; // arbitrary application data, not glTF extension semantics
+                    if (name == "extensionsUsed" || name == "extensionsRequired") {
+                        if (!yyjson_mut_is_arr(child))
+                            return fail("invalid extension list", asset::error_code::io);
+                        for (size_t i = 0; i < yyjson_mut_arr_size(child); ++i) {
+                            auto* entry = yyjson_mut_arr_get(child, i);
+                            if (!yyjson_mut_is_str(entry))
+                                return fail("invalid extension name", asset::error_code::io);
+                            if (!known_glb_extension(std::string_view(yyjson_mut_get_str(entry))))
+                                return fail("unknown extension prevents safe GLB relocation; use a glTF package", asset::error_code::io);
+                        }
+                        continue;
+                    }
+                    if (name == "extensions") {
+                        if (!yyjson_mut_is_obj(child)) {
+                            if (child && !yyjson_mut_is_null(child))
+                                return fail("invalid extensions object", asset::error_code::io);
+                            continue;
+                        }
+                        yyjson_mut_obj_iter extensions;
+                        yyjson_mut_obj_iter_init(child, &extensions);
+                        while (auto* extension = yyjson_mut_obj_iter_next(&extensions)) {
+                            if (!known_glb_extension(std::string_view(yyjson_mut_get_str(extension))))
+                                return fail("unknown extension prevents safe GLB relocation; use a glTF package", asset::error_code::io);
+                            auto nested = check_relocatable_extensions(yyjson_mut_obj_iter_get_val(extension));
+                            if (!nested)
+                                return nested;
+                        }
+                        continue;
+                    }
+                    auto nested = check_relocatable_extensions(child);
+                    if (!nested)
+                        return nested;
+                }
+                return {};
+            }
+            if (yyjson_mut_is_arr(value)) {
+                for (size_t i = 0; i < yyjson_mut_arr_size(value); ++i) {
+                    auto nested = check_relocatable_extensions(yyjson_mut_arr_get(value, i));
+                    if (!nested)
+                        return nested;
+                }
+            }
+            return {};
+        }
+    } // namespace
+    // This is deliberately DOM-based (not parsed-array-based): a non-conformant input can carry an
+    // extension object without listing it in extensionsUsed, and that must not bypass the rule.
+    result<void> glb_relocation_safe(document const& d) {
+        if (!d.state)
+            return fail("empty document", asset::error_code::io);
+        return check_relocatable_extensions(root(d));
+    }
     result<vector<byte>> read_local_resource(path const& parent, std::string_view uri, uint64_t max_bytes) {
         if (uri.starts_with("data:")) {
             auto comma = uri.find(',');
@@ -84,15 +154,11 @@ namespace deren::tools::subtilis {
         return {};
     }
     result<vector<byte>> pack_glb(document const& d) {
-        auto* used = member(root(d), "extensionsUsed");
-        for (size_t i = 0; !d.state->self_contained && i < yyjson_mut_arr_size(used); ++i) {
-            auto* v = yyjson_mut_arr_get(used, i);
-            if (!yyjson_mut_is_str(v))
-                return fail("invalid extension name");
-            auto name = std::string_view(yyjson_mut_get_str(v));
-            if (name != "DEREN_subtilis" && name != "KHR_mesh_quantization" && name != "KHR_texture_transform" && name != "KHR_materials_unlit" && name != "KHR_lights_punctual")
-                return fail("unknown extension prevents safe GLB relocation; use a glTF package");
-        }
+        // Merging GLB writer: the same relocation-safety precondition as the self-contained fast
+        // path, so the two writers cannot disagree about an input.
+        auto safe = glb_relocation_safe(d);
+        if (!safe)
+            return std::unexpected(safe.error());
         auto allocator = json_allocator();
         auto* copied = yyjson_mut_doc_mut_copy(d.state->json, &allocator);
         std::unique_ptr<yyjson_mut_doc, decltype(&yyjson_mut_doc_free)> owner(copied, yyjson_mut_doc_free);

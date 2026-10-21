@@ -530,7 +530,6 @@ def command_check(args):
         if not runs:
             findings.append(f"{asset.get('name')}: no successful run to validate")
             continue
-        canonical = sorted(runs, key=lambda run: (run["threads"], run["round"]))[0]
         source_path = Path(asset["path"])
         output_path = Path(next(run["output_path"] for run in asset["runs"] if run.get("output_path")))
         print(f"checking {asset['name']}: {output_path}")

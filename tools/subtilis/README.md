@@ -61,7 +61,11 @@ directory-package output, deterministic bounded multi-core build. Local buffer
 URIs support percent escaping. Known buffer references can merge into GLB;
 PNG/JPEG resources can embed without changing their bytes. Unknown extensions or
 buffer metadata that cannot relocate safely cause an explicit error for GLB and
-are preserved by the glTF package.
+are preserved by the glTF package. The same GLB relocation-safety rule applies to
+every GLB input form, including self-contained GLB inputs whose resources do not
+need merging: an unknown extension listed in `extensionsUsed`/`extensionsRequired`
+or present only as an extension object refuses GLB output with a typed `io` error
+(CLI exit 5; the diagnostic suggests the glTF package instead).
 
 `--format glb` (the default) keeps the embedded single-file output: `-o
 cooked.glb` writes one GLB. `--format gltf` writes a relocatable package

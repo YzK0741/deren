@@ -62,6 +62,13 @@ namespace deren::tools::subtilis {
     result<asset::validated_asset> full_asset(document const&, primitive_key);
     result<uint64_t> verify_file(path const&, bool);
     result<void> write_bytes_staged(path const&, std::span<byte const>, bool verify_glb, bool overwrite = false);
+    // Single GLB-relocation-safety precondition. A single-file GLB output re-serializes the document
+    // at a new location, so extension semantics that may carry binary/external references must not be
+    // guessed: every extension name used/required (and every extension object present in the DOM) has
+    // to be in the known-relocatable allowlist. Both GLB writers - the self-contained fast path in
+    // serialize_embedded_glb and the merging path in pack_glb - call this, so they cannot disagree.
+    // Refusal is a typed io error; the CLI reports exit 5 for it.
+    result<void> glb_relocation_safe(document const&);
     result<vector<byte>> read_local_resource(path const& parent, std::string_view uri, uint64_t max_bytes);
     std::span<byte const> buffer_bytes(document const&, uint32_t);
     result<void> ensure_append_buffer(document&);
