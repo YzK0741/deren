@@ -11,6 +11,7 @@ module;
 // fastgltf/core.hpp and the call site in fastgltf.cpp's `parseMaterials`). The include is PRIVATE and SYSTEM in
 // CMake, so nothing that consumes `gltf_loader` inherits either the type or the warnings of upstream code.
 #include <simdjson.h>
+#include <yyjson.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
@@ -93,7 +94,7 @@ namespace {
     }
 
     // fastgltf does not define bitwise operators for Options, combine flags via the underlying type.
-    constexpr fastgltf::Options load_options() {
+    constexpr fastgltf::Options parser_load_options() {
         constexpr auto flags = static_cast<std::uint64_t>(fastgltf::Options::LoadExternalBuffers) | static_cast<std::uint64_t>(fastgltf::Options::LoadExternalImages);
         return static_cast<fastgltf::Options>(flags);
     }
@@ -461,7 +462,9 @@ namespace {
         return result;
     }
 
-    deren::gltf::scene load_scene(Asset const& asset, std::size_t const scene_index) {
+#include "subtilis_payload.inc"
+
+    deren::gltf::scene load_scene(Asset const& asset, std::size_t const scene_index, subtilis_cache const* payloads = nullptr) {
         deren::gltf::scene result;
         result.name = asset.scenes[scene_index].name;
 
@@ -473,7 +476,7 @@ namespace {
         //
         // Per-node conversion (name/TRS/meshes/weights) is identical to the recursive version.
         // enter_node() appends the converted node to the pool and returns its pool index.
-        auto const enter_node = [&result, &asset](std::size_t const node_index, fastgltf::math::fmat4x4 const& parent_world) -> std::size_t {
+        auto const enter_node = [&result, &asset, payloads](std::size_t const node_index, fastgltf::math::fmat4x4 const& parent_world) -> std::size_t {
             fastgltf::Node const& fnode = asset.nodes[node_index];
             fastgltf::math::fmat4x4 const world = fastgltf::getTransformMatrix(fnode, parent_world);
 
@@ -531,6 +534,8 @@ namespace {
                         continue;
                     }
                     current_mesh.primitives.push_back(load_primitive(primitive, asset));
+                    if (payloads)
+                        current_mesh.primitives.back().subtilis = (*payloads)[*fnode.meshIndex][prim_index];
                     ++prim_index;
                 }
                 // glTF mesh.weights: default morph weights (one per target of the primitives)
@@ -1549,6 +1554,9 @@ namespace deren::gltf {
     }
 
     std::expected<scenes, error_code> load_model(std::string_view file_name) {
+        return load_model(file_name, {});
+    }
+    std::expected<scenes, error_code> load_model(std::string_view file_name, load_options options) {
         std::filesystem::path const path(file_name);
         if (!std::filesystem::is_regular_file(path)) {
             return std::unexpected(error_code::file_not_found);
@@ -1572,7 +1580,7 @@ namespace deren::gltf {
         fastgltf::Parser parser(fastgltf::Extensions::KHR_lights_punctual);
         parser.setUserPointer(&extras);
         parser.setExtrasParseCallback(&collect_material_extras);
-        auto asset_exp = parser.loadGltf(buffer_exp.get(), path.parent_path(), load_options());
+        auto asset_exp = parser.loadGltf(buffer_exp.get(), path.parent_path(), parser_load_options());
         if (!asset_exp) {
             deren::utility::error("gltf load err: {}", fastgltf::getErrorMessage(asset_exp.error()));
             return std::unexpected(to_error_code(asset_exp.error()));
@@ -1591,9 +1599,12 @@ namespace deren::gltf {
         }
 
         scenes result;
+        subtilis_cache payloads;
+        if (options.extract_subtilis_payload)
+            payloads = extract_subtilis_payloads(buffer_exp.get(), asset);
         result.scene.reserve(asset.scenes.size());
         for (std::size_t i = 0; i < asset.scenes.size(); ++i) {
-            result.scene.push_back(load_scene(asset, i));
+            result.scene.push_back(load_scene(asset, i, options.extract_subtilis_payload ? &payloads : nullptr));
         }
         // asset-level node lookup (see scenes::node_by_source): first copy per source_index
         // wins; a node referenced from several scenes is stored once per scene pool, and all
@@ -1910,6 +1921,15 @@ namespace deren::gltf {
         this->ensure_built();
         return vertex_view{.data = this->vertex_bytes, .stride = this->vertex_stride, .count = this->vertex_count};
     }
+    subtilis_payload_view drawable_iterator::get_subtilis() const {
+        if (!(this->inner != scene_iterator{}))
+            return {};
+        auto const* primitive = (*this->inner).primitive;
+        if (!primitive || !primitive->subtilis)
+            return {};
+        auto const& p = *primitive->subtilis;
+        return {true, p.bytes, p.version, p.profile, p.buffer_view, p.profile_attributes};
+    }
 
     index_view drawable_iterator::get_index() const {
         this->ensure_built();
@@ -1986,6 +2006,9 @@ namespace deren::gltf {
     std::future<std::expected<scenes, error_code>> load_model_async(std::string_view const file_name) {
         // copy the path: the view must stay valid while the async task runs
         return std::async(std::launch::async, [path = deren::utility::vessel::string(file_name)] { return load_model(path); });
+    }
+    std::future<std::expected<scenes, error_code>> load_model_async(std::string_view file_name, load_options options) {
+        return std::async(std::launch::async, [path = deren::utility::vessel::string(file_name), options] { return load_model(path, options); });
     }
 
     std::future<deren::utility::vessel::vector<resolved_material>> resolve_materials_async(deren::gltf::scenes const& scenes) {

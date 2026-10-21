@@ -50,6 +50,7 @@ export import deren.engine.scene_tree; // the abstract leaf interface these impl
 export import deren.engine.meshlet;    // the meshlet split this primitive's geometry carries (docs/mesh_shaders.md step 3)
 import deren.engine.subtilis.builder;
 import deren.engine.subtilis.upload;
+import deren.engine.subtilis.dag_import;
 namespace deren::engine {
     /// A geometry view with an explicit lease. Legacy assignments adopt one RHI reference;
     /// managed bindings retain the generation that owns the actual allocation and device.
@@ -466,6 +467,8 @@ namespace deren::engine {
         uint32_t primitive_count = 0;
         uint32_t material_count = 0;
         uint64_t import_instance = 0;
+        uint32_t subtilis_imported = 0, subtilis_fallback_lod0 = 0, subtilis_cache_hits = 0;
+        std::array<uint32_t, static_cast<size_t>(subtilis::import_failure::count)> subtilis_failures{};
     };
 
     // The scene_drawable_iterator concept is STRUCTURAL over the getters' result shapes, so a
@@ -1608,6 +1611,7 @@ namespace deren::engine {
         /// If present, this immutable source supplies ALL geometry fields below;
         /// material/model still come from this descriptor. No per-frame LOD is enabled.
         std::shared_ptr<subtilis::built_geometry const> subtilis_geometry;
+        std::shared_ptr<subtilis::imported_asset const> subtilis_import;
         std::span<uint8_t const> vertex_data = {};
         uint32_t vertex_stride = 0;
         uint32_t vertex_count = 0;
@@ -1934,6 +1938,7 @@ namespace deren::engine {
         // legacy assignments own their transferred RHI reference. BLAS retains leases separately.
         std::shared_ptr<void const> geometry_resources; // subchain drains after the views below release
         std::shared_ptr<subtilis::uploaded_geometry const> subtilis_geometry;
+        std::shared_ptr<subtilis::imported_asset const> subtilis_import;
         geometry_buffer vertex_buffer;
         geometry_buffer index_buffer;
         deren::promise::rhi::index_type index_type = deren::promise::rhi::index_type::uint32;

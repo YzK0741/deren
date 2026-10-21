@@ -79,3 +79,28 @@ Callers must supply index counts, not triangle counts.
 Validation: initial import stub RED (12 failures). Root Release build/full CTest
 **61/61** (42.76s), ASan/UBSan import **1/1** (1.00s). Loader extraction and actual
 GPU adoption still follow in Tasks 4/5.
+
+## Task 4: loader extraction and runtime import staging
+
+- Added opt-in sync/async load options and a loader-owned payload view. One
+  bounded yyjson pass locates metadata; original parsed buffers provide the bytes.
+  Instances of one mesh share the same payload owner, including after scene move.
+- The app requests extraction only for `render.subtilis=true`, for both primary
+  and background models. Default loads do not parse/copy these payloads.
+- `import_scene` optionally detects the view, validates source/DAG data, shares
+  imported CPU assets by source/wire hash and records per-reason fallback counts.
+  Real loader streams run through a probe-backed runtime in the CPU test. An
+  observing iterator confirms OFF reads the payload getter zero times.
+- Loaded declarations with bad metadata keep `present=true` and empty/invalid
+  fields so engine import can count `invalid_payload`; this reconciles spec §4.4
+  with the brief's conflicting `present=false` wording. Presence alone is never
+  evidence that a payload can be adopted.
+- CPU ownership is staged through `subtilis_import` until Task 5 extends
+  `built_geometry`. Rendering still uses LOD0 at this checkpoint; no GPU DAG
+  adoption or coarse-frame benefit is claimed yet.
+
+Validation: loader stub RED (5 failures), runtime staging RED (3 failures).
+External buffers, malformed/out-of-range extension metadata, unsupported
+attributes, optional unknown extensions, async/move lifetime, per-instance
+fallback and shared ownership pass. Root Release build/full CTest **61/61**
+(52.43s). ASan/UBSan loader/import/frame/injection **4/4** (84.11s).

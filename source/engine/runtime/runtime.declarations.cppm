@@ -67,6 +67,7 @@ import deren.engine.pass.hzb_build;          // HZB phase A2: the max pyramid's 
 import deren.engine.pass.hzb_cull;           // HZB phase B1: the pyramid's GPU consumer (runtime-owned, same note)
 import deren.engine.visibility.hzb;          // the CPU reference + the phase-B scene gate/snapshot vocabulary
 import deren.engine.subtilis;
+import deren.engine.subtilis.dag_import;
 import deren.engine.visibility; // the visibility buffer's packed id and draw-item record
 import deren.engine.pass.scene_constants;
 import deren.engine.pass.scene_deformation;
@@ -4607,6 +4608,7 @@ namespace deren::engine {
             scene_import_result result = {};
             result.import_instance = this->bound_scene->next_import_instance++;
             uint32_t const materials_before = this->material_count;
+            deren::utility::vessel::map<subtilis::import_key, std::shared_ptr<subtilis::imported_asset const>> subtilis_import_cache;
             // converts a pure image_source (e.g. the glTF loader's image_view) into the
             // internal texture_input with the slot's upload format; invalid images -> white
             auto const to_texture = [](auto const& image, rhi::image_format const format) {
@@ -4647,6 +4649,30 @@ namespace deren::engine {
                 info.factors.alpha_mask = factors.alpha_mask;
                 info.factors.alpha_blend = factors.alpha_blend;
                 info.double_sided = drawable.get_double_sided();
+                if constexpr (requires {drawable.get_subtilis().present;drawable.get_subtilis().bytes;drawable.get_subtilis().version;drawable.get_subtilis().profile;drawable.get_subtilis().profile_attributes; }) {
+                    if (this->subtilis_on) {
+                        auto const payload = drawable.get_subtilis();
+                        if (payload.present) {
+                            subtilis::import_input input{payload.bytes, payload.version, payload.profile, payload.profile_attributes, !factors.alpha_mask && !factors.alpha_blend, vertex.data, vertex.stride, vertex.count, index.data, index.width, index.count};
+                            auto imported = subtilis::import_payload(input);
+                            if (imported) {
+                                auto key = imported->cache_key();
+                                auto existing = subtilis_import_cache.find(key);
+                                if (existing != subtilis_import_cache.end()) {
+                                    info.subtilis_import = existing->second;
+                                    ++result.subtilis_cache_hits;
+                                } else {
+                                    info.subtilis_import = std::make_shared<subtilis::imported_asset const>(std::move(*imported));
+                                    subtilis_import_cache.emplace(key, info.subtilis_import);
+                                }
+                                ++result.subtilis_imported;
+                            } else {
+                                ++result.subtilis_fallback_lod0;
+                                ++result.subtilis_failures[static_cast<size_t>(imported.error())];
+                            }
+                        }
+                    }
+                }
                 // THE TOON FAMILY, resolved by the loader from the material's NAME (the last place the name
                 // exists). Copied here like every other per-material fact so the runtime never sees a string.
                 info.toon_family = drawable.get_toon_family();
@@ -4758,6 +4784,10 @@ namespace deren::engine {
             }
             this->bvh_dirty = true; // new leaves attached -> culling BVH must be rebuilt
             result.material_count = this->material_count - materials_before;
+            if (this->subtilis_on && (result.subtilis_imported || result.subtilis_fallback_lod0)) {
+                auto failures = [&](subtilis::import_failure reason) { return result.subtilis_failures[static_cast<size_t>(reason)]; };
+                deren::utility::log("Subtilis import: {} adopted ({} shared), {} LOD0 fallback [wire {}, profile {}, material {}, source {}, DAG {}, LOD0-only {}, item {}, table {}]", result.subtilis_imported, result.subtilis_cache_hits, result.subtilis_fallback_lod0, failures(subtilis::import_failure::invalid_payload), failures(subtilis::import_failure::profile_mismatch), failures(subtilis::import_failure::material_not_opaque), failures(subtilis::import_failure::source_mismatch), failures(subtilis::import_failure::invalid_dag), failures(subtilis::import_failure::lod0_only), failures(subtilis::import_failure::capacity_item), failures(subtilis::import_failure::capacity_table));
+            }
             // WHAT THE SCENE CUT INTO (docs/mesh_shaders.md step 3): the meshlets a task stage would cull, and how
             // many primitives contributed them. Logged once per import, where the whole scene's numbers exist.
             if (this->meshlet_total != 0u) {

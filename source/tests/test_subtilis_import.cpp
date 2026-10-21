@@ -3,14 +3,38 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <glm/glm.hpp>
 #include <memory>
 import deren.engine.subtilis.dag_import;
 import deren.asset.subtilis.dag;
+import deren.gltf_loader;
+import deren.engine.runtime;
+import deren.engine.primitive;
+import deren.engine.scene_tree;
+import deren.promise.rhi;
+#include "probe_backend.hpp"
 namespace sub = deren::engine::subtilis;
 namespace wire = deren::asset::subtilis;
 template <class T>
 using vector = deren::utility::vessel::vector<T>;
 namespace {
+    struct observing_drawable : deren::gltf::drawable_iterator {
+        uint32_t* observations = nullptr;
+        observing_drawable() = default;
+        observing_drawable(deren::gltf::scenes const& s, std::span<deren::gltf::resolved_material const> m, uint32_t& count)
+            : deren::gltf::drawable_iterator(s, m)
+            , observations(&count) {
+        }
+        observing_drawable& operator++() {
+            deren::gltf::drawable_iterator::operator++();
+            return *this;
+        }
+        deren::gltf::subtilis_payload_view get_subtilis() const {
+            if (observations)
+                ++*observations;
+            return deren::gltf::drawable_iterator::get_subtilis();
+        }
+    };
     vector<uint8_t> read(std::filesystem::path const& path) {
         std::ifstream f(path, std::ios::binary);
         return {std::istreambuf_iterator<char>(f), {}};
@@ -60,6 +84,43 @@ namespace {
     }
 } // namespace
 int main() {
+    {
+        namespace rhi = deren::promise::rhi;
+        rhi::create_info options{};
+        options.window_width = options.window_height = 32;
+        auto core = deren::vk_test::probe_make_core(options, rhi::abi_version, true);
+        deren::vk_test::probe_graphics_enabled(*core, true);
+        deren::engine::scene_tree::scene scene;
+        deren::engine::runtime runtime{core, options};
+        runtime.set_scene(scene);
+        std::array<uint8_t, 4> shader{3, 2, 35, 7};
+        CHECK(runtime.make_pipeline("pbr", shader, shader, shader));
+        auto loaded = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/source/tests/fixtures/subtilis/cross_dag.glb", {true});
+        CHECK(loaded);
+        if (loaded) {
+            auto materials = deren::gltf::resolve_materials(*loaded);
+            uint32_t observations = 0;
+            auto perform = [&]() { return runtime.import_scene(loaded->nodes_begin(), deren::gltf::scene_node_iterator{}, observing_drawable(*loaded, materials, observations), observing_drawable{}, glm::vec3(0)); };
+            auto off = perform();
+            CHECK(off.primitive_count == 2 && off.subtilis_imported == 0 && off.subtilis_fallback_lod0 == 0);
+            CHECK(observations == 0);
+            runtime.set_subtilis(true);
+            auto on = perform();
+            CHECK(on.subtilis_imported == 2 && on.subtilis_cache_hits == 1 && on.subtilis_fallback_lod0 == 0);
+            CHECK(observations == 2);
+            CHECK(scene.roots.size() == 4);
+            if (scene.roots.size() == 4) {
+                auto* first = static_cast<deren::engine::primitive*>(scene.roots[2].primitive_leaf.get());
+                auto* second = static_cast<deren::engine::primitive*>(scene.roots[3].primitive_leaf.get());
+                CHECK(first && second && first->subtilis_import && first->subtilis_import == second->subtilis_import);
+            }
+            auto invalid = std::make_shared<deren::gltf::subtilis_payload>();
+            invalid->profile_attributes = true;
+            loaded->scene[0].nodes[0].meshes[0].primitives[0].subtilis = invalid;
+            auto mixed = perform();
+            CHECK(mixed.subtilis_imported == 1 && mixed.subtilis_fallback_lod0 == 1 && mixed.subtilis_failures[static_cast<size_t>(sub::import_failure::invalid_payload)] == 1);
+        }
+    }
     auto f = load("cross_dag");
     auto a = sub::import_payload(f.input());
     CHECK(a);

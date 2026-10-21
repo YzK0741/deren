@@ -6,7 +6,7 @@
 **Architecture:** 复用已接受的 converter CPU 模块（types/codec/digest/dag/cut）在 root 侧编译为静态资产库；engine 新增 DAG 层级（cluster producer/consumer + group fine/coarse 引用 + LOD 球/error + roots/leaves）与移植自 converter reference 的 CPU DAG cut；gltf_loader 只提取 payload 原始字节与扩展字段，import 时由 engine 完成解码/身份/结构校验/翻译并共享 generation；每帧 item cut 继续走 M1b 的 run/发布/HZB 管线，raster/resolve 数学不变。
 **Tech Stack:** CMake 4.3、C++23 modules、Clang64/libc++、vessel/mimalloc、yyjson 0.12.0（root 已有 `yyjson_vendored`）、fastgltf 0.9/simdjson（仅在 deren_assets/gltf_loader）、meshoptimizer v1.3（只给现有 builder/forest 参考路径，本 feature 的 import 不使用 builder）。无 CUDA/Vulkan 依赖给新 CPU 测试。
 **Spec:** `docs/superpowers/specs/2026-10-21-object-lod-runtime-design.md`。代码基线 `f4d3b8e7`（converter Task 1-8 已接受）。计划时 HEAD `f4d3b8e7`。
-**状态：** 已评审通过（2026-10-21：Q1 seam = 方案 C、Q2 单一 `subtilis` 开关、Q4 TANGENT-stripped 派生测量资产；Q3/Q5/Q6 按推荐默认）。用户于 2026-10-22 明确恢复实施；Tasks 1–3 已验收，接下来从 Task 4 继续，逐任务独立验收/本地提交/不 push。
+**状态：** 已评审通过（2026-10-21：Q1 seam = 方案 C、Q2 单一 `subtilis` 开关、Q4 TANGENT-stripped 派生测量资产；Q3/Q5/Q6 按推荐默认）。用户于 2026-10-22 明确恢复实施；Tasks 1–4 已验收，接下来从 Task 5 继续，逐任务独立验收/本地提交/不 push。
 
 ## Global Constraints
 
@@ -134,14 +134,14 @@
 **Interfaces**：`gltf::load_options { bool extract_subtilis_payload = false; }`（`load_model`/`load_model_async` 增加带默认值的重载，旧签名保持）；`gltf::subtilis_payload_view`（§公共类型约定）；`drawable_iterator::get_subtilis()`；`scene_import_result` 计数直方图 + 汇总日志；配置行为 = `[render] subtilis` 为 true 时 app 请求提取并启用导入（OFF 启动不提取/不解析 payload；spec Q2 推荐）。
 
 **RED**：
-- [ ] `test_gltf_loader` 扩展：构造带 `DEREN_subtilis` extension 的 GLB/glTF（fixture 由脚本从 converter 输出裁剪生成，或测试内拼 JSON+bufferView）：`load_options.extract_subtilis_payload=true` 时 payload bytes/version/profile/attributes 视图正确、生命周期覆盖 `scenes`；默认 options 下 present=false 且加载行为与旧签名一致；bufferView 越界/坏 JSON/未知扩展不影响加载；无 extension 的 primitive 返回空视图。
-- [ ] `test_subtilis_import` 端到端（CPU，无 GPU 时用 `probe_backend`/fake）：`import_scene`（stub drawable 或真实 loader scenes）在 subtilis=true 时 adopted 计数正确、fallback 直方图正确；subtilis=false 时零拷贝/不采用（可用观测计数或注入探针断言）。
-- [ ] 确认 RED。
+- [x] `test_gltf_loader` 扩展：构造带 `DEREN_subtilis` extension 的 GLB/glTF（fixture 由脚本从 converter 输出裁剪生成，或测试内拼 JSON+bufferView）：`load_options.extract_subtilis_payload=true` 时 payload bytes/version/profile/attributes 视图正确、生命周期覆盖 `scenes`；默认 options 下 present=false 且加载行为与旧签名一致；bufferView 越界/坏 JSON/未知扩展不影响加载；无 extension 的 primitive 返回空视图。
+- [x] `test_subtilis_import` 端到端（CPU，无 GPU 时用 `probe_backend`/fake）：`import_scene`（stub drawable 或真实 loader scenes）在 subtilis=true 时 adopted 计数正确、fallback 直方图正确；subtilis=false 时零拷贝/不采用（可用观测计数或注入探针断言）。
+- [x] 确认 RED。
 
 **GREEN**：
-- [ ] loader：`load_model(path, load_options)`（默认不提取）在 options 打开时读文件原始字节（GLB 取 JSON chunk / .gltf JSON），用 yyjson 只解析 extension 对象→定位 bufferView→按 fastgltf 已解析的 buffers/bufferViews 拷贝字节；校验 `byteLength/totalBytes` 与 bufferView 范围；异常路径返回 present=false 并记录（不影响 core 加载）；一次 JSON 解析后遍历缓存，避免每 primitive 重复解析；未打开 options 时的行为与现有完全一致（旧签名转发）。
-- [ ] import：`fill_info` 用 `if constexpr (requires ...)` 检测 `get_subtilis()`；adopted 时调 `import_payload`，成功则设置 `info.subtilis_geometry`（Task 5 完善 `built_geometry` 形态）并累加计数；失败累加原因；`subtilis=false` 时跳过调用且 loader 未提取（OFF 字节一致前提）；`scene_import_result` 打印一次汇总（提取/采用/回退原因）。
-- [ ] 导入缓存：`map<{sourceHash, payload_sha}, shared_ptr<...>>`，多实例共享（Task 5 接 upload generation）。
+- [x] loader：`load_model(path, load_options)`（默认不提取）在 options 打开时读文件原始字节（GLB 取 JSON chunk / .gltf JSON），用 yyjson 只解析 extension 对象→定位 bufferView→按 fastgltf 已解析的 buffers/bufferViews 拷贝字节；校验 `byteLength/totalBytes` 与 bufferView 范围；异常路径返回 present=false 并记录（不影响 core 加载）；一次 JSON 解析后遍历缓存，避免每 primitive 重复解析；未打开 options 时的行为与现有完全一致（旧签名转发）。
+- [x] import：`fill_info` 用 `if constexpr (requires ...)` 检测 `get_subtilis()`；adopted 时调 `import_payload`，成功则设置 `info.subtilis_geometry`（Task 5 完善 `built_geometry` 形态）并累加计数；失败累加原因；`subtilis=false` 时跳过调用且 loader 未提取（OFF 字节一致前提）；`scene_import_result` 打印一次汇总（提取/采用/回退原因）。
+- [x] 导入缓存：`map<{sourceHash, payload_sha}, shared_ptr<...>>`，多实例共享（Task 5 接 upload generation）。
 
 **Acceptance**：`ctest -R 'test_gltf_loader|test_subtilis_import'` 绿；`test_runtime_injection`/`test_subtilis_frame` 不回归；ASan 绿；root Release 构建通过。
 

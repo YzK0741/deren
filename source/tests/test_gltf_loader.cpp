@@ -4,12 +4,16 @@
 // loader is pure CPU - no Vulkan anywhere.
 #include "vk_test.h"
 
+#include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <filesystem>
+#include <fstream>
 #include <glm/glm.hpp>
 #include <optional>
 #include <string_view>
 #include <vector>
+#include <yyjson.h>
 
 import deren.gltf_loader;
 
@@ -483,7 +487,100 @@ void test_the_extras_block_is_read_through_the_claimed_table() {
     CHECK(scenes.material_by_name("") == nullptr);
 }
 
+void test_subtilis_extraction() {
+    std::string path = VR_TEST_SOURCE_DIR "/source/tests/fixtures/subtilis/cross_dag.glb";
+    auto off = deren::gltf::load_model(path);
+    CHECK(off);
+    if (off) {
+        auto materials = deren::gltf::resolve_materials(*off);
+        deren::gltf::drawable_iterator it(*off, materials);
+        CHECK(!it.get_subtilis().present);
+    }
+    auto on = deren::gltf::load_model(path, {true});
+    CHECK(on);
+    if (on) {
+        auto materials = deren::gltf::resolve_materials(*on);
+        deren::gltf::drawable_iterator it(*on, materials);
+        auto payload = it.get_subtilis();
+        CHECK(payload.present && payload.version == 1 && payload.profile == "shared-vertices" && payload.profile_attributes && !payload.bytes.empty());
+        std::ifstream in(VR_TEST_SOURCE_DIR "/source/tests/fixtures/subtilis/cross_dag.payload", std::ios::binary);
+        std::string expected((std::istreambuf_iterator<char>(in)), {});
+        CHECK(payload.bytes.size() == expected.size());
+        if (payload.bytes.size() == expected.size())
+            CHECK(std::equal(payload.bytes.begin(), payload.bytes.end(), reinterpret_cast<uint8_t const*>(expected.data())));
+        ++it;
+        auto second = it.get_subtilis();
+        CHECK(second.present && second.bytes.data() == payload.bytes.data());
+        auto moved = std::move(*on);
+        auto moved_materials = deren::gltf::resolve_materials(moved);
+        deren::gltf::drawable_iterator after(moved, moved_materials);
+        CHECK(after.get_subtilis().present);
+    }
+    auto future = deren::gltf::load_model_async(path, {true});
+    auto async = future.get();
+    CHECK(async);
+    if (async) {
+        auto m = deren::gltf::resolve_materials(*async);
+        deren::gltf::drawable_iterator it(*async, m);
+        CHECK(it.get_subtilis().present);
+    }
+    CHECK(!deren::gltf::drawable_iterator{}.get_subtilis().present);
+    std::ifstream file(path, std::ios::binary);
+    std::string raw((std::istreambuf_iterator<char>(file)), {});
+    auto u32 = [&](size_t at) {uint32_t v=0;for(unsigned i=0;i<4;++i)v|=uint32_t(static_cast<uint8_t>(raw[at+i]))<<(i*8);return v; };
+    CHECK(raw.size() >= 28);
+    if (raw.size() < 28)
+        return;
+    auto json_length = u32(12);
+    CHECK(json_length <= raw.size() - 28);
+    if (json_length > raw.size() - 28)
+        return;
+    auto dir = std::filesystem::current_path() / std::format("subtilis-loader-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+    std::error_code ec;
+    std::filesystem::create_directory(dir, ec);
+    CHECK(!ec);
+    {
+        std::ofstream out(dir / "shared data.bin", std::ios::binary);
+        out.write(raw.data() + 28 + json_length, static_cast<std::streamsize>(raw.size() - 28 - json_length));
+    }
+    auto variant = [&](auto edit) {
+        auto* original = yyjson_read(raw.data() + 20, json_length, 0);
+        CHECK(original);
+        auto* doc = yyjson_doc_mut_copy(original, nullptr);
+        yyjson_doc_free(original);
+        auto* root = yyjson_mut_doc_get_root(doc);
+        auto* buffer = yyjson_mut_arr_get_first(yyjson_mut_obj_get(root, "buffers"));
+        yyjson_mut_obj_add_str(doc, buffer, "uri", "shared%20data.bin");
+        auto* primitive = yyjson_mut_arr_get_first(yyjson_mut_obj_get(yyjson_mut_arr_get_first(yyjson_mut_obj_get(root, "meshes")), "primitives"));
+        edit(doc, root, primitive);
+        size_t size = 0;
+        auto* text = yyjson_mut_write(doc, 0, &size);
+        {
+            std::ofstream out(dir / "variant.gltf", std::ios::binary);
+            out.write(text, static_cast<std::streamsize>(size));
+        }
+        std::free(text);
+        yyjson_mut_doc_free(doc);
+        return deren::gltf::load_model((dir / "variant.gltf").generic_string(), {true});
+    };
+    auto check_view = [&](auto& scene, auto check) {CHECK(scene);if(scene){auto m=deren::gltf::resolve_materials(*scene);deren::gltf::drawable_iterator it(*scene,m);check(it.get_subtilis());} };
+    auto external = variant([](auto*, auto*, auto*) {});
+    check_view(external, [&](auto p) { CHECK(p.present && p.profile_attributes && !p.bytes.empty()); });
+    auto out_of_range = variant([](auto*, auto*, auto* primitive) {auto* ext=yyjson_mut_obj_get(yyjson_mut_obj_get(primitive,"extensions"),"DEREN_subtilis");yyjson_mut_set_uint(yyjson_mut_obj_get(ext,"bufferView"),UINT32_MAX); });
+    check_view(out_of_range, [&](auto p) { CHECK(p.present && p.bytes.empty()); });
+    auto malformed = variant([](auto* d, auto*, auto* primitive) {auto* ext=yyjson_mut_obj_get(primitive,"extensions");yyjson_mut_obj_remove_key(ext,"DEREN_subtilis");yyjson_mut_obj_add_str(d,ext,"DEREN_subtilis","malformed metadata"); });
+    check_view(malformed, [&](auto p) { CHECK(p.present && p.version == 0 && p.bytes.empty()); });
+    auto attributes = variant([](auto* d, auto*, auto* primitive) { yyjson_mut_obj_add_uint(d, yyjson_mut_obj_get(primitive, "attributes"), "_CUSTOM", 1); });
+    check_view(attributes, [&](auto p) { CHECK(p.present && !p.profile_attributes); });
+    auto absent = variant([](auto*, auto*, auto* primitive) { yyjson_mut_obj_remove_key(yyjson_mut_obj_get(primitive, "extensions"), "DEREN_subtilis"); });
+    check_view(absent, [&](auto p) { CHECK(!p.present); });
+    auto unknown = variant([](auto* d, auto* root, auto*) { yyjson_mut_arr_add_str(d, yyjson_mut_obj_get(root, "extensionsUsed"), "VENDOR_optional"); });
+    check_view(unknown, [&](auto p) { CHECK(p.present && !p.bytes.empty()); });
+    std::filesystem::remove_all(dir, ec);
+    CHECK(!ec);
+}
 int32_t main() {
+    test_subtilis_extraction();
     test_load_damaged_helmet();
     test_async_load_matches_sync();
     test_missing_file_reports_file_not_found();

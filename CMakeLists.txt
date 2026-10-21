@@ -902,6 +902,7 @@ target_link_libraries(deren_assets
         PRIVATE
         fastgltf_vendored
         stb_vendored
+        yyjson_vendored
         vstd_lib
         static_utility
 )
@@ -1379,7 +1380,7 @@ if(VR_BUILD_TESTS)
     target_link_libraries(test_subtilis_asset deren_engine vstd_lib)
     target_link_libraries(test_subtilis_dag_asset deren_engine vstd_lib)
     target_link_libraries(test_subtilis_dag_lod deren_engine asset_subtilis_core yyjson_vendored)
-    target_link_libraries(test_subtilis_import deren_engine asset_subtilis_core)
+    target_link_libraries(test_subtilis_import deren_engine asset_subtilis_core deren_assets probe_backend_static promise)
     target_compile_definitions(test_subtilis_import PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_compile_definitions(test_subtilis_dag_lod PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(test_subtilis_lod deren_engine vstd_lib)
@@ -1473,6 +1474,7 @@ if(VR_BUILD_TESTS)
     target_link_libraries(test_gaussian_gpu_frame deren_engine)
     target_link_libraries(test_gaussian_loader gaussian_loader)
     target_link_libraries(test_gltf_loader
+            yyjson_vendored
             deren_assets
             glm::glm
             vstd_lib

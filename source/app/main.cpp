@@ -515,7 +515,7 @@ int main(int argc, char** argv) {
     // by the runtime independently of geometry; the glTF path keeps its asynchronous load.
     bool const gaussian_only = model_format == deren::app_config::model_format::gaussian_ply;
     auto load_future = gaussian_only ? std::future<std::expected<deren::gltf::scenes, deren::gltf::error_code>>{}
-                                     : deren::gltf::load_model_async(model_path);
+                                     : deren::gltf::load_model_async(model_path, {settings.render.subtilis});
 
     // 4b. THE WINDOW IS THE APPLICATION'S (see glfw_window_host above): GLFW is initialised and the window
     //     created HERE, before the runtime, so that the declaration order above gives the teardown order the
@@ -2214,7 +2214,7 @@ int main(int argc, char** argv) {
             // is found (the shaders dir comes from the same place, see deren::chores::analyse_config)
             background_path = deren::utility::executable_directory() / background_path;
         }
-        auto background_load = deren::gltf::load_model_async(background_path.string());
+        auto background_load = deren::gltf::load_model_async(background_path.string(), {settings.render.subtilis});
         auto background_scenes = background_load.get();
         if (!background_scenes) {
             deren::utility::panic(std::source_location::current(), "failed to load background model '{}': error code {}", background_path.string(), static_cast<int32_t>(background_scenes.error()));

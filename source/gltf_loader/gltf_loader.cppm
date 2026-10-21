@@ -344,6 +344,20 @@ namespace deren::gltf {
      * @note targets holds the primitive's morph targets (empty when the mesh is not morphable);
      *       a consumer blends base + sum(weight_i * delta_i) per vertex — see docs §10
      */
+    export struct subtilis_payload_view {
+        bool present = false;
+        std::span<uint8_t const> bytes;
+        uint32_t version = 0;
+        std::string_view profile;
+        uint32_t buffer_view = UINT32_MAX;
+        bool profile_attributes = false;
+    };
+    export struct subtilis_payload {
+        deren::utility::vessel::vector<uint8_t> bytes;
+        uint32_t version = 0, buffer_view = UINT32_MAX;
+        deren::utility::vessel::string profile;
+        bool profile_attributes = false;
+    };
     export struct primitive {
         deren::utility::vessel::map<deren::utility::vessel::string, vertex_portion> vertex;
         deren::utility::vessel::vector<morph_target> targets = {};
@@ -352,6 +366,7 @@ namespace deren::gltf {
         // index into scenes::materials; std::numeric_limits<uint32_t>::max() when the primitive
         // has no material (render with default factors and no textures)
         uint32_t material_index = std::numeric_limits<uint32_t>::max();
+        std::shared_ptr<subtilis_payload const> subtilis = {};
     };
 
     /**
@@ -831,6 +846,10 @@ namespace deren::gltf {
      * @return scenes on success, error_code on failure (file_not_found/file_type_error/file_load_failed)
      */
     export std::expected<scenes, error_code> load_model(std::string_view file_name);
+    export struct load_options {
+        bool extract_subtilis_payload = false;
+    };
+    export std::expected<scenes, error_code> load_model(std::string_view file_name, load_options options);
 
     /**
      * @ingroup gltf_loader
@@ -839,6 +858,7 @@ namespace deren::gltf {
      *        (e.g. to overlap model loading with other startup work)
      */
     export std::future<std::expected<scenes, error_code>> load_model_async(std::string_view file_name);
+    export std::future<std::expected<scenes, error_code>> load_model_async(std::string_view file_name, load_options options);
 
     // ---- renderer-ready drawable iteration ------------------------------------------------
     // Pure CPU types. The runtime's deren::engine::scene_drawable_iterator concept is STRUCTURAL over
@@ -1139,6 +1159,7 @@ namespace deren::gltf {
 
         vertex_view get_vertex() const;
         index_view get_index() const;
+        subtilis_payload_view get_subtilis() const;
         glm::mat4 get_transform() const;
         image_view get_albedo() const;
         image_view get_metallic_roughness() const;

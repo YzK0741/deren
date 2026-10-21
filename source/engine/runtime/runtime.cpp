@@ -2664,6 +2664,7 @@ namespace deren::engine {
         }
 
         auto result = std::make_unique<normal_draw_primitive>();
+        result->subtilis_import = info.subtilis_import;
         auto upload_info = info;
         if (info.subtilis_geometry) {
             auto const& source = *info.subtilis_geometry;
