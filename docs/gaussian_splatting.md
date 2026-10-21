@@ -118,8 +118,9 @@ Measurements below use an RTX 4060 Laptop GPU, driver 617.42, Release, 562,974 S
 | CPU preparation work | About 92 ms to about 0.002 ms of instance/camera metadata |
 | Projection/color cache | Gaussian GPU interval total reduced 14-28% in six pairs |
 | Cached raster stage | About 1.62-1.66 ms to 0.87-1.12 ms; 31-47% reduction |
+| Current build, steady state (2026-10-21) | GPU frame 2.50-2.67 ms (prepare 0.87-1.03 + sort 0.20 + finalize 0.01-0.02 + raster 0.87-0.88); **~410 fps** (three 1500-frame static runs: 409.7/410.7/410.3 fps, 2.44 ms/presented frame); CPU preparation ~0.002 ms |
 
-These are historical measurements taken before the later Bloom pipeline wiring repair. That repair restores real Bloom work, so the earlier whole-frame times are not current FPS guarantees. Cache tests show a repeatable reduction in Gaussian GPU work; scheduling/presentation variation prevented an equivalent whole-frame FPS claim. The two optimizations' percentages must not be multiplied into an unmeasured combined speedup.
+The CPU-to-GPU and CPU-work rows are historical measurements taken before the later Bloom pipeline wiring repair; they document the migration and are not current FPS guarantees. The last row is a fresh check of the CURRENT build on the same asset (`fps:` window lines from three 1500-frame static runs, GPU stages from the session-average timing row). It is still one machine, one asset and one resolution - not a promise for other devices - and the cache percentages and other speedups must not be multiplied into an unmeasured combined number.
 
 Six static/rotating before/after cache PNGs are pixel-exact; an additional pre-post RGBA16F capture is byte-exact. CPU/GPU float32 versus double ordering is not claimed identical for the full flower scene. Acceptance uses maximum RGB error <=0.005 for small scenes, flower HDR RGB RMSE <=0.005 and final per-channel RGB RMSE <=1/255; local differences are recorded alongside averages.
 
