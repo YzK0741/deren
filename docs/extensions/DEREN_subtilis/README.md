@@ -78,3 +78,19 @@ Defaults are 85/256/8/16 and 0.5/0.01/0.1/0.01. Thread count, scheduling,
 timings, devices, and budgets are excluded. Successful builds must not change
 geometry to accommodate a smaller execution budget. Fingerprints bind identity
 and caching; they do not replace full geometry validation.
+
+## CPU reference selection
+
+`make_asset` validates source binding, triangle coverage/winding, directed
+boundary/component preservation, metric monotonicity and sphere containment.
+Payload decoding alone never establishes those properties.
+
+`select_cut` uses `<=` at an error threshold, closes all group decisions along
+dependencies, then scans cluster IDs in stable order. Model mode uses the stored
+group error. Screen mode accepts column-major affine model/view matrices and
+standard right-handed zero-to-one depth perspective/orthographic projections.
+With `S = sqrt(||view*model||1 * ||view*model||infinity)` on the linear 3x3 and
+`P = max(abs(proj[0])*width, abs(proj[5])*height)/2`, the orthographic metric is
+`error*S*P`; perspective divides by the closest depth of the transformed LOD
+sphere. Near-plane crossings prohibit coarse selection. Unsupported/nonfinite
+views return complete LOD0; insufficient capacity returns an error, never a prefix.

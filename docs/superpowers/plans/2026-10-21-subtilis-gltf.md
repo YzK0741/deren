@@ -73,11 +73,11 @@
 - `cut_parameters`区分model_error/screen_error，含threshold、model/view/proj、extent、near_plane、max_clusters。
 - `result<vector<uint32_t>> select_cut(validated_asset const&, cut_parameters const&)`，返回稳定cluster ID顺序；无效视图回LOD0，无法装下完整LOD0返回capacity。
 
-- [ ] RED：人工构造spec G0/G1→G2/G3真实交叉DAG及等几何不同三角剖分；阈值0/相等/两侧cut与独立区域覆盖参考一致，未选择粗细重叠表示。拒绝消费者互反错误、多producer、漏root、倒序dependency、下降误差、向内bounds和边界不一致。
-- [ ] RED：透视/正交、非均匀缩放、近面、NaN视图、容量不足；构造浮点闭合性不一致决定，必须保守禁止相应粗化，再一次性扫描cluster，不能中途更改决定。
-- [ ] 执行`ctest --test-dir build-subtilis -R '^test_subtilis_dag$' --output-on-failure`确认RED；实现immutable验证工厂和spec coarsen规则。bounds以CPU高精度重算并验证外向舍入，旧树worst-cut公式不复用。
-- [ ] 相同命令GREEN，并对固定seed的阈值/相机序列检查有效cut、无重复和closure；原输入销毁后validated_asset仍有效。
-- [ ] 本地提交：`feat: validate cluster DAGs and select consistent CPU cuts`。
+- [x] RED：人工构造spec G0/G1→G2/G3真实交叉DAG及等几何不同三角剖分；阈值0/相等/两侧cut与独立区域覆盖参考一致，未选择粗细重叠表示。拒绝消费者互反错误、多producer、漏root、倒序dependency、下降误差、向内bounds和边界不一致。
+- [x] RED：透视/正交、非均匀缩放、近面、NaN视图、容量不足；构造浮点闭合性不一致决定，必须保守禁止相应粗化，再一次性扫描cluster，不能中途更改决定。
+- [x] 执行`ctest --test-dir build-subtilis -R '^test_subtilis_dag$' --output-on-failure`确认RED；实现immutable验证工厂和spec coarsen规则。bounds以CPU高精度重算并验证外向舍入，旧树worst-cut公式不复用。
+- [x] 相同命令GREEN，并对固定seed的阈值/相机序列检查有效cut、无重复和closure；原输入销毁后validated_asset仍有效。
+- [x] 本地提交：`feat: validate cluster DAGs and select consistent CPU cuts`。
 
 ## Task 3 — 保真文档读取、primitive身份与夹具文件闭环
 

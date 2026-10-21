@@ -20,11 +20,20 @@ target_sources(subtilis_codec PUBLIC FILE_SET CXX_MODULES BASE_DIRS ${DEREN_REPO
 target_link_libraries(subtilis_codec PUBLIC shared_utility vstd_lib PRIVATE yyjson_vendored)
 
 enable_testing()
+add_library(subtilis_dag STATIC)
+target_sources(subtilis_dag PUBLIC FILE_SET CXX_MODULES BASE_DIRS ${DEREN_REPO_ROOT} FILES
+    ${DEREN_REPO_ROOT}/source/asset/subtilis/dag.cppm
+    PRIVATE ${DEREN_REPO_ROOT}/source/asset/subtilis/dag.cpp
+    ${DEREN_REPO_ROOT}/source/asset/subtilis/cut.cpp)
+target_link_libraries(subtilis_dag PUBLIC subtilis_codec)
+add_executable(test_subtilis_dag ${DEREN_REPO_ROOT}/source/tests/test_subtilis_dag.cpp)
+target_link_libraries(test_subtilis_dag PRIVATE subtilis_dag)
+add_test(NAME test_subtilis_dag COMMAND test_subtilis_dag)
 add_executable(test_subtilis_codec ${DEREN_REPO_ROOT}/source/tests/test_subtilis_codec.cpp)
 target_link_libraries(test_subtilis_codec PRIVATE subtilis_codec)
 add_test(NAME test_subtilis_codec COMMAND test_subtilis_codec)
 # Use one canonical option list across public module providers and consumers.
-foreach(target vstd_lib shared_utility subtilis_codec test_subtilis_codec)
+foreach(target vstd_lib shared_utility subtilis_codec test_subtilis_codec subtilis_dag test_subtilis_dag)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /WX /permissive- /Zc:__cplusplus /utf-8 /bigobj /EHsc)
     else()
