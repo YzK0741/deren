@@ -12,6 +12,10 @@ namespace pass = deren::engine::pass;
 
 int main() {
     pass::visibility_raster_pass visibility;
+    CHECK(!visibility.loads_existing());
+    visibility.set_load_existing(true);
+    CHECK(visibility.loads_existing());
+    visibility.set_load_existing(false);
     // ---- the declaration: the id target is colour, the FRAME'S SHARED G-BUFFER DEPTH is depth (v0.5: this lane is
     //      the opaque producer when it runs, so the depth it clears/writes is the one the lighting stage samples) ----
     auto const& io = visibility.io();

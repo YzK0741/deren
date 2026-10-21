@@ -90,11 +90,15 @@ export namespace deren::engine::visibility::hzb {
     /// records one frame lane of a meshlet table holds: `hzb_results.flags` and `hzb_survivors` are indexed by
     /// absolute meshlet index and use this capacity (§5.1, mirrored from mesh_geometry.slang's meshlet_table_capacity)
     inline constexpr std::uint32_t hzb_candidate_capacity = 65536u;
-    inline constexpr std::uint32_t hzb_mesh_command_capacity = 3u * hzb_candidate_capacity;
+    inline constexpr std::uint32_t hzb_mesh_command_capacity = 4u * hzb_candidate_capacity;
     inline constexpr std::uint32_t hzb_visibility_command_run = 2u * hzb_candidate_capacity;
+    inline constexpr std::uint32_t hzb_recovery_command_run = 3u * hzb_candidate_capacity;
     inline constexpr std::uint32_t hzb_count_fallback = 0xFFFFFFFFu;
     [[nodiscard]] constexpr std::uint32_t hzb_command_word_offset(std::uint32_t slot, std::uint32_t item) noexcept {
         return (slot * hzb_mesh_command_capacity + hzb_visibility_command_run + item) * 3u;
+    }
+    [[nodiscard]] constexpr std::uint32_t hzb_recovery_command_word_offset(std::uint32_t slot, std::uint32_t item) noexcept {
+        return (slot * hzb_mesh_command_capacity + hzb_recovery_command_run + item) * 3u;
     }
     [[nodiscard]] constexpr std::uint32_t hzb_dispatch_count(std::uint32_t candidates, std::uint32_t survivors) noexcept {
         return survivors <= candidates ? survivors : candidates;
@@ -196,7 +200,7 @@ namespace deren::engine::visibility::hzb::detail {
             matrix_element(projection, 3u, 3u) != 0.0) {
             return std::nullopt;
         }
-        if (matrix_element(projection, 0u, 2u) != 0.0 || matrix_element(projection, 1u, 2u) != 0.0) {
+        if (matrix_element(projection, 2u, 0u) != 0.0 || matrix_element(projection, 2u, 1u) != 0.0) {
             return std::nullopt;
         }
         double const z_row = matrix_element(projection, 2u, 2u);      // -far / (far - near)
@@ -679,6 +683,89 @@ export namespace deren::engine::visibility::hzb {
         return true;
     }
 
+    // Prediction quality only: recovery, not these limits, provides visibility correctness.
+    struct hzb_motion_limits {
+        double translation_ratio = .05;
+        double rotation_degrees = 5.;
+        double projection_delta = .01;
+    };
+    [[nodiscard]] inline bool hzb_recovery_gate(hzb_scene_snapshot const& previous, hzb_scene_snapshot const& current,
+                                                double scene_radius, hzb_motion_limits const& limits) noexcept {
+        if (!std::isfinite(scene_radius) || scene_radius <= 0. || !std::isfinite(limits.translation_ratio) || limits.translation_ratio <= 0. ||
+            !std::isfinite(limits.rotation_degrees) || limits.rotation_degrees <= 0. || !std::isfinite(limits.projection_delta) || limits.projection_delta <= 0.) {
+            return false;
+        }
+        auto rigid = [](hzb_matrix_bits const& bits, hzb_matrix& matrix, std::array<double, 3>& position) noexcept {
+            for (unsigned i = 0; i < 16; ++i) {
+                matrix[i] = static_cast<double>(std::bit_cast<float>(bits[i]));
+                if (!std::isfinite(matrix[i])) {
+                    return false;
+                }
+            }
+            if (std::abs(matrix[3]) > 1e-5 || std::abs(matrix[7]) > 1e-5 || std::abs(matrix[11]) > 1e-5 || std::abs(matrix[15] - 1.) > 1e-5) {
+                return false;
+            }
+            for (unsigned r = 0; r < 3; ++r) {
+                for (unsigned c = 0; c < 3; ++c) {
+                    double dot = 0.;
+                    for (unsigned k = 0; k < 3; ++k) {
+                        dot += matrix[k * 4 + r] * matrix[k * 4 + c];
+                    }
+                    if (std::abs(dot - (r == c ? 1. : 0.)) > 1e-4) {
+                        return false;
+                    }
+                }
+            }
+            double const det = matrix[0] * (matrix[5] * matrix[10] - matrix[9] * matrix[6]) - matrix[4] * (matrix[1] * matrix[10] - matrix[9] * matrix[2]) + matrix[8] * (matrix[1] * matrix[6] - matrix[5] * matrix[2]);
+            if (det < .999) {
+                return false;
+            }
+            for (unsigned c = 0; c < 3; ++c) {
+                position[c] = 0.;
+                for (unsigned r = 0; r < 3; ++r) {
+                    position[c] -= matrix[c * 4 + r] * matrix[12 + r];
+                }
+            }
+            return true;
+        };
+        hzb_matrix a{};
+        hzb_matrix b{};
+        std::array<double, 3> pa{};
+        std::array<double, 3> pb{};
+        if (!rigid(previous.view, a, pa) || !rigid(current.view, b, pb)) {
+            return false;
+        }
+        double distance2 = 0.;
+        double trace = 0.;
+        for (unsigned i = 0; i < 3; ++i) {
+            double const delta = pa[i] - pb[i];
+            distance2 += delta * delta;
+        }
+        for (unsigned r = 0; r < 3; ++r) {
+            for (unsigned c = 0; c < 3; ++c) {
+                trace += a[c * 4 + r] * b[c * 4 + r];
+            }
+        }
+        double cosine = (trace - 1.) * .5;
+        if (cosine > 1.) {
+            cosine = 1.;
+        }
+        if (cosine < -1.) {
+            cosine = -1.;
+        }
+        if (std::sqrt(distance2) > scene_radius * limits.translation_ratio || std::acos(cosine) * 57.29577951308232 > limits.rotation_degrees) {
+            return false;
+        }
+        for (unsigned i = 0; i < 16; ++i) {
+            double const av = std::bit_cast<float>(previous.proj[i]);
+            double const bv = std::bit_cast<float>(current.proj[i]);
+            if (!std::isfinite(av) || !std::isfinite(bv) || std::abs(av - bv) > limits.projection_delta) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     // ================================================================================================
     // 5. THE DETERMINISTIC COMPACTION REFERENCE (spec §4.3, §10.1 item 3)
     //
@@ -722,5 +809,44 @@ export namespace deren::engine::visibility::hzb {
             }
         }
         return hzb_compaction{static_cast<std::uint32_t>(candidate_ids.size()), written};
+    }
+    struct hzb_recovery_compaction {
+        std::uint32_t retested = 0, recovered = 0;
+    };
+    /// Append only rejected candidates which survive the current-depth test. Refusal never modifies output.
+    [[nodiscard]] constexpr std::optional<hzb_recovery_compaction> hzb_compact_recovery(std::span<std::uint32_t const> ids,
+                                                                                        std::span<std::uint32_t const> flags, std::span<bool const> keep_current, std::uint32_t first_count,
+                                                                                        std::span<std::uint32_t> output) noexcept {
+        if (ids.size() > hzb_item_candidate_capacity || flags.size() != ids.size() || keep_current.size() != ids.size()) {
+            return std::nullopt;
+        }
+        std::uint32_t prefix = 0;
+        std::uint32_t retested = 0;
+        std::uint32_t recovered = 0;
+        for (std::size_t i = 0; i < ids.size(); ++i) {
+            if (flags[i] > 1u) {
+                return std::nullopt;
+            }
+            if (flags[i] == 0u) {
+                {
+                    ++prefix;
+                }
+            } else {
+                ++retested;
+                if (keep_current[i]) {
+                    ++recovered;
+                }
+            }
+        }
+        if (prefix != first_count || output.size() < static_cast<std::size_t>(prefix) + recovered) {
+            return std::nullopt;
+        }
+        std::uint32_t write = prefix;
+        for (std::size_t i = 0; i < ids.size(); ++i) {
+            if (flags[i] == 1u && keep_current[i]) {
+                output[write++] = ids[i];
+            }
+        }
+        return hzb_recovery_compaction{retested, recovered};
     }
 } // namespace deren::engine::visibility::hzb

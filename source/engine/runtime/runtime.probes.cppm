@@ -527,6 +527,10 @@ namespace deren::engine {
             deren::utility::log("hzb cull probe capture: skipped - a source table is not mapped this run");
             return;
         }
+        if (this->hzb_recovery_probe_enabled && !this->hzb_recovery_probe_copied) {
+            deren::utility::log("hzb recovery probe: FAIL no current-frame copy");
+            return;
+        }
         std::span<std::byte> const pyramid_bytes = this->hzb_cull_probe_pyramid_readback->mapped();
         std::span<std::byte> const header_mapped = this->hzb_cull_probe_header_readback->mapped();
         std::span<std::byte> const survivors_mapped = this->hzb_cull_probe_survivors_readback->mapped();
@@ -544,7 +548,7 @@ namespace deren::engine {
         deren::engine::meshlet const* const candidates = static_cast<deren::engine::meshlet const*>(this->meshlet_culled_mapped);
         deren::engine::visibility::draw_item const* const draw_items = static_cast<deren::engine::visibility::draw_item const*>(this->visibility_items_mapped);
         deren::engine::meshlet const* const survivors = reinterpret_cast<deren::engine::meshlet const*>(survivors_mapped.data());
-        std::size_t const survivor_lane_base = static_cast<std::size_t>(slot) * pass::hzb_cull_candidate_capacity;
+        std::size_t const survivor_lane_base = 0u; // the readback contains one slot lane
         std::size_t const candidate_lane_base = static_cast<std::size_t>(slot) * deren::engine::meshlet_capacity;
         std::size_t const item_lane_base = static_cast<std::size_t>(slot) * pass::hzb_cull_item_capacity;
         std::size_t const draw_lane_base = static_cast<std::size_t>(slot) * deren::engine::visibility::id_item_capacity;
@@ -635,6 +639,26 @@ namespace deren::engine {
             deren::utility::log("hzb cull probe capture: FAIL commands file write");
             return;
         }
+
+        bool const recovery_probe = this->hzb_recovery_probe_enabled;
+        std::span<std::byte> current_pyramid{};
+        std::span<std::byte> current_header{};
+        std::string const current_pyramid_path = std::string(prefix) + ".current.pyramid.bin";
+        std::string const current_header_path = std::string(prefix) + ".current.header.bin";
+        std::string const counts2_path = std::string(prefix) + ".counts2.bin";
+        std::string const commands2_path = std::string(prefix) + ".commands2.bin";
+        if (recovery_probe) {
+            current_pyramid = this->hzb_recovery_probe_pyramid_readback->mapped();
+            current_header = this->hzb_recovery_probe_header_readback->mapped();
+            std::size_t const recovery_command_base = static_cast<std::size_t>(slot) * runtime::mesh_command_capacity + runtime::hzb_recovery_command_run;
+            if (current_pyramid.size() < required_pyramid || current_header.size() < pass::hzb_header_byte_capacity ||
+                !write_file(current_pyramid_path, current_pyramid.data(), required_pyramid) || !write_file(current_header_path, current_header.data(), pass::hzb_header_byte_capacity) ||
+                !write_file(counts2_path, results + results_lane_base + pass::hzb_results_pass2_count_offset, counts_bytes) ||
+                !write_file(commands2_path, command_data + recovery_command_base, command_bytes)) {
+                deren::utility::log("hzb recovery probe: FAIL current files");
+                return;
+            }
+        }
         // ---- THE IN-ENGINE VERIFICATION: THE SAME DATA, THE COMMITTED CPU REFERENCE ----
         namespace hzb = deren::engine::visibility::hzb;
         bool const header_usable = header_word(0u) == pass::hzb_header_magic && header_word(1u) == extent.width && header_word(2u) == extent.height &&
@@ -649,10 +673,28 @@ namespace deren::engine {
                 return true;
             };
             return slot < this->hzb_source_valid.size() && this->hzb_source_valid[slot] &&
-                   bits_equal(pass::hzb_header_word_view, this->hzb_source_view[slot]) &&
-                   bits_equal(pass::hzb_header_word_proj, this->hzb_source_proj[slot]);
+                   bits_equal(pass::hzb_header_word_view, this->hzb_cull_probe_expected_view) &&
+                   bits_equal(pass::hzb_header_word_proj, this->hzb_cull_probe_expected_proj);
         }();
         std::uint64_t decisions = 0u, agree = 0u, order_bad = 0u, count_bad = 0u;
+        std::uint64_t recovery_decisions = 0;
+        std::uint64_t recovery_agree = 0;
+        std::uint64_t recovery_order_bad = 0;
+        std::uint64_t recovery_count_bad = 0;
+        hzb::hzb_camera_snapshot current_camera{};
+        bool current_usable = false;
+        if (recovery_probe) {
+            auto const* words = reinterpret_cast<std::uint32_t const*>(current_header.data());
+            current_usable = words[0] == pass::hzb_header_magic && words[1] == extent.width && words[2] == extent.height && words[3] == this->hzb_cull_probe_levels;
+            for (std::size_t i = 0; i < 16; ++i) {
+                current_camera.view[i] = std::bit_cast<float>(words[pass::hzb_header_word_view + i]);
+                current_camera.proj[i] = std::bit_cast<float>(words[pass::hzb_header_word_proj + i]);
+            }
+            for (std::size_t i = 0; i < 3; ++i) {
+                current_camera.position[i] = std::bit_cast<float>(words[pass::hzb_header_word_camera_pos + i]);
+            }
+        }
+
         if (header_usable) {
             hzb::hzb_camera_snapshot camera{};
             for (std::size_t index = 0u; index < 16u; ++index) {
@@ -723,6 +765,40 @@ namespace deren::engine {
                         ++order_bad;
                     }
                 }
+                if (recovery_probe) {
+                    std::array<std::uint32_t, pass::hzb_cull_item_capacity> history_flags{};
+                    std::array<bool, pass::hzb_cull_item_capacity> keep_current{};
+                    hzb::max_pyramid_view const current_view{std::span<float const>{reinterpret_cast<float const*>(current_pyramid.data()), this->hzb_cull_probe_words}, extent.width, extent.height, this->hzb_cull_probe_levels};
+                    for (std::uint32_t index = 0; index < count; ++index) {
+                        std::uint32_t const gpu_flag = results[results_lane_base + pass::hzb_results_flags_offset + description.meshlet_base + index];
+                        history_flags[index] = gpu_flag & 1u;
+                        if (history_flags[index] == 0u) {
+                            continue;
+                        }
+                        auto const& record = candidates[candidate_lane_base + description.meshlet_base + index];
+                        hzb::hzb_sphere const sphere{{record.center_x, record.center_y, record.center_z}, record.radius};
+                        bool const keep_now = !current_usable || hzb::hzb_test_sphere(current_camera, model, sphere, current_view) != hzb::hzb_decision::occluded;
+                        keep_current[index] = keep_now;
+                        ++recovery_decisions;
+                        if (keep_now == ((gpu_flag & 2u) != 0u)) {
+                            ++recovery_agree;
+                        }
+                    }
+                    auto recovered = hzb::hzb_compact_recovery(std::span<std::uint32_t const>{candidate_ids.data(), count}, std::span<std::uint32_t const>{history_flags.data(), count},
+                                                               std::span<bool const>{keep_current.data(), count}, reference->survivors, std::span<std::uint32_t>{compacted.data(), count});
+                    if (!recovered || results[results_lane_base + pass::hzb_results_pass2_count_offset + item] != recovered->recovered) {
+                        ++recovery_count_bad;
+                    }
+                    if (recovered) {
+                        for (std::uint32_t order = reference->survivors; order < reference->survivors + recovered->recovered; ++order) {
+                            auto const& gpu_record = survivors[description.meshlet_base + order];
+                            auto const& expected_record = candidates[candidate_lane_base + description.meshlet_base + compacted[order]];
+                            if (std::memcmp(&gpu_record, &expected_record, sizeof(deren::engine::meshlet)) != 0) {
+                                ++recovery_order_bad;
+                            }
+                        }
+                    }
+                }
             }
         }
         // ---- THE ONE LINE ----
@@ -754,13 +830,19 @@ namespace deren::engine {
                                                            : "the history header's view/proj are NOT byte-equal to the snapshot the static gate compared - the "
                                                              "dump or the gate is wrong");
         }
+        if (recovery_probe) {
+            deren::utility::log("hzb recovery verify: {} rejected candidate(s), {} decisions agree; suffix order {}; pass2 counts {}", recovery_decisions, recovery_agree, recovery_order_bad == 0 ? "matched" : "MISMATCHED", recovery_count_bad == 0 ? "matched" : "MISMATCHED");
+            if (recovery_decisions != recovery_agree || recovery_order_bad != 0 || recovery_count_bad != 0) {
+                deren::utility::log("hzb recovery verify: FAIL decision/order/count mismatch");
+            }
+        }
         // ---- THE METADATA ----
         std::string const metadata_path = std::string(prefix) + ".json";
         {
             std::ofstream output(metadata_path, std::ios::trunc);
             output << "{\n";
             output << "  \"kind\": \"hzb-cull-probe\",\n";
-            output << "  \"version\": 2,\n";
+            output << R"(  "version": )" << (recovery_probe ? 3 : 2) << ",\n";
             output << "  \"note\": \"the cull reads the HISTORY HZB: the previous use of this frame slot (2 frames old). The copies were recorded "
                       "INSIDE the cull lane, before this frame's build overwrote the lane, so these files describe the data the dispatch consumed.\",\n";
             output << "  \"extent\": {\"width\": " << extent.width << ", \"height\": " << extent.height << "},\n";
@@ -769,7 +851,7 @@ namespace deren::engine {
             output << "  \"words_per_lane\": " << this->hzb_cull_probe_words << ",\n";
             output << "  \"item_count\": " << this->hzb_cull_probe_item_count << ",\n";
             output << "  \"candidate_total\": " << this->hzb_cull_candidate_total << ",\n";
-            output << "  \"gate\": \"open (the frame is byte-identical to the one that built this history lane)\",\n";
+            output << R"(  "gate": ")" << (recovery_probe ? "open (history prediction with current-frame recovery)" : "open (byte-identical static frame)") << "\",\n";
             output << "  \"history\": {\n";
             output << "    \"frame_slot\": " << slot << ",\n";
             output << "    \"header_magic\": " << header_word(0u) << ",\n";
@@ -802,6 +884,7 @@ namespace deren::engine {
             output << "  },\n";
             output << "  \"verify\": {\"decisions\": " << decisions << ", \"agree\": " << agree << ", \"survivor_order_mismatches\": " << order_bad
                    << ", \"count_mismatches\": " << count_bad << "},\n";
+            output << R"(  "recovery": {"enabled": )" << (recovery_probe ? "true" : "false") << R"(, "decisions": )" << recovery_decisions << R"(, "agree": )" << recovery_agree << R"(, "count_mismatches": )" << recovery_count_bad << R"(, "survivor_order_mismatches": )" << recovery_order_bad << "},\n";
             output << "  \"files\": {\n";
             // THE PATHS ARE JSON-ESCAPED: a Windows path is full of backslashes, and a raw one makes the whole
             // metadata file unparseable (`\U` is not a JSON escape) - which the verification script reports as a
@@ -829,7 +912,13 @@ namespace deren::engine {
             file_entry("survivors", survivors_path, static_cast<std::size_t>(required_survivors), false);
             file_entry("candidates", candidates_path, candidates_bytes, false);
             file_entry("draw_items", draw_items_path, draw_items_bytes, false);
-            file_entry("commands", commands_path, command_bytes, true);
+            file_entry("commands", commands_path, command_bytes, !recovery_probe);
+            if (recovery_probe) {
+                file_entry("current_pyramid", current_pyramid_path, required_pyramid, false);
+                file_entry("current_header", current_header_path, pass::hzb_header_byte_capacity, false);
+                file_entry("counts2", counts2_path, counts_bytes, false);
+                file_entry("commands2", commands2_path, command_bytes, true);
+            }
             output << "  }\n";
             output << "}\n";
             if (!output) {

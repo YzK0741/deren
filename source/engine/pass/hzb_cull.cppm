@@ -96,6 +96,9 @@ export namespace deren::engine::pass {
     inline constexpr std::uint64_t hzb_results_bytes_per_lane = static_cast<std::uint64_t>(hzb_results_words_per_lane) * sizeof(std::uint32_t);
 
     /// the stats block's rows (§10.3): the four numbers the shutdown line and the probe's checks read
+    inline constexpr std::uint32_t hzb_stat_retested = 4u;
+    inline constexpr std::uint32_t hzb_stat_recovered = 5u;
+    inline constexpr std::uint32_t hzb_stat_still_occluded = 6u;
     inline constexpr std::uint32_t hzb_stat_candidates = 0u;     ///< candidates the cull walked
     inline constexpr std::uint32_t hzb_stat_culled = 1u;         ///< ... conservatively dismissed
     inline constexpr std::uint32_t hzb_stat_survivors = 2u;      ///< ... kept
@@ -159,9 +162,10 @@ export namespace deren::engine::pass {
          *        describe before its pyramid may be indexed at all (§7.2's header guard)
          * @note called by the runtime once per frame it appends the lane, before the graph records
          */
-        void set_frame(std::uint32_t const item_count, rhi::image_extent const extent) noexcept {
+        void set_frame(std::uint32_t const item_count, rhi::image_extent const extent, bool const recovery = false) noexcept {
             this->frame_item_count = item_count;
             this->frame_extent = extent;
+            this->recovery_mode = recovery;
         }
 
         [[nodiscard]] rhi::error record_content(resolved_io const& io) noexcept override;
@@ -171,6 +175,7 @@ export namespace deren::engine::pass {
         void* built_against = nullptr;
         std::uint32_t frame_item_count = 0;
         rhi::image_extent frame_extent = {};
+        bool recovery_mode = false;
         // Cross-pass visibility of results/survivors/commands belongs to scoped graph barriers.
     };
 } // namespace deren::engine::pass

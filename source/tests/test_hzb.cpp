@@ -784,7 +784,9 @@ namespace {
         for (std::uint32_t round = 0; round < 64u; ++round) {
             double const near_plane = random.range(0.1, 1.0);
             double const far_plane = near_plane * random.range(10.0, 200.0);
-            matrix const projection = perspective_matrix(near_plane, far_plane, random.range(0.6, 1.4), random.range(1.0, 2.0));
+            matrix projection = perspective_matrix(near_plane, far_plane, random.range(0.6, 1.4), random.range(1.0, 2.0));
+            projection[8] = random.range(-2. / width, 2. / width);
+            projection[9] = random.range(-2. / height, 2. / height);
             std::array<double, 3> const position{random.range(-4.0, 4.0), random.range(-4.0, 4.0), random.range(-4.0, 4.0)};
             hzb::hzb_camera_snapshot const camera = camera_at(position, projection);
             matrix const model = rotated_scaled_translation(random.range(0.5, 2.0), random.range(-3.14, 3.14),
@@ -1071,12 +1073,114 @@ namespace {
     }
 } // namespace
 
+namespace {
+    hzb::hzb_matrix_bits bits(matrix const& value) {
+        hzb::hzb_matrix_bits result{};
+        for (unsigned i = 0; i < 16; ++i)
+            result[i] = std::bit_cast<std::uint32_t>(static_cast<float>(value[i]));
+        return result;
+    }
+    void test_jittered_projection() {
+        depth_scene scene;
+        scene_build(scene, 128, 72, .2f);
+        for (double jitter : {-.002, .002}) {
+            auto projection = perspective_matrix(.1, 100., 1.0471975511965976, 16. / 9.);
+            projection[8] = jitter;
+            projection[9] = -jitter;
+            CHECK_MSG(!keeps(camera_at_origin(projection), translation_matrix(0., 0., -20.), hzb::hzb_sphere{{0., 0., 0.}, .5}, scene), "jittered perspective must retain useful conservative occlusion");
+        }
+        auto z_shear = perspective_matrix(.1, 100., 1.0471975511965976, 16. / 9.);
+        z_shear[2] = .02;
+        CHECK_MSG(keeps(camera_at_origin(z_shear), translation_matrix(0., 0., -20.), hzb::hzb_sphere{{0., 0., 0.}, .5}, scene), "clip-Z mixing XY must fail open");
+    }
+    void test_recovery_contract() {
+        CHECK(hzb::hzb_mesh_command_capacity == 4u * 65536u);
+        CHECK(hzb::hzb_recovery_command_word_offset(0, 0) == 3u * 65536u * 3u);
+        CHECK(hzb::hzb_recovery_command_word_offset(1, 4095) == (4u * 65536u + 3u * 65536u + 4095u) * 3u);
+        std::array<std::uint32_t, 5> ids{10, 11, 12, 13, 14}, flags{0, 1, 0, 1, 1}, output{10, 12, 99, 99, 99};
+        std::array<bool, 5> keep{true, true, true, false, true};
+        auto r = hzb::hzb_compact_recovery(ids, flags, keep, 2, output);
+        CHECK(r && r->retested == 3 && r->recovered == 2);
+        CHECK((output == std::array<std::uint32_t, 5>{10, 12, 11, 14, 99}));
+        auto const saved = output;
+        CHECK(!hzb::hzb_compact_recovery(ids, flags, keep, 1, output));
+        CHECK(output == saved);
+        CHECK(!hzb::hzb_compact_recovery(ids, flags, keep, hzb::hzb_count_fallback, output));
+        CHECK(!hzb::hzb_compact_recovery(ids, flags, keep, 2, std::span<std::uint32_t>(output).first(3)));
+        CHECK(output == saved);
+        flags[3] = 7;
+        CHECK(!hzb::hzb_compact_recovery(ids, flags, keep, 2, output));
+        CHECK(output == saved);
+        flags.fill(0);
+        output = ids;
+        r = hzb::hzb_compact_recovery(ids, flags, keep, 5, output);
+        CHECK(r && r->retested == 0 && r->recovered == 0 && output == ids);
+        flags.fill(1);
+        keep.fill(true);
+        r = hzb::hzb_compact_recovery(ids, flags, keep, 0, output);
+        CHECK(r && r->retested == 5 && r->recovered == 5 && output == ids);
+        keep.fill(false);
+        r = hzb::hzb_compact_recovery(ids, flags, keep, 0, output);
+        CHECK(r && r->retested == 5 && r->recovered == 0);
+        hzb::hzb_scene_snapshot previous{bits(identity_matrix()), bits(identity_matrix()), {}};
+        auto current = previous;
+        hzb::hzb_motion_limits limits{};
+        CHECK(hzb::hzb_recovery_gate(previous, current, 100., limits));
+        current.view = bits(translation_matrix(4, 0, 0));
+        CHECK(hzb::hzb_recovery_gate(previous, current, 100., limits));
+        current.view = bits(translation_matrix(6, 0, 0));
+        CHECK(!hzb::hzb_recovery_gate(previous, current, 100., limits));
+        current = previous;
+        current.proj[8] = std::bit_cast<std::uint32_t>(0.001f);
+        CHECK(hzb::hzb_recovery_gate(previous, current, 100., limits));
+        current.proj[0] = std::bit_cast<std::uint32_t>(1.1f);
+        CHECK(!hzb::hzb_recovery_gate(previous, current, 100., limits));
+        current = previous;
+        current.view[0] = std::bit_cast<std::uint32_t>(std::numeric_limits<float>::quiet_NaN());
+        CHECK(!hzb::hzb_recovery_gate(previous, current, 100., limits));
+        CHECK(!hzb::hzb_recovery_gate(previous, previous, 0., limits));
+        current = previous;
+        auto rotation = identity_matrix();
+        double angle = 2. * 3.141592653589793 / 180.;
+        rotation[0] = rotation[10] = std::cos(angle);
+        rotation[2] = -std::sin(angle);
+        rotation[8] = std::sin(angle);
+        current.view = bits(rotation);
+        CHECK(hzb::hzb_recovery_gate(previous, current, 100., limits));
+        angle = 6. * 3.141592653589793 / 180.;
+        rotation[0] = rotation[10] = std::cos(angle);
+        rotation[2] = -std::sin(angle);
+        rotation[8] = std::sin(angle);
+        current.view = bits(rotation);
+        CHECK(!hzb::hzb_recovery_gate(previous, current, 100., limits));
+        current = previous;
+        current.view[0] = std::bit_cast<std::uint32_t>(1.1f);
+        CHECK(!hzb::hzb_recovery_gate(previous, current, 100., limits));
+        CHECK(!hzb::hzb_recovery_gate(previous, previous, std::numeric_limits<double>::quiet_NaN(), limits));
+        auto empty = hzb::hzb_compact_recovery({}, {}, {}, 0, {});
+        CHECK(empty && empty->retested == 0 && empty->recovered == 0);
+        std::array<std::uint32_t, 4097> many_ids{}, many_flags{}, many_output{};
+        std::array<bool, 4097> many_keep{};
+        many_keep.fill(true);
+        many_flags.fill(1u);
+        for (unsigned i = 0; i < many_ids.size(); ++i)
+            many_ids[i] = i;
+        CHECK(!hzb::hzb_compact_recovery(many_ids, many_flags, many_keep, 0, many_output));
+        auto maximum = hzb::hzb_compact_recovery(std::span(many_ids).first(4096), std::span(many_flags).first(4096), std::span(many_keep).first(4096), 0, std::span(many_output).first(4096));
+        CHECK(maximum && maximum->recovered == 4096 && many_output[4095] == 4095);
+        limits.rotation_degrees = 0.;
+        CHECK(!hzb::hzb_recovery_gate(previous, previous, 100., limits));
+    }
+} // namespace
+
 int main() {
     CHECK(hzb::hzb_command_word_offset(0, 0) == 2u * 65536u * 3u);
-    CHECK(hzb::hzb_command_word_offset(1, 4095) == (3u * 65536u + 2u * 65536u + 4095u) * 3u);
+    CHECK(hzb::hzb_command_word_offset(1, 4095) == (4u * 65536u + 2u * 65536u + 4095u) * 3u);
     CHECK(hzb::hzb_dispatch_count(7, 0) == 0);
     CHECK(hzb::hzb_dispatch_count(7, 3) == 3);
     CHECK(hzb::hzb_dispatch_count(7, hzb::hzb_count_fallback) == 7);
+    test_jittered_projection();
+    test_recovery_contract();
     test_pyramid_layout();
     test_pyramid_builder();
     test_fail_open_constructs();

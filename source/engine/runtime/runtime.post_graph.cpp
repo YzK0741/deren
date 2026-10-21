@@ -51,8 +51,8 @@ namespace deren::engine {
             // two passes): both are harmless while the visibility passes are pruned, and both mis-record another pass
             // the moment one runs - measured, first as a `post_bloom_3` begin_rendering in the wrong layout, then as
             // the post composite recording the resolve pass instead of itself (a transparent-black frame).
-            std::array<pass::resolved_io, 23> ios;
-            std::array<pass::frame_pass*, 23> passes{};
+            std::array<pass::resolved_io, 25> ios;
+            std::array<pass::frame_pass*, 25> passes{};
             rhi::error record(unsigned lane) const noexcept {
                 if (host.apply_behaviour) {
                     host.apply_behaviour(host.context, *passes[lane], ios[lane]);
@@ -116,61 +116,10 @@ namespace deren::engine {
         // is the file that appends it; the module-per-chain shape the other adapters use earns its file when the
         // cull lane joins in phase B.
         // ================================================================================================
-        struct hzb_build_parameters {
-            graph::buffer_discard_write levels;
-            graph::buffer_discard_write header;
-            graph::texture_read depth;
-            graph::buffer_read camera;
-            void visit_resources(graph::parameter_visitor& visit) const noexcept {
-                visit(levels, header, depth, camera);
-            }
-        };
-
-        std::expected<graph::pass_ref, graph::graph_error> append_hzb_build(graph::builder& description, graph::buffer_ref levels, graph::buffer_ref header,
-                                                                            graph::texture_ref depth, graph::buffer_ref camera) noexcept {
-            constexpr graph::access_scope storage{graph::resource_usage::storage, graph::pipeline_stage::compute_shader};
-            constexpr graph::access_scope sampled{graph::resource_usage::sampled, graph::pipeline_stage::compute_shader};
-            constexpr graph::access_scope uniform{graph::resource_usage::uniform_buffer, graph::pipeline_stage::compute_shader};
-            hzb_build_parameters params{{levels, {}, storage}, {header, {}, storage}, {depth, {}, sampled}, {camera, {}, uniform}};
-            return description.add_pass("hzb build", std::move(params), graph::pass_options{.side_effect = true});
-        }
-
-        // ================================================================================================
-        // THE HZB CULL LANE'S GRAPH DECLARATION (M3 phase B2, spec §4.3, §8.1)
-        //
-        // ONE compute node declaring the dispatch accesses: the HISTORY pyramid and header lanes as reads
-        // (the data is the same frame slot's PREVIOUS use, so the graph must NOT think this frame's build produces
-        // it - the WAR order it derives from the build's write is exactly the §8.2 order cull-then-build), the two
-        // host-written tables as reads (no barrier: the host wrote them before submission, §8.2 step 0), and the two
-        // GPU-written result tables as writes, plus the existing indirect table as read-write. Raster and resolve
-        // read the results; raster consumes indirect commands at draw-indirect scope. Stats remain a side effect.
-        //
-        // THE CANDIDATE RECORDS AND THE ITEM MODEL ARE THE FRAME'S EXISTING TABLES, not new ones: the host-culled
-        // meshlet lane the host compacts while it records, and the visibility draw-item table (whose model matrix is
-        // the one the raster would use). Those are imported by the shared scene imports above and reused here, so
-        // their producer/consumer edges are the graph's and this lane needs no second copy.
-        // ================================================================================================
-        struct hzb_cull_parameters {
-            graph::buffer_read levels;
-            graph::buffer_read header;
-            graph::buffer_read items;
-            graph::buffer_read candidates;
-            graph::buffer_read draw_items;
-            graph::buffer_discard_write results;
-            graph::buffer_discard_write survivors;
-            graph::buffer_read_write commands;
-            void visit_resources(graph::parameter_visitor& visit) const noexcept {
-                visit(levels, header, items, candidates, draw_items, results, survivors, commands);
-            }
-        };
-
-        std::expected<graph::pass_ref, graph::graph_error> append_hzb_cull(graph::builder& description, graph::buffer_ref levels, graph::buffer_ref header,
-                                                                           graph::buffer_ref items, graph::buffer_ref candidates, graph::buffer_ref draw_items,
-                                                                           graph::buffer_ref results, graph::buffer_ref survivors, graph::buffer_ref commands) noexcept {
-            constexpr graph::access_scope storage{graph::resource_usage::storage, graph::pipeline_stage::compute_shader};
-            hzb_cull_parameters params{{levels, {}, storage}, {header, {}, storage}, {items, {}, storage}, {candidates, {}, storage}, {draw_items, {}, storage}, {results, {}, storage}, {survivors, {}, storage}, {commands, {}, storage}};
-            return description.add_pass("hzb cull", std::move(params), graph::pass_options{.side_effect = true});
-        }
+        using graph::visibility::append_hzb_build;
+        using graph::visibility::append_hzb_cull;
+        using graph::visibility::hzb_build_parameters;
+        using graph::visibility::hzb_cull_parameters;
     } // namespace
     rhi::error runtime::record_post_graph() {
         using lease = resource_lease<rhi::image>;
@@ -181,6 +130,7 @@ namespace deren::engine {
         // ... and the same bookkeeping for the phase-B cull lane: `hzb_cull_active_frame` is THIS frame's frozen
         // verdict (set by evaluate_hzb_cull_lane below), `hzb_cull_recorded_this_frame` its recorder's answer.
         this->hzb_cull_active_frame = false;
+        this->hzb_recovery_active_frame = false;
         this->hzb_cull_recorded_this_frame = false;
         auto commands = this->frame_command_buffer();
         if (!commands || !this->cluster_retention_open) {
@@ -728,6 +678,7 @@ namespace deren::engine {
             std::optional<graph::pass_ref> hzb_cull_ref{};
             std::optional<graph::buffer_ref> hzb_survivors_ref{};
             std::optional<graph::buffer_ref> hzb_results_ref{};
+            std::optional<graph::buffer_ref> hzb_items_ref{};
             if (hzb_cull_lane && hzb_levels_ref && hzb_header_ref) {
                 auto items_import = build.import_buffer(this->hzb_items_buffer,
                                                         {graph::initial_contents::defined,
@@ -756,6 +707,7 @@ namespace deren::engine {
                 hzb_cull_ref = *hzb_added;
                 hzb_survivors_ref = *survivors_import;
                 hzb_results_ref = *results_import;
+                hzb_items_ref = *items_import;
                 // THE PHASE-B PROBE'S READBACKS ARE ALLOCATED HERE, BEFORE THE LANE RECORDS: the history-lane copy is
                 // recorded INSIDE the cull lane (this frame's build overwrites the same lane later in the submission,
                 // so after the graph would be too late - see runtime::begin_hzb_cull_probe).
@@ -861,6 +813,123 @@ namespace deren::engine {
                     return post_build_error(visibility_bound.error());
                 }
             }
+            auto append_build_lane = [&]() -> rhi::error {
+                // ---- THE HZB BUILD LANE (M3 phase A2, spec §4.2/§8.2 step 3): the max pyramid of THIS frame's depth ----
+                // Recorded AFTER the visibility raster (the depth it samples is final there, and the graph emits the
+                // attachment -> sampled transition from that dependency) and BEFORE the resolve lane is the declared
+                // order of §8.2; the graph schedules it by dependencies, which is the same thing because both lanes
+                // only read the depth the raster wrote.
+                //
+                // ITS PREDICATE AND ITS TWO IMPORTS ARE HOISTED ABOVE (hzb_build_lane / hzb_levels_ref / hzb_header_ref):
+                // the cull lane that runs BEFORE the raster needs the very same two buffers as reads, and a resource may
+                // be imported once with one initial state - so the admission is one predicate and the imports are one
+                // pair. With no cull lane this is exactly phase A2's `{}` import and the same discard write.
+                if (hzb_build_lane && hzb_levels_ref && hzb_header_ref) {
+                    auto hzb_added = build.append([&](graph::builder& description) noexcept {
+                        return append_hzb_build(description, *hzb_levels_ref, *hzb_header_ref, *depth_ref, shared_refs[0]);
+                    });
+                    if (!hzb_added) {
+                        return post_build_error(hzb_added.error());
+                    }
+                    std::array<pass::frame_pass*, 1> hzb_stage_passes{this->hzb_build.get()};
+                    pass::stage hzb_stage{.name = "hzb build", .passes = hzb_stage_passes};
+                    this->prepare_stage(hzb_stage);
+                    passes[22] = this->hzb_build.get();
+                    ios[22].push_block = host.push_block;
+                    if (!host.resolve || !host.resolve(host.context, *passes[22], ios[22]) || ios[22].list != commands.get()) {
+                        return rhi::error::not_ready;
+                    }
+                    // THE BARRIER BUFFER THE PASS RECORDS ITS INTER-LEVEL ORDERING ON: the graph cannot see inside one
+                    // pass, so the pass is handed the levels table's handle (the only buffer it needs a role pair on).
+                    this->hzb_build->set_hzb_levels(this->hzb_levels_buffer.get());
+                    auto hzb_bound = build.bind_pass<hzb_build_parameters>(
+                        *hzb_added, [this, payload](hzb_build_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                            auto const error = payload->record(22);
+                            if (error == rhi::error::ok) {
+                                this->hzb_recorded_this_frame = true; // the probe copies only a frame that actually built
+                                // THE PHASE-B SNAPSHOT IS TAKEN HERE, FROM THE FRAME THAT BUILT THE PYRAMID (§9.2): the
+                                // matrices/items the build just copied into the header and the depth it built from. This
+                                // slot's next use (2 frames from now) compares against exactly this record.
+                                if (this->hzb_cull_enabled) {
+                                    this->save_hzb_source_scene();
+                                }
+                            }
+                            if (error == rhi::error::ok && this->hzb_recovery_active_frame) {
+                                this->gpu_mark(gpu_mark_id::hzb_build_end);
+                            }
+                            return error;
+                        });
+                    if (!hzb_bound) {
+                        return post_build_error(hzb_bound.error());
+                    }
+                }
+                return rhi::error::ok;
+            };
+            if (this->hzb_recovery_active_frame) {
+                if (auto error = append_build_lane(); error != rhi::error::ok) {
+                    return error;
+                }
+                if (!hzb_levels_ref || !hzb_header_ref || !hzb_items_ref || !hzb_results_ref || !hzb_survivors_ref) {
+                    return rhi::error::not_ready;
+                }
+                auto recovery_added = build.append([&](graph::builder& description) noexcept {
+                    return graph::visibility::append_hzb_recovery(description, *hzb_levels_ref, *hzb_header_ref, *hzb_items_ref, shared_refs[9], shared_refs[12], *hzb_results_ref, *hzb_survivors_ref, shared_refs[11]);
+                });
+                if (!recovery_added) {
+                    return post_build_error(recovery_added.error());
+                }
+                std::array<pass::frame_pass*, 1> recovery_stages{this->hzb_recovery.get()};
+                pass::stage recovery_stage{.name = "hzb recovery", .passes = recovery_stages};
+                this->prepare_stage(recovery_stage);
+                passes[23] = this->hzb_recovery.get();
+                ios[23].push_block = host.push_block;
+                if (!host.resolve || !host.resolve(host.context, *passes[23], ios[23]) || ios[23].list != commands.get()) {
+                    return rhi::error::not_ready;
+                }
+                this->hzb_recovery->set_frame(hzb_item_count, this->render_extent(), true);
+                auto recovery_bound = build.bind_pass<graph::visibility::hzb_recovery_parameters>(*recovery_added,
+                                                                                                  [this, payload](graph::visibility::hzb_recovery_parameters const&, rhi::command_buffer& command_buffer, graph::execution::record_context const&) noexcept {
+                                                                                                      auto error = payload->record(23);
+                                                                                                      if (error == rhi::error::ok && this->hzb_cull_probe_active) {
+                                                                                                          this->record_hzb_recovery_probe_copy(command_buffer);
+                                                                                                      }
+                                                                                                      if (error == rhi::error::ok) {
+                                                                                                          this->gpu_mark(gpu_mark_id::hzb_recovery_end);
+                                                                                                      }
+                                                                                                      return error;
+                                                                                                  });
+                if (!recovery_bound) {
+                    return post_build_error(recovery_bound.error());
+                }
+                graph::visibility::inputs load_inputs{*visibility_ref, *depth_ref, graph::visibility::shared_inputs{shared_refs[0], shared_refs[8], shared_refs[11]}};
+                load_inputs.shared->culled_meshlets = shared_refs[9];
+                load_inputs.shared->hzb_survivors = hzb_survivors_ref;
+                load_inputs.shared->hzb_results = hzb_results_ref;
+                auto load_added = build.append([&](graph::builder& description) noexcept { return graph::visibility::append_recovery(description, load_inputs); });
+                if (!load_added) {
+                    return post_build_error(load_added.error());
+                }
+                std::array<pass::frame_pass*, 1> load_stages{this->visibility_recovery.get()};
+                pass::stage load_stage{.name = "visibility recovery", .passes = load_stages};
+                this->prepare_stage(load_stage);
+                passes[24] = this->visibility_recovery.get();
+                ios[24].push_block = host.push_block;
+                if (!host.resolve || !host.resolve(host.context, *passes[24], ios[24]) || ios[24].list != commands.get() || ios[24].targets.size() != 2) {
+                    return rhi::error::not_ready;
+                }
+                this->visibility_recovery->set_frame(this->make_visibility_frame(true));
+                auto load_bound = build.bind_pass<graph::visibility::raster_load_parameters>(load_added->pass,
+                                                                                             [this, payload](graph::visibility::raster_load_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                                                                                                 auto error = payload->record(24);
+                                                                                                 if (error == rhi::error::ok) {
+                                                                                                     this->gpu_mark(gpu_mark_id::visibility_recovery_end);
+                                                                                                 }
+                                                                                                 return error;
+                                                                                             });
+                if (!load_bound) {
+                    return post_build_error(load_bound.error());
+                }
+            }
             if (visibility_frame) {
                 if (this->visibility_resolve == nullptr) {
                     // the admission said both pipelines exist; a null here is a wiring error, not a fallback case
@@ -895,6 +964,7 @@ namespace deren::engine {
                 }
                 auto resolve_bound = build.bind_pass<graph::visibility::resolve_parameters>(
                     resolve_added->pass, [this, payload](graph::visibility::resolve_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                        this->gpu_mark_through(gpu_mark_id::visibility_recovery_end);
                         auto error = payload->record(20);
                         if (error != rhi::error::ok) {
                             return error;
@@ -914,50 +984,9 @@ namespace deren::engine {
                     return post_build_error(resolve_bound.error());
                 }
             }
-            // ---- THE HZB BUILD LANE (M3 phase A2, spec §4.2/§8.2 step 3): the max pyramid of THIS frame's depth ----
-            // Recorded AFTER the visibility raster (the depth it samples is final there, and the graph emits the
-            // attachment -> sampled transition from that dependency) and BEFORE the resolve lane is the declared
-            // order of §8.2; the graph schedules it by dependencies, which is the same thing because both lanes
-            // only read the depth the raster wrote.
-            //
-            // ITS PREDICATE AND ITS TWO IMPORTS ARE HOISTED ABOVE (hzb_build_lane / hzb_levels_ref / hzb_header_ref):
-            // the cull lane that runs BEFORE the raster needs the very same two buffers as reads, and a resource may
-            // be imported once with one initial state - so the admission is one predicate and the imports are one
-            // pair. With no cull lane this is exactly phase A2's `{}` import and the same discard write.
-            if (hzb_build_lane && hzb_levels_ref && hzb_header_ref) {
-                auto hzb_added = build.append([&](graph::builder& description) noexcept {
-                    return append_hzb_build(description, *hzb_levels_ref, *hzb_header_ref, *depth_ref, shared_refs[0]);
-                });
-                if (!hzb_added) {
-                    return post_build_error(hzb_added.error());
-                }
-                std::array<pass::frame_pass*, 1> hzb_stage_passes{this->hzb_build.get()};
-                pass::stage hzb_stage{.name = "hzb build", .passes = hzb_stage_passes};
-                this->prepare_stage(hzb_stage);
-                passes[22] = this->hzb_build.get();
-                ios[22].push_block = host.push_block;
-                if (!host.resolve || !host.resolve(host.context, *passes[22], ios[22]) || ios[22].list != commands.get()) {
-                    return rhi::error::not_ready;
-                }
-                // THE BARRIER BUFFER THE PASS RECORDS ITS INTER-LEVEL ORDERING ON: the graph cannot see inside one
-                // pass, so the pass is handed the levels table's handle (the only buffer it needs a role pair on).
-                this->hzb_build->set_hzb_levels(this->hzb_levels_buffer.get());
-                auto hzb_bound = build.bind_pass<hzb_build_parameters>(
-                    *hzb_added, [this, payload](hzb_build_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
-                        auto const error = payload->record(22);
-                        if (error == rhi::error::ok) {
-                            this->hzb_recorded_this_frame = true; // the probe copies only a frame that actually built
-                            // THE PHASE-B SNAPSHOT IS TAKEN HERE, FROM THE FRAME THAT BUILT THE PYRAMID (§9.2): the
-                            // matrices/items the build just copied into the header and the depth it built from. This
-                            // slot's next use (2 frames from now) compares against exactly this record.
-                            if (this->hzb_cull_enabled) {
-                                this->save_hzb_source_scene();
-                            }
-                        }
-                        return error;
-                    });
-                if (!hzb_bound) {
-                    return post_build_error(hzb_bound.error());
+            if (!this->hzb_recovery_active_frame) {
+                if (auto error = append_build_lane(); error != rhi::error::ok) {
+                    return error;
                 }
             }
             // THE GEOMETRY LANE (the old producer) IS RECORDED ONLY WHEN THE VISIBILITY LANE IS NOT: the two write
@@ -996,6 +1025,7 @@ namespace deren::engine {
                                                                                        // THE SPLIT MARK, before the pass: the geometry lane keeps the interval it
                                                                                        // always had ("scene" = this mark -> scene_end); the visibility slot reads ~0
                                                                                        this->gpu_mark(gpu_mark_id::visibility_raster_end);
+                                                                                       this->gpu_mark_through(gpu_mark_id::visibility_recovery_end);
                                                                                        auto error = payload->record(7);
                                                                                        if (error != rhi::error::ok) {
                                                                                            return error;

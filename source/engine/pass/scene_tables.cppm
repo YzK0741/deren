@@ -40,7 +40,7 @@ export namespace deren::engine::pass {
                 uint64_t(material_capacity) * sizeof(material_record), uint64_t(instance_capacity) * sizeof(glm::mat4),
                 uint64_t(material_capacity) * uint64_t(toon_colour_lane::count) * sizeof(glm::vec4),
                 uint64_t(material_capacity) * toon_lane_blocks * sizeof(glm::uvec4), sizeof(toon_rig), uint64_t(meshlet_capacity) * sizeof(meshlet),
-                uint64_t(context.frame_slots) * 3u * meshlet_capacity * rhi::mesh_task_command_size,
+                uint64_t(context.frame_slots) * 4u * meshlet_capacity * rhi::mesh_task_command_size,
                 uint64_t(context.frame_slots) * 16u * sizeof(uint32_t), uint64_t(context.frame_slots) * meshlet_capacity * sizeof(meshlet),
                 uint64_t(context.frame_slots) * deren::engine::visibility::id_item_capacity * sizeof(deren::engine::visibility::draw_item)};
             deren::utility::vessel::array<managed::request, resource_count> values;

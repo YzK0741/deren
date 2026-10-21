@@ -85,7 +85,68 @@ namespace {
         }
     }
 } // namespace
+namespace {
+    void test_full_recovery_chain() {
+        rg::builder graph;
+        std::array<rg::buffer_ref, 13> b{};
+        for (unsigned i = 0; i < b.size(); ++i)
+            b[i] = *graph.import_buffer({90, 100 + i}, rg::initial_contents::defined, "table", {256}, rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader, rg::memory_access::read});
+        auto image = [&](unsigned id, bool depth = false) { return *graph.import_texture({90, id}, rg::initial_contents::undefined, "image", {1, 1, depth ? rg::texture_aspect::depth : rg::texture_aspect::color}, rg::resource_state{}); };
+        auto vis = image(1), depth = image(2, true);
+        visibility::shared_inputs shared{b[0], b[1], b[2]};
+        shared.culled_meshlets = b[3];
+        shared.hzb_survivors = b[4];
+        shared.hzb_results = b[5];
+        auto cull = visibility::append_hzb_cull(graph, b[6], b[7], b[8], b[3], b[9], b[5], b[4], b[2]);
+        CHECK(cull.has_value());
+        auto raster = visibility::append(graph, {vis, depth, shared});
+        CHECK(raster.has_value());
+        auto build = visibility::append_hzb_build(graph, b[6], b[7], depth, b[0]);
+        CHECK(build.has_value());
+        auto recover = visibility::append_hzb_recovery(graph, b[6], b[7], b[8], b[3], b[9], b[5], b[4], b[2]);
+        CHECK(recover.has_value());
+        auto load = visibility::append_recovery(graph, {vis, depth, shared});
+        CHECK(load.has_value());
+        visibility::resolve_inputs in{};
+        in.vis_id = vis;
+        in.depth = depth;
+        for (unsigned i = 0; i < 3; ++i)
+            in.surface[i] = image(3 + i);
+        in.velocity = image(6);
+        in.color = image(7);
+        in.shared = visibility::resolve_shared_inputs{b[0], b[10], b[9], b[1], b[11], b[12]};
+        in.shared->culled_meshlets = b[3];
+        in.shared->hzb_survivors = b[4];
+        in.shared->hzb_results = b[5];
+        auto resolve = visibility::append_resolve(graph, in);
+        CHECK(resolve.has_value());
+        CHECK(graph.export_resource(in.color).has_value());
+        auto plan = graph.compile({true});
+        CHECK(plan.has_value());
+        if (!plan || !cull || !raster || !build || !recover || !load || !resolve)
+            return;
+        std::array<std::uint32_t, 6> expected{cull->index(), raster->pass.index(), build->index(), recover->index(), load->pass.index(), resolve->pass.index()};
+        CHECK(plan->execution_order.size() == expected.size());
+        for (unsigned i = 0; i < expected.size() && i < plan->execution_order.size(); ++i)
+            CHECK(plan->execution_order[i] == expected[i]);
+        auto const* params = plan->passes[load->pass.index()].parameters.get<visibility::raster_load_parameters>();
+        CHECK(params && params->vis_id.resource == vis && params->depth.resource == depth);
+        auto dependency = [&](auto res, rg::pass_ref before, rg::pipeline_stage stage) {
+            for (auto const& barrier : plan->barriers)
+                if (barrier.resource == res.index() && barrier.before_pass == before.index() && barrier.memory_dependency && barrier.after.stages == stage)
+                    return true;
+            return false;
+        };
+        CHECK(dependency(b[4], load->pass, rg::pipeline_stage::mesh_shader));
+        CHECK(dependency(b[2], load->pass, rg::pipeline_stage::draw_indirect));
+        CHECK(dependency(depth, *build, rg::pipeline_stage::compute_shader));
+        CHECK(dependency(depth, load->pass, rg::pipeline_stage::depth_stencil));
+        CHECK(dependency(vis, resolve->pass, rg::pipeline_stage::compute_shader));
+    }
+} // namespace
+
 int main() {
+    test_full_recovery_chain();
     test_hzb_consumers();
     // ---- the RASTER lane as it will be recorded: both attachments and the three stage reads ----
     for (bool with_culled : {false, true}) {

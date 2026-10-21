@@ -350,6 +350,22 @@ namespace deren::engine {
         // without the build gate) means no phase-B buffer is allocated, no cull pipeline is created and no cull
         // lane is appended - the phase-A2 run and the OFF run are both exactly themselves.
         this->hzb_cull_enabled = this->hzb_build_enabled && std::getenv("DEREN_HZB_CULL") != nullptr;
+        this->hzb_recovery_enabled = this->hzb_cull_enabled && std::getenv("DEREN_HZB_RECOVERY") != nullptr;
+        auto motion_limit = [](char const* name, double fallback) noexcept {
+            char const* text = std::getenv(name);
+            if (text == nullptr) {
+                return fallback;
+            }
+            char* end = nullptr;
+            double const value = std::strtod(text, &end);
+            if (end == text || *end != '\0' || !std::isfinite(value) || value <= 0.) {
+                return fallback;
+            }
+            return value;
+        };
+        this->hzb_recovery_limits.translation_ratio = motion_limit("DEREN_HZB_RECOVERY_MAX_TRANSLATION_RATIO", .05);
+        this->hzb_recovery_limits.rotation_degrees = motion_limit("DEREN_HZB_RECOVERY_MAX_ROTATION_DEGREES", 5.);
+        this->hzb_recovery_limits.projection_delta = motion_limit("DEREN_HZB_RECOVERY_MAX_PROJECTION_DELTA", .01);
 
         // ---- THE SESSION-STABLE FORMATS AND DEVICE CAPABILITIES, ASKED ONCE (③-D/E step 2) ----------
         // THE SURFACE FORMAT: abi 17's accessor is the only answer that exists BEFORE a frame is acquired,
@@ -1760,6 +1776,8 @@ namespace deren::engine {
                 this->hzb_cull_session_culled += culled;
                 this->hzb_cull_session_survivors += survivors;
                 this->hzb_cull_session_overflow_items += overflow;
+                this->hzb_recovery_session_retested += stats[pass::hzb_stat_retested];
+                this->hzb_recovery_session_recovered += stats[pass::hzb_stat_recovered];
                 ++this->hzb_cull_session_frames;
             }
             if (slot == this->hzb_cull_last_slot) {
@@ -1767,6 +1785,9 @@ namespace deren::engine {
                 last_culled = culled;
                 last_survivors = survivors;
             }
+        }
+        if (this->hzb_recovery_enabled) {
+            deren::utility::log("hzb recovery: session {} retested / {} recovered / {} still occluded", this->hzb_recovery_session_retested, this->hzb_recovery_session_recovered, this->hzb_recovery_session_retested - this->hzb_recovery_session_recovered);
         }
         std::uint64_t const session_candidates = this->hzb_cull_session_candidates;
         std::uint64_t const session_culled = this->hzb_cull_session_culled;
@@ -1967,6 +1988,21 @@ namespace deren::engine {
                                         "host-selected candidates against the HISTORY pyramid and publish flags/survivors/counts; "
                                         "visibility consumes the survivors and GPU indirect commands while the static gate is open");
                 }
+            }
+        }
+        if (this->hzb_recovery_enabled && !this->hzb_recovery_failed && this->hzb_recovery == nullptr && this->hzb_cull != nullptr) {
+            auto recover = std::make_unique<pass::hzb_cull_pass>();
+            recover->create(this->make_pass_context());
+            auto raster = std::make_unique<pass::visibility_raster_pass>();
+            raster->set_load_existing(true);
+            raster->create(this->make_pass_context());
+            if (!recover->ready() || !raster->has_pipeline()) {
+                this->hzb_recovery_failed = true;
+                deren::utility::log("hzb recovery: unavailable; keep complete single-pass draws");
+            } else {
+                this->hzb_recovery = std::move(recover);
+                this->visibility_recovery = std::move(raster);
+                deren::utility::log("hzb recovery: ARMED; current-depth retest and LOAD raster, limits {} radius / {} degrees / {} projection delta", this->hzb_recovery_limits.translation_ratio, this->hzb_recovery_limits.rotation_degrees, this->hzb_recovery_limits.projection_delta);
             }
         }
         rhi::image_extent const extent = this->render_extent();

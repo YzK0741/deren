@@ -56,7 +56,7 @@ struct VisibilityPush
     uint item_index;          // the per-frame draw item this dispatch belongs to (12 bits in the id)
     uint frame_slot;          // which per-frame lane the camera reads through
     uint material_index;      // the material record (alpha test source); the explicit pad keeps geometry aligned
-    uint pad;
+    uint pad; // 0=first draw, 1=recovery; preserves geometry alignment
     MeshGeometryLanes geometry; // where this item's vertices/indexes are, and which window the dispatch covers
 };
 [[vk::push_constant]] ConstantBuffer<VisibilityPush> push;
@@ -104,7 +104,12 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
     {
         hzb_live = hzb_survivors_usable(push.frame_slot, push.item_index);
     }
-    const MeshletRecord meshlet = hzb_live ? hzb_survivor_at(push.frame_slot, geometry.first_index + group_id.x)
+    uint survivor_offset=0u;
+    if(hzb_live && push.pad==1u)
+    {
+        survivor_offset=heap_at<StructuredBuffer<uint>>(heap_slots_hzb_results)[hzb_results_lane_base(push.frame_slot)+hzb_results_pass1_count+push.item_index];
+    }
+    const MeshletRecord meshlet = hzb_live ? hzb_survivor_at(push.frame_slot, geometry.first_index + survivor_offset + group_id.x)
         : ((hzb_mode || host_culled) ? culled_meshlet_at(push.frame_slot, geometry.first_index + group_id.x)
                                     : meshlet_at(geometry.first_index + group_id.x));
     // THIS LANE'S OWN COUNTERS (mesh_geometry.slang's ids 8..11): the pbr/shadow meshlet entries count themselves,
@@ -142,7 +147,7 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
 
     // THE ID IS THE MESHLET'S ORDER INSIDE THE ITEM, not its table index: the resolve pass reads the item's
     // record to find the run's base, so the two halves agree on the order the dispatch was built with.
-    const uint meshlet_in_item = group_id.x;
+    const uint meshlet_in_item = survivor_offset + group_id.x;
     for (uint t = 0u; t < triangle_count; ++t)
     {
         const uint vis_id = visibility_id_valid | (push.item_index << visibility_id_item_shift) |

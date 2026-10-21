@@ -114,6 +114,12 @@ export namespace deren::engine::pass {
             // nothing is per-generation: the pipeline depends on the device alone, and the targets arrive per frame
         }
 
+        void set_load_existing(bool value) noexcept {
+            this->load_existing = value;
+        }
+        [[nodiscard]] bool loads_existing() const noexcept {
+            return this->load_existing;
+        }
         void set_frame(visibility_frame const& frame) noexcept {
             this->pass_frame = frame;
         }
@@ -121,6 +127,7 @@ export namespace deren::engine::pass {
         [[nodiscard]] rhi::error record_content(resolved_io const& io) noexcept override;
 
     private:
+        bool load_existing = false;
         visibility_frame pass_frame{};
         std::optional<pipelines::pipeline_handle> raster_pipeline = std::nullopt;
         void* built_against = nullptr;

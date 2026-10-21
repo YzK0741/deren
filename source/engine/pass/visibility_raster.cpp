@@ -82,10 +82,10 @@ namespace deren::engine::pass {
         // on an admitted frame (v0.5), so these clears ARE the frame's, not a private copy: the lighting and toon
         // stages read the depth written here.
         std::array<rhi::color_attachment, 1> const colors = {
-            rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::clear, .store = rhi::store_op::store, .clear = {0.0f, 0.0f, 0.0f, 0.0f}},
+            rhi::color_attachment{.view = io.targets[0].view_handle, .load = this->load_existing ? rhi::load_op::load : rhi::load_op::clear, .store = rhi::store_op::store, .clear = {0.0f, 0.0f, 0.0f, 0.0f}},
         };
         rhi::depth_attachment const depth = {.view = io.targets[1].view_handle,
-                                             .load = rhi::load_op::clear,
+                                             .load = this->load_existing ? rhi::load_op::load : rhi::load_op::clear,
                                              .store = rhi::store_op::store,
                                              .read_only = false,
                                              .has_stencil = false,

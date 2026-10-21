@@ -154,8 +154,9 @@ void hzb_level_size(uint width, uint height, uint level, out uint out_width, out
 
 // ---- capacities and thresholds: mirrors of hzb.cppm's exported constants ----
 static const uint hzb_item_candidate_capacity = 4096u;  // how many candidates ONE item may offer (the id's meshlet field)
-static const uint hzb_mesh_command_capacity = 3u * 65536u;
+static const uint hzb_mesh_command_capacity = 4u * 65536u;
 static const uint hzb_visibility_command_run = 2u * 65536u;
+static const uint hzb_recovery_command_run = 3u * 65536u;
 static const uint hzb_count_fallback = 0xFFFFFFFFu;
 uint hzb_command_word_offset(uint slot, uint item)
 {
@@ -187,9 +188,9 @@ static const uint hzb_item_source_culled = 1u;
 // flags[65536] + pass1_count[4096] + pass2_count[4096] + stats[16] words, packed per frame lane. The flags are
 // addressed by the ABSOLUTE candidate index (meshlet_base + i), one u32 per candidate - written exactly once, so
 // no clear and no atomics; the per-item count has ONE writer (the item's own workgroup), and only the cross-item
-// stats block is atomically accumulated. pass2_count is phase C's (unused here, kept in the layout so the shape
+// stats block is atomically accumulated. pass2_count is phase C's recovered suffix count (reserved in phase B so the shape
 // and the byte offsets do not move when recovery lands).
-static const uint hzb_results_flags = 0u;                           // [65536] 0 = survivor, 1 = culled
+static const uint hzb_results_flags = 0u;                           // [65536] bit0=history rejected, bit1=recovery kept; 0/1 in single-pass mode
 static const uint hzb_results_pass1_count = hzb_candidate_capacity; // [4096] per item
 static const uint hzb_results_pass2_count = hzb_results_pass1_count + hzb_item_candidate_capacity;
 static const uint hzb_results_stats = hzb_results_pass2_count + hzb_item_candidate_capacity;
@@ -218,6 +219,9 @@ uint hzb_items_lane_base(uint frame_slot)
 static const uint hzb_stat_candidates = 0u;     // candidates the cull walked
 static const uint hzb_stat_culled = 1u;         // candidates it conservatively dismissed
 static const uint hzb_stat_survivors = 2u;      // candidates it kept
+static const uint hzb_stat_retested = 4u;
+static const uint hzb_stat_recovered = 5u;
+static const uint hzb_stat_still_occluded = 6u;
 static const uint hzb_stat_overflow_items = 3u; // items whose run could not be described: fallback sentinel preserves the original run
 
 // ---- THE MATRIX SPELLING: the CPU reference's storage and its three accessors, copied §6.2 verbatim ----
@@ -391,7 +395,9 @@ HzbHistory hzb_read_history(RWStructuredBuffer<uint> header, uint frame_slot, ui
     {
         return history;
     }
-    if (hzb_matrix_element(projection, 0u, 2u) != 0.0 || hzb_matrix_element(projection, 1u, 2u) != 0.0)
+    // XY projection offsets (including TAA jitter) are covered by the eight-corner footprint.
+    // Only mixing XY into clip Z invalidates the monotone near-depth bound.
+    if (hzb_matrix_element(projection, 2u, 0u) != 0.0 || hzb_matrix_element(projection, 2u, 1u) != 0.0)
     {
         return history;
     }

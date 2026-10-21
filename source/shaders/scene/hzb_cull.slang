@@ -40,6 +40,7 @@ struct HzbCullPush
     uint item_count;      // the number of items = the dispatch's group count
     uint expected_width;  // the render extent the history header must describe (§7.2's header guard)
     uint expected_height;
+    uint mode;            // 0=history prediction, 1=current-frame recovery
     uint frame_slot;      // appended by the pass framework: which lane of every HZB table this frame owns
     uint image_index;     // appended by the pass framework; unused by this stage
 };
@@ -95,6 +96,58 @@ void hzb_stat_add(RWStructuredBuffer<uint> results, uint results_lane_base, uint
     }
 }
 
+void hzb_recover(uint item, uint thread_id, HzbItem src)
+{
+    const uint slot = push.frame_slot;
+    const uint lane = hzb_results_lane_base(slot);
+    const uint flags_base = lane + hzb_results_flags + src.meshlet_base;
+    RWStructuredBuffer<uint> results = heap_at<RWStructuredBuffer<uint>>(heap_slots_hzb_results);
+    RWStructuredBuffer<uint> commands = heap_at<RWStructuredBuffer<uint>>(heap_slots_hzb_commands);
+    const uint command_word = (slot * hzb_mesh_command_capacity + hzb_recovery_command_run + item) * 3u;
+    if (thread_id == 0u)
+    {
+        results[lane + hzb_results_pass2_count + item] = 0u;
+        commands[command_word] = 0u; commands[command_word + 1u] = 1u; commands[command_word + 2u] = 1u;
+    }
+    if (src.source != hzb_item_source_culled || src.candidate_count == 0u ||
+        src.candidate_count > hzb_item_candidate_capacity || src.meshlet_base > hzb_candidate_capacity ||
+        src.candidate_count > hzb_candidate_capacity - src.meshlet_base) return;
+    const uint first = results[lane + hzb_results_pass1_count + item];
+    if (first == hzb_count_fallback || first > src.candidate_count) return;
+    RWStructuredBuffer<float> pyramid = heap_at<RWStructuredBuffer<float>>(heap_slots_hzb_levels);
+    RWStructuredBuffer<uint> header = heap_at<RWStructuredBuffer<uint>>(heap_slots_hzb_header);
+    const HzbHistory current = hzb_read_history(header,slot,push.expected_width,push.expected_height);
+    const HzbMatrix model = hzb_draw_item_model(heap_at<StructuredBuffer<uint>>(heap_slots_visibility_items),slot*hzb_item_candidate_capacity+item);
+    const uint pyramid_base = slot * hzb_pyramid_words(push.expected_width,push.expected_height);
+    for(uint index=thread_id;index<src.candidate_count;index+=hzb_cull_group_size)
+    {
+        if(results[flags_base+index] == 1u)
+        {
+            const MeshletRecord record=culled_meshlet_at(slot,src.meshlet_base+index);
+            const bool keep = !current.usable || !current.projection_ok || !hzb_occluded(current,pyramid,pyramid_base,model,record.center,record.radius);
+            results[flags_base+index] = keep ? 3u : 1u;
+        }
+    }
+    DeviceMemoryBarrierWithGroupSync();
+    if(thread_id==0u)
+    {
+        RWStructuredBuffer<MeshletRecord> survivors=heap_at<RWStructuredBuffer<MeshletRecord>>(heap_slots_hzb_survivors);
+        const uint output_base=slot*hzb_candidate_capacity+src.meshlet_base+first;
+        uint retested=0u,recovered=0u;
+        for(uint index=0u;index<src.candidate_count;++index)
+        {
+            const uint flag=results[flags_base+index];
+            if((flag&1u)!=0u) ++retested;
+            if((flag&2u)!=0u) survivors[output_base+recovered++]=culled_meshlet_at(slot,src.meshlet_base+index);
+        }
+        results[lane+hzb_results_pass2_count+item]=recovered;
+        commands[command_word]=recovered;
+        hzb_stat_add(results,lane,hzb_stat_retested,retested);
+        hzb_stat_add(results,lane,hzb_stat_recovered,recovered);
+        hzb_stat_add(results,lane,hzb_stat_still_occluded,retested-recovered);
+    }
+}
+
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void main(uint3 group_id : SV_GroupID, uint thread_id : SV_GroupThreadID)
@@ -117,6 +170,13 @@ void main(uint3 group_id : SV_GroupID, uint thread_id : SV_GroupThreadID)
     RWStructuredBuffer<uint> results = heap_at<RWStructuredBuffer<uint>>(heap_slots_hzb_results);
     RWStructuredBuffer<MeshletRecord> survivors = heap_at<RWStructuredBuffer<MeshletRecord>>(heap_slots_hzb_survivors);
     HzbItem src = heap_at<RWStructuredBuffer<HzbItem>>(heap_slots_hzb_items)[hzb_items_lane_base(slot) + item];
+
+    if(push.mode==1u)
+    {
+        hzb_recover(item,thread_id,src);
+        return;
+    }
+    if(thread_id==0u) results[results_lane_base+hzb_results_pass2_count+item]=0u;
 
     // ---- THE EMPTY ITEM: publish a deterministic zero and leave. Not-a-host-cut-run items (source 0) and runs the
     // host emptied are both `candidate_count == 0`; writing the count (rather than leaving last frame's) is what

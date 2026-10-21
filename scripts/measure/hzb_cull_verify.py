@@ -149,6 +149,7 @@ def parse_header(words: list[int]) -> dict[str, object]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("prefix", help="the DEREN_HZB_CULL_PROBE_CAPTURE prefix (the dump files are <prefix>.*)")
+    parser.add_argument("--require-recovery",action="store_true",help="fail unless this is a two-pass recovery capture")
     parser.add_argument("--quiet", action="store_true", help="print only failures and the final verdict")
     args = parser.parse_args()
     prefix = Path(args.prefix)
@@ -173,6 +174,10 @@ def main() -> int:
     checker.check(int(metadata.get("words_per_lane", -1)) == words, f"metadata words per lane matches the extent ({words})")
     frame_slot = int(metadata.get("frame_slot", -1))
     item_count = int(metadata.get("item_count", -1))
+    recovery_enabled=bool(metadata.get("recovery",{}).get("enabled",False))
+    if args.require_recovery and not recovery_enabled:
+        checker.check(False,"a two-pass recovery capture is required")
+        return checker.finish(f"hzb_cull_verify {prefix}")
     candidate_total = int(metadata.get("candidate_total", -1))
     checker.check(0 <= frame_slot < 2, f"frame slot is a valid ring slot ({frame_slot})")
     checker.check(0 < item_count <= ITEM_CAPACITY, f"item count is a dispatch the pass can record ({item_count})")
@@ -224,7 +229,13 @@ def main() -> int:
     checker.check(len(candidates_raw) == CANDIDATE_CAPACITY * MESHLET_BYTES, f"candidates file is {CANDIDATE_CAPACITY} x {MESHLET_BYTES} B")
     checker.check(len(draw_items_raw) == ITEM_CAPACITY * DRAW_ITEM_BYTES, f"draw-items file is {ITEM_CAPACITY} x {DRAW_ITEM_BYTES} B")
 
-    items = parse_items(items_raw)
+    # THE PLAN IS ONLY THE LIVE PREFIX OF THE LANE. The dump always shapes the FULL 4096-row table (asserted
+    # above); rows from `item_count` on are the lane's stale tail, which a previous frame with a different
+    # frustum can legitimately have left VALID item entries in. Those rows are not part of THIS frame's plan,
+    # so every loop below must read only the rows the metadata's item_count names: slicing AFTER the full-shape
+    # assertion keeps a short/long items file visible as a shape failure while keeping stale tail data out of
+    # the totals.
+    items = parse_items(items_raw)[:item_count]
     flags = parse_u32s(flags_raw, CANDIDATE_CAPACITY)
     counts = parse_u32s(counts_raw, ITEM_CAPACITY)
     stats = parse_u32s(stats_raw, STATS_CAPACITY)
@@ -253,7 +264,7 @@ def main() -> int:
     # names are never written (the table is host-zeroed at creation), so the only flags a check may read are the
     # ones inside an item's run. `culled_total` therefore counts flags==1, and the candidate survivors are the
     # plan's total minus that.
-    culled_total = sum(1 for flag in flags if flag != 0)
+    culled_total = sum(1 for base,count,source,_ in items if source == SOURCE_CULLED for i in range(count) if (flags[base+i]&1) != 0)
     counts_total = 0
     order_problems = 0
     item_problems = 0
@@ -304,6 +315,42 @@ def main() -> int:
     checker.check(stats[STAT_CANDIDATES] == stats[STAT_CULLED] + stats[STAT_SURVIVORS],
                   "stats candidates == culled + survivors")
     checker.check(stats[STAT_OVERFLOW_ITEMS] == 0, f"no item overflowed its run ({stats[STAT_OVERFLOW_ITEMS]} overflow item(s))")
+
+
+    if recovery_enabled:
+        try:
+            second = parse_u32s(read_bytes(prefix,".counts2.bin"),ITEM_CAPACITY)
+            commands2 = parse_u32s(read_bytes(prefix,".commands2.bin"),item_count*3)
+            current_header = parse_header(parse_u32s(read_bytes(prefix,".current.header.bin"),HEADER_BYTES//4))
+            current_pyramid = read_bytes(prefix,".current.pyramid.bin")
+        except DumpError as error:
+            print(f"error: {error}")
+            return 2
+        checker.check(len(current_pyramid)==words*4,"current-depth pyramid has the expected extent")
+        checker.check(current_header["magic"]==HZB_HEADER_MAGIC,"current-depth header magic")
+        checker.check((current_header["width"],current_header["height"],current_header["levels"])==(width,height,levels),"current-depth header extent/levels")
+        retested=0; recovered_total=0
+        for index,(base,count,source,_) in enumerate(items[:item_count]):
+            suffix=[]
+            if source==SOURCE_CULLED:
+                valid_flags=all(flags[base+i] in (0,1,3) for i in range(count))
+                checker.check(valid_flags,f"item {index}: flags encode original rejection and current recovery")
+                retested+=sum(bool(flags[base+i]&1) for i in range(count))
+                suffix=[base+i for i in range(count) if flags[base+i]&2]
+            checker.check(second[index]==len(suffix),f"item {index}: pass2 count matches flags ({second[index]}/{len(suffix)})")
+            recovered_total+=len(suffix)
+            checker.check(tuple(commands2[index*3:index*3+3])==(second[index],1,1),f"item {index}: recovery command matches pass2 count")
+            if source==SOURCE_CULLED:
+                checker.check(counts[index]+second[index]<=count,f"item {index}: prefix plus suffix fits the original candidate run")
+                for order,candidate in enumerate(suffix):
+                    target=base+counts[index]+order
+                    checker.check(survivors_raw[target*MESHLET_BYTES:(target+1)*MESHLET_BYTES]==candidates_raw[candidate*MESHLET_BYTES:(candidate+1)*MESHLET_BYTES],f"item {index}: recovery record {order} preserves stable candidate order")
+        checker.check(stats[4]==retested==culled_total,"recovery retests exactly the history-rejected candidates")
+        checker.check(stats[5]==recovered_total,"recovery stats count every appended survivor")
+        checker.check(stats[6]==retested-recovered_total,"recovery still-occluded stats match the partition")
+        reference=metadata["recovery"]
+        checker.check(reference.get("decisions")==retested and reference.get("agree")==retested,"recovery CPU/GPU reference agrees on every rejected candidate")
+        checker.check(reference.get("count_mismatches")==0 and reference.get("survivor_order_mismatches")==0,"recovery CPU reference counts and stable suffix records agree")
 
     # ---- 7. THE CANDIDATE RECORDS AND THE MODEL MATRICES ARE PLAUSIBLE ----
     # The 48-byte meshlet record's layout (deren::engine::meshlet): first_index@0, index_count@4, base_vertex@8,

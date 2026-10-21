@@ -209,7 +209,7 @@ export namespace deren::engine::visibility {
         std::uint32_t item_index = 0;     ///< which per-frame draw item this dispatch belongs to
         std::uint32_t frame_slot = 0;     ///< the per-frame lane the stage reads the camera through
         std::uint32_t material_index = 0; ///< the material record (alpha test source); see push_block_material_offset
-        std::uint32_t pad = 0;            ///< keeps `geometry` 8-byte aligned; mirrored explicitly in the shader
+        std::uint32_t pad = 0;            ///< raster pass marker: 0=first draw, 1=recovery (also preserves alignment)
         geometry_lanes geometry = {};     ///< where the item's vertices/indexes are, and its meshlet run
     };
     static_assert(sizeof(push_block) == push_block_bytes);

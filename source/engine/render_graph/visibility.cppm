@@ -81,6 +81,105 @@ export namespace deren::engine::render_graph::visibility {
         return outputs{in, *added};
     }
 
+    /// The second raster preserves the first draw's IDs/depth; reads are load-bearing dependencies.
+    struct raster_load_parameters {
+        texture_read_write vis_id, depth;
+        std::optional<shared_parameters> shared = {};
+        void visit_resources(parameter_visitor& visit) const noexcept {
+            visit(vis_id, depth, shared);
+        }
+    };
+    [[nodiscard]] inline std::expected<outputs, graph_error> append_recovery(builder& graph, inputs const& in) noexcept {
+        if (in.shared && in.shared->hzb_survivors.has_value() != in.shared->hzb_results.has_value()) {
+            return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "visibility HZB", .resource_name = "incomplete HZB read tables"});
+        }
+        if (in.vis_id == in.depth) {
+            return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "visibility recovery raster", .resource_name = "visibility attachments"});
+        }
+        constexpr access_scope color{resource_usage::color_attachment, pipeline_stage::color_output};
+        constexpr access_scope depth{resource_usage::depth_stencil_attachment, pipeline_stage::depth_stencil};
+        raster_load_parameters params{{in.vis_id, {}, color}, {in.depth, {}, depth}, {}};
+        if (in.shared) {
+            constexpr access_scope camera{resource_usage::uniform_buffer, pipeline_stage::mesh_shader};
+            constexpr access_scope mesh{resource_usage::storage, pipeline_stage::mesh_shader};
+            constexpr access_scope indirect{resource_usage::indirect_buffer, pipeline_stage::draw_indirect};
+            params.shared = shared_parameters{{in.shared->camera, {}, camera}, {in.shared->meshlets, {}, mesh}, {in.shared->indirect, {}, indirect}};
+            if (in.shared->culled_meshlets) {
+                params.shared->culled_meshlets = buffer_read{*in.shared->culled_meshlets, {}, mesh};
+            }
+            if (in.shared->hzb_survivors) {
+                params.shared->hzb_survivors = buffer_read{*in.shared->hzb_survivors, {}, mesh};
+                params.shared->hzb_results = buffer_read{*in.shared->hzb_results, {}, mesh};
+            }
+        }
+        auto added = graph.add_pass("visibility recovery raster", std::move(params));
+        if (!added) {
+            return std::unexpected(added.error());
+        }
+        return outputs{in, *added};
+    }
+
+    struct hzb_build_parameters {
+        buffer_discard_write levels;
+        buffer_discard_write header;
+        texture_read depth;
+        buffer_read camera;
+        void visit_resources(parameter_visitor& visit) const noexcept {
+            visit(levels, header, depth, camera);
+        }
+    };
+
+    std::expected<pass_ref, graph_error> append_hzb_build(builder& description, buffer_ref levels, buffer_ref header,
+                                                          texture_ref depth, buffer_ref camera) noexcept {
+        constexpr access_scope storage{resource_usage::storage, pipeline_stage::compute_shader};
+        constexpr access_scope sampled{resource_usage::sampled, pipeline_stage::compute_shader};
+        constexpr access_scope uniform{resource_usage::uniform_buffer, pipeline_stage::compute_shader};
+        hzb_build_parameters params{{levels, {}, storage}, {header, {}, storage}, {depth, {}, sampled}, {camera, {}, uniform}};
+        return description.add_pass("hzb build", std::move(params), pass_options{.side_effect = true});
+    }
+
+    struct hzb_cull_parameters {
+        buffer_read levels;
+        buffer_read header;
+        buffer_read items;
+        buffer_read candidates;
+        buffer_read draw_items;
+        buffer_discard_write results;
+        buffer_discard_write survivors;
+        buffer_read_write commands;
+        void visit_resources(parameter_visitor& visit) const noexcept {
+            visit(levels, header, items, candidates, draw_items, results, survivors, commands);
+        }
+    };
+
+    std::expected<pass_ref, graph_error> append_hzb_cull(builder& description, buffer_ref levels, buffer_ref header,
+                                                         buffer_ref items, buffer_ref candidates, buffer_ref draw_items,
+                                                         buffer_ref results, buffer_ref survivors, buffer_ref commands) noexcept {
+        constexpr access_scope storage{resource_usage::storage, pipeline_stage::compute_shader};
+        hzb_cull_parameters params{{levels, {}, storage}, {header, {}, storage}, {items, {}, storage}, {candidates, {}, storage}, {draw_items, {}, storage}, {results, {}, storage}, {survivors, {}, storage}, {commands, {}, storage}};
+        return description.add_pass("hzb cull", std::move(params), pass_options{.side_effect = true});
+    }
+    struct hzb_recovery_parameters {
+        buffer_read levels;
+        buffer_read header;
+        buffer_read items;
+        buffer_read candidates;
+        buffer_read draw_items;
+        buffer_read_write results;
+        buffer_read_write survivors;
+        buffer_read_write commands;
+        void visit_resources(parameter_visitor& visit) const noexcept {
+            visit(levels, header, items, candidates, draw_items, results, survivors, commands);
+        }
+    };
+
+    std::expected<pass_ref, graph_error> append_hzb_recovery(builder& description, buffer_ref levels, buffer_ref header,
+                                                             buffer_ref items, buffer_ref candidates, buffer_ref draw_items,
+                                                             buffer_ref results, buffer_ref survivors, buffer_ref commands) noexcept {
+        constexpr access_scope storage{resource_usage::storage, pipeline_stage::compute_shader};
+        hzb_recovery_parameters params{{levels, {}, storage}, {header, {}, storage}, {items, {}, storage}, {candidates, {}, storage}, {draw_items, {}, storage}, {results, {}, storage}, {survivors, {}, storage}, {commands, {}, storage}};
+        return description.add_pass("hzb recovery", std::move(params), pass_options{.side_effect = true});
+    }
     // ---- THE RESOLVE LANE (visibility-buffer v0.4) -------------------------------------------------
     /// the reads the VISIBILITY RESOLVE makes: the two textures it samples (the id and the FRAME'S G-BUFFER
     /// DEPTH, which the raster lane wrote - v0.5 made that lane the opaque producer, so its depth output is the

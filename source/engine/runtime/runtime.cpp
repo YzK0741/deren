@@ -1765,6 +1765,9 @@ namespace deren::engine {
         }
         hzb::hzb_scene_snapshot const previous{this->hzb_source_view[slot], this->hzb_source_proj[slot], this->hzb_source_items[slot]};
         hzb::hzb_scene_snapshot const current{this->hzb_current_view, this->hzb_current_proj, this->hzb_current_items};
+        if (this->hzb_recovery_enabled) {
+            return hzb::hzb_recovery_gate(previous, current, this->scene_extent_radius, this->hzb_recovery_limits);
+        }
         return hzb::hzb_scene_gate(previous, current);
     }
 
@@ -1772,6 +1775,9 @@ namespace deren::engine {
         std::uint32_t const slot = this->frame_ring().position();
         if (!this->hzb_valid[slot] || !this->hzb_source_valid[slot]) {
             return "no history HZB has been built in this frame slot yet (the first frames, or after a resize)";
+        }
+        if (this->hzb_recovery_enabled) {
+            return "camera motion/projection is invalid or exceeds configured history-prediction limits; draw complete single pass";
         }
         if (this->hzb_source_view[slot] != this->hzb_current_view || this->hzb_source_proj[slot] != this->hzb_current_proj) {
             return "the camera's view/projection is not byte-identical to the one that built the history HZB (camera motion, or TAA jitter in proj)";
@@ -1793,6 +1799,7 @@ namespace deren::engine {
     }
 
     bool runtime::evaluate_hzb_cull_lane(std::uint32_t const item_count) {
+        this->hzb_recovery_active_frame = false;
         this->hzb_cull_active_frame = false;
         this->hzb_cull_item_count = 0;
         this->hzb_cull_candidate_total = 0;
@@ -1808,6 +1815,9 @@ namespace deren::engine {
         if (item_count == 0u || item_count > pass::hzb_cull_item_capacity) {
             return false; // §8.3: an empty frame records no dispatch, and an oversized item table is the admission's refusal
         }
+        if (this->hzb_recovery_enabled && (this->hzb_recovery_failed || this->hzb_recovery == nullptr || !this->hzb_recovery->ready() || this->visibility_recovery == nullptr || !this->visibility_recovery->has_pipeline())) {
+            return false;
+        }
         // ---- THE BYTE-EXACT STATIC GATE (§9.2), the phase's whole correctness argument: cull only when this
         // frame's camera and visible-item list are the ones that built the history HZB, so the old depth IS this
         // frame's depth and the conservative test's prediction is a fact rather than a prediction. ----
@@ -1819,19 +1829,23 @@ namespace deren::engine {
             bool const history_present = this->hzb_valid[this->frame_ring().position()] && this->hzb_source_valid[this->frame_ring().position()];
             if (!history_present && !this->hzb_cull_gate_closed_logged) {
                 this->hzb_cull_gate_closed_logged = true;
-                deren::utility::log("hzb cull: the static gate is CLOSED this frame ({}) - the cull lane is pruned and the frame keeps today's path byte for byte",
-                                    this->hzb_scene_gate_closed_reason());
+                deren::utility::log("hzb cull: the {} gate is CLOSED this frame ({}) - keep the complete single-pass path",
+                                    this->hzb_recovery_enabled ? "prediction" : "static", this->hzb_scene_gate_closed_reason());
             } else if (history_present && !this->hzb_cull_gate_pruned_logged) {
                 this->hzb_cull_gate_pruned_logged = true;
-                deren::utility::log("hzb cull: the static gate is CLOSED on a frame that HAS a history HZB ({}) - the cull lane is pruned and the "
-                                    "frame keeps today's path byte for byte",
-                                    this->hzb_scene_gate_closed_reason());
+                deren::utility::log("hzb cull: the {} gate is CLOSED with history ({}) - keep the complete single-pass path",
+                                    this->hzb_recovery_enabled ? "prediction" : "static", this->hzb_scene_gate_closed_reason());
             }
             return false;
         }
         this->hzb_cull_active_frame = true;
+        this->hzb_recovery_active_frame = this->hzb_recovery_enabled;
         this->hzb_cull_item_count = item_count;
         this->reset_hzb_cull_stats();
+        if (this->hzb_recovery_active_frame && !this->hzb_cull_gate_open_logged) {
+            deren::utility::log("hzb recovery: prediction gate OPEN, camera motion is permitted; current-depth recovery protects disocclusion");
+            this->hzb_cull_gate_open_logged = true;
+        }
         if (!this->hzb_cull_gate_open_logged) {
             this->hzb_cull_gate_open_logged = true;
             deren::utility::log("hzb cull: the static gate is OPEN on this frame (slot {}) - the frame is byte-identical to the one that built "
@@ -1863,6 +1877,8 @@ namespace deren::engine {
             this->hzb_cull_session_culled += culled;
             this->hzb_cull_session_survivors += survivors;
             this->hzb_cull_session_overflow_items += overflow;
+            this->hzb_recovery_session_retested += stats[pass::hzb_stat_retested];
+            this->hzb_recovery_session_recovered += stats[pass::hzb_stat_recovered];
             ++this->hzb_cull_session_frames;
         }
         // THE STATS ARE PER-FRAME-A-LANE ACCUMULATORS (§4.3, §10.3): the cull stage atomically adds into them and
@@ -1905,6 +1921,18 @@ namespace deren::engine {
         if (!this->hzb_cull_probe_pyramid_readback || !this->hzb_cull_probe_header_readback || !this->hzb_cull_probe_survivors_readback) {
             deren::utility::log("hzb cull probe capture: FAIL allocation");
             return false;
+        }
+        this->hzb_recovery_probe_enabled = this->hzb_recovery_active_frame;
+        this->hzb_recovery_probe_copied = false;
+        std::uint32_t const expected_slot = this->frame_ring().position();
+        this->hzb_cull_probe_expected_view = this->hzb_source_view[expected_slot];
+        this->hzb_cull_probe_expected_proj = this->hzb_source_proj[expected_slot];
+        if (this->hzb_recovery_probe_enabled) {
+            this->hzb_recovery_probe_pyramid_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(pyramid_desc)};
+            this->hzb_recovery_probe_header_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(header_desc)};
+            if (!this->hzb_recovery_probe_pyramid_readback || !this->hzb_recovery_probe_header_readback) {
+                return false;
+            }
         }
         this->hzb_cull_probe_extent = extent;
         this->hzb_cull_probe_frame_slot = this->frame_ring().position();
@@ -1951,7 +1979,7 @@ namespace deren::engine {
         }
         auto const pyramid_copied = commands.copy_buffer(*this->hzb_cull_probe_pyramid_readback, *levels, levels_bytes, slot * levels_bytes, 0u);
         auto const header_copied = commands.copy_buffer(*this->hzb_cull_probe_header_readback, *header, header_bytes, slot * header_bytes, 0u);
-        auto const survivors_copied = commands.copy_buffer(*this->hzb_cull_probe_survivors_readback, *survivors, survivors_bytes, slot * survivors_bytes, 0u);
+        auto const survivors_copied = this->hzb_recovery_probe_enabled ? rhi::error::ok : commands.copy_buffer(*this->hzb_cull_probe_survivors_readback, *survivors, survivors_bytes, slot * survivors_bytes, 0u);
         std::array<rhi::buffer_barrier, 3> const restored{{{.resource = levels, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_read},
                                                            {.resource = header, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_read},
                                                            {.resource = survivors, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_write}}};
@@ -1967,6 +1995,49 @@ namespace deren::engine {
         if (pyramid_copied != rhi::error::ok || header_copied != rhi::error::ok || survivors_copied != rhi::error::ok || left != rhi::error::ok || published != rhi::error::ok) {
             deren::utility::log("hzb cull probe capture: FAIL copy or publication");
             this->hzb_cull_probe_active = false;
+        }
+    }
+
+    void runtime::record_hzb_recovery_probe_copy(rhi::command_buffer& commands) {
+        if (!this->hzb_cull_probe_active || !this->hzb_recovery_probe_enabled || !this->hzb_recovery_probe_pyramid_readback || !this->hzb_recovery_probe_header_readback) {
+            return;
+        }
+        auto* levels = this->hzb_levels_buffer.get();
+        auto* header = this->hzb_header_buffer.get();
+        auto* survivors = this->hzb_survivors_buffer.get();
+        if (!levels || !header || !survivors) {
+            this->hzb_cull_probe_active = false;
+            return;
+        }
+        std::uint32_t const slots = this->frame_ring().slot_count();
+        std::uint64_t const slot = this->hzb_cull_probe_frame_slot;
+        std::uint64_t const levels_bytes = hzb_lane_bytes(*levels, slots);
+        std::uint64_t const header_bytes = hzb_lane_bytes(*header, slots);
+        std::uint64_t const survivors_bytes = hzb_lane_bytes(*survivors, slots);
+        std::array<rhi::buffer_barrier, 3> const entry{{{.resource = levels, .from = rhi::buffer_use::shader_read, .to = rhi::buffer_use::transfer_source},
+                                                        {.resource = header, .from = rhi::buffer_use::shader_read, .to = rhi::buffer_use::transfer_source},
+                                                        {.resource = survivors, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::transfer_source}}};
+        if (commands.barrier(rhi::barrier_group{.buffers = entry}) != rhi::error::ok) {
+            this->hzb_cull_probe_active = false;
+            return;
+        }
+        auto a = commands.copy_buffer(*this->hzb_recovery_probe_pyramid_readback, *levels, levels_bytes, slot * levels_bytes, 0u);
+        auto b = commands.copy_buffer(*this->hzb_recovery_probe_header_readback, *header, header_bytes, slot * header_bytes, 0u);
+        auto c = commands.copy_buffer(*this->hzb_cull_probe_survivors_readback, *survivors, survivors_bytes, slot * survivors_bytes, 0u);
+        std::array<rhi::buffer_barrier, 3> const restore{{{.resource = levels, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_read},
+                                                          {.resource = header, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_read},
+                                                          {.resource = survivors, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_write}}};
+        auto d = commands.barrier(rhi::barrier_group{.buffers = restore});
+        std::array<rhi::buffer_barrier, 5> const host{{{.resource = this->hzb_recovery_probe_pyramid_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
+                                                       {.resource = this->hzb_recovery_probe_header_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
+                                                       {.resource = this->hzb_cull_probe_survivors_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
+                                                       {.resource = this->mesh_indirect_buffer.get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::host_read},
+                                                       {.resource = this->hzb_results_buffer.get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::host_read}}};
+        auto e = commands.barrier(rhi::barrier_group{.buffers = host});
+        this->hzb_recovery_probe_copied = a == rhi::error::ok && b == rhi::error::ok && c == rhi::error::ok && d == rhi::error::ok && e == rhi::error::ok;
+        if (!this->hzb_recovery_probe_copied) {
+            this->hzb_cull_probe_active = false;
+            deren::utility::log("hzb recovery probe: FAIL copy/publication");
         }
     }
 
@@ -2175,6 +2246,10 @@ namespace deren::engine {
         // ---- PHASE 4: RECORD, SERIAL. Command-buffer state, the heap push window and the item table are the
         // recording thread's by contract, and each item is recorded in its own index order - the one ordering
         // this lane actually requires. ----
+        this->visibility_recovery_draws.clear();
+        if (this->hzb_recovery_active_frame) {
+            this->visibility_recovery_draws.reserve(count);
+        }
         unsigned input_count = 0, selected_count = 0, fallback_count = 0;
         std::uint64_t input_triangles = 0, selected_triangles = 0;
         for (std::uint32_t index = 0; index < count; ++index) {
@@ -2196,6 +2271,13 @@ namespace deren::engine {
                 table[static_cast<std::size_t>(frame_slot) * pass::hzb_cull_item_capacity + index] =
                     pass::hzb_item{.meshlet_base = plan.run.base, .candidate_count = candidates, .source = cut_visible ? pass::hzb_item_source_culled : pass::hzb_item_source_unculled, .pad = plan.block.geometry.index_count};
                 this->hzb_cull_candidate_total += candidates;
+                if (this->hzb_recovery_active_frame) {
+                    auto const recovery_index = static_cast<std::size_t>(frame_slot) * runtime::mesh_command_capacity + runtime::hzb_recovery_command_run + index;
+                    commands[recovery_index] = rhi::mesh_task_command{.groups_x = 0u, .groups_y = 1u, .groups_z = 1u};
+                    if (cut_visible) {
+                        this->visibility_recovery_draws.push_back(visibility_recovery_draw{plan.block, plan.cull, index});
+                    }
+                }
             }
             if (!runtime::visibility_items_write(this, index, std::as_bytes(std::span(&plan.row, 1u)))) {
                 return false;
@@ -2224,6 +2306,28 @@ namespace deren::engine {
         }
         recorded = count;
         return count > 0u;
+    }
+
+    bool runtime::record_visibility_recovery(rhi::command_buffer& command_buffer, std::uint32_t& recorded) {
+        recorded = 0;
+        if (!this->hzb_recovery_active_frame || !this->mesh_indirect_buffer) {
+            return false;
+        }
+        std::uint32_t const slot = this->frame_ring().position();
+        for (auto const& item : this->visibility_recovery_draws) {
+            auto block = item.block;
+            block.pad = 1u;
+            command_buffer.set_cull_mode(item.cull);
+            if (!runtime::push_raw_block(this, command_buffer, std::as_bytes(std::span(&block, 1u)))) {
+                return false;
+            }
+            auto const index = static_cast<std::uint64_t>(slot) * runtime::mesh_command_capacity + runtime::hzb_recovery_command_run + item.item_index;
+            if (command_buffer.draw_mesh_tasks_indirect(*this->mesh_indirect_buffer, index * rhi::mesh_task_command_size, 1u, rhi::mesh_task_command_size) != rhi::error::ok) {
+                return false;
+            }
+            ++recorded;
+        }
+        return true;
     }
 
     bool runtime::visibility_items_write(void* const owner, uint32_t const base, std::span<std::byte const> const records) {

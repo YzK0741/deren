@@ -2131,11 +2131,16 @@ namespace deren::engine {
     // writes THIS frame slot's item/command lanes, so a frame value that outlived its frame would address the
     // wrong slot. `item_count` is left zero here - the candidate scan answers whether the frame is capturable at
     // all, and the recorder counts what it actually recorded.
-    pass::visibility_frame runtime::make_visibility_frame() noexcept {
+    pass::visibility_frame runtime::make_visibility_frame(bool const recovery) noexcept {
         pass::visibility_frame frame{};
         frame.record_items = [](void* owner, deren::promise::rhi::command_buffer& command_buffer, std::uint32_t& recorded) {
             return static_cast<runtime*>(owner)->record_visibility_items(command_buffer, recorded);
         };
+        if (recovery) {
+            frame.record_items = [](void* owner, rhi::command_buffer& command_buffer, std::uint32_t& recorded) {
+                return static_cast<runtime*>(owner)->record_visibility_recovery(command_buffer, recorded);
+            };
+        }
         frame.owner = this;
         frame.extent = this->render_extent();
         return frame;

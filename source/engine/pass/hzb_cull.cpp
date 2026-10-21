@@ -56,9 +56,9 @@ namespace deren::engine::pass {
             return rhi::error::ok;
         }
         // ---- THE PUSH BLOCK: the values the HOST knows (spec §7.2's expected extent and the item count) ----
-        // The framework appends the two heap index lanes (frame_slot, image_index) after these three words, which is
+        // The framework appends the two heap index lanes (frame_slot, image_index) after these four words, which is
         // the whole of what the shader reads besides the heap (see HzbCullPush in the shader).
-        std::array<std::uint32_t, 3> const push_block{this->frame_item_count, this->frame_extent.width, this->frame_extent.height};
+        std::array<std::uint32_t, 4> const push_block{this->frame_item_count, this->frame_extent.width, this->frame_extent.height, this->recovery_mode ? 1u : 0u};
         if (!io.push_block(*io.list, std::as_bytes(std::span<std::uint32_t const>(push_block)))) {
             return rhi::error::invalid_argument;
         }

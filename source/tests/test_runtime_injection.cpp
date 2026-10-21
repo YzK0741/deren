@@ -732,6 +732,7 @@ int main(int const argc, char** const argv) {
             CHECK(value->description.life == required_tables[i].life);
             CHECK(!value->description.zero_on_frame);
             if (i == 6) {
+                CHECK(value->description.buffer.size == uint64_t(rhi::max_frames_in_flight) * 4u * deren::engine::meshlet_capacity * rhi::mesh_task_command_size);
                 CHECK((value->description.buffer.flags & rhi::to_bits(rhi::buffer_flag::indirect)) != 0);
                 CHECK((value->description.buffer.flags & rhi::to_bits(rhi::buffer_flag::device_address)) != 0);
                 auto bytes = value->objects[0].buffer->mapped();

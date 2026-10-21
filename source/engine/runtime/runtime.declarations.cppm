@@ -676,13 +676,16 @@ namespace deren::engine {
                                    // the geometry lane (so its interval is ~0 and the pass keeps its old slot).
                                    // MEASURED NEED: the "scene" bucket could not compare the two lanes - see
                                    // docs/reviews/2026-10-18-visibility-buffer-ab.md
-            scene_end,             // after the geometry instance: forward main (opaque + transparent), or
-                                   // the background + G-buffer pass in the deferred path
-            rt_shadow_end,         // after the ray-traced sun shadow pass (~0 when it does not run). Its own
-                                   // mark because it sits BETWEEN the G-buffer pass and the lighting stage:
-                                   // without it the traversals were reported as lighting time, which made the
-                                   // lighting interval look four times more expensive with rays on
-            lighting_end,          // after deferred lighting, before Gaussian preparation and transparent work
+            hzb_build_end,
+            hzb_recovery_end,
+            visibility_recovery_end,
+            scene_end,     // after the geometry instance: forward main (opaque + transparent), or
+                           // the background + G-buffer pass in the deferred path
+            rt_shadow_end, // after the ray-traced sun shadow pass (~0 when it does not run). Its own
+                           // mark because it sits BETWEEN the G-buffer pass and the lighting stage:
+                           // without it the traversals were reported as lighting time, which made the
+                           // lighting interval look four times more expensive with rays on
+            lighting_end,  // after deferred lighting, before Gaussian preparation and transparent work
             gaussian_prepare_end,
             gaussian_sort_end,
             gaussian_finalize_end,
@@ -721,6 +724,9 @@ namespace deren::engine {
             {"shadow", false},
             {"hzb cull", false},
             {"visibility raster", false},
+            {"hzb build", false},
+            {"hzb recovery", false},
+            {"visibility recovery", false},
             {"scene", false},
             {"rt shadow", false},
             {"lighting", false},
@@ -1145,6 +1151,21 @@ namespace deren::engine {
         bool hzb_cull_failed = false;
         /// THE CULL PASS (runtime-owned for the same reason the build pass is - it is an internal M3 lane)
         std::unique_ptr<pass::hzb_cull_pass> hzb_cull;
+        bool hzb_recovery_enabled = false;
+        bool hzb_recovery_failed = false;
+        bool hzb_recovery_active_frame = false;
+        std::unique_ptr<pass::hzb_cull_pass> hzb_recovery;
+        std::unique_ptr<pass::visibility_raster_pass> visibility_recovery;
+        deren::engine::visibility::hzb::hzb_motion_limits hzb_recovery_limits{};
+        struct visibility_recovery_draw {
+            deren::engine::visibility::push_block block{};
+            rhi::cull_mode cull = rhi::cull_mode::back;
+            std::uint32_t item_index = 0;
+        };
+        deren::utility::vessel::vector<visibility_recovery_draw> visibility_recovery_draws{};
+        std::uint64_t hzb_recovery_session_retested = 0;
+        std::uint64_t hzb_recovery_session_recovered = 0;
+
         /// THE PHASE-B TABLES (spec §5.1): `hzb_items` is HOST-written per item (host-visible/coherent, like the
         /// item table), `hzb_results` is GPU-written but host-visible because the probe and the shutdown stats line
         /// read it back, and `hzb_survivors` is GPU-only (nothing but a GPU consumer reads it in this design).
@@ -1213,6 +1234,12 @@ namespace deren::engine {
         rhi::unique_object<rhi::buffer> hzb_cull_probe_pyramid_readback;   // the HISTORY pyramid lane the cull read
         rhi::unique_object<rhi::buffer> hzb_cull_probe_header_readback;    // ... and its header lane
         rhi::unique_object<rhi::buffer> hzb_cull_probe_survivors_readback; // this frame's survivor lane (after the cull)
+        rhi::unique_object<rhi::buffer> hzb_recovery_probe_pyramid_readback;
+        rhi::unique_object<rhi::buffer> hzb_recovery_probe_header_readback;
+        bool hzb_recovery_probe_enabled = false;
+        bool hzb_recovery_probe_copied = false;
+        deren::engine::visibility::hzb::hzb_matrix_bits hzb_cull_probe_expected_view{}, hzb_cull_probe_expected_proj{};
+
         rhi::image_extent hzb_cull_probe_extent = {};
         std::uint32_t hzb_cull_probe_frame_slot = 0;
         std::uint32_t hzb_cull_probe_item_count = 0;
@@ -2154,10 +2181,10 @@ namespace deren::engine {
         /// "0 direct" is what says the seam is the one in use rather than a silent fall-back)
         std::atomic<uint64_t> mesh_indirect_dispatches = 0;
         std::atomic<uint64_t> mesh_indirect_direct_fallbacks = 0;
-        /// HOW MANY COMMANDS one frame's lane holds (docs/mesh_shaders.md step 3): THREE runs of `meshlet_capacity`, one
+        /// HOW MANY COMMANDS one frame's lane holds (docs/mesh_shaders.md step 3): FOUR runs of `meshlet_capacity`, one
         /// per COMMAND CLASS, because a HOST-CULLED run and an unculled one (the shadow pass) dispatch the same
         /// primitive with DIFFERENT counts - and a shared slot would hand both passes whichever wrote last.
-        static constexpr uint32_t mesh_command_capacity = 3u * deren::engine::meshlet_capacity;
+        static constexpr uint32_t mesh_command_capacity = 4u * deren::engine::meshlet_capacity;
         /**
          * @brief THE MESH CULLING COUNTERS (docs/mesh_shaders.md step 3, "what the culling buys"): a mesh entry adds
          *        to one per workgroup, the host reads the buffer back once at shutdown and logs the totals
@@ -2209,6 +2236,7 @@ namespace deren::engine {
         /// the last command run of a frame's mesh table: the RUN THE VISIBILITY RASTER WRITES (the first two are
         /// the scene's culled/unculled classes and the shadow pass reuses them, so the visibility lane must not)
         static constexpr uint32_t visibility_command_run = 2u * deren::engine::meshlet_capacity;
+        static constexpr uint32_t hzb_recovery_command_run = 3u * deren::engine::meshlet_capacity;
         /**
          * THE SWITCH ([render] visibility_buffer, v0.5) and the FRAME's frozen verdicts beside it. The verdicts are
          * computed ONCE per frame, in `record_main_drawcalls`, before the first recording decision that depends on
@@ -2243,8 +2271,9 @@ namespace deren::engine {
         ///        or the table is not mapped yet - the admission then refuses the frame by `material_index_valid`)
         [[nodiscard]] std::uint32_t material_flags_of(primitive const& leaf) const noexcept;
         /// @brief build the visibility raster pass's frame: the item recorder + extent (rebuild per frame)
-        pass::visibility_frame make_visibility_frame() noexcept;
+        pass::visibility_frame make_visibility_frame(bool recovery = false) noexcept;
         /// the recorder: push each admitted item's own block, write its table row and issue its dispatch
+        bool record_visibility_recovery(deren::promise::rhi::command_buffer& command_buffer, std::uint32_t& recorded);
         bool record_visibility_items(deren::promise::rhi::command_buffer& command_buffer, std::uint32_t& recorded);
         /**
          * THE STRUCTURE PHASE ITSELF, which is one value now (see `deren.engine.ray_tracing`): the bottom and top level
@@ -2646,6 +2675,7 @@ namespace deren::engine {
         /// @note called after the cull pass recorded: the history lanes are the ones the dispatch READ (copied
         ///       before the build lane rewrites this slot's lane), the survivor lane is this dispatch's output.
         void record_hzb_cull_probe_copy(rhi::command_buffer& commands);
+        void record_hzb_recovery_probe_copy(rhi::command_buffer& commands);
         /// @brief dump the phase-B probe's files + run the in-engine verification against the committed CPU
         ///        reference (DEREN_HZB_CULL_PROBE_CAPTURE, spec §10.2/§6.7)
         /// @note declared here and defined in runtime.probes.cppm; called by runtime.readback.cppm after its device
