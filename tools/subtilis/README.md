@@ -15,11 +15,41 @@ ctest --test-dir build-subtilis --output-on-failure
 ```
 
 ```powershell
-./build-subtilis/deren-subtilis build input.glb -o cooked.glb --threads 1 --report build.json
+./build-subtilis/deren-subtilis build input.glb -o cooked.glb --threads 12 --report build.json
+./build-subtilis/deren-subtilis build input.glb -o reference.glb --threads 1
 ./build-subtilis/deren-subtilis inspect cooked.glb
 ./build-subtilis/deren-subtilis validate cooked.glb --full
 ./build-subtilis/deren-subtilis export-cut cooked.glb --error 0.01 -o preview.glb
 ```
+
+`--threads N` accepts any positive integer. Omitted, it defaults to
+`min(max(hardware_concurrency, 1), 12)`. The thread count is a single execution
+budget for the whole build: it never enters the wire payload, the source/build
+identities or any canonical build option, and production runs with different
+thread counts are byte-identical.
+
+Deterministic scheduling works on two levels and never nests two pools:
+
+- Several eligible primitives: a bounded work pool over coarse primitive tasks
+  (largest known-work estimate first), each inner build serial. Each task
+  prepares into its own preallocated slot; only the scheduling thread appends
+  the payload in primitive-key order.
+- Exactly one primitive (or a single reduction group): the primitive gets the
+  whole budget and parallelizes its per-round reduction groups. Candidates are
+  prepared concurrently against immutable inputs, then validated and committed
+  in partition order, so DAG relations and stable cluster/group/root IDs never
+  depend on task completion order. A rejected candidate or failed task consumes
+  no later visible ID; a failed prepare runs no partial cut (`--threads 1` keeps
+  the serial reference interleaving).
+
+Known-work budgeting covers the source records, owned payload/workspace and a
+conservative per-task estimate. The parallel scheduler admits
+`min(threads, tasks, budget / max task estimate)` tasks at once; shrinking
+`execution_options::limits.max_known_work_bytes` lowers that planned concurrency
+or rejects the whole primitive with a typed `capacity` error, without changing
+the reductions of any asset that still succeeds. This known-work accounting is
+not a provable process-memory bound: meshoptimizer's internal temporaries are
+third-party allocations and are reported as such, not counted as exact peaks.
 
 `export-cut` writes ordinary glTF indices for the selected model-space error
 threshold and removes the consumed extension. Material, attributes and instances
@@ -27,11 +57,11 @@ keep their original identities. Exported files can be opened by standard GLB
 viewers. Unreferenced old binary ranges are retained to preserve other IDs.
 
 Current milestone: local glTF/GLB and base64 data URI input, GLB or glTF
-directory-package output, one CPU thread. Local buffer URIs support percent
-escaping. Known buffer references can merge into GLB; PNG/JPEG resources can
-embed without changing their bytes. Unknown extensions or buffer metadata that
-cannot relocate safely cause an explicit error for GLB and are preserved by the
-glTF package. Requests for other thread counts fail explicitly.
+directory-package output, deterministic bounded multi-core build. Local buffer
+URIs support percent escaping. Known buffer references can merge into GLB;
+PNG/JPEG resources can embed without changing their bytes. Unknown extensions or
+buffer metadata that cannot relocate safely cause an explicit error for GLB and
+are preserved by the glTF package.
 
 `--format glb` (the default) keeps the embedded single-file output: `-o
 cooked.glb` writes one GLB. `--format gltf` writes a relocatable package
@@ -50,8 +80,21 @@ Mismatching or damaged payloads require rebuilding from the original source.
 Ineligible primitives are preserved and counted as skipped; `--strict` rejects
 any skip. Zero eligible primitives is an error. A valid asset without accepted
 reductions succeeds with `lod0Only` in its report; this does not claim a geometry
-reduction. Reports include per-frontier counts, rounds, cross-group repartitions,
-known work estimates and wall time. Estimates are not process peak memory.
+reduction. Reports include the requested thread count, per-frontier counts,
+rounds, cross-group repartitions, known work estimates, planned concurrency and
+wall time. Estimates are not process peak memory.
+
+Each converted primitive also carries structural stage profiling with fixed rows
+`sourceFingerprint`, `leafCluster`, `topology`, `partition`, `boundary`,
+`simplify`, `recluster`, `candidate` (the only inclusive row), `commit`,
+`validate` and `encode`. Per-stage `cpuMs` is accumulated worker-task elapsed
+time, not CPU cycles: parallel tasks can add up to more than `wallMs`, which is
+why the two are reported separately. `accumulatedMs` sums only the exclusive
+rows, so nested/inclusive rows are not counted twice. Stage rows are structural
+evidence (which phases ran and how many tasks) and are not a speed assertion or
+a benchmark result. Reused payloads ran no build and report an empty `stages`
+array. A top-level `knownWorkNote` states the third-party-memory boundary.
+Reports/counters never enter the wire payload or asset identity.
 
 Exit codes: 0 success, 2 command usage, 3 invalid input/validation, 4 construction
 or eligibility failure, 5 output failure. Existing asset/report files are refused.
@@ -69,5 +112,5 @@ inject.
 
 The wire format and canonical identity are documented in
 [`docs/extensions/DEREN_subtilis`](../../docs/extensions/DEREN_subtilis/README.md).
-The implementation plan tracks the remaining packaging, profiling, real-scene
-and CI validation work.
+The implementation plan tracks the remaining real-scene, Khronos-validator and
+independent-CPU-tool CI validation work.

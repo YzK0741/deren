@@ -167,7 +167,88 @@ Base for the finish pass: `d3e371b7` (includes the paused partial work of `dbfc3
   CTest 58/58 remains the relevant regression.
 - No commit from the implementer: the Lead accepts and commits.
 
-Remaining work: Task 7 (deterministic multi-core scheduling, workspace budgets and stage
-profiling) and Task 8 (real assets, Khronos validator, independent CPU-tool CI, final
-fresh whole-change review, docs/archive). Do not redo Tasks 1-6 and do not claim final
-converter acceptance.
+## Task 7: complete (2026-10-21)
+
+Base for the task: `1e3df1e7` (Tasks 1-6 complete). Files: new
+`source/asset/subtilis/parallel.cpp` and `source/tests/test_subtilis_parallel.cpp`; modified
+`source/asset/subtilis/builder.cppm`, `builder.cpp`, `builder_internal.hpp`, `reduce.cpp`,
+`tools/subtilis/CMakeLists.txt`, `tools/subtilis/commands.cpp`, `tools/subtilis/README.md`;
+contract-only updates in `source/tests/test_subtilis_dag_builder.cpp` and
+`source/tests/test_subtilis_converter.cpp` (the two old "threads must be 1" assertions). Root
+engine/CMake, the wire format and canonical build identity are untouched.
+
+- Deterministic scheduler: private `builder_detail::run_ordered(count, threads, estimates,
+  max_known_work_bytes, prepare, commit)` in `parallel.cpp`. Prepares run concurrently, exactly
+  once, each writing only the caller's per-index slot; all prepares complete before any commit;
+  commits run on the calling thread in ascending index order, never in completion order and
+  never interleaved with concurrent prepares. Dispatch is coarse-work-first purely for load
+  balance. A prepare error cancels not-yet-started tasks, runs no commit and returns a typed
+  error (no partial cut). Worker threads are always joined; no detached tasks or cross-build
+  state. Concurrency is a deterministic function of the estimates and budget:
+  `min(threads, count, max_known_work_bytes / max_estimate)`; a budget that cannot hold one
+  maximum task is a typed `capacity` error; threads=1 keeps the serial reference behavior on
+  the calling thread. `execution_options::threads` is the single execution budget.
+- Two scheduling levels, never nested: several eligible primitives use a bounded work pool over
+  coarse primitive tasks (each inner build serial, document mutated only in the commit callback
+  in primitive-key order); a single primitive (or a single group) gets the whole budget and
+  parallelizes its per-round reduction groups (candidates prepared against immutable inputs, then
+  validated/committed in partition order). The serial path preserves its original
+  prepare-then-commit interleaving and rebuilds index spans just-in-time (a first refactor that
+  precomputed them before interleaved commits reproduced a stale-span mismatch; fixed and RED
+  evidence recorded).
+- Workspace/budget: shrinking `build_limits::max_known_work_bytes` lowers
+  `build_report::planned_concurrency` (monotone, witnessed 2 -> 5 on the grid fixture) without
+  changing any successful asset's payload/reductions; too little budget rejects the whole
+  primitive with `capacity`. The converter uses per-primitive accessor-count estimates for its
+  pool admission. Known-work accounting covers source records, owned payload/workspace and
+  conservative per-task estimates; meshoptimizer internal temporaries are not a provable
+  process-memory bound (stated in the report's `knownWorkNote`).
+- Stage profiling: `build_report::stages` has eleven fixed rows (`sourceFingerprint`,
+  `leafCluster`, `topology`, `partition`, `boundary`, `simplify`, `recluster`, `candidate`
+  inclusive, `commit`, `validate`, `encode`) with per-stage accumulated worker-task time
+  (thread time, not CPU cycles), `inclusive` flags and task counts; `accumulated_ms` sums only
+  exclusive rows so nothing is double counted; `threads`, `planned_concurrency`,
+  `known_work_limit_bytes` and the wall time are reported separately. Thread/timing/memory
+  statistics never enter the payload, build metadata string, source hash or build hash.
+- CLI: `--threads N` accepts any positive integer, omitted defaults to
+  `min(max(hardware_concurrency,1),12)` (12 on this machine), `0`/negative/non-numeric stay usage
+  errors (exit 2). The report JSON now carries `threads`, per-primitive `plannedConcurrency`,
+  `knownWorkLimitBytes`, `accumulatedMs`, `stages` and the `knownWorkNote` boundary statement.
+  Reused payloads report an empty `stages` array because no build ran.
+- Determinism: `build_serial` remains the reference. For threads 1/2/12 (and 1000, budgeted
+  down) the validated source geometry, DAG (`indices`/`clusters`/`groups`/`references`/`roots`),
+  stable IDs, `sourceHash`/`buildHash`, build metadata and `encode(payload)` are byte-identical;
+  only the report's thread/timing fields differ.
+- RED/GREEN: `test_subtilis_parallel` was added to the standalone CMake and built first;
+  RED witnessed as compile errors for the missing `stage_profile`, report fields and
+  `builder_detail::run_ordered` (e.g. `error: no member named 'run_ordered' in namespace
+  'deren::asset::subtilis::builder_detail'`). After implementation the same target built and
+  passed.
+- Validation (this finish pass): `cmake --build build-subtilis -j 12` exit 0;
+  `ctest --test-dir build-subtilis --output-on-failure` 6/6 PASS (1.03s, `test_subtilis_parallel`
+  580 checks PASS, Release); `cmake --build build-subtilis-asan -j 12` exit 0 and
+  `ctest --test-dir build-subtilis-asan --output-on-failure` 6/6 PASS (19.58s, ASan+UBSan Debug).
+  CLI spot evidence on a generated 1,152-triangle self-contained GLB and a 3-primitive variant:
+  `deren-subtilis build ... --threads 1|2|12` (and the no-`--threads` default) produced
+  byte-identical outputs (single SHA-256 per fixture family); `validate --full` 1/1 and 3/3
+  payloads pass, `inspect`/`export-cut` exit 0, report structural fields (levels, rounds,
+  known-work peak, stage rows) identical while `threads` differs. Root build files unchanged
+  since Task 1; root CTest 58/58 remains the relevant regression.
+- Residual risks / not covered here: (a) ASan on this Windows clang64 toolchain does not run
+  LeakSanitizer, so "leak-free" is evidenced by repeated success/failure teardown loops and
+  by construction (joined workers, RAII slots) rather than LSan; a Linux CI sanitizer job in
+  Task 8 should add real leak/race detection. (b) The multi-primitive converter pool prepares
+  every primitive before committing any, so peak host memory can exceed the old one-primitive-
+  at-a-time loop; admission estimates bound concurrency but not a strict process peak (Task 8
+  measurement should record it). (c) A large primitive among many small ones gets one thread
+  (primitive-level priority by design); nested budget partitioning is future work. (d) A
+  prepare failure cancels remaining tasks and reports one typed error; which of several
+  simultaneously failing tasks supplies the error context is not part of the determinism
+  contract (successful assets are). (e) Stage `cpuMs` is accumulated task time, not hardware
+  CPU-time counters; Task 8's measure script must not treat it as CPU-cycle profiling.
+- No commit from the implementer: the Lead accepts and commits
+  (`perf: parallelize Subtilis asset construction deterministically` expected).
+
+Remaining work: Task 8 (real assets, Khronos validator, independent CPU-tool CI, final fresh
+whole-change review, docs/archive). Tasks 1-7 are complete as described above; do not redo them
+and do not claim final converter acceptance.

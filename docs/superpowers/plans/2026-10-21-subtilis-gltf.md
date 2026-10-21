@@ -152,11 +152,11 @@
 - `execution_options.threads`为进程单一并行预算，任务内不创建第二线程池；threads=1调用串行逻辑。本任务将CLI缺省值改为`min(max(hardware_concurrency(),1),12)`，显式正整数请求再受工作集预算限制。build/convert_file保持Task5/6签名。
 - `build_report`含各阶段CPU累计/inclusive标记与总墙钟、已知工作集/第三方峰值的边界说明；线程数、时间、内存统计不进入wire payload/hash。
 
-- [ ] RED：threads1/2/12、强制乱序完成、相邻任务拒绝、同mesh多实例与单大primitive；成功source/buildHash和encode(payload)逐字一致。被拒候选不消耗后续可见ID，不按完成顺序提交。
-- [ ] RED：已知workspace预算缩小导致降低并发或整primitive拒绝，不改变任何成功资产的reduction；allocator并发初始化、workspace复用和取消/收尾无泄漏。
-- [ ] `test_subtilis_parallel`先RED；用有界工作池/任务队列，粗粒度primitive优先，单大primitive在每轮group层并行；统一预算，不重复并行。保留build_serial为参考。
-- [ ] GREEN并跑整个独立工具CTest。计时测试只验证阶段完整/非负和total不重复累计，不断言机器相关加速或毫秒阈值。
-- [ ] 本地提交：`perf: parallelize Subtilis asset construction deterministically`。
+- [x] RED：threads1/2/12、强制乱序完成、相邻任务拒绝、同mesh多实例与单大primitive；成功source/buildHash和encode(payload)逐字一致。被拒候选不消耗后续可见ID，不按完成顺序提交。
+- [x] RED：已知workspace预算缩小导致降低并发或整primitive拒绝，不改变任何成功资产的reduction；allocator并发初始化、workspace复用和取消/收尾无泄漏。
+- [x] `test_subtilis_parallel`先RED；用有界工作池/任务队列，粗粒度primitive优先，单大primitive在每轮group层并行；统一预算，不重复并行。保留build_serial为参考。
+- [x] GREEN并跑整个独立工具CTest。计时测试只验证阶段完整/非负和total不重复累计，不断言机器相关加速或毫秒阈值。
+- [x] 本地提交：`perf: parallelize Subtilis asset construction deterministically`。
 
 ## Task 8 — 真实资产、CI、文档与最终审查
 

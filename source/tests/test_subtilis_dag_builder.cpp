@@ -252,9 +252,18 @@ int main() {
     small = {};
     small.max_output_bytes = 1;
     CHECK(!sub::build_serial(source, options, small));
+    sub::execution_options zero_threads;
+    zero_threads.threads = 0;
+    auto invalid_threads = sub::build(source, options, zero_threads);
+    CHECK(!invalid_threads && invalid_threads.error().code == sub::error_code::invalid_options);
     sub::execution_options parallel;
     parallel.threads = 2;
-    CHECK(!sub::build(source, options, parallel));
+    auto parallel_build = sub::build(source, options, parallel);
+    CHECK(parallel_build);
+    if (built && parallel_build) {
+        auto serial_wire = sub::encode(built->asset.data(), {}), parallel_wire = sub::encode(parallel_build->asset.data(), {});
+        CHECK(serial_wire && parallel_wire && *serial_wire == *parallel_wire);
+    }
     auto one_round = options;
     one_round.max_rounds = 1;
     auto bounded = sub::build_serial(source, one_round, {});

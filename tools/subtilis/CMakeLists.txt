@@ -5,6 +5,8 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
+# The deterministic builder schedules reduction tasks on a bounded std::thread pool.
+find_package(Threads REQUIRED)
 if(MINGW AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     add_compile_definitions(__SANITIZER_DISABLE_CONTAINER_OVERFLOW__)
 endif()
@@ -39,13 +41,20 @@ add_library(subtilis_builder STATIC)
 target_sources(subtilis_builder PUBLIC FILE_SET CXX_MODULES BASE_DIRS ${DEREN_REPO_ROOT} FILES
     ${DEREN_REPO_ROOT}/source/asset/subtilis/builder.cppm
     PRIVATE ${DEREN_REPO_ROOT}/source/asset/subtilis/reduce.cpp
+    ${DEREN_REPO_ROOT}/source/asset/subtilis/parallel.cpp
     ${DEREN_REPO_ROOT}/source/asset/subtilis/builder.cpp
     ${DEREN_REPO_ROOT}/source/asset/subtilis/topology.cpp)
-target_link_libraries(subtilis_builder PUBLIC subtilis_dag PRIVATE meshoptimizer_vendored yyjson_vendored)
+target_link_libraries(subtilis_builder PUBLIC subtilis_dag Threads::Threads PRIVATE meshoptimizer_vendored yyjson_vendored)
 target_include_directories(subtilis_builder SYSTEM PRIVATE ${DEREN_REPO_ROOT}/source/third_party/meshoptimizer/src)
 add_executable(test_subtilis_dag_builder ${DEREN_REPO_ROOT}/source/tests/test_subtilis_dag_builder.cpp)
 target_link_libraries(test_subtilis_dag_builder PRIVATE subtilis_builder)
 add_test(NAME test_subtilis_dag_builder COMMAND test_subtilis_dag_builder)
+add_executable(test_subtilis_parallel ${DEREN_REPO_ROOT}/source/tests/test_subtilis_parallel.cpp)
+target_link_libraries(test_subtilis_parallel PRIVATE subtilis_commands yyjson_vendored Threads::Threads)
+add_test(NAME test_subtilis_parallel COMMAND test_subtilis_parallel)
+# Bound the CTest run: the scheduler tests gate completion order on condition variables, so a
+# scheduling regression must fail rather than hang a CI job.
+set_tests_properties(test_subtilis_parallel PROPERTIES TIMEOUT 600)
 add_library(subtilis_commands STATIC commands.cpp)
 target_link_libraries(subtilis_commands PUBLIC subtilis_document subtilis_builder PRIVATE yyjson_vendored)
 add_executable(deren-subtilis main.cpp)
@@ -57,7 +66,7 @@ add_executable(test_subtilis_codec ${DEREN_REPO_ROOT}/source/tests/test_subtilis
 target_link_libraries(test_subtilis_codec PRIVATE subtilis_codec)
 add_test(NAME test_subtilis_codec COMMAND test_subtilis_codec)
 # Use one canonical option list across public module providers and consumers.
-foreach(target vstd_lib shared_utility subtilis_codec test_subtilis_codec subtilis_dag test_subtilis_dag subtilis_document test_subtilis_document subtilis_builder test_subtilis_dag_builder subtilis_commands deren-subtilis test_subtilis_converter)
+foreach(target vstd_lib shared_utility subtilis_codec test_subtilis_codec subtilis_dag test_subtilis_dag subtilis_document test_subtilis_document subtilis_builder test_subtilis_dag_builder subtilis_commands deren-subtilis test_subtilis_converter test_subtilis_parallel)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /WX /permissive- /Zc:__cplusplus /utf-8 /bigobj /EHsc)
     else()

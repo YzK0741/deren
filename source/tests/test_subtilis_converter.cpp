@@ -1179,12 +1179,18 @@ int main() {
             yyjson_doc_free(r);
         }
     }
-    std::array<std::string_view, 6> zero_threads{"build", input, "-o", cooked, "--threads", "0"};
-    CHECK(!tool::parse_arguments(zero_threads));
-    zero_threads[5] = "2";
-    CHECK(!tool::parse_arguments(zero_threads));
-    zero_threads[5] = "x";
-    CHECK(!tool::parse_arguments(zero_threads));
+    std::array<std::string_view, 6> thread_args{"build", input, "-o", cooked, "--threads", "0"};
+    CHECK(!tool::parse_arguments(thread_args));
+    thread_args[5] = "-2";
+    CHECK(!tool::parse_arguments(thread_args));
+    thread_args[5] = "x";
+    CHECK(!tool::parse_arguments(thread_args));
+    thread_args[5] = "2";
+    auto two_threads = tool::parse_arguments(thread_args);
+    CHECK(two_threads && std::get<tool::build_command>(*two_threads).execution.threads == 2);
+    thread_args[5] = "12";
+    auto twelve_threads = tool::parse_arguments(thread_args);
+    CHECK(twelve_threads && std::get<tool::build_command>(*twelve_threads).execution.threads == 12);
     auto unchanged = tool::read_document(dir / "input.glb", {});
     CHECK(unchanged);
     if (unchanged)

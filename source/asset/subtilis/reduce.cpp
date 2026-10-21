@@ -2,6 +2,7 @@ module;
 #include <algorithm>
 #include <array>
 #include <cfenv>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -13,6 +14,9 @@ namespace deren::asset::subtilis::builder_detail {
     namespace {
         auto fail(char const* message) {
             return std::unexpected(error{error_code::invalid_geometry, message, {}, {}});
+        }
+        double stage_now() {
+            return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
         }
         struct compact_geometry {
             vector<uint32_t> original, indices;
@@ -175,7 +179,7 @@ namespace deren::asset::subtilis::builder_detail {
         std::sort(groups.begin(), groups.end(), [](auto const& a, auto const& b) { return a.front() < b.front(); });
         return groups;
     }
-    result<reduction_candidate> reduce_group(source_geometry const& source, std::span<cluster_input const> inputs, build_options const& options, primitive_scale const& scale, topology const* cached) {
+    result<reduction_candidate> reduce_group(source_geometry const& source, std::span<cluster_input const> inputs, build_options const& options, primitive_scale const& scale, topology const* cached, reduce_timing* timing) {
         auto identity = build_digest(options);
         if (!identity)
             return std::unexpected(identity.error());
@@ -194,7 +198,10 @@ namespace deren::asset::subtilis::builder_detail {
             return reduction_candidate{{}, 0, rejection_reason::zero_scale};
         auto owned = cached ? topology{} : analyze_topology(source);
         auto const& t = cached ? *cached : owned;
+        double const boundary_started = stage_now();
         auto original = boundary_of(source, indices, t);
+        if (timing)
+            timing->boundary_ms += stage_now() - boundary_started;
         if (!original.valid)
             return reduction_candidate{{}, 0, rejection_reason::unsafe_topology};
         vector<array<float, 5>> attributes(local->original.size());
@@ -215,10 +222,13 @@ namespace deren::asset::subtilis::builder_detail {
         auto target = std::max<size_t>(1, static_cast<size_t>(double(indices.size() / 3) * options.target_ratio)) * 3;
         float step_error = 0;
         initialize_meshoptimizer();
+        double const simplify_started = stage_now();
         std::fenv_t environment;
         if (std::feholdexcept(&environment) != 0)
             return reduction_candidate{{}, 0, rejection_reason::numeric_error};
         auto count = meshopt_simplifyWithAttributes(simplified.data(), local->indices.data(), local->indices.size(), local->positions[0].data(), local->positions.size(), sizeof(array<float, 3>), attributes[0].data(), sizeof(array<float, 5>), weights.data(), weights.size(), locks.data(), target, options.relative_error, meshopt_SimplifyLockBorder | meshopt_SimplifyErrorAbsolute, &step_error);
+        if (timing)
+            timing->simplify_ms += stage_now() - simplify_started;
         auto arithmetic = std::fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW);
         auto restored = std::fesetenv(&environment);
         if (arithmetic || restored || !std::isfinite(step_error) || step_error < 0)
@@ -233,9 +243,16 @@ namespace deren::asset::subtilis::builder_detail {
                 return fail("simplifier vertex outside source");
             candidate.push_back(local->original[id]);
         }
-        if (!preserves_region(source, t, original, candidate))
+        double const preserve_started = stage_now();
+        auto preserved = preserves_region(source, t, original, candidate);
+        if (timing)
+            timing->boundary_ms += stage_now() - preserve_started;
+        if (!preserved)
             return reduction_candidate{{}, 0, rejection_reason::boundary_changed};
+        double const recluster_started = stage_now();
         auto clustered = cluster_indices(source, candidate, options, scale);
+        if (timing)
+            timing->recluster_ms += stage_now() - recluster_started;
         if (!clustered)
             return std::unexpected(clustered.error());
         double error = double(step_error) * scale.diagonal;

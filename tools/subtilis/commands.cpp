@@ -7,11 +7,24 @@
 #include <charconv>
 #include <chrono>
 #include <cstdio>
+#include <thread>
 namespace deren::tools::subtilis {
     namespace {
+        uint32_t default_threads() {
+            auto hardware = std::thread::hardware_concurrency();
+            if (hardware == 0)
+                hardware = 1;
+            return std::min(hardware, 12u);
+        }
         int diagnostic(int code, asset::error const& e) {
             std::fprintf(stderr, "deren-subtilis: %s\n", e.context.c_str());
             return code;
+        }
+        // Conservative coarse known-work estimate for one primitive task (source records plus the
+        // payload/workspace headroom the builder also accounts for). Used only for bounded
+        // scheduling/admission in the converter-level work pool, never for identity.
+        uint64_t source_work_estimate(asset::source_geometry const& source) {
+            return 65536 + uint64_t(source.positions.size()) * 64 + uint64_t(source.indices.size()) * 96;
         }
         struct report_row {
             primitive_key key;
@@ -19,7 +32,7 @@ namespace deren::tools::subtilis {
             uint64_t source_triangles = 0, root_triangles = 0;
             bool reused = false;
         };
-        string report_json(vector<report_row> const& rows, uint64_t skipped) {
+        string report_json(vector<report_row> const& rows, uint64_t skipped, uint32_t threads) {
             auto allocator = json_allocator();
             auto* d = yyjson_mut_doc_new(&allocator);
             auto* root = yyjson_mut_obj(d);
@@ -34,7 +47,9 @@ namespace deren::tools::subtilis {
             yyjson_mut_obj_add_uint(d, root, "reused", reused);
             yyjson_mut_obj_add_uint(d, root, "skipped", skipped);
             yyjson_mut_obj_add_uint(d, root, "lod0Only", lod0);
-            yyjson_mut_obj_add_uint(d, root, "threads", 1);
+            yyjson_mut_obj_add_uint(d, root, "threads", threads);
+            // Explicit boundary note: known-work accounting is not a provable process-memory cap.
+            yyjson_mut_obj_add_str(d, root, "knownWorkNote", "known-work bytes cover source records, owned payload/workspace and per-task estimates; third-party (meshoptimizer) internal temporaries are not a provable process-memory bound");
             auto* primitives = yyjson_mut_arr(d);
             yyjson_mut_obj_add_val(d, root, "primitives", primitives);
             for (auto const& row : rows) {
@@ -46,7 +61,10 @@ namespace deren::tools::subtilis {
                 yyjson_mut_obj_add_uint(d, p, "rootTriangles", row.root_triangles);
                 yyjson_mut_obj_add_uint(d, p, "rounds", row.report.rounds);
                 yyjson_mut_obj_add_uint(d, p, "crossGroupRepartitions", row.report.cross_group_repartitions);
+                yyjson_mut_obj_add_uint(d, p, "plannedConcurrency", row.report.planned_concurrency);
                 yyjson_mut_obj_add_uint(d, p, "knownWorkPeakBytes", row.report.known_work_peak_bytes);
+                yyjson_mut_obj_add_uint(d, p, "knownWorkLimitBytes", row.report.known_work_limit_bytes);
+                yyjson_mut_obj_add_real(d, p, "accumulatedMs", row.report.accumulated_ms);
                 yyjson_mut_obj_add_real(d, p, "wallMs", row.report.wall_ms);
                 auto* levels = yyjson_mut_arr(d);
                 yyjson_mut_obj_add_val(d, p, "levels", levels);
@@ -57,6 +75,17 @@ namespace deren::tools::subtilis {
                     yyjson_mut_obj_add_uint(d, v, "groups", l.groups);
                     yyjson_mut_obj_add_uint(d, v, "roots", l.roots);
                     yyjson_mut_arr_append(levels, v);
+                }
+                // Fixed structural profiling rows; empty for a reused payload (no build ran).
+                auto* stages = yyjson_mut_arr(d);
+                yyjson_mut_obj_add_val(d, p, "stages", stages);
+                for (auto const& stage : row.report.stages) {
+                    auto* s = yyjson_mut_obj(d);
+                    yyjson_mut_obj_add_strcpy(d, s, "name", stage.name.c_str());
+                    yyjson_mut_obj_add_real(d, s, "cpuMs", stage.cpu_ms);
+                    yyjson_mut_obj_add_bool(d, s, "inclusive", stage.inclusive);
+                    yyjson_mut_obj_add_uint(d, s, "count", stage.count);
+                    yyjson_mut_arr_append(stages, s);
                 }
                 yyjson_mut_arr_append(primitives, p);
             }
@@ -91,8 +120,16 @@ namespace deren::tools::subtilis {
             auto skipped = total - keys->size();
             if (keys->empty() || (options.strict && skipped))
                 return std::unexpected(conversion_failure{asset::error{asset::error_code::invalid_input, "no eligible targets, or --strict rejected skipped primitives", {}, {}}, 4});
-            vector<report_row> rows;
-            for (auto key : *keys) {
+            // Phase 0 (calling thread, read-only): classify reusable payloads, decode the geometry
+            // of every primitive that must be built and estimate its coarse known work. Extraction
+            // errors keep their input/validation exit code; nothing here mutates the document.
+            vector<std::optional<report_row>> rows(keys->size());
+            vector<primitive_key> build_keys;
+            vector<size_t> build_positions;
+            vector<asset::source_geometry> build_sources;
+            vector<size_t> estimates;
+            for (size_t at = 0; at < keys->size(); ++at) {
+                auto key = (*keys)[at];
                 if (member(member(primitive_value(*d, key), "extensions"), "DEREN_subtilis")) {
                     auto existing = full_asset(*d, key);
                     auto requested = asset::build_digest(options.build);
@@ -103,34 +140,77 @@ namespace deren::tools::subtilis {
                         root_triangles += existing->data().clusters[id].index_count / 3;
                     asset::build_report reused_report;
                     reused_report.lod0_only = existing->data().groups.empty();
-                    rows.push_back({key, std::move(reused_report), existing->geometry().indices.size() / 3, root_triangles, true});
-                    continue;
+                    rows[at] = report_row{key, std::move(reused_report), existing->geometry().indices.size() / 3, root_triangles, true};
+                } else {
+                    auto source = extract_geometry(*d, key);
+                    if (!source)
+                        return std::unexpected(conversion_failure{source.error(), 3});
+                    build_keys.push_back(key);
+                    build_positions.push_back(at);
+                    estimates.push_back(static_cast<size_t>(source_work_estimate(*source)));
+                    build_sources.push_back(std::move(*source));
                 }
-                auto source = extract_geometry(*d, key);
-                if (!source)
-                    return std::unexpected(conversion_failure{source.error(), 3});
-                auto built = asset::build(std::move(*source), options.build, options.execution);
-                if (!built)
-                    return std::unexpected(conversion_failure{built.error(), 4});
-                auto wire = asset::encode(built->asset.data(), {});
-                if (!wire)
-                    return std::unexpected(conversion_failure{wire.error(), 4});
-                auto attached = attach_payload(*d, key, *wire);
-                if (!attached)
-                    return std::unexpected(conversion_failure{attached.error(), 4});
-                uint64_t root_triangles = 0;
-                for (auto id : built->asset.data().roots)
-                    root_triangles += built->asset.data().clusters[id].index_count / 3;
-                rows.push_back({key, std::move(built->report), built->asset.geometry().indices.size() / 3, root_triangles});
             }
+            // Per-index candidate slots owned by the caller: prepare only writes its own slot, the
+            // commit callback reads it back in key order on this thread and is the only place that
+            // mutates the document. Rejected/failed tasks therefore never consume another target's
+            // visible IDs or payload range.
+            vector<std::optional<asset::build_result>> slots(build_keys.size());
+            auto build_failure = [](asset::error const& detail) { return std::unexpected(conversion_failure{detail, 4}); };
+            auto prepare_build = [&](size_t at, uint32_t inner_threads) -> asset::result<void> {
+                asset::execution_options execution = options.execution;
+                execution.threads = inner_threads;
+                auto built = asset::build(std::move(build_sources[at]), options.build, execution);
+                if (!built)
+                    return std::unexpected(built.error());
+                slots[at] = std::move(*built);
+                return {};
+            };
+            auto commit_build = [&](size_t at) -> asset::result<void> {
+                auto& built = *slots[at];
+                auto wire = asset::encode(built.asset.data(), {});
+                if (!wire)
+                    return std::unexpected(wire.error());
+                auto attached = attach_payload(*d, build_keys[at], *wire);
+                if (!attached)
+                    return attached;
+                uint64_t root_triangles = 0;
+                for (auto id : built.asset.data().roots)
+                    root_triangles += built.asset.data().clusters[id].index_count / 3;
+                rows[build_positions[at]] = report_row{build_keys[at], built.report, built.asset.geometry().indices.size() / 3, root_triangles, false};
+                slots[at].reset(); // release the candidate slot before the next commit
+                return {};
+            };
+            if (build_keys.size() == 1) {
+                // One coarse primitive: it gets the whole thread budget and parallelizes its
+                // reduction rounds at group level (never nested inside another pool).
+                if (auto prepared = prepare_build(0, options.execution.threads); !prepared)
+                    return build_failure(prepared.error());
+                if (auto committed = commit_build(0); !committed)
+                    return build_failure(committed.error());
+            } else if (build_keys.size() > 1) {
+                // Several coarse primitive tasks: one bounded work pool over primitives, each inner
+                // build serial. This is the single execution budget; no second pool is created.
+                auto prepare_task = [&](size_t at) -> asset::result<void> {
+                    return prepare_build(at, 1);
+                };
+                auto ordered = asset::builder_detail::run_ordered(build_keys.size(), options.execution.threads, estimates, options.execution.limits.max_known_work_bytes, prepare_task, commit_build);
+                if (!ordered)
+                    return build_failure(ordered.error());
+            }
+            vector<report_row> ordered_rows;
+            ordered_rows.reserve(rows.size());
+            for (auto& row : rows)
+                if (row)
+                    ordered_rows.push_back(std::move(*row));
             conversion_report report;
             report.skipped = skipped;
-            for (auto const& row : rows) {
+            for (auto const& row : ordered_rows) {
                 report.reused += row.reused;
                 report.lod0_only += row.report.lod0_only;
             }
-            report.converted = rows.size() - report.reused;
-            report.json = report_json(rows, skipped);
+            report.converted = ordered_rows.size() - report.reused;
+            report.json = report_json(ordered_rows, skipped, options.execution.threads);
             return report;
         }
         int execute(build_command const& c) {
@@ -256,7 +336,7 @@ namespace deren::tools::subtilis {
         return std::move(*report);
     }
     result<command> parse_arguments(std::span<std::string_view const> args) {
-        auto usage = []() { return fail("usage: build INPUT -o OUTPUT.{glb|gltf} [--format glb|gltf] [--threads 1] [--report JSON] [--strict] [--overwrite] | inspect INPUT | validate INPUT [--full] | export-cut INPUT --error MODEL_ERROR -o OUTPUT.{glb|gltf} [--format glb|gltf] [--overwrite]"); };
+        auto usage = []() { return fail("usage: build INPUT -o OUTPUT.{glb|gltf} [--format glb|gltf] [--threads N] [--report JSON] [--strict] [--overwrite] | inspect INPUT | validate INPUT [--full] | export-cut INPUT --error MODEL_ERROR -o OUTPUT.{glb|gltf} [--format glb|gltf] [--overwrite]"); };
         if (args.size() < 2 || args[1].empty() || args[1].starts_with('-'))
             return usage();
         path input(args[1]);
@@ -274,6 +354,9 @@ namespace deren::tools::subtilis {
             return usage();
         build_command build;
         build.input = input;
+        // CLI default: one bounded budget up to 12 hardware threads; execution_options keeps its
+        // serial default for explicit host-API callers.
+        build.execution.threads = default_threads();
         export_cut_command cut;
         cut.input = input;
         output_format format = output_format::glb;
@@ -301,8 +384,8 @@ namespace deren::tools::subtilis {
             else if (option == "--threads" && args[0] == "build") {
                 uint32_t threads = 0;
                 auto converted = std::from_chars(value.data(), value.data() + value.size(), threads);
-                if (converted.ec != std::errc{} || converted.ptr != value.data() + value.size() || threads != 1)
-                    return fail("only --threads 1 is available before parallel scheduling");
+                if (converted.ec != std::errc{} || converted.ptr != value.data() + value.size() || threads == 0)
+                    return fail("--threads requires a positive integer");
                 build.execution.threads = threads;
             } else if (option == "--format") {
                 if (value == "glb")
