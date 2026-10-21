@@ -33,3 +33,26 @@ Rulings:
 
 Runtime loader, upload adoption and per-frame DAG selection are still pending.
 The new representation alone does not enable object LOD in rendering.
+
+## Task 2: shared wire library and CPU DAG cut
+
+- Root `asset_subtilis_core` compiles the original codec/digest/DAG/cut sources.
+  No converter source, wire format, builder or loader dependency was changed.
+- Engine selection computes metrics, closes dependency decisions, then scans
+  cluster IDs once. The same perspective/orthographic and operator-norm formulas
+  produce identical selected IDs in **590 cases**, including exact thresholds,
+  nonuniform scale/shear, near-plane and invalid-view fallbacks.
+- Closure has an independent inconsistent-decision/idempotence regression;
+  its no-op stub failed before the actual helper was connected. Capacity errors
+  clear all output; runtime will provide the complete LOD0 fallback in Task 5.
+- Three CLI-generated assets (actual automatic cross-DAG, UV seam, LOD0-only)
+  have checked SHA-256 manifests and full reference validation in root tests.
+  The cross fixture also scans producer/consumer links independently of metadata.
+- Reference library archive: 3,106,236 B with diagnostics. The executable remains
+  88,493,568 B before/after: runtime does not reference the new import path yet,
+  so unused static objects are not pulled into it. This is not a final size cost.
+
+Validation: initial cut stub RED (590 failures); raw closure regression RED
+(2 failures). Root Release build/full CTest **60/60** (42.69s), ASan/UBSan DAG
+tests **2/2** (1.71s), independent converter CTest **6/6** (1.42s). No GPU
+performance or runtime adoption is claimed at this step.

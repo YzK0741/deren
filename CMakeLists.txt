@@ -610,7 +610,18 @@ target_sources(resource_cluster_core PUBLIC FILE_SET CXX_MODULES FILES
     source/engine/resource_cluster/resource_cluster.cppm)
 target_link_libraries(resource_cluster_core PUBLIC shared_utility promise)
 
+# Shared offline wire/reference sources; no builder, loader or GPU dependency.
+add_library(asset_subtilis_core STATIC)
+target_sources(asset_subtilis_core PUBLIC FILE_SET CXX_MODULES FILES
+    source/asset/subtilis/types.cppm
+    source/asset/subtilis/codec.cppm
+    source/asset/subtilis/dag.cppm
+    PRIVATE source/asset/subtilis/codec.cpp source/asset/subtilis/digest.cpp
+    source/asset/subtilis/dag.cpp source/asset/subtilis/cut.cpp)
+target_link_libraries(asset_subtilis_core PUBLIC shared_utility vstd_lib PRIVATE yyjson_vendored)
+
 add_library(deren_engine STATIC)
+target_link_libraries(deren_engine PRIVATE asset_subtilis_core)
 add_library(deren::engine ALIAS deren_engine)
 
 target_sources(deren_engine
@@ -667,6 +678,7 @@ target_sources(deren_engine
         source/engine/geometry/subtilis_lod.cppm
         source/engine/geometry/subtilis_asset.cppm
         source/engine/geometry/subtilis_dag_asset.cppm
+        source/engine/geometry/subtilis_dag_lod.cppm
         source/engine/geometry/subtilis_builder.cppm
         source/engine/geometry/subtilis_upload.cppm
         source/engine/geometry/subtilis_selection.cppm
@@ -1251,7 +1263,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb)
+    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1365,6 +1377,8 @@ if(VR_BUILD_TESTS)
     target_link_libraries(test_subtilis_frame deren_engine probe_backend_static promise)
     target_link_libraries(test_subtilis_asset deren_engine vstd_lib)
     target_link_libraries(test_subtilis_dag_asset deren_engine vstd_lib)
+    target_link_libraries(test_subtilis_dag_lod deren_engine asset_subtilis_core yyjson_vendored)
+    target_compile_definitions(test_subtilis_dag_lod PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(test_subtilis_lod deren_engine vstd_lib)
     target_link_libraries(test_visibility_buffer
             deren_engine

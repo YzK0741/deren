@@ -1,0 +1,109 @@
+{
+  "schema": "deren-object-lod-fixtures/1",
+  "converter_commit": "733a422fa9a486fce226035d2a4077a6a1c9ab95",
+  "converter_sha256": "3778aa6e5c7be72240735166f4adbcf6fa8277a627b0110d67263d7d35f6edae",
+  "fixtures": [
+    {
+      "name": "cross_dag",
+      "width": 32,
+      "files": [
+        {
+          "name": "cross_dag.glb",
+          "bytes": 111684,
+          "sha256": "d495189f35cb39227a40e68b4f7ce062b2774d9dbdf66a6af1fb5fce2175ffc3"
+        },
+        {
+          "name": "cross_dag.payload",
+          "bytes": 51152,
+          "sha256": "2ef6cc7ef8c89e8c376395818d69e5c68ae66fdb1e16f8f672117846d62914af"
+        },
+        {
+          "name": "cross_dag.source.bin",
+          "bytes": 59432,
+          "sha256": "ab97b35f6087cee38fe5ff31e18cab889e6e1b8e101c34bc447f2b4c8fc9eb64"
+        }
+      ],
+      "cross_group_repartitions": 1,
+      "command": [
+        "deren-subtilis",
+        "build",
+        "<generated-source.glb>",
+        "-o",
+        "cross_dag.glb",
+        "--threads",
+        "1",
+        "--report",
+        "<build.json>",
+        "--overwrite"
+      ]
+    },
+    {
+      "name": "seam",
+      "width": 16,
+      "files": [
+        {
+          "name": "seam.glb",
+          "bytes": 30824,
+          "sha256": "8bf3a32a44479d9a4aeae4dff03fea3d1f3f571a1591358ddddb037c0aff9fd4"
+        },
+        {
+          "name": "seam.payload",
+          "bytes": 13792,
+          "sha256": "452bef169050e04ae932d3da4c04039c52758d168cc0739b0461713bc8a1a972"
+        },
+        {
+          "name": "seam.source.bin",
+          "bytes": 15944,
+          "sha256": "d1bd515bf0c0ddd440979ad9909da648b3221f68f108e8984a36629630adda5b"
+        }
+      ],
+      "cross_group_repartitions": 0,
+      "command": [
+        "deren-subtilis",
+        "build",
+        "<generated-source.glb>",
+        "-o",
+        "seam.glb",
+        "--threads",
+        "1",
+        "--report",
+        "<build.json>",
+        "--overwrite"
+      ]
+    },
+    {
+      "name": "lod0_only",
+      "width": 16,
+      "files": [
+        {
+          "name": "lod0_only.glb",
+          "bytes": 2152,
+          "sha256": "7da45a293114e12c94ebd871ad966a5de2346845fa73757ab045b2f6e3361a8f"
+        },
+        {
+          "name": "lod0_only.payload",
+          "bytes": 1016,
+          "sha256": "5f1b908f41af7711cb685c5f9876cc8438ab90220c1de7f0c0d037eeddbddf29"
+        },
+        {
+          "name": "lod0_only.source.bin",
+          "bytes": 116,
+          "sha256": "89ba1a2826fa47fc808a406153827e6fbae29f5c1dc279f6841959763c37f001"
+        }
+      ],
+      "cross_group_repartitions": 0,
+      "command": [
+        "deren-subtilis",
+        "build",
+        "<generated-source.glb>",
+        "-o",
+        "lod0_only.glb",
+        "--threads",
+        "1",
+        "--report",
+        "<build.json>",
+        "--overwrite"
+      ]
+    }
+  ]
+}

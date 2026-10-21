@@ -6,7 +6,7 @@
 **Architecture:** 复用已接受的 converter CPU 模块（types/codec/digest/dag/cut）在 root 侧编译为静态资产库；engine 新增 DAG 层级（cluster producer/consumer + group fine/coarse 引用 + LOD 球/error + roots/leaves）与移植自 converter reference 的 CPU DAG cut；gltf_loader 只提取 payload 原始字节与扩展字段，import 时由 engine 完成解码/身份/结构校验/翻译并共享 generation；每帧 item cut 继续走 M1b 的 run/发布/HZB 管线，raster/resolve 数学不变。
 **Tech Stack:** CMake 4.3、C++23 modules、Clang64/libc++、vessel/mimalloc、yyjson 0.12.0（root 已有 `yyjson_vendored`）、fastgltf 0.9/simdjson（仅在 deren_assets/gltf_loader）、meshoptimizer v1.3（只给现有 builder/forest 参考路径，本 feature 的 import 不使用 builder）。无 CUDA/Vulkan 依赖给新 CPU 测试。
 **Spec:** `docs/superpowers/specs/2026-10-21-object-lod-runtime-design.md`。代码基线 `f4d3b8e7`（converter Task 1-8 已接受）。计划时 HEAD `f4d3b8e7`。
-**状态：** 已评审通过（2026-10-21：Q1 seam = 方案 C、Q2 单一 `subtilis` 开关、Q4 TANGENT-stripped 派生测量资产；Q3/Q5/Q6 按推荐默认）。用户于 2026-10-22 明确恢复实施；Task 1 已验收，接下来从 Task 2 继续，逐任务独立验收/本地提交/不 push。
+**状态：** 已评审通过（2026-10-21：Q1 seam = 方案 C、Q2 单一 `subtilis` 开关、Q4 TANGENT-stripped 派生测量资产；Q3/Q5/Q6 按推荐默认）。用户于 2026-10-22 明确恢复实施；Tasks 1–2 已验收，接下来从 Task 3 继续，逐任务独立验收/本地提交/不 push。
 
 ## Global Constraints
 
@@ -91,19 +91,19 @@
 **Interfaces**：`select_cut(dag_asset const&, view_parameters const&, uint32_t capacity, vector<meshlet>& out)`（§公共类型约定）；测试侧使用 `deren::asset::subtilis::{decode, validate_structure, make_asset, select_cut}`（来自同一源文件）作为 reference；fixture 清单 `fixtures.json`（文件名/SHA-256/来源命令/转换器 commit）。
 
 **RED**：
-- [ ] 用 `scripts/measure/make_object_lod_fixtures.py` 生成 fixture：用已接受 `deren-subtilis` CLI 对合成小资产（cross-DAG/UV-seam/LOD0-only 三类，几何可在测试内构造，或复用 converter 的 fixture 生成器）产出 payload 文件 + 记录 SHA-256；测试先失败（缺模块/接口）。
-- [ ] 测试用例：threshold 0/相等（`nextafter`）/两侧、perspective/ortho/非均匀缩放/近面/非有限视图/128 seeded views、容量不足返回 error、稳定 ID 顺序、确定性重复；同一 fixture 上用 converter `make_asset` 完整校验 payload（用测试内构造的 source geometry），再用 converter `select_cut` 与 engine `select_cut` 比较 selected cluster ID 序列**完全相等**（同 view 参数/同 threshold/capacity）。
-- [ ] `ctest -R '^test_subtilis_dag_lod$'` 确认 RED。
+- [x] 用 `scripts/measure/make_object_lod_fixtures.py` 生成 fixture：用已接受 `deren-subtilis` CLI 对合成小资产（cross-DAG/UV-seam/LOD0-only 三类，几何可在测试内构造，或复用 converter 的 fixture 生成器）产出 payload 文件 + 记录 SHA-256；测试先失败（缺模块/接口）。
+- [x] 测试用例：threshold 0/相等（`nextafter`）/两侧、perspective/ortho/非均匀缩放/近面/非有限视图/128 seeded views、容量不足返回 error、稳定 ID 顺序、确定性重复；同一 fixture 上用 converter `make_asset` 完整校验 payload（用测试内构造的 source geometry），再用 converter `select_cut` 与 engine `select_cut` 比较 selected cluster ID 序列**完全相等**（同 view 参数/同 threshold/capacity）。
+- [x] `ctest -R '^test_subtilis_dag_lod$'` 确认 RED。
 
 **GREEN**：
-- [ ] `subtilis_dag_lod.cppm`：把 converter `cut.cpp`/`dag.cpp` 的 `select_cut`（先算 group 决定 + 闭包，再按 cluster ID 稳定序扫描 + `<=` + capacity error + forced finest）按 engine `view_parameters`/meshlet 记录移植；`dag_asset` 的 group error 单调性保证闭包前提，仍保留显式保守修正（与 converter 一致）。
-- [ ] CMake target 编译选项与项目一致（新源文件自身代码走 root 警告/`-Werror`；若 converter 源需要 `-Wno-reserved-module-identifier` 等，在 target 上局部设置并记录）。
-- [ ] 根工程不链接 builder（不引入 meshoptimizer 到本 feature 的 import 路径）。
+- [x] `subtilis_dag_lod.cppm`：把 converter `cut.cpp`/`dag.cpp` 的 `select_cut`（先算 group 决定 + 闭包，再按 cluster ID 稳定序扫描 + `<=` + capacity error + forced finest）按 engine `view_parameters`/meshlet 记录移植；`dag_asset` 的 group error 单调性保证闭包前提，仍保留显式保守修正（与 converter 一致）。
+- [x] CMake target 编译选项与项目一致（新源文件自身代码走 root 警告/`-Werror`；若 converter 源需要 `-Wno-reserved-module-identifier` 等，在 target 上局部设置并记录）。
+- [x] 根工程不链接 builder（不引入 meshoptimizer 到本 feature 的 import 路径）。
 
 **Acceptance**：
-- [ ] `ctest -R '^test_subtilis_dag_lod$'` 绿；交叉校验测试打印"engine cut == converter reference cut"的用例数；
-- [ ] `ctest --test-dir build-subtilis`（converter 独立工程）仍全绿（同一源文件在两个构建图一致，无污染）；
-- [ ] root Release 构建通过，`test_docs` 通过；ASan/UBSan 新 target 绿。
+- [x] `ctest -R '^test_subtilis_dag_lod$'` 绿；交叉校验测试打印"engine cut == converter reference cut"的用例数；
+- [x] `ctest --test-dir build-subtilis`（converter 独立工程）仍全绿（同一源文件在两个构建图一致，无污染）；
+- [x] root Release 构建通过，`test_docs` 通过；ASan/UBSan 新 target 绿。
 
 ## Task 3 — payload→engine 数据翻译与回退矩阵（纯 CPU，无 loader）
 
