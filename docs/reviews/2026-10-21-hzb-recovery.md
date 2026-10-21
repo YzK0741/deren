@@ -133,6 +133,8 @@ RTX 4060 Laptop，Bistro geometry，1280×720。moving 视点（phase C 的用�
 
 验证状态：最终 `cmake --build build-release-dyn-clang64 -j 12` exit 0；`ctest --test-dir build-release-dyn-clang64 --output-on-failure` 58/58；工作区仅剩预期的 phase C 实现 + 验证脚本修复 + 两份文档（`.superpowers` scratch 未跟踪）。
 
+证据归档（2026-10-21 Lead 验收后）：`D:/deren-assets/hzb-recovery`，268 个文件 / 508.1 MB，逐文件 SHA256 校验 0 mismatch、0 extra（manifest：`D:/deren-assets/hzb-recovery/archive-manifest.json`）；本地 `.superpowers/sdd/2026-10-21-hzb-recovery` scratch 按既有做法保留（未跟踪）。Lead 提交：`bfd77a6e`（实现 + 脚本修复）、`7ac980e6`（本报告与计划）。
+
 残余风险/限制：
 
 - CPU 端到端 post 增量超出 0.2 ms 设计目标，且本轮未用 instrumentation 分离 `record_visibility_items` 内外的增量；phase D 若按该预算验收需要 CPU 剖析/优化。
