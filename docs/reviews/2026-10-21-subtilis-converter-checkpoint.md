@@ -57,4 +57,31 @@ fixture also failed before its check was added. Release 2/2 CTest pass (0.13s);
 ASan/UBSan Debug 2/2 pass (0.76s). Root shared build configuration did not change
 in this task; its Task 1 58/58 run remains the relevant regression check.
 
-Task 3 onward remains pending; the converter CLI is not ready yet.
+## Task 3: document preservation and fixture file loop
+
+- Added an owning mutable document, stable mesh/primitive keys and instance/skin
+  classification. Original DOM, array IDs and embedded BIN prefix are preserved.
+- Embedded GLB and data-URI glTF decode via fastgltf after independent bounded
+  window/sparse-index checks. No node transforms are baked into geometry.
+- Unknown nested JSON and u64 precision, nodes/scenes/materials/accessors,
+  original primitive fields and animation tracks survive extension attachment.
+- The hand-authored DAG now completes attach→GLB→read→decode→full factory→cut.
+  Supported required DEREN metadata is filtered only in the parser copy; original
+  declarations survive. Unknown/unsupported required extensions and invalid
+  required/used relationships fail. Unsupported optional payload leaves LOD0 readable.
+- Tests cover signed-normalized quantization/strides, sparse/no-base accessors,
+  overflow/bad windows, nonindexed triangles, missing UV, texture requirements,
+  unmodeled attributes, morphs/alpha modes, static+skin instances and rigid animation.
+- Found fastgltf 0.9 `validate()` dereferences sparse bufferView indices without a
+  bounds check. A negative fixture reproduced an ASan heap-buffer-overflow at
+  upstream fastgltf.cpp:999. Converter preflight now checks those references and
+  analogous animation references before calling upstream; vendored code unchanged.
+  Additional RED→GREEN regressions cover direct attachment to an ineligible
+  primitive and required-extension version/subset handling.
+
+Validation: initial document RED witnessed. Latest Release 3/3 pass (0.27s),
+ASan/UBSan 3/3 pass (1.04s). Root dependencies unchanged since Task 1.
+External-resource loading/packaging and transactional output remain Task 6;
+embedded-mode helper rejects resource relocation it cannot yet preserve.
+
+Task 4 onward remains pending; the converter CLI is not ready yet.

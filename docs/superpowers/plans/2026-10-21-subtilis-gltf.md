@@ -90,11 +90,11 @@
 - `result<source_geometry> extract_geometry(document const&, primitive_key)`。
 - `result<void> attach_payload(document&, primitive_key, span<byte const>)`、`result<vector<byte>> serialize_embedded_glb(document const&)`：先支持已自包含GLB，供手工DAG夹具完整往返。
 
-- [ ] RED：同mesh被两node引用及静态/skin混用、非索引三角形、缺NORMAL/UV、TANGENT与未知属性；规范化量化/稀疏accessor及越界/坏stride/归一化有符号值；确认eligibility和sourceDigest输入符合spec。
-- [ ] RED：未知JSON嵌套对象/大整数、可选与required扩展、原数组ID和BIN前缀保持；原LOD0索引和材质/动画/node语义不变。被工具理解的DEREN扩展只从fastgltf解码用的临时required列表中排除，原DOM保留；真正未知required不得忽略。
-- [ ] `test_subtilis_document`先RED；IO用yyjson拥有原DOM，几何解码复用fastgltf原mesh/primitive索引和accessor工具，不经deren.gltf_loader展平。partial策略只跳过语义已知不适用项，不吞损坏core数据。
-- [ ] 附加Task2人工DAG，serialize→read→decode→make_asset→select_cut全链GREEN；core indices/attributes/节点引用与输入语义一致。量化位置的node变换不烘焙进模型空间数据。
-- [ ] 本地提交：`feat: preserve glTF documents and bind Subtilis payloads`。
+- [x] RED：同mesh被两node引用及静态/skin混用、非索引三角形、缺NORMAL/UV、TANGENT与未知属性；规范化量化/稀疏accessor及越界/坏stride/归一化有符号值；确认eligibility和sourceDigest输入符合spec。
+- [x] RED：未知JSON嵌套对象/大整数、可选与required扩展、原数组ID和BIN前缀保持；原LOD0索引和材质/动画/node语义不变。被工具理解的DEREN扩展只从fastgltf解码用的临时required列表中排除，原DOM保留；真正未知required不得忽略。
+- [x] `test_subtilis_document`先RED；IO用yyjson拥有原DOM，几何解码复用fastgltf原mesh/primitive索引和accessor工具，不经deren.gltf_loader展平。partial策略只跳过语义已知不适用项，不吞损坏core数据。
+- [x] 附加Task2人工DAG，serialize→read→decode→make_asset→select_cut全链GREEN；core indices/attributes/节点引用与输入语义一致。量化位置的node变换不烘焙进模型空间数据。
+- [x] 本地提交：`feat: preserve glTF documents and bind Subtilis payloads`。
 
 ## Task 4 — 叶聚类、边界拓扑与单次约束reduction
 
