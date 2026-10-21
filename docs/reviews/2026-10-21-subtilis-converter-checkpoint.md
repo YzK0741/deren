@@ -134,7 +134,8 @@ transaction/resource guarantees are still Task 6 acceptance requirements.
 
 ## Task 6: partial implementation, not complete
 
-Task 5 commit: `de785b74`. Task 6 continues from that base.
+Task 5 commit: `de785b74`. Task 6 partial commit: `dbfc37c0`.
+Paused at 5h usage 95% / remaining 5%, as requested. No push.
 
 - Added bounded local-resource snapshots, percent-escaped URIs and validated
   base64 data URIs. Original buffer/accessor IDs survive document editing;
@@ -148,7 +149,9 @@ Task 5 commit: `de785b74`. Task 6 continues from that base.
   `convert_file` API and `write_package`; CLI and API share construction logic.
 - `--overwrite` uses atomic file replacement, forbids source/report aliases and
   leaves prior bytes intact on publication failure. Windows read-only-target,
-  directory-target failure and temporary cleanup tests pass.
+  directory-target failure and temporary cleanup tests pass. Count-only GLB
+  length checks cover the u32 boundary, >4GiB and UINT64_MAX without allocating
+  large buffers; the writer uses the same checked calculation.
 
 RED witnessed for reuse, external buffers, image embedding, overwrite, hidden
 corrupt payload classification and converter API. Latest Release 5/5 (0.51s),
@@ -156,7 +159,7 @@ ASan/UBSan 5/5 (2.75s), built with `-j12`. Root build files unchanged since Task
 
 Remaining Task 6 acceptance: transactional **glTF directory-package output**
 (the public format enum currently rejects gltf explicitly), controlled short-write
-and close-failure injection, counted >4GiB packaging overflow fixtures, exhaustive
+and close-failure injection, exhaustive
 resource hashes/core-DOM checks, then the whole Task 6 completion gate. No Task 6
 checkbox is marked complete. Task 7 parallel scheduling and Task 8 real assets,
 core validator, independent CI and final fresh whole-change review remain pending.

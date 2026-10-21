@@ -1,4 +1,5 @@
 #include "document_internal.hpp"
+#include "package_limits.hpp"
 
 namespace deren::tools::subtilis {
     document::document() = default;
@@ -12,10 +13,11 @@ namespace deren::tools::subtilis {
         }
     }
     result<vector<byte>> make_glb(std::string_view json, std::span<byte const> bin, asset::limits const& lim) {
+        auto checked = package_detail::glb_length(json.size(), bin.size(), lim);
+        if (!checked)
+            return std::unexpected(checked.error());
         uint64_t j = (uint64_t(json.size()) + 3) & ~uint64_t(3), b = (uint64_t(bin.size()) + 3) & ~uint64_t(3);
-        uint64_t total = 20 + j + (b ? 8 + b : 0);
-        if (total > UINT32_MAX || total > lim.max_input_bytes)
-            return fail("GLB exceeds byte/format limit", asset::error_code::capacity);
+        uint64_t total = *checked;
         vector<byte> bytes;
         bytes.reserve(static_cast<size_t>(total));
         put_u32(bytes, 0x46546c67);

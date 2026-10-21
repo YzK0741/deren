@@ -1,4 +1,5 @@
 #include "../../tools/subtilis/commands.hpp"
+#include "../../tools/subtilis/package_limits.hpp"
 #include "subtilis_dag_fixtures.hpp"
 #include "vk_test.h"
 
@@ -13,6 +14,14 @@ namespace sub = deren::asset::subtilis;
 #include "subtilis_document_fixtures.hpp"
 using namespace subtilis_document_fixture;
 int main() {
+    CHECK(!tool::package_detail::glb_length(UINT64_MAX, 0, {}));
+    CHECK(!tool::package_detail::glb_length(20, (uint64_t(1) << 32) + 1, {}));
+    CHECK(!tool::package_detail::glb_length(UINT32_MAX - 22u, 0, {}));
+    auto boundary = tool::package_detail::glb_length(UINT32_MAX - 23u, 0, {});
+    CHECK(boundary && *boundary == UINT32_MAX - 3u);
+    sub::limits tiny_limit;
+    tiny_limit.max_input_bytes = 32;
+    CHECK(!tool::package_detail::glb_length(20, 0, tiny_limit));
     auto dir = std::filesystem::current_path() / tool::path(deren::utility::vessel::format("subtilis-converter-{}", std::chrono::steady_clock::now().time_since_epoch().count()).c_str());
     std::error_code ec;
     std::filesystem::create_directory(dir, ec);
