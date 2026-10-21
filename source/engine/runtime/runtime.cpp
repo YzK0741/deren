@@ -11,8 +11,9 @@ module;
 #include <functional> // std::function: the per-item planning tasks a worker pool runs
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <iterator>        // std::prev: the ordered publication table's predecessor lookup
-#include <memory>          // std::shared_ptr: the frame's borrowed command buffer (see frame_command_buffer)
+#include <iterator> // std::prev: the ordered publication table's predecessor lookup
+#include <memory>   // std::shared_ptr: the frame's borrowed command buffer (see frame_command_buffer)
+#include <optional>
 #include <source_location> // the panic sites of the graphics-queue-family derivation
 #include <span>            // the byte spans the contract's buffer descriptors and the push endpoints take
 #include <string_view>     // the phase-B gate's closed-reason vocabulary (the once-per-session log line)
@@ -1503,7 +1504,13 @@ namespace deren::engine {
 
     bool runtime::push_raw_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes) {
         runtime* const self = static_cast<runtime*>(owner);
-        return push_with_lanes(self->rhi_face(), 0u, 0u, recording_target(rhi::shared_object<rhi::command_buffer>::borrow(command_buffer)), bytes, 0u, 0u);
+        if (bytes.size() > 256u) {
+            deren::utility::log("heap push: a block of {} B plus 0 index lanes does not fit the push-data window", bytes.size());
+            return false;
+        }
+        // This synchronous push retains neither the bytes nor the command buffer. A borrowed
+        // shared_object would allocate a control block for every item in both raster passes.
+        return contract_push_heap_data(self->rhi_face(), &command_buffer, nullptr, 0u, bytes);
     }
 
     // ---- the MESH session's endpoints (docs/mesh_shaders.md step 1): what a draw without an input assembler
@@ -2252,9 +2259,13 @@ namespace deren::engine {
         }
         unsigned input_count = 0, selected_count = 0, fallback_count = 0;
         std::uint64_t input_triangles = 0, selected_triangles = 0;
+        std::optional<rhi::cull_mode> recorded_cull;
         for (std::uint32_t index = 0; index < count; ++index) {
             visibility_item_plan& plan = plans[index];
-            command_buffer.set_cull_mode(plan.cull);
+            if (recorded_cull != plan.cull) {
+                command_buffer.set_cull_mode(plan.cull);
+                recorded_cull = plan.cull;
+            }
             static_assert(runtime::mesh_command_capacity == deren::engine::visibility::hzb::hzb_mesh_command_capacity);
             static_assert(runtime::visibility_command_run == deren::engine::visibility::hzb::hzb_visibility_command_run);
             // ---- THE HZB CULL LANE'S PER-ITEM DESCRIPTION (spec §4.3) ----
@@ -2276,6 +2287,7 @@ namespace deren::engine {
                     commands[recovery_index] = rhi::mesh_task_command{.groups_x = 0u, .groups_y = 1u, .groups_z = 1u};
                     if (cut_visible) {
                         this->visibility_recovery_draws.push_back(visibility_recovery_draw{plan.block, plan.cull, index});
+                        this->visibility_recovery_draws.back().block.pad = 1u;
                     }
                 }
             }
@@ -2314,11 +2326,13 @@ namespace deren::engine {
             return false;
         }
         std::uint32_t const slot = this->frame_ring().position();
+        std::optional<rhi::cull_mode> recorded_cull;
         for (auto const& item : this->visibility_recovery_draws) {
-            auto block = item.block;
-            block.pad = 1u;
-            command_buffer.set_cull_mode(item.cull);
-            if (!runtime::push_raw_block(this, command_buffer, std::as_bytes(std::span(&block, 1u)))) {
+            if (recorded_cull != item.cull) {
+                command_buffer.set_cull_mode(item.cull);
+                recorded_cull = item.cull;
+            }
+            if (!runtime::push_raw_block(this, command_buffer, std::as_bytes(std::span(&item.block, 1u)))) {
                 return false;
             }
             auto const index = static_cast<std::uint64_t>(slot) * runtime::mesh_command_capacity + runtime::hzb_recovery_command_run + item.item_index;

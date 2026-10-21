@@ -73,7 +73,7 @@ v3分别保留历史与本帧pyramid/header，先冻结expected历史矩阵，�
 
 ### 方法
 
-RTX 4060 Laptop，Bistro geometry，1280×720。moving 视点（phase C 的用途）：near `35,8,42,0,-88,0`、far `35,18,140,0,-83.071,0`，`--capture-sweep=0.02`（130帧内 yaw 约+2.58°）、130帧；subtilis=true。每个视点3轮交错，每轮先 OFF（不设 `DEREN_HZB_CULL`/`DEREN_HZB_RECOVERY`，即无 HZB 的基线路径）再 `-Recovery`（BUILD+CULL+RECOVERY），共12次启动（two-view × 3 rounds × 2 arms）。validation 关闭、probe 关闭；测量期间无并发构建/测试/其它捕获；12次启动总耗时164.8秒。数值取每次启动日志的 “session avg of 129 frames” GPU 行与最后一个 “cpu frame phases (avg of 60 frames)” 窗口；delta = ON中位数 − OFF中位数。原始日志与解析脚本在 `.superpowers/sdd/2026-10-21-hzb-recovery/perf/`。
+RTX 4060 Laptop，Bistro geometry，1280×720。moving 视点（phase C 的用途）：near `35,8,42,0,-88,0`、far `35,18,140,0,-83.071,0`，`--capture-sweep=0.02`（130帧内 yaw 约+2.58°）、130帧；subtilis=true。每个视点3轮交错，每轮先 OFF（BUILD=1，不设 `DEREN_HZB_CULL`/`DEREN_HZB_RECOVERY`，仅构建 HZB、不消费遮挡结果）再 `-Recovery`（BUILD+CULL+RECOVERY），共12次启动（two-view × 3 rounds × 2 arms）。因此该矩阵的基线是 build-only，不能解释成全部 HZB 功能关闭；OFF 中的 build 沿用原计时位置，成本包含在其他 pass 区间。validation 关闭、probe 关闭；测量期间无并发构建/测试/其它捕获；12次启动总耗时164.8秒。数值取每次启动日志的 “session avg of 129 frames” GPU 行与最后一个 “cpu frame phases (avg of 60 frames)” 窗口；delta = ON中位数 − OFF中位数。原始日志与解析脚本在 `D:/deren-assets/hzb-recovery/perf/`。
 
 所有6次 ON 启动都记录 `hzb recovery: prediction gate OPEN`，recovery 为真实两遍链：near session 5,041,585 复测 / 6,435 恢复，far 4,705,395 / 6,778；cull session near 5,041,585被剔除（90.79%）、far 4,705,395（71.79%）；三轮的 session 计数完全相同（同一确定性负载）。
 
@@ -133,7 +133,7 @@ RTX 4060 Laptop，Bistro geometry，1280×720。moving 视点（phase C 的用�
 
 验证状态：最终 `cmake --build build-release-dyn-clang64 -j 12` exit 0；`ctest --test-dir build-release-dyn-clang64 --output-on-failure` 58/58；工作区仅剩预期的 phase C 实现 + 验证脚本修复 + 两份文档（`.superpowers` scratch 未跟踪）。
 
-证据归档（2026-10-21 Lead 验收后）：`D:/deren-assets/hzb-recovery`，268 个文件 / 508.1 MB，逐文件 SHA256 校验 0 mismatch、0 extra（manifest：`D:/deren-assets/hzb-recovery/archive-manifest.json`）；本地 `.superpowers/sdd/2026-10-21-hzb-recovery` scratch 按既有做法保留（未跟踪）。Lead 提交：`bfd77a6e`（实现 + 脚本修复）、`7ac980e6`（本报告与计划）。
+证据归档（2026-10-21 Lead 验收后）：`D:/deren-assets/hzb-recovery`，268 个文件 / 508.1 MB，逐文件 SHA256 校验 0 mismatch、0 extra（manifest：`D:/deren-assets/hzb-recovery/archive-manifest.json`）；本地重复证据在后续 CPU 剖析时再次核对 SHA256 后清理，更新的执行 ledger 保留；原始证据仍完整位于 D 盘归档。Lead 提交：`bfd77a6e`（实现 + 脚本修复）、`7ac980e6`（本报告与计划）。
 
 残余风险/限制：
 
@@ -143,3 +143,5 @@ RTX 4060 Laptop，Bistro geometry，1280×720。moving 视点（phase C 的用�
 - 快速运动门控关闭、far 静态“0剔除/逐像素相同”、TAA-jitter 移动等行为沿用暂停前证据，本轮测量只覆盖 moving 视点的性能，未重跑这些正确性场景。
 - ASan 5/5 与 clang-tidy 结论沿用暂停前最终产物（本轮无源码改动）；动态后端 ASan 仍受 B2 已记录的 backend DLL sanitizer 链接限制。
 - 默认仍关闭：`DEREN_HZB_RECOVERY=1` 还需 `DEREN_HZB_BUILD=1`+`DEREN_HZB_CULL=1`；产品配置/GUI 留给 phase D。
+
+后续CPU剖析与小范围录制优化见 [2026-10-21-hzb-cpu.md](2026-10-21-hzb-cpu.md)。本报告保留phase C验收时的历史数值；性能矩阵的OFF基线已明确为BUILD-only。

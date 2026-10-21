@@ -1,0 +1,1514 @@
+{
+  "baseline": "001e7ad9",
+  "method": {
+    "frames": 130,
+    "sweep_degrees_per_frame": 0.02,
+    "rounds_per_view_per_revision": 3,
+    "off": "BUILD only",
+    "on": "BUILD+CULL+RECOVERY",
+    "validation_during_performance": false,
+    "temporary_cpu_clocks_removed": true,
+    "scope": "same machine, sequential revisions, no frequency lock; last complete 60-call CPU windows"
+  },
+  "archive": "D:/deren-assets/hzb-cpu",
+  "before": {
+    "near-off": {
+      "runs": [
+        {
+          "file": "probe-near-off.log",
+          "items": {
+            "scan": 1.6266166666666668,
+            "plan": 0.9347316666666665,
+            "publish": 0.24040000000000003,
+            "record": 1.2185899999999998
+          },
+          "graph": {
+            "describe": 0.1873733333333333,
+            "prepare": 0.05346666666666667,
+            "record": 4.21182
+          },
+          "post_scene": 4.5600000000000005,
+          "post": 4.49,
+          "wall": 19.86,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.01,
+            "visibility raster": 20.01,
+            "hzb build": 0.0,
+            "hzb recovery": 0.0,
+            "visibility recovery": 0.0,
+            "scene": 0.34,
+            "rt shadow": 0.0,
+            "lighting": 0.55,
+            "gaussian prepare": 0.15,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.18,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 21.27
+          }
+        },
+        {
+          "file": "probe-near-off2.log",
+          "items": {
+            "scan": 1.664796666666666,
+            "plan": 0.975185,
+            "publish": 0.248365,
+            "record": 1.2284750000000002
+          },
+          "graph": {
+            "describe": 0.19697166666666674,
+            "prepare": 0.054888333333333365,
+            "record": 4.31778
+          },
+          "post_scene": 4.7,
+          "post": 4.61,
+          "wall": 19.96,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.01,
+            "visibility raster": 20.2,
+            "hzb build": 0.0,
+            "hzb recovery": 0.0,
+            "visibility recovery": 0.0,
+            "scene": 0.34,
+            "rt shadow": 0.0,
+            "lighting": 0.54,
+            "gaussian prepare": 0.15,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.18,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 21.45
+          }
+        },
+        {
+          "file": "probe-near-off3.log",
+          "items": {
+            "scan": 1.7589949999999999,
+            "plan": 1.1718583333333337,
+            "publish": 0.2650666666666666,
+            "record": 1.3418683333333337
+          },
+          "graph": {
+            "describe": 0.20915666666666674,
+            "prepare": 0.059185,
+            "record": 4.767308333333335
+          },
+          "post_scene": 5.17,
+          "post": 5.08,
+          "wall": 20.07,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.01,
+            "visibility raster": 20.21,
+            "hzb build": 0.0,
+            "hzb recovery": 0.0,
+            "visibility recovery": 0.0,
+            "scene": 0.34,
+            "rt shadow": 0.0,
+            "lighting": 0.55,
+            "gaussian prepare": 0.15,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.18,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 21.48
+          }
+        }
+      ],
+      "median": {
+        "items": {
+          "publish": 0.248365,
+          "plan": 0.975185,
+          "record": 1.2284750000000002,
+          "scan": 1.664796666666666
+        },
+        "graph": {
+          "record": 4.31778,
+          "prepare": 0.054888333333333365,
+          "describe": 0.19697166666666674
+        },
+        "recovery": {},
+        "gpu": {
+          "tail": 0.0,
+          "gaussian sort": 0.0,
+          "total": 21.45,
+          "taa": 0.03,
+          "visibility raster": 20.2,
+          "visibility recovery": 0.0,
+          "gaussian finalize": 0.0,
+          "fxaa": 0.0,
+          "lighting": 0.55,
+          "bloom": 0.0,
+          "shadow": 0.0,
+          "scene": 0.34,
+          "composite": 0.18,
+          "hzb build": 0.0,
+          "gaussian prepare": 0.15,
+          "gaussian raster": 0.0,
+          "rt shadow": 0.0,
+          "hzb recovery": 0.0,
+          "rt": 0.0,
+          "transparent": 0.0,
+          "hzb cull": 0.01,
+          "debug": 0.0
+        },
+        "post_scene": 4.7,
+        "post": 4.61,
+        "wall": 19.96
+      }
+    },
+    "near-on": {
+      "runs": [
+        {
+          "file": "probe-near-on.log",
+          "items": {
+            "scan": 1.6946066666666668,
+            "plan": 0.904965,
+            "publish": 0.20933166666666667,
+            "record": 1.2518416666666667
+          },
+          "graph": {
+            "describe": 0.2038483333333333,
+            "prepare": 0.05576,
+            "record": 4.843815
+          },
+          "recovery": {
+            "record": 0.6024916666666666,
+            "draws": 2838.0
+          },
+          "post_scene": 5.180000000000001,
+          "post": 5.15,
+          "wall": 6.33,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.22,
+            "visibility raster": 4.17,
+            "hzb build": 0.42,
+            "hzb recovery": 0.2,
+            "visibility recovery": 0.21,
+            "scene": 0.33,
+            "rt shadow": 0.0,
+            "lighting": 0.15,
+            "gaussian prepare": 0.16,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.18,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 6.08
+          }
+        },
+        {
+          "file": "probe-near-on2.log",
+          "items": {
+            "scan": 1.5951566666666668,
+            "plan": 0.9102183333333334,
+            "publish": 0.20363166666666668,
+            "record": 1.2635383333333339
+          },
+          "graph": {
+            "describe": 0.20336833333333343,
+            "prepare": 0.057478333333333326,
+            "record": 4.720699999999997
+          },
+          "recovery": {
+            "record": 0.5738916666666668,
+            "draws": 2838.0
+          },
+          "post_scene": 5.0600000000000005,
+          "post": 5.03,
+          "wall": 6.2,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.22,
+            "visibility raster": 4.44,
+            "hzb build": 0.41,
+            "hzb recovery": 0.2,
+            "visibility recovery": 0.21,
+            "scene": 0.33,
+            "rt shadow": 0.0,
+            "lighting": 0.15,
+            "gaussian prepare": 0.15,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.18,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 6.32
+          }
+        },
+        {
+          "file": "probe-near-on3.log",
+          "items": {
+            "scan": 1.6017350000000001,
+            "plan": 0.9141983333333331,
+            "publish": 0.20623833333333333,
+            "record": 1.2483449999999996
+          },
+          "graph": {
+            "describe": 0.20303833333333335,
+            "prepare": 0.05627333333333335,
+            "record": 4.819040000000002
+          },
+          "recovery": {
+            "record": 0.66441,
+            "draws": 2838.0
+          },
+          "post_scene": 5.16,
+          "post": 5.13,
+          "wall": 6.29,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.22,
+            "visibility raster": 3.7,
+            "hzb build": 0.42,
+            "hzb recovery": 0.2,
+            "visibility recovery": 0.21,
+            "scene": 0.33,
+            "rt shadow": 0.0,
+            "lighting": 0.15,
+            "gaussian prepare": 0.15,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.19,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 5.59
+          }
+        }
+      ],
+      "median": {
+        "items": {
+          "publish": 0.20623833333333333,
+          "plan": 0.9102183333333334,
+          "record": 1.2518416666666667,
+          "scan": 1.6017350000000001
+        },
+        "graph": {
+          "record": 4.819040000000002,
+          "prepare": 0.05627333333333335,
+          "describe": 0.20336833333333343
+        },
+        "recovery": {
+          "record": 0.6024916666666666,
+          "draws": 2838.0
+        },
+        "gpu": {
+          "tail": 0.0,
+          "gaussian sort": 0.0,
+          "total": 6.08,
+          "taa": 0.03,
+          "visibility raster": 4.17,
+          "visibility recovery": 0.21,
+          "gaussian finalize": 0.0,
+          "fxaa": 0.0,
+          "lighting": 0.15,
+          "bloom": 0.0,
+          "shadow": 0.0,
+          "scene": 0.33,
+          "composite": 0.18,
+          "hzb build": 0.42,
+          "gaussian prepare": 0.15,
+          "gaussian raster": 0.0,
+          "rt shadow": 0.0,
+          "hzb recovery": 0.2,
+          "rt": 0.0,
+          "transparent": 0.0,
+          "hzb cull": 0.22,
+          "debug": 0.0
+        },
+        "post_scene": 5.16,
+        "post": 5.13,
+        "wall": 6.29
+      }
+    },
+    "far-off": {
+      "runs": [
+        {
+          "file": "probe-far-off1.log",
+          "items": {
+            "scan": 1.6409733333333338,
+            "plan": 0.9889266666666667,
+            "publish": 0.23513166666666668,
+            "record": 1.2056716666666665
+          },
+          "graph": {
+            "describe": 0.1756716666666667,
+            "prepare": 0.04939,
+            "record": 4.2395283333333325
+          },
+          "post_scene": 4.57,
+          "post": 4.5,
+          "wall": 22.8,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.01,
+            "visibility raster": 24.23,
+            "hzb build": 0.0,
+            "hzb recovery": 0.0,
+            "visibility recovery": 0.0,
+            "scene": 0.21,
+            "rt shadow": 0.0,
+            "lighting": 0.62,
+            "gaussian prepare": 0.16,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.21,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 25.47
+          }
+        },
+        {
+          "file": "probe-far-off2.log",
+          "items": {
+            "scan": 1.6378349999999993,
+            "plan": 1.033275,
+            "publish": 0.2403816666666667,
+            "record": 1.2247683333333335
+          },
+          "graph": {
+            "describe": 0.18551833333333337,
+            "prepare": 0.05048333333333333,
+            "record": 4.320783333333333
+          },
+          "post_scene": 4.67,
+          "post": 4.59,
+          "wall": 22.73,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.01,
+            "visibility raster": 23.19,
+            "hzb build": 0.0,
+            "hzb recovery": 0.0,
+            "visibility recovery": 0.0,
+            "scene": 0.15,
+            "rt shadow": 0.0,
+            "lighting": 0.53,
+            "gaussian prepare": 0.15,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.18,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 24.25
+          }
+        },
+        {
+          "file": "probe-far-off3.log",
+          "items": {
+            "scan": 1.6667650000000003,
+            "plan": 0.9956666666666664,
+            "publish": 0.23475166666666664,
+            "record": 1.2058050000000002
+          },
+          "graph": {
+            "describe": 0.17712666666666665,
+            "prepare": 0.04849666666666665,
+            "record": 4.271323333333333
+          },
+          "post_scene": 4.6000000000000005,
+          "post": 4.53,
+          "wall": 22.54,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.01,
+            "visibility raster": 23.72,
+            "hzb build": 0.0,
+            "hzb recovery": 0.0,
+            "visibility recovery": 0.0,
+            "scene": 0.18,
+            "rt shadow": 0.0,
+            "lighting": 0.54,
+            "gaussian prepare": 0.15,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.18,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 24.81
+          }
+        }
+      ],
+      "median": {
+        "items": {
+          "publish": 0.23513166666666668,
+          "plan": 0.9956666666666664,
+          "record": 1.2058050000000002,
+          "scan": 1.6409733333333338
+        },
+        "graph": {
+          "record": 4.271323333333333,
+          "prepare": 0.04939,
+          "describe": 0.17712666666666665
+        },
+        "recovery": {},
+        "gpu": {
+          "tail": 0.0,
+          "gaussian sort": 0.0,
+          "total": 24.81,
+          "taa": 0.03,
+          "visibility raster": 23.72,
+          "visibility recovery": 0.0,
+          "gaussian finalize": 0.0,
+          "fxaa": 0.0,
+          "lighting": 0.54,
+          "bloom": 0.0,
+          "shadow": 0.0,
+          "scene": 0.18,
+          "composite": 0.18,
+          "hzb build": 0.0,
+          "gaussian prepare": 0.15,
+          "gaussian raster": 0.0,
+          "rt shadow": 0.0,
+          "hzb recovery": 0.0,
+          "rt": 0.0,
+          "transparent": 0.0,
+          "hzb cull": 0.01,
+          "debug": 0.0
+        },
+        "post_scene": 4.6000000000000005,
+        "post": 4.53,
+        "wall": 22.73
+      }
+    },
+    "far-on": {
+      "runs": [
+        {
+          "file": "probe-far-on1.log",
+          "items": {
+            "scan": 1.6344216666666667,
+            "plan": 0.9890700000000002,
+            "publish": 0.21039666666666665,
+            "record": 1.2731183333333336
+          },
+          "graph": {
+            "describe": 0.21241333333333332,
+            "prepare": 0.058363333333333337,
+            "record": 4.877259999999999
+          },
+          "recovery": {
+            "record": 0.58323,
+            "draws": 2906.0
+          },
+          "post_scene": 5.24,
+          "post": 5.2,
+          "wall": 8.27,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.45,
+            "visibility raster": 8.72,
+            "hzb build": 0.43,
+            "hzb recovery": 0.19,
+            "visibility recovery": 0.21,
+            "scene": 0.15,
+            "rt shadow": 0.0,
+            "lighting": 0.12,
+            "gaussian prepare": 0.16,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.02,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.19,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 10.65
+          }
+        },
+        {
+          "file": "probe-far-on2.log",
+          "items": {
+            "scan": 1.75669,
+            "plan": 1.1730633333333331,
+            "publish": 0.2386533333333334,
+            "record": 1.4072950000000002
+          },
+          "graph": {
+            "describe": 0.24827500000000005,
+            "prepare": 0.07489166666666662,
+            "record": 5.468523333333333
+          },
+          "recovery": {
+            "record": 0.6555383333333332,
+            "draws": 2906.0
+          },
+          "post_scene": 5.909999999999999,
+          "post": 5.85,
+          "wall": 8.33,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.42,
+            "visibility raster": 8.72,
+            "hzb build": 0.41,
+            "hzb recovery": 0.19,
+            "visibility recovery": 0.21,
+            "scene": 0.12,
+            "rt shadow": 0.0,
+            "lighting": 0.08,
+            "gaussian prepare": 0.15,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.18,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 10.52
+          }
+        },
+        {
+          "file": "probe-far-on3.log",
+          "items": {
+            "scan": 1.7287333333333337,
+            "plan": 0.9687266666666666,
+            "publish": 0.21277000000000001,
+            "record": 1.2789233333333334
+          },
+          "graph": {
+            "describe": 0.20851833333333333,
+            "prepare": 0.06150333333333334,
+            "record": 4.969641666666664
+          },
+          "recovery": {
+            "record": 0.5922383333333333,
+            "draws": 2906.0
+          },
+          "post_scene": 5.34,
+          "post": 5.3,
+          "wall": 8.31,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.44,
+            "visibility raster": 9.25,
+            "hzb build": 0.44,
+            "hzb recovery": 0.2,
+            "visibility recovery": 0.22,
+            "scene": 0.19,
+            "rt shadow": 0.0,
+            "lighting": 0.14,
+            "gaussian prepare": 0.17,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.19,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 11.26
+          }
+        }
+      ],
+      "median": {
+        "items": {
+          "publish": 0.21277000000000001,
+          "plan": 0.9890700000000002,
+          "record": 1.2789233333333334,
+          "scan": 1.7287333333333337
+        },
+        "graph": {
+          "record": 4.969641666666664,
+          "prepare": 0.06150333333333334,
+          "describe": 0.21241333333333332
+        },
+        "recovery": {
+          "record": 0.5922383333333333,
+          "draws": 2906.0
+        },
+        "gpu": {
+          "tail": 0.0,
+          "gaussian sort": 0.0,
+          "total": 10.65,
+          "taa": 0.03,
+          "visibility raster": 8.72,
+          "visibility recovery": 0.21,
+          "gaussian finalize": 0.0,
+          "fxaa": 0.0,
+          "lighting": 0.12,
+          "bloom": 0.0,
+          "shadow": 0.0,
+          "scene": 0.15,
+          "composite": 0.19,
+          "hzb build": 0.43,
+          "gaussian prepare": 0.16,
+          "gaussian raster": 0.0,
+          "rt shadow": 0.0,
+          "hzb recovery": 0.19,
+          "rt": 0.0,
+          "transparent": 0.0,
+          "hzb cull": 0.44,
+          "debug": 0.0
+        },
+        "post_scene": 5.34,
+        "post": 5.3,
+        "wall": 8.31
+      }
+    }
+  },
+  "after": {
+    "near-off": {
+      "runs": [
+        {
+          "file": "optimized-near-off1.log",
+          "items": {
+            "scan": 1.6477483333333334,
+            "plan": 0.9617450000000001,
+            "publish": 0.24199166666666666,
+            "record": 1.0171099999999997
+          },
+          "graph": {
+            "describe": 0.1937016666666666,
+            "prepare": 0.05272333333333333,
+            "record": 4.06775
+          },
+          "post_scene": 4.43,
+          "post": 4.35,
+          "wall": 20.2,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.01,
+            "visibility raster": 18.98,
+            "hzb build": 0.0,
+            "hzb recovery": 0.0,
+            "visibility recovery": 0.0,
+            "scene": 0.34,
+            "rt shadow": 0.0,
+            "lighting": 0.55,
+            "gaussian prepare": 0.16,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.18,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 20.24
+          }
+        },
+        {
+          "file": "optimized-near-off2.log",
+          "items": {
+            "scan": 1.7818766666666674,
+            "plan": 1.1112400000000002,
+            "publish": 0.2827366666666667,
+            "record": 1.1810100000000001
+          },
+          "graph": {
+            "describe": 0.23361333333333342,
+            "prepare": 0.06693333333333333,
+            "record": 4.6127416666666665
+          },
+          "post_scene": 5.06,
+          "post": 4.96,
+          "wall": 19.91,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.01,
+            "visibility raster": 21.24,
+            "hzb build": 0.0,
+            "hzb recovery": 0.0,
+            "visibility recovery": 0.0,
+            "scene": 0.38,
+            "rt shadow": 0.0,
+            "lighting": 0.61,
+            "gaussian prepare": 0.16,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.19,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 22.63
+          }
+        },
+        {
+          "file": "optimized-near-off3.log",
+          "items": {
+            "scan": 1.6129733333333331,
+            "plan": 0.901435,
+            "publish": 0.23184166666666664,
+            "record": 0.9991249999999998
+          },
+          "graph": {
+            "describe": 0.18474833333333338,
+            "prepare": 0.05182499999999999,
+            "record": 3.9153550000000004
+          },
+          "post_scene": 4.2700000000000005,
+          "post": 4.19,
+          "wall": 20.09,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.01,
+            "visibility raster": 20.77,
+            "hzb build": 0.0,
+            "hzb recovery": 0.0,
+            "visibility recovery": 0.0,
+            "scene": 0.34,
+            "rt shadow": 0.0,
+            "lighting": 0.55,
+            "gaussian prepare": 0.15,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.18,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 22.03
+          }
+        }
+      ],
+      "median": {
+        "items": {
+          "record": 1.0171099999999997,
+          "scan": 1.6477483333333334,
+          "plan": 0.9617450000000001,
+          "publish": 0.24199166666666666
+        },
+        "graph": {
+          "record": 4.06775,
+          "describe": 0.1937016666666666,
+          "prepare": 0.05272333333333333
+        },
+        "recovery": {},
+        "gpu": {
+          "fxaa": 0.0,
+          "taa": 0.03,
+          "gaussian sort": 0.0,
+          "rt": 0.0,
+          "hzb recovery": 0.0,
+          "composite": 0.18,
+          "tail": 0.0,
+          "hzb build": 0.0,
+          "gaussian finalize": 0.0,
+          "bloom": 0.0,
+          "visibility recovery": 0.0,
+          "lighting": 0.55,
+          "visibility raster": 20.77,
+          "scene": 0.34,
+          "total": 22.03,
+          "transparent": 0.0,
+          "shadow": 0.0,
+          "gaussian prepare": 0.16,
+          "debug": 0.0,
+          "rt shadow": 0.0,
+          "hzb cull": 0.01,
+          "gaussian raster": 0.0
+        },
+        "post_scene": 4.43,
+        "post": 4.35,
+        "wall": 20.09
+      }
+    },
+    "near-on": {
+      "runs": [
+        {
+          "file": "optimized-near-on1.log",
+          "items": {
+            "scan": 1.599995,
+            "plan": 0.9097649999999998,
+            "publish": 0.19455499999999998,
+            "record": 1.0464049999999998
+          },
+          "graph": {
+            "describe": 0.20296333333333338,
+            "prepare": 0.05670833333333332,
+            "record": 4.340801666666668
+          },
+          "recovery": {
+            "record": 0.41728166666666666,
+            "draws": 2838.0
+          },
+          "post_scene": 4.680000000000001,
+          "post": 4.65,
+          "wall": 5.8,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.22,
+            "visibility raster": 4.23,
+            "hzb build": 0.41,
+            "hzb recovery": 0.2,
+            "visibility recovery": 0.21,
+            "scene": 0.33,
+            "rt shadow": 0.0,
+            "lighting": 0.15,
+            "gaussian prepare": 0.16,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.18,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 6.12
+          }
+        },
+        {
+          "file": "optimized-near-on2.log",
+          "items": {
+            "scan": 1.593745,
+            "plan": 0.9137683333333332,
+            "publish": 0.20261333333333328,
+            "record": 1.0587616666666666
+          },
+          "graph": {
+            "describe": 0.20648166666666665,
+            "prepare": 0.05721333333333335,
+            "record": 4.365163333333332
+          },
+          "recovery": {
+            "record": 0.4197716666666666,
+            "draws": 2838.0
+          },
+          "post_scene": 4.72,
+          "post": 4.68,
+          "wall": 5.99,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.22,
+            "visibility raster": 4.13,
+            "hzb build": 0.41,
+            "hzb recovery": 0.2,
+            "visibility recovery": 0.21,
+            "scene": 0.33,
+            "rt shadow": 0.0,
+            "lighting": 0.15,
+            "gaussian prepare": 0.15,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.18,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 6.02
+          }
+        },
+        {
+          "file": "optimized-near-on3.log",
+          "items": {
+            "scan": 1.5976733333333326,
+            "plan": 0.9077933333333331,
+            "publish": 0.19540833333333338,
+            "record": 1.0483233333333333
+          },
+          "graph": {
+            "describe": 0.20328166666666675,
+            "prepare": 0.05929166666666665,
+            "record": 4.330451666666665
+          },
+          "recovery": {
+            "record": 0.4081033333333334,
+            "draws": 2838.0
+          },
+          "post_scene": 4.66,
+          "post": 4.63,
+          "wall": 5.76,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.22,
+            "visibility raster": 2.34,
+            "hzb build": 0.42,
+            "hzb recovery": 0.2,
+            "visibility recovery": 0.21,
+            "scene": 0.33,
+            "rt shadow": 0.0,
+            "lighting": 0.15,
+            "gaussian prepare": 0.15,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.19,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 4.24
+          }
+        }
+      ],
+      "median": {
+        "items": {
+          "record": 1.0483233333333333,
+          "scan": 1.5976733333333326,
+          "plan": 0.9097649999999998,
+          "publish": 0.19540833333333338
+        },
+        "graph": {
+          "record": 4.340801666666668,
+          "describe": 0.20328166666666675,
+          "prepare": 0.05721333333333335
+        },
+        "recovery": {
+          "record": 0.41728166666666666,
+          "draws": 2838.0
+        },
+        "gpu": {
+          "fxaa": 0.0,
+          "taa": 0.03,
+          "gaussian sort": 0.0,
+          "rt": 0.0,
+          "hzb recovery": 0.2,
+          "composite": 0.18,
+          "tail": 0.0,
+          "hzb build": 0.41,
+          "gaussian finalize": 0.0,
+          "bloom": 0.0,
+          "visibility recovery": 0.21,
+          "lighting": 0.15,
+          "visibility raster": 4.13,
+          "scene": 0.33,
+          "total": 6.02,
+          "transparent": 0.0,
+          "shadow": 0.0,
+          "gaussian prepare": 0.15,
+          "debug": 0.0,
+          "rt shadow": 0.0,
+          "hzb cull": 0.22,
+          "gaussian raster": 0.0
+        },
+        "post_scene": 4.680000000000001,
+        "post": 4.65,
+        "wall": 5.8
+      }
+    },
+    "far-off": {
+      "runs": [
+        {
+          "file": "optimized-far-off1.log",
+          "items": {
+            "scan": 1.68856,
+            "plan": 1.0349883333333334,
+            "publish": 0.24045999999999995,
+            "record": 1.0298683333333332
+          },
+          "graph": {
+            "describe": 0.17851833333333342,
+            "prepare": 0.05137,
+            "record": 4.1823033333333335
+          },
+          "post_scene": 4.53,
+          "post": 4.45,
+          "wall": 22.65,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.01,
+            "visibility raster": 23.79,
+            "hzb build": 0.0,
+            "hzb recovery": 0.0,
+            "visibility recovery": 0.0,
+            "scene": 0.14,
+            "rt shadow": 0.0,
+            "lighting": 0.57,
+            "gaussian prepare": 0.15,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.18,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 24.88
+          }
+        },
+        {
+          "file": "optimized-far-off2.log",
+          "items": {
+            "scan": 1.6452783333333338,
+            "plan": 0.990245,
+            "publish": 0.23903500000000003,
+            "record": 1.0333816666666669
+          },
+          "graph": {
+            "describe": 0.17441333333333328,
+            "prepare": 0.050348333333333314,
+            "record": 4.089608333333332
+          },
+          "post_scene": 4.42,
+          "post": 4.35,
+          "wall": 22.58,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.01,
+            "visibility raster": 23.36,
+            "hzb build": 0.0,
+            "hzb recovery": 0.0,
+            "visibility recovery": 0.0,
+            "scene": 0.15,
+            "rt shadow": 0.0,
+            "lighting": 0.52,
+            "gaussian prepare": 0.15,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.18,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 24.4
+          }
+        },
+        {
+          "file": "optimized-far-off3.log",
+          "items": {
+            "scan": 1.6490650000000002,
+            "plan": 0.9905966666666667,
+            "publish": 0.23377666666666666,
+            "record": 1.0287133333333331
+          },
+          "graph": {
+            "describe": 0.17845666666666662,
+            "prepare": 0.05029833333333333,
+            "record": 4.074658333333333
+          },
+          "post_scene": 4.42,
+          "post": 4.34,
+          "wall": 22.64,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.01,
+            "visibility raster": 24.89,
+            "hzb build": 0.0,
+            "hzb recovery": 0.0,
+            "visibility recovery": 0.0,
+            "scene": 0.22,
+            "rt shadow": 0.0,
+            "lighting": 0.65,
+            "gaussian prepare": 0.16,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.2,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 26.15
+          }
+        }
+      ],
+      "median": {
+        "items": {
+          "record": 1.0298683333333332,
+          "scan": 1.6490650000000002,
+          "plan": 0.9905966666666667,
+          "publish": 0.23903500000000003
+        },
+        "graph": {
+          "record": 4.089608333333332,
+          "describe": 0.17845666666666662,
+          "prepare": 0.050348333333333314
+        },
+        "recovery": {},
+        "gpu": {
+          "fxaa": 0.0,
+          "taa": 0.03,
+          "gaussian sort": 0.0,
+          "rt": 0.0,
+          "hzb recovery": 0.0,
+          "composite": 0.18,
+          "tail": 0.0,
+          "hzb build": 0.0,
+          "gaussian finalize": 0.0,
+          "bloom": 0.0,
+          "visibility recovery": 0.0,
+          "lighting": 0.57,
+          "visibility raster": 23.79,
+          "scene": 0.15,
+          "total": 24.88,
+          "transparent": 0.0,
+          "shadow": 0.0,
+          "gaussian prepare": 0.15,
+          "debug": 0.0,
+          "rt shadow": 0.0,
+          "hzb cull": 0.01,
+          "gaussian raster": 0.0
+        },
+        "post_scene": 4.42,
+        "post": 4.35,
+        "wall": 22.64
+      }
+    },
+    "far-on": {
+      "runs": [
+        {
+          "file": "optimized-far-on1.log",
+          "items": {
+            "scan": 1.7183199999999996,
+            "plan": 1.0428600000000001,
+            "publish": 0.22040833333333334,
+            "record": 1.07819
+          },
+          "graph": {
+            "describe": 0.20799666666666666,
+            "prepare": 0.06068166666666667,
+            "record": 4.674626666666668
+          },
+          "recovery": {
+            "record": 0.4308000000000002,
+            "draws": 2906.0
+          },
+          "post_scene": 5.04,
+          "post": 5.0,
+          "wall": 8.31,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.44,
+            "visibility raster": 8.49,
+            "hzb build": 0.43,
+            "hzb recovery": 0.2,
+            "visibility recovery": 0.21,
+            "scene": 0.12,
+            "rt shadow": 0.0,
+            "lighting": 0.08,
+            "gaussian prepare": 0.15,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.18,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 10.33
+          }
+        },
+        {
+          "file": "optimized-far-on2.log",
+          "items": {
+            "scan": 1.6507199999999997,
+            "plan": 1.005565,
+            "publish": 0.21602999999999997,
+            "record": 1.0696
+          },
+          "graph": {
+            "describe": 0.29857333333333336,
+            "prepare": 0.061268333333333334,
+            "record": 4.555800000000001
+          },
+          "recovery": {
+            "record": 0.4281716666666666,
+            "draws": 2906.0
+          },
+          "post_scene": 5.01,
+          "post": 4.97,
+          "wall": 8.34,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.45,
+            "visibility raster": 7.38,
+            "hzb build": 0.43,
+            "hzb recovery": 0.2,
+            "visibility recovery": 0.21,
+            "scene": 0.12,
+            "rt shadow": 0.0,
+            "lighting": 0.08,
+            "gaussian prepare": 0.15,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.18,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 9.22
+          }
+        },
+        {
+          "file": "optimized-far-on3.log",
+          "items": {
+            "scan": 1.6324183333333335,
+            "plan": 0.9842683333333332,
+            "publish": 0.20867166666666667,
+            "record": 1.070105
+          },
+          "graph": {
+            "describe": 0.20483833333333332,
+            "prepare": 0.05711833333333333,
+            "record": 4.498036666666668
+          },
+          "recovery": {
+            "record": 0.4215783333333333,
+            "draws": 2906.0
+          },
+          "post_scene": 4.85,
+          "post": 4.81,
+          "wall": 8.29,
+          "gpu": {
+            "rt": 0.0,
+            "shadow": 0.0,
+            "hzb cull": 0.45,
+            "visibility raster": 8.57,
+            "hzb build": 0.42,
+            "hzb recovery": 0.19,
+            "visibility recovery": 0.21,
+            "scene": 0.13,
+            "rt shadow": 0.0,
+            "lighting": 0.08,
+            "gaussian prepare": 0.15,
+            "gaussian sort": 0.0,
+            "gaussian finalize": 0.0,
+            "gaussian raster": 0.0,
+            "transparent": 0.0,
+            "taa": 0.03,
+            "debug": 0.0,
+            "bloom": 0.0,
+            "composite": 0.18,
+            "fxaa": 0.0,
+            "tail": 0.0,
+            "total": 10.41
+          }
+        }
+      ],
+      "median": {
+        "items": {
+          "record": 1.070105,
+          "scan": 1.6507199999999997,
+          "plan": 1.005565,
+          "publish": 0.21602999999999997
+        },
+        "graph": {
+          "record": 4.555800000000001,
+          "describe": 0.20799666666666666,
+          "prepare": 0.06068166666666667
+        },
+        "recovery": {
+          "record": 0.4281716666666666,
+          "draws": 2906.0
+        },
+        "gpu": {
+          "fxaa": 0.0,
+          "taa": 0.03,
+          "gaussian sort": 0.0,
+          "rt": 0.0,
+          "hzb recovery": 0.2,
+          "composite": 0.18,
+          "tail": 0.0,
+          "hzb build": 0.43,
+          "gaussian finalize": 0.0,
+          "bloom": 0.0,
+          "visibility recovery": 0.21,
+          "lighting": 0.08,
+          "visibility raster": 8.49,
+          "scene": 0.12,
+          "total": 10.33,
+          "transparent": 0.0,
+          "shadow": 0.0,
+          "gaussian prepare": 0.15,
+          "debug": 0.0,
+          "rt shadow": 0.0,
+          "hzb cull": 0.45,
+          "gaussian raster": 0.0
+        },
+        "post_scene": 5.01,
+        "post": 4.97,
+        "wall": 8.31
+      }
+    }
+  },
+  "correctness": {
+    "near": {
+      "pair_color": {
+        "pixels": 2870,
+        "max": 11
+      },
+      "before_controls": {
+        "probe-near-on.png": {
+          "pixels": 2870,
+          "max": 11
+        },
+        "probe-near-on2.png": {
+          "pixels": 2870,
+          "max": 11
+        },
+        "probe-near-on3.png": {
+          "pixels": 2870,
+          "max": 11
+        },
+        "probe-near-off.png": {
+          "pixels": 2870,
+          "max": 11
+        },
+        "probe-near-off2.png": {
+          "pixels": 2870,
+          "max": 11
+        },
+        "probe-near-off3.png": {
+          "pixels": 0,
+          "max": 0
+        }
+      },
+      "depth_words": 921600,
+      "depth_mismatches": 0
+    },
+    "far": {
+      "pair_color": {
+        "pixels": 0,
+        "max": 0
+      },
+      "before_controls": {
+        "probe-far-on1.png": {
+          "pixels": 0,
+          "max": 0
+        },
+        "probe-far-on2.png": {
+          "pixels": 0,
+          "max": 0
+        },
+        "probe-far-on3.png": {
+          "pixels": 0,
+          "max": 0
+        },
+        "probe-far-off1.png": {
+          "pixels": 0,
+          "max": 0
+        },
+        "probe-far-off2.png": {
+          "pixels": 0,
+          "max": 0
+        },
+        "probe-far-off3.png": {
+          "pixels": 0,
+          "max": 0
+        }
+      },
+      "depth_words": 921600,
+      "depth_mismatches": 0
+    }
+  },
+  "verification": {
+    "release_ctest": {
+      "passed": 58,
+      "total": 58,
+      "seconds": 46.33
+    },
+    "asan_ubsan_ctest": {
+      "passed": 6,
+      "total": 6,
+      "seconds": 70.93
+    },
+    "independent_gpu_probe_checks": {
+      "near": 17164,
+      "far": 17535
+    },
+    "review": {
+      "critical": 0,
+      "important": 0,
+      "minor": 0
+    },
+    "cpu_budget_met": false
+  }
+}
