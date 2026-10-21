@@ -1,0 +1,30 @@
+{
+ "schema": "subtilis-converter-specified-input/1",
+ "path": "D:\\deren-assets\\bistro\\bistro-geometry.gltf",
+ "bytes": 1844243,
+ "sha256": "982c5d635e057b4a1f9e2d649c6573da7cf05f1a6544a8e08a2df2b0ecb8c1c4",
+ "buffers": [
+  {
+   "byteLength": 95660264,
+   "uri": "bistro.bin"
+  },
+  {
+   "uri": "bistro-anim.bin",
+   "byteLength": 20136
+  }
+ ],
+ "meshes": 551,
+ "primitives": 551,
+ "nodes": 6006,
+ "attributes": [
+  "NORMAL",
+  "POSITION",
+  "TANGENT",
+  "TEXCOORD_0"
+ ],
+ "triangles": 1753630,
+ "converter_build_exit": 4,
+ "converter_error": "no eligible targets, or --strict rejected skipped primitives",
+ "eligibility": "all 551 primitives are skipped by the converter profile: TANGENT is an unmodeled attribute (POSITION/NORMAL/TEXCOORD_0 only). This is the documented profile boundary, not silently skipped; the eligible closest real asset used for the measurement matrix is bistro-merged.gltf.",
+ "eligible_primitives": 0
+}

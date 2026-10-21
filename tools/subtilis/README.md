@@ -112,5 +112,42 @@ inject.
 
 The wire format and canonical identity are documented in
 [`docs/extensions/DEREN_subtilis`](../../docs/extensions/DEREN_subtilis/README.md).
-The implementation plan tracks the remaining real-scene, Khronos-validator and
-independent-CPU-tool CI validation work.
+
+## Measurement, validation and CI
+
+Real-asset measurement, independent validation and cut/LOD0 acceptance are reproducible with the
+scripts in [`scripts/measure`](../../scripts/measure/README.md):
+
+```powershell
+python scripts/measure/make_subtilis_converter_fixtures.py --out-dir .subtilis-work/fixtures
+python scripts/measure/measure_subtilis_converter.py --converter build-subtilis/deren-subtilis.exe `
+  --out-dir .subtilis-work/measure `
+  --asset small=.subtilis-work/fixtures/small.glb `
+  --asset large=.subtilis-work/fixtures/large.glb `
+  --asset bistro=D:/deren-assets/bistro/bistro-merged.gltf `
+  --dag-required large --dag-required bistro --threads 1,12 --rounds 3
+python scripts/measure/verify_subtilis_converter.py gate `
+  --measurements .subtilis-work/measure/measurements.json --out .subtilis-work/measure/gate.json
+python scripts/measure/verify_subtilis_converter.py check `
+  --measurements .subtilis-work/measure/measurements.json `
+  --converter build-subtilis/deren-subtilis.exe `
+  --validator D:/deren-assets/gltf-tools-khronos/2.0.0-dev.3.10/gltf_validator.exe `
+  --validator-manifest scripts/measure/khronos_validator_manifest.json `
+  --work-dir .subtilis-work/acceptance/previews `
+  --out .subtilis-work/acceptance/acceptance.json
+```
+
+`measure` runs the asset × thread-budget × round matrix and records every round plus medians;
+`verify gate` fails on incomplete stage/round data, missing real cross-group DAG, payloads that are
+not byte-identical, or medians not derived from all rounds (`--self-test` demonstrates the negative
+controls). `verify check` runs the official pinned Khronos core validator (2.0.0-dev.3.10, hashed
+in `scripts/measure/khronos_validator_manifest.json`; separate acceptance tool, never part of the
+CMake build or vendored) and `deren-subtilis validate --full` on normal outputs and export-cut
+previews, plus LOD0/cut geometry identity checks. Acceptance evidence, per-round numbers,
+limitations and the out-of-tree artifact archive are recorded in
+[docs/reviews/2026-10-21-subtilis-converter.md](../../docs/reviews/2026-10-21-subtilis-converter.md).
+
+Independent CI for this tool is `.github/workflows/subtilis-converter.yml`: it is deliberately
+separate from the engine `ci.yml`/`VR_TEST_TARGETS` contract and needs no Vulkan/CUDA install, no
+Bistro download and no network asset; both a Release build+tests job and an ASan+UBSan Debug job
+run the six standalone test targets.

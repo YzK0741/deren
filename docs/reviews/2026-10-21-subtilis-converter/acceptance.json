@@ -1,0 +1,413 @@
+{
+ "schema": "subtilis-converter-acceptance/1",
+ "validator_manifest": {
+  "schema": "subtilis-converter-validator-manifest/1",
+  "tool": "Khronos glTF-Validator (official core validator CLI)",
+  "version": "2.0.0-dev.3.10",
+  "release_page": "https://github.com/KhronosGroup/glTF-Validator/releases/tag/2.0.0-dev.3.10",
+  "platform": "win64",
+  "archive": {
+   "name": "gltf_validator-2.0.0-dev.3.10-win64.zip",
+   "url": "https://github.com/KhronosGroup/glTF-Validator/releases/download/2.0.0-dev.3.10/gltf_validator-2.0.0-dev.3.10-win64.zip",
+   "bytes": 2320898,
+   "sha256": "c5068f51205deedc28acc3529ee7e11ee60e853454f673093398eba80142202c"
+  },
+  "executable": {
+   "name": "gltf_validator.exe",
+   "bytes": 5520896,
+   "sha256": "4388a152ff90b68c6430ae03862e05e257a9d50a500ed7d0eb1cd420dc75ff96"
+  },
+  "usage": "separate Task 8 acceptance tool: download the official release, verify the archive SHA-256, unpack it, then verify the executable SHA-256 with verify_subtilis_converter.py. It is not part of the normal CMake build and is never vendored into the repository or the engine build.",
+  "local_path": "D:/deren-assets/gltf-tools-khronos/2.0.0-dev.3.10/gltf_validator.exe"
+ },
+ "assets": [
+  {
+   "source": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\fixtures\\small.glb",
+   "normal_output": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\measure\\small-t1-r1.glb",
+   "findings": [],
+   "previews": [
+    {
+     "threshold": 0.0,
+     "exit": 0,
+     "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\acceptance\\previews\\small-cut-0.0.glb",
+     "bytes": 122296,
+     "sha256": "f684dcf468c8564d22582b6ef2f7407d7a9f87bf524afe1b9dbff4c79a8c7fa9",
+     "khronos": {
+      "validator_version": "2.0.0-dev.3.10",
+      "numErrors": 0,
+      "numWarnings": 0,
+      "numInfos": 3,
+      "numHints": 3,
+      "messages_total": 6,
+      "deren_unsupported_info": 0,
+      "deren_unsupported_message": null
+     },
+     "triangles": 2048,
+     "core_problems": [],
+     "deren_validate_full": {
+      "exit": 3,
+      "stdout": "",
+      "no_payload_by_design": true
+     }
+    },
+    {
+     "threshold": 0.01,
+     "exit": 0,
+     "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\acceptance\\previews\\small-cut-0.01.glb",
+     "bytes": 112264,
+     "sha256": "e2d53c72b69895470f294e691f6b39b0631029163eef40c1a497216cfb7e5a6a",
+     "khronos": {
+      "validator_version": "2.0.0-dev.3.10",
+      "numErrors": 0,
+      "numWarnings": 0,
+      "numInfos": 3,
+      "numHints": 3,
+      "messages_total": 6,
+      "deren_unsupported_info": 0,
+      "deren_unsupported_message": null
+     },
+     "triangles": 1212,
+     "core_problems": [],
+     "deren_validate_full": {
+      "exit": 3,
+      "stdout": "",
+      "no_payload_by_design": true
+     }
+    },
+    {
+     "threshold": 0.1,
+     "exit": 0,
+     "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\acceptance\\previews\\small-cut-0.1.glb",
+     "bytes": 112264,
+     "sha256": "e2d53c72b69895470f294e691f6b39b0631029163eef40c1a497216cfb7e5a6a",
+     "khronos": {
+      "validator_version": "2.0.0-dev.3.10",
+      "numErrors": 0,
+      "numWarnings": 0,
+      "numInfos": 3,
+      "numHints": 3,
+      "messages_total": 6,
+      "deren_unsupported_info": 0,
+      "deren_unsupported_message": null
+     },
+     "triangles": 1212,
+     "core_problems": [],
+     "deren_validate_full": {
+      "exit": 3,
+      "stdout": "",
+      "no_payload_by_design": true
+     }
+    },
+    {
+     "threshold": 1.0,
+     "exit": 0,
+     "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\acceptance\\previews\\small-cut-1.0.glb",
+     "bytes": 112264,
+     "sha256": "e2d53c72b69895470f294e691f6b39b0631029163eef40c1a497216cfb7e5a6a",
+     "khronos": {
+      "validator_version": "2.0.0-dev.3.10",
+      "numErrors": 0,
+      "numWarnings": 0,
+      "numInfos": 3,
+      "numHints": 3,
+      "messages_total": 6,
+      "deren_unsupported_info": 0,
+      "deren_unsupported_message": null
+     },
+     "triangles": 1212,
+     "core_problems": [],
+     "deren_validate_full": {
+      "exit": 3,
+      "stdout": "",
+      "no_payload_by_design": true
+     }
+    }
+   ],
+   "khronos_normal": {
+    "validator_version": "2.0.0-dev.3.10",
+    "numErrors": 0,
+    "numWarnings": 0,
+    "numInfos": 3,
+    "numHints": 4,
+    "messages_total": 7,
+    "deren_unsupported_info": 1,
+    "deren_unsupported_message": "Cannot validate an extension as it is not supported by the validator: 'DEREN_subtilis'."
+   },
+   "deren_validate_full": {
+    "exit": 0,
+    "stdout": "validated 1 payload(s), full=true",
+    "stderr": ""
+   },
+   "lod0_and_core_problems": [],
+   "converted_primitives": 1,
+   "source_triangles": 2048,
+   "normal_triangles": 2048,
+   "cut_triangle_counts": {
+    "0.0": 2048,
+    "0.01": 1212,
+    "0.1": 1212,
+    "1.0": 1212
+   },
+   "name": "small"
+  },
+  {
+   "source": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\fixtures\\large.glb",
+   "normal_output": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\measure\\large-t1-r1.glb",
+   "findings": [],
+   "previews": [
+    {
+     "threshold": 0.0,
+     "exit": 0,
+     "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\acceptance\\previews\\large-cut-0.0.glb",
+     "bytes": 8269292,
+     "sha256": "f77ad41cffe1dacbe4d9b625849d9d26c1caae9eaf63fe1a3ef482cbab4a6def",
+     "khronos": {
+      "validator_version": "2.0.0-dev.3.10",
+      "numErrors": 0,
+      "numWarnings": 0,
+      "numInfos": 3,
+      "numHints": 3,
+      "messages_total": 6,
+      "deren_unsupported_info": 0,
+      "deren_unsupported_message": null
+     },
+     "triangles": 131072,
+     "core_problems": [],
+     "deren_validate_full": {
+      "exit": 3,
+      "stdout": "",
+      "no_payload_by_design": true
+     }
+    },
+    {
+     "threshold": 0.01,
+     "exit": 0,
+     "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\acceptance\\previews\\large-cut-0.01.glb",
+     "bytes": 6962564,
+     "sha256": "efa96438cbf09591d44f2206a1d97e32834ccf3427043dc2c6c46264251184e0",
+     "khronos": {
+      "validator_version": "2.0.0-dev.3.10",
+      "numErrors": 0,
+      "numWarnings": 0,
+      "numInfos": 3,
+      "numHints": 3,
+      "messages_total": 6,
+      "deren_unsupported_info": 0,
+      "deren_unsupported_message": null
+     },
+     "triangles": 22178,
+     "core_problems": [],
+     "deren_validate_full": {
+      "exit": 3,
+      "stdout": "",
+      "no_payload_by_design": true
+     }
+    },
+    {
+     "threshold": 0.1,
+     "exit": 0,
+     "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\acceptance\\previews\\large-cut-0.1.glb",
+     "bytes": 6962564,
+     "sha256": "efa96438cbf09591d44f2206a1d97e32834ccf3427043dc2c6c46264251184e0",
+     "khronos": {
+      "validator_version": "2.0.0-dev.3.10",
+      "numErrors": 0,
+      "numWarnings": 0,
+      "numInfos": 3,
+      "numHints": 3,
+      "messages_total": 6,
+      "deren_unsupported_info": 0,
+      "deren_unsupported_message": null
+     },
+     "triangles": 22178,
+     "core_problems": [],
+     "deren_validate_full": {
+      "exit": 3,
+      "stdout": "",
+      "no_payload_by_design": true
+     }
+    },
+    {
+     "threshold": 1.0,
+     "exit": 0,
+     "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\acceptance\\previews\\large-cut-1.0.glb",
+     "bytes": 6962564,
+     "sha256": "efa96438cbf09591d44f2206a1d97e32834ccf3427043dc2c6c46264251184e0",
+     "khronos": {
+      "validator_version": "2.0.0-dev.3.10",
+      "numErrors": 0,
+      "numWarnings": 0,
+      "numInfos": 3,
+      "numHints": 3,
+      "messages_total": 6,
+      "deren_unsupported_info": 0,
+      "deren_unsupported_message": null
+     },
+     "triangles": 22178,
+     "core_problems": [],
+     "deren_validate_full": {
+      "exit": 3,
+      "stdout": "",
+      "no_payload_by_design": true
+     }
+    }
+   ],
+   "khronos_normal": {
+    "validator_version": "2.0.0-dev.3.10",
+    "numErrors": 0,
+    "numWarnings": 0,
+    "numInfos": 3,
+    "numHints": 4,
+    "messages_total": 7,
+    "deren_unsupported_info": 1,
+    "deren_unsupported_message": "Cannot validate an extension as it is not supported by the validator: 'DEREN_subtilis'."
+   },
+   "deren_validate_full": {
+    "exit": 0,
+    "stdout": "validated 1 payload(s), full=true",
+    "stderr": ""
+   },
+   "lod0_and_core_problems": [],
+   "converted_primitives": 1,
+   "source_triangles": 131072,
+   "normal_triangles": 131072,
+   "cut_triangle_counts": {
+    "0.0": 131072,
+    "0.01": 22178,
+    "0.1": 22178,
+    "1.0": 22178
+   },
+   "name": "large"
+  },
+  {
+   "source": "D:\\deren-assets\\bistro\\bistro-merged.gltf",
+   "normal_output": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\measure\\bistro-t1-r1.glb",
+   "findings": [],
+   "previews": [
+    {
+     "threshold": 0.0,
+     "exit": 0,
+     "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\acceptance\\previews\\bistro-merged-cut-0.0.glb",
+     "bytes": 286567448,
+     "sha256": "db01ce41f60825b6b1ad370db239b191c9de36c9f579197a515c4d483b4a96ae",
+     "khronos": {
+      "validator_version": "2.0.0-dev.3.10",
+      "numErrors": 0,
+      "numWarnings": 0,
+      "numInfos": 716,
+      "numHints": 785,
+      "messages_total": 1501,
+      "deren_unsupported_info": 0,
+      "deren_unsupported_message": null
+     },
+     "triangles": 4209006,
+     "core_problems": [],
+     "deren_validate_full": {
+      "exit": 3,
+      "stdout": "",
+      "no_payload_by_design": true
+     }
+    },
+    {
+     "threshold": 0.01,
+     "exit": 0,
+     "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\acceptance\\previews\\bistro-merged-cut-0.01.glb",
+     "bytes": 280302180,
+     "sha256": "cb49db47d19e622d088e47cddfa33c875291b5ba7d3f34dce3e5b92b009cc5b9",
+     "khronos": {
+      "validator_version": "2.0.0-dev.3.10",
+      "numErrors": 0,
+      "numWarnings": 0,
+      "numInfos": 716,
+      "numHints": 785,
+      "messages_total": 1501,
+      "deren_unsupported_info": 0,
+      "deren_unsupported_message": null
+     },
+     "triangles": 3686904,
+     "core_problems": [],
+     "deren_validate_full": {
+      "exit": 3,
+      "stdout": "",
+      "no_payload_by_design": true
+     }
+    },
+    {
+     "threshold": 0.1,
+     "exit": 0,
+     "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\acceptance\\previews\\bistro-merged-cut-0.1.glb",
+     "bytes": 276048104,
+     "sha256": "0566c6d87f8fb5bac260ff97796202d8aa7160dc391a8c7a56e9e02597eecfd8",
+     "khronos": {
+      "validator_version": "2.0.0-dev.3.10",
+      "numErrors": 0,
+      "numWarnings": 0,
+      "numInfos": 716,
+      "numHints": 785,
+      "messages_total": 1501,
+      "deren_unsupported_info": 0,
+      "deren_unsupported_message": null
+     },
+     "triangles": 3332400,
+     "core_problems": [],
+     "deren_validate_full": {
+      "exit": 3,
+      "stdout": "",
+      "no_payload_by_design": true
+     }
+    },
+    {
+     "threshold": 1.0,
+     "exit": 0,
+     "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\acceptance\\previews\\bistro-merged-cut-1.0.glb",
+     "bytes": 274629288,
+     "sha256": "a16f4ef2412dfbe7859e476c3090576c9921a28739ae364b36bfceb2c474b18e",
+     "khronos": {
+      "validator_version": "2.0.0-dev.3.10",
+      "numErrors": 0,
+      "numWarnings": 0,
+      "numInfos": 716,
+      "numHints": 785,
+      "messages_total": 1501,
+      "deren_unsupported_info": 0,
+      "deren_unsupported_message": null
+     },
+     "triangles": 3214166,
+     "core_problems": [],
+     "deren_validate_full": {
+      "exit": 3,
+      "stdout": "",
+      "no_payload_by_design": true
+     }
+    }
+   ],
+   "khronos_normal": {
+    "validator_version": "2.0.0-dev.3.10",
+    "numErrors": 0,
+    "numWarnings": 0,
+    "numInfos": 486,
+    "numHints": 1016,
+    "messages_total": 1502,
+    "deren_unsupported_info": 1,
+    "deren_unsupported_message": "Cannot validate an extension as it is not supported by the validator: 'DEREN_subtilis'."
+   },
+   "deren_validate_full": {
+    "exit": 0,
+    "stdout": "validated 231 payload(s), full=true",
+    "stderr": ""
+   },
+   "lod0_and_core_problems": [],
+   "converted_primitives": 231,
+   "source_triangles": 4209006,
+   "normal_triangles": 4209006,
+   "cut_triangle_counts": {
+    "0.0": 4209006,
+    "0.01": 3686904,
+    "0.1": 3332400,
+    "1.0": 3214166
+   },
+   "name": "bistro"
+  }
+ ],
+ "findings": []
+}

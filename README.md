@@ -225,6 +225,7 @@ Related source docs (tracked in the repo):
 - [shader reference](docs/shaders.md) (the pass chain, the shared scene set, push constants, conventions) — also the Doxygen `shaders` group description
 - [visibility buffer lane](docs/visibility_buffer.md) (experimental opaque producer: packed id raster plus a compute resolve, its gate and its measured limits)
 - [Subtilis: hierarchical cluster LOD](docs/subtilis.md) (the current entry point: M1a/M1b implemented and measured, CPU cut and fallbacks, code map, configuration, document index and milestone status; the design record stays at [docs/superpowers/specs/2026-10-18-subtilis-design.md](docs/superpowers/specs/2026-10-18-subtilis-design.md))
+- [Subtilis glTF DAG converter](tools/subtilis/README.md) (standalone CPU offline tool for the `DEREN_subtilis` shared-vertex cluster DAG: deterministic multi-core build, workspace budgets, stage profiling, package/CLI; real-asset, Khronos-validator, cut/LOD0 and independent-CPU-CI evidence in [docs/reviews/2026-10-21-subtilis-converter.md](docs/reviews/2026-10-21-subtilis-converter.md). The runtime import path is still future work)
 - [mesh shaders](docs/mesh_shaders.md) (what the stage buys here, this device's limits, the heap-native mesh probe, the shadow pass's mesh stage, and the migration plan)
 - [capture harness](scripts/windows/check_render.ps1) and the [measurement instruments](scripts/measure/README.md) every number in the docs came out of
 - [source/reference/shaders/official/](source/reference/shaders/official/): reference shaders (IBL / PBR / primitive)

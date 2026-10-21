@@ -1,6 +1,6 @@
 # Subtilis cluster DAG：glTF 扩展与 CPU 离线转换器
 
-日期：2026-10-21。状态：**已按用户确认的 CPU-first 路线修订，尚未实施**。[实施计划](../plans/2026-10-21-subtilis-gltf.md)已编写，待审阅后进入实现。代码基线 `07e365bd`。
+日期：2026-10-21。状态：**已按用户确认的 CPU-first 路线实施；Task 1-8 完成，真实资产、Khronos core validator、cut/LOD0、独立 CPU CI 与证据报告已记录；最终 whole-change review 待进行（由 Lead 执行）**。[实施计划](../plans/2026-10-21-subtilis-gltf.md)与[验收记录](../reviews/2026-10-21-subtilis-converter.md)为权威证据。代码基线 `07e365bd`。
 
 ## 1. 目标与阶段边界
 

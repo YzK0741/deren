@@ -1,0 +1,154 @@
+name: subtilis-converter
+
+# Independent CPU-only CI for the standalone Subtilis glTF cluster-DAG converter
+# (tools/subtilis). It deliberately does NOT join the engine CI contract: `.github/workflows/ci.yml`
+# and CMakeLists' VR_TEST_TARGETS are untouched, and `test_docs` (which compares those two) keeps
+# its existing expectation. This workflow only touches the tool's own CMake project.
+#
+# No Vulkan or CUDA package is installed, and the tool CMake never looks for them; the standalone
+# graph depends only on the CPU asset/utility targets. The small measurement fixtures are generated
+# by the test binaries themselves; nothing downloads Bistro or any other asset, and no network
+# resource is needed after the MSYS2 package installation.
+#
+# Two jobs, mirroring the repo's sanitizer split in ci.yml:
+#   * release-tests: configure + build + run every standalone test in Release.
+#   * sanitizers: the same tests in a Debug ASan+UBSan tree (codec, DAG, builder, parallel
+#     scheduling/IO-failure paths are all in the six test binaries).
+# LeakSanitizer is deliberately NOT enabled: it does not exist on Windows and setting
+# `detect_leaks` makes every run abort with "detect_leaks is not supported on this platform"
+# (measured; see the note in ci.yml's sanitizer step). ASan still covers use-after-free, overflows
+# and UBSan covers the integer/arithmetic paths; leak coverage remains a Linux-CI follow-up.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "source/asset/subtilis/**"
+      - "source/tests/test_subtilis_*.cpp"
+      - "tools/subtilis/**"
+      - "cmake/deren_cpu_utility.cmake"
+      - "cmake/deren_asset_dependencies.cmake"
+      - "source/utility/**"
+      - "source/vstd/**"
+      - "source/third_party/**"
+      - "scripts/measure/**"
+      - ".github/workflows/subtilis-converter.yml"
+  pull_request:
+    paths:
+      - "source/asset/subtilis/**"
+      - "source/tests/test_subtilis_*.cpp"
+      - "tools/subtilis/**"
+      - "cmake/deren_cpu_utility.cmake"
+      - "cmake/deren_asset_dependencies.cmake"
+      - "source/utility/**"
+      - "source/vstd/**"
+      - "source/third_party/**"
+      - "scripts/measure/**"
+      - ".github/workflows/subtilis-converter.yml"
+
+jobs:
+  release-tests:
+    name: Release + all standalone CPU tests
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up MSYS2 (clang64, CPU tool only)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: clang64
+          update: true
+          install: >-
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-lld
+            mingw-w64-clang-x86_64-libc++
+            mingw-w64-clang-x86_64-cmake
+            mingw-w64-clang-x86_64-ninja
+
+      # The configure line is the one tools/subtilis/README records: the project is C++23 modules on
+      # clang/libc++, so the compilers are passed explicitly and Vulkan package discovery is disabled
+      # (the standalone graph has no renderer dependency).
+      - name: Configure (Release, no Vulkan/CUDA)
+        run: >
+          cmake -S tools/subtilis -B build-subtilis -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+
+      # The standalone graph must stay CPU-only: no target in this build may be Vulkan/CUDA related.
+      - name: Assert the standalone graph has no renderer/CUDA targets
+        run: |
+          if ninja -C build-subtilis -t targets all | grep -i -E 'vulkan|cuda'; then
+            echo "the standalone converter build pulled in a Vulkan/CUDA target"
+            exit 1
+          fi
+
+      - name: Build all standalone targets
+        run: cmake --build build-subtilis -j 4
+
+      - name: Assert every standalone test target was built
+        run: |
+          for target in test_subtilis_codec test_subtilis_dag test_subtilis_document \
+                        test_subtilis_dag_builder test_subtilis_parallel test_subtilis_converter; do
+            if [ ! -f "build-subtilis/$target.exe" ]; then
+              echo "missing standalone test target: $target"
+              exit 1
+            fi
+          done
+          if [ "$(ctest --test-dir build-subtilis -N | grep -c 'Test #')" -ne 6 ]; then
+            echo "expected 6 registered standalone tests"
+            exit 1
+          fi
+
+      - name: Run the standalone CPU tests
+        run: ctest --test-dir build-subtilis --output-on-failure
+
+  sanitizers:
+    name: ASan + UBSan (standalone CPU tests)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up MSYS2 (clang64, CPU tool only)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: clang64
+          update: true
+          install: >-
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-lld
+            mingw-w64-clang-x86_64-compiler-rt
+            mingw-w64-clang-x86_64-libc++
+            mingw-w64-clang-x86_64-cmake
+            mingw-w64-clang-x86_64-ninja
+
+      - name: Configure (Debug + ASan + UBSan, no Vulkan/CUDA)
+        run: >
+          cmake -S tools/subtilis -B build-subtilis-asan -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+
+      # Deliberately build every target (not a hand-maintained subset): the property under test is
+      # "all small fixtures", and a target that stops being built must fail here rather than be
+      # silently absent from the ctest run. Bistro and the external Khronos validator are NOT
+      # downloaded by this job: the CI contract is the tool's own fixtures, not real-asset acceptance.
+      - name: Build all standalone targets under the sanitizers
+        run: cmake --build build-subtilis-asan -j 4
+
+      - name: Run the standalone CPU tests under ASan + UBSan
+        env:
+          ASAN_OPTIONS: halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build-subtilis-asan --output-on-failure

@@ -252,3 +252,85 @@ engine/CMake, the wire format and canonical build identity are untouched.
 Remaining work: Task 8 (real assets, Khronos validator, independent CPU-tool CI, final fresh
 whole-change review, docs/archive). Tasks 1-7 are complete as described above; do not redo them
 and do not claim final converter acceptance.
+
+## Task 8: real-asset measurement, Khronos validator, CPU CI and evidence (2026-10-21)
+
+Base: `071cfdd5` (Task 7 committed) plus the uncommitted Task 8 worktree. A real-asset full-validation
+defect found here was fixed as a separate, reviewable change (see the defect section below). Files:
+new `scripts/measure/make_subtilis_converter_fixtures.py`, `measure_subtilis_converter.py`,
+`verify_subtilis_converter.py`, `subtilis_converter_gltf.py`,
+`scripts/measure/khronos_validator_manifest.json`, new `.github/workflows/subtilis-converter.yml`,
+new `docs/reviews/2026-10-21-subtilis-converter.md` + `docs/reviews/2026-10-21-subtilis-converter/`
+results JSONs; updated `tools/subtilis/commands.cpp` (external report gains per-primitive rejection counters only;
+no payload/identity change), `tools/subtilis/README.md`, `scripts/measure/README.md`,
+`source/tests/test_subtilis_parallel.cpp` (report-JSON rejection-counter assertion only),
+`docs/subtilis.md`, `README.md`, the plan Task 8 checkboxes and the design spec status line. No root
+engine/CMake or wire-format/identity changes; no git mutations (Lead commits).
+
+- Measurement: two deterministic generated fixtures (small 32x32 grid = 2,048 triangles; synthetic
+  large 256x256 grid = 131,072 triangles) and the real Bistro asset in a matrix of
+  `--threads 1` and `--threads 12`, 3 rounds each, identical canonical build options. Every run,
+  report, median and hash is in `results/measurements.json`; medians always use all three rounds.
+  Medians: large external wall 1,559 -> 1,013 ms; Bistro 35.6 -> 14.6 s. Sampled peak working set
+  Bistro 1,684 -> 1,740 MiB, large 58 -> 135 MiB (the converter pool holds prepared primitives
+  before the key-ordered commit). DAG results: large 246 cross-group repartitions / 345 groups;
+  Bistro 231 converted / 23 profile-skipped (20 MASK, 3 BLEND) / 57 LOD0-only primitives,
+  556 cross-group repartitions, 4,618 groups, rejection counters recorded. Payloads are
+  byte-identical across threads and rounds for every asset (one SHA-256 per asset).
+- The plan-specified `bistro-geometry.gltf` is recorded honestly: 1,844,243 B / 551 primitives, all
+  carrying TANGENT (unmodeled attribute), so 0 eligible primitives and build exit 4. The closest
+  real profile-matching asset `bistro-merged.gltf` (pristine derivation manifest recorded) is the
+  real-asset arm; the attribute profile was not widened to force the specified file through.
+- Measurement gate: `verify_subtilis_converter.py gate` requires every configured (threads, round)
+  run, all eleven stage rows per run, finite/non-negative times, `accumulated == sum(exclusive)`,
+  real cross-group DAG for the dag-required assets, one payload hash, and medians recomputed from
+  every round. `gate --self-test` runs 11 hand-broken measurements and fails unless all are
+  rejected; with the rule engine disabled 10/11 are wrongly accepted (RED witness), with it enabled
+  11/11 are rejected (GREEN) and the real matrix passes with 0 findings.
+- Khronos core validator: official release 2.0.0-dev.3.10 (win64) downloaded from the official
+  GitHub release; archive SHA-256 `c5068f51...` and executable SHA-256 `4388a152...` pinned in
+  `scripts/measure/khronos_validator_manifest.json` and re-verified by the verify script. It is a
+  separate acceptance tool, not a CMake/vendored dependency. `gltf_validator --stdout` reports 0
+  errors / 0 warnings on all three normal outputs and on all twelve export-cut previews; the
+  unsupported `DEREN_subtilis` extension info is recorded (1 per normal output). In parallel
+  `deren-subtilis validate --full` passes on all normal outputs (1, 1 and 231 payloads).
+- LOD0/cut checks: source LOD0 indices and decoded POSITION/NORMAL/TEXCOORD_0 arrays are exactly
+  preserved; nodes/scenes/materials are unchanged; cut previews at errors 0/0.01/0.1/1.0 keep the
+  attribute/core semantics, remove the extension, keep every index in range, reproduce the exact
+  oriented LOD0 triangle multiset at error 0, and are monotone non-increasing: Bistro
+  4,209,006 -> 3,686,904 -> 3,332,400 -> 3,214,166 triangles. Standard GLB previews are archived;
+  no automatic pixel comparison was run, so no pixel-quality claim is made.
+- Independent CPU CI: `.github/workflows/subtilis-converter.yml` (separate from ci.yml/
+  VR_TEST_TARGETS, path-filtered, no Vulkan/CUDA installs, no Bistro/network fixtures) configures
+  the tool with Vulkan discovery disabled, asserts no Vulkan/CUDA target and exactly six test
+  targets/tests, builds all targets, runs ctest, and repeats everything under ASan+UBSan with
+  `halt_on_error` (no `detect_leaks`: unsupported on Windows, as ci.yml records). The local
+  configure/target/`ctest -N` assertions were simulated; the workflow has not been executed on a
+  GitHub runner in this session (no push).
+- Validation of this finish pass: standalone Release CTest 6/6 (test_subtilis_dag_builder now
+  4,705 checks incl. the new seam-sharing regression), standalone ASan/UBSan CTest 6/6. Root
+  build files unchanged; root CTest 58/58 remains the relevant regression (Lead runs it).
+- Archive: `D:/deren-assets/2026-10-21-subtilis-converter/` with 62 files / 1,343.8 MiB and a
+  per-file `SHA256SUMS.json`; re-hashed after copy with 0 mismatches, `RECOVERY.md` included, local
+  scratch deleted afterwards. Repository keeps the small `results/*.json` plus scripts and this
+  report.
+
+### Real-asset defect fixed during Task 8 (separate reviewable change)
+
+The independent full validator (`make_asset`, `source/asset/subtilis/dag.cpp`) judged reduction
+regions with one attribute-class graph (components + "pinched components"), while the design
+(spec 3.4) and the builder use two graphs: position classes for geometric adjacency/boundary/
+components and attribute classes for the seam identity. Real Bistro seam-sharing vertices are one
+attribute class in two attribute-connected components, so the validator rejected the builder's
+correct reductions: the full `bistro-merged` build failed with `reduction boundary or components
+differ` (first failure primitive 0/2, round 0, group 10, fine 1,785 / coarse 891 indices). Fix:
+`dag.cpp` now classifies position/attribute classes separately, validates degenerate/duplicate/
+non-manifold edges in both graphs, checks "pinched components" and the component count only on the
+geometric graph, and compares fine/coarse regions on both directed boundary multisets plus the
+geometric component count. No builder, wire-format, identity or timing change. RED->GREEN: restored
+original validator fails the new deterministic 64x64 UV-seam fixture (`FAIL ...: seam_built`, 4,699
+checks/1 failed); fixed validator passes it (4,705 checks/0 failed, 26 groups, 11 rounds, 17
+cross-group repartitions) and all 254 Bistro primitives now build+validate at threads 1/2/12 with
+byte-identical payloads. Files: `source/asset/subtilis/dag.cpp` and
+`source/tests/test_subtilis_dag_builder.cpp` (only). This must be reviewed/committed separately
+from the Task 8 evidence documentation.

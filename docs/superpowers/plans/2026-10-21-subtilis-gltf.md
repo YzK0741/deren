@@ -162,13 +162,13 @@
 
 **Files:** measure/verify脚本、新增`.github/workflows/subtilis-converter.yml`、`tools/subtilis/README.md`、`docs/reviews/2026-10-21-subtilis-converter.md`及结构化results；根README与`docs/subtilis.md`只更新工具状态/入口。独立CI不向现有VR_TEST_TARGETS/ci.yml列表混入工具测试，保持test_docs的现有契约。
 
-- [ ] measure脚本RED→GREEN：从报告读分阶段计数，区分CPU累计/墙钟，缺阶段/缺轮次/无真实跨组DAG不得PASS；3轮serial/parallel中位数来自逐轮数据，不能只保留最好一轮。
-- [ ] 对小资产、合成大网格和`D:/deren-assets/bistro/bistro-geometry.gltf`各跑threads1/12各3次，参数一致；记录CPU热点、峰值、完整输出大小、拒绝原因、真实DAG数量；不引入CUDA依赖或声称未测收益。
-- [ ] Khronos core validator固定`2.0.0-dev.3.10`（官方release；单独工具依赖，不进普通CMake构建），校验普通输出与export-cut。使用官方CLI `gltf_validator --stdout <file>`，verify脚本解析numErrors，记录自有扩展unsupported info，不能忽略core errors；另运行`deren-subtilis validate --full`，两者都成功才接受。
-- [ ] 按完整/LOD0/多个阈值cut检查场景、轮廓、材质缝和边界；LOD0几何多重集与core资源语义精确一致，简化画面变化单独报告。没有自动图像工具时保留标准GLB预览供直接审阅，不能宣称未检查的像素质量。
-- [ ] 新增独立CPU工具CI：不安装Vulkan/CUDA可配置、构建并运行全部新测试；小fixture不下载Bistro。ASan/UBSan覆盖codec、DAG、builder、parallel和IO失败路径。根构建回归按Task1规则与最终集成改动范围运行。
+- [x] measure脚本RED→GREEN：从报告读分阶段计数，区分CPU累计/墙钟，缺阶段/缺轮次/无真实跨组DAG不得PASS；3轮serial/parallel中位数来自逐轮数据，不能只保留最好一轮。
+- [x] 对小资产、合成大网格和`D:/deren-assets/bistro/bistro-geometry.gltf`各跑threads1/12各3次，参数一致；记录CPU热点、峰值、完整输出大小、拒绝原因、真实DAG数量；不引入CUDA依赖或声称未测收益。
+- [x] Khronos core validator固定`2.0.0-dev.3.10`（官方release；单独工具依赖，不进普通CMake构建），校验普通输出与export-cut。使用官方CLI `gltf_validator --stdout <file>`，verify脚本解析numErrors，记录自有扩展unsupported info，不能忽略core errors；另运行`deren-subtilis validate --full`，两者都成功才接受。
+- [x] 按完整/LOD0/多个阈值cut检查场景、轮廓、材质缝和边界；LOD0几何多重集与core资源语义精确一致，简化画面变化单独报告。没有自动图像工具时保留标准GLB预览供直接审阅，不能宣称未检查的像素质量。
+- [x] 新增独立CPU工具CI：不安装Vulkan/CUDA可配置、构建并运行全部新测试；小fixture不下载Bistro。ASan/UBSan覆盖codec、DAG、builder、parallel和IO失败路径。根构建回归按Task1规则与最终集成改动范围运行。
 - [ ] 一名fresh只读whole-change reviewer检查5个Review Focus及spec coverage；Critical/Important修复须有复现与GREEN，Minor记账；按executing-plans规则执行最终审查，不启动任务级agents或重复审查流程。
-- [ ] 更新spec/计划状态和真实证据报告，本地提交最终文档。重产物归档D盘，核对每个SHA256后清理当前任务副本，保留恢复记录；不推送。
+- [x] 更新spec/计划状态和真实证据报告，本地提交最终文档。重产物归档D盘，核对每个SHA256后清理当前任务副本，保留恢复记录；不推送。
 
 ## 自查与交接
 

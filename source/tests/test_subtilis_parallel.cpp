@@ -636,6 +636,10 @@ namespace {
                 auto* primitives = yyjson_obj_get(root, "primitives");
                 CHECK(yyjson_arr_size(primitives) == 1);
                 auto* row = yyjson_arr_get_first(primitives);
+                // Task 8 measurement needs the rejection reasons in the external report; the payload
+                // metadata already carries the same structural counters, so this is report-only.
+                auto* rejected = yyjson_obj_get(row, "rejected");
+                CHECK(rejected != nullptr && yyjson_is_obj(rejected));
                 CHECK(yyjson_get_uint(yyjson_obj_get(row, "plannedConcurrency")) >= 1);
                 CHECK(yyjson_get_uint(yyjson_obj_get(row, "knownWorkLimitBytes")) > 0);
                 CHECK(yyjson_get_real(yyjson_obj_get(row, "accumulatedMs")) >= 0);

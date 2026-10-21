@@ -1,0 +1,614 @@
+{
+ "schema": "subtilis-converter-measurement-summary/1",
+ "source": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\measure\\measurements.json",
+ "converter": {
+  "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-subtilis\\deren-subtilis.exe",
+  "bytes": 1698304,
+  "sha256": "fa975534352852cbb66e1d1ce0525cfb17d6a8a5d0bfdf9f12f2f10a581233e4"
+ },
+ "environment": {
+  "platform": "Windows-11-10.0.26300-SP0",
+  "machine": "AMD64",
+  "processor": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+  "cpu_count": 16,
+  "python": "3.14.7",
+  "memory_measurement": "sampled peak working set (20 ms polling, lower bound)"
+ },
+ "parameters": {
+  "threads": [
+   1,
+   12
+  ],
+  "rounds": 3,
+  "build_options": "converter canonical defaults (no option overrides; only --threads differs between arms)",
+  "command_line": "deren-subtilis build <asset> -o <out> --threads <N> --report <report>"
+ },
+ "assets": [
+  {
+   "name": "small",
+   "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\fixtures\\small.glb",
+   "dag_required": false,
+   "source_bytes": 60320,
+   "source_sha256": "4f57aeb06c9346a220310cfe8fe0c4fe9b29b87990c575e9fa4d85a09c5d6d45",
+   "identity": {
+    "distinct_output_sha256": [
+     "451dcd9a13950045d47ace7c89fe2b7245961a65af9accfbd1966615976ec36d"
+    ],
+    "byte_identical_across_threads_and_rounds": true
+   },
+   "rejected_totals_over_rounds": {
+    "boundaryChanged": 30
+   },
+   "rounds": [
+    {
+     "threads": 1,
+     "round": 1,
+     "exit": 0,
+     "external_wall_ms": 295.75589997693896,
+     "peak_working_set_bytes": 8134656,
+     "output_bytes": 97712,
+     "output_sha256": "451dcd9a13950045d47ace7c89fe2b7245961a65af9accfbd1966615976ec36d"
+    },
+    {
+     "threads": 1,
+     "round": 2,
+     "exit": 0,
+     "external_wall_ms": 50.04100000951439,
+     "peak_working_set_bytes": 8695808,
+     "output_bytes": 97712,
+     "output_sha256": "451dcd9a13950045d47ace7c89fe2b7245961a65af9accfbd1966615976ec36d"
+    },
+    {
+     "threads": 1,
+     "round": 3,
+     "exit": 0,
+     "external_wall_ms": 50.05049996543676,
+     "peak_working_set_bytes": 8708096,
+     "output_bytes": 97712,
+     "output_sha256": "451dcd9a13950045d47ace7c89fe2b7245961a65af9accfbd1966615976ec36d"
+    },
+    {
+     "threads": 12,
+     "round": 1,
+     "exit": 0,
+     "external_wall_ms": 49.25300000468269,
+     "peak_working_set_bytes": 11489280,
+     "output_bytes": 97712,
+     "output_sha256": "451dcd9a13950045d47ace7c89fe2b7245961a65af9accfbd1966615976ec36d"
+    },
+    {
+     "threads": 12,
+     "round": 2,
+     "exit": 0,
+     "external_wall_ms": 50.538099952973425,
+     "peak_working_set_bytes": 11485184,
+     "output_bytes": 97712,
+     "output_sha256": "451dcd9a13950045d47ace7c89fe2b7245961a65af9accfbd1966615976ec36d"
+    },
+    {
+     "threads": 12,
+     "round": 3,
+     "exit": 0,
+     "external_wall_ms": 49.42819999996573,
+     "peak_working_set_bytes": 11472896,
+     "output_bytes": 97712,
+     "output_sha256": "451dcd9a13950045d47ace7c89fe2b7245961a65af9accfbd1966615976ec36d"
+    }
+   ],
+   "medians": {
+    "1": {
+     "runs": 3,
+     "external_wall_ms": 50.05049996543676,
+     "peak_working_set_bytes": 8695808,
+     "output_bytes": 97712,
+     "converted": 1,
+     "skipped": 0,
+     "lod0Only": 0,
+     "rounds_max": 3,
+     "cross_group_repartitions": 1,
+     "groups_final": 3,
+     "report_wall_ms": 9.2814000248909,
+     "accumulated_ms": 8.618399977684021,
+     "stages": {
+      "sourceFingerprint": {
+       "cpu_ms": 0.3758000135421753,
+       "count": 1
+      },
+      "leafCluster": {
+       "cpu_ms": 1.2169000506401062,
+       "count": 1
+      },
+      "topology": {
+       "cpu_ms": 0.8936000466346741,
+       "count": 1
+      },
+      "partition": {
+       "cpu_ms": 0.585099995136261,
+       "count": 3
+      },
+      "boundary": {
+       "cpu_ms": 2.6938000321388245,
+       "count": 8
+      },
+      "simplify": {
+       "cpu_ms": 1.003600001335144,
+       "count": 8
+      },
+      "recluster": {
+       "cpu_ms": 0.33410000801086426,
+       "count": 8
+      },
+      "candidate": {
+       "cpu_ms": 4.629300057888031,
+       "count": 8
+      },
+      "commit": {
+       "cpu_ms": 0.014200091361999512,
+       "count": 8
+      },
+      "validate": {
+       "cpu_ms": 1.451799988746643,
+       "count": 1
+      },
+      "encode": {
+       "cpu_ms": 0.01569998264312744,
+       "count": 1
+      }
+     }
+    },
+    "12": {
+     "runs": 3,
+     "external_wall_ms": 49.42819999996573,
+     "peak_working_set_bytes": 11485184,
+     "output_bytes": 97712,
+     "converted": 1,
+     "skipped": 0,
+     "lod0Only": 0,
+     "rounds_max": 3,
+     "cross_group_repartitions": 1,
+     "groups_final": 3,
+     "report_wall_ms": 8.94949996471405,
+     "accumulated_ms": 10.026600122451782,
+     "stages": {
+      "sourceFingerprint": {
+       "cpu_ms": 0.36959999799728394,
+       "count": 1
+      },
+      "leafCluster": {
+       "cpu_ms": 1.21069997549057,
+       "count": 1
+      },
+      "topology": {
+       "cpu_ms": 0.8295000195503235,
+       "count": 1
+      },
+      "partition": {
+       "cpu_ms": 0.6248000264167786,
+       "count": 3
+      },
+      "boundary": {
+       "cpu_ms": 3.4790000319480896,
+       "count": 8
+      },
+      "simplify": {
+       "cpu_ms": 1.2846001386642456,
+       "count": 8
+      },
+      "recluster": {
+       "cpu_ms": 0.3791000247001648,
+       "count": 8
+      },
+      "candidate": {
+       "cpu_ms": 7.466799974441528,
+       "count": 8
+      },
+      "commit": {
+       "cpu_ms": 0.026999950408935547,
+       "count": 8
+      },
+      "validate": {
+       "cpu_ms": 1.6335999965667725,
+       "count": 1
+      },
+      "encode": {
+       "cpu_ms": 0.013799965381622314,
+       "count": 1
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "large",
+   "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\.subtilis-work\\fixtures\\large.glb",
+   "dag_required": true,
+   "source_bytes": 3687348,
+   "source_sha256": "0895f9dc7a59f459efd1b76178885fa16fae5990f0585d10bfc705e3722a36e5",
+   "identity": {
+    "distinct_output_sha256": [
+     "b4e6946b9c4e39e5f003dc218e2d9878f69ae803bd4536e11d13b3296ab48717"
+    ],
+    "byte_identical_across_threads_and_rounds": true
+   },
+   "rejected_totals_over_rounds": {
+    "unsafeTopology": 1878,
+    "boundaryChanged": 3294
+   },
+   "rounds": [
+    {
+     "threads": 1,
+     "round": 1,
+     "exit": 0,
+     "external_wall_ms": 1576.786199992057,
+     "peak_working_set_bytes": 60682240,
+     "output_bytes": 6696416,
+     "output_sha256": "b4e6946b9c4e39e5f003dc218e2d9878f69ae803bd4536e11d13b3296ab48717"
+    },
+    {
+     "threads": 1,
+     "round": 2,
+     "exit": 0,
+     "external_wall_ms": 1559.0578999835998,
+     "peak_working_set_bytes": 60665856,
+     "output_bytes": 6696416,
+     "output_sha256": "b4e6946b9c4e39e5f003dc218e2d9878f69ae803bd4536e11d13b3296ab48717"
+    },
+    {
+     "threads": 1,
+     "round": 3,
+     "exit": 0,
+     "external_wall_ms": 1519.0177999902517,
+     "peak_working_set_bytes": 60628992,
+     "output_bytes": 6696416,
+     "output_sha256": "b4e6946b9c4e39e5f003dc218e2d9878f69ae803bd4536e11d13b3296ab48717"
+    },
+    {
+     "threads": 12,
+     "round": 1,
+     "exit": 0,
+     "external_wall_ms": 988.7402000022121,
+     "peak_working_set_bytes": 141213696,
+     "output_bytes": 6696416,
+     "output_sha256": "b4e6946b9c4e39e5f003dc218e2d9878f69ae803bd4536e11d13b3296ab48717"
+    },
+    {
+     "threads": 12,
+     "round": 2,
+     "exit": 0,
+     "external_wall_ms": 1013.371900015045,
+     "peak_working_set_bytes": 141807616,
+     "output_bytes": 6696416,
+     "output_sha256": "b4e6946b9c4e39e5f003dc218e2d9878f69ae803bd4536e11d13b3296ab48717"
+    },
+    {
+     "threads": 12,
+     "round": 3,
+     "exit": 0,
+     "external_wall_ms": 1037.426199996844,
+     "peak_working_set_bytes": 140419072,
+     "output_bytes": 6696416,
+     "output_sha256": "b4e6946b9c4e39e5f003dc218e2d9878f69ae803bd4536e11d13b3296ab48717"
+    }
+   ],
+   "medians": {
+    "1": {
+     "runs": 3,
+     "external_wall_ms": 1559.0578999835998,
+     "peak_working_set_bytes": 60665856,
+     "output_bytes": 6696416,
+     "converted": 1,
+     "skipped": 0,
+     "lod0Only": 0,
+     "rounds_max": 15,
+     "cross_group_repartitions": 246,
+     "groups_final": 345,
+     "report_wall_ms": 1101.3087000250816,
+     "accumulated_ms": 994.6644018292427,
+     "stages": {
+      "sourceFingerprint": {
+       "cpu_ms": 23.236399948596954,
+       "count": 1
+      },
+      "leafCluster": {
+       "cpu_ms": 86.55189996957779,
+       "count": 1
+      },
+      "topology": {
+       "cpu_ms": 54.51539999246597,
+       "count": 1
+      },
+      "partition": {
+       "cpu_ms": 119.9154999256134,
+       "count": 15
+      },
+      "boundary": {
+       "cpu_ms": 388.2101013660431,
+       "count": 1207
+      },
+      "simplify": {
+       "cpu_ms": 119.64819997549057,
+       "count": 1207
+      },
+      "recluster": {
+       "cpu_ms": 44.06260013580322,
+       "count": 1207
+      },
+      "candidate": {
+       "cpu_ms": 656.8007986545563,
+       "count": 1207
+      },
+      "commit": {
+       "cpu_ms": 1.0274001955986023,
+       "count": 1207
+      },
+      "validate": {
+       "cpu_ms": 153.56520003080368,
+       "count": 1
+      },
+      "encode": {
+       "cpu_ms": 0.8927000164985657,
+       "count": 1
+      }
+     }
+    },
+    "12": {
+     "runs": 3,
+     "external_wall_ms": 1013.371900015045,
+     "peak_working_set_bytes": 141213696,
+     "output_bytes": 6696416,
+     "converted": 1,
+     "skipped": 0,
+     "lod0Only": 0,
+     "rounds_max": 15,
+     "cross_group_repartitions": 246,
+     "groups_final": 345,
+     "report_wall_ms": 565.8796000480652,
+     "accumulated_ms": 1493.1101013422012,
+     "stages": {
+      "sourceFingerprint": {
+       "cpu_ms": 22.748000025749207,
+       "count": 1
+      },
+      "leafCluster": {
+       "cpu_ms": 92.87169998884201,
+       "count": 1
+      },
+      "topology": {
+       "cpu_ms": 51.80790001153946,
+       "count": 1
+      },
+      "partition": {
+       "cpu_ms": 121.85959994792938,
+       "count": 15
+      },
+      "boundary": {
+       "cpu_ms": 742.4042013883591,
+       "count": 1207
+      },
+      "simplify": {
+       "cpu_ms": 211.4087000489235,
+       "count": 1207
+      },
+      "recluster": {
+       "cpu_ms": 74.54109936952591,
+       "count": 1207
+      },
+      "candidate": {
+       "cpu_ms": 1203.2604990005493,
+       "count": 1207
+      },
+      "commit": {
+       "cpu_ms": 1.5044003129005432,
+       "count": 1207
+      },
+      "validate": {
+       "cpu_ms": 153.30130004882812,
+       "count": 1
+      },
+      "encode": {
+       "cpu_ms": 0.9462999701499939,
+       "count": 1
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "bistro",
+   "path": "D:\\deren-assets\\bistro\\bistro-merged.gltf",
+   "dag_required": true,
+   "source_bytes": 289200,
+   "source_sha256": "b9d17a0a3bf634df402f5002c736a6cffa0fc8e585baa92bd4d6e485a270bc47",
+   "identity": {
+    "distinct_output_sha256": [
+     "b235aa4008a57a7db38aa1f87593114867efa685753f05616acc020a02840b47"
+    ],
+    "byte_identical_across_threads_and_rounds": true
+   },
+   "rejected_totals_over_rounds": {
+    "boundaryChanged": 15522,
+    "noProgress": 32964,
+    "unsafeTopology": 33270,
+    "numericError": 66
+   },
+   "rounds": [
+    {
+     "threads": 1,
+     "round": 1,
+     "exit": 0,
+     "external_wall_ms": 35586.673800018616,
+     "peak_working_set_bytes": 1765486592,
+     "output_bytes": 247474732,
+     "output_sha256": "b235aa4008a57a7db38aa1f87593114867efa685753f05616acc020a02840b47"
+    },
+    {
+     "threads": 1,
+     "round": 2,
+     "exit": 0,
+     "external_wall_ms": 34054.036399989855,
+     "peak_working_set_bytes": 1765519360,
+     "output_bytes": 247474732,
+     "output_sha256": "b235aa4008a57a7db38aa1f87593114867efa685753f05616acc020a02840b47"
+    },
+    {
+     "threads": 1,
+     "round": 3,
+     "exit": 0,
+     "external_wall_ms": 36433.342100004666,
+     "peak_working_set_bytes": 1765449728,
+     "output_bytes": 247474732,
+     "output_sha256": "b235aa4008a57a7db38aa1f87593114867efa685753f05616acc020a02840b47"
+    },
+    {
+     "threads": 12,
+     "round": 1,
+     "exit": 0,
+     "external_wall_ms": 14598.542299994733,
+     "peak_working_set_bytes": 1825656832,
+     "output_bytes": 247474732,
+     "output_sha256": "b235aa4008a57a7db38aa1f87593114867efa685753f05616acc020a02840b47"
+    },
+    {
+     "threads": 12,
+     "round": 2,
+     "exit": 0,
+     "external_wall_ms": 14281.312800012529,
+     "peak_working_set_bytes": 1824673792,
+     "output_bytes": 247474732,
+     "output_sha256": "b235aa4008a57a7db38aa1f87593114867efa685753f05616acc020a02840b47"
+    },
+    {
+     "threads": 12,
+     "round": 3,
+     "exit": 0,
+     "external_wall_ms": 15082.727899949532,
+     "peak_working_set_bytes": 1823850496,
+     "output_bytes": 247474732,
+     "output_sha256": "b235aa4008a57a7db38aa1f87593114867efa685753f05616acc020a02840b47"
+    }
+   ],
+   "medians": {
+    "1": {
+     "runs": 3,
+     "external_wall_ms": 35586.673800018616,
+     "peak_working_set_bytes": 1765486592,
+     "output_bytes": 247474732,
+     "converted": 231,
+     "skipped": 23,
+     "lod0Only": 57,
+     "rounds_max": 10,
+     "cross_group_repartitions": 556,
+     "groups_final": 4618,
+     "report_wall_ms": 22391.86109983921,
+     "accumulated_ms": 20755.08771175146,
+     "stages": {
+      "sourceFingerprint": {
+       "cpu_ms": 988.9865997433662,
+       "count": 231
+      },
+      "leafCluster": {
+       "cpu_ms": 2568.9026997089386,
+       "count": 231
+      },
+      "topology": {
+       "cpu_ms": 2212.5367005467415,
+       "count": 231
+      },
+      "partition": {
+       "cpu_ms": 1982.3198000788689,
+       "count": 682
+      },
+      "boundary": {
+       "cpu_ms": 6679.715606212616,
+       "count": 18255
+      },
+      "simplify": {
+       "cpu_ms": 1719.6487001776695,
+       "count": 18255
+      },
+      "recluster": {
+       "cpu_ms": 788.3197006583214,
+       "count": 18255
+      },
+      "candidate": {
+       "cpu_ms": 10787.285496532917,
+       "count": 18255
+      },
+      "commit": {
+       "cpu_ms": 17.530301094055176,
+       "count": 18255
+      },
+      "validate": {
+       "cpu_ms": 3794.7991991639137,
+       "count": 231
+      },
+      "encode": {
+       "cpu_ms": 17.703300774097443,
+       "count": 231
+      }
+     }
+    },
+    "12": {
+     "runs": 3,
+     "external_wall_ms": 14598.542299994733,
+     "peak_working_set_bytes": 1824673792,
+     "output_bytes": 247474732,
+     "converted": 231,
+     "skipped": 23,
+     "lod0Only": 57,
+     "rounds_max": 10,
+     "cross_group_repartitions": 556,
+     "groups_final": 4618,
+     "report_wall_ms": 34021.13850057125,
+     "accumulated_ms": 31500.46948939562,
+     "stages": {
+      "sourceFingerprint": {
+       "cpu_ms": 1466.2699999809265,
+       "count": 231
+      },
+      "leafCluster": {
+       "cpu_ms": 3956.000200212002,
+       "count": 231
+      },
+      "topology": {
+       "cpu_ms": 3315.6076003313065,
+       "count": 231
+      },
+      "partition": {
+       "cpu_ms": 3040.7557992339134,
+       "count": 682
+      },
+      "boundary": {
+       "cpu_ms": 9975.689692914486,
+       "count": 18255
+      },
+      "simplify": {
+       "cpu_ms": 2792.9891986846924,
+       "count": 18255
+      },
+      "recluster": {
+       "cpu_ms": 1184.2445994615555,
+       "count": 18255
+      },
+      "candidate": {
+       "cpu_ms": 16368.366703867912,
+       "count": 18255
+      },
+      "commit": {
+       "cpu_ms": 41.79529958963394,
+       "count": 18255
+      },
+      "validate": {
+       "cpu_ms": 5575.652400076389,
+       "count": 231
+      },
+      "encode": {
+       "cpu_ms": 27.550200402736664,
+       "count": 231
+      }
+     }
+    }
+   }
+  }
+ ]
+}

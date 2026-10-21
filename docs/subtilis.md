@@ -11,6 +11,12 @@
 >
 > This page is the entry point. The dated design, plan and acceptance records stay where they were written
 > and are indexed at the bottom; they remain the authoritative evidence for each step.
+>
+> The standalone CPU offline converter for the `DEREN_subtilis` glTF extension (`tools/subtilis`) is
+> implemented and accepted separately from the runtime feature: it builds the shared-vertex cluster DAG
+> deterministically on multicore, with workspace budgets, stage profiling, packaging and CLI validators.
+> It is not wired into the runtime import path yet. Tool entry: [tools/subtilis/README.md](../tools/subtilis/README.md);
+> real-asset, Khronos-validator, cut/LOD0 and CI evidence: [2026-10-21 converter report](reviews/2026-10-21-subtilis-converter.md).
 
 ## 1. What it is
 
@@ -144,6 +150,11 @@ geometry-scene image differences above are LOD edge differences, not pixel ident
   (main-view prepare + frame run), `test_subtilis_frame` (published-run overlap/alias + frames);
   `test_visibility_buffer`, `test_render_graph_visibility` cover the consumer lane, `test_hzb` the
   occlusion composition. `ctest -R subtilis` covers the first group.
+- Offline converter: `tools/subtilis` builds the `DEREN_subtilis` asset (build/inspect/validate/export-cut;
+  `--threads N` deterministic, `validate --full`, per-stage report). Its own tests are built from
+  `tools/subtilis/CMakeLists.txt` (`ctest --test-dir build-subtilis`), separately from the engine CTest set;
+  measurement scripts live in `scripts/measure/` and the Task 8 acceptance record is
+  `docs/reviews/2026-10-21-subtilis-converter.md`.
 - Real-scene captures: `scripts/windows/capture.ps1 -Base <toml> -Camera ... -Frames ...` with
   `subtilis = true`; the full OFF/ON matrix and raw logs are in the Bistro performance report
   (`docs/reviews/2026-10-20-bistro-performance/`). The textured asset preparation/verification scripts are
@@ -202,6 +213,8 @@ are repository-relative.
   captures; textured Subtilis OFF/ON remains open.
 - `docs/reviews/2026-10-21-hzb-recovery.md` - the M3 lane that consumes the cut records; measured
   -78.6%/-61.6% GPU frame on moving Bistro views.
+- `docs/reviews/2026-10-21-subtilis-converter.md` - the separate CPU offline glTF DAG converter
+  (`tools/subtilis`): real-asset measurements, Khronos-validator and LOD0/cut evidence, independent CPU CI.
 
 **Consumers / adjacent manual pages:** the visibility-buffer lane (\ref md_docs_2visibility__buffer "The visibility buffer lane") and the mesh-shader path (\ref md_docs_2mesh__shaders "Mesh shaders"); the project README's feature list is repository-level.
 
@@ -215,3 +228,5 @@ are repository-relative.
 - M4 - software raster for sub-pixel clusters: **not started** (probe: 22% of far clusters <1 px).
 - M5 - streaming/paging: **not started**.
 - asset pipeline - automatic import-time build + on-disk cache: **not implemented** (explicit API only).
+- offline glTF cluster-DAG converter (`tools/subtilis`, `DEREN_subtilis` extension): **implemented and
+  accepted as an independent CPU tool** 2026-10-21; runtime import of converter output is still future work.

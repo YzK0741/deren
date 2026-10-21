@@ -1,0 +1,23 @@
+{
+  "schema": "subtilis-converter-fixtures/1",
+  "fixtures": [
+    {
+      "name": "small",
+      "path": ".subtilis-work\\fixtures\\small.glb",
+      "sha256": "4f57aeb06c9346a220310cfe8fe0c4fe9b29b87990c575e9fa4d85a09c5d6d45",
+      "bytes": 60320,
+      "triangles": 2048,
+      "vertices": 1089,
+      "grid_width": 32
+    },
+    {
+      "name": "large",
+      "path": ".subtilis-work\\fixtures\\large.glb",
+      "sha256": "0895f9dc7a59f459efd1b76178885fa16fae5990f0585d10bfc705e3722a36e5",
+      "bytes": 3687348,
+      "triangles": 131072,
+      "vertices": 66049,
+      "grid_width": 256
+    }
+  ]
+}

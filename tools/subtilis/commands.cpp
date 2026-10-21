@@ -61,6 +61,14 @@ namespace deren::tools::subtilis {
                 yyjson_mut_obj_add_uint(d, p, "rootTriangles", row.root_triangles);
                 yyjson_mut_obj_add_uint(d, p, "rounds", row.report.rounds);
                 yyjson_mut_obj_add_uint(d, p, "crossGroupRepartitions", row.report.cross_group_repartitions);
+                // Rejection reasons are external report data only; the payload metadata already carries
+                // the same structural counters and neither timing nor thread data enters the identity.
+                auto* rejected = yyjson_mut_obj(d);
+                yyjson_mut_obj_add_val(d, p, "rejected", rejected);
+                char const* const rejection_names[]{"none", "noProgress", "unsafeTopology", "zeroScale", "numericError", "boundaryChanged"};
+                for (size_t reason = 1; reason < row.report.rejected.size(); ++reason)
+                    if (row.report.rejected[reason])
+                        yyjson_mut_obj_add_uint(d, rejected, rejection_names[reason], row.report.rejected[reason]);
                 yyjson_mut_obj_add_uint(d, p, "plannedConcurrency", row.report.planned_concurrency);
                 yyjson_mut_obj_add_uint(d, p, "knownWorkPeakBytes", row.report.known_work_peak_bytes);
                 yyjson_mut_obj_add_uint(d, p, "knownWorkLimitBytes", row.report.known_work_limit_bytes);

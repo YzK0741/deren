@@ -1,0 +1,20 @@
+{
+  "schema": "subtilis-converter-validator-manifest/1",
+  "tool": "Khronos glTF-Validator (official core validator CLI)",
+  "version": "2.0.0-dev.3.10",
+  "release_page": "https://github.com/KhronosGroup/glTF-Validator/releases/tag/2.0.0-dev.3.10",
+  "platform": "win64",
+  "archive": {
+    "name": "gltf_validator-2.0.0-dev.3.10-win64.zip",
+    "url": "https://github.com/KhronosGroup/glTF-Validator/releases/download/2.0.0-dev.3.10/gltf_validator-2.0.0-dev.3.10-win64.zip",
+    "bytes": 2320898,
+    "sha256": "c5068f51205deedc28acc3529ee7e11ee60e853454f673093398eba80142202c"
+  },
+  "executable": {
+    "name": "gltf_validator.exe",
+    "bytes": 5520896,
+    "sha256": "4388a152ff90b68c6430ae03862e05e257a9d50a500ed7d0eb1cd420dc75ff96"
+  },
+  "usage": "separate Task 8 acceptance tool: download the official release, verify the archive SHA-256, unpack it, then verify the executable SHA-256 with verify_subtilis_converter.py. It is not part of the normal CMake build and is never vendored into the repository or the engine build.",
+  "local_path": "D:/deren-assets/gltf-tools-khronos/2.0.0-dev.3.10/gltf_validator.exe"
+}
