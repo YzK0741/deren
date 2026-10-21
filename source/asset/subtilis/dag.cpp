@@ -52,42 +52,59 @@ namespace deren::asset::subtilis {
             std::sort(out.begin(), out.end());
             return out;
         }
-        vector<uint32_t> vertex_classes(source_geometry const& s) {
-            vector<uint32_t> order(s.positions.size()), classes(order.size());
+        // Per-reduction boundary/component contract (design spec 3.4): position-equivalent vertices
+        // define GEOMETRIC adjacency, while attribute equality (position+normal+uv) only defines the
+        // seam identity of the attribute boundary. The builder checks both graphs independently, so
+        // the full validator must too: judging components/pinch with a single attribute-class graph
+        // rejects legitimate seam-sharing regions (a shared seam vertex is one class in two
+        // attribute-connected components) on real assets.
+        struct vertex_classes {
+            vector<uint32_t> position, attribute;
+        };
+        vertex_classes classify_vertices(source_geometry const& s) {
+            vertex_classes out;
+            vector<uint32_t> order(s.positions.size());
+            out.position.resize(order.size());
+            out.attribute.resize(order.size());
             std::iota(order.begin(), order.end(), 0u);
-            auto key = [&](uint32_t id) { auto p=s.positions[id],n=s.normals[id]; auto uv=s.uv0[id]; return array<float,8>{p[0],p[1],p[2],n[0],n[1],n[2],uv[0],uv[1]}; };
-            std::sort(order.begin(), order.end(), [&](auto a, auto b) { auto ka=key(a),kb=key(b); return ka!=kb ? ka<kb : a<b; });
+            std::sort(order.begin(), order.end(), [&](auto a, auto b) { return s.positions[a] != s.positions[b] ? s.positions[a] < s.positions[b] : a < b; });
             uint32_t representative = 0;
+            for (size_t i = 0; i < order.size(); ++i) {
+                if (!i || s.positions[order[i]] != s.positions[order[i - 1]])
+                    representative = order[i];
+                out.position[order[i]] = representative;
+            }
+            auto key = [&](uint32_t id) {
+                auto p = s.positions[id];
+                auto n = s.normals[id];
+                auto uv = s.uv0[id];
+                return array<float, 8>{p[0], p[1], p[2], n[0], n[1], n[2], uv[0], uv[1]};
+            };
+            std::sort(order.begin(), order.end(), [&](auto a, auto b) {auto ka=key(a),kb=key(b);return ka!=kb?ka<kb:a<b; });
+            representative = 0;
             for (size_t i = 0; i < order.size(); ++i) {
                 if (!i || key(order[i]) != key(order[i - 1]))
                     representative = order[i];
-                classes[order[i]] = representative;
+                out.attribute[order[i]] = representative;
             }
-            return classes;
+            return out;
         }
-        struct region {
+        struct boundary_graph {
             vector<array<uint32_t, 2>> boundary;
-            uint32_t components = 0;
-            bool operator==(region const&) const = default;
+            vector<uint32_t> components; // component root per triangle
+            uint32_t component_count = 0;
         };
-        result<region> analyze_region(source_geometry const& s, std::span<uint32_t const> ids, vector<uint32_t> const& classes) {
+        result<boundary_graph> analyze_class_graph(std::span<uint32_t const> ids, vector<uint32_t> const& classes, bool track_components) {
+            boundary_graph result;
             vector<array<uint32_t, 4>> edges;
             edges.reserve(ids.size());
             vector<array<uint32_t, 3>> faces;
             faces.reserve(ids.size() / 3);
             vector<uint32_t> parent(ids.size() / 3);
             std::iota(parent.begin(), parent.end(), 0u);
-            auto root = [&](uint32_t id) { while(parent[id]!=id) { parent[id]=parent[parent[id]]; id=parent[id]; } return id; };
+            auto root = [&](uint32_t id) {while(parent[id]!=id){parent[id]=parent[parent[id]];id=parent[id];}return id; };
             for (size_t i = 0; i < ids.size(); i += 3) {
                 array<uint32_t, 3> tri{classes[ids[i]], classes[ids[i + 1]], classes[ids[i + 2]]};
-                auto a = s.positions[ids[i]], b = s.positions[ids[i + 1]], c = s.positions[ids[i + 2]];
-                array<double, 3> ab{}, ac{};
-                for (unsigned k = 0; k < 3; ++k) {
-                    ab[k] = double(b[k]) - a[k];
-                    ac[k] = double(c[k]) - a[k];
-                }
-                if (std::hypot(ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]) == 0)
-                    return fail("degenerate reduction triangle");
                 for (unsigned k = 0; k < 3; ++k) {
                     auto u = tri[k], v = tri[(k + 1) % 3];
                     if (u == v)
@@ -101,7 +118,6 @@ namespace deren::asset::subtilis {
             if (std::adjacent_find(faces.begin(), faces.end()) != faces.end())
                 return fail("duplicate reduction face");
             std::sort(edges.begin(), edges.end());
-            region result;
             for (size_t first = 0; first < edges.size();) {
                 size_t end = first + 1;
                 while (end < edges.size() && edges[end][0] == edges[first][0] && edges[end][1] == edges[first][1])
@@ -117,21 +133,53 @@ namespace deren::asset::subtilis {
                 }
                 first = end;
             }
-            vector<array<uint32_t, 2>> vertices;
-            vertices.reserve(ids.size());
-            for (size_t i = 0; i < parent.size(); ++i) {
-                auto r = root(static_cast<uint32_t>(i));
-                if (r == i)
-                    ++result.components;
-                for (unsigned k = 0; k < 3; ++k)
-                    vertices.push_back({classes[ids[i * 3 + k]], r});
+            if (track_components) {
+                vector<array<uint32_t, 2>> vertices;
+                vertices.reserve(ids.size());
+                for (size_t i = 0; i < parent.size(); ++i) {
+                    auto r = root(static_cast<uint32_t>(i));
+                    if (r == i)
+                        ++result.component_count;
+                    for (unsigned k = 0; k < 3; ++k)
+                        vertices.push_back({classes[ids[i * 3 + k]], r});
+                }
+                std::sort(vertices.begin(), vertices.end());
+                for (size_t i = 1; i < vertices.size(); ++i)
+                    if (vertices[i][0] == vertices[i - 1][0] && vertices[i][1] != vertices[i - 1][1])
+                        return fail("pinched reduction components");
             }
-            std::sort(vertices.begin(), vertices.end());
-            for (size_t i = 1; i < vertices.size(); ++i)
-                if (vertices[i][0] == vertices[i - 1][0] && vertices[i][1] != vertices[i - 1][1])
-                    return fail("pinched reduction components");
             std::sort(result.boundary.begin(), result.boundary.end());
             return result;
+        }
+        struct region {
+            vector<array<uint32_t, 2>> geometric, attribute;
+            uint32_t components = 0;
+            bool operator==(region const&) const = default;
+        };
+        result<region> analyze_region(source_geometry const& s, std::span<uint32_t const> ids, vertex_classes const& classes) {
+            if (!ids.size() || ids.size() % 3)
+                return fail("invalid reduction region");
+            for (size_t i = 0; i < ids.size(); i += 3) {
+                auto a = s.positions[ids[i]], b = s.positions[ids[i + 1]], c = s.positions[ids[i + 2]];
+                array<double, 3> ab{}, ac{};
+                for (unsigned k = 0; k < 3; ++k) {
+                    ab[k] = double(b[k]) - a[k];
+                    ac[k] = double(c[k]) - a[k];
+                }
+                if (std::hypot(ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]) == 0)
+                    return fail("degenerate reduction triangle");
+            }
+            auto geometric = analyze_class_graph(ids, classes.position, true);
+            if (!geometric)
+                return std::unexpected(geometric.error());
+            auto attribute = analyze_class_graph(ids, classes.attribute, false);
+            if (!attribute)
+                return std::unexpected(attribute.error());
+            region out;
+            out.geometric = std::move(geometric->boundary);
+            out.attribute = std::move(attribute->boundary);
+            out.components = geometric->component_count;
+            return out;
         }
     } // namespace
     result<void> validate_structure(payload const& p, limits const& lim) {
@@ -222,7 +270,7 @@ namespace deren::asset::subtilis {
             return std::unexpected(leaves.error());
         if (triangles(*leaves) != triangles(source.indices))
             return fail("LOD0 triangle multiset or winding mismatch");
-        auto classes = vertex_classes(source);
+        auto classes = classify_vertices(source);
         for (uint32_t id = 0; id < data.groups.size(); ++id) {
             auto const& g = data.groups[id];
             auto f = gather(data, fine(data, g), lim.max_records), c = gather(data, coarse(data, g), lim.max_records);

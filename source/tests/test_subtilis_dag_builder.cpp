@@ -270,5 +270,55 @@ int main() {
     CHECK(bounded && bounded->report.rounds == 1 && bounded->asset.data().groups.size() > 0);
     auto islands = sub::build_serial(disconnected, options, {});
     CHECK(islands && islands->asset.data().roots.size() > 1);
+    // Regression for the real-asset full-validation rule: a UV-seam geometry can share one vertex
+    // between triangles that are only attribute-connected on their own side, so the attribute-class
+    // graph has two components that share that vertex class while the position-class graph (the
+    // design's geometric adjacency, spec 3.4) is one component. The full validator used to judge
+    // components/pinch with the attribute graph only and rejected the builder's own accepted
+    // reductions ("reduction boundary or components differ") on Bistro. The contract is the two-graph
+    // one: position classes for geometric boundary/components, attribute classes for the seam
+    // boundary. This synthetic seam grid previously failed full validation and must now build.
+    auto seam_grid = [](unsigned width, unsigned height) {
+        sub::source_geometry s;
+        unsigned const column = width / 2, layer = (width + 1) * (height + 1);
+        for (unsigned side = 0; side < 2; ++side)
+            for (unsigned y = 0; y <= height; ++y)
+                for (unsigned x = 0; x <= width; ++x) {
+                    s.positions.push_back({2.f * float(x) / width, 2.f * float(y) / height, 0});
+                    s.normals.push_back({0, 0, 1});
+                    s.uv0.push_back({float(x) / width + (side ? 1.f : 0.f), float(y) / height});
+                }
+        auto id = [&](unsigned x, unsigned y, bool left) -> uint32_t {
+            auto original = y * (width + 1) + x;
+            // the two seam endpoint rows keep one shared vertex; interior seam vertices are duplicated
+            if (x == column && !left && y != 0 && y != height)
+                return original + layer;
+            return original;
+        };
+        for (unsigned y = 0; y < height; ++y)
+            for (unsigned x = 0; x < width; ++x) {
+                auto const left = x < column;
+                auto a = id(x, y, left), b = id(x + 1, y, left), c = id(x + 1, y + 1, left), d = id(x, y + 1, left);
+                s.indices.insert(s.indices.end(), {a, b, c, a, c, d});
+            }
+        return s;
+    };
+    auto seam = seam_grid(64, 64);
+    auto seam_built = sub::build_serial(seam, options, {});
+    CHECK(seam_built);
+    if (seam_built) {
+        CHECK(!seam_built->report.lod0_only);
+        CHECK(seam_built->asset.data().groups.size() > 0);
+        CHECK(seam_built->asset.data().references.size() > 0);
+        CHECK(sub::validate_structure(seam_built->asset.data(), {}));
+        auto seam_wire = sub::encode(seam_built->asset.data(), {});
+        auto seam_again = sub::build_serial(seam, options, {});
+        CHECK(seam_again);
+        if (seam_again) {
+            auto seam_again_wire = sub::encode(seam_again->asset.data(), {});
+            CHECK(seam_wire && seam_again_wire && *seam_wire == *seam_again_wire);
+        }
+        deren::vk_test::write_line("seam-sharing full-validation regression: {} groups, {} rounds, {} cross-group repartitions, {} rejects", seam_built->asset.data().groups.size(), seam_built->report.rounds, seam_built->report.cross_group_repartitions, seam_built->report.rejected[1] + seam_built->report.rejected[4] + seam_built->report.rejected[5]);
+    }
     return deren::vk_test::finish("subtilis_dag_builder");
 }
