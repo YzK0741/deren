@@ -186,6 +186,9 @@ else()
     )
 endif()
 
+include(cmake/deren_cpu_utility.cmake)
+include(cmake/deren_asset_dependencies.cmake)
+
 # The project's STL module is `deren.vstd`, and there are two dialects of it - the toolchain picks:
 #
 #   clang64 (the shipped build): source/vstd/vstd.cppm - modified from libc++'s (LLVM) generated
@@ -206,28 +209,6 @@ endif()
 # Visual Studio installation ships only modules/std.ixx, there is no prebuilt std.ifc. It relies
 # on the experimental gate set at the top of this file (the gate has to precede project(), which
 # is also why the compiler choice is made with `if(MSVC)` here and not up there).
-if(MSVC)
-    set(CMAKE_CXX_MODULE_STD ON)
-endif()
-
-add_library(vstd_lib STATIC)
-
-if(MSVC)
-    target_sources(vstd_lib
-            PUBLIC
-            FILE_SET CXX_MODULES
-            FILES
-            source/vstd/vstd_msvc.cppm
-    )
-else()
-    target_sources(vstd_lib
-            PUBLIC
-            FILE_SET CXX_MODULES
-            FILES
-            source/vstd/vstd.cppm
-    )
-endif()
-
 # =============================================================================================
 # THE UTILITY TOOLKIT IS TWO TARGETS (batch ④, the dynamic-backend flip's prerequisite).
 #
@@ -306,44 +287,6 @@ endif()
 # (source/utility/shared/log_rotation_claim.cpp, an OS-named object keyed by the process id) stays as the
 # second line of defence, and this batch is where it is first genuinely needed - and where it was
 # MEASURED, on the artifacts: one rotation for the whole process, not one per image.
-add_library(shared_utility SHARED)
-# THE FILE NAME IS PART OF THE DESIGN: the process-wide half ships as `shared_utility.dll`, because
-# BOTH the executable and deren_vulkan.dll import it BY THAT NAME. MinGW's default `lib` prefix would
-# produce `libshared_utility.dll`, so it is removed on purpose (the import library keeps its
-# conventional spelling through IMPORT_PREFIX).
-set_target_properties(shared_utility PROPERTIES PREFIX "")
-get_filename_component(_trace_compiler_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
-find_program(VR_STACKTRACE_SYMBOLIZER NAMES llvm-symbolizer HINTS "${_trace_compiler_dir}")
-if(VR_STACKTRACE_SYMBOLIZER)
-    target_compile_definitions(shared_utility PRIVATE DEREN_LLVM_SYMBOLIZER="${VR_STACKTRACE_SYMBOLIZER}")
-endif()
-target_link_libraries(shared_utility PRIVATE ${CMAKE_DL_LIBS})
-
-target_sources(shared_utility
-        PUBLIC
-        FILE_SET CXX_MODULES
-        FILES
-        # The sink, the rotation, panic convergence, the allocator hook. Its tools go into
-        # `deren.utility` below, which re-exports this module.
-        source/utility/shared/shared_utility.cppm
-        PRIVATE
-        source/utility/shared/shared_utility.cpp
-        # The allocator hook's definitions. IT IS NOT A PARTITION, AND THAT IS MEASURED: a partition
-        # of a module that is itself re-exported (`deren.utility` re-exports `deren.utility.shared`)
-        # makes clang 22.1.8 crash while semantically analysing a consumer's std::format call
-        # (utility.cpp's write_png, reproduced with -fsyntax-only; the crash disappears when the
-        # partition re-export becomes a plain import). So the hook is declared in the primary
-        # interface and defined here - no partition, nothing lost.
-        source/utility/shared/memory.cpp
-        source/utility/shared/allocation_failure.cpp
-        source/utility/shared/stacktrace.cpp
-        source/utility/shared/stacktrace_native.cpp
-        source/utility/shared/stacktrace_posix.cpp
-        # The once-per-process rotation claim, a plain (non-module) TU for the platform_* reason:
-        # <windows.h> does not belong in a module's global module fragment.
-        source/utility/shared/log_rotation_claim.cpp
-)
-
 add_library(static_utility STATIC)
 
 target_sources(static_utility
@@ -868,20 +811,6 @@ target_include_directories(deren_assets
 # single-header/single-source pair (simdjson.h + simdjson.cpp), and the three fastgltf
 # translation units are compiled here as plain C++ (vendored code does not follow the
 # project's -Werror set, mirroring the imgui/xxhash policy).
-add_library(fastgltf_vendored STATIC
-        source/third_party/fastgltf/src/fastgltf.cpp
-        source/third_party/fastgltf/src/base64.cpp
-        source/third_party/fastgltf/src/io.cpp
-        source/third_party/simdjson/singleheader/simdjson.cpp
-)
-
-target_include_directories(fastgltf_vendored
-    PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/fastgltf/include
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/simdjson/singleheader
-)
-
 # stb_image.h (vendored): gltf_loader.cpp decodes embedded/external textures with it
 # (#define STB_IMAGE_IMPLEMENTATION + #include <stb/stb_image.h>).
 add_library(stb_vendored INTERFACE)
@@ -925,14 +854,6 @@ target_link_libraries(imgui
 # Compiled as its own plain-C target, mirroring the imgui policy above (vendored
 # code does not follow the project's -Werror set). static_utility links it (the hash functions are
 # pure and per-half - they are not process-wide state).
-add_library(meshoptimizer_vendored STATIC
-    source/third_party/meshoptimizer/src/allocator.cpp
-    source/third_party/meshoptimizer/src/clusterizer.cpp
-    source/third_party/meshoptimizer/src/partition.cpp
-    source/third_party/meshoptimizer/src/simplifier.cpp
-    source/third_party/meshoptimizer/src/indexgenerator.cpp
-)
-target_include_directories(meshoptimizer_vendored PRIVATE source/third_party/meshoptimizer/src)
 target_include_directories(deren_engine SYSTEM PRIVATE source/third_party/meshoptimizer/src)
 target_link_libraries(deren_engine PRIVATE meshoptimizer_vendored)
 target_sources(deren_engine PRIVATE
@@ -957,39 +878,6 @@ target_include_directories(xxhash
 # its own plain-C static target from the upstream mi_sources set, mirroring the imgui /
 # xxhash policy (vendored code does not follow the project's -Werror set; headers are
 # SYSTEM so the -Werror consumers that include <mimalloc.h> do not see upstream warnings).
-add_library(mimalloc_vendored STATIC
-        source/third_party/mimalloc/src/alloc.c
-        source/third_party/mimalloc/src/alloc-aligned.c
-        source/third_party/mimalloc/src/alloc-posix.c
-        source/third_party/mimalloc/src/arena.c
-        source/third_party/mimalloc/src/arena-meta.c
-        source/third_party/mimalloc/src/bitmap.c
-        source/third_party/mimalloc/src/heap.c
-        source/third_party/mimalloc/src/init.c
-        source/third_party/mimalloc/src/libc.c
-        source/third_party/mimalloc/src/options.c
-        source/third_party/mimalloc/src/os.c
-        source/third_party/mimalloc/src/page.c
-        source/third_party/mimalloc/src/page-map.c
-        source/third_party/mimalloc/src/random.c
-        source/third_party/mimalloc/src/stats.c
-        source/third_party/mimalloc/src/theap.c
-        source/third_party/mimalloc/src/threadlocal.c
-        source/third_party/mimalloc/src/prim/prim.c
-)
-
-target_include_directories(mimalloc_vendored
-    SYSTEM PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/mimalloc/include
-)
-
-if(WIN32)
-    # upstream links psapi/shell32/user32/advapi32/bcrypt on Windows (see mimalloc's
-    # CMakeLists.txt mi_libraries); _WIN32_WINNT=0x600 matches the upstream MINGW define
-    target_compile_definitions(mimalloc_vendored PRIVATE _WIN32_WINNT=0x600)
-    target_link_libraries(mimalloc_vendored PUBLIC psapi shell32 user32 advapi32 bcrypt)
-endif()
-
 # PRIVATE throughout, and that is what the DLL shape changes: the vendored loader, stb and the
 # per-half toolkit are compiled INTO deren_assets.dll, so no consumer of theirs is a consumer of this
 # target's link interface any more. `vstd_lib` stays here because the module's own interface re-exports
@@ -1089,11 +977,6 @@ target_link_libraries(static_utility
 # vendored mimalloc (source/third_party/mimalloc), so the dependency moved here with the allocator hook -
 # the executable no longer needs MSYS2's libmimalloc.dll. vstd_lib is all it needs besides: the
 # module imports NEITHER the contract nor static_utility.
-target_link_libraries(shared_utility
-        vstd_lib
-        mimalloc_vendored
-)
-
 # ============================================================================================
 # backend_loader - WHERE THE BACKEND IS LOADED AND THE DEVICE ROOT IS ACQUIRED (batch ⑥).
 #
@@ -1822,7 +1705,7 @@ target_link_libraries(deren_gui_vulkan
 # so the meaning is unchanged, and the build recompiled exactly that one object and relinked its image
 # before reporting `ninja: no work to do`.
 # ================================================================================================
-set(VR_VENDORED_TARGETS imgui fastgltf_vendored xxhash mimalloc_vendored meshoptimizer_vendored)
+set(VR_VENDORED_TARGETS imgui fastgltf_vendored xxhash mimalloc_vendored meshoptimizer_vendored yyjson_vendored)
 get_property(_deren_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(_deren_target IN LISTS _deren_targets)
     if(_deren_target IN_LIST VR_VENDORED_TARGETS)

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mesh.primitive.DEREN_subtilis.schema.json",
+  "title": "DEREN_subtilis primitive extension (private draft)",
+  "type": "object",
+  "required": ["version", "profile", "bufferView"],
+  "properties": {
+    "version": {"const": 1},
+    "profile": {"const": "shared-vertices"},
+    "bufferView": {"type": "integer", "minimum": 0},
+    "extensions": {"type": "object"},
+    "extras": {}
+  },
+  "additionalProperties": false
+}

@@ -100,6 +100,15 @@ are not listed here.
   its public headers)
 - license: dual MIT / Apache-2.0 (`LICENSE` + `LICENSE-MIT` in the subtree)
 
+## yyjson
+
+- version: 0.12.0, commit `8b4a38dc994a110abaec8a400615567bd996105f`
+- upstream: https://github.com/ibireme/yyjson
+- local changes: none; only `src/yyjson.c`, `src/yyjson.h`, and MIT `LICENSE`
+- integrity: `yyjson/manifest.sha256`; Git blob IDs checked against the pinned commit
+- build: plain-C `yyjson_vendored`, offline; converter allocations use utility::memory callbacks
+- purpose: mutable JSON document preservation; independent of fastgltf's simdjson
+
 ## stb_image
 
 - version: not pinned by upstream (public-domain single header; the vendored

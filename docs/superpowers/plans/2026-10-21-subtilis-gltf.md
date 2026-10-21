@@ -54,14 +54,14 @@
 **Interfaces:**
 - `result<vector<byte>> encode(payload const&, limits const&)`。
 - `result<payload> decode(span<byte const>, limits const&)`；仅完成wire和结构形状检查，不能返回validated_asset。
-- `array<byte,32> source_digest(source_geometry const&)`、`build_digest(build_options const&)`；固定字段顺序、长度前缀和LE编码见spec。SHA256适配仓库`test_goo_toon_math.cpp`的既有算法为流式实现，原测试不改为依赖新库。
+- `result<digest> source_digest(source_geometry const&)`、`result<digest> build_digest(build_options const&)`（typed错误裁定见checkpoint）；固定字段顺序、长度前缀和LE编码见spec。SHA256适配仓库`test_goo_toon_math.cpp`的既有算法为流式实现，原测试不改为依赖新库。
 
-- [ ] RED：测试七分区roundtrip及字段固定offset；`headerBytes=128`、cluster32/group48、对齐/零padding；拒绝重叠、重复/未知section、truncated、u64 overflow、count×stride超限及不对齐输入。测试sourceDigest对-0/+0一致、索引绕序改变后不同；SHA256空串/abc/多块与Python hashlib一致。
-- [ ] 在实现前运行`cmake --build build-subtilis --target test_subtilis_codec -j12`并记录缺接口或断言失败；首次最小配置与测试目标随此交付建立。
-- [ ] 抽出原CPU依赖目标，按固定revision vendor yyjson并生成/核对manifest；实现显式字节读写，先验证再分配。JSON schema固定version=1/profile/shared-vertices和bufferView非负整数。
-- [ ] 配置：`cmake -S tools/subtilis -B build-subtilis -G Ninja -DCMAKE_BUILD_TYPE=Release`；构建/测试codec通过。独立配置设置`CMAKE_DISABLE_FIND_PACKAGE_Vulkan=TRUE`仍成功，target图无promise/engine/CUDA。
-- [ ] 根Release重配置、构建和原58项CTest通过，证明helper抽取未改变现有工程；此后原工程全套仅在其构建配置或共享utility再次改变时重跑。
-- [ ] 本地提交：`feat: add the standalone Subtilis payload codec`。
+- [x] RED：测试七分区roundtrip及字段固定offset；`headerBytes=128`、cluster32/group48、对齐/零padding；拒绝重叠、重复/未知section、truncated、u64 overflow、count×stride超限及不对齐输入。测试sourceDigest对-0/+0一致、索引绕序改变后不同；SHA256空串/abc/多块与Python hashlib一致。
+- [x] 在实现前运行`cmake --build build-subtilis --target test_subtilis_codec -j12`并记录缺接口或断言失败；首次最小配置与测试目标随此交付建立。
+- [x] 抽出原CPU依赖目标，按固定revision vendor yyjson并生成/核对manifest；实现显式字节读写，先验证再分配。JSON schema固定version=1/profile/shared-vertices和bufferView非负整数。
+- [x] 配置：`cmake -S tools/subtilis -B build-subtilis -G Ninja -DCMAKE_BUILD_TYPE=Release`；构建/测试codec通过。独立配置设置`CMAKE_DISABLE_FIND_PACKAGE_Vulkan=TRUE`仍成功，target图无promise/engine/CUDA。
+- [x] 根Release重配置、构建和原58项CTest通过，证明helper抽取未改变现有工程；此后原工程全套仅在其构建配置或共享utility再次改变时重跑。
+- [x] 本地提交：`feat: add the standalone Subtilis payload codec`。
 
 ## Task 2 — validated DAG、full geometry验证和CPU cut参考
 

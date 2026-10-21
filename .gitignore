@@ -2,6 +2,7 @@
 cmake-build-*/
 build-*-clang64/
 build-stacktrace-posix/
+build-subtilis/
 build-debug/
 build-release/
 #sanitizer build (ASan/UBSan, local verification only - see source/tests/)
