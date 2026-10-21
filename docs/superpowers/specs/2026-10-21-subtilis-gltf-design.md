@@ -1,6 +1,6 @@
 # Subtilis cluster DAG：glTF 扩展与 CPU 离线转换器
 
-日期：2026-10-21。状态：**已按用户确认的 CPU-first 路线修订，正文待审阅，尚未实施**。代码基线 `07e365bd`。
+日期：2026-10-21。状态：**已按用户确认的 CPU-first 路线修订，尚未实施**。[实施计划](../plans/2026-10-21-subtilis-gltf.md)已编写，待审阅后进入实现。代码基线 `07e365bd`。
 
 ## 1. 目标与阶段边界
 
@@ -251,4 +251,4 @@ A–D是同一个离线工具阶段的实施分界，不表示先把旧森林包
 - [CUDA 13.4 Windows编译器支持](https://docs.nvidia.com/cuda/cuda-installation-guide-microsoft-windows/)与[CUB](https://github.com/NVIDIA/cccl)。仅作为未来实验的环境资料，首版不启用CUDA。
 - [yyjson](https://github.com/ibireme/yyjson)：可写JSON DOM、整数精度和自定义分配支持；仅用于新工具，不改变现有gltf_loader后端。
 
-自查：首版明确为共享原顶点、多核CPU约束简化与实测剖析，CUDA延期且不增加预设后端框架，DAG切换条件有独立参考；普通LOD0保留，未知资源语义不作虚假保真承诺；格式不包含当前可见表容量/设备ABI。用户审阅修订稿后再编写逐项实施计划，届时固定新依赖revision和构建配置；本稿不授权直接开始实现。
+自查：首版明确为共享原顶点、多核CPU约束简化与实测剖析，CUDA延期且不增加预设后端框架，DAG切换条件有独立参考；普通LOD0保留，未知资源语义不作虚假保真承诺；格式不包含当前可见表容量/设备ABI。逐项实施计划已固定新依赖revision与构建边界，审阅后按计划实施。
