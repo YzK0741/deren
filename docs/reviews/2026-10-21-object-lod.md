@@ -166,3 +166,8 @@ python scripts/measure/measure_object_lod.py --work build-release-dyn-clang64/ob
 ```
 
 分析脚本拒绝缺轮次/重复轮次/失败/短捕获/非有限或缺失指标；已有数值须与原始日志一致。新增统计用 `--refresh-metrics` 从日志补全，原始 measurements 副本保留。
+
+最终审查随后修复了表溢出时的完整绘制回退，以及可选迟滞历史的实例地址复用隔离。
+上述性能矩阵仍对应 §1 记录的 renderer 哈希；不把后续构建冒充为同一测量二进制。
+该矩阵没有表溢出且迟滞关闭；修复后的验证范围与最终状态另见
+[最终审查记录](2026-10-22-object-lod-final-review.md)。

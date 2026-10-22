@@ -178,3 +178,7 @@ cluster observer does not change algorithms/tables/draw metadata. Release full
 61/61 (99.71s); existing CI headless ASan/UBSan 60/60 (232.95s), native boundary
 covered by Release. Final documentation/acceptance and one fresh whole-change
 review remain in Task 8; no push.
+
+## Task 8: accepted
+
+Review fixes: 8b331db9. Release 61/61; ASan/UBSan 60/60; frozen images 15/15 and 1/1. Five Bistro controls passed. Converter 6/6 and CLI passed. Full review, source-validator exception and evidence: [final review](2026-10-22-object-lod-final-review.md). Local commits only; no push.

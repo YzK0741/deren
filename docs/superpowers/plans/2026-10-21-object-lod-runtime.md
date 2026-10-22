@@ -212,12 +212,12 @@
 **Files**：`docs/subtilis.md`（状态头：converter 输出已接入 runtime；§2 表/§5 配置/§8 已知限制/§10 里程碑 M1c；索引链到本 spec/plan/验收记录）、`docs/extensions/DEREN_subtilis/README.md`（runtime consumer 节：导入规则/回退/容量，不改 wire）、`docs/visibility_buffer.md`（id 布局陈旧描述与 `visibility.cppm:43-70` 对齐）、`README`（特性列表，按惯例）、`docs/reviews/2026-10-21-object-lod.md` 定稿、`.github/workflows/ci.yml` + `CMakeLists.txt` 最终核对（test_docs）、所有本地提交。
 
 **RED**：
-- [ ] 先跑 `ctest --test-dir build-release-dyn-clang64`、`check_render.ps1` 门禁、`test_docs`，记录当前状态并对照 Task 7 报告；确认文档未更新时 `test_docs`/审查检查会怎样失败（如 VR_TEST_TARGETS 与 ci.yml 列表不一致、Doxyfile/索引缺失——按仓库现有不变量）。
+- [x] 先跑 `ctest --test-dir build-release-dyn-clang64`、`check_render.ps1` 门禁、`test_docs`，记录当前状态并对照 Task 7 报告；确认文档未更新时 `test_docs`/审查检查会怎样失败（如 VR_TEST_TARGETS 与 ci.yml 列表不一致、Doxyfile/索引缺失——按仓库现有不变量）。
 
 **GREEN**：
-- [ ] 文档更新（状态/配置/里程碑/证据索引），确保 docs 全绿（`test_docs`）与链接有效。
-- [ ] 最终回归：root Release `cmake --build` + `ctest` 全绿；ASan/UBSan 树全绿；converter 独立工程 `ctest --test-dir build-subtilis` 全绿；`deren-subtilis` CLI 快速回归；`check_render.ps1 -Full`/`-Visibility` OFF 冻结参考不变；`git status` 不含意外文件。
-- [ ] 提交：按 Task 拆分本地提交（feat/test/docs/perf），**不 push**；记录 commit 范围与 HEAD；把 Task 7 证据与 final review 材料交给 Lead（fresh whole-change review 的 5 Review Focus = 本计划 "Review Focus" 节；不启动任务级 agents、不重复审查流程）。
+- [x] 文档更新（状态/配置/里程碑/证据索引），确保 docs 全绿（`test_docs`）与链接有效。
+- [x] 最终回归：root Release `cmake --build` + `ctest` 全绿；ASan/UBSan 树全绿；converter 独立工程 `ctest --test-dir build-subtilis` 全绿；`deren-subtilis` CLI 快速回归；`check_render.ps1 -Full`/`-Visibility` OFF 冻结参考不变；`git status` 不含意外文件。
+- [x] 提交：按 Task 拆分本地提交（feat/test/docs/perf），**不 push**；记录 commit 范围与 HEAD；把 Task 7 证据与 final review 材料交给 Lead（fresh whole-change review 的 5 Review Focus = 本计划 "Review Focus" 节；不启动任务级 agents、不重复审查流程）。
 
 **Acceptance**：上述回归命令全部记录；`test_docs` PASS；docs 状态与实现一致；本地提交完成、无 push。随后按本计划 **Review Focus** 节由一名 fresh 只读 reviewer 做一次 whole-change review（Lead 决定；不启动任务级 agents、不重复审查流程）；Critical/Important 修复须有复现与 GREEN，Minor 记账；接受与否由 Lead 决定。
 
