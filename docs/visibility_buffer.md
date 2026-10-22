@@ -29,7 +29,7 @@ stage samples the same targets, and the toon re-shading stage tests the same dep
 
 ## The id
 
-One 32-bit word: valid(1) + item(10) + meshlet(14) + triangle(7). The resolve looks up the draw item, then the
+One 32-bit word: valid(1) + item(12) + meshlet(12) + triangle(7). The resolve looks up the draw item, then the
 meshlet record, then the triangle inside that record's index window - the same 48-byte meshlet record the
 fragment G-buffer path uses. A triangle at id 0 must not read as "empty", which is why the valid bit exists.
 

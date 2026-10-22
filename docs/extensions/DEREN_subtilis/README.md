@@ -94,3 +94,31 @@ With `S = sqrt(||view*model||1 * ||view*model||infinity)` on the linear 3x3 and
 `error*S*P`; perspective divides by the closest depth of the transformed LOD
 sphere. Near-plane crossings prohibit coarse selection. Unsupported/nonfinite
 views return complete LOD0; insufficient capacity returns an error, never a prefix.
+
+## Runtime consumer
+
+The engine consumes v1 `shared-vertices` payloads without changing this wire format.
+The app's single `[render] subtilis=true` switch requests loader extraction and
+engine adoption; default OFF loads leave payload bytes unparsed. Enabling only
+the runtime switch after an OFF startup cannot import an absent hierarchy.
+
+The loader owns raw bytes/metadata; the engine checks profile/material eligibility,
+source fingerprints, finite data, index windows and DAG structure. Full geometric
+validation stays in the trusted offline pipeline (`validate --full`), rather than
+being repeated at load time. Static OPAQUE POSITION/NORMAL/optional TEXCOORD_0
+profiles are supported; extra attributes such as TANGENT are not adopted.
+
+Source/payload identities share immutable CPU data and GPU generations across
+instances. Payload leaves form the complete LOD0 item run; only the main-view cut
+uses appended coarse indices. Shadow/BLAS and unsupported strategies retain LOD0.
+
+Malformed, unsupported, source-mismatched or LOD0-only payloads retain ordinary
+glTF geometry with typed fallback counts. Admission preserves 4096 visible items,
+4096 selected records per item and the 65536-record shared table. A legal cut may
+need more records than its leaf reservation; it falls back as a whole, never a
+prefix. The existing visibility admission can refuse an entire frame.
+
+The default 1px target is configurable with `subtilis_error_px`; optional
+`subtilis_hysteresis=false` keeps reference selection deterministic by default.
+See [Subtilis](../../subtilis.md) and the [runtime acceptance report](../../reviews/2026-10-21-object-lod.md)
+for lifecycle, configuration, source-asset limitations and measurement evidence.
