@@ -32,6 +32,7 @@
 
 module;
 
+#include <atomic>
 #include <cstddef> // offsetof (layout guard below)
 #include <glm/glm.hpp>
 #include <memory>
@@ -1931,7 +1932,11 @@ namespace deren::engine {
      *        shared, so draw() keeps working unchanged)
      */
     export class primitive : public deren::engine::scene_tree::primitive {
+        inline static std::atomic<uint64_t> next_lifetime{1};
+
     public:
+        // Address reuse must not reuse optional per-instance LOD decisions.
+        uint64_t const lifetime_id = next_lifetime.fetch_add(1, std::memory_order_relaxed);
         ~primitive() override = default;
 
         // Geometry views carry allocation leases. Production generations own buffers and device;
@@ -1965,7 +1970,7 @@ namespace deren::engine {
         /// where this primitive's run of meshlets starts in the GPU TABLE (docs/mesh_shaders.md step 3): the value
         /// the geometry lanes carry, so a task stage can turn "my meshlet workgroup" into a record index
         uint32_t meshlet_base = 0;
-        /// how many records that run holds (the same number as `meshlets.size()` after the upload's capacity clamp)
+        /// how many records the complete run holds; zero when the table cannot hold the entire run
         uint32_t meshlet_count = 0;
         // Pipeline the primitive draws with. Empty = DEFAULT semantics: the primitive does not
         // care which pipeline records it, it asks the draw-time render_environment to bind that

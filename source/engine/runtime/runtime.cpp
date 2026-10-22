@@ -2151,8 +2151,9 @@ namespace deren::engine {
                     continue;
                 auto& saved = this->subtilis_histories[leaf];
                 auto model = hzb_model_bits_of(*leaf);
-                if (saved.generation.lock() == leaf->subtilis_geometry && saved.model == model)
+                if (saved.lifetime_id == leaf->lifetime_id && saved.generation.lock() == leaf->subtilis_geometry && saved.model == model)
                     histories[i] = saved.cut;
+                saved.lifetime_id = leaf->lifetime_id;
                 saved.generation = leaf->subtilis_geometry;
                 saved.model = model;
             }
@@ -2902,11 +2903,15 @@ namespace deren::engine {
         // overflow - logged once, because a budget that silently drops geometry is a hole rather than a limit.
         std::size_t const room = this->meshlet_total < deren::engine::meshlet_capacity ? static_cast<std::size_t>(deren::engine::meshlet_capacity) - this->meshlet_total : 0u;
         if (result->meshlets.size() > room) {
+            this->meshlet_table_complete = false;
             if (!this->meshlet_overflow_logged) {
                 this->meshlet_overflow_logged = true;
                 deren::utility::log("meshlet table capacity ({}) exceeded - the extra meshlets are not culled (the geometry is unaffected)", deren::engine::meshlet_capacity);
             }
-            result->meshlets.resize(room);
+            // A prefix is not a drawable substitute for the complete object.
+            // Zero records makes visibility reject the frame and ordinary draws
+            // retain the complete index buffer, including the overflow geometry.
+            result->meshlets.clear();
         }
         std::memcpy(static_cast<uint8_t*>(this->meshlet_mapped) + this->meshlet_total * sizeof(deren::engine::meshlet), result->meshlets.data(), result->meshlets.size() * sizeof(deren::engine::meshlet));
         result->meshlet_base = static_cast<uint32_t>(this->meshlet_total);

@@ -2204,7 +2204,7 @@ namespace deren::engine {
             std::shared_lock const lock(self.access_mutex);
             env.default_name = gbuffer ? gbuffer_pipeline_name : self.default_pipeline_name;
             gbuffer_mesh = gbuffer && self.gbuffer_pipeline_mesh.has_value();
-            gbuffer_meshlet = gbuffer && self.gbuffer_pipeline_meshlet.has_value();
+            gbuffer_meshlet = gbuffer && self.meshlet_table_complete && self.gbuffer_pipeline_meshlet.has_value();
         }
         env.bind = [&self, &env, gbuffer, gbuffer_mesh, gbuffer_meshlet](recording_target const& session, std::string_view const name) {
             // NO NATIVE HANDLE IS DERIVED HERE ANY MORE (this batch): the bind and the stored viewport/scissor are
@@ -2241,7 +2241,7 @@ namespace deren::engine {
             // against the camera), failing that a MESH form, and failing that the vertex path - and the session's
             // flags follow the bind, which is what makes a session that mixes the forms correct rather than merely
             // likely.
-            if (auto const meshlet = self.meshlet_pipelines.find(name); meshlet != self.meshlet_pipelines.end()) {
+            if (auto const meshlet = self.meshlet_pipelines.find(name); self.meshlet_table_complete && meshlet != self.meshlet_pipelines.end()) {
                 bind_pipeline_on(session, meshlet->second);
                 env.mesh_stage = true;
                 env.meshlets = true;
@@ -2625,7 +2625,8 @@ namespace deren::engine {
                                   .run_tasks = &runtime::run_shadow_tasks,
                                   .owner = this,
                                   .cascades = std::span<rhi::mergeable_command_buffer_ref const>(this->shadow_secondaries_scratch.data(), cascades),
-                                  .map_size = this->shadow_map_size};
+                                  .map_size = this->shadow_map_size,
+                                  .allow_meshlets = this->meshlet_table_complete};
     }
 
     pass::draw_callback runtime::overlay_draw() const noexcept {

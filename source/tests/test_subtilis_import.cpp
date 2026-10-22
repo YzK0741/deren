@@ -127,6 +127,35 @@ namespace {
         replace_payload(f, p);
         return f;
     }
+    fixture capacity_cut() {
+        // Four payload leaves but two legacy meshlets: exercise the admission
+        // fallback through the real runtime upload, with a nonempty short prefix.
+        auto input = subtilis_fixture::cross_dag();
+        auto old = input.data.indices;
+        input.data.indices.clear();
+        for (auto& c : input.data.clusters) {
+            auto first = c.first_index, count = c.index_count;
+            c.first_index = static_cast<uint32_t>(input.data.indices.size());
+            for (unsigned i = 0; i < 6; ++i)
+                input.data.indices.insert(input.data.indices.end(), old.begin() + first, old.begin() + first + count);
+            c.index_count *= 6;
+        }
+        input.source.indices.assign(input.data.indices.begin(), input.data.indices.begin() + 432);
+        input.data.source_hash = *wire::source_digest(input.source);
+        auto f = load("cross_dag");
+        f.vertex_count = static_cast<uint32_t>(input.source.positions.size());
+        f.vertices.assign(f.vertex_count * 64, 0);
+        for (uint32_t i = 0; i < f.vertex_count; ++i) {
+            std::memcpy(f.vertices.data() + i * 64, input.source.positions[i].data(), 12);
+            std::memcpy(f.vertices.data() + i * 64 + 12, input.source.normals[i].data(), 12);
+            std::memcpy(f.vertices.data() + i * 64 + 24, input.source.uv0[i].data(), 8);
+        }
+        f.index_count = 432;
+        f.indices.resize(f.index_count * 4);
+        std::memcpy(f.indices.data(), input.source.indices.data(), f.indices.size());
+        replace_payload(f, input.data);
+        return f;
+    }
 } // namespace
 int main() {
     {
@@ -206,6 +235,50 @@ int main() {
                 bool wrote = false;
                 auto run = sub::prepare_item(*leaf, {}, view, records, {}, [&](auto, auto) {wrote=true;return true; });
                 CHECK(!wrote && records.empty() && run.source == sub::run_source::shared && run.count == 4 && run.reason == sub::fallback_reason::capacity);
+            }
+        }
+    }
+    {
+        auto fixture = capacity_cut();
+        auto imported = sub::import_payload(fixture.input());
+        CHECK(imported);
+        if (imported) {
+            auto owner = std::make_shared<sub::imported_asset const>(std::move(*imported));
+            for (uint32_t room : {4u, 1u, 0u}) {
+                namespace rhi = deren::promise::rhi;
+                rhi::create_info options{};
+                options.window_width = options.window_height = 4;
+                auto device = deren::vk_test::probe_make_core(options, rhi::abi_version, true);
+                deren::vk_test::probe_graphics_enabled(*device, true);
+                deren::engine::scene_tree::scene scene;
+                deren::engine::runtime runtime{device, options};
+                runtime.set_scene(scene);
+                std::array<uint8_t, 4> shader{3, 2, 35, 7};
+                CHECK(runtime.make_pipeline("pbr", shader, shader, shader));
+                vector<uint32_t> indices(size_t(deren::engine::meshlet_capacity - room) * deren::engine::meshlet_max_indices);
+                for (size_t i = 0; i < indices.size(); ++i)
+                    indices[i] = static_cast<uint32_t>(i % 3);
+                deren::engine::primitive_create_info fill{};
+                fill.vertex_data = fixture.vertices;
+                fill.vertex_stride = 64;
+                fill.vertex_count = fixture.vertex_count;
+                fill.index_data = {reinterpret_cast<uint8_t const*>(indices.data()), indices.size() * 4};
+                fill.index_count = static_cast<uint32_t>(indices.size());
+                auto* filler = runtime.make_primitive("pbr", fill);
+                CHECK(filler && filler->meshlet_count == deren::engine::meshlet_capacity - room);
+                deren::engine::primitive_create_info info{};
+                info.subtilis_import = owner;
+                auto* leaf = runtime.make_primitive("pbr", info);
+                CHECK(leaf && leaf->draw_index_count == 432);
+                CHECK(leaf && leaf->meshlet_count == (room == 4 ? 4u : 0u));
+                CHECK(leaf && bool(leaf->subtilis_geometry) == (room == 4));
+                CHECK(leaf && leaf->index_buffer->size() >= 432 * 4);
+                if (room == 1) {
+                    fill.index_data = fill.index_data.first(12);
+                    fill.index_count = 3;
+                    auto* last = runtime.make_primitive("pbr", fill);
+                    CHECK(last && last->meshlet_count == 1 && last->meshlet_base == deren::engine::meshlet_capacity - 1);
+                }
             }
         }
     }

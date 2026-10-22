@@ -52,7 +52,7 @@ namespace deren::engine {
      * @note 65536 records of 48 bytes is 3 MiB, which is nothing next to the geometry it describes, and it
      *       covers the heaviest scene this renderer is tested against by a wide margin: the Sponza import cuts
      *       3145 meshlets out of 103 primitives (measured, docs/mesh_shaders.md step 3). A scene past the capacity
-     *       keeps its GEOMETRY and loses the meshlet path's culling for the overflow: the upload clamps and says
+     *       keeps its GEOMETRY and loses the meshlet path's culling for the overflow: the upload rejects the whole run and says
      *       so, in the same spirit as the material table's overflow path - a renderer that drops geometry when a
      *       budget runs out turns a budget into a hole.
      */

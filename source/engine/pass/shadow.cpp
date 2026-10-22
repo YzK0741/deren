@@ -180,10 +180,10 @@ namespace deren::engine::pass {
         // THE PASS'S OWN PIPELINE, AS THE CONTRACT HANDLE (abi 21): it travels to the frame's cascade callback,
         // which binds it through `command_buffer::bind_pipeline` inside the secondary's own session. There is no
         // raw `VkPipeline` in this file any more.
-        deren::promise::rhi::pipeline* const pipeline = this->pipeline_handle();
         // ... and HOW it must be fed travels with it: a mesh pipeline has no input assembler, so its casters are
         // dispatched rather than drawn (see the frame's record_cascade).
-        bool const meshlets = this->meshlet_pipeline.has_value();
+        bool const meshlets = this->pass_frame.allow_meshlets && this->meshlet_pipeline.has_value();
+        deren::promise::rhi::pipeline* const pipeline = meshlets ? this->meshlet_pipeline->contract : this->mesh_pipeline->contract;
         bool const mesh_stage = meshlets || this->mesh_pipeline.has_value();
         // ---- THE CONTENT: one task per cascade, each into its OWN secondary ----
         // A VkCommandPool is not thread safe, which is why every cascade has its own {pool, buffer} pair (the same

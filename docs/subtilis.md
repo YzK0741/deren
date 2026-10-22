@@ -109,11 +109,17 @@ subtilis_hysteresis = false # imported DAGs: coarsen at 80%, refine above 100%
 - Any frame that fails visibility admission keeps the legacy opaque lane as a whole; Subtilis never
   creates a second G-buffer writer.
 - With hysteresis disabled, the imported DAG cut matches the offline reference. Optional history is
-  per primitive/generation; resize, a camera jump (the existing HZB motion limits), model changes and
-  generation replacement invalidate it. It does not retain GPU generations. The per-item planning
+  per primitive lifetime/generation; address reuse cannot inherit a destroyed instance's decisions.
+  Scene notification/rebinding, resize, a camera jump (the existing HZB motion limits), model changes
+  and generation replacement invalidate it. It does not retain GPU generations. The per-item planning
   phase is parallel (thread pool), with an item-ordered
   overlap resolution so alias/shared items keep the serial semantics byte for byte.
 - Off: nothing above runs and the frame is identical to the pre-Subtilis build.
+
+Shared-table overflow never publishes a partial meshlet run. An overflowing visible object rejects
+the whole visibility frame; after overflow, ordinary mesh pipelines also replace meshlet pipelines
+for surface/forward/shadow drawing, preserving all indices. This conservative fallback lasts for the
+runtime's lifetime because the table uses append-only reservations.
 
 ## 6. Measured results (Bistro, RTX 4060 Laptop, 1280x720, Release)
 

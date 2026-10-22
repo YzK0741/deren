@@ -2142,6 +2142,7 @@ namespace deren::engine {
         void* meshlet_mapped = nullptr;
         /// one log line for the overflow path, so a scene past the capacity says so once rather than per primitive
         bool meshlet_overflow_logged = false;
+        bool meshlet_table_complete = true; // overflow requires whole-index mesh pipelines
         /// one log line for a malformed record (see create_primitive): the second line of defence behind the splitter's own tests
         bool meshlet_records_unsound_logged = false;
         /**
@@ -2251,6 +2252,7 @@ namespace deren::engine {
         float subtilis_error_px = 1.f;
         bool subtilis_hysteresis = false;
         struct subtilis_history_entry {
+            uint64_t lifetime_id = 0;
             std::weak_ptr<subtilis::uploaded_geometry const> generation;
             subtilis::dag_cut_history cut;
             visibility::hzb::hzb_matrix_bits model{};
@@ -4400,6 +4402,7 @@ namespace deren::engine {
          */
         void scene_changed() noexcept {
             this->bvh_dirty = true;
+            this->subtilis_histories.clear();
         }
 
         /**
@@ -4423,6 +4426,7 @@ namespace deren::engine {
          */
         void set_scene(scene_tree::scene& scene) noexcept {
             this->bound_scene = &scene;
+            this->subtilis_histories.clear();
             this->bvh_dirty = true; // a new tree's world AABBs must be (re)collected
         }
 

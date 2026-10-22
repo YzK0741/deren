@@ -86,6 +86,7 @@ export namespace deren::engine::pass {
         std::span<deren::promise::rhi::mergeable_command_buffer_ref const> cascades = {};
         /// the shadow map's edge: this pass's rendering-instance size (it does NOT follow the surface)
         uint32_t map_size = 0;
+        bool allow_meshlets = true; // false when any caster lacks a complete table run
     };
 
     /**

@@ -24,6 +24,7 @@ import deren.engine.pass;
 import deren.engine.pass.chain;
 import deren.engine.pass.output_targets;
 import deren.engine.pass.scene;
+import deren.engine.pass.shadow;
 import deren.engine.pass.post;
 import deren.engine.pass.visibility_raster;
 import deren.engine.pass.visibility_resolve;
@@ -279,7 +280,36 @@ int exercise(bool adopted) {
         CHECK(record().geometry.index_count == coarse.geometry.index_count);
         runtime.set_subtilis_hysteresis(true);
         CHECK(record().geometry.index_count == coarse.geometry.index_count);
+        // Warm just below the coarsen boundary, then enter the hysteresis band
+        // without crossing the camera-cut gate. Reuse the exact object address.
+        runtime.camera.yaw = runtime.camera.pitch = 0;
+        runtime.camera.target = {1, 1, 0};
+        runtime.camera.distance = 2000;
+        auto camera = deren::engine::make_orbit_camera_ubo(0, 0, 2000, {1, 1, 0}, 100, 1);
+        float target = .2f * camera.proj[0][0] * 16 / (2000 - 4) / .8f * 1.000001f;
+        runtime.set_subtilis_error_px(target);
+        CHECK(record().geometry.index_count == 2);
+        runtime.camera.distance -= .01f;
+        CHECK(record().geometry.index_count == 2);
+        auto base = leaf->meshlet_base;
+        auto material_id = leaf->push.material_index;
+        auto lo = leaf->local_aabb_min, hi = leaf->local_aabb_max;
+        auto* storage = static_cast<deren::engine::normal_draw_primitive*>(leaf);
+        std::destroy_at(storage);
+        std::construct_at(storage);
+        CHECK(storage->bind_subtilis_geometry(generation)); // generation remains alive elsewhere
+        storage->meshlets.assign(cpu->lod0_clusters().begin(), cpu->lod0_clusters().end());
+        storage->meshlet_base = base;
+        storage->meshlet_count = static_cast<uint32_t>(storage->meshlets.size());
+        storage->push.material_index = material_id;
+        storage->has_bounds = true;
+        storage->local_aabb_min = lo;
+        storage->local_aabb_max = hi;
+        CHECK(record().geometry.index_count == 4); // replacement starts with fresh decisions
+        runtime.scene_changed();
+        CHECK(record().geometry.index_count == 4);
         runtime.set_subtilis_hysteresis(false);
+        runtime.set_subtilis_error_px(1.f);
     }
     auto* alias = runtime.make_primitive("pbr", info);
     CHECK(alias != nullptr);
@@ -304,6 +334,63 @@ int exercise(bool adopted) {
     if (adopted)
         CHECK(hzb_observations > 0);
     if (adopted) {
+        // Use the real upload cursor, not the pure admission helper. The large
+        // filler is offscreen; only the overflowing object must reject the frame.
+        uint32_t used = 0;
+        for (auto const& root : scene.roots)
+            used += static_cast<deren::engine::primitive*>(root.primitive_leaf.get())->meshlet_count;
+        std::array<std::array<float, 16>, 3> vertices{};
+        vertices[1][0] = vertices[2][1] = 1;
+        deren::utility::vessel::vector<uint32_t> indices(size_t(deren::engine::meshlet_capacity - used - 1) * deren::engine::meshlet_max_indices);
+        for (size_t i = 0; i < indices.size(); ++i)
+            indices[i] = static_cast<uint32_t>(i % 3);
+        deren::engine::primitive_create_info raw{};
+        raw.vertex_data = {reinterpret_cast<uint8_t const*>(vertices.data()), sizeof(vertices)};
+        raw.vertex_stride = 64;
+        raw.vertex_count = 3;
+        raw.index_data = {reinterpret_cast<uint8_t const*>(indices.data()), indices.size() * 4};
+        raw.index_count = static_cast<uint32_t>(indices.size());
+        auto* filler = runtime.make_primitive("pbr", raw);
+        CHECK(filler && filler->meshlet_count == deren::engine::meshlet_capacity - used - 1);
+        filler->local_aabb_min = glm::vec3(1e8f);
+        filler->local_aabb_max = glm::vec3(1e8f + 10);
+        raw.index_data = raw.index_data.first(258 * 4);
+        raw.index_count = 258; // two legacy records, only one table slot remains
+        auto* overflow = runtime.make_primitive("pbr", raw);
+        CHECK(overflow && overflow->meshlet_count == 0 && overflow->meshlets.empty());
+        CHECK(overflow && overflow->draw_index_count == 258 && overflow->index_buffer->size() == 258 * 4);
+        CHECK(!runtime.make_shadow_frame().allow_meshlets);
+        auto visibility_table = deren::vk_test::probe_heap_buffer(*core, layout::heap_slot_offset(layout::heap_slots::visibility_items));
+        std::fill(visibility_table.begin(), visibility_table.end(), std::byte{0xA5});
+        CHECK(runtime.pace_and_acquire() == deren::engine::frame_status::proceed);
+        CHECK(runtime.begin_recording() == deren::engine::frame_status::proceed);
+        runtime.record_main_drawcalls();
+        CHECK(runtime.end_recording() == deren::engine::frame_status::proceed);
+        CHECK(std::all_of(visibility_table.begin(), visibility_table.end(), [](auto b) { return b == std::byte{0xA5}; }));
+        // The small chain stubs lighting, so inspect the actual fallback draw
+        // through the runtime's production environment on its segment buffer.
+        auto fallback_frame = runtime.make_scene_frame();
+        CHECK(!fallback_frame.segments.empty());
+        static deren::engine::mesh_geometry_lanes fallback_lanes{};
+        fallback_lanes = {};
+        if (!fallback_frame.segments.empty()) {
+            auto env = runtime.make_scene_environment(&runtime, deren::engine::recording_target{fallback_frame.segments.front().buffer}, true);
+            env.push_at = [](void*, deren::engine::recording_target const&, uint32_t offset, std::span<std::byte const> bytes) {
+                if (offset == deren::engine::mesh_geometry_push_offset_scene && bytes.size() == deren::engine::mesh_stage_block_size - offset)
+                    std::memcpy(&fallback_lanes, bytes.data() + deren::engine::mesh_geometry_lanes_offset - offset, sizeof(fallback_lanes));
+                return true;
+            };
+            overflow->draw(env);
+            CHECK(env.mesh_stage && !env.meshlets);
+        }
+        CHECK(fallback_lanes.first_index == 0 && fallback_lanes.index_count == 258);
+        CHECK(runtime.submit_and_present() == deren::engine::frame_status::proceed);
+        raw.index_data = raw.index_data.first(3 * 4);
+        raw.index_count = 3;
+        auto* exact = runtime.make_primitive("pbr", raw);
+        CHECK(exact && exact->meshlet_count == 1 && exact->meshlet_base == deren::engine::meshlet_capacity - 1);
+        auto* zero = runtime.make_primitive("pbr", raw);
+        CHECK(zero && zero->meshlet_count == 0 && zero->draw_index_count == 3);
         // Shared geometry keeps this a small fixture: only CPU leaves exceed the item limit.
         while (scene.roots.size() <= vis::id_item_capacity) {
             auto extra = std::make_unique<deren::engine::normal_draw_primitive>();
