@@ -5,8 +5,12 @@
 // GPU artifact); what can run in CI is the graph's own arithmetic.
 #include "vk_test.h"
 
+#include <algorithm>
 #include <array>
+#include <cstddef>
+#include <limits>
 #include <optional>
+#include <utility>
 
 import deren.engine.render_graph.visibility;
 
@@ -143,11 +147,213 @@ namespace {
         CHECK(dependency(depth, load->pass, rg::pipeline_stage::depth_stencil));
         CHECK(dependency(vis, resolve->pass, rg::pipeline_stage::compute_shader));
     }
+    // ============================================================================================
+    // M4 SOFTWARE LANES (Task 2): the declaration shapes and the DECLARED ORDER
+    //
+    // The design's correctness argument is an ORDER (spec §3.2/§5.1): hardware raster -> software raster ->
+    // RESOLVE -> MERGE, and the resolve reads the UNMERGED hardware depth. Task 4 wires it, but the declarations
+    // own the order NOW: `append_software_raster` explicitly follows the hardware raster, and
+    // `append_software_merge` orders the resolve after the software raster and itself after the resolve. This
+    // builds exactly that four-lane chain and inspects the compiled plan's explicit edges and execution order,
+    // plus the merge's declared depth read/write shape.
+    // ============================================================================================
+    void software_lanes() {
+        rg::builder graph;
+        auto image = [&](unsigned const id, bool const depth = false) {
+            return *graph.import_texture({41, id}, rg::initial_contents::undefined, "software chain image",
+                                         depth ? rg::texture_shape{1, 1, rg::texture_aspect::depth} : rg::texture_shape{}, rg::resource_state{});
+        };
+        auto table = [&](unsigned const id) {
+            return *graph.import_buffer({41, 100 + id}, rg::initial_contents::defined, "software chain table", {64},
+                                        rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::mesh_shader, rg::memory_access::read});
+        };
+        auto const vis_id = image(1);
+        auto const hw_depth = image(2, true);
+        auto const sw_depth = image(3);
+        auto const sw_id = image(4);
+        std::array<rg::texture_ref, 3> surface = {image(5), image(6), image(7)};
+        auto const velocity = image(8);
+        auto const color = image(9);
+        auto const camera = table(0);
+        auto const meshlets = table(1);
+        auto const indirect = table(2);
+        auto const items = table(3);
+        auto const tiles = table(4);
+        auto const statistics = table(5);
+        auto const culled = table(6);
+        auto const materials = table(7);
+        auto const previous = table(8);
+        // ---- hardware raster (the software lanes' predecessor) ----
+        visibility::inputs hw_inputs{vis_id, hw_depth, visibility::shared_inputs{camera, meshlets, indirect}};
+        hw_inputs.shared->culled_meshlets = culled;
+        auto hardware = visibility::append(graph, hw_inputs);
+        CHECK(hardware.has_value());
+        CHECK(graph.export_resource(vis_id).has_value()); // keep the producer live for the liveness pass
+        // ---- software raster: AFTER the hardware raster ----
+        visibility::software_raster_inputs software_inputs{};
+        software_inputs.software_depth = sw_depth;
+        software_inputs.software_id = sw_id;
+        software_inputs.camera = camera;
+        software_inputs.items = items;
+        software_inputs.meshlets = meshlets;
+        software_inputs.tiles = tiles;
+        software_inputs.statistics = statistics;
+        software_inputs.culled_meshlets = culled;
+        auto software = visibility::append_software_raster(graph, software_inputs, hardware->pass);
+        CHECK(software.has_value());
+        // ---- resolve: its two OPTIONAL software reads turn the candidate selection on, nothing else changes ----
+        visibility::resolve_inputs resolve_inputs{};
+        resolve_inputs.vis_id = vis_id;
+        resolve_inputs.depth = hw_depth;
+        resolve_inputs.surface = surface;
+        resolve_inputs.velocity = velocity;
+        resolve_inputs.color = color;
+        resolve_inputs.shared = visibility::resolve_shared_inputs{camera, materials, items, meshlets, previous, statistics};
+        resolve_inputs.shared->culled_meshlets = culled;
+        resolve_inputs.software_depth = sw_depth;
+        resolve_inputs.software_id = sw_id;
+        auto resolve = visibility::append_resolve(graph, resolve_inputs);
+        CHECK(resolve.has_value());
+        CHECK(graph.export_resource(color).has_value());
+        // ---- merge: after the resolve, reading the software images and writing the G-buffer depth ----
+        auto const merge = visibility::append_software_merge(graph, {sw_depth, sw_id, hw_depth}, resolve->pass, software->pass);
+        CHECK(merge.has_value());
+        CHECK(graph.export_resource(hw_depth).has_value());
+        // ---- the compiled plan: the three explicit order edges and the execution order ----
+        auto plan = graph.compile({true});
+        CHECK(plan.has_value());
+        if (!plan || !hardware || !software || !resolve || !merge) {
+            return;
+        }
+        auto const explicit_edge = [&](rg::pass_ref const from, rg::pass_ref const to) {
+            for (auto const& dependency : plan->dependencies) {
+                if (dependency.from == from.index() && dependency.to == to.index() && dependency.reason == rg::dependency_reason::explicit_order) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        CHECK(explicit_edge(hardware->pass, software->pass)); // software raster after hardware raster
+        CHECK(explicit_edge(software->pass, resolve->pass));  // resolve after software raster
+        CHECK(explicit_edge(resolve->pass, merge->pass));     // merge after resolve (the winner rule needs it)
+        auto const position = [&](rg::pass_ref const ref) {
+            auto const found = std::find(plan->execution_order.begin(), plan->execution_order.end(), ref.index());
+            return found == plan->execution_order.end() ? std::numeric_limits<std::size_t>::max() : static_cast<std::size_t>(found - plan->execution_order.begin());
+        };
+        CHECK(position(hardware->pass) < position(software->pass));
+        CHECK(position(software->pass) < position(resolve->pass));
+        CHECK(position(resolve->pass) < position(merge->pass));
+        // ---- the declarations themselves: the software pass names + the merge's reads/writes ----
+        CHECK(plan->passes[software->pass.index()].name == "software visibility");
+        CHECK(plan->passes[merge->pass.index()].name == "software merge");
+        auto const* merge_parameters = plan->passes[merge->pass.index()].parameters.get<visibility::software_merge_parameters>();
+        CHECK(merge_parameters != nullptr);
+        if (merge_parameters != nullptr) {
+            CHECK(merge_parameters->software_depth.resource == sw_depth); // sampled (fragment)
+            CHECK(merge_parameters->software_id.resource == sw_id);       // sampled (fragment): id 0 skips the write
+            CHECK(merge_parameters->gbuffer_depth.resource == hw_depth);  // read + depth write
+        }
+        auto const* resolve_parameters = plan->passes[resolve->pass.index()].parameters.get<visibility::resolve_parameters>();
+        CHECK(resolve_parameters != nullptr);
+        if (resolve_parameters != nullptr) {
+            CHECK(resolve_parameters->software_depth.has_value() && resolve_parameters->software_depth->resource == sw_depth);
+            CHECK(resolve_parameters->software_id.has_value() && resolve_parameters->software_id->resource == sw_id);
+        }
+    }
+
+    /// THE OFF PATH DECLARES NOTHING NEW: without the two optional software reads the resolve's access list is the
+    /// pre-M4 one and no software pass is added. This is what "default OFF leaves the frozen gates byte-identical"
+    /// rests on at the declaration level.
+    void software_absent_when_off() {
+        struct counted {
+            std::size_t accesses = 0;
+            std::size_t software_passes = 0;
+        };
+        auto const compile = [](bool const with_software) {
+            rg::builder graph;
+            // DEFINED + a sampled-compute initial state: this scenario declares no producer for the visibility id or
+            // the hardware depth (its subject is the resolve's ACCESS LIST, not the chain), and a read of an imported,
+            // never-written resource is the builder's `undefined_read`. In the real chain the hardware raster is that
+            // producer; here the imports say so, with the state the resolve reads them in.
+            constexpr rg::resource_state const visibility_state{rg::resource_layout::shader_read_only, rg::pipeline_stage::compute_shader, rg::memory_access::read};
+            auto const vis_id = *graph.import_texture({52, 1}, rg::initial_contents::defined, "visibility", {}, visibility_state);
+            auto const depth = *graph.import_texture({52, 2}, rg::initial_contents::defined, "depth", {1, 1, rg::texture_aspect::depth}, visibility_state);
+            std::array<rg::texture_ref, 3> surface{};
+            for (unsigned i = 0; i < surface.size(); ++i) {
+                surface[i] = *graph.import_texture({52, 3 + i}, rg::initial_contents::undefined, "surface", {}, rg::resource_state{});
+            }
+            auto const velocity = *graph.import_texture({52, 6}, rg::initial_contents::undefined, "velocity", {}, rg::resource_state{});
+            auto const color = *graph.import_texture({52, 7}, rg::initial_contents::undefined, "colour", {}, rg::resource_state{});
+            // SIX HANDLES, not one reused six times: the graph layer refuses the SAME resource declared with two
+            // different access scopes in one pass (builder::add_pass's conflicting_access rule - one resource cannot be
+            // both a uniform buffer and a storage buffer in one declaration), and these roles ask for exactly that. The
+            // scenario's subject is the resolve's access COUNT, so the fixture is six minimal imports.
+            std::array<rg::buffer_ref, 6> tables{};
+            for (unsigned i = 0; i < tables.size(); ++i) {
+                tables[i] = *graph.import_buffer({52, 20 + i}, rg::initial_contents::defined, "table", {64},
+                                                 rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::mesh_shader, rg::memory_access::read});
+            }
+            visibility::resolve_inputs resolve_inputs{};
+            resolve_inputs.vis_id = vis_id;
+            resolve_inputs.depth = depth;
+            resolve_inputs.surface = surface;
+            resolve_inputs.velocity = velocity;
+            resolve_inputs.color = color;
+            resolve_inputs.shared = visibility::resolve_shared_inputs{tables[0], tables[1], tables[2], tables[3], tables[4], tables[5]};
+            if (with_software) {
+                // DEFINED + a real initial state: this scenario declares no software pass (its subject is the resolve's
+                // access list), so nothing in THIS graph produces the software images before the resolve reads them -
+                // and a read of an imported, never-written resource is the builder's `undefined_read`. In the real frame
+                // the software raster is that producer; here the imports say "some producer made them earlier, read as
+                // sampled compute data", which is what the builder's valid_initial_state rule asks a defined import for.
+                constexpr rg::resource_state const software_state{rg::resource_layout::shader_read_only, rg::pipeline_stage::compute_shader, rg::memory_access::read};
+                resolve_inputs.software_depth = *graph.import_texture({52, 8}, rg::initial_contents::defined, "software depth", {}, software_state);
+                resolve_inputs.software_id = *graph.import_texture({52, 9}, rg::initial_contents::defined, "software id", {}, software_state);
+            }
+            auto const resolve = visibility::append_resolve(graph, resolve_inputs);
+            CHECK(resolve.has_value());
+            CHECK(graph.export_resource(color).has_value());
+            auto plan = graph.compile({});
+            counted result{};
+            if (plan) {
+                for (auto const& pass : plan->passes) {
+                    if (pass.name == "visibility resolve") {
+                        result.accesses = pass.accesses.size();
+                    }
+                    if (pass.name == "software visibility" || pass.name == "software merge") {
+                        ++result.software_passes;
+                    }
+                }
+            }
+            return result;
+        };
+        auto const off = compile(false);
+        auto const on = compile(true);
+        CHECK(off.software_passes == 0u);
+        CHECK(on.software_passes == 0u);         // the optional reads add accesses to the RESOLVE, not new passes
+        CHECK(on.accesses == off.accesses + 2u); // exactly the two sampled software reads, nothing widened
+        // ---- both-or-neither: one software input alone is refused (a half-wired candidate selector cannot read) ----
+        {
+            rg::builder graph;
+            visibility::resolve_inputs resolve_inputs{};
+            resolve_inputs.vis_id = *graph.import_texture({53, 1}, rg::initial_contents::undefined, "visibility", {}, rg::resource_state{});
+            resolve_inputs.depth = *graph.import_texture({53, 2}, rg::initial_contents::undefined, "depth", {1, 1, rg::texture_aspect::depth}, rg::resource_state{});
+            for (unsigned i = 0; i < resolve_inputs.surface.size(); ++i) {
+                resolve_inputs.surface[i] = *graph.import_texture({53, 3 + i}, rg::initial_contents::undefined, "surface", {}, rg::resource_state{});
+            }
+            resolve_inputs.velocity = *graph.import_texture({53, 6}, rg::initial_contents::undefined, "velocity", {}, rg::resource_state{});
+            resolve_inputs.color = *graph.import_texture({53, 7}, rg::initial_contents::undefined, "colour", {}, rg::resource_state{});
+            resolve_inputs.software_depth = *graph.import_texture({53, 8}, rg::initial_contents::undefined, "software depth", {}, rg::resource_state{});
+            CHECK(!visibility::append_resolve(graph, resolve_inputs).has_value());
+        }
+    }
 } // namespace
 
 int main() {
     test_full_recovery_chain();
     test_hzb_consumers();
+    software_lanes();
+    software_absent_when_off();
     // ---- the RASTER lane as it will be recorded: both attachments and the three stage reads ----
     for (bool with_culled : {false, true}) {
         rg::builder graph;

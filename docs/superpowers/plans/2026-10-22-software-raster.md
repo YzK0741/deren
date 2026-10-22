@@ -92,24 +92,35 @@
 
 **目标：** 建立 `software_depth`/`software_id` 资源 family、**CSR `software_tiles` buffer**、两个 pass 类与 pipeline、图声明、shader 注册与 CPU reference rasterizer/merge 规则；**不 append 到帧**（没有 runtime 接线），因此默认 OFF 的帧与 baseline 逐字节一致。
 
-**Files：** `source/engine/visibility/visibility_software.cppm`（CPU reference rasterizer + `resolve_candidate` + CSR `build_tile_lists` 完整化）、`source/tests/test_visibility_software.cpp`（CSR 前缀和/空 tile/预算边界/headless/offline CPU reference rasterizer 校验）、`source/engine/pass/software_visibility.cppm/.cpp`、`source/engine/pass/software_merge.cppm/.cpp`、`source/engine/pipelines/pipelines.cppm`（`build_software_merge`）、`source/engine/render_resource/render_resource.cppm`、`source/engine/pass/output_targets.cppm`、`source/engine/render_graph/visibility.cppm`、`source/engine/render_layout/render_layout.cppm`、`source/backends/vulkan/core/core.declarations.cppm`、`source/shaders/common/heap_slot_constants.slang`、`source/shaders/scene/software_visibility.slang`/`software_merge.slang`（骨架 entry）、`source/app/chores.cpp`、根 CMake `VR_SLANG_SOURCES`/新测试 target/CI 列表、`test_render_graph_visibility.cpp`/`test_software_visibility_pass.cpp`/`test_software_merge_pass.cpp`/`test_render_resources.cpp`/`test_shader_sources.cpp`。
+**Files：** `source/engine/visibility/visibility_software.cppm`（CPU reference rasterizer + `resolve_candidate` + CSR `build_tile_lists` 完整化）、`source/tests/test_visibility_software.cpp`（CSR 前缀和/空 tile/预算边界/headless/offline CPU reference rasterizer 校验）、`source/engine/pass/software_visibility.cppm/.cpp`、`source/engine/pass/software_merge.cppm/.cpp`、`source/engine/pipelines/pipelines.cppm`（`build_software_merge`）、`source/engine/render_resource/render_resource.cppm`、`source/engine/pass/output_targets.cppm`、`source/engine/render_graph/visibility.cppm`、`source/engine/render_layout/render_layout.cppm`、`source/backends/vulkan/core/core.declarations.cppm`、`source/shaders/common/heap_slot_constants.slang`、`source/shaders/scene/software_visibility.slang`/`software_merge.slang`（骨架 entry）、`source/app/chores.cpp`、根 CMake `VR_SLANG_SOURCES`/新测试 target/CI 列表、`test_render_graph_visibility.cpp`/`test_visibility_software_pass.cpp`/`test_visibility_merge_pass.cpp`/`test_render_resources.cpp`/`test_shader_sources.cpp`。
 
 **Interfaces：** §公共类型约定中的 CSR `tile_grid`/`build_tile_lists`/`software_tile_lists`（Task-1 legacy `software_tile_plan` 仅测量、保持只读兼容）、`append_software_raster`/`append_software_merge`/resolve 可选输入、pass 类声明、`resource_id::software_depth`/`software_id`/heap slots、`build_software_merge`、shader 注册名；`software_tiles` buffer 尺寸由 `software_entry_budget` 推导（单点可调常量）；资源仅当 `select_resources` 选中时创建（本任务不选）；CPU reference rasterizer 的 **offline 校验**（不依赖设备：用 fixture 的 CSR plan 逐像素验证期望图像）。
 
 **RED：**
-- [ ] 写 pass 声明测试（io/behaviour/`ready()` gating/非法输入拒绝）与图声明测试（software raster 在 hardware raster 之后；**resolve 在 merge 之前**（显式 order 边 + depth WAR）；merge 读 `software_depth` + depth read-write；resolve 可选输入为空时与旧声明等价；OFF 不 append）；CPU reference/winner 规则用例（软件严格更近胜出、相等且硬件 id 有效 → 硬件、相等且硬件 id 无效 → 软件、空 id → 硬件、软件胜出 chosen depth = sw_depth）；**CSR 用例（两遍扫描确定性、offset 单调、空 tile、重复运行 byte-identical、entry_count == budget/budget+1 边界、offscreen CPU reference rasterizer 校验）**；运行确认 RED（缺模块/接口）。
-- [ ] 写资源/常量测试期望（software family 的 id/format/flags/heap slot；`software_tiles` slot 在 HZB 之后且 grid 内；buffer 布局/尺寸由 entry budget 推导：720p 512KiB entries + 28.8KB counts/offsets），确认 RED。
+- [x] 写 pass 声明测试（io/behaviour/`ready()` gating/非法输入拒绝）与图声明测试（software raster 在 hardware raster 之后；**resolve 在 merge 之前**（显式 order 边 + depth WAR）；merge 读 `software_depth` + depth read-write；resolve 可选输入为空时与旧声明等价；OFF 不 append）；CPU reference/winner 规则用例（软件严格更近胜出、相等且硬件 id 有效 → 硬件、相等且硬件 id 无效 → 软件、空 id → 硬件、软件胜出 chosen depth = sw_depth）；**CSR 用例（两遍扫描确定性、offset 单调、空 tile、重复运行 byte-identical、entry_count == budget/budget+1 边界、offscreen CPU reference rasterizer 校验）**；运行确认 RED（缺模块/接口；日志 `build-release-dyn-clang64/m4-t2-current-build.log`）。
+- [x] 写资源/常量测试期望（software family 的 id/format/flags/heap slot；`software_tiles` slot 在 HZB 之后且 grid 内；buffer 布局/尺寸由 entry budget 推导：720p 512KiB entries + 28.8KB counts/offsets），确认 RED（日志同上）。
 
 **GREEN：**
-- [ ] 实现 CPU reference rasterizer 与 `resolve_candidate`（winner/tie/背景 1.0 tie 语义；软件胜出时用 sw_depth 做重建/tolerance 输入）；实现 CSR `build_tile_lists`（两遍扫描 + exclusive prefix sum + 全局预算检查）与 **headless/offline CPU reference rasterizer 校验**（fixture 期望图像）。
-- [ ] 实现两个 pass 类与 pipeline（compute 仿 `visibility_resolve_pass`；depth-only merge 仿 shadow pass；shader 先最小实现 entry，后续 Task 3 完整），`build_software_merge` 用 `pass_context` 的 depth format。
-- [ ] 资源 family/heap slots/runtime 数组骨架 + `output_targets_pass` 16th family + `select_resources` gating（本任务 runtime 不选中，因此不分配）；`software_tiles` buffer 按 budget 单一常量定尺寸；后端/常量镜像 + `test_render_resources` 同步。
-- [ ] 图声明函数与 pass/graph 测试通过；shader 注册四处同步（CMake/两个编译脚本/chores/`test_shader_sources`）。
+- [x] 实现 CPU reference rasterizer 与 `resolve_candidate`（winner/tie/背景 1.0 tie 语义；软件胜出时用 sw_depth 做重建/tolerance 输入）；实现 CSR `build_tile_lists`（两遍扫描 + exclusive prefix sum + 全局预算检查）与 **headless/offline CPU reference rasterizer 校验**（fixture 期望图像）。
+- [x] 实现两个 pass 类与 pipeline（compute 仿 `visibility_resolve_pass`；depth-only merge 仿 shadow pass；shader 先最小实现 entry，后续 Task 3 完整），`build_software_merge` 用 `pass_context` 的 depth format。
+- [x] 资源 family/heap slots/runtime 数组骨架；**Lead 收尾决定**：`output_targets_pass` 保持 `resource_count`/`ids` = 15，新增独立 `software_*` surface（`software_resource_count = 2`、ids/formats/flags/scope/lifetime/heap slots/`software_resource_families()`），T4 的 selection gate 再提升进 `ids`/`resource_count`（本任务 runtime 不选中，因此不分配）；`software_tiles` buffer 按 budget 单一常量定尺寸；后端/常量镜像 + `test_render_resources` 同步。
+- [x] 图声明函数与 pass/graph 测试通过；shader 注册四处同步（CMake/两个编译脚本/chores/`test_shader_sources`）。
 
 **Acceptance：**
-- [ ] `ctest -R 'test_visibility_software|test_render_graph_visibility|test_software_|test_render_resources|test_shader_sources'` 绿（含 CSR 前缀和/空 tile/预算边界与 offline CPU reference rasterizer）；`test_visibility_buffer`/`test_visibility_raster_pass`/`test_visibility_resolve_pass` 不回归；ASan/UBSan 新 CPU target 绿。
-- [ ] Release 全量 CTest 绿（记录数量）；默认 OFF 的 frozen Full 15/15 + Visibility 1/1 不变（没有视觉变化）；validation 不需要（本任务无帧内新 pass）。
-- [ ] `test_docs` 绿（VR_TEST_TARGETS 与 ci.yml 同步）。
+- [x] `ctest -R 'test_visibility_software|test_render_graph_visibility|test_software_|test_render_resources|test_shader_sources'` 绿（含 CSR 前缀和/空 tile/预算边界与 offline CPU reference rasterizer）；`test_visibility_buffer`/`test_visibility_raster_pass`/`test_visibility_resolve_pass` 不回归；ASan/UBSan 新 CPU target 绿。
+- [x] Release 全量 CTest 绿（记录数量）；默认 OFF 的 frozen Full 15/15 + Visibility 1/1 不变（没有视觉变化）；validation 不需要（本任务无帧内新 pass）。
+- [x] `test_docs` 绿（VR_TEST_TARGETS 与 ci.yml 同步）。
+
+
+**Task 2 状态（2026-10-22，hzb-finish 收尾）：完成，未开始 T3/T4。** RED 证据：
+`build-release-dyn-clang64/m4-t2-current-build.log`（缺 `software_raster_inputs` / `append_software_raster` /
+`software_resource_families` 的编译失败）。GREEN 证据：Release build exit 0；`ctest --test-dir
+build-release-dyn-clang64` **64/64**（新增 `test_visibility_software_pass` 18 checks、`test_visibility_merge_pass`
+15 checks；`test_visibility_software` 8216、`test_render_graph_visibility` 140、`test_render_resources` 828、
+`test_shader_sources` 1928 checks 全 PASS）；ASan/UBSan CI 形态 build exit 0 + `ctest --test-dir build-asan -E
+test_native_boundary_zero` **63/63**；converter standalone **6/6**；默认 OFF frozen Full **15/15**、Visibility
+**1/1** 逐字节不变（本任务不接 runtime，故无视觉变化）。细节、命令与偏差说明见
+`docs/reviews/2026-10-22-software-raster.md` 的 Task 2 小节。
 
 ## Task 3 — GPU 软件 raster + merge + resolve 候选选择 + probe/fixture 对照（首次启用 hybrid）
 

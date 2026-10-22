@@ -27,8 +27,12 @@
 
 import deren.utility.shared;
 import deren.engine.render_resource;
-import deren.engine.render_layout; // the slot grid: its texture run IS the bindless array's capacity, checked below
-import deren.engine.pass.upscale;  // make_easu_constants: the ported FsrEasuCon, checked as arithmetic below
+import deren.engine.render_layout;             // the slot grid: its texture run IS the bindless array's capacity, checked below
+import deren.engine.pass.upscale;              // make_easu_constants: the ported FsrEasuCon, checked as arithmetic below
+import deren.engine.pass.output_targets;       // the software raster's separate surface: its two image declarations and the CSR tile-list buffer
+import deren.promise.rhi;                      // the image/buffer request vocabulary the software surface's requests are checked against
+import deren.engine.render_resource.instances; // the request/lifetime vocabulary the software surface's declarations use
+import deren.engine.visibility.software;       // the CSR tile-list layout the buffer size is derived from
 
 namespace {
     namespace rr = deren::engine::render_resource;
@@ -56,14 +60,115 @@ namespace {
         .sampler = rr::sampler_hint::post,
         .stages = rr::stage_flag::compute,
     };
+    /// THE SOFTWARE RASTER'S SURFACE (M4 Task 2, docs/superpowers/specs/2026-10-22-software-raster-design.md
+    /// §3.2/§4.2): two per-swapchain-image R32_UINT images and one CSR tile-list buffer per frame lane. It is a
+    /// SEPARATE surface rather than two more `ids` entries precisely so an OFF frame allocates nothing, and every field
+    /// below is a fact a later edit could silently widen - hence the checks, in the same spirit as the schema tests.
+    void software_resource_families() {
+        namespace rhi = deren::promise::rhi;
+        namespace layout = deren::engine::render_layout;
+        namespace sw = deren::engine::visibility::software;
+        using rr::resource_id;
+        using otp = up::output_targets_pass;
+
+        // ---- the OFF contract: the producer's own list stays at 15 and names NO software resource ----
+        CHECK(otp::resource_count == 15u);
+        CHECK(otp::ids.size() == otp::resource_count);
+        for (auto const id : otp::ids) {
+            CHECK(id != resource_id::software_depth);
+            CHECK(id != resource_id::software_id);
+            CHECK(id != resource_id::software_tiles);
+        }
+
+        // ---- the declaration: exactly two IMAGE families, in this order, with these heap slots ----
+        CHECK(otp::software_resource_count == 2u);
+        CHECK(otp::software_ids.size() == otp::software_resource_count);
+        CHECK(otp::software_heap_slots.size() == otp::software_resource_count);
+        CHECK(otp::software_ids[0] == resource_id::software_depth);
+        CHECK(otp::software_ids[1] == resource_id::software_id);
+        auto const families = otp::software_resource_families();
+        CHECK(families.size() == otp::software_resource_count);
+        auto const flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::storage);
+        for (std::size_t i = 0; i < families.size(); ++i) {
+            CHECK(families[i].id == otp::software_ids[i]);
+            CHECK(families[i].heap_slot == otp::software_heap_slots[i]);
+            CHECK(families[i].heap_slot == (i == 0 ? layout::heap_slots::software_depth : layout::heap_slots::software_id));
+            CHECK(families[i].format == rhi::image_format::r32_uint);
+            CHECK(families[i].flags == flags);
+            CHECK(families[i].scope == rr::resource_scope::per_swapchain_image);
+            CHECK(families[i].life == rr::instances::lifetime::output_size);
+            CHECK(families[i].debug_name != nullptr);
+        }
+        // THE GRID'S SPACING IS THE DECLARATION'S OWN: the depth family lives in the range visibility-buffer v0.5
+        // RESERVED for it (1239..1246, one per-image run) and is therefore not adjacent to the id family, which follows
+        // the HZB tables; only the id run and the tile-list lane are one capacity apart (the layout's static_asserts
+        // state the same relations on the other side).
+        CHECK(layout::heap_slots::software_depth == layout::heap_slot_base + 1239u); // the range v0.5 reserved for it
+        CHECK(layout::heap_slots::software_depth + layout::heap_image_capacity <= layout::heap_slots::software_id);
+        CHECK(layout::heap_slots::software_tiles - layout::heap_slots::software_id == layout::heap_image_capacity);
+
+        // ---- the schema: the families themselves, and the buffer ----
+        auto const* const depth = rr::find(resource_id::software_depth);
+        auto const* const id = rr::find(resource_id::software_id);
+        auto const* const tiles = rr::find(resource_id::software_tiles);
+        CHECK(depth != nullptr && id != nullptr && tiles != nullptr);
+        if (depth != nullptr && id != nullptr && tiles != nullptr) {
+            CHECK(depth->kind == rr::resource_kind::image2d && depth->scope == rr::resource_scope::per_swapchain_image);
+            CHECK(depth->lifetime == rr::resource_lifetime::per_frame);
+            CHECK(depth->name == "software_depth");
+            CHECK(id->kind == rr::resource_kind::image2d && id->scope == rr::resource_scope::per_swapchain_image);
+            CHECK(id->lifetime == rr::resource_lifetime::per_frame);
+            CHECK(id->name == "software_id");
+            CHECK(tiles->kind == rr::resource_kind::buffer);
+            CHECK(tiles->scope == rr::resource_scope::device_wide); // ONE buffer with a lane per frame slot
+            CHECK(tiles->lifetime == rr::resource_lifetime::per_frame);
+            CHECK(tiles->name == "software_tiles");
+        }
+
+        // ---- the requests Task 4 will hand the table: one image per swapchain image, at the render extent ----
+        rr::instances::resource_context const context{.frame_slots = 2u, .output_images = 3u, .render_extent = {.width = 1280u, .height = 720u, .depth = 1u}};
+        auto const requests = otp::software_descriptions(context);
+        CHECK(requests.size() == otp::software_resource_count);
+        for (std::size_t i = 0; i < requests.size(); ++i) {
+            CHECK(requests[i].id == otp::software_ids[i]);
+            CHECK(requests[i].scope == rr::resource_scope::per_swapchain_image);
+            CHECK(requests[i].life == rr::instances::lifetime::output_size);
+            CHECK(requests[i].image.extent.width == context.render_extent.width);
+            CHECK(requests[i].image.extent.height == context.render_extent.height);
+            CHECK(requests[i].image.format == rhi::image_format::r32_uint);
+            CHECK(requests[i].image.flags == flags);
+        }
+
+        // ---- THE CSR TILE-LIST BUFFER: one lane per frame slot, sized ONLY from the shared layout ----
+        auto const tile_request = otp::software_tiles_description(context);
+        CHECK(tile_request.id == resource_id::software_tiles);
+        CHECK(tile_request.type == rr::instances::kind::buffer);
+        CHECK(tile_request.scope == rr::resource_scope::device_wide);
+        CHECK(tile_request.life == rr::instances::lifetime::frame_slot);
+        CHECK(tile_request.buffer.usage == rhi::buffer_usage::storage_coherent);
+        CHECK(tile_request.buffer.flags == rhi::to_bits(rhi::buffer_flag::device_address));
+        CHECK(tile_request.zero_on_create);
+        // THE LAYOUT ITSELF, pinned at 720p: header 5 words + counts 3600 + offsets 3601 = 7206 words (28,824 B), then
+        // the GLOBAL budget of 65,536 8-byte entries (524,288 B) = 553,112 B per lane; two frame lanes = 1,106,224 B.
+        // (3600 tiles = 80 x 45 for 1280x720 at 16x16; the budget is the module's one adjustable constant.)
+        CHECK(sw::tile_size == 16u);
+        CHECK(sw::software_entry_budget == 65'536u);
+        CHECK(sw::software_tiles_header_words == 5u);
+        CHECK(sw::software_tiles_entry_bytes == 8u);
+        CHECK(sw::software_tiles_bytes(1280u, 720u) == (5u + 3600u + 3601u) * 4u + 65'536u * 8u);
+        CHECK(sw::software_tiles_bytes(1280u, 720u) == 553'112u);
+        CHECK(rr::software_tiles_buffer_bytes(1280u, 720u) == sw::software_tiles_bytes(1280u, 720u));
+        CHECK(tile_request.buffer.size == context.frame_slots * rr::software_tiles_buffer_bytes(1280u, 720u));
+        CHECK(tile_request.buffer.size == 2u * 553'112u);
+    }
 } // namespace
 
 int32_t main() {
     // ---- the schema describes itself, completely ----
     auto const schema = rr::validate_schema();
     CHECK_MSG(schema.has_value(), schema.has_value() ? "" : schema.error().c_str());
-    CHECK(rr::resource_schema.size() == 76);
-    CHECK(static_cast<uint32_t>(rr::resource_id::count) == 77); // 76 families plus `none`
+    CHECK(rr::resource_schema.size() == 79);                    // 76 + M4 Task 2's three software-raster families
+    CHECK(static_cast<uint32_t>(rr::resource_id::count) == 80); // 79 families plus `none`
     CHECK(rr::find(rr::resource_id::material_table)->scope == rr::resource_scope::device_wide);
     CHECK(rr::find(rr::resource_id::instance_table)->scope == rr::resource_scope::device_wide);
     CHECK(rr::find(rr::resource_id::skin_matrices_previous)->scope == rr::resource_scope::per_frame_slot);
@@ -842,5 +947,6 @@ int32_t main() {
         CHECK(shader_slots.size() > 20u);
         CHECK(host_scalars.at("heap_slot_base") == 16384u);
     }
+    software_resource_families();
     return deren::vk_test::finish("test_render_resources");
 }

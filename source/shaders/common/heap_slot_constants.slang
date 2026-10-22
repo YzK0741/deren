@@ -187,6 +187,14 @@ static const uint heap_slots_hzb_survivors = heap_slot_base + 1312u;
 // an ALIAS of the mesh indirect command buffer, not a new buffer: the HOST-written heap descriptor at this slot points
 // at it so the cull compute stage can write each item's surviving group count into the command word the draw later reads
 static const uint heap_slots_hzb_commands = heap_slot_base + 1313u;
+// ---- THE SOFTWARE RASTER'S OWN SURFACE (M4 Task 2): the two per-swapchain-image R32_UINT results of the
+// tile-rasterized software pass, and the host-written CSR tile-list buffer per frame lane. The slot numbers mirror
+// deren.engine.render_layout::heap_slots; test_render_resources.cpp compares the two files (names AND values).
+// software_tiles is a per-FRAME array and is indexed with frame_slot * <lane stride>; the images are per-image
+// arrays indexed with heap_image_index. See docs/superpowers/specs/2026-10-22-software-raster-design.md §3.2/§4.2.
+static const uint heap_slots_software_depth = heap_slot_base + 1239u;
+static const uint heap_slots_software_id = heap_slot_base + 1314u;
+static const uint heap_slots_software_tiles = heap_slot_base + 1322u;
 static const uint heap_slots_gbuffer_albedo = heap_slot_base + 1063u;
 static const uint heap_slots_gbuffer_normal = heap_slot_base + 1071u;
 static const uint heap_slots_gbuffer_material = heap_slot_base + 1079u;
@@ -202,8 +210,8 @@ static const uint heap_slots_bloom_l1 = heap_slot_base + 1167u;
 static const uint heap_slots_bloom_l2 = heap_slot_base + 1175u;
 static const uint heap_slots_bloom_l3 = heap_slot_base + 1183u;
 static const uint heap_slots_display_color = heap_slot_base + 1207u;
-// one past the last array: the highest slot any array above uses is base + 1313 (the HZB command alias, 1308..1313),
-// and the grid reserves 2048 - room for the next families without moving one
+// one past the last array: the highest slot any array above uses is base + 1323 (software_tiles' second frame
+// lane; 1322..1323), and the grid reserves 2048 - room for the next families without moving one
 static const uint heap_slot_count = 2048u;
 
 // THE SAMPLER HEAP IS A SECOND GRID, and its own base: the sampler heap is a separate heap in this API, and the

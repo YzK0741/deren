@@ -665,6 +665,8 @@ target_sources(deren_engine
         source/engine/pass/shadow.cppm
         source/engine/pass/visibility_raster.cppm
         source/engine/pass/visibility_resolve.cppm
+        source/engine/pass/software_visibility.cppm
+        source/engine/pass/software_merge.cppm
         source/engine/pass/hzb_build.cppm
         source/engine/pass/hzb_cull.cppm
         source/engine/pass/chain.cppm
@@ -725,6 +727,8 @@ target_sources(deren_engine
         source/engine/pass/shadow.cpp
         source/engine/pass/visibility_raster.cpp
         source/engine/pass/visibility_resolve.cpp
+        source/engine/pass/software_visibility.cpp
+        source/engine/pass/software_merge.cpp
         source/engine/pass/hzb_build.cpp
         source/engine/pass/hzb_cull.cpp
         ${VR_FULL_API_SOURCES}
@@ -1266,7 +1270,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb test_visibility_software)
+    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb test_visibility_software test_visibility_software_pass test_visibility_merge_pass)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1403,6 +1407,18 @@ if(VR_BUILD_TESTS)
             vstd_lib
     )
     target_link_libraries(test_visibility_resolve_pass
+            deren_engine
+            vstd_lib
+    )
+    # THE TWO SOFTWARE RASTER PASSES' HEADLESS DECLARATIONS (M4 Task 2): the tile workgroup shape, the full-extent
+    # rule, the one depth attachment and the pipeline gating are device-free facts - the same reason the raster and
+    # resolve passes have a test apiece. They need the engine's modules (the passes, rhi, the software CPU module) and
+    # no device, which is what lets them run in CI.
+    target_link_libraries(test_visibility_software_pass
+            deren_engine
+            vstd_lib
+    )
+    target_link_libraries(test_visibility_merge_pass
             deren_engine
             vstd_lib
     )
@@ -2174,6 +2190,15 @@ set(VR_SLANG_SOURCES
     # targets through the shared body. It has no pipeline yet (v0.4c wires the pass), so no frame can move; the entry
     # is here so the build compiles it and the naming-contract test above covers it from the start.
     scene/visibility_resolve.slang:main:compute:visibility_resolve.comp.spv
+    # software_visibility.slang / software_merge.slang are THE SOFTWARE RASTER'S TWO PASSES (M4 Task 2,
+    # docs/superpowers/specs/2026-10-22-software-raster-design.md): the tiled compute stage that writes the private
+    # R32_UINT depth/id pair (one 8x8 workgroup per 16x16 CSR tile), and the depth-only fullscreen merge that folds it
+    # into the frame's G-buffer depth with LESS_OR_EQUAL + depth write. Both build their own pipelines from these
+    # modules through pass_context::shader, so they are registered (chores.cpp) as well as compiled; the merge file has
+    # TWO entries. Task 2 lands the entry points; Task 3 fills the tiled walk and the SV_Depth value.
+    scene/software_visibility.slang:main:compute:software_visibility.comp.spv
+    scene/software_merge.slang:vert_main:vertex:software_merge.vert.spv
+    scene/software_merge.slang:frag_main:fragment:software_merge.frag.spv
     # hzb_build.slang -> hzb_build.comp.spv is THE HZB OCCLUSION CULLING's BUILD STAGE (M3 phase A2): one dispatch
     # per pyramid level over the frame's G-buffer depth, plus the header (camera/extent snapshot) its thread 0
     # writes. It reads/writes only heap slots and is default-OFF behind DEREN_HZB_BUILD, so it changes no frame

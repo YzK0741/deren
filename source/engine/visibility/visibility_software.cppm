@@ -46,6 +46,7 @@ module;
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <expected>
@@ -63,7 +64,62 @@ export namespace deren::engine::visibility::software {
     /// the software raster's tile edge in pixels (spec §3.4: 16x16, one workgroup per tile)
     inline constexpr std::uint32_t tile_size = 16u;
     /// the initial per-tile entry capacity; Task 1 measures the real per-tile maximum at 1.0/2.0 px and decides 32/64
+    /// @note MEASUREMENT ONLY. The user approved the CSR sparse list (spec §3.4/§9 Q7): the production path has NO
+    ///       per-tile capacity at all - it shares ONE global entry budget (`software_entry_budget`) between tiles via
+    ///       a prefix sum. This constant survives only because the committed Task-1 capture probe
+    ///       (`build_tile_lists_measure`, called from runtime.cpp outside this task's scope) reports the per-tile
+    ///       maximum/overflow it measured, and that report is the evidence the CSR decision rests on.
     inline constexpr std::uint32_t tile_entry_capacity_default = 32u;
+    /// THE PRODUCTION TILE-LIST CAPACITY (spec §3.4/§9 Q7, user-approved 2026-10-22): ONE budget of CSR entries per
+    /// frame lane, shared by every tile through the prefix-sum offsets. Task 1 measured the real load at far 4,572
+    /// (1.0 px) / 12,557 (2.0 px) entries, so 65,536 leaves ~5-14x headroom; exceeding it refuses the whole frame
+    /// (hardware-only, spec §5.4) rather than truncating. The buffer's entries array is preallocated at exactly this
+    /// many 8-byte entries (512 KiB/lane at 720p: spec §6.1) and the CSR builder is the only thing that reads it.
+    inline constexpr std::uint32_t software_entry_budget = 65'536u;
+    /// the entry's byte size on the GPU buffer (`{item_index:u32, meshlet_id:u32}`), the number the CSR buffer
+    /// allocation is derived from (T4 allocates `header + counts + offsets + budget * this`)
+    inline constexpr std::uint32_t tile_entry_bytes = 8u;
+    // ---- THE CSR TILE-LIST BUFFER'S BYTE LAYOUT (spec §3.4/§9 Q7): the single source for the host writer (Task 4),
+    //      the shader walk (Task 3) and the buffer's creation size (their consumers). The order is:
+    //      header[software_tiles_header_words] {tiles_x, tiles_y, entry_count, overflow, cluster_count},
+    //      counts[tiles], offsets[tiles + 1] (exclusive prefix sum), entries[entry_count] of 8 bytes
+    //      {item_index, meshlet_id}. Counts/offsets are uint32 words; entries are counted in tile_entry units.
+    //      NOTHING HERE IS A PER-TILE CAPACITY: the list is CSR, so only the global budget bounds a frame. ----
+    inline constexpr std::uint32_t software_tiles_word_bytes = 4u;
+    inline constexpr std::uint32_t software_tiles_header_words = 5u;
+    inline constexpr std::uint32_t software_tiles_entry_bytes = tile_entry_bytes;
+    /// the index of each header word, so the writer and the shader cannot disagree about the order
+    enum class software_tiles_header_word : std::uint32_t {
+        tiles_x = 0u,
+        tiles_y = 1u,
+        entry_count = 2u,
+        overflow = 3u,
+        cluster_count = 4u,
+    };
+    /// the first counts[] word (header words precede it; 	iles is accepted so every accessor has the same shape)
+    [[nodiscard]] constexpr std::uint32_t software_tiles_counts_word([[maybe_unused]] std::uint32_t const tiles) noexcept {
+        return software_tiles_header_words;
+    }
+    /// the first offsets[] word (counts[] is one word per tile)
+    [[nodiscard]] constexpr std::uint32_t software_tiles_offsets_word(std::uint32_t const tiles) noexcept {
+        return software_tiles_counts_word(tiles) + tiles;
+    }
+    /// the first entries[] slot (offsets[] is one word per tile PLUS the sentinel offset[tiles])
+    [[nodiscard]] constexpr std::uint32_t software_tiles_entries_word(std::uint32_t const tiles) noexcept {
+        return software_tiles_offsets_word(tiles) + tiles + 1u;
+    }
+    /// the BYTES a software_tiles buffer needs for an extent and a global entry budget (the creation size)
+    [[nodiscard]] constexpr std::uint64_t software_tiles_bytes(std::uint32_t const width, std::uint32_t const height,
+                                                               std::uint32_t const entry_budget = software_entry_budget) noexcept {
+        // tile arithmetic inline: tile_size is declared above, so the layout constants stay together at the top of
+        // the module (the tile_grid type itself lives further down, beside the binning it serves)
+        std::uint32_t const tiles_x = (width + tile_size - 1u) / tile_size;
+        std::uint32_t const tiles_y = (height + tile_size - 1u) / tile_size;
+        std::uint32_t const tiles = tiles_x * tiles_y;
+        std::uint64_t const words = static_cast<std::uint64_t>(software_tiles_entries_word(tiles));
+        return words * software_tiles_word_bytes + static_cast<std::uint64_t>(entry_budget) * software_tiles_entry_bytes;
+    }
+
     /// the primary subpixel threshold (M1c's 1 px headline; 2.0 px is the measurement's second band, spec §9 Q1)
     inline constexpr float threshold_px_default = 1.0f;
     inline constexpr float threshold_px_secondary = 2.0f;
@@ -88,6 +144,14 @@ export namespace deren::engine::visibility::software {
         invalid_capacity,
         unsupported_projection,
         tile_overflow,
+        /// APPENDED FOR THE CSR PRODUCTION PATH (spec §3.4/§9 Q7): the frame's total CSR entries exceed
+        /// `software_entry_budget`. There is NO per-tile failure any more: the API's whole point is that one tile may
+        /// take thousands of entries, and the budget is the only capacity that exists. The caller falls the whole
+        /// frame back to the hardware path (spec §5.4) - never truncates.
+        entry_budget_exceeded,
+        /// the CPU reference rasterizer was handed a plan entry that names an item/meshlet/vertex outside the
+        /// caller-supplied expanded geometry (a fixture-wiring bug, not a GPU-possible state)
+        invalid_reference,
     };
 
     /// the matrices and extent the caller classifies with, in the renderer's own storage convention
@@ -633,30 +697,481 @@ export namespace deren::engine::visibility::software {
         return detail::bin_tile_lists(items, *camera, threshold_px, std::max(1u, entry_capacity));
     }
 
+    // ================================================================================================
+    // THE PRODUCTION TILE LIST: CSR (spec §3.4/§9 Q7, user-approved 2026-10-22)
+    //
+    // Task 1's measurement (see build_tile_lists_measure above) FALSIFIED the fixed per-tile capacity: far's
+    // densest tile held 977 entries at 1.0 px and 1,907 at 2.0 px while the frame's whole total was only 4,572 /
+    // 12,557 entries over 3,600 tiles - a long-tailed distribution where any fixed per-tile cap either overflows
+    // or wastes tens of MiB. The approved replacement is this CSR (compressed sparse row) list: every tile owns a
+    // RANGE of ONE shared entries array, located by an exclusive prefix sum of the per-tile counts. There is NO
+    // per-tile capacity and NO per-tile overflow anywhere on the production path; the only capacity is the global
+    // `software_entry_budget`, and exceeding it refuses the WHOLE frame (never truncates: spec §5.4's "no partial
+    // software image, no half-new frame"). The GPU software raster reads exactly `offsets[t] .. offsets[t+1]` for
+    // its tile, so a sparse tile is a zero-length range rather than a gap in a fixed stride.
+    //
+    // THE ORDER IS A CONTRACT: entries are appended in ITEM order -> RUN order -> TILE order (the same order the
+    // classification walks), so the list is byte-identical for identical inputs. That determinism is what lets
+    // the CPU reference and the GPU probe compare a captured list entry by entry (Task 3) and what makes the
+    // `(depth, id)` total order's independence from list order a property rather than a hope.
+    // ================================================================================================
+    struct software_tile_lists {
+        tile_grid grid{};
+        std::uint32_t entry_budget = software_entry_budget;    ///< the global cap `entry_count` was checked against
+        std::uint32_t item_count = 0u;                         ///< items the builder was given
+        std::uint32_t cluster_count = 0u;                      ///< software (subpixel) records filed into the list
+        std::uint32_t entry_count = 0u;                        ///< CSR entries actually used (== offsets[tiles])
+        std::uint32_t max_tile_entries = 0u;                   ///< DIAGNOSTICS only: the busiest tile's count
+        bool overflow = false;                                 ///< measurement-only form; the production builder refuses instead
+        deren::utility::vessel::vector<item_split> items;      ///< per item: the [hardware prefix | software suffix] split
+        deren::utility::vessel::vector<std::uint32_t> counts;  ///< per tile: exact entry count (== offsets[t+1] - offsets[t])
+        deren::utility::vessel::vector<std::uint32_t> offsets; ///< tiles + 1 exclusive prefix sums; offsets[0] == 0
+        deren::utility::vessel::vector<tile_entry> entries;    ///< entry_count entries, grouped by tile, in the order above
+
+        /// @brief the CSR range of tile (@p x, @p y), as a span of its entries (empty for a sparse tile)
+        [[nodiscard]] inline std::span<tile_entry const> tile_span(std::uint32_t const x, std::uint32_t const y) const noexcept {
+            if (x >= this->grid.tiles_x || y >= this->grid.tiles_y || this->offsets.size() != static_cast<std::size_t>(this->grid.tile_count()) + 1u) {
+                return {};
+            }
+            std::size_t const tile = static_cast<std::size_t>(y) * this->grid.tiles_x + x;
+            std::uint32_t const begin = this->offsets[tile];
+            std::uint32_t const end = this->offsets[tile + 1u];
+            if (begin > end || end > this->entries.size()) {
+                return {};
+            }
+            return std::span<tile_entry const>(this->entries.data() + begin, end - begin);
+        }
+
+        [[nodiscard]] bool empty() const noexcept {
+            return this->cluster_count == 0u || this->entry_count == 0u;
+        }
+    };
+
+    namespace detail {
+        /// the CSR producer's one binning body: two passes over deterministic order, prefix sum between them
+        [[nodiscard]] inline std::expected<software_tile_lists, software_error> bin_csr_tile_lists(
+            std::span<item_records const> const items, camera_metrics const& camera, float const threshold_px,
+            std::uint32_t const entry_budget) {
+            software_tile_lists lists{};
+            lists.grid = make_tile_grid(camera.width, camera.height);
+            lists.entry_budget = entry_budget;
+            lists.item_count = static_cast<std::uint32_t>(items.size());
+            std::uint32_t const tiles = lists.grid.tile_count();
+            lists.counts.assign(tiles, 0u);
+            lists.items.reserve(items.size());
+            // what the second pass needs per item: its split, which original indices are software records, and each
+            // software record's conservative tile box (computed once, in the first pass, from the same projection)
+            struct filed_item {
+                item_split split{};
+                deren::utility::vessel::vector<std::uint8_t> software;
+                deren::utility::vessel::vector<projected_record> projections; // indexed by ORIGINAL record index
+            };
+            deren::utility::vessel::vector<filed_item> filed;
+            filed.reserve(items.size());
+            std::uint64_t total_entries = 0u;
+            for (item_records const& item : items) {
+                filed_item entry_set{};
+                item_split& split = entry_set.split;
+                split.item_index = item.item_index;
+                split.record_count = static_cast<std::uint32_t>(item.records.size());
+                entry_set.software.assign(item.records.size(), 0u);
+                entry_set.projections.resize(item.records.size());
+                if (item.records.size() > visibility::id_meshlet_capacity) {
+                    // the packed id cannot carry a suffix: the item stays wholly on the hardware path (safe direction)
+                    for (meshlet const& record : item.records) {
+                        split.hardware_triangles += record.index_count / 3u;
+                    }
+                    split.hardware_count = split.record_count;
+                    lists.items.push_back(split);
+                    filed.push_back(std::move(entry_set));
+                    continue;
+                }
+                for (std::size_t index = 0u; index < item.records.size(); ++index) {
+                    auto const projection = project(item.records[index], item.model, camera, lists.grid);
+                    bool const subpixel = projection.finite && projection.front_of_near &&
+                                          projection.diameter_upper_px < static_cast<double>(threshold_px);
+                    entry_set.software[index] = subpixel ? 1u : 0u;
+                    entry_set.projections[index] = projection;
+                    if (subpixel) {
+                        ++split.software_count;
+                        split.software_triangles += item.records[index].index_count / 3u;
+                    } else {
+                        ++split.hardware_count;
+                        split.hardware_triangles += item.records[index].index_count / 3u;
+                    }
+                }
+                lists.cluster_count += split.software_count;
+                // PASS 1: exact per-tile counts (no capacity to check against - the only check is the global budget)
+                for (std::size_t index = 0u; index < item.records.size(); ++index) {
+                    if (entry_set.software[index] == 0u) {
+                        continue;
+                    }
+                    projected_record const& projection = entry_set.projections[index];
+                    if (!projection.on_screen) {
+                        continue; // a subpixel record off the frame covers no tile (still counted/moved)
+                    }
+                    for (std::int32_t tile_y = projection.tile_min_y; tile_y <= projection.tile_max_y; ++tile_y) {
+                        for (std::int32_t tile_x = projection.tile_min_x; tile_x <= projection.tile_max_x; ++tile_x) {
+                            std::size_t const tile = static_cast<std::size_t>(tile_y) * lists.grid.tiles_x + static_cast<std::size_t>(tile_x);
+                            ++lists.counts[tile];
+                            ++total_entries;
+                        }
+                    }
+                }
+                if (total_entries > entry_budget) {
+                    // GLOBAL budget: one capacity, one failure mode (spec §5.4). The caller runs the complete
+                    // hardware path; no partial CSR list is ever produced.
+                    return std::unexpected{software_error::entry_budget_exceeded};
+                }
+                lists.items.push_back(split);
+                filed.push_back(std::move(entry_set));
+            }
+            // ---- the exclusive prefix sum: offsets[t] is tile t's first entry, offsets[tiles] is entry_count ----
+            lists.offsets.assign(static_cast<std::size_t>(tiles) + 1u, 0u);
+            for (std::uint32_t tile = 0u; tile < tiles; ++tile) {
+                lists.offsets[tile + 1u] = lists.offsets[tile] + lists.counts[tile];
+            }
+            lists.entry_count = lists.offsets[tiles];
+            lists.entries.assign(lists.entry_count, tile_entry{});
+            // ---- PASS 2: fill tile ranges in item -> run -> tile order ----
+            deren::utility::vessel::vector<std::uint32_t> cursor = lists.offsets; // per-tile write head
+            for (std::size_t item_position = 0u; item_position < filed.size(); ++item_position) {
+                filed_item const& entry_set = filed[item_position];
+                item_split const& split = entry_set.split;
+                std::uint32_t suffix = 0u;
+                for (std::size_t index = 0u; index < entry_set.software.size(); ++index) {
+                    if (entry_set.software[index] == 0u) {
+                        continue;
+                    }
+                    std::uint32_t const meshlet_id = split.hardware_count + suffix;
+                    ++suffix;
+                    projected_record const& projection = entry_set.projections[index];
+                    if (!projection.on_screen) {
+                        continue;
+                    }
+                    for (std::int32_t tile_y = projection.tile_min_y; tile_y <= projection.tile_max_y; ++tile_y) {
+                        for (std::int32_t tile_x = projection.tile_min_x; tile_x <= projection.tile_max_x; ++tile_x) {
+                            std::size_t const tile = static_cast<std::size_t>(tile_y) * lists.grid.tiles_x + static_cast<std::size_t>(tile_x);
+                            lists.entries[cursor[tile]++] = tile_entry{.item_index = split.item_index, .meshlet_id = meshlet_id};
+                        }
+                    }
+                }
+            }
+            for (std::uint32_t const count : lists.counts) {
+                lists.max_tile_entries = std::max(lists.max_tile_entries, count);
+            }
+            return lists;
+        }
+    } // namespace detail
+
     /**
-     * @brief THE PRODUCTION form: bin the frame's subpixel records, or refuse the frame
-     * @return the plan, or the named reason this frame must run the COMPLETE hardware path
-     * @note overflow is an ERROR here rather than a truncated list: a partial tile list would silently drop visible
-     *       subpixel clusters (spec §5.4: no partial software image, no half-new frame). Task 1's measurement uses
-     *       build_tile_lists_measure, which reports the true over-capacity counts instead.
+     * @brief THE PRODUCTION TILE LIST BUILDER: bin the frame's subpixel records into the CSR sparse list, or refuse
+     *        the frame
+     * @param items the frame's classified items (the same span the split uses)
+     * @param parameters the frame's camera (view/proj/extent)
+     * @param threshold_px the subpixel threshold (1.0 is the primary band)
+     * @param entry_budget the global CSR entry budget; the single capacity of this design (`software_entry_budget`)
+     * @return the CSR plan, or the named reason this frame must run the COMPLETE hardware path
+     * @note `entry_budget_exceeded` is an ERROR rather than a truncated list: a partial list would silently drop
+     *       visible subpixel clusters (spec §5.4). A zero budget is refused as invalid; every overflow decision is
+     *       deterministic because the two passes walk the same item -> run -> tile order.
      */
-    [[nodiscard]] inline std::expected<software_tile_plan, software_error> build_tile_lists(
+    [[nodiscard]] inline std::expected<software_tile_lists, software_error> build_tile_lists(
         std::span<item_records const> const items, camera_parameters const& parameters, float const threshold_px,
-        std::uint32_t const entry_capacity = tile_entry_capacity_default) {
+        std::uint32_t const entry_budget = software_entry_budget) {
         if (!std::isfinite(threshold_px) || threshold_px <= 0.0f) {
             return std::unexpected{software_error::invalid_threshold};
         }
-        if (entry_capacity == 0u) {
+        if (entry_budget == 0u) {
             return std::unexpected{software_error::invalid_capacity};
         }
         auto const camera = prepare_camera(parameters);
         if (!camera.has_value()) {
             return std::unexpected{camera.error()};
         }
-        software_tile_plan plan = detail::bin_tile_lists(items, *camera, threshold_px, entry_capacity);
-        if (plan.overflow) {
-            return std::unexpected{software_error::tile_overflow};
+        return detail::bin_csr_tile_lists(items, *camera, threshold_px, entry_budget);
+    }
+
+    // ================================================================================================
+    // THE RESOLVE/MERGE CONTRACT (spec §3.2): one software pixel, the winner rule BEFORE the merge, and the
+    // merged depth the merge pass leaves behind
+    //
+    // THE ORDER IS THE CORRECTNESS ARGUMENT. The resolve runs on the UNMERGED hardware depth. Its winner rule is
+    //   software wins iff sw_depth < hw_depth                       (strictly nearer)
+    //                  or sw_depth == hw_depth and !hw_id.valid()   (the hardware pixel is background/clear)
+    // and it uses the WINNING candidate's own depth for the reconstruction/tolerance check, so a software pixel's
+    // z-check compares the software id's reconstructed z against the software raster's own depth. If the merge ran
+    // FIRST, software-won pixels would have their depth overwritten by sw_depth and the strict `<` could no longer
+    // see the old hardware depth (the design review's blocking defect, spec §3.2/§5.1). The merge is a depth-only
+    // pass with LESS_OR_EQUAL + depth write whose final value is therefore min(hw_depth, sw_depth).
+    //
+    // COMPARISON IS EXACT (no epsilon), per spec: the two producers can disagree by one ULP at a nominally equal
+    // depth, which the strict `<` resolves deterministically; the merge writes the smaller bit pattern, and for
+    // positive floats the bit order IS the float order.
+    // ================================================================================================
+    /// the software images' "no software geometry wrote this pixel" values: depth = a bit pattern larger than any
+    /// legal positive float (so integer min selection keeps it last), id = the cleared id (0)
+    inline constexpr std::uint32_t software_depth_empty = 0xFFFFFFFFu;
+    inline constexpr std::uint32_t software_id_empty = 0u;
+
+    /// one software pixel: NDC depth as an INTEGER (float bit pattern) + the packed 32-bit visibility id
+    struct software_pixel {
+        std::uint32_t depth_bits = software_depth_empty;
+        std::uint32_t id = software_id_empty;
+    };
+
+    /// @brief whether a software pixel names geometry with a usable depth (empty id / non-finite / out-of-range fail)
+    /// @note spec §5.4: a non-finite or out-of-[0,1] software depth is treated as EMPTY (skipped) - the design never
+    ///       writes a NaN into the depth attachment
+    [[nodiscard]] inline bool software_pixel_usable(software_pixel const& pixel) noexcept {
+        if (pixel.id == software_id_empty) {
+            return false;
         }
-        return plan;
+        float const depth = std::bit_cast<float>(pixel.depth_bits);
+        return std::isfinite(depth) && depth >= 0.0f && depth <= 1.0f;
+    }
+
+    enum class candidate_source : std::uint8_t { hardware,
+                                                 software };
+
+    /// the resolve's choice for one pixel: which producer's id it decodes and which depth it reconstructs with
+    struct resolved_candidate {
+        candidate_source source = candidate_source::hardware;
+        std::uint32_t id = 0u; ///< the packed id to decode (hardware's or software's)
+        float depth = 0.0f;    ///< the depth the reconstruction/tolerance check must use (the WINNER's own depth)
+    };
+
+    /**
+     * @brief THE WINNER RULE (spec §3.2), evaluated BEFORE the merge on the unmerged hardware depth
+     * @param hardware_id the hardware visibility id (its valid bit distinguishes "background" from "geometry")
+     * @param hardware_depth the unmerged G-buffer depth the hardware raster wrote for this pixel
+     * @param software the software producer's pixel (id + depth bits)
+     * @note software wins on a STRICTLY smaller depth, or on an exact tie when the hardware pixel is background
+     *       (invalid id). Every other case - including a software pixel that is empty, non-finite or out of [0,1] -
+     *       keeps hardware. The returned depth is the chosen candidate's own depth (spec §5.3).
+     */
+    [[nodiscard]] inline resolved_candidate resolve_candidate(visibility::id const hardware_id, float const hardware_depth,
+                                                              software_pixel const software) noexcept {
+        resolved_candidate chosen{.source = candidate_source::hardware, .id = hardware_id.value, .depth = hardware_depth};
+        if (!software_pixel_usable(software)) {
+            return chosen;
+        }
+        float const software_depth = std::bit_cast<float>(software.depth_bits);
+        bool const strictly_nearer = software_depth < hardware_depth;
+        bool const background_tie = software_depth == hardware_depth && !hardware_id.valid();
+        if (strictly_nearer || background_tie) {
+            chosen = resolved_candidate{.source = candidate_source::software, .id = software.id, .depth = software_depth};
+        }
+        return chosen;
+    }
+
+    /**
+     * @brief the depth the MERGE pass leaves in the depth attachment: `min(hardware, software)`
+     * @param hardware_depth_bits the depth attachment's current value (the hardware producer's, bit pattern)
+     * @param software the software pixel
+     * @note the merge pipeline is LESS_OR_EQUAL + depth write on `clamp(asfloat(sw_depth_bits),0,1)`, so it writes
+     *       only when `sw_depth <= hw_depth`; the resulting value is `min`. Equal writes the same value (the spec's
+     *       "tie writes same value, no change"); for positive floats the numeric min is the bit-pattern min, which is
+     *       what makes this CPU reference exact.
+     */
+    [[nodiscard]] inline std::uint32_t merged_depth_bits(std::uint32_t const hardware_depth_bits, software_pixel const software) noexcept {
+        if (!software_pixel_usable(software)) {
+            return hardware_depth_bits;
+        }
+        return software.depth_bits < hardware_depth_bits ? software.depth_bits : hardware_depth_bits;
+    }
+
+    // ================================================================================================
+    // THE CPU REFERENCE RASTERIZER (spec §4.1): fixtures' expected software images
+    //
+    // It consumes the SAME "already expanded" data the GPU pass fetches through device addresses - per item its
+    // run table (hardware prefix then software suffix), index buffer, vertex positions and model - so it does NOT
+    // redo the import/loader. The arithmetic is the shader's: world = model * position (the renderer's column-major
+    // storage convention, the same one visibility.cppm's resolve reference uses), clip = proj * view * world, the
+    // pixel footprint from `visibility::clip_to_screen`/`screen_barycentrics`, and screen-linear z
+    // `sum(bary_i * clip_i.z/clip_i.w)` (the hardware raster's and resolve's depth convention). Every pixel gets
+    // the total order `(depth_bits, id)` minimum, so the result does not depend on tile/entry scan order.
+    // ================================================================================================
+    namespace detail {
+        /// column-major storage: element (row, column) lives at matrix[column * 4 + row]; matches glm::mat4's bytes
+        [[nodiscard]] inline std::array<double, 4> reference_transform(std::array<float, 16> const& matrix,
+                                                                       std::array<double, 4> const& vector) noexcept {
+            std::array<double, 4> result{};
+            for (std::uint32_t row = 0u; row < 4u; ++row) {
+                double value = 0.0;
+                for (std::uint32_t column = 0u; column < 4u; ++column) {
+                    value += static_cast<double>(matrix[column * 4u + row]) * vector[column];
+                }
+                result[row] = value;
+            }
+            return result;
+        }
+
+        /// @brief `a * b` in the same column-vector sense the shader's `mul(vec, a)` then `* b` computes
+        [[nodiscard]] inline std::array<float, 16> reference_multiply(std::array<float, 16> const& a, std::array<float, 16> const& b) noexcept {
+            std::array<float, 16> result{};
+            for (std::uint32_t row = 0u; row < 4u; ++row) {
+                for (std::uint32_t column = 0u; column < 4u; ++column) {
+                    double sum = 0.0;
+                    for (std::uint32_t inner = 0u; inner < 4u; ++inner) {
+                        sum += static_cast<double>(a[inner * 4u + row]) * static_cast<double>(b[column * 4u + inner]);
+                    }
+                    result[column * 4u + row] = static_cast<float>(sum);
+                }
+            }
+            return result;
+        }
+    } // namespace detail
+
+    /// one item's expanded geometry: exactly the facts the GPU software raster fetches through the draw-item row
+    struct reference_item {
+        std::uint32_t item_index = 0u;
+        std::array<float, 16> model{};                     ///< draw_item.model (column-major storage, applied as M*v)
+        std::int32_t base_vertex = 0;                      ///< draw_item.base_vertex, added to every fetched index
+        std::span<meshlet const> records{};                ///< the item's run: hardware prefix, then software suffix
+        std::span<std::array<float, 3> const> positions{}; ///< item-local positions (the 64-byte vertex's position lane)
+        std::span<std::uint32_t const> indices{};          ///< item index buffer; a record's first_index is absolute into it
+    };
+
+    /// the CPU reference's whole input: the frame camera and every item the CSR list can name
+    struct reference_inputs {
+        camera_parameters camera{};
+        std::span<reference_item const> items{};
+    };
+
+    /// the CPU reference's output: the two software images, in the GPU's own empty-value encoding
+    struct software_image {
+        std::uint32_t width = 0u;
+        std::uint32_t height = 0u;
+        deren::utility::vessel::vector<std::uint32_t> depth_bits{}; ///< width*height, empty = software_depth_empty
+        deren::utility::vessel::vector<std::uint32_t> id{};         ///< width*height, empty = software_id_empty
+
+        [[nodiscard]] software_pixel at(std::uint32_t const x, std::uint32_t const y) const noexcept {
+            if (x >= this->width || y >= this->height) {
+                return {};
+            }
+            std::size_t const index = static_cast<std::size_t>(y) * this->width + x;
+            return software_pixel{.depth_bits = this->depth_bits[index], .id = this->id[index]};
+        }
+    };
+
+    /**
+     * @brief rasterize the CSR tile list into the two software images (the fixture's expected values)
+     * @return the images, or the named reason the input could not be a GPU-produced list/geometry pair
+     * @note triangles that are degenerate, have a non-finite projection, or cross the eye plane (w <= 0) are
+     *       SKIPPED - v1's classification only moves clusters whose sphere is wholly in front of the near plane, so
+     *       a triangle reaching the eye plane is a wiring bug rather than a supported case (the shader does the same)
+     * @note the depth is clamped to [0,1] AFTER a finiteness check; a non-finite interpolated z skips the pixel
+     *       (spec §5.4: never write NaN into the software depth image)
+     */
+    [[nodiscard]] inline std::expected<software_image, software_error> rasterize_tiles(software_tile_lists const& plan,
+                                                                                       reference_inputs const& inputs) {
+        auto const camera = prepare_camera(inputs.camera);
+        if (!camera.has_value()) {
+            return std::unexpected{camera.error()};
+        }
+        std::size_t const tiles = plan.grid.tile_count();
+        if (plan.offsets.size() != tiles + 1u || plan.counts.size() != tiles || plan.entries.size() != plan.entry_count) {
+            return std::unexpected{software_error::invalid_reference};
+        }
+        software_image image{};
+        image.width = camera->width;
+        image.height = camera->height;
+        std::size_t const pixels = static_cast<std::size_t>(image.width) * image.height;
+        image.depth_bits.assign(pixels, software_depth_empty);
+        image.id.assign(pixels, software_id_empty);
+        std::array<float, 16> const view_projection = detail::reference_multiply(camera->proj, camera->view);
+        constexpr float clip_w_epsilon = 1e-5f; // the resolve's near-plane clip epsilon; below it a triangle is clipped
+        for (std::uint32_t tile_y = 0u; tile_y < plan.grid.tiles_y; ++tile_y) {
+            for (std::uint32_t tile_x = 0u; tile_x < plan.grid.tiles_x; ++tile_x) {
+                for (tile_entry const& entry : plan.tile_span(tile_x, tile_y)) {
+                    // locate the item: fixture-sized lists make the linear walk the honest, allocation-free choice
+                    reference_item const* item = nullptr;
+                    for (reference_item const& candidate : inputs.items) {
+                        if (candidate.item_index == entry.item_index) {
+                            item = &candidate;
+                            break;
+                        }
+                    }
+                    if (item == nullptr || entry.meshlet_id >= item->records.size()) {
+                        return std::unexpected{software_error::invalid_reference};
+                    }
+                    meshlet const& record = item->records[entry.meshlet_id];
+                    std::uint32_t const triangles = record.index_count / 3u;
+                    for (std::uint32_t triangle = 0u; triangle < triangles; ++triangle) {
+                        std::array<std::array<float, 2>, 3> screen{};
+                        std::array<float, 3> corner_depth{};
+                        bool usable = true;
+                        for (std::uint32_t corner = 0u; corner < 3u && usable; ++corner) {
+                            std::uint64_t const index_position = static_cast<std::uint64_t>(record.first_index) + triangle * 3u + corner;
+                            if (index_position >= item->indices.size()) {
+                                return std::unexpected{software_error::invalid_reference};
+                            }
+                            std::int64_t const vertex_index = static_cast<std::int64_t>(item->indices[index_position]) + item->base_vertex;
+                            if (vertex_index < 0 || static_cast<std::size_t>(vertex_index) >= item->positions.size()) {
+                                return std::unexpected{software_error::invalid_reference};
+                            }
+                            std::array<float, 3> const& position = item->positions[static_cast<std::size_t>(vertex_index)];
+                            std::array<double, 4> const clip =
+                                detail::reference_transform(view_projection,
+                                                            detail::reference_transform(item->model, {position[0], position[1], position[2], 1.0}));
+                            if (!std::isfinite(clip[0]) || !std::isfinite(clip[1]) || !std::isfinite(clip[2]) || !std::isfinite(clip[3]) ||
+                                clip[3] <= static_cast<double>(clip_w_epsilon)) {
+                                usable = false; // behind/clipping the eye plane (v1 never moves such a cluster to software)
+                                break;
+                            }
+                            auto const mapped = visibility::clip_to_screen(
+                                std::array<float, 4>{static_cast<float>(clip[0]), static_cast<float>(clip[1]), static_cast<float>(clip[2]), static_cast<float>(clip[3])},
+                                static_cast<float>(image.width), static_cast<float>(image.height));
+                            if (!mapped.has_value()) {
+                                usable = false;
+                                break;
+                            }
+                            screen[corner] = *mapped;
+                            corner_depth[corner] = static_cast<float>(clip[2] / clip[3]);
+                        }
+                        if (!usable || visibility::triangle_twice_area(screen[0], screen[1], screen[2]) == 0.0f) {
+                            continue; // degenerate or clipped: covers no pixel
+                        }
+                        float const min_x = std::min({screen[0][0], screen[1][0], screen[2][0]});
+                        float const max_x = std::max({screen[0][0], screen[1][0], screen[2][0]});
+                        float const min_y = std::min({screen[0][1], screen[1][1], screen[2][1]});
+                        float const max_y = std::max({screen[0][1], screen[1][1], screen[2][1]});
+                        std::int32_t const y_begin = std::max<std::int32_t>(0, static_cast<std::int32_t>(std::floor(min_y)));
+                        std::int32_t const y_end = std::min<std::int32_t>(static_cast<std::int32_t>(image.height) - 1, static_cast<std::int32_t>(std::ceil(max_y)));
+                        std::int32_t const x_begin = std::max<std::int32_t>(0, static_cast<std::int32_t>(std::floor(min_x)));
+                        std::int32_t const x_end = std::min<std::int32_t>(static_cast<std::int32_t>(image.width) - 1, static_cast<std::int32_t>(std::ceil(max_x)));
+                        auto const packed = visibility::pack_id(entry.item_index, entry.meshlet_id, triangle);
+                        if (!packed.has_value()) {
+                            return std::unexpected{software_error::invalid_reference};
+                        }
+                        for (std::int32_t pixel_y = y_begin; pixel_y <= y_end; ++pixel_y) {
+                            for (std::int32_t pixel_x = x_begin; pixel_x <= x_end; ++pixel_x) {
+                                std::array<float, 2> const centre{static_cast<float>(pixel_x) + 0.5f, static_cast<float>(pixel_y) + 0.5f};
+                                visibility::barycentrics const barycentrics = visibility::screen_barycentrics(centre, screen[0], screen[1], screen[2]);
+                                bool const inside = (barycentrics.a >= 0.0f && barycentrics.b >= 0.0f && barycentrics.c >= 0.0f) ||
+                                                    (barycentrics.a <= 0.0f && barycentrics.b <= 0.0f && barycentrics.c <= 0.0f);
+                                if (!inside) {
+                                    continue;
+                                }
+                                float depth = barycentrics.a * corner_depth[0] + barycentrics.b * corner_depth[1] + barycentrics.c * corner_depth[2];
+                                if (!std::isfinite(depth)) {
+                                    continue;
+                                }
+                                depth = std::clamp(depth, 0.0f, 1.0f);
+                                std::uint32_t const depth_bits = std::bit_cast<std::uint32_t>(depth);
+                                std::size_t const pixel = static_cast<std::size_t>(pixel_y) * image.width + static_cast<std::size_t>(pixel_x);
+                                if (depth_bits < image.depth_bits[pixel] ||
+                                    (depth_bits == image.depth_bits[pixel] && packed->value < image.id[pixel])) {
+                                    image.depth_bits[pixel] = depth_bits;
+                                    image.id[pixel] = packed->value;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return image;
     }
 } // namespace deren::engine::visibility::software

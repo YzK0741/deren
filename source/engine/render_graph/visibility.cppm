@@ -213,6 +213,11 @@ export namespace deren::engine::render_graph::visibility {
         texture_ref velocity;
         texture_ref color;
         std::optional<resolve_shared_inputs> shared = {};
+        /// THE SOFTWARE CANDIDATES (M4 Task 2): when BOTH are present the resolve also reads them and picks between
+        /// the hardware id/depth and the software pixel (spec §3.2's winner rule: strictly nearer software wins, a
+        /// depth tie keeps hardware, an empty id keeps hardware). One without the other is a wiring mistake the
+        /// append refuses, and with NEITHER the declaration is exactly the v0.5 one.
+        std::optional<texture_ref> software_depth = {}, software_id = {};
     };
 
     /// THE RESOLVE IS A COMPUTE PASS, and its write scope says so: the five G-buffer targets are written as STORAGE
@@ -225,9 +230,10 @@ export namespace deren::engine::render_graph::visibility {
         texture_discard_write velocity;
         texture_discard_write color;
         std::optional<resolve_shared_parameters> shared = {};
+        std::optional<texture_read> software_depth = {}, software_id = {};
 
         void visit_resources(parameter_visitor& visit) const noexcept {
-            visit(vis_id, depth, surface, velocity, color, shared);
+            visit(vis_id, depth, surface, velocity, color, shared, software_depth, software_id);
         }
     };
 
@@ -258,6 +264,20 @@ export namespace deren::engine::render_graph::visibility {
                 }
             }
         }
+        if (in.software_depth.has_value() != in.software_id.has_value()) {
+            return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "visibility resolve", .resource_name = "incomplete software candidate images"});
+        }
+        if (in.software_depth) {
+            for (texture_ref const software : {*in.software_depth, *in.software_id}) {
+                if (software == in.vis_id || software == in.depth || software == in.surface[0] || software == in.surface[1] || software == in.surface[2] ||
+                    software == in.velocity || software == in.color) {
+                    return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "visibility resolve", .resource_name = "software candidate alias"});
+                }
+            }
+            if (*in.software_depth == *in.software_id) {
+                return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "visibility resolve", .resource_name = "software candidate alias"});
+            }
+        }
         constexpr access_scope read{resource_usage::sampled, pipeline_stage::compute_shader};
         constexpr access_scope write{resource_usage::storage, pipeline_stage::compute_shader};
         resolve_parameters params{{in.vis_id, {}, read}, {in.depth, {}, read}, {}, {in.velocity, {}, write}, {in.color, {}, write}};
@@ -279,10 +299,147 @@ export namespace deren::engine::render_graph::visibility {
                 params.shared->hzb_results = buffer_read{*in.shared->hzb_results, {}, buffer};
             }
         }
+        if (in.software_depth) {
+            params.software_depth = texture_read{*in.software_depth, {}, read};
+            params.software_id = texture_read{*in.software_id, {}, read};
+        }
         auto added = graph.add_pass("visibility resolve", std::move(params));
         if (!added) {
             return std::unexpected(added.error());
         }
         return resolve_outputs{in, *added};
+    }
+
+    // ============================================================================================
+    // THE SOFTWARE RASTER'S LANE (M4 Task 2; docs/superpowers/specs/2026-10-22-software-raster-design.md
+    // §3.2/§4.2): the tiled compute pass that rasterizes the subpixel records into its own private depth/id
+    // images, the resolve's two OPTIONAL reads of them (the candidate selection), and the depth-only merge that
+    // writes min(hardware, software) back into the G-buffer depth.
+    //
+    // THE DECLARED ORDER IS THE CORRECTNESS ARGUMENT, and it is why the appends below exist before Task 4 records
+    // anything: hardware raster -> software raster -> RESOLVE -> MERGE. The resolve reads the UNMERGED hardware
+    // depth (so it must run BEFORE the merge), and the merge's LESS_EQUAL depth write is only min(hw, sw) when the
+    // resolve already picked among the unmerged candidates. `append_software_raster` orders itself after the
+    // hardware raster; `append_software_merge` orders the resolve after the software raster AND itself after the
+    // resolve - so the one call that knows both ends records both edges.
+    // ============================================================================================
+    /// the reads the SOFTWARE RASTER makes: the two images it writes through, the camera block, this frame's
+    /// draw-item and meshlet tables, the host-written CSR tile list, and the mesh statistics counters whose
+    /// software-fallback/merge failure lanes it adds to.
+    struct software_raster_inputs {
+        texture_ref software_depth;                     ///< R32_UINT: the nearest software candidate's depth bit pattern
+        texture_ref software_id;                        ///< R32_UINT: the same packed 32-bit id the hardware raster writes
+        buffer_ref camera;                              ///< the per-frame camera block (same one the hardware raster projected with)
+        buffer_ref items;                               ///< this frame's draw-item table
+        buffer_ref meshlets;                            ///< the import-time meshlet record table
+        buffer_ref tiles;                               ///< the CSR tile list (host-written per frame lane, see visibility.software)
+        buffer_ref statistics;                          ///< the mesh-statistics buffer; the raster's counters are atomic adds
+        std::optional<buffer_ref> culled_meshlets = {}; ///< the compacted run table when the HZB cull produced one
+    };
+
+    struct software_raster_parameters {
+        texture_discard_write software_depth, software_id;
+        buffer_read camera, items, meshlets, tiles;
+        buffer_read_write statistics;
+        std::optional<buffer_read> culled_meshlets = {};
+        void visit_resources(parameter_visitor& visit) const noexcept {
+            visit(software_depth, software_id, camera, items, meshlets, tiles, statistics, culled_meshlets);
+        }
+    };
+
+    struct software_raster_outputs {
+        pass_ref pass;
+    };
+
+    /**
+     * @brief append the software raster, declared AFTER @p hardware_raster
+     *
+     * The explicit order edge is not redundant with the data edges (the hardware raster and this pass write
+     * disjoint images): it is the ordering spec §3.2 requires - candidates are only meaningful once the hardware
+     * depth they are compared against exists - and it keeps the two raster lanes next to each other in the
+     * execution order even when nothing reads a software image.
+     */
+    [[nodiscard]] inline std::expected<software_raster_outputs, graph_error> append_software_raster(builder& graph, software_raster_inputs const& in,
+                                                                                                    pass_ref hardware_raster) noexcept {
+        if (!graph.contains(hardware_raster)) {
+            return std::unexpected(graph_error{.code = error_code::invalid_ref, .pass_name = "software visibility", .resource_name = "hardware raster predecessor"});
+        }
+        if (in.software_depth == in.software_id) {
+            return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "software visibility", .resource_name = "software attachments"});
+        }
+        constexpr access_scope storage{resource_usage::storage, pipeline_stage::compute_shader};
+        constexpr access_scope camera{resource_usage::uniform_buffer, pipeline_stage::compute_shader};
+        software_raster_parameters params{{in.software_depth, {}, storage},
+                                          {in.software_id, {}, storage},
+                                          {in.camera, {}, camera},
+                                          {in.items, {}, storage},
+                                          {in.meshlets, {}, storage},
+                                          {in.tiles, {}, storage},
+                                          {in.statistics, {}, storage}};
+        if (in.culled_meshlets) {
+            params.culled_meshlets = buffer_read{*in.culled_meshlets, {}, storage};
+        }
+        auto added = graph.add_pass("software visibility", std::move(params));
+        if (!added) {
+            return std::unexpected(added.error());
+        }
+        auto ordered = graph.order_after(*added, hardware_raster);
+        if (!ordered) {
+            return std::unexpected(ordered.error());
+        }
+        return software_raster_outputs{*added};
+    }
+
+    /// the reads the SOFTWARE MERGE makes: the two software images it samples, and the G-buffer depth it tests
+    /// against and writes (the frame's own depth, i.e. the SAME image the hardware raster produced)
+    struct software_merge_inputs {
+        texture_ref software_depth, software_id, gbuffer_depth;
+    };
+
+    struct software_merge_parameters {
+        texture_read software_depth, software_id;
+        texture_read_write gbuffer_depth;
+        void visit_resources(parameter_visitor& visit) const noexcept {
+            visit(software_depth, software_id, gbuffer_depth);
+        }
+    };
+
+    struct software_merge_outputs {
+        pass_ref pass;
+    };
+
+    /**
+     * @brief append the depth-only merge, declaring the order the winner rule depends on
+     *
+     * Two explicit edges, and BOTH are this call's to record because it is the first point that holds the resolve
+     * and the software raster refs together: resolve AFTER software raster (it must read the candidates), merge
+     * AFTER resolve (it must not overwrite the unmerged depth the resolve compares against). It also reads both
+     * software images sampled and the G-buffer depth as a READ-WRITE depth attachment, which is what makes the
+     * graph emit the merge's WAR/RAW edges and its depth transition.
+     */
+    [[nodiscard]] inline std::expected<software_merge_outputs, graph_error> append_software_merge(builder& graph, software_merge_inputs const& in,
+                                                                                                  pass_ref resolve, pass_ref software_raster) noexcept {
+        if (!graph.contains(resolve) || !graph.contains(software_raster)) {
+            return std::unexpected(graph_error{.code = error_code::invalid_ref, .pass_name = "software merge", .resource_name = "resolve or software raster predecessor"});
+        }
+        if (in.software_depth == in.software_id || in.software_depth == in.gbuffer_depth || in.software_id == in.gbuffer_depth) {
+            return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "software merge", .resource_name = "software merge attachments"});
+        }
+        constexpr access_scope sampled{resource_usage::sampled, pipeline_stage::fragment_shader};
+        constexpr access_scope depth{resource_usage::depth_stencil_attachment, pipeline_stage::depth_stencil};
+        software_merge_parameters params{{in.software_depth, {}, sampled}, {in.software_id, {}, sampled}, {in.gbuffer_depth, {}, depth}};
+        auto added = graph.add_pass("software merge", std::move(params));
+        if (!added) {
+            return std::unexpected(added.error());
+        }
+        auto resolve_order = graph.order_after(resolve, software_raster);
+        if (!resolve_order) {
+            return std::unexpected(resolve_order.error());
+        }
+        auto merge_order = graph.order_after(*added, resolve);
+        if (!merge_order) {
+            return std::unexpected(merge_order.error());
+        }
+        return software_merge_outputs{*added};
     }
 } // namespace deren::engine::render_graph::visibility

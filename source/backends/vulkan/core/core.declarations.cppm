@@ -1741,6 +1741,20 @@ namespace deren::vulkan {
         static_assert(deren::engine::render_layout::heap_slot_stride == 64u, "the slot grid's stride moved");
         static_assert(deren::engine::render_layout::heap_image_capacity == 8u, "the per-image array capacity moved");
         static_assert(deren::engine::render_layout::heap_sampler_base == 2048u, "the sampler grid's base moved");
+        // THE SOFTWARE RASTER'S SURFACE (M4 Task 2) is part of the same grid, and these are this backend's half of the
+        // mirror test_render_resources.cpp runs between the host grid and the shaders' baked constants. They are
+        // asserted by RELATION rather than by repeating the numbers - the numbers live in deren.engine.render_layout
+        // only. (software_depth reuses the range visibility-buffer v0.5 reserved, 1239..1246, so it is NOT adjacent
+        // to software_id; only the id run and the tile-list lane are heap_image_capacity apart.)
+        static_assert(deren::engine::render_layout::heap_slots::software_depth + deren::engine::render_layout::heap_image_capacity <=
+                          deren::engine::render_layout::heap_slots::software_id,
+                      "the software depth family must end before the software id family");
+        static_assert(deren::engine::render_layout::heap_slots::software_tiles ==
+                          deren::engine::render_layout::heap_slots::software_id + deren::engine::render_layout::heap_image_capacity,
+                      "the software tile-list lane must follow the software id family");
+        static_assert(deren::engine::render_layout::heap_slots::software_tiles + 1u <
+                          deren::engine::render_layout::heap_slot_base + deren::engine::render_layout::heap_slot_count,
+                      "the software tile-list lane must stay inside the grid");
         static_assert(deren::engine::render_layout::heap_sampler_stride == 32u, "the sampler grid's stride moved");
         /// @brief the byte offset of slot 0 (see @ref heap_slots), or VK_WHOLE_SIZE when the heap is not in use
         VkDeviceSize heap_grid_offset = VK_WHOLE_SIZE;

@@ -201,6 +201,26 @@ namespace deren::engine::pipelines {
     /// plus the two heap index lanes the pass framework appends) through vkCmdPushDataEXT. It is the M3 phase-B1
     /// consumer of the pyramid: it writes flags/survivors/counts and changes no picture (nothing consumes them yet).
     export std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_hzb_cull(rhi::api_core& face, std::span<uint8_t const> compute_shader_code);
+    /**
+     * @brief THE SOFTWARE RASTER's compute pipeline (source/shaders/scene/software_visibility.slang; M4 Task 2)
+     *
+     * The heap-native compute shape one more time: no layout, no set, every input and output a heap descriptor (the
+     * two R32_UINT software images as storage, the tables and camera as reads). M4 Task 2 lands the pipeline and the
+     * pass so their declarations can be validated; the tiled raster math is Task 3's, so this is deliberately the
+     * same builder shape as `build_visibility_resolve` rather than a second kind of pipeline.
+     */
+    export std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_software_visibility(rhi::api_core& face, std::span<uint8_t const> compute_shader_code);
+    /**
+     * @brief THE SOFTWARE MERGE's depth-only graphics pipeline (source/shaders/scene/software_merge.slang; M4 Task 2)
+     *
+     * A fullscreen depth write, deliberately shaped like `build_shadow`'s depth-only recipe and different from it in
+     * exactly the way the operation is: NO bias (the merge is min(hw, sw), not a shadow caster avoiding acne),
+     * LESS_OR_EQUAL compare and depth write on. No colour attachment - the merge changes depth and nothing else -
+     * so the fragment stage writes no colour and the vertex stage is the fullscreen triangle.
+     */
+    export std::expected<pipeline_handle, deren::utility::vessel::string> build_software_merge(rhi::api_core& face, rhi::image_format depth_format,
+                                                                                               std::span<uint8_t const> vertex_shader_code,
+                                                                                               std::span<uint8_t const> fragment_shader_code);
 
     /**
      * @brief the HEAP-NATIVE probe's pipeline: the first one in this renderer created the heap way
@@ -441,6 +461,55 @@ namespace deren::engine::pipelines {
         }
         out.trace = pipeline_handle(built.release());
         return out;
+    }
+
+    // THE SOFTWARE RASTER (source/shaders/scene/software_visibility.slang): the visibility resolve's heap-native
+    // compute shape one more time - no layout, no set, no push size, every input and output a heap descriptor. M4
+    // Task 2 builds it so the software pass's declaration, pipeline gating and tests can land; Task 3 fills the
+    // tiled walk inside the shader, which is why nothing here is aware of tiles.
+    std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_software_visibility(rhi::api_core& face, std::span<uint8_t const> const compute_shader_code) {
+        using fail = std::unexpected<deren::utility::vessel::string>;
+        compute_pipeline_owned out;
+        // THE PIPELINE IS A CONTRACT OBJECT (abi 21): the heap-native compute rules live in the backend
+        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        rhi::pipeline_desc desc{};
+        desc.first_stage = rhi::shader_stage::compute;
+        desc.compute_code = std::as_bytes(compute_shader_code);
+        desc.debug_name = "software visibility";
+        rhi::unique_object<rhi::pipeline> built = face.create_pipeline(desc);
+        if (!built) {
+            return fail("software visibility: the contract's compute pipeline factory refused the descriptor");
+        }
+        out.trace = pipeline_handle(built.release());
+        return out;
+    }
+
+    // THE SOFTWARE MERGE (source/shaders/scene/software_merge.slang): a fullscreen depth-only draw whose fragment
+    // stage writes `min(hardware, software)` through the depth test itself, so the pipeline is the shadow pass's
+    // recipe with the bias removed and the compare pinned to LESS_OR_EQUAL. The fragment stage samples both software
+    // images through the heap; the vertex stage emits one triangle over the frame.
+    std::expected<pipeline_handle, deren::utility::vessel::string> build_software_merge(rhi::api_core& face, rhi::image_format const depth_format,
+                                                                                        std::span<uint8_t const> const vertex_shader_code,
+                                                                                        std::span<uint8_t const> const fragment_shader_code) {
+        using fail = std::unexpected<deren::utility::vessel::string>;
+        auto result = make_graphics_pipeline(face,
+                                             {}, // no colour attachment: the merge changes depth only
+                                             depth_format,
+                                             vertex_shader_code,
+                                             fragment_shader_code,
+                                             1u,   // one sample
+                                             true, // depth test + write: LESS_OR_EQUAL writes only when sw <= hw -> min
+                                             0.0f, // NO constant bias
+                                             0.0f, // NO slope-scaled bias
+                                             0.0f, // NO clamp
+                                             {},   // no blend
+                                             rhi::shader_stage::vertex,
+                                             rhi::depth_compare::less_or_equal,
+                                             "software merge depth pipeline");
+        if (!result) {
+            return fail(deren::utility::vessel::string(result.error()));
+        }
+        return std::move(result).value();
     }
 
     // The HZB BUILD (source/shaders/scene/hzb_build.slang): the visibility resolve's shape one more time - every

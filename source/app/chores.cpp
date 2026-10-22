@@ -213,6 +213,24 @@ namespace deren::chores {
             runtime.register_shader("visibility_resolve.comp.spv", visibility_resolve_code);
         }
 
+        // ---- THE SOFTWARE RASTER'S MODULES (M4 Task 2, docs/superpowers/specs/2026-10-22-software-raster-
+        //      design.md): the tiled compute stage and the depth-only merge's vertex/fragment pair. Task 4 appends the
+        //      passes on a gated frame; Task 2 lands them WITH their pipelines, so the host-side job is the same as the
+        //      resolve's above - load and REGISTER. A name nobody registered leaves a pass disabled with one log line,
+        //      and a later wiring would look broken for a reason no frame shows. The merge is ONE .slang file with two
+        //      entries and therefore TWO .spv names, exactly like the probe and the post chain.
+        {
+            deren::utility::vessel::vector<uint8_t> software_visibility_code;
+            load_shader(shaders_dir, "software_visibility.comp.spv", software_visibility_code);
+            runtime.register_shader("software_visibility.comp.spv", software_visibility_code);
+            deren::utility::vessel::vector<uint8_t> software_merge_vertex_code;
+            deren::utility::vessel::vector<uint8_t> software_merge_fragment_code;
+            load_shader(shaders_dir, "software_merge.vert.spv", software_merge_vertex_code);
+            load_shader(shaders_dir, "software_merge.frag.spv", software_merge_fragment_code);
+            runtime.register_shader("software_merge.vert.spv", software_merge_vertex_code);
+            runtime.register_shader("software_merge.frag.spv", software_merge_fragment_code);
+        }
+
         // ---- THE HZB BUILD MODULE (M3 phase A2, docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md) ----
         // The runtime creates its own build pass lazily on the first frame after `create_passes()` (the shader
         // cannot be registered before `setup_pipeline()` runs, because that is this function), and that pass asks

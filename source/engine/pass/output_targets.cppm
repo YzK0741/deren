@@ -11,6 +11,7 @@
 module;
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <string_view>
 #include <vector>
 export module deren.engine.pass.output_targets;
@@ -101,6 +102,99 @@ export namespace deren::engine::pass {
                 value.image.debug_name = "managed output target";
             }
             return values;
+        }
+        // ================================================================================================
+        // THE SOFTWARE RASTER'S SURFACE (M4 Task 2; spec §3.2/§4.2/§6.2)
+        //
+        // WHY A SEPARATE SURFACE AND NOT TWO MORE `ids` ENTRIES: the software lane is OFF by default, and while it is
+        // off the frame must allocate NOTHING - an OFF frame's images and its picture are the pre-M4 ones byte for
+        // byte. `ids`/`resource_count` ARE the request list this producer emits, so growing them would create these
+        // two images on every OFF frame. Task 4 promotes this surface into `ids`/`resource_count` only on a frame
+        // whose selection gate turns the lane on; until that gate exists this is the declaration the tests pin.
+        // ================================================================================================
+        /// how many IMAGES this surface declares (the CSR tile-list buffer below is an image-less buffer)
+        static constexpr std::uint32_t software_resource_count = 2;
+        /// one declaration per software image, so the tests compare DATA instead of re-deriving every field
+        struct software_family {
+            render_resource::resource_id id = render_resource::resource_id::none;
+            std::uint32_t heap_slot = 0u;
+            deren::promise::rhi::image_format format = deren::promise::rhi::image_format::unknown;
+            deren::promise::rhi::image_flags flags = 0u;
+            render_resource::resource_scope scope = render_resource::resource_scope::per_swapchain_image;
+            render_resource::instances::lifetime life = render_resource::instances::lifetime::output_size;
+            char const* debug_name = nullptr;
+        };
+        static constexpr deren::utility::vessel::array software_ids{render_resource::resource_id::software_depth,
+                                                                    render_resource::resource_id::software_id};
+        static constexpr deren::utility::vessel::array software_heap_slots{render_layout::heap_slots::software_depth,
+                                                                           render_layout::heap_slots::software_id};
+        /**
+         * @brief the two declarations: R32_UINT, frame-sized, sampled AND storage
+         *
+         * BOTH FLAGS BECAUSE BOTH USES: a compute stage writes them as STORAGE descriptors (no single heap descriptor
+         * is both kinds - the same reason `rt_visibility_storage` exists), and the resolve (compute) and the merge
+         * (fragment) sample them for the winner rule and for min(hw, sw). The depth image holds a float depth's BIT
+         * PATTERN, so R32_UINT is what both the writer and the CPU reference agree on (spec §3.2).
+         */
+        static constexpr deren::utility::vessel::array<software_family, software_resource_count> software_resource_families() noexcept {
+            constexpr deren::promise::rhi::image_flags flags = deren::promise::rhi::to_bits(deren::promise::rhi::image_flag::sampled) |
+                                                               deren::promise::rhi::to_bits(deren::promise::rhi::image_flag::storage);
+            return {{
+                {.id = render_resource::resource_id::software_depth,
+                 .heap_slot = render_layout::heap_slots::software_depth,
+                 .format = deren::promise::rhi::image_format::r32_uint,
+                 .flags = flags,
+                 .scope = render_resource::resource_scope::per_swapchain_image,
+                 .life = render_resource::instances::lifetime::output_size,
+                 .debug_name = "software depth image"},
+                {.id = render_resource::resource_id::software_id,
+                 .heap_slot = render_layout::heap_slots::software_id,
+                 .format = deren::promise::rhi::image_format::r32_uint,
+                 .flags = flags,
+                 .scope = render_resource::resource_scope::per_swapchain_image,
+                 .life = render_resource::instances::lifetime::output_size,
+                 .debug_name = "software id image"},
+            }};
+        }
+        /// THE TWO REQUESTS TASK 4 WILL HAND THE TABLE (one per swapchain image, at the frame's render extent). Kept
+        /// beside the declaration so the request and the tested declaration cannot drift apart.
+        static deren::utility::vessel::array<render_resource::instances::request, software_resource_count> software_descriptions(
+            render_resource::instances::resource_context const& context) {
+            namespace managed = render_resource::instances;
+            auto const families = software_resource_families();
+            deren::utility::vessel::array<managed::request, software_resource_count> values;
+            for (std::size_t i = 0; i < values.size(); ++i) {
+                auto& value = values[i];
+                value.id = families[i].id;
+                value.life = families[i].life;
+                value.scope = families[i].scope;
+                value.image.extent = context.render_extent;
+                value.image.format = families[i].format;
+                value.image.flags = families[i].flags;
+                value.image.debug_name = families[i].debug_name;
+            }
+            return values;
+        }
+        /**
+         * @brief THE CSR TILE-LIST BUFFER (spec §3.4/§9 Q7): one host-written lane per frame slot
+         *
+         * Its size is the shared layout's answer for the render extent (header + counts + offsets + the GLOBAL entry
+         * budget) times the owner's frame count, so the one adjustable constant - `software_entry_budget` - moves the
+         * buffer with it. It is NOT an image, so it is not part of `software_resource_count`.
+         */
+        static render_resource::instances::request software_tiles_description(render_resource::instances::resource_context const& context) {
+            namespace managed = render_resource::instances;
+            managed::request value;
+            value.id = render_resource::resource_id::software_tiles;
+            value.type = managed::kind::buffer;
+            value.scope = render_resource::resource_scope::device_wide;
+            value.life = managed::lifetime::frame_slot;
+            value.buffer.size = static_cast<std::uint64_t>(context.frame_slots) *
+                                render_resource::software_tiles_buffer_bytes(context.render_extent.width, context.render_extent.height);
+            value.buffer.usage = deren::promise::rhi::buffer_usage::storage_coherent;
+            value.buffer.flags = deren::promise::rhi::to_bits(deren::promise::rhi::buffer_flag::device_address);
+            value.zero_on_create = true;
+            return value;
         }
         void select_resources(deren::utility::vessel::array<bool, resource_count> selection) noexcept {
             required = selection;

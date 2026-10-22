@@ -15,22 +15,30 @@
 //      software records keep theirs as the suffix, and the software record at suffix index k is what the packed id's
 //      `meshlet_in_item` field will call `hardware_count + k` (spec §3.1/§3.3: the id decode needs no extension).
 //      1.0 px and 2.0 px are both exercised, because Task 1 decides the default threshold/tile capacity from them.
-//   3. TILE BINNING IS DETERMINISTIC AND NEVER SILENTLY TRUNCATES: the same input gives the same tile counts/entries;
-//      a tile over capacity is reported (`overflow` + exact counts + max) by the MEASUREMENT entry point and refused
-//      by the production entry point, because production falls back to the whole-frame hardware path (§5.4).
+//   3. TILE BINNING IS DETERMINISTIC AND COMPARABLE: the SAME inputs give the same tile counts/entries. Two forms
+//      exist and both are pinned: the TASK-1 MEASUREMENT form (`build_tile_lists_measure` + `software_tile_plan`,
+//      fixed per-tile capacity used only to measure the distributions that decided the CSR switch), and the
+//      PRODUCTION CSR form (`build_tile_lists` -> `software_tile_lists`, counts + exclusive prefix-sum offsets +
+//      one globally budgeted entries array, NO per-tile capacity; exceeding `software_entry_budget` refuses the
+//      whole frame). The CSR section below pins the prefix sum, the item->run->tile order, empty tiles and the
+//      budget-1/budget/budget+1 rejection boundary.
 //
 // The camera matrices are constructed in the renderer's own layout: a 16-float COLUMN-MAJOR array (glm::mat4 storage,
 // which is what the runtime memcpys into the push block/UBO) applied to a column vector. The view here is the
 // identity (camera at the origin looking down -z), so a record's world z=-10 is 10 metres in front of the eye.
 #include "vk_test.h"
 
+#include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <limits>
 #include <span>
+#include <utility>
 #include <vector>
 
 import deren.utility.shared;
@@ -450,8 +458,10 @@ namespace {
                              return a.item_index == b.item_index && a.meshlet_id == b.meshlet_id;
                          }));
 
-        // capacity: three software records on ONE tile with capacity 2 -> the measurement plan reports the exact
-        // count/max/overflow (so Task 1 can size the default), the production plan REFUSES the frame (no truncation)
+        // capacity: three software records on ONE tile with the MEASUREMENT capacity 2 -> the plan reports the exact
+        // count/max/overflow (so Task 1 could size the default from data). The PRODUCTION path has no per-tile
+        // capacity any more (CSR: one global budget), so it accepts the same three records at budget 3 and refuses
+        // them at budget 2 - the global rejection is pinned in the CSR section below.
         std::vector<meshlet> const three = {record(0.0f, 0.0f, -10.0f, 0.002f), record(0.0f, 0.0f, -10.0f, 0.002f),
                                             record(0.0f, 0.0f, -10.0f, 0.002f)};
         std::vector<sw::item_records> const crowded = {
@@ -462,16 +472,13 @@ namespace {
         CHECK(measured.max_tile_entries == 3u);
         CHECK(measured.counts[tile_index(measured, 31u, 31u)] == 3u); // exact, NOT truncated to the capacity
         CHECK(measured.entry_count == 3u);
-        auto const strict = sw::build_tile_lists(crowded, parameters, 4.0f, 2u);
-        CHECK(!strict.has_value());
-        CHECK(strict.error() == sw::software_error::tile_overflow);
-        // the same three records with capacity 3 are accepted, slots in item/record order with ids 0,1,2
-        auto const fits = sw::build_tile_lists(crowded, parameters, 4.0f, 3u);
-        CHECK(fits.has_value());
-        CHECK(!fits->overflow && fits->max_tile_entries == 3u);
-        CHECK(entry_at(*fits, 31u, 31u, 0u).meshlet_id == 0u);
-        CHECK(entry_at(*fits, 31u, 31u, 1u).meshlet_id == 1u);
-        CHECK(entry_at(*fits, 31u, 31u, 2u).meshlet_id == 2u);
+        auto const csr = sw::build_tile_lists(crowded, parameters, 4.0f, 3u);
+        CHECK(csr.has_value());
+        CHECK(csr->entry_count == 3u && csr->max_tile_entries == 3u);
+        CHECK(csr->tile_span(31u, 31u).size() == 3u);
+        CHECK(csr->tile_span(31u, 31u)[0].meshlet_id == 0u);
+        CHECK(csr->tile_span(31u, 31u)[1].meshlet_id == 1u);
+        CHECK(csr->tile_span(31u, 31u)[2].meshlet_id == 2u);
 
         // mixed item: 2 hardware + 3 software; the software ids in the tile are hardware_count + suffix index (2,3,4)
         std::vector<meshlet> const mixed = {
@@ -541,8 +548,9 @@ namespace {
         CHECK(!bad_threshold.has_value() && bad_threshold.error() == sw::software_error::invalid_threshold);
         auto const nan_threshold = sw::build_tile_lists(items, good, std::numeric_limits<float>::quiet_NaN(), 32u);
         CHECK(!nan_threshold.has_value() && nan_threshold.error() == sw::software_error::invalid_threshold);
-        auto const bad_capacity = sw::build_tile_lists(items, good, 1.0f, 0u);
-        CHECK(!bad_capacity.has_value() && bad_capacity.error() == sw::software_error::invalid_capacity);
+        // a zero GLOBAL budget is a capacity error (the CSR builder's only capacity; there is no per-tile number)
+        auto const bad_budget = sw::build_tile_lists(items, good, 1.0f, 0u);
+        CHECK(!bad_budget.has_value() && bad_budget.error() == sw::software_error::invalid_capacity);
         auto const bad_extent = sw::build_tile_lists(
             items, camera_parameters_for(perspective(1.0f, 1.0f, 1.0f), 0u, 64u), 1.0f, 32u);
         CHECK(!bad_extent.has_value() && bad_extent.error() == sw::software_error::invalid_extent);
@@ -554,9 +562,457 @@ namespace {
         std::vector<meshlet> const nan_records = {record(0.0f, 0.0f, -10.0f, std::numeric_limits<float>::quiet_NaN())};
         std::vector<sw::item_records> const nan_items = {
             sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(nan_records)}};
-        auto const nan_plan = sw::build_tile_lists_measure(nan_items, good, 1.0f, 32u);
-        CHECK(nan_plan.items.size() == 1u && nan_plan.items[0].software_count == 0u);
-        CHECK(nan_plan.cluster_count == 0u && nan_plan.entry_count == 0u);
+        auto const nan_plan = sw::build_tile_lists(nan_items, good, 1.0f, 32u);
+        CHECK(nan_plan.has_value());
+        CHECK(nan_plan->items.size() == 1u && nan_plan->items[0].software_count == 0u);
+        CHECK(nan_plan->cluster_count == 0u && nan_plan->entry_count == 0u);
+        // ... and a record whose packed-id lane count cannot fit the 12-bit meshlet field stays wholly hardware
+        std::vector<meshlet> many(static_cast<std::size_t>(deren::engine::visibility::id_meshlet_capacity) + 1u,
+                                  record(0.0f, 0.0f, -10.0f, 0.0001f));
+        std::vector<sw::item_records> const overflow_items = {
+            sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(many)}};
+        auto const overflow_plan = sw::build_tile_lists(overflow_items, good, 1.0f, 32u);
+        CHECK(overflow_plan.has_value());
+        CHECK(overflow_plan->items[0].hardware_count == overflow_plan->items[0].record_count);
+        CHECK(overflow_plan->items[0].software_count == 0u && overflow_plan->cluster_count == 0u);
+    }
+    // ============================================================================================
+    // 8. PRODUCTION CSR TILE LISTS (spec §3.4/§9 Q7): prefix sums, item->run->tile order, empty tiles,
+    //    and the GLOBAL budget boundaries (no per-tile capacity exists any more)
+    // ============================================================================================
+    void csr_tile_lists() {
+        // 1000x1000 orthographic camera, tiles 63x63: world (0,0) is pixel (500,500) -> tile (31,31)
+        auto const parameters = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 1000u, 1000u);
+        std::vector<meshlet> const item_zero = {record(0.0f, 0.0f, -10.0f, 0.002f)};
+        std::vector<meshlet> const item_one = {record(0.8f, 0.0f, -10.0f, 0.002f)};
+        std::vector<sw::item_records> const items = {
+            sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(item_zero)},
+            sw::item_records{.item_index = 1u, .model = identity(), .records = span_of(item_one)},
+        };
+        auto const lists = sw::build_tile_lists(items, parameters, 4.0f, sw::software_entry_budget);
+        CHECK(lists.has_value());
+        if (!lists) {
+            return;
+        }
+        std::size_t const tiles = static_cast<std::size_t>(lists->grid.tiles_x) * lists->grid.tiles_y;
+        CHECK(lists->grid.tiles_x == 63u && lists->grid.tiles_y == 63u);
+        CHECK(lists->item_count == 2u && lists->cluster_count == 2u && lists->entry_count == 2u);
+        // the CSR invariants: counts are the range sizes, offsets the exclusive prefix sum, offset[0] == 0,
+        // offset[tiles] == entry_count, monotone
+        CHECK(lists->counts.size() == tiles && lists->offsets.size() == tiles + 1u);
+        CHECK(lists->entries.size() == lists->entry_count);
+        CHECK(lists->offsets.front() == 0u);
+        CHECK(lists->offsets.back() == lists->entry_count);
+        for (std::size_t tile = 0; tile < tiles; ++tile) {
+            CHECK(lists->offsets[tile + 1u] >= lists->offsets[tile]);
+            CHECK(lists->counts[tile] == lists->offsets[tile + 1u] - lists->offsets[tile]);
+        }
+        // the two records land in two different tiles, one entry each, and a sparse tile is an EMPTY RANGE
+        CHECK(lists->tile_span(31u, 31u).size() == 1u);
+        CHECK(lists->tile_span(31u, 31u)[0].item_index == 0u && lists->tile_span(31u, 31u)[0].meshlet_id == 0u);
+        CHECK(lists->tile_span(56u, 31u).size() == 1u);
+        CHECK(lists->tile_span(56u, 31u)[0].item_index == 1u && lists->tile_span(56u, 31u)[0].meshlet_id == 0u);
+        CHECK(lists->tile_span(0u, 0u).empty());
+        CHECK(lists->tile_span(63u, 0u).empty()); // out of range is an empty span, not UB
+        // determinism: the same input builds a byte-identical CSR list
+        auto const again = sw::build_tile_lists(items, parameters, 4.0f, sw::software_entry_budget);
+        CHECK(again.has_value());
+        if (again) {
+            CHECK(again->counts == lists->counts);
+            CHECK(again->offsets == lists->offsets);
+            CHECK(again->entries.size() == lists->entries.size());
+            CHECK(std::equal(again->entries.begin(), again->entries.end(), lists->entries.begin(),
+                             [](sw::tile_entry const& a, sw::tile_entry const& b) {
+                                 return a.item_index == b.item_index && a.meshlet_id == b.meshlet_id;
+                             }));
+        }
+
+        // ITEM -> RUN -> TILE ORDER: one multi-tile record (a big sphere covers a 3x3 tile block) plus a second
+        // item; inside every covered tile the entries appear in item order then run order, and the CSR walk does not
+        // interleave them
+        std::vector<meshlet> const big_zero = {record(0.0f, 0.0f, -10.0f, 0.02f), record(0.0f, 0.0f, -10.0f, 0.02f)};
+        std::vector<meshlet> const big_one = {record(0.0f, 0.0f, -10.0f, 0.02f)};
+        std::vector<sw::item_records> const multi = {
+            sw::item_records{.item_index = 5u, .model = identity(), .records = span_of(big_zero)},
+            sw::item_records{.item_index = 9u, .model = identity(), .records = span_of(big_one)},
+        };
+        auto const ordered = sw::build_tile_lists(multi, parameters, 4000.0f, sw::software_entry_budget); // forced software
+        CHECK(ordered.has_value());
+        if (ordered) {
+            CHECK(ordered->entry_count >= 3u);
+            auto const centre = ordered->tile_span(31u, 31u);
+            CHECK(centre.size() == 3u); // both items cover the centre tile; item 5 has two software records
+            CHECK(centre[0].item_index == 5u && centre[0].meshlet_id == 0u);
+            CHECK(centre[1].item_index == 5u && centre[1].meshlet_id == 1u);
+            CHECK(centre[2].item_index == 9u && centre[2].meshlet_id == 0u);
+            // per-tile ids are the record's position in the run's SUFFIX: item 5's ids are 0,1; item 9's is 0
+        }
+
+        // THE GLOBAL BUDGET BOUNDARY: N records on ONE tile (5 entries) - budget N-1 rejects the WHOLE frame,
+        // budget N and budget N+1 accept. There is NO per-tile capacity: the accepted case has 5 entries in a single
+        // tile with the default per-tile historical capacity of 32 untouched, and 100 entries on one tile are still
+        // accepted as long as the GLOBAL budget allows them.
+        std::vector<meshlet> five(5u, record(0.0f, 0.0f, -10.0f, 0.002f));
+        std::vector<sw::item_records> const five_items = {
+            sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(five)}};
+        auto const too_small = sw::build_tile_lists(five_items, parameters, 4.0f, 4u);
+        CHECK(!too_small.has_value() && too_small.error() == sw::software_error::entry_budget_exceeded);
+        auto const exactly = sw::build_tile_lists(five_items, parameters, 4.0f, 5u);
+        CHECK(exactly.has_value() && exactly->entry_count == 5u && !exactly->overflow);
+        CHECK(exactly->tile_span(31u, 31u).size() == 5u);
+        auto const roomy = sw::build_tile_lists(five_items, parameters, 4.0f, 6u);
+        CHECK(roomy.has_value() && roomy->entry_count == 5u);
+        std::vector<meshlet> hundred(100u, record(0.0f, 0.0f, -10.0f, 0.002f));
+        std::vector<sw::item_records> const hundred_items = {
+            sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(hundred)}};
+        auto const no_per_tile_cap = sw::build_tile_lists(hundred_items, parameters, 4.0f, 100u);
+        CHECK(no_per_tile_cap.has_value());
+        if (no_per_tile_cap) {
+            CHECK(no_per_tile_cap->tile_span(31u, 31u).size() == 100u); // > the old 32/64 per-tile numbers
+            CHECK(no_per_tile_cap->max_tile_entries == 100u);
+            // ids are the suffix positions in order 0..99
+            CHECK(no_per_tile_cap->tile_span(31u, 31u).front().meshlet_id == 0u);
+            CHECK(no_per_tile_cap->tile_span(31u, 31u).back().meshlet_id == 99u);
+        }
+        auto const hundred_short = sw::build_tile_lists(hundred_items, parameters, 4.0f, 99u);
+        CHECK(!hundred_short.has_value() && hundred_short.error() == sw::software_error::entry_budget_exceeded);
+
+        // empty input: a well-formed, all-zero CSR list (not an error) - the frame then runs the hardware path
+        auto const empty = sw::build_tile_lists({}, parameters, 1.0f, sw::software_entry_budget);
+        CHECK(empty.has_value());
+        if (empty) {
+            CHECK(empty->item_count == 0u && empty->cluster_count == 0u && empty->entry_count == 0u);
+            CHECK(empty->counts.size() == tiles && empty->offsets.size() == tiles + 1u && empty->entries.empty());
+            CHECK(std::all_of(empty->offsets.begin(), empty->offsets.end(), [](std::uint32_t const offset) { return offset == 0u; }));
+        }
+    }
+
+    // ============================================================================================
+    // 9. RESOLVE / MERGE (spec §3.2): the winner rule on the UNMERGED hardware depth, the chosen candidate's own
+    //    depth, the tie->hardware rule, the background-tie software rule, empty/non-finite software pixels, and the
+    //    merge's min() that the depth-only pass leaves behind
+    // ============================================================================================
+    std::uint32_t bits_of(float const value) {
+        return std::bit_cast<std::uint32_t>(value);
+    }
+
+    void resolve_and_merge() {
+        auto const packed = deren::engine::visibility::pack_id(3u, 5u, 7u);
+        CHECK(packed.has_value());
+        if (!packed) {
+            return;
+        }
+        deren::engine::visibility::id const hardware = *packed;
+        deren::engine::visibility::id const background = deren::engine::visibility::id::none();
+        auto const software_id = deren::engine::visibility::pack_id(11u, 2u, 1u);
+        CHECK(software_id.has_value());
+        if (!software_id) {
+            return;
+        }
+        auto const valid_software = sw::software_pixel{.depth_bits = bits_of(0.4f), .id = software_id->value};
+
+        // software STRICTLY nearer: software wins, and the chosen candidate's depth is the SOFTWARE depth (the
+        // reconstruction/tolerance check must use it, spec §5.3)
+        {
+            auto const chosen = sw::resolve_candidate(hardware, 0.5f, valid_software);
+            CHECK(chosen.source == sw::candidate_source::software);
+            CHECK(chosen.id == software_id->value);
+            CHECK(chosen.depth == 0.4f);
+        }
+        // tie on an exact depth + valid hardware id: HARDWARE wins (the raster already produced a pixel there)
+        {
+            auto const tied = sw::software_pixel{.depth_bits = bits_of(0.5f), .id = software_id->value};
+            auto const chosen = sw::resolve_candidate(hardware, 0.5f, tied);
+            CHECK(chosen.source == sw::candidate_source::hardware);
+            CHECK(chosen.id == hardware.value);
+            CHECK(chosen.depth == 0.5f);
+        }
+        // tie at the BACKGROUND depth (1.0) with an empty hardware id: SOFTWARE wins (nothing else named this pixel)
+        {
+            auto const background_tie = sw::software_pixel{.depth_bits = bits_of(1.0f), .id = software_id->value};
+            auto const chosen = sw::resolve_candidate(background, 1.0f, background_tie);
+            CHECK(chosen.source == sw::candidate_source::software);
+            CHECK(chosen.depth == 1.0f);
+        }
+        // an exact tie also goes software when the hardware id is invalid at that depth
+        {
+            auto const tied = sw::software_pixel{.depth_bits = bits_of(0.5f), .id = software_id->value};
+            auto const chosen = sw::resolve_candidate(background, 0.5f, tied);
+            CHECK(chosen.source == sw::candidate_source::software);
+        }
+        // ONE ULP APART is what the strict `<` is for: one below wins for software, one above keeps hardware
+        {
+            float const half = 0.5f;
+            float below = half;
+            float above = half;
+            for (int step = 0; step < 4; ++step) {
+                below = std::nextafter(below, 0.0f);
+                above = std::nextafter(above, 1.0f);
+            }
+            auto const lower = sw::resolve_candidate(hardware, half, sw::software_pixel{.depth_bits = bits_of(below), .id = software_id->value});
+            CHECK(lower.source == sw::candidate_source::software);
+            CHECK(lower.depth == below);
+            auto const higher = sw::resolve_candidate(hardware, half, sw::software_pixel{.depth_bits = bits_of(above), .id = software_id->value});
+            CHECK(higher.source == sw::candidate_source::hardware);
+        }
+        // empty software id -> hardware regardless of the software depth
+        {
+            auto const chosen = sw::resolve_candidate(hardware, 0.5f, sw::software_pixel{.depth_bits = bits_of(0.1f), .id = 0u});
+            CHECK(chosen.source == sw::candidate_source::hardware);
+            auto const background_chosen = sw::resolve_candidate(background, 1.0f, sw::software_pixel{.depth_bits = bits_of(0.1f), .id = 0u});
+            CHECK(background_chosen.source == sw::candidate_source::hardware);
+        }
+        // unusable software depths are EMPTY, not "very near": NaN, +inf, negative and > 1 all keep hardware
+        for (float const bad : {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(), -0.5f, 1.5f}) {
+            auto const chosen = sw::resolve_candidate(background, 1.0f, sw::software_pixel{.depth_bits = bits_of(bad), .id = software_id->value});
+            CHECK(chosen.source == sw::candidate_source::hardware);
+            CHECK(!sw::software_pixel_usable(sw::software_pixel{.depth_bits = bits_of(bad), .id = software_id->value}));
+        }
+        CHECK(sw::software_pixel_usable(valid_software));
+        CHECK(sw::software_pixel_usable(sw::software_pixel{.depth_bits = bits_of(0.0f), .id = software_id->value}));
+        CHECK(sw::software_pixel_usable(sw::software_pixel{.depth_bits = bits_of(1.0f), .id = software_id->value}));
+
+        // ---- THE MERGE's final depth: min(hardware, software), tie keeps the hardware bits ----
+        CHECK(sw::merged_depth_bits(bits_of(0.5f), valid_software) == bits_of(0.4f)); // software nearer
+        CHECK(sw::merged_depth_bits(bits_of(0.3f), valid_software) == bits_of(0.3f)); // hardware nearer
+        CHECK(sw::merged_depth_bits(bits_of(0.4f), valid_software) == bits_of(0.4f)); // equal: same value
+        CHECK(sw::merged_depth_bits(bits_of(0.5f), sw::software_pixel{.depth_bits = bits_of(0.1f), .id = 0u}) == bits_of(0.5f));
+        CHECK(sw::merged_depth_bits(bits_of(1.0f), sw::software_pixel{.depth_bits = bits_of(0.25f), .id = software_id->value}) == bits_of(0.25f));
+    }
+
+    // ============================================================================================
+    // 10. THE CPU REFERENCE RASTERIZER (spec §4.1): fixture-expected software images, the total (depth,id) order,
+    //     the empty depth/id encoding, the eye-plane/degenerate/clamp edges
+    // ============================================================================================
+    /// a hand-built one-entry CSR list for the rasterizer-only edge cases (the builder cannot produce a triangle
+    /// behind the eye: classification never moves such a cluster to software)
+    sw::software_tile_lists single_entry_plan(std::uint32_t const tiles_x, std::uint32_t const tiles_y, std::uint32_t const tile_x,
+                                              std::uint32_t const tile_y, sw::tile_entry const entry) {
+        sw::software_tile_lists plan{};
+        plan.grid = sw::tile_grid{.tiles_x = tiles_x, .tiles_y = tiles_y};
+        plan.item_count = 1u;
+        plan.cluster_count = 1u;
+        std::size_t const tiles = static_cast<std::size_t>(tiles_x) * tiles_y;
+        plan.counts.assign(tiles, 0u);
+        plan.offsets.assign(tiles + 1u, 0u);
+        std::size_t const tile = static_cast<std::size_t>(tile_y) * tiles_x + tile_x;
+        plan.counts[tile] = 1u;
+        for (std::size_t i = tile + 1u; i <= tiles; ++i) {
+            plan.offsets[i] = 1u;
+        }
+        plan.entry_count = 1u;
+        plan.max_tile_entries = 1u;
+        plan.entries = {entry};
+        return plan;
+    }
+
+    /// an item whose triangle is the three given world positions (identity model), one meshlet record at index 0
+    struct raster_fixture {
+        std::vector<std::array<float, 3>> positions;
+        std::vector<std::uint32_t> indices = {0u, 1u, 2u};
+        std::vector<meshlet> records;
+        std::array<float, 16> model = identity();
+        std::uint32_t item_index = 0u;
+
+        sw::reference_item reference() const {
+            return sw::reference_item{.item_index = item_index,
+                                      .model = model,
+                                      .base_vertex = 0,
+                                      .records = std::span<meshlet const>(records.data(), records.size()),
+                                      .positions = std::span<std::array<float, 3> const>(positions.data(), positions.size()),
+                                      .indices = std::span<std::uint32_t const>(indices.data(), indices.size())};
+        }
+        sw::item_records item(meshlet const& record) const {
+            return sw::item_records{.item_index = item_index, .model = model, .records = std::span<meshlet const>(&record, 1u)};
+        }
+    };
+
+    /// a subpixel triangle whose conservative bounding box lands in the CENTRE tile: record centre world (0.25, 0.25)
+    /// is pixel (40, 40) under the 64x64 orthographic test camera, and half_extent 0.0625 puts the corners on pixels
+    /// 38..42 - so the centre tile (2,2), the only tile the CSR list files, really owns raster-covered pixels
+    raster_fixture planar_triangle(float const z, float const half_extent, std::uint32_t const item_index) {
+        raster_fixture fixture{};
+        fixture.item_index = item_index;
+        fixture.positions = {{0.25f - half_extent, 0.25f - half_extent, z},
+                             {0.25f + half_extent, 0.25f - half_extent, z},
+                             {0.25f - half_extent, 0.25f + half_extent, z}};
+        // the record window covers the first triangle; centre at the tile's centre, radius far below the subpixel bound
+        fixture.records = {meshlet{.first_index = 0u,
+                                   .index_count = 3u,
+                                   .base_vertex = 0,
+                                   ._pad = 0u,
+                                   .center_x = 0.25f,
+                                   .center_y = 0.25f,
+                                   .center_z = z,
+                                   .radius = 1.0e-4f}};
+        return fixture;
+    }
+
+    /// the software rasterization of @p fixtures against the CSR list, with each fixture's first record classified
+    sw::software_image rasterize(std::vector<raster_fixture> const& fixtures, float const threshold_px = 1.0f) {
+        std::vector<sw::item_records> items;
+        std::vector<sw::reference_item> references;
+        items.reserve(fixtures.size());
+        references.reserve(fixtures.size());
+        for (raster_fixture const& fixture : fixtures) {
+            items.push_back(fixture.item(fixture.records[0]));
+            references.push_back(fixture.reference());
+        }
+        auto const lists = sw::build_tile_lists(items, camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u), threshold_px, sw::software_entry_budget);
+        CHECK(lists.has_value());
+        if (!lists) {
+            return {};
+        }
+        auto const image = sw::rasterize_tiles(*lists, sw::reference_inputs{.camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
+                                                                            .items = std::span<sw::reference_item const>(references.data(), references.size())});
+        CHECK(image.has_value());
+        return image.has_value() ? *image : sw::software_image{};
+    }
+
+    void cpu_reference_rasterizer() {
+        // ---- a subpixel triangle inside the centre tile of a 64x64 frame, all corners at eye z = -7.75, which the
+        //      orthographic camera maps to NDC z = 0.5: the listed tile's entries are the only producer, so pixels
+        //      inside the triangle carry the packed id and 0.5's bits while untouched pixels stay EMPTY (id 0,
+        //      depth bits 0xFFFFFFFF) - the encoding the GPU images are cleared to
+        auto fixture = planar_triangle(-7.75f, 0.0625f, 0u);
+        auto const constant_depth = rasterize({fixture});
+        auto const expected_id = deren::engine::visibility::pack_id(0u, 0u, 0u);
+        CHECK(expected_id.has_value());
+        if (!constant_depth.depth_bits.empty() && expected_id) {
+            sw::software_pixel const inside = constant_depth.at(39u, 39u); // inside the triangle and inside the listed tile (2,2)
+            CHECK(inside.id == expected_id->value);
+            CHECK(inside.depth_bits == bits_of(0.5f));
+            CHECK(constant_depth.at(30u, 45u).id == sw::software_id_empty); // outside the triangle
+            CHECK(constant_depth.at(30u, 45u).depth_bits == sw::software_depth_empty);
+            CHECK(constant_depth.at(45u, 30u).id == sw::software_id_empty); // another tile: never scanned
+            CHECK(constant_depth.at(41u, 41u).id == sw::software_id_empty); // listed tile, but outside this triangle
+        }
+
+        // ---- deterministic: the same fixtures rasterize to the same image ----
+        auto const again = rasterize({planar_triangle(-7.75f, 0.0625f, 0u)});
+        CHECK(again.depth_bits == constant_depth.depth_bits);
+        CHECK(again.id == constant_depth.id);
+
+        // ---- TWO ITEMS, one strictly nearer: the nearer (smaller) depth wins every overlapped pixel; ids name the
+        //      winning item's triangle - this is the (depth, id) total order, independent of entry order ----
+        auto const nearer = rasterize({planar_triangle(-7.75f, 0.0625f, 0u), planar_triangle(-6.75f, 0.0625f, 1u)});
+        auto const nearer_id = deren::engine::visibility::pack_id(1u, 0u, 0u);
+        if (!nearer.depth_bits.empty() && nearer_id) {
+            sw::software_pixel const pixel = nearer.at(39u, 39u);
+            CHECK(pixel.id == nearer_id->value);
+            // the nearer triangle's depth: the same camera's NDC z at eye z = -6.75 (an independent expression)
+            float const near_plane = 1.0f;
+            float const far_plane = 10.0f;
+            double const ndc = -2.0 / static_cast<double>(far_plane - near_plane) * static_cast<double>(-6.75) -
+                               static_cast<double>(far_plane + near_plane) / static_cast<double>(far_plane - near_plane);
+            CHECK(pixel.depth_bits == bits_of(static_cast<float>(ndc)));
+            CHECK(pixel.depth_bits < bits_of(0.5f));
+        }
+
+        // ---- DEPTH TIE between two ids: the SMALLER packed id wins (the total order's tie-breaker) ----
+        // both records reference the same index triple, so their ids differ only by meshlet_id 0 vs 1
+        {
+            raster_fixture tied = planar_triangle(-7.75f, 0.0625f, 2u);
+            tied.records.push_back(tied.records[0]); // same first_index/index_count: the same triangle twice
+            std::vector<sw::item_records> const items = {tied.item(tied.records[0])};
+            auto const lists = sw::build_tile_lists(items, camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u), 1.0f,
+                                                    sw::software_entry_budget);
+            // the item's single record is the only entry; give the SAME tile a second entry by hand so both ids
+            // compete for the same pixels with identical depths
+            CHECK(lists.has_value());
+            if (lists) {
+                sw::software_tile_lists plan = *lists;
+                std::uint32_t const tile = 2u * plan.grid.tiles_x + 2u;
+                CHECK(plan.counts[tile] == 1u);
+                plan.counts[tile] = 2u;
+                for (std::size_t i = tile + 1u; i < plan.offsets.size(); ++i) {
+                    ++plan.offsets[i];
+                }
+                plan.entry_count = 2u;
+                plan.max_tile_entries = 2u;
+                plan.entries.insert(plan.entries.begin() + static_cast<std::ptrdiff_t>(plan.offsets[tile]) + 1,
+                                    sw::tile_entry{.item_index = 2u, .meshlet_id = 1u});
+                std::vector<sw::reference_item> references = {tied.reference()};
+                auto const image = sw::rasterize_tiles(plan, sw::reference_inputs{.camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
+                                                                                  .items = std::span<sw::reference_item const>(references.data(), references.size())});
+                CHECK(image.has_value());
+                auto const low = deren::engine::visibility::pack_id(2u, 0u, 0u);
+                auto const high = deren::engine::visibility::pack_id(2u, 1u, 0u);
+                if (image && low && high) {
+                    CHECK(low->value < high->value);
+                    sw::software_pixel const pixel = image->at(39u, 39u);
+                    CHECK(pixel.depth_bits == bits_of(0.5f));
+                    CHECK(pixel.id == low->value); // the smaller id wins an exact depth tie
+                }
+            }
+        }
+
+        // ---- EDGES: a triangle behind the eye, a degenerate triangle, and a depth outside [0,1] (clamped) ----
+        // behind the eye: PERSPECTIVE clip w = -z_eye, so an eye-space z of +0.5 gives w = -0.5 and the triangle is
+        // skipped (v1's classification never moves such a cluster to software; the shader does the same check)
+        {
+            raster_fixture behind = planar_triangle(-7.75f, 0.0625f, 0u);
+            behind.positions = {{0.2f, 0.2f, 0.5f}, {0.3f, 0.2f, 0.5f}, {0.2f, 0.3f, 0.5f}}; // eye-space z positive -> w<0
+            std::vector<sw::reference_item> references = {behind.reference()};
+            auto const plan = single_entry_plan(4u, 4u, 2u, 2u, sw::tile_entry{.item_index = 0u, .meshlet_id = 0u});
+            auto const image = sw::rasterize_tiles(plan, sw::reference_inputs{.camera = camera_parameters_for(perspective(1.0f, 1.0f, 1.0f), 64u, 64u),
+                                                                              .items = std::span<sw::reference_item const>(references.data(), references.size())});
+            CHECK(image.has_value());
+            if (image) {
+                CHECK(image->at(39u, 39u).id == sw::software_id_empty);
+                CHECK(image->at(39u, 39u).depth_bits == sw::software_depth_empty);
+            }
+        }
+        // degenerate: three identical positions -> zero screen area -> no pixel is claimed
+        {
+            raster_fixture degenerate = planar_triangle(-7.75f, 0.0625f, 0u);
+            degenerate.positions = {{0.0f, 0.0f, -7.75f}, {0.0f, 0.0f, -7.75f}, {0.0f, 0.0f, -7.75f}};
+            std::vector<sw::reference_item> references = {degenerate.reference()};
+            auto const plan = single_entry_plan(4u, 4u, 2u, 2u, sw::tile_entry{.item_index = 0u, .meshlet_id = 0u});
+            auto const image = sw::rasterize_tiles(plan, sw::reference_inputs{.camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
+                                                                              .items = std::span<sw::reference_item const>(references.data(), references.size())});
+            CHECK(image.has_value());
+            if (image) {
+                CHECK(image->at(39u, 39u).id == sw::software_id_empty);
+            }
+        }
+        // clamp: an eye-space depth closer than the near plane maps OUTSIDE [0,1]; the rasterizer clamps to 0
+        // rather than writing a negative depth (the hardware raster would have clipped this triangle; v1 skips
+        // only actual eye-plane crossings)
+        {
+            raster_fixture clamped = planar_triangle(-0.5f, 0.0625f, 0u); // eye z inside the ortho near plane: NDC z < 0
+            std::vector<sw::reference_item> references = {clamped.reference()};
+            auto const plan = single_entry_plan(4u, 4u, 2u, 2u, sw::tile_entry{.item_index = 0u, .meshlet_id = 0u});
+            auto const image = sw::rasterize_tiles(plan, sw::reference_inputs{.camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
+                                                                              .items = std::span<sw::reference_item const>(references.data(), references.size())});
+            CHECK(image.has_value());
+            if (image) {
+                sw::software_pixel const pixel = image->at(39u, 39u);
+                // NDC z at eye z = -0.5 for this orthographic pair is negative: clamped to 0 and encoded as 0
+                CHECK(pixel.depth_bits == bits_of(0.0f));
+                CHECK(pixel.id != sw::software_id_empty);
+            }
+        }
+        // ---- invalid reference data is a NAMED error, never a silent empty image ----
+        {
+            std::vector<sw::reference_item> references = {planar_triangle(-7.75f, 0.0625f, 0u).reference()};
+            auto const missing_item = single_entry_plan(4u, 4u, 2u, 2u, sw::tile_entry{.item_index = 7u, .meshlet_id = 0u});
+            auto const missing_result = sw::rasterize_tiles(missing_item, sw::reference_inputs{.camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
+                                                                                               .items = std::span<sw::reference_item const>(references.data(), references.size())});
+            CHECK(!missing_result.has_value() && missing_result.error() == sw::software_error::invalid_reference);
+            auto const bad_meshlet = single_entry_plan(4u, 4u, 2u, 2u, sw::tile_entry{.item_index = 0u, .meshlet_id = 9u});
+            auto const bad_meshlet_result = sw::rasterize_tiles(bad_meshlet, sw::reference_inputs{.camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
+                                                                                                  .items = std::span<sw::reference_item const>(references.data(), references.size())});
+            CHECK(!bad_meshlet_result.has_value() && bad_meshlet_result.error() == sw::software_error::invalid_reference);
+            auto const wrong_offsets = [] {
+                auto plan = single_entry_plan(4u, 4u, 2u, 2u, sw::tile_entry{.item_index = 0u, .meshlet_id = 0u});
+                plan.offsets.pop_back();
+                return plan;
+            }();
+            auto const wrong_result = sw::rasterize_tiles(wrong_offsets, sw::reference_inputs{.camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
+                                                                                              .items = std::span<sw::reference_item const>(references.data(), references.size())});
+            CHECK(!wrong_result.has_value() && wrong_result.error() == sw::software_error::invalid_reference);
+        }
     }
 } // namespace
 
@@ -571,5 +1027,8 @@ int main() {
     tile_binning();
     threshold_dual_mode();
     errors();
+    csr_tile_lists();
+    resolve_and_merge();
+    cpu_reference_rasterizer();
     return deren::vk_test::finish("test_visibility_software");
 }

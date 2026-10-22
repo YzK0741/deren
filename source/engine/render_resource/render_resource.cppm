@@ -58,6 +58,11 @@ module;
 
 export module deren.engine.render_resource;
 export import deren.utility.shared;
+// THE CSR TILE-LIST LAYOUT'S OWNER: the software raster module owns the tile size, the global entry budget and the
+// header/counts/offsets/entries order (spec §3.4/§9 Q7), so this module forwards its size derivation rather than
+// keeping a second copy of the arithmetic. The import direction is one-way: the CPU module stays free of any
+// render-resource dependency (it is pure CPU).
+export import deren.engine.visibility.software;
 
 export namespace deren::engine::render_resource {
 
@@ -162,6 +167,17 @@ export namespace deren::engine::render_resource {
         post_lut,
         goo_fgd_lut,
         pass_upload_buffer,
+        // ---- THE SOFTWARE RASTER'S SURFACE (M4 Task 2, docs/superpowers/specs/2026-10-22-software-raster-
+        //      design.md §3.2/§4.2): two per-swapchain-image R32_UINT results and the host-written CSR tile-list
+        //      buffer per frame lane. APPENDED after pass_upload_buffer so no existing identity moves. The output
+        //      family publishes them through its separate `software_*` surface; Task 4 promotes that surface into
+        //      the pass's selected `ids` list, which is also when these entries start being CREATED. ----
+        /// the software raster's depth image: the nearest software candidate's float depth bit pattern
+        software_depth,
+        /// the software raster's packed-id image (the same 32-bit packing as the hardware visibility buffer)
+        software_id,
+        /// the CSR tile-list buffer: header + counts + offsets + entries, host-written per frame lane
+        software_tiles,
         /// the number of enumerators, so the schema's completeness can be checked by ITERATING rather than
         /// against a hand-kept list: `validate_schema()` requires exactly one entry per id in [1, count)
         count,
@@ -315,7 +331,24 @@ export namespace deren::engine::render_resource {
         {.id = resource_id::post_lut, .name = "post_lut", .kind = resource_kind::image2d, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
         {.id = resource_id::goo_fgd_lut, .name = "goo_fgd_lut", .kind = resource_kind::image2d, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
         {.id = resource_id::pass_upload_buffer, .name = "pass_upload_buffer", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        // M4 Task 2's software raster surface (see the ids above): the two results are per-swapchain-image images
+        // rewritten every frame; the tile list is one host-written CSR buffer per frame slot.
+        {.id = resource_id::software_depth, .name = "software_depth", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::software_id, .name = "software_id", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::software_tiles, .name = "software_tiles", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
     }};
+
+    // =============================================================================================
+    // THE SOFTWARE TILE-LIST BUFFER'S SIZE (M4 Task 2)
+    //
+    // The CSR list's byte layout lives in `deren.engine.visibility.software` (§3.4/§9 Q7), so this function is a
+    // FORWARDER, not a second formula: whichever code creates the buffer - Task 4's runtime, a probe, a test - asks
+    // this and gets the size the CPU builder was written against. The buffer is per FRAME LANE, so callers multiply
+    // by their frame count; `software_entry_budget` is the one adjustable constant and is included in the answer.
+    // =============================================================================================
+    [[nodiscard]] constexpr std::uint64_t software_tiles_buffer_bytes(std::uint32_t const width, std::uint32_t const height) noexcept {
+        return visibility::software::software_tiles_bytes(width, height, visibility::software::software_entry_budget);
+    }
 
     /// @brief the schema entry for @p id, or nullptr when nothing declares it
     [[nodiscard]] constexpr resource_info const* find(resource_id const id) noexcept {

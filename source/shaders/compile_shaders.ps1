@@ -61,6 +61,12 @@ $slangSources = @(
     # the visibility buffer's RESOLVE (v0.4b): the compute stage that turns the ids back into the five G-buffer
     # targets, and the consumer the capture lane needed before the graph would keep it alive.
     "scene/visibility_resolve.slang:main:compute:visibility_resolve.comp.spv",
+    # THE SOFTWARE RASTER'S MODULES (M4 Task 2): the tiled compute stage (one 8x8 group per 16x16 tile) and the
+    # depth-only merge's fullscreen triangle + SV_Depth fragment. Both passes build their own pipelines from these
+    # through pass_context::shader, so they must be compiled AND registered; the merge file has two entries.
+    "scene/software_visibility.slang:main:compute:software_visibility.comp.spv",
+    "scene/software_merge.slang:vert_main:vertex:software_merge.vert.spv",
+    "scene/software_merge.slang:frag_main:fragment:software_merge.frag.spv",
     # THE HZB BUILD STAGE (M3 phase A2): one dispatch per pyramid level over the frame's G-buffer depth, plus the
     # header its thread 0 writes. The build pass asks for this .spv by name; DEREN_HZB_BUILD is the runtime gate.
     "scene/hzb_build.slang:main:compute:hzb_build.comp.spv",
