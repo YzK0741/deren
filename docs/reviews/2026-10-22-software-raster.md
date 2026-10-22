@@ -112,6 +112,8 @@ near（记录用，不作 GO 条件）：
 
 这不是一个“默认值 32/64”的小改动，而是 T2/T3 的设计输入：要么接受 1.0 px 默认容量 1024–2048 的 tile buffer 尺寸/带宽（并重新评估 §6.1 的 0.92/1.84 MiB 估计），要么在 T2 采用溢出列表/多级 tile 列表等策略，而不是“overflow → 整帧回退”（后者在 far 每帧都会触发，hybrid 永远不生效）。此外分布极度集中：far 只有 **129/3600** 个 tile 非零，最热 tile 977 条——软件 raster 的 per-tile 列表长度呈长尾，T2 的逐像素扫描成本模型需要用这份分布复核。**需要在 T2 开工前由用户/Lead 确认容量策略**（spec §9 Q7 原本即列为 Task 1 后决策）。
 
+**Q7 decision (2026-10-22): CSR sparse tile lists adopted.** 用户批准把固定 per-tile 容量改为 **CSR 稀疏列表**：per frame lane = `header{tiles_x,tiles_y,entry_count,overflow,cluster_count} + counts[tiles] + offsets[tiles+1] + entries[entry_count]`（entry = `{item_index:u32, meshlet_id:u32}` 8B），host 两遍扫描 + 独占前缀和构造，tile 范围 = `[offsets[t], offsets[t+1])`；全局预算默认 **65,536 entries（512KiB）/lane**（720p offsets/counts ≈28.8KB，1080p ≈65.3KB），只有 `entry_count > budget` 时整帧 hardware-only（日志 + stats，绝不截断），**没有 per-tile 容量/overflow**。依据即本节数据：far 1.0/2.0 总量 4,572/12,557 entries（129/170 个非零 tile）、最热 977/1,907；固定 1024/2048 会为 4.5–12.5k 实际 entries 预留 29.5/59 MiB per lane，因此“per-tile 固定容量”前提不成立。设计 A / 32-bit id / prefix-suffix / resolve-before-merge / HZB 互斥 / ROI 门均不变；spec §3.4/§5.4/§6.1/§9.2 Q7 与 plan T2–T5 已同步更新。该决定解除了 §10 的待决策项。
+
 ### 8. GO/NO-GO 判决
 
 | 项 | 结果 |

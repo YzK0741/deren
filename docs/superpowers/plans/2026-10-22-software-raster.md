@@ -6,9 +6,9 @@
 **Architecture:** CPU 分类与 tile binning 在 M1c 的 per-item planning 阶段完成（确定性，无 GPU 反查）；硬件 dispatch 只覆盖 run 的硬件前缀；新 per-image 两张 `R32_UINT` 资源（software_depth/software_id）+ tile buffer + 一个 compute raster pass + 一个 depth-only merge pass + resolve 的候选选择；图顺序 = 硬件 raster → 软件 raster → **resolve → merge** → HZB build → lighting/post（HZB cull/recovery 帧 hybrid 逐帧互斥）。raster/resolve 既有数学除 resolve 的候选选择与 merge 的 depth 写回外不变。
 **Tech Stack:** C++23 modules、Clang64/libc++、vessel/mimalloc、Slang/SPIR-V、CMake 4.3、Vulkan（现有 visibility/HZB lane）；CPU 测试无 Vulkan 依赖；无 CUDA。
 **Spec:** `docs/superpowers/specs/2026-10-22-software-raster-design.md`。代码基线 `1ba58d82`（M1c 已接受）。计划时 HEAD `1ba58d82`。
-**状态：** Lead 审阅通过（修正了合并/resolve 次序的阻塞设计缺陷，见 spec §3.2/§5.1）；用户已批准 Q2（方案 A/32-bit id 冻结）、Q4（ROI 判决门）、Q5（v1 与 HZB 互斥）（2026-10-22）；Q1/Q3/Q6 按推荐默认，Q7（tile capacity 32/64）由 Task 1 数据决定。已按计划开始 Task 1（GO/NO-GO 测量），T2+ 仅在 T1 GO 后开工。
+**状态：** Lead 审阅通过（修正了合并/resolve 次序的阻塞设计缺陷，见 spec §3.2/§5.1）；用户已批准 Q2（方案 A/32-bit id 冻结）、Q4（ROI 判决门）、Q5（v1 与 HZB 互斥）（2026-10-22）；Q1/Q3/Q6 按推荐默认；**Q7 已解决（2026-10-22，用户决定）：改用 CSR 稀疏 tile 列表**（全局 entry 预算 65,536/lane），固定 per-tile 容量 32/64 被 T1 实测证伪（far 最热 tile 977/1,907，固定 1024/2048 会为 4.5-12.5k 实际 entries 预留 29.5/59MiB/lane）。已按计划开始 Task 1（GO/NO-GO 测量），T2+ 仅在 T1 GO 后开工。
 
-**Task 1 状态（2026-10-22 收尾）：** 完成，判决 **GO**——far `visibility raster` 3 轮交错中位数差 **1.54 ms = M1c far ON 20.11 ms 的 7.66%**（门限 1.5%/0.302 ms），near 记录 0.09 ms（不作条件）；分类计数与 M1c 探针对照可解释（1.0 px 10.32% ≤ 23.28%），holes 移除工作量与探针后缀逐帧可对账。**但 per-tile 容量实测推翻 Q7 的 32/64 前提：far 单 tile 最大 977 条（2.0 px 1907），near 226/290，32 与 64 都每帧 overflow；T2 开工前需要用户/Lead 决策容量策略（实测最小可用 2 的幂：far 1024/2048，near 256/512，或换溢出策略）。** 报告：`docs/reviews/2026-10-22-software-raster.md`；证据：`D:/deren-assets/2026-10-22-software-raster/`（98 文件逐文件 SHA-256，0 mismatch）。T2+ 尚未开始。
+**Task 1 状态（2026-10-22 收尾）：** 完成，判决 **GO**——far `visibility raster` 3 轮交错中位数差 **1.54 ms = M1c far ON 20.11 ms 的 7.66%**（门限 1.5%/0.302 ms），near 记录 0.09 ms（不作条件）；分类计数与 M1c 探针对照可解释（1.0 px 10.32% ≤ 23.28%），holes 移除工作量与探针后缀逐帧可对账。**per-tile 容量实测推翻 Q7 的 32/64 前提：far 单 tile 最大 977 条（2.0 px 1907），near 226/290，32 与 64 都每帧 overflow；而 far 1.0/2.0 只有 4,572/12,557 entries（129/170 个非零 tile），固定 1024/2048 会为 4.5-12.5k entries 预留 29.5/59MiB/lane。用户已批准 Q7 = CSR 稀疏列表（2026-10-22，spec §3.4/§9.2）：全局 entry 预算 65,536 entries（512KiB）/lane + counts/offsets，超预算才整帧 hardware-only；无 per-tile 容量。** 报告：`docs/reviews/2026-10-22-software-raster.md`；证据：`D:/deren-assets/2026-10-22-software-raster/`（98 文件逐文件 SHA-256，0 mismatch）。T2+ 尚未开始。
 
 ## Global Constraints
 
@@ -20,7 +20,7 @@
 - **硬件 raster/resolve 数学不变**（除 resolve 的最小深度候选选择与 merge 的 depth 写回）；HZB 数学不变；shadows/BLAS 仍只用 LOD0。
 - **HZB 组合 v1 互斥**：hybrid 仅在 `hzb_cull_active_frame == false && hzb_recovery_active_frame == false` 的帧启用；M3 帧逐字节保持（spec §5.5/Q5）。
 - **不重复 shader 数学**：软件 raster 与 resolve 的顶点 fetch/投影抽成共享 `common/mesh_fetch.slang`（若实施选择抽取），以 Visibility frozen 1/1 证明抽取无行为变化；禁止复制两份表达式。
-- **CPU 分类确定性**：分类/tile binning 用 M1c 相同的 view/proj/extent/model 与保守判据（spec §3.1），逐 record 确定；不得依赖 GPU survivor/frustum 结果；tile entry 容量 32 是初始值，Task 1 必须实测 per-tile 最大值/overflow 后决定 32/64（spec §3.4/§9 Q7）。
+- **CPU 分类确定性 + CSR 预算契约**：分类/CSR binning 用 M1c 相同的 view/proj/extent/model 与保守判据（spec §3.1），逐 record 确定；不得依赖 GPU survivor/frustum 结果。tile 列表是 **CSR**（`header + counts[tiles] + offsets[tiles+1] + entries[entry_count]`，entry `{item_index, meshlet_id}` 8B），两遍扫描 + 前缀和构造、写入顺序确定；`software_entry_budget = 65,536` entries（512KiB）/lane 是单点可调常量（T2/T3 不得散落魔法数），只有 `entry_count > budget` 时整帧 hardware-only（日志 + stats，绝不截断）；没有 per-tile 容量/overflow（spec §3.4/§5.4/Q7）。
 - **root CMake 改动受限**：新 pass/module/shader/pipeline/测试 target 与 `VR_TEST_TARGETS`、CI 列表镜像、`output_targets`/资源 schema、heap slot 镜像；其余 root CMake 行为不变。
 - **工作约定**：保留用户未跟踪文件；本地提交，**不 push**；同一时间只跑一个 CMake 构建，`-j12`；5h 剩余 ≤5% 时记录并暂停；重证据逐文件 SHA-256 核对后归档 D:；仓库不放大资产。
 - **ROI 不假设**：Task 1 的上界门不通过则不开始 T2+；Task 6 的实测门不通过则报告 negative result、保持 default OFF（或按用户决定），不允许改口径/跳相机/只报最好轮。
@@ -32,12 +32,12 @@
 1. **run/id/dispatch 拆分保真**：hybrid 的 run 表 `[硬件前缀|软件后缀]`、`block.geometry.index_count=前缀数`、item `meshlet_base/table` 与 32-bit id 语义是否完全保持；硬件 id 与软件 id 是否都能由现有 `item.meshlet_base + id` 解出正确记录；OFF 路径是否无任何新行为（资源/descriptor/pass 都不创建）。
 2. **软件 raster 正确性与确定性**：保守分类边界（球跨近面/阈值 nextafter/正交/非均匀 scale/NaN）；tile 覆盖/空像素初始化；screen-linear z 与 resolve 的 depth check 一致；**winner/tie 规则（软件严格更近胜出、相等且硬件 id 有效 → 硬件、相等且硬件 id 无效（背景 1.0）→ 软件、空 id 跳过；软件胜出用 sw_depth 做重建/tolerance）**；无原子/无 race；同输入两次运行像素一致；CPU reference vs GPU 逐像素 fixture 一致。
 3. **merge/resolve 深度语义与 HZB**：**resolve 在 merge 之前**（winner 规则需要未合并的硬件 depth），merge 只走 depth test 不读回硬件 depth、写 `min(hw,sw)`；最终 depth = min(硬件,软件)；resolve 候选选择与重建（含 unresolved/depth mismatch 统计）正确；HZB cull/recovery 帧 hybrid 关闭且 M3 帧字节不变；非 recovery 的 HZB build 在 resolve 之后、merge 之后采样最终 depth（保守）。
-4. **容量/回退/无部分覆盖**：tile/entry 溢出、图像/pipeline 失败、item 策略排除、blocker 拒绝都以整帧 hardware-only 处理并计数；软件 id 前缀+后缀 ≤4096；不出现部分软件图像/部分 merge/半新半旧；日志与 stats 可复算。
+4. **容量/回退/无部分覆盖**：CSR `entry_count` 超过 65,536/lane 预算、图像/pipeline 失败、item 策略排除、blocker 拒绝都以整帧 hardware-only 处理并计数；CSR offsets 单调、空 tile 范围为空、无 per-tile capacity/截断；软件 id 前缀+后缀 ≤4096；不出现部分软件图像/部分 merge/半新半旧；日志与 stats 可复算。
 5. **测量有效性与 ROI 诚实**：Task 1 上界与 Task 6 实测是否同相机/同资产/同配置、3 轮中位数 + 逐轮表、GPU pass 时间来自 gpu marks、CPU 分类成本独立报告、图像差异量化不宣称一致、validation 零发现、归档 SHA-256 完整；ROI 判决与 spec §7.4 一致。
 
 ## 文件与边界
 
-- **CPU 参考/分类模块（新）**：`source/engine/visibility/visibility_software.cppm`（模块 `deren.engine.visibility.software`）：`classify`（保守 subpixel 判据）、`tile_grid`/`build_tile_lists`（CPU binning + overflow + per-tile 最大值统计）、`software_pixel`/`resolve_candidate`（winner/tie 规则）、CPU reference rasterizer（fixture 期望值）；只 import `deren.engine.visibility`/`deren.engine.meshlet`/`vstd`，无 Vulkan。
+- **CPU 参考/分类模块（新）**：`source/engine/visibility/visibility_software.cppm`（模块 `deren.engine.visibility.software`）：`classify`（保守 subpixel 判据）、`tile_grid`/`build_tile_lists`（CSR 两遍 binning + 前缀和 + 全局预算检查，无 per-tile 容量）、`software_pixel`/`resolve_candidate`（winner/tie 规则）、CPU reference rasterizer（fixture 期望值）；只 import `deren.engine.visibility`/`deren.engine.meshlet`/`vstd`，无 Vulkan。
 - **pass/pipeline（新）**：`source/engine/pass/software_visibility.cppm/.cpp`（compute，`software_visibility.comp.spv`）、`source/engine/pass/software_merge.cppm/.cpp`（depth-only graphics，`software_merge.vert/frag.spv`）；`source/engine/pipelines/pipelines.cppm` 增加 `build_software_merge`（参照 `build_shadow` 的 depth-only 构造）。
 - **shader（新/改）**：`source/shaders/scene/software_visibility.slang`、`source/shaders/scene/software_merge.slang`、`source/shaders/common/mesh_fetch.slang`（从 resolve 抽出，若采用）；`source/shaders/scene/visibility_resolve.slang` 的候选选择；`source/shaders/common/heap_slot_constants.slang` 的 `heap_slots_software_visibility`/`software_tiles` + 预留注释更新。
 - **资源/图/runtime**：`source/engine/render_resource/render_resource.cppm`（`resource_id::software_depth`/`software_id` + `resource_table`）、`source/engine/pass/output_targets.cppm`（16th family、`select_resources` gating）、`source/engine/render_graph/visibility.cppm`（`append_software_raster`/`append_software_merge`/resolve 可选输入）、`source/engine/render_layout/render_layout.cppm`（heap slot 常量）、`source/backends/vulkan/core/core.declarations.cppm`（后端 heap slot 镜像）、`source/engine/runtime/{runtime.cpp,runtime.post_graph.cpp,runtime.frames.cppm,runtime.declarations.cppm,runtime.constructor.cppm}`（分类/拆分/buffer 写/pass append/frame 冻结/资源 publish/统计）、`source/app/main.cpp` + `source/application_configuration/*` + `config.example.toml`（开关/阈值）。
@@ -52,15 +52,15 @@
 接口在 `deren::engine::visibility::software` / `deren::engine::pass` / `deren::engine::render_graph::visibility`；容器用 vessel，错误按项目 typed 错误/日志惯例。
 
 - `classify(record, model_3x3, view_parameters, extent, threshold_px) -> classification { bool subpixel; double diameter_upper; bool front_of_near; }`（spec §3.1 的保守判据；纯函数）。
-- `tile_grid`：16×16 tile，`tile_entry_capacity` 初值 32（Task 1 依 per-tile 最大值决定 32/64）；`build_tile_lists(items, records, camera, extent, threshold) -> expected<software_tile_plan, software_error>`（CPU binning；overflow → 错误而不是截断）。
-- `software_pixel { std::uint32_t depth_bits = 0xFFFFFFFFu; std::uint32_t id = 0; }`；`software_tile_plan { tiles_x, tiles_y, cluster_count, entry_count, counts/entries 视图 }`；`resolve_candidate(hardware_id, hardware_depth, software_pixel) -> candidate { enum source { hardware, software }; id; depth; }`（**merge 之前**的 resolve 语义：`sw_depth < hardware_depth` → software；严格相等且硬件 id 无效（背景 clear 1.0）→ software；其余 → hardware；软件胜出时 chosen depth = sw_depth；纯函数，供 CPU reference 与测试使用）。
+- `tile_grid`：16×16 tile；`software_entry_budget = 65,536` entries/lane（512KiB，单点可调常量）；`build_tile_lists(items, records, camera, extent, threshold) -> expected<software_tile_plan, software_error>`（CSR 两遍扫描：counts → exclusive prefix-sum offsets → entries；`entry_count > budget` 返回 typed `capacity` 错误，由调用方整帧 hardware-only；纯 CPU）。
+- `software_pixel { std::uint32_t depth_bits = 0xFFFFFFFFu; std::uint32_t id = 0; }`；`software_tile_plan { tiles_x, tiles_y, entry_count, overflow, counts/offsets/entries 视图, budget }`（counts 只用于 diagnostics/stats；GPU 只读 `[offsets[t], offsets[t+1])`）；`resolve_candidate(hardware_id, hardware_depth, software_pixel) -> candidate { enum source { hardware, software }; id; depth; }`（**merge 之前**的 resolve 语义：`sw_depth < hardware_depth` → software；严格相等且硬件 id 无效（背景 clear 1.0）→ software；其余 → hardware；软件胜出时 chosen depth = sw_depth；纯函数，供 CPU reference 与测试使用）。
 - CPU reference rasterizer：`rasterize(plan, run_table, item_table, vertex/index views, extent) -> software image`（与 GPU shader 同数学；fixture 期望值）。
 - pass：`pass::software_visibility_pass`（compute，`behaviour_kind::compute`，`extent_rule::full` 不适用时显式 dispatch = tiles，`ready()/has_pipeline()` 同 `visibility_resolve_pass`）；`pass::software_merge_pass`（graphics，depth attachment 无 colour，`behaviour_kind::graphics`、`extent_rule::full`、depth format 来自 `pass_context`）。
 - 图：`append_software_raster(builder&, inputs)`（写 `software_depth`/`software_id` storage + `software_tiles`/camera/items/meshlets/culled meshlets/statistics 读）、`append_software_merge(builder&, inputs)`（读 `software_depth` + 写 `gbuffer_depth` depth attachment；**显式 `order_after(resolve)`**）、`append_resolve` 增加可选 `software_depth`/`software_id` 输入（两者为空 = 现有行为）；非 recovery 的 HZB build append 在 merge 之后并由 depth RAW 依赖排序。
 - 资源/常量：`render_resource::resource_id::software_depth`/`software_id`（image2d `r32_uint`、per_swapchain_image、sampled|storage、output-size）；heap `heap_slots::software_depth = heap_slot_base + 1239`（预留窗口）、`heap_slots::software_id = heap_slot_base + 1314`（append per-image family）与 `heap_slots::software_tiles = heap_slot_base + 1322`；两个 shader/host 镜像与 `test_render_resources` 同步。
 - 配置/API：`[render] software_raster = false`、`[render] software_raster_threshold_px = 1.0`（finite、>0）；`runtime::set_software_raster(bool)`/`set_software_raster_threshold(float)`；帧内冻结为 `software_active_frame`（与 `subtilis_active_frame` 同处，spec §4.3）。
 - stats：`mesh_geometry.slang` 的 16-lane stride 用空闲 lane 12..15：`software_clusters`、`software_candidate_triangles`、`software_winning_pixels`、`software_overflow_frames`；C++ stride 契约（`runtime.constructor.cppm:563,1087`）同步注释/断言。
-- probe：`DEREN_SOFTWARE_RASTER_PROBE=<dir>`（capture-only，env 开关，不改算法/表/draw metadata；只在截图帧写）dump extent/view/proj/tile plan/software image/depth/vis-id/mesh stats/CPU reference 所需输入（spec §7.2）。
+- probe：`DEREN_SOFTWARE_RASTER_PROBE=<dir>`（capture-only，env 开关，不改算法/表/draw metadata；只在截图帧写）dump extent/view/proj/CSR `software_tiles`（header/counts/offsets/entries）/software image/depth/vis-id/mesh stats/CPU reference 所需输入（spec §7.2）。
 
 ## 依赖顺序
 
@@ -68,11 +68,11 @@
 
 ## Task 1 — subpixel workload 与硬件上界测量（GO/NO-GO）
 
-**目标：** 用 M1c 相同的 Bistro 派生资产与相机，测量（a）subpixel 分类的 cluster/三角形/tile 规模与 **per-tile entry 最大值 / 1.0-2.0 两档的 overflow 帧数**（据此记录 capacity 32 vs 64 决定），（b）硬件 raster 把 subpixel 工作量让出去能省多少的**上界**，（c）CPU 分类+binning 成本；给出明确 GO/NO-GO。本任务只增加纯 CPU 分类模块与 capture-only 探针（env 开关），生产行为（默认 OFF）不变。
+**目标：** 用 M1c 相同的 Bistro 派生资产与相机，测量（a）subpixel 分类的 cluster/三角形/tile 规模与 **per-tile 分布 / 1.0-2.0 两档的 CSR entry 总量**（为 Q7 容量策略提供证据；已完成并驱动 CSR 决定），（b）硬件 raster 把 subpixel 工作量让出去能省多少的**上界**，（c）CPU 分类+binning 成本；给出明确 GO/NO-GO。本任务只增加纯 CPU 分类模块与 capture-only 探针（env 开关），生产行为（默认 OFF）不变。
 
 **Files：** `source/engine/visibility/visibility_software.cppm`（classify + tile binning，纯 CPU）、`source/tests/test_visibility_software.cpp`（分类/binning 单测）、`source/engine/runtime/runtime.cpp`（capture-only probe：`DEREN_SOFTWARE_RASTER_PROBE=workload` 时在 phase 2 分类并只 dispatch 硬件前缀 = "holes control"，**仅截图帧、仅环境开关**）、`scripts/measure/software_raster_roi.py`（上界/统计/负向自检）、`scripts/measure/analyze_object_lod.py`（如需复用 probe 解析）、根 CMake/CI 测试列表；`docs/reviews/2026-10-22-software-raster.md` 的 Task 1 节（初稿）。
 
-**Interfaces：** §公共类型约定中的 `classify`/`build_tile_lists`/`software_tile_plan`（含 per-tile 最大值统计）；probe dump 的 workload 布局（extent/view/proj/每 item model + hw/sw 分类计数 + per-tile 计数 + 每类三角形数；同一 `DEREN_SOFTWARE_RASTER_PROBE` env，`workload` 值为 Task 1 的上界测量，Task 3 起用目录值 dump 完整图像）；`software_raster_roi.py --self-test` 的负向用例（缺轮次/失败 capture/伪造数据拒绝）。
+**Interfaces：** §公共类型约定中的 `classify`/`build_tile_lists`/`software_tile_plan`（含 per-tile 分布/CSR 总量统计；Q7 后续在此数据上决定 CSR）；probe dump 的 workload 布局（extent/view/proj/每 item model + hw/sw 分类计数 + per-tile 计数 + 每类三角形数；同一 `DEREN_SOFTWARE_RASTER_PROBE` env，`workload` 值为 Task 1 的上界测量，Task 3 起用目录值 dump 完整图像）；`software_raster_roi.py --self-test` 的负向用例（缺轮次/失败 capture/伪造数据拒绝）。
 
 **RED：**
 - [x] 写 `test_visibility_software` 的分类/binning 用例（阈值边界、正交/透视、非均匀 scale、跨近面、NaN、capacity/overflow）→ 运行 `ctest -R '^test_visibility_software$'` 确认 RED（模块/接口缺失）。
@@ -81,33 +81,33 @@
 **GREEN：**
 - [x] 实现 `classify`/`build_tile_lists`（spec §3.1/§3.4 的纯函数与保守边界），通过单测。
 - [x] 实现 capture-only workload probe：截图帧按 `software_active_frame` 的判定做分类/tile binning；`DEREN_SOFTWARE_RASTER_PROBE=workload` 时把硬件 dispatch 改为"仅硬件前缀"（这就是 holes control：软件后缀在本任务不绘制，图像有洞是**预期**的测量状态，不允许出现在生产帧/正式回归中），同时 dump 分类统计与 tile 规模；无 env 时完全不改行为（默认 OFF）。
-- [x] `software_raster_roi.py` 读取 baseline vs holes-control 的逐轮日志/GPU marks/mesh stats，计算：subpixel clusters/triangles/tiles、**per-tile entry 最大值与 1.0/2.0 两档 overflow 帧数**、被移除的 hardware workgroups/triangles（mesh stats 差分）、`visibility raster` GPU 时间差（3 轮中位数）、CPU 分类+binning 微秒/帧；输出上界表、capacity 决定（32 vs 64）与明确的 GO/NO-GO。
+- [x] `software_raster_roi.py` 读取 baseline vs holes-control 的逐轮日志/GPU marks/mesh stats，计算：subpixel clusters/triangles/tiles、**per-tile 分布与 1.0/2.0 两档 CSR entry 总量/最热 tile**、被移除的 hardware workgroups/triangles（mesh stats 差分）、`visibility raster` GPU 时间差（3 轮中位数）、CPU 分类+binning 微秒/帧；输出上界表、容量证据（供 Q7 决定）与明确的 GO/NO-GO。
 
 **Acceptance：**
 - [x] Bistro 派生 cooked GLB（M1c 归档 `620f4242...`，或 `prepare_object_lod_scene.py` 重建并记录 SHA-256）、同 M1c 相机（far `35,18,140,0,-83.07,0`、near `35,8,42,0,-88,0`）、1280×720、130 帧、validation 关、3 轮交错；baseline = M1c ON 路径（software_raster off），holes-control = env probe；报告 far/near 上界表 + CPU 分类成本 + 统计。
-- [x] GO/NO-GO 与 capacity 决定写入报告：建议 GO 条件 = far 相机 `visibility raster` 时间差中位数 ≥ 1.5%（M1c far ON 20.11ms 下 ≈0.30ms），且分类规模与 M1c 探针口径的差异可解释（保守判据计数 ≤ 探针比例），near 记录但不作为 GO 必要条件；同时按 1.0/2.0 两档实测结果记录 `tile_entry_capacity` 默认 32/64 的决定；NO-GO 时停止 T2+ 并在报告记录原因。
+- [x] GO/NO-GO 与容量证据写入报告：建议 GO 条件 = far 相机 `visibility raster` 时间差中位数 ≥ 1.5%（M1c far ON 20.11ms 下 ≈0.30ms），且分类规模与 M1c 探针口径的差异可解释（保守判据计数 ≤ 探针比例），near 记录但不作为 GO 必要条件；同时记录 per-tile 分布/CSR entry 总量（far 4,572/12,557、最热 977/1,907）作为 Q7 决策依据；Q7 已由用户决定为 CSR（spec §9.2）；NO-GO 时停止 T2+ 并在报告记录原因。
 - [x] 默认 OFF 下 `check_render.ps1 -Full`（15/15）与 `-Visibility -Compare docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt`（1/1）不变；validation clean；`test_docs` 绿（若新增脚本/文档）；Release 全量 CTest 绿（记录数量）。
 
 ## Task 2 — CPU reference 核心 + 资源/pass 脚手架（默认 OFF、无视觉变化）
 
-**目标：** 建立 `software_depth`/`software_id` 资源 family、tile buffer、两个 pass 类与 pipeline、图声明、shader 注册与 CPU reference rasterizer/merge 规则；**不 append 到帧**（没有 runtime 接线），因此默认 OFF 的帧与 baseline 逐字节一致。
+**目标：** 建立 `software_depth`/`software_id` 资源 family、**CSR `software_tiles` buffer**、两个 pass 类与 pipeline、图声明、shader 注册与 CPU reference rasterizer/merge 规则；**不 append 到帧**（没有 runtime 接线），因此默认 OFF 的帧与 baseline 逐字节一致。
 
-**Files：** `source/engine/visibility/visibility_software.cppm`（CPU reference rasterizer + `resolve_candidate` 完整化）
+**Files：** `source/engine/visibility/visibility_software.cppm`（CPU reference rasterizer + `resolve_candidate` + CSR `build_tile_lists` 完整化）、`source/tests/test_visibility_software.cpp`（CSR 前缀和/空 tile/预算边界/headless/offline CPU reference rasterizer 校验）、`source/engine/pass/software_visibility.cppm/.cpp`、`source/engine/pass/software_merge.cppm/.cpp`、`source/engine/pipelines/pipelines.cppm`（`build_software_merge`）、`source/engine/render_resource/render_resource.cppm`、`source/engine/pass/output_targets.cppm`、`source/engine/render_graph/visibility.cppm`、`source/engine/render_layout/render_layout.cppm`、`source/backends/vulkan/core/core.declarations.cppm`、`source/shaders/common/heap_slot_constants.slang`、`source/shaders/scene/software_visibility.slang`/`software_merge.slang`（骨架 entry）、`source/app/chores.cpp`、根 CMake `VR_SLANG_SOURCES`/新测试 target/CI 列表、`test_render_graph_visibility.cpp`/`test_software_visibility_pass.cpp`/`test_software_merge_pass.cpp`/`test_render_resources.cpp`/`test_shader_sources.cpp`。
 
-**Interfaces：** §公共类型约定中的 `append_software_raster`/`append_software_merge`/resolve 可选输入、pass 类声明、`resource_id::software_depth`/`software_id`/heap slots、`build_software_merge`、shader 注册名；资源仅当 `select_resources` 选中时创建（本任务不选）。
+**Interfaces：** §公共类型约定中的 CSR `tile_grid`/`build_tile_lists`/`software_tile_plan`、`append_software_raster`/`append_software_merge`/resolve 可选输入、pass 类声明、`resource_id::software_depth`/`software_id`/heap slots、`build_software_merge`、shader 注册名；`software_tiles` buffer 尺寸由 `software_entry_budget` 推导（单点可调常量）；资源仅当 `select_resources` 选中时创建（本任务不选）；CPU reference rasterizer 的 **offline 校验**（不依赖设备：用 fixture 的 CSR plan 逐像素验证期望图像）。
 
 **RED：**
-- [ ] 写 pass 声明测试（io/behaviour/`ready()` gating/非法输入拒绝）与图声明测试（software raster 在 hardware raster 之后；**resolve 在 merge 之前**（显式 order 边 + depth WAR）；merge 读 `software_depth` + depth read-write；resolve 可选输入为空时与旧声明等价；OFF 不 append）；CPU reference/winner 规则用例（软件严格更近胜出、相等且硬件 id 有效 → 硬件、相等且硬件 id 无效 → 软件、空 id → 硬件、软件胜出 chosen depth = sw_depth）；运行确认 RED（缺模块/接口）。
-- [ ] 写资源/常量测试期望（software family 的 id/format/flags/heap slot；`software_tiles` slot 在 HZB 之后且 grid 内），确认 RED。
+- [ ] 写 pass 声明测试（io/behaviour/`ready()` gating/非法输入拒绝）与图声明测试（software raster 在 hardware raster 之后；**resolve 在 merge 之前**（显式 order 边 + depth WAR）；merge 读 `software_depth` + depth read-write；resolve 可选输入为空时与旧声明等价；OFF 不 append）；CPU reference/winner 规则用例（软件严格更近胜出、相等且硬件 id 有效 → 硬件、相等且硬件 id 无效 → 软件、空 id → 硬件、软件胜出 chosen depth = sw_depth）；**CSR 用例（两遍扫描确定性、offset 单调、空 tile、重复运行 byte-identical、entry_count == budget/budget+1 边界、offscreen CPU reference rasterizer 校验）**；运行确认 RED（缺模块/接口）。
+- [ ] 写资源/常量测试期望（software family 的 id/format/flags/heap slot；`software_tiles` slot 在 HZB 之后且 grid 内；buffer 布局/尺寸由 entry budget 推导：720p 512KiB entries + 28.8KB counts/offsets），确认 RED。
 
 **GREEN：**
-- [ ] 实现 CPU reference rasterizer 与 `resolve_candidate`（winner/tie/背景 1.0 tie 语义；软件胜出时用 sw_depth 做重建/tolerance 输入）
+- [ ] 实现 CPU reference rasterizer 与 `resolve_candidate`（winner/tie/背景 1.0 tie 语义；软件胜出时用 sw_depth 做重建/tolerance 输入）；实现 CSR `build_tile_lists`（两遍扫描 + exclusive prefix sum + 全局预算检查）与 **headless/offline CPU reference rasterizer 校验**（fixture 期望图像）。
 - [ ] 实现两个 pass 类与 pipeline（compute 仿 `visibility_resolve_pass`；depth-only merge 仿 shadow pass；shader 先最小实现 entry，后续 Task 3 完整），`build_software_merge` 用 `pass_context` 的 depth format。
-- [ ] 资源 family/heap slots/runtime 数组骨架 + `output_targets_pass` 16th family + `select_resources` gating（本任务 runtime 不选中，因此不分配）；后端/常量镜像 + `test_render_resources` 同步。
+- [ ] 资源 family/heap slots/runtime 数组骨架 + `output_targets_pass` 16th family + `select_resources` gating（本任务 runtime 不选中，因此不分配）；`software_tiles` buffer 按 budget 单一常量定尺寸；后端/常量镜像 + `test_render_resources` 同步。
 - [ ] 图声明函数与 pass/graph 测试通过；shader 注册四处同步（CMake/两个编译脚本/chores/`test_shader_sources`）。
 
 **Acceptance：**
-- [ ] `ctest -R 'test_visibility_software|test_render_graph_visibility|test_software_|test_render_resources|test_shader_sources'` 绿；`test_visibility_buffer`/`test_visibility_raster_pass`/`test_visibility_resolve_pass` 不回归；ASan/UBSan 新 CPU target 绿。
+- [ ] `ctest -R 'test_visibility_software|test_render_graph_visibility|test_software_|test_render_resources|test_shader_sources'` 绿（含 CSR 前缀和/空 tile/预算边界与 offline CPU reference rasterizer）；`test_visibility_buffer`/`test_visibility_raster_pass`/`test_visibility_resolve_pass` 不回归；ASan/UBSan 新 CPU target 绿。
 - [ ] Release 全量 CTest 绿（记录数量）；默认 OFF 的 frozen Full 15/15 + Visibility 1/1 不变（没有视觉变化）；validation 不需要（本任务无帧内新 pass）。
 - [ ] `test_docs` 绿（VR_TEST_TARGETS 与 ci.yml 同步）。
 
@@ -115,7 +115,7 @@
 
 **目标：** 实现完整 shader 数学与 probe 验证链：GPU 软件 raster 与 CPU reference 在 fixture 上逐像素一致；**resolve 在 merge 之前**（软件严格更近胜出、tie 归硬件、空 id 跳过、软件胜出用 sw_depth 做 tolerance）；merge 后 depth = min；同一相机两次运行确定；validation clean。
 
-**Files：** `source/shaders/scene/software_visibility.slang`（完整 tile 扫描 + 顶点 fetch/投影 + 深度/id 写）、`source/shaders/scene/software_merge.slang`（fullscreen depth 写）、`source/shaders/common/mesh_fetch.slang`（从 resolve 抽取，如采用；若不抽取则必须用测试固定两份表达式等价）、`source/shaders/scene/visibility_resolve.slang`（候选选择）、`source/engine/runtime/runtime.post_graph.cpp`（probe fixture 帧的 append/order）、`source/engine/runtime/runtime.cpp`（probe readback/capture-only）、`scripts/measure/verify_software_raster.py`（CPU vs GPU/merge/A-B/自检）、`test_visibility_software.cpp`/`test_render_graph_visibility.cpp` 扩展、`docs/reviews/2026-10-22-software-raster/`（fixture 证据）。
+**Files：** `source/shaders/scene/software_visibility.slang`（完整 CSR tile 扫描：读 `offsets[t]..offsets[t+1]` + 顶点 fetch/投影 + 深度/id 写）、`source/shaders/scene/software_merge.slang`（fullscreen depth 写）、`source/shaders/common/mesh_fetch.slang`（从 resolve 抽取，如采用；若不抽取则必须用测试固定两份表达式等价）、`source/shaders/scene/visibility_resolve.slang`（候选选择）、`source/engine/runtime/runtime.post_graph.cpp`（probe fixture 帧的 append/order）、`source/engine/runtime/runtime.cpp`（probe readback/capture-only）、`scripts/measure/verify_software_raster.py`（CPU vs GPU/merge/A-B/自检）、`test_visibility_software.cpp`/`test_render_graph_visibility.cpp` 扩展、`docs/reviews/2026-10-22-software-raster/`（fixture 证据）。
 
 **Interfaces：** probe dump（spec §7.2）与 `verify_software_raster.py` 的 CLI/负向自检；shader entry 名；resolve 候选选择的输入/规则。
 
@@ -124,53 +124,53 @@
 - [ ] 写小 fixture 场景（现有 headless/capture 场景 + 固定相机，含 subpixel 三角形、深度 tie、退化、背后三角形、边缘/clamp 像素），确认当前 hybrid ON 之前 probe 缺失。
 
 **GREEN：**
-- [ ] 实现完整 software raster shader（tile 扫描、逐像素全序选择、空像素初始化、screen-linear z/clamp/有限检查、跳 MASK/背面由输入保证）与 merge shader；resolve 候选选择与重建按 spec §3.2/§5.3（resolve 先于 merge；软件候选用 sw_depth）；抽取/复用 `mesh_fetch`（若抽取，Visibility frozen 1/1 必须不变）。
-- [ ] runtime probe 接线：hybrid 帧按 raster→software raster→resolve→merge 次序 append（先只在该 probe/fixture 路径；T4 再完整化）；dump software image/depth/vis-id/tile plan/stats；`verify_software_raster.py` 比较 CPU reference 与 GPU（0 差异）、**winner/tie 规则（软件严格更近、tie 硬件、空跳过）**、merge min、id decode、determinism（两次 capture hash）、**resolve-before-merge 次序（pass 顺序/gpu marks 区间）**。
+- [ ] 实现完整 software raster shader（CSR 范围扫描：workgroup 读 `offsets[t]`/`offsets[t+1]`，sparse tile 空范围；逐像素全序选择、空像素初始化、screen-linear z/clamp/有限检查、跳 MASK/背面由输入保证）与 merge shader；resolve 候选选择与重建按 spec §3.2/§5.3（resolve 先于 merge；软件候选用 sw_depth）；抽取/复用 `mesh_fetch`（若抽取，Visibility frozen 1/1 必须不变）。
+- [ ] runtime probe 接线：hybrid 帧按 raster→software raster→resolve→merge 次序 append（先只在该 probe/fixture 路径；T4 再完整化）；dump CSR `software_tiles`/software image/depth/vis-id/stats；`verify_software_raster.py` 比较 CPU reference 与 GPU（0 差异）、**CSR ranges（offset 边界/空 tile）**、**winner/tie 规则（软件严格更近、tie 硬件、空跳过）**、merge min、id decode、determinism（两次 capture hash）、**resolve-before-merge 次序（pass 顺序/gpu marks 区间）**。
 - [ ] fixture 的 image A/B（hybrid vs hardware-only）记录 changed-pixel/mean/max，确认差异只在预期亚像素/边缘区域；validation 零发现。
 
 **Acceptance：**
-- [ ] `verify_software_raster.py` fixture 结果：CPU vs GPU **0 像素差异**、winner/tie 规则、resolve-before-merge 次序、merge min、id decode、determinism 全 PASS；负向自检拒绝所有伪造/不完整输入。
+- [ ] `verify_software_raster.py` fixture 结果：CPU vs GPU **0 像素差异**、CSR ranges/空 tile、winner/tie 规则、resolve-before-merge 次序、merge min、id decode、determinism 全 PASS；负向自检拒绝所有伪造/不完整输入。
 - [ ] fixture capture 的同相机两次运行 hash 一致；validation **0 error/warning/VUID**；报告 §3/§5 的 fixture 小节。
 - [ ] CPU 单测与图测试扩展绿；Release 全量 CTest 绿；默认 OFF 的 frozen gates 不变（hybrid 只在 probe/fixture 路径启用）。
 
 ## Task 4 — runtime 完整接线：分类/拆分/buffer/fallback/stats/OFF 门禁
 
-**目标：** 把 T1-T3 的机制接到正式帧路径：phase 2 分类+binning、run 表 `[hw|sw]` 拆分、tile buffer 写、`software_active_frame` 冻结、capacity/资源/pipeline 失败的整帧回退、stats/日志、配置键/API、HZB 互斥；默认 OFF 无新行为。
+**目标：** 把 T1-T3 的机制接到正式帧路径：phase 2 分类+CSR binning（两遍扫描 + prefix sum）、run 表 `[hw|sw]` 拆分、CSR `software_tiles` buffer 写、`software_active_frame` 冻结、CSR 全局预算/资源/pipeline 失败的整帧回退、stats/日志、配置键/API、HZB 互斥；默认 OFF 无新行为。
 
 **Files：** `source/engine/runtime/runtime.cpp`（`record_visibility_items` phase 2/4、fallback、stats、日志）、`runtime.frames.cppm`（`software_active_frame` 冻结）、`runtime.post_graph.cpp`（正式 pass append/order/optional resolve 输入）、`runtime.declarations.cppm`（状态/API/数组）、`runtime.constructor.cppm`（资源 publish/adopt、pass 创建、pipeline）、`source/application_configuration/*` + `source/app/main.cpp` + `config.example.toml`、`source/engine/visibility/visibility.cppm`（hybrid `apply_meshlet_run` 变体）、`test_subtilis_selection.cpp`/`test_subtilis_frame.cpp`/`test_visibility_buffer.cpp`/`test_app_config.cpp` 扩展。
 
-**Interfaces：** `set_software_raster`/`set_software_raster_threshold`；`software_active_frame`；fallback 原因计数（overflow/capacity/resource/pipeline/hzb_excluded/policy）；stats lane 12..15；`scene_import_result` 不变；配置键。
+**Interfaces：** `set_software_raster`/`set_software_raster_threshold`；`software_active_frame`；fallback 原因计数（csr_budget/capacity/resource/pipeline/hzb_excluded/policy）；stats lane 12..15；CSR 预算常量 `software_entry_budget = 65,536`（单点可调）；`scene_import_result` 不变；配置键。
 
 **RED：**
-- [ ] 测试：hybrid 帧的 run 表（硬件前缀/软件后缀/id 解码）、`block.geometry.index_count`=前缀、item/base/table 不变；**append 次序 = raster → software raster → resolve → merge → HZB build**（图/pass 顺序断言）；**resolve 使用所选候选深度**（软件胜出像素 tolerance 用 sw_depth；硬件胜出用硬件 depth）；merge 后 `gbuffer_depth == min(hw_depth, sw_depth)`；HZB build 在 merge 之后且采样 merge 后 depth；容量边界（4095/4096/4097 记录、tile cap 31/32/33、entry 上限）→ 整帧回退；HZB cull/recovery 帧 hybrid 关闭且字段/行为与 M3 一致；资源/pipeline 不可用 → hardware-only；`software_raster=false` 时零 append/零新资源；配置解析/校验（finite、>0、默认值）。运行确认 RED。
+- [ ] 测试：hybrid 帧的 run 表（硬件前缀/软件后缀/id 解码）、`block.geometry.index_count`=前缀、item/base/table 不变；**append 次序 = raster → software raster → resolve → merge → HZB build**（图/pass 顺序断言）；**resolve 使用所选候选深度**（软件胜出像素 tolerance 用 sw_depth；硬件胜出用硬件 depth）；merge 后 `gbuffer_depth == min(hw_depth, sw_depth)`；HZB build 在 merge 之后且采样 merge 后 depth；容量边界（4095/4096/4097 记录；**CSR `entry_count` 65,535/65,536/65,537、offsets 单调、空 tile 范围为空 → 整帧回退**）；HZB cull/recovery 帧 hybrid 关闭且字段/行为与 M3 一致；资源/pipeline 不可用 → hardware-only；`software_raster=false` 时零 append/零新资源；配置解析/校验（finite、>0、默认值）。运行确认 RED。
 - [ ] 写 runtime 日志/stats 期望（每 120 帧一次汇总、每场景 overflow 一次）。
 
 **GREEN：**
-- [ ] 实现分类/拆分/buffer 写/fallback/stats/日志；图组装在 hybrid 帧按 **raster → software raster → resolve → merge → （非 recovery）HZB build** 次序 append，并在 resolve 传可选输入；resolve 的重建/tolerance 使用所选候选深度；merge 只写 depth；其他帧路径完全不变。
+- [ ] 实现分类/CSR 拆分/buffer 写/fallback/stats/日志；图组装在 hybrid 帧按 **raster → software raster → resolve → merge → （非 recovery）HZB build** 次序 append，并在 resolve 传可选输入；resolve 的重建/tolerance 使用所选候选深度；merge 只写 depth；CSR `entry_count > software_entry_budget` 或 binning 失败 → 整帧 hardware-only；其他帧路径完全不变。
 - [ ] 资源 family 仅在 `software_raster` ON 时 `select_resources` 请求；pipeline 懒创建失败 → feature unavailable（hardware-only）；OFF 不创建/不写 descriptor/不 append。
 - [ ] 配置键 + config.example + parser + app wiring；`test_app_config` 负向（负数/NaN/0）与默认值。
 
 **Acceptance：**
 - [ ] `ctest -R '^test_subtilis|test_visibility|test_app_config'` 绿；Release 全量 CTest 绿（记录数量）；ASan/UBSan CI 形态绿。
 - [ ] 默认 OFF：frozen Full **15/15**、Visibility **1/1** 逐字节不变；`software_raster=true` 时 fixture 帧 validation 零发现。
-- [ ] overflow→整帧 hardware-only 有日志/stats；无部分软件图像/部分 merge（spec §5.4 矩阵逐行有测试/证据）。
+- [ ] CSR 全局预算超限→整帧 hardware-only 有日志/stats；无部分软件图像/部分 merge（spec §5.4 矩阵逐行有测试/证据）。
 
 ## Task 5 — 边界、容量、确定性与 HZB/merge 组合门禁
 
-**目标：** 把 Task 1-4 的边界从"能跑"提升到"可回归"：4096/overflow/前缀+后缀 id、tile 覆盖/空初始化、depth tie/clamp、determinism 两次 capture、HZB cull/recovery 帧字节不变、非 recovery HZB build 采样 merge 后 depth 的保守性验证、GPU probe 的负向自检、图像 A/B 与 frozen 门禁。
+**目标：** 把 Task 1-4 的边界从"能跑"提升到"可回归"：4096/CSR 全局预算/前缀+后缀 id、CSR 范围（空 tile/offset 单调）、tile 覆盖/空像素初始化、depth tie/clamp、determinism 两次 capture、HZB cull/recovery 帧字节不变、非 recovery HZB build 采样 merge 后 depth 的保守性验证、GPU probe 的负向自检、图像 A/B 与 frozen 门禁。
 
 **Files：** 测试扩展（`test_visibility_software.cpp`、`test_subtilis_frame.cpp`、`test_render_graph_visibility.cpp`）、`scripts/measure/verify_software_raster.py`（边界/负向/merge/HZB 检查）、`docs/reviews/2026-10-22-software-raster/`（边界/门禁证据）、如需 `runtime.post_graph.cpp` 的 order 断言。
 
 **Interfaces：** 无新接口；验证既有接口的边界与组合（probe/verify 脚本的检查项）。
 
 **RED：**
-- [ ] 先加边界/组合测试（前缀+软件后缀 ≤4096、tile 空像素、**winner 规则：软件严格更近胜出 / 相等且硬件 id 有效 → 硬件 / 相等且硬件 id 无效（背景 1.0）→ 软件 / 空 id 跳过**、depth tie/clamp、**resolve-before-merge 次序**、merge 后 depth=min、两次 capture hash、HZB cull/recovery 帧不变、**非 recovery HZB build 采样 merge 后 depth 的保守性检查**）→ 运行确认 RED（缺实现/断言）。
+- [ ] 先加边界/组合测试（前缀+软件后缀 ≤4096、**CSR：`entry_count` 65,535/65,536/65,537 全局预算、offsets 单调且 `offsets[0]==0`/`offsets[tiles]==entry_count`、空 tile 范围、重复运行 byte-identical、最热 tile**、**winner 规则：软件严格更近胜出 / 相等且硬件 id 有效 → 硬件 / 相等且硬件 id 无效（背景 1.0）→ 软件 / 空 id 跳过**、depth tie/clamp、**resolve-before-merge 次序**、merge 后 depth=min、两次 capture hash、HZB cull/recovery 帧不变、**非 recovery HZB build 采样 merge 后 depth 的保守性检查**）→ 运行确认 RED（缺实现/断言）。
 
 **GREEN：**
 - [ ] 实现/修正到测试全绿；确认 hybrid 帧与非 hybrid 帧在 HZB cull/recovery 开关组合下的行为矩阵；**graph/runtime 断言 resolve→merge→HZB build 的次序与 merge 后 depth=min**；probe/verify 脚本增加 winner/tie/次序/min 检查与自检负向用例。
 
 **Acceptance：**
-- [ ] 边界/组合测试全绿；`verify_software_raster.py --self-test` 负向用例全部拒绝；HZB cull/recovery 帧的 frozen 捕获/字段与 M3 一致（字节级核对或逐轮 JSON 对比）。
+- [ ] 边界/组合测试全绿；`verify_software_raster.py --self-test` 负向用例全部拒绝；CSR 预算/范围证据与 HZB cull/recovery 帧的 frozen 捕获/字段与 M3 一致（字节级核对或逐轮 JSON 对比）。
 - [ ] 默认 OFF frozen Full 15/15 + Visibility 1/1 不变；ON fixture 帧 validation 零发现；Release 全量 CTest 绿（记录数量）；ASan/UBSan 绿。
 
 ## Task 6 — Bistro 派生资产 3 轮测量与 ROI 判决
@@ -185,7 +185,7 @@
 - [ ] 先写分析脚本自检（缺轮次/重复轮次/失败 capture/短 capture/非有限指标/伪造图像拒绝）；用空输入确认拒绝；矩阵模板跑一次确认缺数据时 FAIL。
 
 **GREEN：**
-- [ ] 测量矩阵：M1c 派生资产（归档 SHA 核对）、far/near、validation 开/关各一组、130 帧、OFF（hardware-only）与 ON（hybrid）各 3 轮交错、同相机；阈值 1.0 主口径 + 可选 2.0 一档；GPU marks 的 pass 时间（含 **resolve 与 merge 分开的 mark 区间**）、CPU 分类/binning 与 cut 成本、**per-tile entry 最大值 / 1.0-2.0 两档 overflow 帧数与 capacity 决定（32/64）**、容量/回退/统计、图像 A/B（changed pixels/mean/max）、内存/带宽（如可测）、validation 零发现。
+- [ ] 测量矩阵：M1c 派生资产（归档 SHA 核对）、far/near、validation 开/关各一组、130 帧、OFF（hardware-only）与 ON（hybrid）各 3 轮交错、同相机；阈值 1.0 主口径 + 可选 2.0 一档；GPU marks 的 pass 时间（含 **resolve 与 merge 分开的 mark 区间**）、CPU 分类/CSR binning 与 cut 成本、**CSR entry 总量/最热 tile/预算余量（65,536）**、容量/回退/统计、图像 A/B（changed pixels/mean/max）、内存/带宽（如可测）、validation 零发现。
 - [ ] 报告 §1-§10 完整：3 轮中位数 + 逐轮表（不保留最好轮）、失败轮如实记录、ROI 判决（通过→可选 feature default OFF；不通过→negative result 并记录，不改口径）。第二档 1920×1080 只记录 `software_depth`/`software_id` 资源内存、带宽估算与 validation（不要求完整 ROI 矩阵），4K 仅估算。
 - [ ] 归档 `D:/deren-assets/2026-10-22-software-raster/` 逐文件 SHA-256 manifest，在报告中引用；scratch 清理。
 
@@ -215,8 +215,8 @@
 
 1. **构建/测试**：root Release `cmake --build build-release-dyn-clang64 -j12` + `ctest --test-dir build-release-dyn-clang64 --output-on-failure` 全绿（记录数量与日志）；CI 形态 ASan/UBSan headless 全绿（记录数量；Windows 无 LSan，沿用既有记录）。
 2. **OFF 冻结**：`check_render.ps1 -Full -BuildDir build-release-dyn-clang64`（legacy `docs/reviews/2026-10-17-render-graph-gate/legacy-hashes.txt`，15/15）与 `check_render.ps1 -Visibility -Compare docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt`（1/1）逐字节不变。
-3. **ON 证据**：Task 3/5 的 fixture CPU-vs-GPU 0 像素差异、**winner/tie 规则（软件严格更近胜出、tie 归硬件、空 id 跳过）、resolve-before-merge 次序、merge 后 depth=min**、id decode/determinism PASS、负向自检拒绝；Task 6 报告 §1-§10 完整（3 轮中位数 + 逐轮表、图像差异量化、validation 零发现、ROI 判决、per-tile 容量统计）。
-4. **容量/回退**：报告与测试记录 hybrid 的 capacity/overflow/resource/pipeline/HZB 排除计数；无部分覆盖；§5.4 矩阵逐行有证据；软件 id 前缀+后缀 ≤4096。
+3. **ON 证据**：Task 3/5 的 fixture CPU-vs-GPU 0 像素差异、**CSR ranges/空 tile**、**winner/tie 规则（软件严格更近胜出、tie 归硬件、空 id 跳过）、resolve-before-merge 次序、merge 后 depth=min**、id decode/determinism PASS、负向自检拒绝；Task 6 报告 §1-§10 完整（3 轮中位数 + 逐轮表、图像差异量化、validation 零发现、ROI 判决、CSR entry 总量/预算余量）。
+4. **容量/回退**：报告与测试记录 hybrid 的 CSR 全局预算/capacity/resource/pipeline/HZB 排除计数；CSR offsets 单调、空 tile 正确、无 per-tile 截断；无部分覆盖；§5.4 矩阵逐行有证据；软件 id 前缀+后缀 ≤4096。
 5. **文档/CI**：`test_docs` PASS；`VR_TEST_TARGETS` 与 `.github/workflows/ci.yml` 列表一致；shader 注册四处一致；`docs/subtilis.md`/`docs/visibility_buffer.md` 状态与索引更新。
 6. **仓库卫生**：`git status` 只有预期提交内容与用户未跟踪文件；证据归档 D: 且 SHA-256 manifest 核对；**未 push**。converter standalone 6/6 绿（M4 不应触碰 converter；若被触碰则不得接受）。
 
