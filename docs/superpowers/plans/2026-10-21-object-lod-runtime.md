@@ -154,14 +154,14 @@
 **Interfaces**：`built_geometry` 扩展（`lod0_clusters()`/DAG 层级，§公共类型约定）；`prepare_item` 对 adopted item 调 `dag_lod::select_cut`，对 forest item 保持现有路径（或统一迁移，见 T1/T2 结论）；`matches_generation` 校验 `leaf.meshlets` 与 `lod0_clusters`、窗口/记录合法。
 
 **RED**：
-- [ ] 测试：adopted item 的 item run = 叶簇数；cut 写出 run 前缀且 dispatch/发布正确；cut 超 reservation → `shared_run`（完整 LOD0，不截断）；多实例绑定同一 generation 且 `matches_generation` 通过；`lod0_clusters` 非空/连续/合法；显式 upload（forest builder）路径行为不变；OFF（无 subtilis_geometry）行为不变。
-- [ ] 运行确认 RED。
+- [x] 测试：adopted item 的 item run = 叶簇数；cut 写出 run 前缀且 dispatch/发布正确；cut 超 reservation → `shared_run`（完整 LOD0，不截断）；多实例绑定同一 generation 且 `matches_generation` 通过；`lod0_clusters` 非空/连续/合法；显式 upload（forest builder）路径行为不变；OFF（无 subtilis_geometry）行为不变。
+- [x] 运行确认 RED。
 
 **GREEN**：
-- [ ] `create_primitive`：adopted 时用 `source.lod0_clusters()` 填 `result->meshlets` 与其 meshlet 表 run（不再用 `build_meshlets`；`draw_index_count = lod0_index_count`，AS/shadow 只读 LOD0 前缀）；`bind_subtilis_geometry` 校验扩展；多 primitive 共享同一 `uploaded_geometry`（import 缓存保证）。
-- [ ] cut 分派：`prepare_item` 若 generation 的层级为 DAG 用 `dag_lod::select_cut`，否则走现有 forest `prepare_hierarchy`；两者的 run/发布/回退语义一致（`visible_run`/`shared_run` 不变）。
-- [ ] forest→DAG 包装：`subtilis::build()` 产物在创建 `built_geometry` 时转换（forest group children 连续区间 → DAG 等价引用），既有 builder 测试改为断言包装前后 cut 集合一致 + 原测试保留。
-- [ ] 现有 `matches_generation`/`coarse_allowed` 策略语义不变（MASK/BLEND、deform、custom pipeline、exact-depth 仍 finest）。
+- [x] `create_primitive`：adopted 时用 `source.lod0_clusters()` 填 `result->meshlets` 与其 meshlet 表 run（不再用 `build_meshlets`；`draw_index_count = lod0_index_count`，AS/shadow 只读 LOD0 前缀）；`bind_subtilis_geometry` 校验扩展；多 primitive 共享同一 `uploaded_geometry`（import 缓存保证）。
+- [x] cut 分派：`prepare_item` 若 generation 的层级为 DAG 用 `dag_lod::select_cut`，否则走现有 forest `prepare_hierarchy`；两者的 run/发布/回退语义一致（`visible_run`/`shared_run` 不变）。
+- [x] forest→DAG 包装：`subtilis::build()` 产物在创建 `built_geometry` 时转换（forest group children 连续区间 → DAG 等价引用），既有 builder 测试改为断言包装前后 cut 集合一致 + 原测试保留。
+- [x] 现有 `matches_generation`/`coarse_allowed` 策略语义不变（MASK/BLEND、deform、custom pipeline、exact-depth 仍 finest）。
 
 **Acceptance**：`ctest -R '^test_subtilis'` 全绿（含迁移用例）；`test_runtime_injection` 绿；root Release 全量 CTest 绿（记录数量）；ASan 绿；显式 upload 路径的 M1b 行为回归通过。
 

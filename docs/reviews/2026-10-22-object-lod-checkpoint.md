@@ -104,3 +104,23 @@ External buffers, malformed/out-of-range extension metadata, unsupported
 attributes, optional unknown extensions, async/move lifetime, per-instance
 fallback and shared ownership pass. Root Release build/full CTest **61/61**
 (52.43s). ASan/UBSan loader/import/frame/injection **4/4** (84.11s).
+
+## Task 5: adopted GPU generations and frame cuts
+
+Payload leaves now define the full LOD0 item run; shared immutable CPU data and
+GPU generations are reused across instances. Generation checks compare exact leaf
+records and retaining owners. Adopted items use the converter-compatible DAG cut,
+with complete LOD0 fallback when the cut exceeds its reservation. A fully geometry-
+validated fixture exercises a legal five-record intermediate cut with four leaves.
+
+The old builder also exposes a validated DAG representation, with outward-rounded
+dependency bounds and its storage included in the builder byte budget. Explicit
+builder uploads retain the existing forest selector to preserve their selection
+behavior (different projection norm/order); complete finest/root cut sets agree.
+Both forest and adopted paths pass frame-table publication and dispatch tests,
+including MASK, exact depth, disabled mode, ownership and overlap fallback.
+
+Validation: GPU-generation RED (1 failure), wrapper RED (1 failure). Release full
+CTest **61/61** (63.53s); focused ASan/UBSan **5/5** (15.62s). No push. Runtime
+configuration, whole-table admission, image gates and scene measurements remain
+Tasks 6–8; this is not final feature acceptance.

@@ -68,6 +68,7 @@ import deren.engine.pass.hzb_cull;           // HZB phase B1: the pyramid's GPU 
 import deren.engine.visibility.hzb;          // the CPU reference + the phase-B scene gate/snapshot vocabulary
 import deren.engine.subtilis;
 import deren.engine.subtilis.dag_import;
+import deren.engine.subtilis.upload;
 import deren.engine.visibility; // the visibility buffer's packed id and draw-item record
 import deren.engine.pass.scene_constants;
 import deren.engine.pass.scene_deformation;
@@ -2246,6 +2247,8 @@ namespace deren::engine {
          */
         bool visibility_buffer_on = false;
         bool subtilis_on = false;
+        std::mutex subtilis_upload_mutex;
+        deren::utility::vessel::map<subtilis::import_key, std::weak_ptr<subtilis::uploaded_geometry const>> subtilis_upload_cache;
         bool subtilis_active_frame = false;
         bool subtilis_logged = false;
         /// why this frame was or was not admitted (the record step's lane decision, and the log's vocabulary)

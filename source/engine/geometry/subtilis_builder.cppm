@@ -2,12 +2,15 @@ module;
 #include <array>
 #include <cstdint>
 #include <expected>
+#include <memory>
+#include <optional>
 #include <span>
 #include <string_view>
 #include <utility>
 export module deren.engine.subtilis.builder;
 import deren.engine.meshlet;
 import deren.engine.subtilis.asset;
+import deren.engine.subtilis.dag_import;
 import deren.utility.shared;
 
 export namespace deren::engine::subtilis {
@@ -48,6 +51,8 @@ export namespace deren::engine::subtilis {
             , stride_(std::exchange(other.stride_, 0))
             , vertex_count_(std::exchange(other.vertex_count_, 0))
             , lod0_count_(std::exchange(other.lod0_count_, 0)) {
+            imported_ = std::move(other.imported_);
+            dag_ = std::move(other.dag_);
         }
         built_geometry& operator=(built_geometry&& other) noexcept {
             if (this != &other) {
@@ -59,14 +64,16 @@ export namespace deren::engine::subtilis {
                 stride_ = std::exchange(other.stride_, 0);
                 vertex_count_ = std::exchange(other.vertex_count_, 0);
                 lod0_count_ = std::exchange(other.lod0_count_, 0);
+                imported_ = std::move(other.imported_);
+                dag_ = std::move(other.dag_);
             }
             return *this;
         }
         [[nodiscard]] std::span<std::uint8_t const> vertices() const noexcept {
-            return vertices_;
+            return imported_ ? imported_->vertices() : std::span<std::uint8_t const>(vertices_);
         }
         [[nodiscard]] std::span<std::uint32_t const> indices() const noexcept {
-            return indices_;
+            return imported_ ? imported_->indices() : std::span<std::uint32_t const>(indices_);
         }
         [[nodiscard]] asset const& hierarchy() const noexcept {
             return hierarchy_;
@@ -85,6 +92,36 @@ export namespace deren::engine::subtilis {
         }
         [[nodiscard]] std::uint32_t lod0_index_count() const noexcept {
             return lod0_count_;
+        }
+        [[nodiscard]] std::span<meshlet const> lod0_clusters() const noexcept {
+            if (imported_)
+                return imported_->lod0_clusters();
+            return hierarchy_.clusters().first(hierarchy_.lod0_count());
+        }
+        [[nodiscard]] dag_asset const* hierarchy_dag() const noexcept {
+            return imported_ ? &imported_->hierarchy() : dag_ ? &*dag_
+                                                              : nullptr;
+        }
+        [[nodiscard]] bool imported_payload() const noexcept {
+            return bool(imported_);
+        }
+        static std::expected<built_geometry, build_error> adopt_imported(std::shared_ptr<imported_asset const> source) {
+            if (!source || source->vertices().empty() || source->indices().empty())
+                return std::unexpected(build_error::invalid_input);
+            auto empty = asset::make({});
+            if (!empty)
+                return std::unexpected(build_error::invalid_geometry);
+            build_statistics stats;
+            stats.nodes = static_cast<uint32_t>(source->hierarchy().groups().size());
+            stats.roots = static_cast<uint32_t>(source->hierarchy().roots().size());
+            stats.clusters = source->hierarchy().cluster_count();
+            stats.lod0_triangles = source->lod0_index_count() / 3;
+            for (auto id : source->hierarchy().roots())
+                stats.coarse_triangles += source->hierarchy().clusters()[id].record.index_count / 3;
+            stats.payload_bytes = source->vertices().size() + source->indices().size_bytes();
+            built_geometry out({}, {}, std::move(*empty), {}, std::move(stats), source->vertex_stride(), source->vertex_count(), source->lod0_index_count());
+            out.imported_ = std::move(source);
+            return out;
         }
 
     private:
@@ -108,6 +145,8 @@ export namespace deren::engine::subtilis {
         build_options options_;
         build_statistics statistics_;
         std::uint32_t stride_, vertex_count_, lod0_count_;
+        std::shared_ptr<imported_asset const> imported_;
+        std::optional<dag_asset> dag_;
     };
     /// @brief build a hierarchical cluster LOD from LOD0 geometry and options.
     /// @details The feature overview, the measured numbers and the document index are in @ref md_docs_2subtilis.

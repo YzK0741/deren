@@ -29,6 +29,7 @@ module deren.engine.runtime;
 import deren.utility.shared;
 import deren.engine.subtilis;
 import deren.engine.subtilis.upload;
+import deren.engine.subtilis.builder;
 import deren.engine.subtilis.selection;
 
 import deren.promise.gui;
@@ -2666,8 +2667,23 @@ namespace deren::engine {
         auto result = std::make_unique<normal_draw_primitive>();
         result->subtilis_import = info.subtilis_import;
         auto upload_info = info;
-        if (info.subtilis_geometry) {
-            auto const& source = *info.subtilis_geometry;
+        auto geometry_source = info.subtilis_geometry;
+        std::shared_ptr<subtilis::uploaded_geometry const> shared_generation;
+        std::unique_lock import_lock(this->subtilis_upload_mutex, std::defer_lock);
+        if (!geometry_source && info.subtilis_import) {
+            import_lock.lock();
+            shared_generation = this->subtilis_upload_cache[info.subtilis_import->cache_key()].lock();
+            if (shared_generation)
+                geometry_source = shared_generation->source_owner();
+            else {
+                auto adopted = subtilis::built_geometry::adopt_imported(info.subtilis_import);
+                if (!adopted)
+                    return nullptr;
+                geometry_source = std::allocate_shared<subtilis::built_geometry const>(deren::utility::memory::allocator<subtilis::built_geometry>{}, std::move(*adopted));
+            }
+        }
+        if (geometry_source) {
+            auto const& source = *geometry_source;
             upload_info.vertex_data = source.vertices();
             upload_info.vertex_count = source.vertex_count();
             upload_info.vertex_stride = source.vertex_stride();
@@ -2686,9 +2702,18 @@ namespace deren::engine {
         // which is also what lets the backend's content-keyed registry see them at creation.
         rhi::buffer_flags const geometry_flags = rhi::to_bits(rhi::buffer_flag::device_address) |
                                                  (runtime_detail::ray_query_available_of(this->rhi_face()) ? rhi::to_bits(rhi::buffer_flag::acceleration_structure_input) : rhi::no_buffer_flags);
-        if (info.subtilis_geometry) {
-            auto generation = subtilis::upload_geometry(this->core_owner, info.subtilis_geometry, geometry_flags);
-            if (!generation || !result->bind_subtilis_geometry(*generation)) {
+        if (geometry_source) {
+            if (!shared_generation) {
+                auto uploaded = subtilis::upload_geometry(this->core_owner, geometry_source, geometry_flags);
+                if (!uploaded)
+                    return nullptr;
+                shared_generation = std::move(*uploaded);
+            }
+            if (import_lock.owns_lock()) {
+                this->subtilis_upload_cache[info.subtilis_import->cache_key()] = shared_generation;
+                import_lock.unlock();
+            }
+            if (!result->bind_subtilis_geometry(shared_generation)) {
                 return nullptr;
             }
         } else {
@@ -2752,16 +2777,20 @@ namespace deren::engine {
         //      task stage culls with. Built HERE because this is where the geometry bytes are still in hand and
         //      the layout (stride, index width) is known. The GPU TABLE is filled right below, so a task stage can
         //      read the same records the CPU just computed.
-        result->meshlets = deren::engine::build_meshlets(deren::engine::meshlet_build_input{
-            .vertex_data = upload_info.vertex_data,
-            .vertex_stride = upload_info.vertex_stride,
-            .vertex_count = upload_info.vertex_count,
-            .index_data = upload_info.index_data,
-            .index_width = upload_info.index_type == deren::promise::rhi::index_type::uint16 ? 2u : 4u,
-            .first_index = 0u,
-            .index_count = upload_info.index_count,
-            .base_vertex = 0,
-        });
+        if (geometry_source) {
+            auto leaves = geometry_source->lod0_clusters();
+            result->meshlets.assign(leaves.begin(), leaves.end());
+        } else
+            result->meshlets = deren::engine::build_meshlets(deren::engine::meshlet_build_input{
+                .vertex_data = upload_info.vertex_data,
+                .vertex_stride = upload_info.vertex_stride,
+                .vertex_count = upload_info.vertex_count,
+                .index_data = upload_info.index_data,
+                .index_width = upload_info.index_type == deren::promise::rhi::index_type::uint16 ? 2u : 4u,
+                .first_index = 0u,
+                .index_count = upload_info.index_count,
+                .base_vertex = 0,
+            });
         // ... AND INTO THE TABLE a task stage reads, where this primitive owns a CONTIGUOUS run: it remembers the
         // run's first record (`meshlet_base`) and the geometry lanes carry it, so one draw's meshlets are one
         // window. A scene past `meshlet_capacity` keeps the geometry it uploaded and loses only the CULLING for the

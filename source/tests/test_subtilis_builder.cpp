@@ -14,6 +14,7 @@ import deren.engine.subtilis.builder;
 import deren.engine.subtilis;
 import deren.engine.subtilis.asset;
 import deren.engine.subtilis.lod;
+import deren.engine.subtilis.dag_lod;
 import deren.engine.meshlet;
 import deren.utility.shared;
 namespace sub = deren::engine::subtilis;
@@ -137,6 +138,7 @@ int main() {
     auto built = sub::build(input);
     CHECK(built);
     if (built) {
+        CHECK(built->hierarchy_dag() != nullptr);
         CHECK(built->indices().size() == 3 && built->indices()[2] == 2);
         CHECK(built->vertices().size() == sizeof(vertices));
         CHECK(built->vertex_count() == 4 && built->vertex_stride() == sizeof(vertex) && built->lod0_index_count() == 3);
@@ -415,6 +417,7 @@ int main() {
         view.projection = sub::identity_matrix();
         view.projection[0] = view.projection[5] = .01f;
         view.projection[10] = -.0001f;
+        view.projection[14] = -.00001f;
         view.view[14] = -100;
         view.target_error_px = 1000;
         deren::utility::vessel::vector<deren::engine::meshlet> selected;
@@ -429,6 +432,22 @@ int main() {
         view.force_finest = true;
         selection = sub::select_cut(deep->hierarchy(), view, deep->hierarchy().maximum_cut(), selected);
         CHECK(selection && selected.size() == deep->hierarchy().lod0_count());
+        // Both representations preserve the forest's complete finest/root cuts.
+        CHECK(deep->hierarchy_dag());
+        if (deep->hierarchy_dag()) {
+            for (bool finest : {false, true}) {
+                view.force_finest = finest;
+                deren::utility::vessel::vector<deren::engine::meshlet> forest_cut, dag_cut;
+                auto f = sub::select_cut(deep->hierarchy(), view, deep->hierarchy().maximum_cut(), forest_cut);
+                auto d = sub::select_cut(*deep->hierarchy_dag(), view, deep->hierarchy_dag()->maximum_selected_bound(), dag_cut);
+                CHECK(f && d && forest_cut.size() == dag_cut.size());
+                auto order = [](auto const& a, auto const& b) { return a.first_index < b.first_index; };
+                std::ranges::sort(forest_cut, order);
+                std::ranges::sort(dag_cut, order);
+                for (size_t i = 0; i < std::min(forest_cut.size(), dag_cut.size()); ++i)
+                    CHECK(sub::dag_cluster{forest_cut[i]} == sub::dag_cluster{dag_cut[i]});
+            }
+        }
         deren::vk_test::write_line("group_size=2: depth {}, {} groups", deep->statistics().depth, deep->statistics().nodes);
     }
     // Unused vertices must not change the scale used by simplification.

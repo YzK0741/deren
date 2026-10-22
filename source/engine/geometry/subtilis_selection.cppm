@@ -15,6 +15,7 @@ import deren.engine.subtilis;
 import deren.engine.subtilis.builder;
 import deren.engine.subtilis.upload;
 import deren.engine.subtilis.lod;
+import deren.engine.subtilis.dag_lod;
 import deren.promise.rhi;
 import deren.utility.shared;
 
@@ -68,14 +69,17 @@ export namespace deren::engine::subtilis {
             leaf.index_type != deren::promise::rhi::index_type::uint32 || leaf.draw_index_count != source.lod0_index_count() ||
             leaf.vertex_count != source.vertex_count() || leaf.vertex_stride != source.vertex_stride() ||
             leaf.vertex_buffer->size() < source.vertices().size() || leaf.index_buffer->size() < source.indices().size_bytes() ||
-            leaf.meshlet_count != source.hierarchy().lod0_count() || leaf.meshlets.size() != leaf.meshlet_count) {
+            leaf.meshlet_count != source.lod0_clusters().size() || leaf.meshlets.size() != leaf.meshlet_count) {
             return false;
         }
         std::uint64_t cursor = 0;
+        size_t id = 0;
         for (auto const& record : leaf.meshlets) {
             if (record.first_index != cursor || record.base_vertex != 0 || !meshlet_record_sound(record, source.lod0_index_count())) {
                 return false;
             }
+            if (!(dag_cluster{record} == dag_cluster{source.lod0_clusters()[id++]}))
+                return false;
             cursor += record.index_count;
         }
         return cursor == source.lod0_index_count();
@@ -107,6 +111,17 @@ export namespace deren::engine::subtilis {
         }
         auto view = frame.selection;
         view.force_finest = view.force_finest || !coarse_allowed(leaf, policy);
+        if (auto const* dag = leaf.subtilis_geometry->source().hierarchy_dag(); leaf.subtilis_geometry->source().imported_payload() && dag) {
+            scratch.clear();
+            if (auto reason = check_reservation(space, static_cast<uint32_t>(dag->lod0_clusters().size()), published); reason != fallback_reason::none)
+                return shared_run(space, reason);
+            auto cut = select_cut(*dag, view, space.count, scratch);
+            if (!cut)
+                return shared_run(space, fallback_reason::capacity);
+            if (!scratch.empty() && !publish(space.base, std::span<meshlet const>(scratch)))
+                return shared_run(space, fallback_reason::publication_failed);
+            return {space.base, static_cast<uint32_t>(scratch.size()), run_source::visible, fallback_reason::none};
+        }
         return prepare_hierarchy(leaf.subtilis_geometry->source().hierarchy(), space, view, scratch, published, std::forward<Publish>(publish));
     }
 } // namespace deren::engine::subtilis

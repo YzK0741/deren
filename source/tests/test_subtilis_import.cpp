@@ -11,8 +11,12 @@ import deren.gltf_loader;
 import deren.engine.runtime;
 import deren.engine.primitive;
 import deren.engine.scene_tree;
+import deren.engine.subtilis.selection;
+import deren.engine.subtilis;
+import deren.engine.subtilis.dag_lod;
 import deren.promise.rhi;
 #include "probe_backend.hpp"
+#include "subtilis_dag_fixtures.hpp"
 namespace sub = deren::engine::subtilis;
 namespace wire = deren::asset::subtilis;
 template <class T>
@@ -82,6 +86,47 @@ namespace {
             f.payload.assign(first, first + bytes->size());
         }
     }
+    fixture growing_cut() {
+        auto input = subtilis_fixture::cross_dag();
+        auto& p = input.data;
+        auto split = p.clusters[4];
+        p.clusters[4].index_count = 6;
+        split.first_index += 6;
+        split.index_count = 6;
+        p.clusters.push_back(split);
+        auto old = p.references;
+        p.references.clear();
+        for (auto& g : p.groups) {
+            auto append = [&](uint32_t& first, uint32_t& count) {
+                auto start = first, size = count;
+                first = static_cast<uint32_t>(p.references.size());
+                for (uint32_t i = 0; i < size; ++i) {
+                    auto id = old[start + i];
+                    p.references.push_back(id);
+                    if (id == 4)
+                        p.references.push_back(10);
+                }
+                count = static_cast<uint32_t>(p.references.size()) - first;
+            };
+            append(g.fine_first, g.fine_count);
+            append(g.coarse_first, g.coarse_count);
+        }
+        // Same geometry, but a legal intermediate cut needs five records for four leaves.
+        CHECK(wire::make_asset(input.source, p, {}));
+        fixture f;
+        f.vertex_count = static_cast<uint32_t>(input.source.positions.size());
+        f.index_count = static_cast<uint32_t>(input.source.indices.size());
+        f.vertices.resize(f.vertex_count * 64);
+        for (uint32_t i = 0; i < f.vertex_count; ++i) {
+            std::memcpy(f.vertices.data() + i * 64, input.source.positions[i].data(), 12);
+            std::memcpy(f.vertices.data() + i * 64 + 12, input.source.normals[i].data(), 12);
+            std::memcpy(f.vertices.data() + i * 64 + 24, input.source.uv0[i].data(), 8);
+        }
+        f.indices.resize(f.index_count * 4);
+        std::memcpy(f.indices.data(), input.source.indices.data(), f.indices.size());
+        replace_payload(f, p);
+        return f;
+    }
 } // namespace
 int main() {
     {
@@ -113,12 +158,55 @@ int main() {
                 auto* first = static_cast<deren::engine::primitive*>(scene.roots[2].primitive_leaf.get());
                 auto* second = static_cast<deren::engine::primitive*>(scene.roots[3].primitive_leaf.get());
                 CHECK(first && second && first->subtilis_import && first->subtilis_import == second->subtilis_import);
+                CHECK(first && second && first->subtilis_geometry && first->subtilis_geometry == second->subtilis_geometry);
+                if (first && first->subtilis_geometry && first->subtilis_import) {
+                    CHECK(sub::matches_generation(*first));
+                    CHECK(first->meshlet_count == first->subtilis_import->lod0_clusters().size());
+                    CHECK(first->draw_index_count == first->subtilis_import->lod0_index_count());
+                    for (size_t i = 0; i < first->meshlets.size(); ++i)
+                        CHECK(first->meshlets[i].first_index == first->subtilis_import->lod0_clusters()[i].first_index);
+                    auto projection = glm::mat4(1);
+                    projection[2][2] = -.01f;
+                    projection[3][2] = -.001f;
+                    auto camera = glm::mat4(1);
+                    camera[3][2] = -20;
+                    auto view = sub::make_item_view(glm::mat4(1), camera, projection, 2, 2);
+                    view.selection.target_error_px = 100;
+                    vector<deren::engine::meshlet> records;
+                    uint32_t published = 0;
+                    auto run = sub::prepare_item(*first, {}, view, records, {}, [&](auto base, auto data) {CHECK(base==first->meshlet_base);published=static_cast<uint32_t>(data.size());return true; });
+                    CHECK(run.source == sub::run_source::visible && published == run.count && run.count < first->meshlet_count);
+                }
             }
             auto invalid = std::make_shared<deren::gltf::subtilis_payload>();
             invalid->profile_attributes = true;
             loaded->scene[0].nodes[0].meshes[0].primitives[0].subtilis = invalid;
             auto mixed = perform();
             CHECK(mixed.subtilis_imported == 1 && mixed.subtilis_fallback_lod0 == 1 && mixed.subtilis_failures[static_cast<size_t>(sub::import_failure::invalid_payload)] == 1);
+        }
+        auto growth = growing_cut();
+        auto imported = sub::import_payload(growth.input());
+        CHECK(imported);
+        if (imported) {
+            deren::engine::primitive_create_info info{};
+            info.subtilis_import = std::make_shared<sub::imported_asset const>(std::move(*imported));
+            auto* leaf = runtime.make_primitive("pbr", info);
+            CHECK(leaf && sub::matches_generation(*leaf));
+            if (leaf) {
+                auto projection = glm::mat4(1);
+                projection[2][2] = -.01f;
+                projection[3][2] = -.001f;
+                auto camera = glm::mat4(1);
+                camera[3][2] = -20;
+                auto view = sub::make_item_view(glm::mat4(1), camera, projection, 2, 2);
+                view.selection.target_error_px = .1f;
+                vector<deren::engine::meshlet> records;
+                auto reference = sub::select_cut(info.subtilis_import->hierarchy(), view.selection, 5, records);
+                CHECK(reference && records.size() == 5);
+                bool wrote = false;
+                auto run = sub::prepare_item(*leaf, {}, view, records, {}, [&](auto, auto) {wrote=true;return true; });
+                CHECK(!wrote && records.empty() && run.source == sub::run_source::shared && run.count == 4 && run.reason == sub::fallback_reason::capacity);
+            }
         }
     }
     auto f = load("cross_dag");

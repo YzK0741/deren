@@ -15,6 +15,61 @@ module deren.engine.subtilis.builder;
 namespace deren::engine::subtilis {
     namespace bd = builder_detail;
     namespace {
+        std::expected<dag_asset, dag_error> wrap_forest(asset const& forest, std::uint32_t lod0, std::uint32_t total) {
+            bd::vector<dag_cluster> clusters;
+            bd::vector<dag_group> groups;
+            bd::vector<std::uint32_t> refs, leaves, roots;
+            for (auto const& record : forest.clusters())
+                clusters.push_back({record});
+            for (auto const& node : forest.groups()) {
+                auto const& old = node.record;
+                if (!old.children.count) {
+                    for (std::uint32_t j = 0; j < old.coarse.count; ++j)
+                        leaves.push_back(old.coarse.first + j);
+                    continue;
+                }
+                auto id = static_cast<std::uint32_t>(groups.size());
+                dag_group group{};
+                group.fine.first = static_cast<std::uint32_t>(refs.size());
+                for (std::uint32_t j = 0; j < old.children.count; ++j) {
+                    auto child = forest.groups()[old.children.first + j].record.coarse;
+                    for (std::uint32_t k = 0; k < child.count; ++k) {
+                        clusters[child.first + k].consumer = id;
+                        refs.push_back(child.first + k);
+                    }
+                }
+                group.fine.count = static_cast<std::uint32_t>(refs.size()) - group.fine.first;
+                group.coarse = {static_cast<std::uint32_t>(refs.size()), old.coarse.count};
+                for (std::uint32_t j = 0; j < old.coarse.count; ++j) {
+                    clusters[old.coarse.first + j].producer = id;
+                    refs.push_back(old.coarse.first + j);
+                }
+                group.error = old.error;
+                auto const& b = node.bounds;
+                group.lod = {float(b.center[0]), float(b.center[1]), float(b.center[2]), 0};
+                double dx = b.center[0] - group.lod.x, dy = b.center[1] - group.lod.y, dz = b.center[2] - group.lod.z;
+                double radius = b.radius + std::sqrt(dx * dx + dy * dy + dz * dz);
+                // Round the envelope outward, including previously rounded dependency spheres.
+                for (std::uint32_t j = 0; j < group.fine.count; ++j) {
+                    auto producer = clusters[refs[group.fine.first + j]].producer;
+                    if (producer == dag_none)
+                        continue;
+                    auto const& child = groups[producer].lod;
+                    double x = double(child.x) - group.lod.x, y = double(child.y) - group.lod.y, z = double(child.z) - group.lod.z;
+                    radius = std::max(radius, std::sqrt(x * x + y * y + z * z) + child.radius);
+                }
+                group.lod.radius = float(radius);
+                if (group.lod.radius < radius)
+                    group.lod.radius = std::nextafter(group.lod.radius, std::numeric_limits<float>::infinity());
+                groups.push_back(group);
+            }
+            for (auto root : forest.roots()) {
+                auto range = forest.groups()[root].record.coarse;
+                for (std::uint32_t j = 0; j < range.count; ++j)
+                    roots.push_back(range.first + j);
+            }
+            return dag_asset::make(clusters, groups, refs, leaves, roots, lod0, total);
+        }
         bool valid_options(build_options const& o) {
             return o.group_size >= 2 && o.group_size <= 32 && o.max_depth <= 32 &&
                    std::isfinite(o.target_ratio) && o.target_ratio > 0 && o.target_ratio < 1 &&
@@ -268,7 +323,18 @@ namespace deren::engine::subtilis {
         stats.clusters = static_cast<std::uint32_t>(records.size());
         stats.depth = levels.empty() ? 0 : static_cast<std::uint32_t>(levels.size() - 1);
         stats.payload_bytes = bytes;
-        return built_geometry(std::move(source.vertices), std::move(payload), std::move(*validated), options, std::move(stats),
+        built_geometry result(std::move(source.vertices), std::move(payload), std::move(*validated), options, std::move(stats),
                               source.positions.empty() ? 0 : input.geometry.vertex_stride, static_cast<std::uint32_t>(source.positions.size()), static_cast<std::uint32_t>(source.indices.size()));
+        if (!result.hierarchy_.clusters().empty()) {
+            auto dag = wrap_forest(result.hierarchy_, result.lod0_count_, static_cast<std::uint32_t>(result.indices_.size()));
+            if (!dag)
+                return std::unexpected(build_error::invalid_geometry);
+            auto extra = dag->clusters().size_bytes() + dag->groups().size_bytes() + dag->references().size_bytes() + dag->leaves().size_bytes() + dag->roots().size_bytes() + dag->lod0_clusters().size_bytes();
+            if (extra > options.max_output_bytes - result.statistics_.payload_bytes)
+                return std::unexpected(build_error::capacity);
+            result.statistics_.payload_bytes += extra;
+            result.dag_ = std::move(*dag);
+        }
+        return result;
     }
 } // namespace deren::engine::subtilis

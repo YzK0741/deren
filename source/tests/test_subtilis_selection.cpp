@@ -58,7 +58,7 @@ int main() {
     }
     deren::engine::normal_draw_primitive leaf;
     CHECK(leaf.bind_subtilis_geometry(*uploaded));
-    leaf.meshlets = deren::engine::build_meshlets({cpu->vertices(), 64, 289, bytes(cpu->indices()), 4, 0, cpu->lod0_index_count(), 0});
+    leaf.meshlets.assign(cpu->lod0_clusters().begin(), cpu->lod0_clusters().end());
     leaf.meshlet_count = static_cast<unsigned>(leaf.meshlets.size());
     leaf.meshlet_base = 4;
     CHECK(sub::matches_generation(leaf));

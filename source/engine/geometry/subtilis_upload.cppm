@@ -44,6 +44,9 @@ export namespace deren::engine::subtilis {
         [[nodiscard]] built_geometry const& source() const noexcept {
             return *source_;
         }
+        [[nodiscard]] std::shared_ptr<built_geometry const> const& source_owner() const noexcept {
+            return source_;
+        }
         [[nodiscard]] upload_rhi::buffer* vertices() const noexcept {
             return vertices_->objects[0].buffer.get();
         }

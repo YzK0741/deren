@@ -13,6 +13,8 @@ import deren.engine.scene_tree;
 import deren.engine.meshlet;
 import deren.engine.pass.character_forward;
 import deren.engine.subtilis.builder;
+import deren.engine.subtilis.dag_import;
+import deren.asset.subtilis.dag;
 import deren.engine.visibility;
 import deren.engine.render_layout;
 import deren.engine.render_resource;
@@ -24,6 +26,7 @@ import deren.engine.pass.post;
 import deren.engine.pass.visibility_raster;
 import deren.engine.pass.visibility_resolve;
 #include "probe_backend.hpp"
+#include "subtilis_dag_fixtures.hpp"
 namespace sub = deren::engine::subtilis;
 namespace rhi = deren::promise::rhi;
 namespace pass = deren::engine::pass;
@@ -90,9 +93,31 @@ namespace {
         return built ? std::make_shared<sub::built_geometry const>(std::move(*built)) : nullptr;
     }
 } // namespace
-int main() {
+int exercise(bool adopted) {
     auto cpu = source();
-    CHECK(cpu && cpu->statistics().depth > 0);
+    if (adopted) {
+        auto input = subtilis_fixture::cross_dag();
+        deren::utility::vessel::vector<std::array<float, 16>> vertices(input.source.positions.size());
+        for (size_t i = 0; i < vertices.size(); ++i) {
+            std::memcpy(vertices[i].data(), input.source.positions[i].data(), 12);
+            std::memcpy(vertices[i].data() + 3, input.source.normals[i].data(), 12);
+            std::memcpy(vertices[i].data() + 6, input.source.uv0[i].data(), 8);
+        }
+        auto payload = deren::asset::subtilis::encode(input.data, {});
+        CHECK(payload);
+        if (payload) {
+            auto bytes = [](auto const& values) { return std::span<uint8_t const>(reinterpret_cast<uint8_t const*>(values.data()), values.size() * sizeof(values[0])); };
+            auto asset = sub::import_payload({bytes(*payload), 1, "shared-vertices", true, true, bytes(vertices), 64, static_cast<uint32_t>(vertices.size()), bytes(input.source.indices), 4, static_cast<uint32_t>(input.source.indices.size())});
+            CHECK(asset);
+            if (asset) {
+                auto built = sub::built_geometry::adopt_imported(std::make_shared<sub::imported_asset const>(std::move(*asset)));
+                CHECK(built);
+                if (built)
+                    cpu = std::make_shared<sub::built_geometry const>(std::move(*built));
+            }
+        }
+    }
+    CHECK(cpu && (adopted ? cpu->imported_payload() : cpu->statistics().depth > 0));
     if (!cpu) {
         return deren::vk_test::finish("test_subtilis_frame");
     }
@@ -114,7 +139,7 @@ int main() {
     }
     deren::engine::runtime runtime{core, options};
     runtime.set_scene(scene);
-    runtime.camera.distance = 20;
+    runtime.camera.distance = adopted ? 2000 : 20;
     struct context {
         pass::scene_pass* scene;
         pass::character_forward_pass* character;
@@ -142,7 +167,7 @@ int main() {
     deren::engine::primitive_create_info info;
     info.subtilis_geometry = cpu;
     auto* leaf = runtime.make_primitive("pbr", info);
-    CHECK(leaf && leaf->meshlet_count == cpu->hierarchy().lod0_count());
+    CHECK(leaf && leaf->meshlet_count == cpu->lod0_clusters().size());
     if (!leaf) {
         return deren::vk_test::finish("test_subtilis_frame");
     }
@@ -239,4 +264,9 @@ int main() {
     }
     deren::utility::wait_log_all();
     return deren::vk_test::finish("test_subtilis_frame");
+}
+int main() {
+    auto forest = exercise(false);
+    auto dag = exercise(true);
+    return forest || dag;
 }
