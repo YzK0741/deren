@@ -69,6 +69,7 @@ import deren.engine.visibility.hzb;          // the CPU reference + the phase-B 
 import deren.engine.subtilis;
 import deren.engine.subtilis.dag_import;
 import deren.engine.subtilis.upload;
+import deren.engine.subtilis.dag_lod;
 import deren.engine.visibility; // the visibility buffer's packed id and draw-item record
 import deren.engine.pass.scene_constants;
 import deren.engine.pass.scene_deformation;
@@ -2247,6 +2248,21 @@ namespace deren::engine {
          */
         bool visibility_buffer_on = false;
         bool subtilis_on = false;
+        float subtilis_error_px = 1.f;
+        bool subtilis_hysteresis = false;
+        struct subtilis_history_entry {
+            std::weak_ptr<subtilis::uploaded_geometry const> generation;
+            subtilis::dag_cut_history cut;
+            visibility::hzb::hzb_matrix_bits model{};
+        };
+        deren::utility::vessel::map<primitive const*, subtilis_history_entry> subtilis_histories;
+        visibility::hzb::hzb_matrix_bits subtilis_previous_view{}, subtilis_previous_proj{};
+        uint64_t subtilis_view_epoch = 0;
+        uint32_t subtilis_previous_width = 0, subtilis_previous_height = 0;
+        uint32_t subtilis_peak_items = 0, subtilis_max_run = 0;
+        uint64_t subtilis_capacity_frames = 0;
+        double subtilis_cut_work_us = 0, subtilis_cut_wall_us = 0;
+        uint64_t subtilis_cut_frames = 0, subtilis_cut_items = 0;
         std::mutex subtilis_upload_mutex;
         deren::utility::vessel::map<subtilis::import_key, std::weak_ptr<subtilis::uploaded_geometry const>> subtilis_upload_cache;
         bool subtilis_active_frame = false;
@@ -3599,6 +3615,8 @@ namespace deren::engine {
         void set_visibility_buffer(bool enabled) noexcept;
         /// Select static LOD0 runs on admitted visibility frames; takes effect next frame.
         void set_subtilis(bool enabled) noexcept;
+        void set_subtilis_error_px(float value) noexcept;
+        void set_subtilis_hysteresis(bool enabled) noexcept;
         [[nodiscard]] bool subtilis_enabled() const noexcept {
             return this->subtilis_on;
         }
@@ -4668,7 +4686,12 @@ namespace deren::engine {
                                     info.subtilis_import = std::make_shared<subtilis::imported_asset const>(std::move(*imported));
                                     subtilis_import_cache.emplace(key, info.subtilis_import);
                                 }
-                                ++result.subtilis_imported;
+                                if (!subtilis::admit_table(*info.subtilis_import, this->meshlet_total, meshlet_capacity)) {
+                                    info.subtilis_import.reset();
+                                    ++result.subtilis_fallback_lod0;
+                                    ++result.subtilis_failures[static_cast<size_t>(subtilis::import_failure::capacity_table)];
+                                } else
+                                    ++result.subtilis_imported;
                             } else {
                                 ++result.subtilis_fallback_lod0;
                                 ++result.subtilis_failures[static_cast<size_t>(imported.error())];

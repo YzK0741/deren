@@ -57,6 +57,7 @@ namespace {
         CHECK(settings.render.taa_blend_static > 0.79f && settings.render.taa_blend_static < 0.81f);
         CHECK(settings.render.taa_blend_min > 0.19f && settings.render.taa_blend_min < 0.21f);
         CHECK(settings.render.subtilis);
+        CHECK(settings.render.subtilis_error_px == 2.f && settings.render.subtilis_hysteresis);
         CHECK(settings.render.visibility_buffer); // fixture: the GPU-driven opaque path on (the switch's non-default read-back)
         // the frame's static surround (`[render] background_glb`): a STRING key, so unlike the boolean
         // switches above this CHECK cannot pass by accident - an empty compiled default would read back as
@@ -93,6 +94,7 @@ namespace {
         CHECK(!settings.render.taa);
         // default: the GEOMETRY lane is the opaque path - the frame every recorded reference was made from
         CHECK(!settings.render.subtilis);
+        CHECK(settings.render.subtilis_error_px == 1.f && !settings.render.subtilis_hysteresis);
         CHECK(!settings.render.visibility_buffer);
         // default: NO background model - the frame is the one import it always was (see the key's note)
         CHECK(settings.render.background_glb.empty());
@@ -441,6 +443,15 @@ namespace {
 } // namespace
 
 int32_t main() {
+    for (auto value : {"0", "-1", "nan", "inf", "1e100", "1e-100", "\"wrong\""}) {
+        auto file = std::filesystem::path("subtilis-invalid.toml");
+        {
+            std::ofstream out(file);
+            out << "[render]\nsubtilis_error_px = " << value << '\n';
+        }
+        CHECK(deren::app_config::load_settings(file.string()).render.subtilis_error_px == 1.f);
+        std::filesystem::remove(file);
+    }
     test_load_settings_applies_toml();
     test_example_config_matches_documentation();
     test_load_settings_missing_file_keeps_defaults();

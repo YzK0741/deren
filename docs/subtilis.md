@@ -93,6 +93,8 @@ reports a shared/LOD0 fallback - the frame never mixes two G-buffer producers.
 [render]
 visibility_buffer = true   # the producer this LOD feeds
 subtilis = true            # hierarchical cut for admitted static opaque items (default false)
+subtilis_error_px = 1.0    # finite positive projected error; invalid values use 1.0
+subtilis_hysteresis = false # imported DAGs: coarsen at 80%, refine above 100%
 ```
 
 - Runtime API: `runtime::set_subtilis(bool)`, `primitive_create_info::subtilis_geometry` (explicit
@@ -100,8 +102,10 @@ subtilis = true            # hierarchical cut for admitted static opaque items (
   automatic import-time builder in production** (the acceptance runs used an experiment-only patch).
 - Any frame that fails visibility admission keeps the legacy opaque lane as a whole; Subtilis never
   creates a second G-buffer writer.
-- The cut is CPU-side and deterministic today (no history/hysteresis); the first cut of an item is the
-  full hierarchy decision. The per-item planning phase is parallel (thread pool), with an item-ordered
+- With hysteresis disabled, the imported DAG cut matches the offline reference. Optional history is
+  per primitive/generation; resize, a camera jump (the existing HZB motion limits), model changes and
+  generation replacement invalidate it. It does not retain GPU generations. The per-item planning
+  phase is parallel (thread pool), with an item-ordered
   overlap resolution so alias/shared items keep the serial semantics byte for byte.
 - Off: nothing above runs and the frame is identical to the pre-Subtilis build.
 

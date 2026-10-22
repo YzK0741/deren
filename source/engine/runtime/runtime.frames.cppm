@@ -875,6 +875,11 @@ namespace deren::engine {
         this->visibility_admission_frame = this->visibility_frame_admission(this->main_graph_frame);
         this->visibility_lane_frame = deren::engine::visibility::choose_opaque_lane(this->visibility_buffer_on, this->visibility_admission_frame);
         this->subtilis_active_frame = this->subtilis_on && this->visibility_lane_frame == deren::engine::visibility::opaque_lane::visibility;
+        if (this->subtilis_on) {
+            this->subtilis_peak_items = std::max(this->subtilis_peak_items, static_cast<uint32_t>(this->frame_visible.size()));
+            if (this->visibility_admission_frame == visibility::admission::item_overflow || this->visibility_admission_frame == visibility::admission::meshlet_overflow)
+                ++this->subtilis_capacity_frames;
+        }
         if (this->visibility_buffer_on && this->visibility_lane_frame == deren::engine::visibility::opaque_lane::geometry && !this->visibility_fallback_logged) {
             this->visibility_fallback_logged = true;
             deren::utility::log("visibility buffer: frame NOT admitted ({}), so the geometry lane records it - the fallback is whole-frame and announced once per session",

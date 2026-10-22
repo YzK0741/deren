@@ -1,6 +1,7 @@
 module;
 
 #include <cmath>
+#include <limits>
 #include <toml++/toml.hpp>
 
 module deren.application_configuration;
@@ -275,6 +276,14 @@ namespace deren::app_config {
                 if (auto const value = node->value<bool>()) {
                     settings.render.subtilis = *value;
                 }
+            }
+            if (auto const* node = render->get("subtilis_error_px")) {
+                if (auto value = node->value<double>(); value && std::isfinite(*value) && *value > 0 && *value <= std::numeric_limits<float>::max() && static_cast<float>(*value) > 0)
+                    settings.render.subtilis_error_px = static_cast<float>(*value);
+            }
+            if (auto const* node = render->get("subtilis_hysteresis")) {
+                if (auto value = node->value<bool>())
+                    settings.render.subtilis_hysteresis = *value;
             }
             if (toml::node const* node = render->get("character_forward")) {
                 if (std::optional<bool> const value = node->value<bool>()) {

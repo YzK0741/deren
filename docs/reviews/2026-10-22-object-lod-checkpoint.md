@@ -124,3 +124,31 @@ Validation: GPU-generation RED (1 failure), wrapper RED (1 failure). Release ful
 CTest **61/61** (63.53s); focused ASan/UBSan **5/5** (15.62s). No push. Runtime
 configuration, whole-table admission, image gates and scene measurements remain
 Tasks 6–8; this is not final feature acceptance.
+
+## Task 6: runtime policy and capacity
+
+Added positive finite `subtilis_error_px` (default 1.0) and optional
+`subtilis_hysteresis` (default false), wired through the app. Disabled history
+retains reference cuts. Enabled history coarsens at 80% and refines above 100%;
+primitive/weak-generation identity, exact model bits and a view epoch isolate it.
+Camera jumps use the existing HZB recovery gate's default motion limits; resize
+or generation replacement invalidates history. Parallel planners edit local
+history copies; serial publication merges only accepted decisions.
+
+Whole-table admission rejects adopted runs before GPU upload, keeping LOD0 on
+fallback. Exact-full/one-extra/overflow counts pass. A 4097-visible-item frame
+writes no partial visibility table; an offscreen invalid run is culled before
+admission. Actual HZB item descriptions carry the selected cut count. Shadow and
+BLAS draw counts remain the LOD0 index prefix.
+
+Validation: final Release full **61/61** (53.89s), ASan/UBSan **5/5** (13.55s).
+Frozen legacy **15/15**, visibility **1/1**, no baseline updates. The older
+`-Compare frozen` shortcut failed against its obsolete internal reference; the
+plan's explicit reference passed. Payload OFF and extension-stripped identical
+geometry OFF have **0 changed pixels** at 320x240 with validation clean. Small
+images, comparison JSON and gate logs are in [the evidence folder](2026-10-22-object-lod/).
+
+The final timing counters (observation only) separate worker CPU work/us per item
+from planning wall time and print every 120 selected frames when GPU timings are
+requested. Task 7 must measure actual costs/benefits; Task 8 repeats final image
+acceptance after all changes. Tasks 7/8 and whole-change review are outstanding.

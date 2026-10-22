@@ -100,7 +100,7 @@ export namespace deren::engine::subtilis {
     template <class Publish>
     [[nodiscard]] visible_run prepare_item(primitive const& leaf, item_policy const& policy, item_view const& frame,
                                            deren::utility::vessel::vector<meshlet>& scratch,
-                                           std::span<reservation const> published, Publish&& publish) {
+                                           std::span<reservation const> published, Publish&& publish, dag_cut_history* history = nullptr, uint64_t epoch = 0) {
         reservation space{leaf.meshlet_base, leaf.meshlet_count};
         if (!leaf.subtilis_geometry) {
             return prepare_lod0(leaf.meshlets, space, frame.clip_from_object, scratch, published, std::forward<Publish>(publish));
@@ -115,11 +115,14 @@ export namespace deren::engine::subtilis {
             scratch.clear();
             if (auto reason = check_reservation(space, static_cast<uint32_t>(dag->lod0_clusters().size()), published); reason != fallback_reason::none)
                 return shared_run(space, reason);
-            auto cut = select_cut(*dag, view, space.count, scratch);
+            auto cut = select_cut(*dag, view, space.count, scratch, history, epoch);
             if (!cut)
                 return shared_run(space, fallback_reason::capacity);
-            if (!scratch.empty() && !publish(space.base, std::span<meshlet const>(scratch)))
+            if (!scratch.empty() && !publish(space.base, std::span<meshlet const>(scratch))) {
+                if (history)
+                    history->reset();
                 return shared_run(space, fallback_reason::publication_failed);
+            }
             return {space.base, static_cast<uint32_t>(scratch.size()), run_source::visible, fallback_reason::none};
         }
         return prepare_hierarchy(leaf.subtilis_geometry->source().hierarchy(), space, view, scratch, published, std::forward<Publish>(publish));

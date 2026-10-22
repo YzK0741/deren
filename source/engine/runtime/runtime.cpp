@@ -1,5 +1,4 @@
 module;
-
 #include <GLFW/glfw3.h>
 #include <algorithm> // std::min in the resource publication
 #include <array>
@@ -1403,6 +1402,15 @@ namespace deren::engine {
     void runtime::set_subtilis(bool const enabled) noexcept {
         this->subtilis_on = enabled;
         this->subtilis_logged = false;
+        this->subtilis_histories.clear();
+    }
+    void runtime::set_subtilis_error_px(float value) noexcept {
+        this->subtilis_error_px = std::isfinite(value) && value > 0 ? value : 1.f;
+        this->subtilis_histories.clear();
+    }
+    void runtime::set_subtilis_hysteresis(bool enabled) noexcept {
+        this->subtilis_hysteresis = enabled;
+        this->subtilis_histories.clear();
     }
 
     bool runtime::visibility_available() const noexcept {
@@ -2068,6 +2076,7 @@ namespace deren::engine {
             std::uint32_t item_index = 0;
             unsigned input_count = 0, selected_count = 0, fallback_count = 0;
             std::uint64_t input_triangles = 0, selected_triangles = 0;
+            double cut_us = 0;
         };
         bool const exact_depth_redraw = this->feature_active("character_forward");
         auto const extent = this->render_extent();
@@ -2114,6 +2123,40 @@ namespace deren::engine {
         // that rule is item-order dependent, so it is resolved in phase 3 and only the few items that share a
         // run with another item skip this phase and are planned in order. ----
         deren::utility::vessel::vector<visibility_item_plan> plans(count);
+        auto const planning_started = std::chrono::steady_clock::now();
+        deren::utility::vessel::vector<subtilis::dag_cut_history> histories;
+        if (this->subtilis_hysteresis && this->subtilis_active_frame) {
+            auto current_view = hzb::hzb_matrix_bits_of(std::span<float const>(&this->current_ubo.view[0][0], 16));
+            auto current_proj = hzb::hzb_matrix_bits_of(std::span<float const>(&this->current_ubo.proj[0][0], 16));
+            bool keep = this->subtilis_view_epoch && extent.width == this->subtilis_previous_width && extent.height == this->subtilis_previous_height &&
+                        hzb::hzb_recovery_gate({this->subtilis_previous_view, this->subtilis_previous_proj, {}}, {current_view, current_proj, {}}, this->scene_extent_radius, {});
+            if (!keep) {
+                ++this->subtilis_view_epoch;
+                this->subtilis_histories.clear();
+            }
+            this->subtilis_previous_view = current_view;
+            this->subtilis_previous_proj = current_proj;
+            this->subtilis_previous_width = extent.width;
+            this->subtilis_previous_height = extent.height;
+            for (auto it = this->subtilis_histories.begin(); it != this->subtilis_histories.end();) {
+                if (it->second.generation.expired())
+                    it = this->subtilis_histories.erase(it);
+                else
+                    ++it;
+            }
+            histories.resize(count);
+            for (uint32_t i = 0; i < count; ++i) {
+                auto const* leaf = leaves[i];
+                if (!leaf->subtilis_geometry || !leaf->subtilis_geometry->source().imported_payload())
+                    continue;
+                auto& saved = this->subtilis_histories[leaf];
+                auto model = hzb_model_bits_of(*leaf);
+                if (saved.generation.lock() == leaf->subtilis_geometry && saved.model == model)
+                    histories[i] = saved.cut;
+                saved.generation = leaf->subtilis_geometry;
+                saved.model = model;
+            }
+        }
         deren::utility::vessel::vector<bool> ordered_planning(count, false);
         // The publication sweep below needs each item's reservation BEFORE any planning, so the two
         // item-order-independent fields are filled here, cheaply and serially.
@@ -2154,13 +2197,14 @@ namespace deren::engine {
             plan.input_count = plan.selected_count = plan.fallback_count = 0u;
             plan.input_triangles = plan.selected_triangles = 0u;
             if (this->subtilis_active_frame) {
-                auto const view = subtilis::make_item_view(leaf.push.model, this->current_ubo.view, this->current_ubo.proj, extent.width, extent.height);
+                auto const cut_started = this->gpu_timings_enabled ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+                auto view = subtilis::make_item_view(leaf.push.model, this->current_ubo.view, this->current_ubo.proj, extent.width, extent.height);
+                view.selection.target_error_px = this->subtilis_error_px;
                 subtilis::item_policy const policy{this->material_flags_of(leaf), exact_depth_redraw && !leaf.environment};
-                plan.run = subtilis::prepare_item(leaf, policy, view, selected, published,
-                                                  [this](unsigned base, std::span<meshlet const> records) {
-                                                      return runtime::meshlet_culled_write(this, base, std::as_bytes(records));
-                                                  });
+                plan.run = subtilis::prepare_item(leaf, policy, view, selected, published, [this](unsigned base, std::span<meshlet const> records) { return runtime::meshlet_culled_write(this, base, std::as_bytes(records)); }, histories.empty() ? nullptr : &histories[index], this->subtilis_view_epoch);
                 plan.input_count = plan.space.count;
+                if (this->gpu_timings_enabled)
+                    plan.cut_us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - cut_started).count();
                 plan.selected_count = plan.run.count;
                 plan.fallback_count = plan.run.reason != subtilis::fallback_reason::none ? 1u : 0u;
                 plan.input_triangles = leaf.draw_index_count / 3;
@@ -2251,6 +2295,25 @@ namespace deren::engine {
                 }
             }
         }
+        if (!histories.empty()) {
+            for (uint32_t index = 0; index < count; ++index) {
+                auto saved = this->subtilis_histories.find(leaves[index]);
+                if (saved == this->subtilis_histories.end())
+                    continue;
+                if (plans[index].run.reason != subtilis::fallback_reason::none)
+                    histories[index].reset();
+                saved->second.cut = std::move(histories[index]);
+            }
+        }
+        if (this->subtilis_active_frame && this->gpu_timings_enabled) {
+            this->subtilis_cut_wall_us += std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - planning_started).count();
+            for (auto const& plan : plans)
+                this->subtilis_cut_work_us += plan.cut_us;
+            this->subtilis_cut_items += count;
+            ++this->subtilis_cut_frames;
+            if (this->subtilis_cut_frames % 120 == 0)
+                deren::utility::log("subtilis CPU cut: frames {}, work {} us/frame, wall {} us/frame, {} us/item", this->subtilis_cut_frames, this->subtilis_cut_work_us / this->subtilis_cut_frames, this->subtilis_cut_wall_us / this->subtilis_cut_frames, this->subtilis_cut_work_us / this->subtilis_cut_items);
+        }
         // ---- PHASE 4: RECORD, SERIAL. Command-buffer state, the heap push window and the item table are the
         // recording thread's by contract, and each item is recorded in its own index order - the one ordering
         // this lane actually requires. ----
@@ -2314,6 +2377,7 @@ namespace deren::engine {
         }
         if (this->subtilis_active_frame && !this->subtilis_logged) {
             this->subtilis_logged = true;
+            deren::utility::log("subtilis capacity: items {} peak {}, table {}/{}, max run {}, refused frames {}, error {} px, hysteresis {}", count, this->subtilis_peak_items, this->meshlet_total, meshlet_capacity, this->subtilis_max_run, this->subtilis_capacity_frames, this->subtilis_error_px, this->subtilis_hysteresis);
             deren::utility::log("subtilis: cut run publication: {} -> {} records, {} -> {} triangles, {} fallback item(s)",
                                 input_count, selected_count, input_triangles, selected_triangles, fallback_count);
         }
@@ -2668,9 +2732,23 @@ namespace deren::engine {
         result->subtilis_import = info.subtilis_import;
         auto upload_info = info;
         auto geometry_source = info.subtilis_geometry;
+        bool admit_import = true;
+        if (!geometry_source && info.subtilis_import) {
+            admit_import = subtilis::admit_table(*info.subtilis_import, this->meshlet_total, meshlet_capacity).has_value();
+            if (!admit_import) {
+                auto const& source = *info.subtilis_import;
+                upload_info.vertex_data = source.vertices();
+                upload_info.vertex_count = source.vertex_count();
+                upload_info.vertex_stride = source.vertex_stride();
+                upload_info.index_data = {reinterpret_cast<uint8_t const*>(source.indices().data()), source.indices().size_bytes()};
+                upload_info.index_count = source.lod0_index_count();
+                upload_info.index_type = rhi::index_type::uint32;
+                result->subtilis_import.reset();
+            }
+        }
         std::shared_ptr<subtilis::uploaded_geometry const> shared_generation;
         std::unique_lock import_lock(this->subtilis_upload_mutex, std::defer_lock);
-        if (!geometry_source && info.subtilis_import) {
+        if (!geometry_source && info.subtilis_import && admit_import) {
             import_lock.lock();
             shared_generation = this->subtilis_upload_cache[info.subtilis_import->cache_key()].lock();
             if (shared_generation)
@@ -2807,6 +2885,7 @@ namespace deren::engine {
         result->meshlet_base = static_cast<uint32_t>(this->meshlet_total);
         this->meshlet_total += result->meshlets.size();
         result->meshlet_count = static_cast<uint32_t>(result->meshlets.size());
+        this->subtilis_max_run = std::max(this->subtilis_max_run, result->meshlet_count);
         if (!result->meshlets.empty()) {
             ++this->meshlet_primitives;
         }

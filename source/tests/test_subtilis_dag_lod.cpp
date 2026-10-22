@@ -79,6 +79,35 @@ namespace {
             sub::dag_lod_detail::close_coarsening(*asset, decisions);
             CHECK(decisions == vector<bool>({false, true, false, false}));
         }
+        if (reference.data().groups.size() == 4 && reference.data().clusters.size() == 10) {
+            sub::view_parameters h;
+            h.kind = sub::projection_kind::orthographic;
+            h.width = h.height = 2;
+            h.view[14] = -20;
+            h.projection[10] = -1;
+            h.projection[14] = -.1f;
+            sub::dag_cut_history history;
+            vector<deren::engine::meshlet> cut;
+            auto step = [&](float target, uint64_t epoch, bool coarse) {
+                h.target_error_px = target;
+                CHECK(sub::select_cut(*asset, h, UINT32_MAX, cut, &history, epoch));
+                CHECK(!cut.empty() && (cut.front().first_index >= asset->lod0_index_count()) == coarse);
+            };
+            step(.11f, 1, false);
+            step(.13f, 1, true);
+            step(.11f, 1, true);
+            step(.099f, 1, false);
+            step(.13f, 1, true);
+            step(.11f, 2, false); // camera/extent epoch change invalidates decisions
+            step(.13f, 2, true);
+            auto replacement = translate(reference);
+            CHECK(replacement);
+            if (replacement) {
+                h.target_error_px = .11f;
+                CHECK(sub::select_cut(*replacement, h, UINT32_MAX, cut, &history, 2));
+                CHECK(cut.front().first_index < replacement->lod0_index_count());
+            }
+        }
         sub::view_parameters view;
         view.width = 2;
         view.height = 2;

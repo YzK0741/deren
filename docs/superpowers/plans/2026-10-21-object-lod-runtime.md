@@ -6,7 +6,7 @@
 **Architecture:** 复用已接受的 converter CPU 模块（types/codec/digest/dag/cut）在 root 侧编译为静态资产库；engine 新增 DAG 层级（cluster producer/consumer + group fine/coarse 引用 + LOD 球/error + roots/leaves）与移植自 converter reference 的 CPU DAG cut；gltf_loader 只提取 payload 原始字节与扩展字段，import 时由 engine 完成解码/身份/结构校验/翻译并共享 generation；每帧 item cut 继续走 M1b 的 run/发布/HZB 管线，raster/resolve 数学不变。
 **Tech Stack:** CMake 4.3、C++23 modules、Clang64/libc++、vessel/mimalloc、yyjson 0.12.0（root 已有 `yyjson_vendored`）、fastgltf 0.9/simdjson（仅在 deren_assets/gltf_loader）、meshoptimizer v1.3（只给现有 builder/forest 参考路径，本 feature 的 import 不使用 builder）。无 CUDA/Vulkan 依赖给新 CPU 测试。
 **Spec:** `docs/superpowers/specs/2026-10-21-object-lod-runtime-design.md`。代码基线 `f4d3b8e7`（converter Task 1-8 已接受）。计划时 HEAD `f4d3b8e7`。
-**状态：** 已评审通过（2026-10-21：Q1 seam = 方案 C、Q2 单一 `subtilis` 开关、Q4 TANGENT-stripped 派生测量资产；Q3/Q5/Q6 按推荐默认）。用户于 2026-10-22 明确恢复实施；Tasks 1–4 已验收，接下来从 Task 5 继续，逐任务独立验收/本地提交/不 push。
+**状态：** 已评审通过（2026-10-21：Q1 seam = 方案 C、Q2 单一 `subtilis` 开关、Q4 TANGENT-stripped 派生测量资产；Q3/Q5/Q6 按推荐默认）。用户于 2026-10-22 明确恢复实施；Tasks 1–6 已验收，接下来从 Task 7 继续，逐任务独立验收/本地提交/不 push。
 
 ## Global Constraints
 
@@ -174,18 +174,18 @@
 **Interfaces**：`set_subtilis_error_px(float)`/`set_subtilis_hysteresis(bool)`；每场景一次汇总日志（adopted/fallback 原因/item 峰值/表占用/最大 run）；迟滞 history key `(import_instance, primitive*, generation)` + view epoch。
 
 **RED**：
-- [ ] 测试：hysteresis 关闭时 cut 与 reference 逐字节一致；开启时固定视图序列的决定符合"<0.8*target 变粗 / >1.0*target 变细 / 中间保持"，camera cut/resize/generation 变化使 history 失效；`subtilis_error_px` 改变 target（1.0 vs 2.0 的选中集合不同且符合参考）；item 峰值 >4096 时整帧回退（现有行为）且有汇总计数；HZB item 描述 `candidate_count == plan.run.count`；adopted item 的 `draw_index_count == lod0_index_count`（阴影/BLAS 只见 LOD0）；AABB 剔除次序（`frame_visible` 在 planning 前）。
-- [ ] 确认 RED。
+- [x] 测试：hysteresis 关闭时 cut 与 reference 逐字节一致；开启时固定视图序列的决定符合"<0.8*target 变粗 / >1.0*target 变细 / 中间保持"，camera cut/resize/generation 变化使 history 失效；`subtilis_error_px` 改变 target（1.0 vs 2.0 的选中集合不同且符合参考）；item 峰值 >4096 时整帧回退（现有行为）且有汇总计数；HZB item 描述 `candidate_count == plan.run.count`；adopted item 的 `draw_index_count == lod0_index_count`（阴影/BLAS 只见 LOD0）；AABB 剔除次序（`frame_visible` 在 planning 前）。
+- [x] 确认 RED。
 
 **GREEN**：实现配置/策略/日志；OFF 帧（subtilis=false）与无 payload 资产逐字节一致（用 capture/gate 验证，见 Acceptance）；迟滞默认 false 不改变确定性 reference。
 
 **Acceptance**：
-- [ ] `ctest -R '^test_subtilis|test_visibility_buffer|test_hzb'` 绿；
-- [ ] OFF 门禁：`pwsh scripts/windows/check_render.ps1 -Full -BuildDir build-release-dyn-clang64` 与
+- [x] `ctest -R '^test_subtilis|test_visibility_buffer|test_hzb'` 绿；
+- [x] OFF 门禁：`pwsh scripts/windows/check_render.ps1 -Full -BuildDir build-release-dyn-clang64` 与
   `pwsh scripts/windows/check_render.ps1 -Visibility -Compare docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt -BuildDir build-release-dyn-clang64`
   不变（记录输出）；
-- [ ] 带 payload 资产 OFF 启动 vs 无 payload 资产：同相机 capture 像素一致（脚本 + 保存日志）；
-- [ ] root Release 全量 CTest 绿；ASan 绿。
+- [x] 带 payload 资产 OFF 启动 vs 无 payload 资产：同相机 capture 像素一致（脚本 + 保存日志）；
+- [x] root Release 全量 CTest 绿；ASan 绿。
 
 ## Task 7 — 真实场景测量（Bistro 派生资产）、M2 决策输入、M4 重探针清单
 

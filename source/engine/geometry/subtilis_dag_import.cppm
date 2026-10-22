@@ -167,4 +167,9 @@ export namespace deren::engine::subtilis {
         import_key key{*source_hash, wire::sha256(bytes)};
         return imported_asset(std::move(*hierarchy), utility::vessel::vector<uint8_t>(input.vertex_bytes.begin(), input.vertex_bytes.begin() + static_cast<size_t>(vertex_bytes)), std::move(decoded->indices), input.vertex_count, key, decoded->build_hash);
     }
+    [[nodiscard]] inline std::expected<void, import_failure> admit_table(imported_asset const& asset, uint64_t used, uint32_t capacity) noexcept {
+        if (used > capacity || asset.lod0_clusters().size() > capacity - used)
+            return std::unexpected(import_failure::capacity_table);
+        return {};
+    }
 } // namespace deren::engine::subtilis

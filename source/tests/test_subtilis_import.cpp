@@ -213,6 +213,11 @@ int main() {
     auto a = sub::import_payload(f.input());
     CHECK(a);
     if (a) {
+        auto count = a->lod0_clusters().size();
+        CHECK(sub::admit_table(*a, 65536 - count, 65536));
+        auto no_room = sub::admit_table(*a, 65537 - count, 65536);
+        CHECK(!no_room && no_room.error() == sub::import_failure::capacity_table);
+        CHECK(!sub::admit_table(*a, UINT64_MAX, 65536));
         auto p = wire::decode(std::as_bytes(std::span(f.payload)), {});
         CHECK(p);
         CHECK(a->lod0_index_count() == f.index_count && a->indices().size() > f.index_count);

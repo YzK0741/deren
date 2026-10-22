@@ -8,6 +8,15 @@ export module deren.engine.subtilis.dag_lod;
 export import deren.engine.subtilis.dag_asset;
 export import deren.engine.subtilis.lod;
 export namespace deren::engine::subtilis {
+    struct dag_cut_history {
+        dag_asset const* asset = nullptr;
+        uint64_t epoch = 0;
+        utility::vessel::vector<bool> decisions;
+        void reset() noexcept {
+            asset = nullptr;
+            decisions.clear();
+        }
+    };
     namespace dag_lod_detail {
         inline int projection_type(std::array<float, 16> const& p) {
             if (!lod_detail::finite(p) || p[0] <= 0 || p[5] == 0 || p[1] != 0 || p[2] != 0 || p[3] != 0 || p[4] != 0 || p[6] != 0 || p[7] != 0 || p[14] >= 0)
@@ -34,7 +43,7 @@ export namespace deren::engine::subtilis {
     } // namespace dag_lod_detail
     /// Whole-object DAG cut, in stable cluster ID order. Object/frustum and HZB
     /// culling stay in the caller's existing pipeline. Capacity never truncates.
-    inline std::expected<cut_statistics, cut_error> select_cut(dag_asset const& geometry, view_parameters const& view, uint32_t capacity, utility::vessel::vector<meshlet>& out) {
+    inline std::expected<cut_statistics, cut_error> select_cut(dag_asset const& geometry, view_parameters const& view, uint32_t capacity, utility::vessel::vector<meshlet>& out, dag_cut_history* history = nullptr, uint64_t epoch = 0) {
         out.clear();
         auto kind = dag_lod_detail::projection_type(view.projection);
         bool force = view.force_finest || !kind || !lod_detail::affine(view.model) || !lod_detail::affine(view.view) || !view.width || !view.height || !std::isfinite(view.near_plane) || view.near_plane <= 0 || !std::isfinite(view.target_error_px) || view.target_error_px < 0;
@@ -51,6 +60,7 @@ export namespace deren::engine::subtilis {
         cut_statistics stats{};
         stats.forced_finest = force;
         utility::vessel::vector<bool> coarsen(geometry.groups().size(), false);
+        bool previous = history && history->asset == &geometry && history->epoch == epoch && history->decisions.size() == geometry.groups().size();
         auto clusters = geometry.clusters();
         for (uint32_t id = 0; id < geometry.groups().size(); ++id) {
             ++stats.groups_visited;
@@ -71,7 +81,10 @@ export namespace deren::engine::subtilis {
                 stats.forced_finest = true;
                 continue;
             }
-            coarsen[id] = metric <= double(view.target_error_px);
+            double threshold = view.target_error_px;
+            if (history && !(previous && history->decisions[id]))
+                threshold *= .8;
+            coarsen[id] = metric <= threshold;
         }
         // Close every dependency decision before inspecting output clusters.
         dag_lod_detail::close_coarsening(geometry, coarsen);
@@ -81,11 +94,18 @@ export namespace deren::engine::subtilis {
             if ((c.producer == dag_none || coarsen[c.producer]) && (c.consumer == dag_none || !coarsen[c.consumer])) {
                 if (out.size() >= capacity) {
                     out.clear();
+                    if (history)
+                        history->reset();
                     return std::unexpected(cut_error::capacity);
                 }
                 out.push_back(c.record);
                 stats.triangles += c.record.index_count / 3;
             }
+        }
+        if (history) {
+            history->asset = &geometry;
+            history->epoch = epoch;
+            history->decisions = std::move(coarsen);
         }
         return stats;
     }

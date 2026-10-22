@@ -406,6 +406,8 @@ taa_blend_min = 0.5
 visibility_buffer = false
 # CPU-selected LOD0 visible runs; requires visibility_buffer and frame admission.
 subtilis = false
+subtilis_error_px = 1.0 # finite, positive screen-space error target
+subtilis_hysteresis = false # optional 80% coarsening threshold; refines above target
 
 # character_forward: the TOON CHARACTER STAGE. It draws the scene's opaque leaves a SECOND time, after the
 # lighting stage, through a pipeline whose depth compare is EQUAL and whose depth write is held off - so it

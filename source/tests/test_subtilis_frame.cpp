@@ -1,6 +1,8 @@
 #include "vk_test.h"
 
+#include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <cstring>
 #include <glm/glm.hpp>
 #include <memory>
@@ -25,6 +27,8 @@ import deren.engine.pass.scene;
 import deren.engine.pass.post;
 import deren.engine.pass.visibility_raster;
 import deren.engine.pass.visibility_resolve;
+import deren.engine.pass.hzb_build;
+import deren.engine.pass.hzb_cull;
 #include "probe_backend.hpp"
 #include "subtilis_dag_fixtures.hpp"
 namespace sub = deren::engine::subtilis;
@@ -132,6 +136,8 @@ int exercise(bool adopted) {
     auto& character = chain.emplace<pass::character_forward_pass>();
     chain.emplace<pass::visibility_raster_pass>();
     chain.emplace<pass::visibility_resolve_pass>();
+    chain.emplace<pass::hzb_build_pass>();
+    chain.emplace<pass::hzb_cull_pass>();
     chain.emplace<screen_pass>(false);
     chain.emplace<screen_pass>(true);
     for (unsigned i = 0; i < 4; ++i) {
@@ -159,6 +165,8 @@ int exercise(bool adopted) {
     runtime.register_shader("visibility.mesh.spv", shader);
     runtime.register_shader("visibility.frag.spv", shader);
     runtime.register_shader("visibility_resolve.comp.spv", shader);
+    runtime.register_shader("hzb_build.comp.spv", shader);
+    runtime.register_shader("hzb_cull.comp.spv", shader);
     runtime.create_passes();
     CHECK(runtime.make_pipeline("pbr", shader, shader, shader));
     CHECK(runtime.make_gbuffer_pipeline(shader, shader, shader));
@@ -183,6 +191,7 @@ int exercise(bool adopted) {
         }
         return row;
     };
+    unsigned hzb_observations = 0;
     auto record = [&] {
         CHECK(runtime.pace_and_acquire() == deren::engine::frame_status::proceed);
         CHECK(runtime.begin_recording() == deren::engine::frame_status::proceed);
@@ -195,7 +204,15 @@ int exercise(bool adopted) {
             std::memcpy(&block, pushed.data(), sizeof(block));
         }
         auto row = row_at(block, block.item_index);
-        CHECK(row.meshlet_table == (unsigned(block.geometry.base_vertex) & 1u));
+        auto items = deren::vk_test::probe_heap_buffer(*core, layout::heap_slot_offset(layout::heap_slots::hzb_items));
+        auto item_offset = (size_t(block.frame_slot) * pass::hzb_cull_item_capacity + block.item_index) * sizeof(pass::hzb_item);
+        if (adopted && row.meshlet_table == 2 && item_offset + sizeof(pass::hzb_item) <= items.size()) {
+            pass::hzb_item item{};
+            std::memcpy(&item, items.data() + item_offset, sizeof(item));
+            ++hzb_observations;
+            CHECK(item.candidate_count == block.geometry.index_count && item.candidate_count > 0);
+        }
+        CHECK(row.meshlet_table == unsigned(block.geometry.base_vertex));
         CHECK(row.meshlet_base == block.geometry.first_index && row.index_width == block.geometry.index_width);
         auto commands = deren::vk_test::probe_last_indirect(*core);
         CHECK(commands.groups_x == block.geometry.index_count && commands.groups_y == 1 && commands.groups_z == 1);
@@ -205,6 +222,7 @@ int exercise(bool adopted) {
     auto coarse = record();
     CHECK(coarse.geometry.index_count > 0 && coarse.geometry.index_count < leaf->meshlet_count);
     CHECK(row_at(coarse, 0).meshlet_table == 1);
+    CHECK(leaf->draw_index_count == cpu->lod0_index_count()); // shadow/BLAS always see the prefix
     auto selected_bytes = [&](vis::push_block const& block) {
         auto bytes = deren::vk_test::probe_heap_buffer(*core, layout::heap_slot_offset(layout::heap_slots::meshlet_culled));
         auto offset = (std::size_t(block.frame_slot) * deren::engine::meshlet_capacity + leaf->meshlet_base) * sizeof(deren::engine::meshlet);
@@ -248,25 +266,85 @@ int exercise(bool adopted) {
     auto generation = leaf->subtilis_geometry;
     leaf->subtilis_geometry.reset();
     auto legacy = record();
-    CHECK(legacy.geometry.index_count == leaf->meshlet_count && row_at(legacy, 0).meshlet_table == 1);
+    CHECK(legacy.geometry.index_count == leaf->meshlet_count && row_at(legacy, 0).meshlet_table == (adopted ? 2u : 1u));
     leaf->subtilis_geometry = generation;
     --leaf->draw_index_count;
     auto mismatch = record();
     CHECK(mismatch.geometry.index_count == leaf->meshlet_count && row_at(mismatch, 0).meshlet_table == 0);
     ++leaf->draw_index_count;
+    if (adopted) {
+        runtime.set_subtilis_error_px(.000001f);
+        CHECK(record().geometry.index_count == leaf->meshlet_count);
+        runtime.set_subtilis_error_px(1.f);
+        CHECK(record().geometry.index_count == coarse.geometry.index_count);
+        runtime.set_subtilis_hysteresis(true);
+        CHECK(record().geometry.index_count == coarse.geometry.index_count);
+        runtime.set_subtilis_hysteresis(false);
+    }
     auto* alias = runtime.make_primitive("pbr", info);
     CHECK(alias != nullptr);
     if (alias) {
+        auto lo = alias->local_aabb_min, hi = alias->local_aabb_max;
+        auto count = alias->meshlet_count;
+        alias->local_aabb_min = glm::vec3(1e8f);
+        alias->local_aabb_max = glm::vec3(1e8f + 10);
+        alias->meshlet_count = vis::id_meshlet_capacity + 1;
+        auto culled = record(); // invalid run would reject the frame if it reached planning/admission
+        CHECK(culled.item_index == 0 && row_at(culled, 0).meshlet_table == (adopted ? 2u : 1u));
+        alias->local_aabb_min = lo;
+        alias->local_aabb_max = hi;
+        alias->meshlet_count = count;
+        runtime.scene_changed();
         alias->meshlet_base = leaf->meshlet_base;
         auto conflict = record();
         CHECK(conflict.item_index == 1 && conflict.geometry.index_count == leaf->meshlet_count);
         CHECK(row_at(conflict, 0).meshlet_table == 1 && row_at(conflict, 1).meshlet_table == 0);
     }
     deren::utility::wait_log_all();
+    if (adopted)
+        CHECK(hzb_observations > 0);
+    if (adopted) {
+        // Shared geometry keeps this a small fixture: only CPU leaves exceed the item limit.
+        while (scene.roots.size() <= vis::id_item_capacity) {
+            auto extra = std::make_unique<deren::engine::normal_draw_primitive>();
+            CHECK(extra->bind_subtilis_geometry(generation));
+            extra->meshlets = leaf->meshlets;
+            extra->meshlet_count = leaf->meshlet_count;
+            extra->meshlet_base = leaf->meshlet_base;
+            extra->push.material_index = leaf->push.material_index;
+            scene.add_root().primitive_leaf = std::move(extra);
+        }
+        runtime.scene_changed();
+        auto table = deren::vk_test::probe_heap_buffer(*core, layout::heap_slot_offset(layout::heap_slots::visibility_items));
+        CHECK(!table.empty());
+        std::fill(table.begin(), table.end(), std::byte{0xA5});
+        CHECK(runtime.pace_and_acquire() == deren::engine::frame_status::proceed);
+        CHECK(runtime.begin_recording() == deren::engine::frame_status::proceed);
+        runtime.record_main_drawcalls();
+        CHECK(runtime.end_recording() == deren::engine::frame_status::proceed);
+        CHECK(std::all_of(table.begin(), table.end(), [](auto b) { return b == std::byte{0xA5}; }));
+        CHECK(runtime.submit_and_present() == deren::engine::frame_status::proceed);
+    }
     return deren::vk_test::finish("test_subtilis_frame");
 }
 int main() {
+#ifdef _WIN32
+    _putenv_s("DEREN_HZB_BUILD", "");
+    _putenv_s("DEREN_HZB_CULL", "");
+    _putenv_s("DEREN_HZB_RECOVERY", "");
+#else
+    unsetenv("DEREN_HZB_BUILD");
+    unsetenv("DEREN_HZB_CULL");
+    unsetenv("DEREN_HZB_RECOVERY");
+#endif
     auto forest = exercise(false);
+#ifdef _WIN32
+    _putenv_s("DEREN_HZB_BUILD", "1");
+    _putenv_s("DEREN_HZB_CULL", "1");
+#else
+    setenv("DEREN_HZB_BUILD", "1", 1);
+    setenv("DEREN_HZB_CULL", "1", 1);
+#endif
     auto dag = exercise(true);
     return forest || dag;
 }
