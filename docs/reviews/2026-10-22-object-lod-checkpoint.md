@@ -152,3 +152,29 @@ The final timing counters (observation only) separate worker CPU work/us per ite
 from planning wall time and print every 120 selected frames when GPU timings are
 requested. Task 7 must measure actual costs/benefits; Task 8 repeats final image
 acceptance after all changes. Tasks 7/8 and whole-change review are outstanding.
+
+## Task 7: full-scene measurement
+
+Bistro TANGENT-only derivation and cooked OFF both match original OFF pixels.
+24 formal 130-frame captures (two cameras, validation on/off, three interleaved
+rounds), six load baselines and two selected-cut/depth probes completed. Actual
+probe totals match published runs. Raw logs regenerate numeric/image statistics;
+incomplete/forged data gates reject their negative controls.
+
+Primary GPU medians: far 24.46 -> 20.11ms (-17.78%), near 21.33 -> 18.58ms
+(-12.89%). Parallel cut wall 1.245/1.202ms; import-ready +1.251s, peak process
+working set +138.64MiB. Startup-heavy total process wall is not faster. Capacity
+and cut fallback are zero; 2149 instances adopt 348 unique DAGs, 594 stay LOD0-only.
+
+Known source limitations are explicit: derived/cooked have identical 2673 Khronos
+errors inherited from the original (28930 before removing TANGENT declarations),
+zero new errors/warnings; current independent converter fixtures pass 0/0. Near
+OFF already varies by a very small pixel amount; all pairwise results are kept,
+not described as bit-identical. No converter/source cleanup was silently added.
+
+[Report](2026-10-21-object-lod.md) and [small evidence](2026-10-21-object-lod/) are
+complete. All 191 raw archive files on D: were SHA-256 checked. The capture-only
+cluster observer does not change algorithms/tables/draw metadata. Release full
+61/61 (99.71s); existing CI headless ASan/UBSan 60/60 (232.95s), native boundary
+covered by Release. Final documentation/acceptance and one fresh whole-change
+review remain in Task 8; no push.

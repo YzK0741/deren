@@ -1,0 +1,20 @@
+[
+  {
+    "fixture": "cross_dag",
+    "errors": 0,
+    "warnings": 0,
+    "infos": 3
+  },
+  {
+    "fixture": "seam",
+    "errors": 0,
+    "warnings": 0,
+    "infos": 3
+  },
+  {
+    "fixture": "lod0_only",
+    "errors": 0,
+    "warnings": 0,
+    "infos": 3
+  }
+]

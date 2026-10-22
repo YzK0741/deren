@@ -1,0 +1,52 @@
+{
+  "chosen_y_flip": false,
+  "summary": {
+    "extent": [
+      1280,
+      720
+    ],
+    "y_flip": false,
+    "meshlets": {
+      "total": 41030,
+      "frustum_culled": 0,
+      "frustum_culled_pct": 0.0
+    },
+    "triangles": {
+      "total": 3318617,
+      "frustum_culled": 0,
+      "frustum_culled_pct": 0.0
+    },
+    "occlusion_off_frustum_visible": {
+      "meshlets": 299,
+      "pct_of_visible_meshlets": 0.73,
+      "pct_of_all_meshlets": 0.73,
+      "triangles": 15706,
+      "triangles_pct_of_visible": 0.47,
+      "triangles_pct_of_all": 0.47
+    },
+    "subpixel_clusters": {
+      "diameter_below_1px_pct": 23.28,
+      "diameter_below_2px_pct": 38.23,
+      "triangles_below_1px_pct_of_visible": 21.92,
+      "triangles_below_2px_pct_of_visible": 36.75
+    },
+    "validation": {
+      "projected_centres": 41030,
+      "centres_inside_frame_pct": 100.0,
+      "centres_on_rendered_geometry_pct": 99.7,
+      "depth_foreground_cover_pct": 17.36
+    }
+  },
+  "y_flip_sensitivity": {
+    "False": {
+      "frustum_culled_pct": 0.0,
+      "occluded_pct_of_visible": 0.73,
+      "centres_on_rendered_geometry_pct": 99.7
+    },
+    "True": {
+      "frustum_culled_pct": 0.0,
+      "occluded_pct_of_visible": 0.42,
+      "centres_on_rendered_geometry_pct": 77.56
+    }
+  }
+}

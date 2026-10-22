@@ -1,0 +1,10 @@
+{
+  "extent": [
+    1280,
+    720
+  ],
+  "changed_pixels": 0,
+  "camera": "35,18,140,0,-83.07,0",
+  "original": "bistro-geometry.gltf",
+  "derived": "bistro-object-lod.gltf"
+}

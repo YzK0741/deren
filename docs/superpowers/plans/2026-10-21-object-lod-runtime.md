@@ -6,7 +6,7 @@
 **Architecture:** 复用已接受的 converter CPU 模块（types/codec/digest/dag/cut）在 root 侧编译为静态资产库；engine 新增 DAG 层级（cluster producer/consumer + group fine/coarse 引用 + LOD 球/error + roots/leaves）与移植自 converter reference 的 CPU DAG cut；gltf_loader 只提取 payload 原始字节与扩展字段，import 时由 engine 完成解码/身份/结构校验/翻译并共享 generation；每帧 item cut 继续走 M1b 的 run/发布/HZB 管线，raster/resolve 数学不变。
 **Tech Stack:** CMake 4.3、C++23 modules、Clang64/libc++、vessel/mimalloc、yyjson 0.12.0（root 已有 `yyjson_vendored`）、fastgltf 0.9/simdjson（仅在 deren_assets/gltf_loader）、meshoptimizer v1.3（只给现有 builder/forest 参考路径，本 feature 的 import 不使用 builder）。无 CUDA/Vulkan 依赖给新 CPU 测试。
 **Spec:** `docs/superpowers/specs/2026-10-21-object-lod-runtime-design.md`。代码基线 `f4d3b8e7`（converter Task 1-8 已接受）。计划时 HEAD `f4d3b8e7`。
-**状态：** 已评审通过（2026-10-21：Q1 seam = 方案 C、Q2 单一 `subtilis` 开关、Q4 TANGENT-stripped 派生测量资产；Q3/Q5/Q6 按推荐默认）。用户于 2026-10-22 明确恢复实施；Tasks 1–6 已验收，接下来从 Task 7 继续，逐任务独立验收/本地提交/不 push。
+**状态：** 已评审通过（2026-10-21：Q1 seam = 方案 C、Q2 单一 `subtilis` 开关、Q4 TANGENT-stripped 派生测量资产；Q3/Q5/Q6 按推荐默认）。用户于 2026-10-22 明确恢复实施；Tasks 1–7 已完成（Task 7 的源资产 Khronos 例外已记入报告），接下来从 Task 8 继续，逐任务独立验收/本地提交/不 push。
 
 ## Global Constraints
 
@@ -194,14 +194,14 @@
 **Files**：`scripts/measure/prepare_object_lod_scene.py`（派生资产+转换器调用+哈希+manifest）、`scripts/measure/measure_object_lod.py`/`analyze_object_lod.py`（或复用 capture/measure 工具）、`docs/reviews/2026-10-21-object-lod.md` + `docs/reviews/2026-10-21-object-lod/`；`D:/deren-assets/2026-10-21-object-lod/` 归档。
 
 **RED**：
-- [ ] 先写脚本骨架与报告模板，运行到缺数据状态（或空 `results.json`）确认 gate/分析脚本的负向行为；
-- [ ] 确认派生资产 OFF 截图与原 `bistro-geometry.gltf` OFF 截图一致（若不一致即停：派生规则错误）。
+- [x] 先写脚本骨架与报告模板，运行到缺数据状态（或空 `results.json`）确认 gate/分析脚本的负向行为；
+- [x] 确认派生资产 OFF 截图与原 `bistro-geometry.gltf` OFF 截图一致（若不一致即停：派生规则错误）。
 
 **GREEN**：
-- [ ] 派生资产：`bistro-object-lod.gltf` = 原 JSON 去掉每个 primitive 的 `TANGENT`（其余不变），buffer uri 指向原 `../bistro/*.bin`；用 `build-subtilis/deren-subtilis build --threads 12` 转换（默认参数）；记录转换器 binary SHA-256（`fa9755...` 或重新构建后的值）、源/派生/输出 SHA-256、报告 JSON；converter 输出（GLB 或 glTF package）作为配置 `model` 加载。
-- [ ] 矩阵：1280×720、vsync off、max_fps=0、shadow/TAA/SSAO/bloom off、deferred lit、`visibility_buffer=true`、`subtilis=true`、`subtilis_error_px=1.0`（可选 2.0 一档）；far/near 两相机；validation 开/关各一组；130 帧/次；OFF/ON 各 3 轮交错；同相机对比；导入墙钟单独 3 次。
-- [ ] 报告：§1 资产/环境/二进制哈希；§2 导入成本（OFF vs ON 加载墙钟、payload 数/内存）；§3 每帧 CPU cut（µs/item、每帧总、fallback 计数、planned 并发）；§4 选中三角形/meshlet、GPU 帧、wall、host-culled 表占用、item 峰值、内存峰值；§5 ON/OFF 图像差异（changed pixels/均值/最大差，不宣称一致）；§6 validation 零发现 + Khronos validator 证据（对转换器输出沿用 converter 证据引用或重跑）；§7 **M2 决策输入**：逐项对齐 spec §7.3 触发条件并给出实测值与是否触发；§8 **M4 重探针**：cluster dump/depth probe 重跑（far/near subpixel 占比、cut 选中 cluster 数、HZB 候选），列出 32-bit vs 64-bit/两级表/storage depth twin 的联合决策输入（不设计 M4）；§9 限制/未测项。
-- [ ] 归档：`D:/deren-assets/2026-10-21-object-lod/`，逐文件 SHA-256 核对（manifest），scratch 副本清理；仓库只留报告+JSON 摘要+截图（尺寸允许时）。
+- [x] 派生资产：`bistro-object-lod.gltf` = 原 JSON 去掉每个 primitive 的 `TANGENT`（其余不变），buffer uri 指向原 `../bistro/*.bin`；用 `build-subtilis/deren-subtilis build --threads 12` 转换（默认参数）；记录转换器 binary SHA-256（`fa9755...` 或重新构建后的值）、源/派生/输出 SHA-256、报告 JSON；converter 输出（GLB 或 glTF package）作为配置 `model` 加载。
+- [x] 矩阵：1280×720、vsync off、max_fps=0、shadow/TAA/SSAO/bloom off、deferred lit、`visibility_buffer=true`、`subtilis=true`、`subtilis_error_px=1.0`（可选 2.0 一档）；far/near 两相机；validation 开/关各一组；130 帧/次；OFF/ON 各 3 轮交错；同相机对比；导入墙钟单独 3 次。
+- [x] 报告：§1 资产/环境/二进制哈希；§2 导入成本（OFF vs ON 加载墙钟、payload 数/内存）；§3 每帧 CPU cut（µs/item、每帧总、fallback 计数、planned 并发）；§4 选中三角形/meshlet、GPU 帧、wall、host-culled 表占用、item 峰值、内存峰值；§5 ON/OFF 图像差异（changed pixels/均值/最大差，不宣称一致）；§6 validation 零发现 + Khronos validator 证据（对转换器输出沿用 converter 证据引用或重跑）；§7 **M2 决策输入**：逐项对齐 spec §7.3 触发条件并给出实测值与是否触发；§8 **M4 重探针**：cluster dump/depth probe 重跑（far/near subpixel 占比、cut 选中 cluster 数、HZB 候选），列出 32-bit vs 64-bit/两级表/storage depth twin 的联合决策输入（不设计 M4）；§9 限制/未测项。
+- [x] 归档：`D:/deren-assets/2026-10-21-object-lod/`，逐文件 SHA-256 核对（manifest），scratch 副本清理；仓库只留报告+JSON 摘要+截图（尺寸允许时）。
 
 **Acceptance**：报告存在且包含上述 §1-§9；`results/` JSON 可从原始日志重算（脚本 gate 自测负向用例）；OFF 截图与 M1b/原资产一致；ON 测量 3 轮数据完整；不 push。
 

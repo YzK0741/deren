@@ -2314,6 +2314,33 @@ namespace deren::engine {
             if (this->subtilis_cut_frames % 120 == 0)
                 deren::utility::log("subtilis CPU cut: frames {}, work {} us/frame, wall {} us/frame, {} us/item", this->subtilis_cut_frames, this->subtilis_cut_work_us / this->subtilis_cut_frames, this->subtilis_cut_wall_us / this->subtilis_cut_frames, this->subtilis_cut_work_us / this->subtilis_cut_items);
         }
+        // Capture-only observation of the published CPU runs, before any GPU HZB compaction.
+        // The existing offline probe reads this layout; no table or draw metadata is changed.
+        if (auto const* path = std::getenv("DEREN_CLUSTER_PROBE_DUMP"); path && this->screenshot_requested) {
+            std::ofstream dump(path, std::ios::binary);
+            auto write = [&](auto const& value) { dump.write(reinterpret_cast<char const*>(&value), sizeof(value)); };
+            write(extent.width);
+            write(extent.height);
+            dump.write(reinterpret_cast<char const*>(&this->current_ubo.view), 16 * sizeof(float));
+            dump.write(reinterpret_cast<char const*>(&this->current_ubo.proj), 16 * sizeof(float));
+            write(count);
+            for (uint32_t index = 0; index < count; ++index) {
+                auto const& run = plans[index].run;
+                dump.write(reinterpret_cast<char const*>(&leaves[index]->push.model), 16 * sizeof(float));
+                write(run.count);
+                auto records = std::span<meshlet const>(leaves[index]->meshlets).first(run.count);
+                if (run.source == subtilis::run_source::visible) {
+                    auto* base = static_cast<std::byte const*>(this->meshlet_culled_mapped);
+                    auto offset = (size_t(frame_slot) * meshlet_capacity + run.base) * sizeof(meshlet);
+                    records = {reinterpret_cast<meshlet const*>(base + offset), run.count};
+                }
+                for (auto const& record : records) {
+                    std::array<float, 5> row{record.center_x, record.center_y, record.center_z, record.radius, float(record.index_count)};
+                    dump.write(reinterpret_cast<char const*>(row.data()), sizeof(row));
+                }
+            }
+            deren::utility::log("cluster probe: {} items written to {} ({})", count, path, dump.good() ? "ok" : "failed");
+        }
         // ---- PHASE 4: RECORD, SERIAL. Command-buffer state, the heap push window and the item table are the
         // recording thread's by contract, and each item is recorded in its own index order - the one ordering
         // this lane actually requires. ----
