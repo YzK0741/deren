@@ -6,7 +6,7 @@
 **Architecture:** CPU 分类与 tile binning 在 M1c 的 per-item planning 阶段完成（确定性，无 GPU 反查）；硬件 dispatch 只覆盖 run 的硬件前缀；新 per-image 两张 `R32_UINT` 资源（software_depth/software_id）+ tile buffer + 一个 compute raster pass + 一个 depth-only merge pass + resolve 的候选选择；图顺序 = 硬件 raster → 软件 raster → **resolve → merge** → HZB build → lighting/post（HZB cull/recovery 帧 hybrid 逐帧互斥）。raster/resolve 既有数学除 resolve 的候选选择与 merge 的 depth 写回外不变。
 **Tech Stack:** C++23 modules、Clang64/libc++、vessel/mimalloc、Slang/SPIR-V、CMake 4.3、Vulkan（现有 visibility/HZB lane）；CPU 测试无 Vulkan 依赖；无 CUDA。
 **Spec:** `docs/superpowers/specs/2026-10-22-software-raster-design.md`。代码基线 `1ba58d82`（M1c 已接受）。计划时 HEAD `1ba58d82`。
-**状态：** Lead 审阅通过（修正了合并/resolve 次序的阻塞设计缺陷，见 spec §3.2/§5.1）；待用户确认阻塞问题 Q2（方案 A/32-bit id）、Q4（ROI 判决门）、Q5（v1 与 HZB 互斥）后开工；Q7（tile capacity 32/64）由 Task 1 数据决定。文档提交前不实施任何代码。
+**状态：** Lead 审阅通过（修正了合并/resolve 次序的阻塞设计缺陷，见 spec §3.2/§5.1）；用户已批准 Q2（方案 A/32-bit id 冻结）、Q4（ROI 判决门）、Q5（v1 与 HZB 互斥）（2026-10-22）；Q1/Q3/Q6 按推荐默认，Q7（tile capacity 32/64）由 Task 1 数据决定。已按计划开始 Task 1（GO/NO-GO 测量），T2+ 仅在 T1 GO 后开工。
 
 ## Global Constraints
 
