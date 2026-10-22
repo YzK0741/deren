@@ -4,6 +4,7 @@ module;
 #include <array>
 #include <bit> // std::bit_cast for the caster world-matrix hash
 #include <chrono>
+#include <cstdio> // std::snprintf: the software-raster workload probe's JSON floats (%.9g round-trips float32)
 #include <cstdlib>
 #include <cstring> // std::memcpy, for composing a pass's push block
 #include <fstream>
@@ -15,6 +16,7 @@ module;
 #include <optional>
 #include <source_location> // the panic sites of the graphics-queue-family derivation
 #include <span>            // the byte spans the contract's buffer descriptors and the push endpoints take
+#include <string>          // the software-raster workload probe's dump path
 #include <string_view>     // the phase-B gate's closed-reason vocabulary (the once-per-session log line)
 #include <thread>          // std::this_thread::yield in the frame limiter
 #include <vector>          // the queue-family list the graphics-queue derivation walks
@@ -40,14 +42,15 @@ import deren.engine.render_resource.shared;
 import deren.engine.pass.buffer_storage;
 
 import deren.utility;
-import deren.engine.frame_constants; // one frame's shared constants (see update_frame_constants)
-import deren.engine.pipelines;       // make_graphics_pipeline: the contract factory the named pipelines build through
-import deren.engine.meshlet;         // the meshlet split (docs/mesh_shaders.md step 3): pure CPU, built at upload
-import deren.engine.gui_loader;      // load_gui: resolves deren_gui_<api>.dll by name (plan X2)
-import deren.engine.visibility;      // the draw-item record the visibility lane writes (the cull reads its model)
-import deren.engine.visibility.hzb;  // the CPU reference + the phase-B byte-exact scene gate (§9.2)
-import deren.engine.pass.hzb_build;  // the HZB header lane's host-side byte count (the cull probe's copies)
-import deren.engine.pass.hzb_cull;   // the phase-B item/results layout the host writes and reads back
+import deren.engine.frame_constants;     // one frame's shared constants (see update_frame_constants)
+import deren.engine.pipelines;           // make_graphics_pipeline: the contract factory the named pipelines build through
+import deren.engine.meshlet;             // the meshlet split (docs/mesh_shaders.md step 3): pure CPU, built at upload
+import deren.engine.gui_loader;          // load_gui: resolves deren_gui_<api>.dll by name (plan X2)
+import deren.engine.visibility;          // the draw-item record the visibility lane writes (the cull reads its model)
+import deren.engine.visibility.software; // M4 Task 1: the CPU subpixel criterion/tile binning (capture-only probe)
+import deren.engine.visibility.hzb;      // the CPU reference + the phase-B byte-exact scene gate (§9.2)
+import deren.engine.pass.hzb_build;      // the HZB header lane's host-side byte count (the cull probe's copies)
+import deren.engine.pass.hzb_cull;       // the phase-B item/results layout the host writes and reads back
 
 namespace deren::engine {
     // ---- runtime_detail::graphics_queue_family_of: ONE QUESTION TO THE BACKEND -------------------------
@@ -2077,6 +2080,22 @@ namespace deren::engine {
             unsigned input_count = 0, selected_count = 0, fallback_count = 0;
             std::uint64_t input_triangles = 0, selected_triangles = 0;
             double cut_us = 0;
+            // M4 Task 1's capture-only workload probe: this item's split at 1.0 px (only touched while the env probe is
+            // armed). The capture frame also keeps this item's selected records as a HOST copy, because the serial dump
+            // classifies/bins them from host memory: re-reading the mapped run lane would measure the PCIe/BAR read cost
+            // of host-visible device memory, not the CPU classification cost the report needs.
+            struct software_probe_item {
+                bool classified = false;
+                bool lane_sample_ok = false;
+                std::uint32_t selected = 0u;
+                std::uint32_t hardware = 0u;
+                std::uint32_t software = 0u;
+                std::uint64_t hardware_triangles = 0u;
+                std::uint64_t software_triangles = 0u;
+            };
+            software_probe_item probe;
+            deren::utility::vessel::vector<meshlet> probe_records;
+            double probe_us = 0.0;
         };
         bool const exact_depth_redraw = this->feature_active("character_forward");
         auto const extent = this->render_extent();
@@ -2086,6 +2105,69 @@ namespace deren::engine {
         std::uint32_t const count = static_cast<std::uint32_t>(this->frame_visible.size());
         if (count == 0u || count > capacity) {
             return false; // the candidate run does not fit the item table
+        }
+        // ---- M4 TASK 1: THE CAPTURE-ONLY SOFTWARE-RASTER WORKLOAD PROBE, ARMED BY `DEREN_SOFTWARE_RASTER_PROBE` ----
+        // WHY IT IS HERE AND WHY IT IS ENV-ONLY. The M4 hybrid producer (docs/superpowers/specs/2026-10-22-
+        // software-raster-design.md §3.1/§3.4) moves the cut run's subpixel clusters from the hardware raster to a
+        // not-yet-existing software producer. Before any of that is built, Task 1 measures the UPPER BOUND of what
+        // moving them out of the hardware raster can save: with the probe armed, EVERY recorded frame classifies the
+        // M1c cut run on the M1c planning thread, rewrites the run lane as the stable [hardware prefix | software
+        // suffix] split and dispatches the hardware raster over the PREFIX ONLY. The software suffix is not drawn by
+        // this task, so the captured frame is a "holes control" - HOLES THERE ARE THE EXPECTED MEASUREMENT STATE.
+        // Because the split runs on every frame (not only the screenshot frame), the log's session-average GPU
+        // timings measure the reduced dispatch; the classification is also the CPU cost the report quotes. The env
+        // gate is read once, and NOTHING here runs without it: the default path is the frame that always existed
+        // (the OFF/ON frozen gates are the byte-level witness).
+        //
+        // The JSON dump happens on the screenshot frame only (the same capture-frame convention the existing probes
+        // use); its path comes from DEREN_SOFTWARE_RASTER_PROBE_DUMP (default `software-raster-workload.json` in the
+        // working directory, which every capture harness sets to the run's own directory).
+        namespace software = deren::engine::visibility::software;
+        static std::string const software_probe_path = [] {
+            char const* const mode = std::getenv("DEREN_SOFTWARE_RASTER_PROBE");
+            if (mode == nullptr || std::string_view{mode} != "workload") {
+                return std::string{};
+            }
+            char const* const requested = std::getenv("DEREN_SOFTWARE_RASTER_PROBE_DUMP");
+            if (requested != nullptr && requested[0] != '\0') {
+                return std::string{requested};
+            }
+            return std::string{"software-raster-workload.json"};
+        }();
+        bool const software_probe_armed = !software_probe_path.empty();
+        static std::uint64_t software_probe_frame = 0u;
+        static double software_probe_classify_us_total = 0.0;
+        static std::uint64_t software_probe_classify_frames = 0u;
+        if (software_probe_armed) {
+            ++software_probe_frame;
+            if (software_probe_frame == 1u) {
+                deren::utility::log("software raster workload probe: ARMED by DEREN_SOFTWARE_RASTER_PROBE=workload - hardware dispatch is the "
+                                    "HARDWARE PREFIX only; the software suffix is not drawn by this task, so holes in this capture are the expected "
+                                    "measurement state (never in a default frame)");
+            }
+        }
+        // v1's HZB exclusion (spec §5.5): do not split a frame whose M3 cull/recovery lane is active; and only the M1c
+        // cut path (a visibility-lane frame with subtilis active) has a run to classify at all.
+        bool software_probe_frame_active = software_probe_armed && this->subtilis_active_frame && !this->hzb_cull_active_frame &&
+                                           !this->hzb_recovery_active_frame;
+        std::optional<software::camera_metrics> software_probe_camera;
+        if (software_probe_frame_active) {
+            software::camera_parameters probe_parameters{};
+            std::memcpy(probe_parameters.view.data(), &this->current_ubo.view, 16u * sizeof(float));
+            std::memcpy(probe_parameters.proj.data(), &this->current_ubo.proj, 16u * sizeof(float));
+            probe_parameters.width = extent.width;
+            probe_parameters.height = extent.height;
+            auto prepared = software::prepare_camera(probe_parameters);
+            if (!prepared) {
+                software_probe_frame_active = false;
+                static bool logged_unclassifiable = false;
+                if (!logged_unclassifiable) {
+                    logged_unclassifiable = true;
+                    deren::utility::log("software raster workload probe: this camera artifact is not classifiable - the probe records nothing this run");
+                }
+            } else {
+                software_probe_camera = *prepared;
+            }
         }
         // ---- PHASE 1: THE CANDIDATE SCAN, SERIAL. The rules are the old ones: one candidate that cannot be
         // carried refuses the WHOLE frame (a mixed frame must not be recorded), and the buffer addresses are
@@ -2166,7 +2248,8 @@ namespace deren::engine {
             plans[index].space = subtilis::reservation{leaves[index]->meshlet_base, leaves[index]->meshlet_count};
         }
         auto const plan_item = [&](std::uint32_t const index, std::span<subtilis::reservation const> const published,
-                                   deren::utility::vessel::vector<meshlet>& selected) {
+                                   deren::utility::vessel::vector<meshlet>& selected,
+                                   deren::utility::vessel::vector<std::uint32_t>& probe_order) {
             primitive const& leaf = *leaves[index];
             visibility_item_plan& plan = plans[index];
             std::array<float, 16> model = {};
@@ -2220,6 +2303,51 @@ namespace deren::engine {
                 }
             }
             vis::apply_meshlet_run(plan.row, plan.block, plan.run);
+            // ---- M4 TASK 1's HOLES CONTROL (capture-only, env-gated; see the block above PHASE 1) ----
+            if (software_probe_frame_active && software_probe_camera && plan.run.source == subtilis::run_source::visible &&
+                plan.run.count != 0u && !selected.empty()) {
+                bool const probe_capture_frame = this->screenshot_requested;
+                if (probe_capture_frame) {
+                    // the host copy the serial dump classifies/bins (never the mapped lane: that would time PCIe reads)
+                    plan.probe_records.assign(selected.begin(), selected.begin() + plan.run.count);
+                }
+                auto const probe_started = std::chrono::steady_clock::now();
+                software::item_records const probe_item{.item_index = index,
+                                                        .model = model,
+                                                        .records = std::span<meshlet const>(selected.data(), plan.run.count)};
+                auto const split = software::split_records(probe_item, *software_probe_camera, software::threshold_px_default,
+                                                           probe_order);
+                plan.probe.classified = true;
+                plan.probe.selected = split.record_count;
+                plan.probe.hardware = split.hardware_count;
+                plan.probe.software = split.software_count;
+                plan.probe.hardware_triangles = split.hardware_triangles;
+                plan.probe.software_triangles = split.software_triangles;
+                if (split.software_count != 0u && this->meshlet_culled_mapped != nullptr) {
+                    // THE SPLIT IS PUBLISHED, NOT JUST MEASURED: the run lane is rewritten in the stable [hardware
+                    // prefix | software suffix] order so the hardware ids 0..hardware_count-1 still name THEIR records
+                    // (spec §3.3's unchanged id decode), and the dispatch is reduced to the prefix. The worker owns
+                    // its item's lane slice, the records came from its own `selected` copy, and the write is before
+                    // submission - the same publish-the-whole-run rule the M1c lane already follows.
+                    auto* const lane = static_cast<std::byte*>(this->meshlet_culled_mapped);
+                    auto* const lane_records = reinterpret_cast<meshlet*>(lane + (static_cast<std::size_t>(frame_slot) * deren::engine::meshlet_capacity + plan.run.base) * sizeof(meshlet));
+                    for (std::uint32_t position = 0u; position < split.record_count; ++position) {
+                        lane_records[position] = selected[probe_order[position]];
+                    }
+                    plan.block.geometry.index_count = split.hardware_count;
+                    if (probe_capture_frame) {
+                        // a cheap read-back sample of the just-written prefix/suffix boundary: the host copy feeds the
+                        // dump, this proves the lane really carries the published order (a full 2 MiB read-back of the
+                        // mapped lane would cost hundreds of milliseconds and is not worth it here)
+                        auto const same = [&](std::uint32_t const position) {
+                            return std::memcmp(&lane_records[position], &selected[probe_order[position]], sizeof(meshlet)) == 0;
+                        };
+                        plan.probe.lane_sample_ok = same(0u) && same(split.record_count - 1u) &&
+                                                    (split.hardware_count == 0u || same(split.hardware_count - 1u));
+                    }
+                }
+                plan.probe_us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - probe_started).count();
+            }
         };
         // An item that shares any part of a meshlet run with ANOTHER item of this frame must be planned in item
         // order (its publication rule depends on what came before it); everything else is independent. The
@@ -2242,9 +2370,10 @@ namespace deren::engine {
         }
         auto const plan_range = [&](std::uint32_t const begin, std::uint32_t const end) {
             deren::utility::vessel::vector<meshlet> selected;
+            deren::utility::vessel::vector<std::uint32_t> probe_order;
             for (std::uint32_t index = begin; index < end; ++index) {
                 if (!ordered_planning[index]) {
-                    plan_item(index, {}, selected);
+                    plan_item(index, {}, selected, probe_order);
                 }
             }
         };
@@ -2280,6 +2409,7 @@ namespace deren::engine {
             deren::utility::vessel::map<std::uint32_t, std::uint32_t> published; // run base -> one past its end
             deren::utility::vessel::vector<subtilis::reservation> published_snapshot;
             deren::utility::vessel::vector<meshlet> selected;
+            deren::utility::vessel::vector<std::uint32_t> probe_order;
             for (std::uint32_t index = 0; index < count; ++index) {
                 visibility_item_plan& plan = plans[index];
                 subtilis::reservation const space = plan.space;
@@ -2289,7 +2419,7 @@ namespace deren::engine {
                     for (auto const& [base, run_end] : published) {
                         published_snapshot.push_back(subtilis::reservation{base, static_cast<std::uint32_t>(run_end - base)});
                     }
-                    plan_item(index, std::span<subtilis::reservation const>(published_snapshot), selected);
+                    plan_item(index, std::span<subtilis::reservation const>(published_snapshot), selected, probe_order);
                 }
                 if (plan.run.source == subtilis::run_source::visible && plan.run.count != 0u && space.count != 0u) {
                     published.emplace(space.base, space.base + space.count);
@@ -2314,6 +2444,238 @@ namespace deren::engine {
             ++this->subtilis_cut_frames;
             if (this->subtilis_cut_frames % 120 == 0)
                 deren::utility::log("subtilis CPU cut: frames {}, work {} us/frame, wall {} us/frame, {} us/item", this->subtilis_cut_frames, this->subtilis_cut_work_us / this->subtilis_cut_frames, this->subtilis_cut_wall_us / this->subtilis_cut_frames, this->subtilis_cut_work_us / this->subtilis_cut_items);
+        }
+        // the per-frame classification work is accumulated EVERY probe frame (not only the capture frame), so the JSON
+        // can report both this frame's work and the session average the CPU-cost report quotes. It is WORK summed over
+        // the existing per-item planning workers (the phase this runs in), not wall time.
+        double software_probe_classify_frame_us = 0.0;
+        if (software_probe_frame_active) {
+            for (visibility_item_plan const& plan : plans) {
+                software_probe_classify_frame_us += plan.probe_us;
+            }
+            software_probe_classify_us_total += software_probe_classify_frame_us;
+            ++software_probe_classify_frames;
+        }
+        // ---- M4 TASK 1: THE CAPTURE-FRAME WORKLOAD DUMP (the measurement's evidence file) ----
+        // On the screenshot frame the probe (a) re-derives the frame's tile lists at BOTH measured thresholds from the
+        // capture frame's HOST copies of the selected records - the same classification the per-frame split used,
+        // re-run through the module's whole-frame entry point so the dump's tile data is the module's own answer, not
+        // a second implementation - (b) cross-checks the per-item counts against phase 2's split, and (c) writes the
+        // deterministic JSON the analysis script reads. The tile lists are the module's MEASUREMENT form:
+        // over-capacity tiles are reported exactly (counts + max), because this dump decides the default capacity
+        // (32 vs 64, spec §9 Q7); no production path uses that form.
+        if (software_probe_frame_active && this->screenshot_requested && software_probe_camera) {
+            auto const bin_started = std::chrono::steady_clock::now();
+            software::camera_parameters probe_parameters{};
+            std::memcpy(probe_parameters.view.data(), &this->current_ubo.view, 16u * sizeof(float));
+            std::memcpy(probe_parameters.proj.data(), &this->current_ubo.proj, 16u * sizeof(float));
+            probe_parameters.width = extent.width;
+            probe_parameters.height = extent.height;
+            deren::utility::vessel::vector<software::item_records> probe_items;
+            probe_items.reserve(count);
+            for (std::uint32_t index = 0u; index < count; ++index) {
+                visibility_item_plan const& plan = plans[index];
+                if (plan.run.source != subtilis::run_source::visible || plan.run.count == 0u) {
+                    continue;
+                }
+                std::array<float, 16> model{};
+                std::memcpy(model.data(), &leaves[index]->push.model, sizeof(model));
+                probe_items.push_back(software::item_records{
+                    .item_index = index,
+                    .model = model,
+                    .records = std::span<meshlet const>(plan.probe_records.data(), plan.probe_records.size())});
+            }
+            auto const items_built = std::chrono::steady_clock::now();
+            auto const primary = software::build_tile_lists_measure(probe_items, probe_parameters, software::threshold_px_default,
+                                                                    software::tile_entry_capacity_default);
+            auto const primary_built = std::chrono::steady_clock::now();
+            auto const secondary = software::build_tile_lists_measure(probe_items, probe_parameters, software::threshold_px_secondary,
+                                                                      software::tile_entry_capacity_default);
+            auto const bin_finished = std::chrono::steady_clock::now();
+            auto const micros = [](auto const begin, auto const end) {
+                return std::chrono::duration<double, std::micro>(end - begin).count();
+            };
+            double const items_us = micros(bin_started, items_built);
+            double const primary_us = micros(items_built, primary_built);
+            double const secondary_us = micros(primary_built, bin_finished);
+            double const bin_us = items_us + primary_us + secondary_us;
+            double const classify_frame_us = software_probe_classify_frame_us;
+            double const classify_session_us = software_probe_classify_frames == 0u
+                                                   ? classify_frame_us
+                                                   : software_probe_classify_us_total / static_cast<double>(software_probe_classify_frames);
+            // the cross-check: the per-item split phase 2 published must equal the split re-derived from the capture
+            // frame's host copy, the host copy must be complete, and the just-written lane sample must verify
+            bool self_check = true;
+            std::uint32_t mismatch_item = 0xFFFFFFFFu;
+            for (std::size_t position = 0u; position < probe_items.size(); ++position) {
+                visibility_item_plan const& plan = plans[probe_items[position].item_index];
+                software::item_split const& rederived = primary.items[position];
+                bool const consistent = plan.probe.classified && plan.probe.selected == rederived.record_count &&
+                                        plan.probe.hardware == rederived.hardware_count && plan.probe.software == rederived.software_count &&
+                                        plan.probe.hardware_triangles == rederived.hardware_triangles &&
+                                        plan.probe.software_triangles == rederived.software_triangles &&
+                                        plan.probe_records.size() == plan.run.count &&
+                                        (plan.probe.software == 0u || plan.probe.lane_sample_ok);
+                if (!consistent) {
+                    self_check = false;
+                    if (mismatch_item == 0xFFFFFFFFu) {
+                        mismatch_item = probe_items[position].item_index;
+                    }
+                }
+            }
+            if (!self_check) {
+                deren::utility::log("software raster workload probe: SELF-CHECK FAILED - the phase-2 split differs from the host-copy re-derivation, "
+                                    "a host copy is incomplete, or the lane sample does not match (item {}); the dump is written but the analysis must "
+                                    "reject it",
+                                    mismatch_item);
+            }
+            // ---- the deterministic JSON ----
+            std::uint32_t hardware_clusters = 0u, software_clusters = 0u, software_clusters_secondary = 0u;
+            std::uint64_t hardware_triangles = 0u, software_triangles = 0u, software_triangles_secondary = 0u;
+            std::uint64_t total_clusters = 0u, total_triangles = 0u;
+            std::uint32_t classified_items = 0u;
+            for (std::size_t position = 0u; position < probe_items.size(); ++position) {
+                software::item_split const& one = primary.items[position];
+                software::item_split const& two = secondary.items[position];
+                total_clusters += one.record_count;
+                total_triangles += one.hardware_triangles + one.software_triangles;
+                hardware_clusters += one.hardware_count;
+                software_clusters += one.software_count;
+                hardware_triangles += one.hardware_triangles;
+                software_triangles += one.software_triangles;
+                software_clusters_secondary += two.software_count;
+                software_triangles_secondary += two.software_triangles;
+                ++classified_items;
+            }
+            std::ofstream output(software_probe_path, std::ios::trunc);
+            auto const write_float = [&output](float const value) {
+                char text[32] = {};
+                std::snprintf(text, sizeof(text), "%.9g", static_cast<double>(value));
+                output << text;
+            };
+            auto const write_double = [&output](double const value) {
+                char text[40] = {};
+                std::snprintf(text, sizeof(text), "%.17g", value);
+                output << text;
+            };
+            auto const write_capacity = [&output](software::software_tile_plan const& plan, char const* const band) {
+                std::uint32_t overflow_32 = 0u, overflow_64 = 0u;
+                for (std::uint32_t const count : plan.counts) {
+                    if (count > 32u) {
+                        ++overflow_32;
+                    }
+                    if (count > 64u) {
+                        ++overflow_64;
+                    }
+                }
+                output << "{\"tile_count\": " << plan.grid.tile_count() << ", \"entry_count\": " << plan.entry_count
+                       << ", \"max_tile_entries\": " << plan.max_tile_entries << ", \"overflow_tiles_at_32\": " << overflow_32
+                       << ", \"overflow_tiles_at_64\": " << overflow_64 << ", \"overflow_at_32\": " << (overflow_32 != 0u ? "true" : "false")
+                       << ", \"overflow_at_64\": " << (overflow_64 != 0u ? "true" : "false") << ", \"band\": \"" << band << "\"}";
+            };
+            output << "{\n";
+            output << "  \"kind\": \"software-raster-workload\",\n";
+            output << "  \"version\": 1,\n";
+            output << "  \"frame\": {\"index\": " << software_probe_frame << ", \"ring_slot\": " << frame_slot << "},\n";
+            output << "  \"extent\": {\"width\": " << extent.width << ", \"height\": " << extent.height << "},\n";
+            output << "  \"camera\": {\"pose\": {\"yaw\": ";
+            write_float(this->camera.yaw);
+            output << ", \"pitch\": ";
+            write_float(this->camera.pitch);
+            output << ", \"distance\": ";
+            write_float(this->camera.distance);
+            output << ", \"target\": [";
+            write_float(this->camera.target.x);
+            output << ", ";
+            write_float(this->camera.target.y);
+            output << ", ";
+            write_float(this->camera.target.z);
+            output << "]}, \"view\": [";
+            for (std::size_t index = 0u; index < 16u; ++index) {
+                if (index != 0u) {
+                    output << ", ";
+                }
+                write_float(probe_parameters.view[index]);
+            }
+            output << "], \"proj\": [";
+            for (std::size_t index = 0u; index < 16u; ++index) {
+                if (index != 0u) {
+                    output << ", ";
+                }
+                write_float(probe_parameters.proj[index]);
+            }
+            output << "]},\n";
+            output << "  \"thresholds_px\": [1, 2],\n";
+            output << "  \"tiles\": {\"size\": " << software::tile_size << ", \"tiles_x\": " << primary.grid.tiles_x
+                   << ", \"tiles_y\": " << primary.grid.tiles_y << ", \"entry_capacity\": " << primary.entry_capacity << "},\n";
+            output << "  \"totals\": {\"items\": " << count << ", \"classified_items\": " << classified_items << ", \"clusters\": " << total_clusters
+                   << ", \"triangles\": " << total_triangles << ", \"hardware_clusters\": " << hardware_clusters
+                   << ", \"software_clusters\": " << software_clusters << ", \"hardware_triangles\": " << hardware_triangles
+                   << ", \"software_triangles\": " << software_triangles << ", \"software_clusters_2_0\": " << software_clusters_secondary
+                   << ", \"software_triangles_2_0\": " << software_triangles_secondary << "},\n";
+            output << "  \"capacity\": {\"1.0\": ";
+            write_capacity(primary, "1.0");
+            output << ", \"2.0\": ";
+            write_capacity(secondary, "2.0");
+            output << "},\n";
+            output << "  \"cost_us\": {\"classify_frame\": ";
+            write_double(classify_frame_us);
+            output << ", \"classify_session_avg\": ";
+            write_double(classify_session_us);
+            output << ", \"bin_frame\": ";
+            write_double(bin_us);
+            output << ", \"bin_items\": ";
+            write_double(items_us);
+            output << ", \"bin_primary\": ";
+            write_double(primary_us);
+            output << ", \"bin_secondary\": ";
+            write_double(secondary_us);
+            output << ", \"probe_frame_index\": " << software_probe_frame << "},\n";
+            output << "  \"self_check\": {\"primary_split_matches_phase2\": " << (self_check ? "true" : "false") << "},\n";
+            output << "  \"tile_counts_1_0\": [";
+            for (std::size_t index = 0u; index < primary.counts.size(); ++index) {
+                if (index != 0u) {
+                    output << ", ";
+                }
+                output << primary.counts[index];
+            }
+            output << "],\n";
+            output << "  \"tile_counts_2_0\": [";
+            for (std::size_t index = 0u; index < secondary.counts.size(); ++index) {
+                if (index != 0u) {
+                    output << ", ";
+                }
+                output << secondary.counts[index];
+            }
+            output << "],\n";
+            output << "  \"items\": [\n";
+            for (std::size_t position = 0u; position < probe_items.size(); ++position) {
+                software::item_split const& one = primary.items[position];
+                software::item_split const& two = secondary.items[position];
+                output << "    {\"index\": " << probe_items[position].item_index << ", \"source\": \"visible\", \"selected\": " << one.record_count
+                       << ", \"hardware\": " << one.hardware_count << ", \"software\": " << one.software_count << ", \"hardware_2_0\": "
+                       << two.hardware_count << ", \"software_2_0\": " << two.software_count << ", \"triangles\": "
+                       << (one.hardware_triangles + one.software_triangles) << ", \"hardware_triangles\": " << one.hardware_triangles
+                       << ", \"software_triangles\": " << one.software_triangles << ", \"model\": [";
+                for (std::size_t element = 0u; element < probe_items[position].model.size(); ++element) {
+                    if (element != 0u) {
+                        output << ", ";
+                    }
+                    write_float(probe_items[position].model[element]);
+                }
+                output << "]}" << (position + 1u == probe_items.size() ? "\n" : ",\n");
+            }
+            output << "  ]\n";
+            output << "}\n";
+            if (!output) {
+                deren::utility::log("software raster workload probe: FAIL writing '{}'", software_probe_path);
+            } else {
+                deren::utility::log("software raster workload probe: frame {}: items {} (classified {}), clusters {} (hw {} / sw 1.0 {} / sw 2.0 {}), "
+                                    "tile max 1.0 {} / 2.0 {}, classify {:.3f} us work, bin {:.3f} us -> '{}'",
+                                    software_probe_frame, count, classified_items, total_clusters, hardware_clusters, software_clusters,
+                                    software_clusters_secondary, primary.max_tile_entries, secondary.max_tile_entries, classify_frame_us, bin_us,
+                                    software_probe_path);
+            }
         }
         // Capture-only observation of the published CPU runs, before any GPU HZB compaction.
         // The existing offline probe reads this layout; no table or draw metadata is changed.

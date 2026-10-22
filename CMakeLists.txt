@@ -685,6 +685,7 @@ target_sources(deren_engine
         source/engine/geometry/subtilis_selection.cppm
         source/engine/geometry/subtilis.cppm
         source/engine/visibility/visibility.cppm
+        source/engine/visibility/visibility_software.cppm
         source/engine/visibility/hzb.cppm
         source/engine/primitive/primitive.cppm
         source/engine/render_environment/render_environment.cppm
@@ -1265,7 +1266,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb)
+    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb test_visibility_software)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1404,6 +1405,17 @@ if(VR_BUILD_TESTS)
     target_link_libraries(test_visibility_resolve_pass
             deren_engine
             vstd_lib
+    )
+    # deren.engine.visibility.software is the M4 hybrid producer's PURE CPU front half (the conservative subpixel
+    # criterion, the stable [hardware prefix | software suffix] split and the 16x16 tile binning): it decides which
+    # clusters the hardware raster will NOT dispatch, so a too-eager classification is a hole, not a slow frame.
+    # Those properties are checkable without a device and without a shader compiler, which is the only way they can
+    # run in CI - the shader side is checked by fixtures in Task 3 (the capture gate never runs in CI). The links are
+    # the same pure pair test_meshlet uses; no Vulkan type is named by the module.
+    target_link_libraries(test_visibility_software
+            deren_engine
+            vstd_lib
+            glm::glm
     )
     # deren.engine.animation is format-neutral / runtime-agnostic; the sampling tests only touch the
     # pure functions, so nothing Vulkan is pulled in.

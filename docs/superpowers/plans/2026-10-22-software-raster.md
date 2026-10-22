@@ -8,6 +8,8 @@
 **Spec:** `docs/superpowers/specs/2026-10-22-software-raster-design.md`。代码基线 `1ba58d82`（M1c 已接受）。计划时 HEAD `1ba58d82`。
 **状态：** Lead 审阅通过（修正了合并/resolve 次序的阻塞设计缺陷，见 spec §3.2/§5.1）；用户已批准 Q2（方案 A/32-bit id 冻结）、Q4（ROI 判决门）、Q5（v1 与 HZB 互斥）（2026-10-22）；Q1/Q3/Q6 按推荐默认，Q7（tile capacity 32/64）由 Task 1 数据决定。已按计划开始 Task 1（GO/NO-GO 测量），T2+ 仅在 T1 GO 后开工。
 
+**Task 1 状态（2026-10-22 收尾）：** 完成，判决 **GO**——far `visibility raster` 3 轮交错中位数差 **1.54 ms = M1c far ON 20.11 ms 的 7.66%**（门限 1.5%/0.302 ms），near 记录 0.09 ms（不作条件）；分类计数与 M1c 探针对照可解释（1.0 px 10.32% ≤ 23.28%），holes 移除工作量与探针后缀逐帧可对账。**但 per-tile 容量实测推翻 Q7 的 32/64 前提：far 单 tile 最大 977 条（2.0 px 1907），near 226/290，32 与 64 都每帧 overflow；T2 开工前需要用户/Lead 决策容量策略（实测最小可用 2 的幂：far 1024/2048，near 256/512，或换溢出策略）。** 报告：`docs/reviews/2026-10-22-software-raster.md`；证据：`D:/deren-assets/2026-10-22-software-raster/`（98 文件逐文件 SHA-256，0 mismatch）。T2+ 尚未开始。
+
 ## Global Constraints
 
 - **只做 M4**（subpixel 软件光栅）：不做 M2（GPU cut select/finalize）、M5（streaming/paging）、material binning、CLUSTER 压缩/量化；不改 M1c 的 DAG cut/import 契约。
@@ -73,18 +75,18 @@
 **Interfaces：** §公共类型约定中的 `classify`/`build_tile_lists`/`software_tile_plan`（含 per-tile 最大值统计）；probe dump 的 workload 布局（extent/view/proj/每 item model + hw/sw 分类计数 + per-tile 计数 + 每类三角形数；同一 `DEREN_SOFTWARE_RASTER_PROBE` env，`workload` 值为 Task 1 的上界测量，Task 3 起用目录值 dump 完整图像）；`software_raster_roi.py --self-test` 的负向用例（缺轮次/失败 capture/伪造数据拒绝）。
 
 **RED：**
-- [ ] 写 `test_visibility_software` 的分类/binning 用例（阈值边界、正交/透视、非均匀 scale、跨近面、NaN、capacity/overflow）→ 运行 `ctest -R '^test_visibility_software$'` 确认 RED（模块/接口缺失）。
-- [ ] 写 `software_raster_roi.py` 的解析/自检骨架，用空/不完整输入确认拒绝而非静默通过；确认 capture-only probe env 尚未实现（dump 缺失）。
+- [x] 写 `test_visibility_software` 的分类/binning 用例（阈值边界、正交/透视、非均匀 scale、跨近面、NaN、capacity/overflow）→ 运行 `ctest -R '^test_visibility_software$'` 确认 RED（模块/接口缺失）。
+- [x] 写 `software_raster_roi.py` 的解析/自检骨架，用空/不完整输入确认拒绝而非静默通过；确认 capture-only probe env 尚未实现（dump 缺失）。
 
 **GREEN：**
-- [ ] 实现 `classify`/`build_tile_lists`（spec §3.1/§3.4 的纯函数与保守边界），通过单测。
-- [ ] 实现 capture-only workload probe：截图帧按 `software_active_frame` 的判定做分类/tile binning；`DEREN_SOFTWARE_RASTER_PROBE=workload` 时把硬件 dispatch 改为"仅硬件前缀"（这就是 holes control：软件后缀在本任务不绘制，图像有洞是**预期**的测量状态，不允许出现在生产帧/正式回归中），同时 dump 分类统计与 tile 规模；无 env 时完全不改行为（默认 OFF）。
-- [ ] `software_raster_roi.py` 读取 baseline vs holes-control 的逐轮日志/GPU marks/mesh stats，计算：subpixel clusters/triangles/tiles、**per-tile entry 最大值与 1.0/2.0 两档 overflow 帧数**、被移除的 hardware workgroups/triangles（mesh stats 差分）、`visibility raster` GPU 时间差（3 轮中位数）、CPU 分类+binning 微秒/帧；输出上界表、capacity 决定（32 vs 64）与明确的 GO/NO-GO。
+- [x] 实现 `classify`/`build_tile_lists`（spec §3.1/§3.4 的纯函数与保守边界），通过单测。
+- [x] 实现 capture-only workload probe：截图帧按 `software_active_frame` 的判定做分类/tile binning；`DEREN_SOFTWARE_RASTER_PROBE=workload` 时把硬件 dispatch 改为"仅硬件前缀"（这就是 holes control：软件后缀在本任务不绘制，图像有洞是**预期**的测量状态，不允许出现在生产帧/正式回归中），同时 dump 分类统计与 tile 规模；无 env 时完全不改行为（默认 OFF）。
+- [x] `software_raster_roi.py` 读取 baseline vs holes-control 的逐轮日志/GPU marks/mesh stats，计算：subpixel clusters/triangles/tiles、**per-tile entry 最大值与 1.0/2.0 两档 overflow 帧数**、被移除的 hardware workgroups/triangles（mesh stats 差分）、`visibility raster` GPU 时间差（3 轮中位数）、CPU 分类+binning 微秒/帧；输出上界表、capacity 决定（32 vs 64）与明确的 GO/NO-GO。
 
 **Acceptance：**
-- [ ] Bistro 派生 cooked GLB（M1c 归档 `620f4242...`，或 `prepare_object_lod_scene.py` 重建并记录 SHA-256）、同 M1c 相机（far `35,18,140,0,-83.07,0`、near `35,8,42,0,-88,0`）、1280×720、130 帧、validation 关、3 轮交错；baseline = M1c ON 路径（software_raster off），holes-control = env probe；报告 far/near 上界表 + CPU 分类成本 + 统计。
-- [ ] GO/NO-GO 与 capacity 决定写入报告：建议 GO 条件 = far 相机 `visibility raster` 时间差中位数 ≥ 1.5%（M1c far ON 20.11ms 下 ≈0.30ms），且分类规模与 M1c 探针口径的差异可解释（保守判据计数 ≤ 探针比例），near 记录但不作为 GO 必要条件；同时按 1.0/2.0 两档实测结果记录 `tile_entry_capacity` 默认 32/64 的决定；NO-GO 时停止 T2+ 并在报告记录原因。
-- [ ] 默认 OFF 下 `check_render.ps1 -Full`（15/15）与 `-Visibility -Compare docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt`（1/1）不变；validation clean；`test_docs` 绿（若新增脚本/文档）；Release 全量 CTest 绿（记录数量）。
+- [x] Bistro 派生 cooked GLB（M1c 归档 `620f4242...`，或 `prepare_object_lod_scene.py` 重建并记录 SHA-256）、同 M1c 相机（far `35,18,140,0,-83.07,0`、near `35,8,42,0,-88,0`）、1280×720、130 帧、validation 关、3 轮交错；baseline = M1c ON 路径（software_raster off），holes-control = env probe；报告 far/near 上界表 + CPU 分类成本 + 统计。
+- [x] GO/NO-GO 与 capacity 决定写入报告：建议 GO 条件 = far 相机 `visibility raster` 时间差中位数 ≥ 1.5%（M1c far ON 20.11ms 下 ≈0.30ms），且分类规模与 M1c 探针口径的差异可解释（保守判据计数 ≤ 探针比例），near 记录但不作为 GO 必要条件；同时按 1.0/2.0 两档实测结果记录 `tile_entry_capacity` 默认 32/64 的决定；NO-GO 时停止 T2+ 并在报告记录原因。
+- [x] 默认 OFF 下 `check_render.ps1 -Full`（15/15）与 `-Visibility -Compare docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt`（1/1）不变；validation clean；`test_docs` 绿（若新增脚本/文档）；Release 全量 CTest 绿（记录数量）。
 
 ## Task 2 — CPU reference 核心 + 资源/pass 脚手架（默认 OFF、无视觉变化）
 
