@@ -116,10 +116,13 @@ that do not consume a semver slot (e.g. `deren.gltf_loader` 0.1.0a after the swi
 
 ## Features
 
-> **Subtilis measurement update (2026-10-23):** raw GPU validation found and fixed three software-raster
-> wiring defects. The historical 5.22ms / approximately 26x software-enabled result below requires
-> remeasurement with the corrected renderer. CPU/GPU fixture coverage and IDs now agree; see the
-> [closeout checkpoint](docs/reviews/2026-10-23-subtilis-closeout-checkpoint.md).
+> **Subtilis/M4 status update (2026-10-23):** the software-raster path remains **experimental, opt-in,
+> default-off and NOT accepted as a shipping optimization**. A fresh review confirmed the negative result:
+> corrected same-build textured measurements put DAG+HZB at 10.44/5.64 ms versus DAG+HZB+software
+> 12.12/6.32 ms, and opt-in GPU survivor routing removes CPU routing cost but has no stable whole-frame
+> win. The historical 5.22 ms / approximately 26x software-enabled row is withdrawn (it predates three
+> wiring fixes). DAG+HZB is the shipping gain. See the
+> [M4 decision](docs/reviews/2026-10-23-m4-decision.md).
 
 > **Modular by design — free to combine.** Most modules here are independent,
 > dependency-light units that talk to each other through narrow interfaces, so

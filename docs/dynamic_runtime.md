@@ -23,7 +23,7 @@ compilations from drifting.
 | `:core_desc` | `create_info`, the ONE creation structure - the program fills it and the backend builds its context from it |
 | `:extension` | the optional interfaces and the queries that hand them out |
 
-The contract is versioned by `rhi::abi_version` (46 today), and a change to it is one of three kinds:
+The contract is versioned by `rhi::abi_version` (48 today), and a change to it is one of three kinds:
 **appending a slot to an existing interface bumps the number**, and so does **adding a field to a
 by-value structure** - its layout is what both halves pass, even when a `struct_size` guard lets the
 backend keep the old default; abi 45 (the `command_buffer_begin_info::inherit_descriptor_heaps`

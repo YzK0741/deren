@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans inline. Use one final fresh-context review, no implementer agents.
 
+**Status:** implementation + acceptance evidence complete; final fresh review done; M4 recorded as experimental/opt-in/default-off/NOT accepted (`docs/reviews/2026-10-23-m4-decision.md`). Task 3 boxes are ticked with evidence; Task 4 is the completed review.
+
 **Goal:** Reduce hybrid rendering overhead in the user-approved order.
 **Architecture:** Reuse the stable hardware-prefix/software-suffix split to generate direct work. Then improve triangle-scale selection and finally move survivor routing to GPU.
 **Tech Stack:** C++23 modules, Slang, Vulkan/RHI, Python capture scripts.
@@ -40,4 +42,4 @@ Produces: append_triangle_dispatch(split, order, projections, entries, budget), 
 - [x] Validate coverage, fallback, both slots and measured full-frame benefit. Both slots verified byte-identically at 115,446 pixels/2 ULP; closed-history fallback verified; same-build 3-round matrix shows GPU routing removes the CPU routing overhead (cut wall -0.63/-0.47 ms far/near vs CPU routing) but NO stable net whole-frame benefit (deltas inside run-to-run spread; near CPU-active not improved) - negative result documented, software stays default-off and M4 not accepted.
 
 ### Task 4: Closeout
-- [ ] Fresh read-only review, fix Important findings with regressions, full verification, docs/checkpoint. (Not performed in this acceptance pass; the routing review and this plan were updated with the actual pass/fail evidence. M4 remains unaccepted.)
+- [x] Fresh read-only review, fix Important findings with regressions, full verification, docs/checkpoint. Done: `docs/reviews/2026-10-23-software-routing-review.md` (0 Critical / 4 Important / 12 Minor); I1 stale 26x claim fixed, I2 inspected-only waiver + E1 HZB-only capture follow-up, I3 developer-only diagnostic documented, I4 explicitly waived; disposition in `docs/reviews/2026-10-23-m4-decision.md`. M4 remains NOT accepted.

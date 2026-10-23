@@ -4,7 +4,8 @@
 > now validated on one final build: HZB compaction classifies/reserves/emits the software list on the GPU, the
 > software kernel consumes compute-indirect arguments, and capture-only snapshots validate the hardware/software
 > partition (both frame-ring slots, closed-history fallback, forced budget exhaustion, nonzero recovery; software
-> images match the CPU reference at 2 ULP, validation-enabled smokes clean). A same-build three-round far/near
+> the accepted planar fixture matches the CPU reference at up to 2 ULP depth, validation-enabled smokes
+> clean; the far textured recovery capture is excluded at a 1-pixel ID difference). A same-build three-round far/near
 > matrix shows GPU routing removes the CPU routing overhead (cut wall -0.63/-0.47 ms versus CPU routing) but no
 > stable whole-frame win over software-off DAG+HZB; software stays default-off and M4 is NOT accepted. See the
 > [routing checkpoint](reviews/2026-10-23-software-routing.md).
@@ -196,7 +197,7 @@ of the cut-selected candidates (100% agreement with the CPU reference), and the 
 **-78.6% (near) / -61.6% (far)** GPU frame on moving views - that gain is occlusion, not LOD; Subtilis
 supplies the candidate set and remains responsible for the LOD error, the HZB for conservative visibility.
 
-**Bistro path comparison (2026-10-22, 1280x720, GPU frame median):**
+**Bistro path comparison (2026-10-22 matrix, 1280x720, GPU frame median; historical):**
 
 | Path | Far | Near |
 | --- | ---: | ---: |
@@ -204,9 +205,17 @@ supplies the candidate set and remains responsible for the LOD error, the HZB fo
 | Visibility buffer, optimizations off | 24.50 ms | 21.17 ms |
 | Subtilis: Cluster DAG/LOD only | 20.73 ms | 18.73 ms |
 | Subtilis + HZB | 9.82 ms | 5.94 ms |
-| Subtilis + HZB + software raster | 9.55 ms | 5.22 ms |
+| Subtilis + HZB + software raster | withdrawn (pre-fix, invalid) | withdrawn (pre-fix, invalid) |
 
-The near-view comparison is **132.93 / 5.22 = 25.5x**, or about **26x**, from the old legacy route to the current Subtilis rendering path. This is the system-level gain across the visibility-buffer lane, capacity expansion, Cluster DAG LOD, HZB and software raster; it is not the isolated gain of the DAG/LOD component. In the current build, the DAG cut alone reduces near-view triangles from 3,626,626 to 2,860,109 (-21.1%) and GPU frame time from 21.17 to 18.73 ms (-11.5%). HZB then culls 90.84% of candidates; software raster brings the measured GPU median from 5.94 to 5.22 ms, with higher CPU-active time. The full configuration matrix, including individual and pairwise combinations, is in the [render optimization report](reviews/2026-10-22-render-optimization-comparison.md).
+In this historical matrix the system-level gain from the legacy route to DAG+HZB is 152.55/9.82 = 15.5x
+far and 132.93/5.94 = 22.4x near (across the visibility-buffer lane, capacity expansion, Cluster DAG LOD
+and HZB). The formerly quoted "132.93 / 5.22 = 25.5x, about 26x" software-enabled result is **withdrawn**:
+it predates the three software-raster wiring fixes, and the corrected same-build textured matrix (2026-10-23)
+measures DAG+HZB 10.44/5.64 ms versus DAG+HZB+software 12.12/6.32 ms - software raster is a net GPU cost on
+that scene and stays experimental/opt-in/default-off, not part of the accepted gain (see the
+[M4 decision](reviews/2026-10-23-m4-decision.md)). The DAG-only numbers are unaffected: near triangles
+3,626,626 -> 2,860,109 (-21.1%), GPU 21.17 -> 18.73 ms (-11.5%). Historical individual/pairwise rows are in
+the [render optimization report](reviews/2026-10-22-render-optimization-comparison.md).
 
 **Textured acceptance boundary.** The 4096-item contract was verified on the original unmerged
 hierarchy (2909 primitives -> 2906 visible items, no fallback) together with the 1024-slot texture array

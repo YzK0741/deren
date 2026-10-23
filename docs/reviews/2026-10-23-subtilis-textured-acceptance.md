@@ -2,6 +2,11 @@
 
 The corrected software producer passes the planar CPU/GPU fixture, but adding software raster is a net cost on this textured Bistro test. Prefer visibility buffer + Cluster DAG + HZB for this scene; software raster remains experimental/default off. The earlier 5.22 ms / approximately 26x software-enabled headline is withdrawn as accepted evidence because it predates three raster wiring fixes.
 
+**Evidence note (2026-10-23, Lead disposal of review I4):** this matrix records the executable but not a
+shader-bundle SHA-256, so the "same shader bundle" statement is not independently verifiable from the tracked
+result JSON. The review waived this because the matrix used one executable and the later routing/triangle
+matrices pin executable+shader hashes; treat the missing bundle hash as a recorded limitation of this matrix.
+
 ## Method and results
 
 The same textured compatibility asset, executable, shader bundle, camera, resolution (1280x720) and render settings were used for all configurations. Three rounds per camera/configuration, 129 timed GPU frames per round, 24 completed captures. Shadows, TAA, SSAO, bloom, FXAA and validation were disabled for performance captures. GPU and CPU-active numbers below are medians of the three reported session averages; CPU-active time is not a separately measured end-to-end presentation time. Raw rows, executable/asset hashes and image comparisons are retained in [results JSON](2026-10-23-subtilis-textured-results.json). Raw logs/configurations/images remain under `tmp/subtilis-textured-acceptance-resumed/` in the workspace.

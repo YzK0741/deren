@@ -12,6 +12,14 @@ early prefixes were cleaned or superseded by later names; the durable raw files 
 final correctness captures are the `subtilis-*`/`software-*` directories in the archive. Workspace `tmp/` is left
 in place until the M4 decision is final; the archive is the durable copy for review/acceptance.
 
+**M4 decision (2026-10-23):** the final fresh review is complete
+(`docs/reviews/2026-10-23-software-routing-review.md`: 0 Critical / 4 Important / 12 Minor) and the Lead
+disposition is recorded in `docs/reviews/2026-10-23-m4-decision.md`: M4 software raster is experimental,
+opt-in, default-off and NOT accepted for shipping; DAG+HZB remains the shipping path. Archived gate logs:
+`D:/deren-assets/2026-10-23-software-raster/gpu-routing-acceptance/logs/` (Release 68/68, ASan 67/67,
+frozen Full 15/15 + Visibility 1/1, converter 6/6); final archive manifest 728 files / 1,055,832,427 B
+(SHA-256 re-hash 0 mismatches).
+
 ## Resumed result
 
 The quota window reset and work resumed. The independent fixture generator and raw-image verifier are now in `scripts/measure/`; the verifier is registered with CTest. The hardlink boundary test passes outside the sandbox. The corrected textured matrix completed all 24 captures; accepted numbers and evidence are in [the corrected report](2026-10-23-subtilis-textured-acceptance.md). Earlier partial matrices below are historical. Diagnostic file writes now refuse replacement. The broader full-stage oracle, tangent-profile support and exhaustive GPU edge-case fixtures remain documented limitations rather than completed acceptance claims.

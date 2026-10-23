@@ -154,3 +154,4 @@ CPU active 中位数仍增加约 3 ms（DAG 5.20/5.05 ms，软件 1.0 px 为 8.3
 
 Software-enabled results below predate fixes for sparse dispatch bounds, CSR frame stride and software mode push constants. Keep them as historical measurements; the 5.22 ms / approximately 26x result requires remeasurement with correct raster output. See [closeout checkpoint](2026-10-23-subtilis-closeout-checkpoint.md). Configurations without software raster are not invalidated by these three defects.
 
+**Historical record (2026-10-23):** the software-enabled rows below are superseded and withdrawn for performance claims; see the [M4 decision](2026-10-23-m4-decision.md). No trailing blank line is kept at EOF.
