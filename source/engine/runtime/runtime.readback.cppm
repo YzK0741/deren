@@ -24,11 +24,14 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <cstring>  // std::memcpy of an RGBA frame
-#include <expected> // std::unexpected for the failure strings
+#include <cstring>    // std::memcpy of an RGBA frame
+#include <expected>   // std::unexpected for the failure strings
+#include <filesystem> // the capture manifest checks the files it claims are on disk
 #include <fstream>
 #include <span> // the bytes the contract's buffer view hands back
 #include <string>
+#include <system_error> // std::error_code for the manifest file-size probe
+#include <utility>      // std::pair for the manifest entries
 #include <vector>
 
 module deren.engine.runtime:readback;
@@ -82,6 +85,11 @@ namespace deren::engine {
             std::uint64_t const required = static_cast<std::uint64_t>(captured.width) * captured.height * 4u;
             if (!required)
                 return std::unexpected(deren::utility::vessel::string("software image capture: no completed capture"));
+            // THE ORACLE GATE (closeout hardening): a capture whose independent CPU reference did not rasterize publishes
+            // NO GPU images. Without this a failed oracle left a GPU-only dump that a later comparison could accept by
+            // accident, which is exactly the evidence-integrity failure the closeout checkpoint recorded.
+            if (!this->software_route_probe_ready && !this->software_capture_oracle_ok)
+                return std::unexpected(deren::utility::vessel::string("software image capture: CPU oracle failed; GPU images not published"));
             if (this->software_route_probe_ready) {
                 namespace software = deren::engine::visibility::software;
                 auto fail = [] { return std::unexpected(deren::utility::vessel::string("software GPU capture: invalid partition or reference")); };
@@ -109,6 +117,27 @@ namespace deren::engine {
                 }
                 if (!software::validate_gpu_partition(entries, partition))
                     return fail();
+
+                // THE PARTITION BREAKDOWN, in the file and not only in the log: a recovery frame's evidence must say
+                // its recovery phase actually ran with nonzero counts (the closeout's "explicit nonzero recovery"
+                // item), and the hardware primary/recovery split is what an independent reader checks against
+                // pass1/pass2.
+                std::uint64_t hardware_primary = 0u, hardware_recovery = 0u, recovered_visible = 0u;
+                for (auto const& item : partition) {
+                    hardware_primary += item.primary_count;
+                    hardware_recovery += item.recovery_count;
+                    for (auto const flag : item.flags)
+                        if (flag == 3u)
+                            ++recovered_visible;
+                }
+                std::ofstream report(std::string(prefix) + "-route.json", std::ios::out | std::ios::noreplace);
+                report << "{\"partition_valid\":true,\"slot\":" << this->software_route_probe_slot
+                       << ",\"software_candidates\":" << entries.size() << ",\"budget\":" << this->software_route_probe_budget
+                       << ",\"hardware_primary\":" << hardware_primary << ",\"hardware_recovery\":" << hardware_recovery
+                       << ",\"recovered_visible\":" << recovered_visible << "}\n";
+                if (!report)
+                    return fail();
+                deren::utility::log("software GPU capture: partition valid, {} software candidates, slot {}", entries.size(), this->software_route_probe_slot);
                 software::camera_parameters camera{.view = this->software_route_probe_view, .proj = this->software_route_probe_proj, .width = captured.width, .height = captured.height};
                 // Independent diagnostic CSR uses the GPU's actual IDs, without reclassifying candidates.
                 deren::utility::vessel::vector<deren::utility::vessel::vector<software::tile_entry>> bins(grid.tile_count());
@@ -132,6 +161,9 @@ namespace deren::engine {
                 }
                 lists.entry_count = static_cast<std::uint32_t>(lists.entries.size());
                 auto reference = software::rasterize_tiles(lists, {.camera = camera, .items = references});
+                // THE CPU REFERENCE IS THE IMAGE ORACLE, AND IT IS PUBLISHED (route.json, above) ONLY WHEN IT MATCHED;
+                // a scene whose retained geometry is incomplete fails HERE, after the partition report exists but
+                // BEFORE any image dump or manifest - the closeout's "CPU oracle failure must gate GPU-only dumps".
                 if (!reference)
                     return fail();
                 std::array<char const*, 2> names{"-cpu-depth.u32", "-cpu-id.u32"};
@@ -142,12 +174,6 @@ namespace deren::engine {
                     if (!output)
                         return fail();
                 }
-                std::ofstream report(std::string(prefix) + "-route.json", std::ios::out | std::ios::noreplace);
-                report << "{\"partition_valid\":true,\"slot\":" << this->software_route_probe_slot
-                       << ",\"software_candidates\":" << entries.size() << ",\"budget\":" << this->software_route_probe_budget << "}\n";
-                if (!report)
-                    return fail();
-                deren::utility::log("software GPU capture: partition valid, {} software candidates, slot {}", entries.size(), this->software_route_probe_slot);
             }
             std::array<char const*, 2> const suffixes{"-depth.u32", "-id.u32"};
             for (std::size_t i = 0; i < suffixes.size(); ++i) {
@@ -161,6 +187,44 @@ namespace deren::engine {
                 output.write(reinterpret_cast<char const*>(bytes.data()), static_cast<std::streamsize>(required));
                 if (!output)
                     return std::unexpected(deren::utility::vessel::string("software image capture: file write failed"));
+            }
+            // ---- THE CAPTURE MANIFEST, WRITTEN LAST (closeout hardening) ----
+            //
+            // Atomic completeness without a directory dance: the manifest names every file this capture produced, with
+            // its byte count, and it is created ONLY after all of them were written. A prefix carrying it is complete
+            // by construction, and `verify_software_images.py --require-manifest` refuses a prefix without one - which
+            // is how a stale CPU file from an earlier capture can no longer silently mix into a new GPU comparison.
+            {
+                auto const prefix_text = std::string(prefix);
+                auto file_bytes = [](std::string const& path) -> std::uint64_t {
+                    std::error_code error;
+                    auto const size = std::filesystem::file_size(path, error);
+                    return error ? 0u : static_cast<std::uint64_t>(size);
+                };
+                std::vector<std::pair<std::string, std::uint64_t>> files;
+                for (char const* suffix : {"-depth.u32", "-id.u32", "-cpu-depth.u32", "-cpu-id.u32"})
+                    files.emplace_back(suffix, file_bytes(prefix_text + suffix));
+                if (this->software_route_probe_ready)
+                    files.emplace_back("-route.json", file_bytes(prefix_text + "-route.json"));
+                for (auto const& [suffix, bytes] : files) {
+                    if (bytes == 0u) {
+                        std::string const message = "software image capture: incomplete capture (" + suffix + " missing)";
+                        return std::unexpected(deren::utility::vessel::string(message.c_str()));
+                    }
+                }
+                std::ofstream manifest(prefix_text + "-capture.json", std::ios::out | std::ios::noreplace);
+                manifest << "{\"complete\":true,\"schema\":1,\"slot\":" << (this->software_route_probe_ready ? this->software_route_probe_slot : 0u)
+                         << ",\"files\":[";
+                bool first = true;
+                for (auto const& [suffix, bytes] : files) {
+                    if (!first)
+                        manifest << ',';
+                    first = false;
+                    manifest << "{\"suffix\":\"" << suffix << "\",\"bytes\":" << bytes << '}';
+                }
+                manifest << "]}\n";
+                if (!manifest)
+                    return std::unexpected(deren::utility::vessel::string("software image capture: manifest write failed"));
             }
         }
         if (auto const* path = std::getenv("DEREN_GAUSSIAN_HDR_CAPTURE"); path && this->gaussian_hdr_readback) {

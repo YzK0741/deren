@@ -43,3 +43,11 @@ Against software off, triangle-mode GPU medians remain +0.21 ms far / +0.07 ms n
 Bistro far screenshots match exactly between tiled/triangle modes in all three rounds. Near final-color screenshots have two versions differing at 14,823 pixels, with mean absolute channel differences 0.00862/0.00858/0.00844 on a 0–255 scale; the same two hashes also appear in repeated **software-off** captures. An additional validation-enabled 130-frame near capture per software mode read back the actual software depth/ID: both match exactly (depth SHA256 `c1a278749cec50862b38ddd306291242df759ab458eaf3ba194604ac2756128a`, ID `0c660f2bd3eff3150dd0040789abe2291613b9af319df870203d4f77a4913a5f`). No validation errors. Thus the final-color variation is not evidence of different software-producer images; its broader hardware/HZB/shading cause is not resolved by this experiment. Raw outputs/logs live under `tmp/software-triangle-near-raw`.
 
 CPU classification and CSR building still cost approximately 2.28/1.91 ms wall time with triangle mode versus 1.19/1.03 ms without software. The experiment deliberately isolated GPU work distribution; replacing CPU tile binning with direct cluster routing and then considering GPU-side routing is the next cost target. No broader geometry or full-stage correctness claim follows from these performance captures.
+
+## Continuation: GPU survivor routing
+
+The direct CPU list (stage 1), triangle-scale routing (stage 2) and GPU survivor routing (stage 3) are recorded in
+the [routing checkpoint](2026-10-23-software-routing.md). On one final build, GPU routing validates the
+hardware/software partition (both slots, closed-history fallback, forced budget exhaustion, nonzero recovery) and
+removes the CPU routing overhead, but the same-build matrix does not establish a stable whole-frame hybrid win;
+software stays default-off and M4 remains not accepted.

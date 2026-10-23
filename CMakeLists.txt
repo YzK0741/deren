@@ -1240,6 +1240,13 @@ if(VR_BUILD_TESTS)
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/measure/verify_software_raster.py" --self-test)
     add_test(NAME test_software_raster_image_verifier
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/measure/verify_software_images.py" --self-test)
+    # M4 Task 3 closeout: the deterministic fixture generator and the GPU-route acceptance capture harness have their
+    # own headless self-tests, so a broken fixture recipe or a capture whose markers/manifest expectations no longer
+    # match the runtime fails in CI instead of in a GPU-only acceptance run.
+    add_test(NAME test_software_raster_fixture_generator
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/measure/make_software_raster_fixture.py" --self-test)
+    add_test(NAME test_software_gpu_capture_harness
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/measure/capture_software_gpu_route.py" --self-test)
     add_test(NAME test_boost_graph_vendor
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/vendor_boost_graph.py"
                 --output "${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/boost" --verify)

@@ -1107,6 +1107,12 @@ namespace deren::engine {
         std::array<float, 16> software_route_probe_view{}, software_route_probe_proj{};
         bool software_route_probe_ready = false;
         std::uint32_t software_route_probe_slot = 0, software_route_probe_budget = 0;
+        /// SCREENSHOT-FRAME ORACLE GATE: did the independent CPU reference rasterize the SAME software capture this
+        /// frame? The CPU-producer capture path (runtime.cpp's `DEREN_SOFTWARE_IMAGES_CAPTURE` snapshot) sets it, and
+        /// runtime.readback.cppm refuses to publish the GPU images when it is false - "the oracle failed" must never
+        /// leave a GPU-only dump that looks like acceptance evidence. True by default so a lane that never attempts an
+        /// oracle (the GPU-route path, whose partition validation gates its own dumps) is unaffected.
+        bool software_capture_oracle_ok = true;
 
         // ================================================================================================
         // THE HZB BUILD LANE (M3 phase A2, docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md §4.1, §4.2,

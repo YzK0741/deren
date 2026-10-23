@@ -16,6 +16,15 @@ and software suffix, while software raster filters its suffix using the final HZ
 software candidate is resolved before a depth-only merge updates the G-buffer depth. See
 [Subtilis M4](subtilis.md#10-milestone-status) for its current validation and outstanding measurement work.
 
+A second opt-in mode, `DEREN_SOFTWARE_RASTER_GPU=1`, moves the software-candidate routing itself into the HZB
+compaction: the compute stage classifies and reserves the bounded software list, emits the hardware survivors and
+the compute-indirect arguments, and the software kernel consumes those arguments without a production CPU count
+readback. Capture-only snapshots validate the hardware/software partition against the HZB flags/survivors (both
+frame slots, closed-history fallback, forced budget exhaustion, nonzero recovery). The mode is default-off and its
+same-build performance matrix shows no stable whole-frame win over software-off DAG+HZB; the full-stage
+resolve/merge verifier remains unconnected. See the
+[routing checkpoint](reviews/2026-10-23-software-routing.md) for the evidence and limitations.
+
 ## What it is
 
 The deferred scene path has two interchangeable opaque producers:

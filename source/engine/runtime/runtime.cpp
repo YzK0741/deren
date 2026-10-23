@@ -2574,6 +2574,9 @@ namespace deren::engine {
             }
             if (published && this->screenshot_requested && std::getenv("DEREN_SOFTWARE_IMAGES_CAPTURE") && !this->hzb_cull_active_frame) {
                 // Snapshot the CPU oracle from the same camera, CSR and immutable source geometry.
+                // THE ORACLE GATE: reset per capture, set from the actual rasterization below (runtime.readback.cppm
+                // reads it and refuses to publish GPU-only images when the reference did not rasterize).
+                this->software_capture_oracle_ok = false;
                 // Read the published record order, since the software IDs name the reordered suffix.
                 deren::utility::vessel::vector<deren::utility::vessel::vector<std::array<float, 3>>> positions(count);
                 deren::utility::vessel::vector<deren::utility::vessel::vector<meshlet>> records(count);
@@ -2604,8 +2607,13 @@ namespace deren::engine {
                 // CSR remains an independent screenshot-only oracle, never production triangle routing.
                 auto oracle_lists = triangles ? software::build_tile_lists(items, parameters, this->software_raster_threshold_px, software::software_entry_budget, software_metric)
                                               : lists;
-                auto reference = oracle_lists ? software::rasterize_tiles(*oracle_lists, {.camera = parameters, .items = references})
-                                              : std::expected<software::software_image, software::software_error>{std::unexpected(software::software_error::invalid_reference)};
+                // DIAGNOSTIC NEGATIVE CONTROL (M4 Task 3 closeout): `DEREN_SOFTWARE_ORACLE_FAIL=1` forces the
+                // same outcome as a scene whose retained geometry cannot be rasterized, so the readback's
+                // oracle gate can be exercised on a scene that would otherwise pass.
+                bool const forced_oracle_failure = std::getenv("DEREN_SOFTWARE_ORACLE_FAIL") != nullptr;
+                auto reference = oracle_lists && !forced_oracle_failure
+                                     ? software::rasterize_tiles(*oracle_lists, {.camera = parameters, .items = references})
+                                     : std::expected<software::software_image, software::software_error>{std::unexpected(software::software_error::invalid_reference)};
                 if (!reference) {
                     for (auto const& entry : lists->entries) {
                         auto const found = std::find_if(references.begin(), references.end(), [&](auto const& candidate) { return candidate.item_index == entry.item_index; });
@@ -2632,10 +2640,14 @@ namespace deren::engine {
                     std::ofstream id_file(prefix + "-cpu-id.u32", std::ios::binary | std::ios::out | std::ios::noreplace);
                     depth_file.write(reinterpret_cast<char const*>(reference->depth_bits.data()), reference->depth_bits.size() * sizeof(std::uint32_t));
                     id_file.write(reinterpret_cast<char const*>(reference->id.data()), reference->id.size() * sizeof(std::uint32_t));
-                    if (!depth_file || !id_file)
+                    this->software_capture_oracle_ok = static_cast<bool>(depth_file) && static_cast<bool>(id_file);
+                    if (!this->software_capture_oracle_ok)
                         deren::utility::log("software CPU capture: FAIL writing oracle");
-                } else
-                    deren::utility::log("software CPU capture: FAIL reference rasterization");
+                } else {
+                    this->software_capture_oracle_ok = false;
+                    deren::utility::log(forced_oracle_failure ? "software CPU capture: FAIL reference rasterization (forced by DEREN_SOFTWARE_ORACLE_FAIL)"
+                                                              : "software CPU capture: FAIL reference rasterization");
+                }
             }
             if (!published) {
                 software_raster_frame_active = false;

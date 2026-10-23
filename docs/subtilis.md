@@ -1,5 +1,14 @@
 # Subtilis - large-scene rendering system
 
+> **GPU survivor routing (2026-10-23):** the opt-in `DEREN_SOFTWARE_RASTER_GPU=1` prototype is implemented and
+> now validated on one final build: HZB compaction classifies/reserves/emits the software list on the GPU, the
+> software kernel consumes compute-indirect arguments, and capture-only snapshots validate the hardware/software
+> partition (both frame-ring slots, closed-history fallback, forced budget exhaustion, nonzero recovery; software
+> images match the CPU reference at 2 ULP, validation-enabled smokes clean). A same-build three-round far/near
+> matrix shows GPU routing removes the CPU routing overhead (cut wall -0.63/-0.47 ms versus CPU routing) but no
+> stable whole-frame win over software-off DAG+HZB; software stays default-off and M4 is NOT accepted. See the
+> [routing checkpoint](reviews/2026-10-23-software-routing.md).
+
 > **Triangle software prototype (2026-10-23):** an opt-in UE-inspired triangle producer reduces the
 > software pass from 2.33/0.18 ms to 0.10/0.09 ms (far/near). Same-build whole-frame medians are
 > 10.52/5.53 ms versus tiled software 11.84/5.86 ms and software-off DAG+HZB 10.31/5.46 ms.
@@ -242,7 +251,11 @@ geometry-scene image differences above are LOD edge differences, not pixel ident
    CPU-vs-GPU fixture acceptance. The three-round Bistro GPU performance matrix is recorded in the
    [render optimization report](reviews/2026-10-22-render-optimization-comparison.md); raw GPU depth/ID
    readback and CPU-reference/repeat-capture checks now pass the planar fixture in the corrected acceptance
-   report. Full-stage and broader geometry/edge-case acceptance remain open.
+   report. Full-stage and broader geometry/edge-case acceptance remain open. The GPU survivor routing mode
+   (`DEREN_SOFTWARE_RASTER_GPU=1`) is implemented on top of this lane and validated as a prototype (see the routing
+   checkpoint): it removes the CPU routing overhead but does not establish a net hybrid win on the measured scene,
+   and the full-stage manifest/CSR/hardware/resolve/merge verifier is still not implemented - the capture-only
+   checks validate the software producer/partition, not the resolve/merge chain.
 5. **M5 streaming/paging** is not started. The DAG probe finds 23.28% of far and 5.37% of near selected clusters
    below 1px; this alone does not establish software-raster ROI.
 6. The screen-error cut is a heuristic with a recorded conservative bound, not a strict per-pixel error
@@ -306,9 +319,11 @@ are repository-relative.
 - M2 - GPU-side cut selection + finalize, indirect parameters: **not implemented**.
 - M3 - Hi-Z occlusion culling: **implemented as the HZB lane** 2026-10-21 (history prediction + current-frame recovery; default off, measured on Bistro).
 - M4 - software raster for sub-pixel clusters: **runtime path implemented, experimental/default off**;
-  corrected three-round textured Bistro performance and planar CPU/GPU repeat-capture evidence are recorded.
-  Full-stage and broader GPU geometry acceptance remain open. Measured software cost exceeds its benefit on
-  the current textured test; prefer DAG+HZB for that scene.
+  CPU routing (direct list) and GPU survivor routing are implemented and separately validated as opt-in prototypes;
+  corrected three-round textured Bistro performance, planar CPU/GPU repeat-capture and GPU-partition/recovery
+  evidence are recorded. GPU routing removes the CPU routing cost but the same-build matrix shows no stable
+  whole-frame win; measured software cost still exceeds its benefit on the current textured test (prefer DAG+HZB
+  for that scene). Full-stage and broader GPU geometry acceptance remain open; M4 is NOT accepted.
 - M5 - streaming/paging: **not started**.
 - asset pipeline - automatic import-time build + on-disk cache: **not implemented** (explicit legacy builder and offline payload import are available).
 - offline glTF cluster-DAG converter (`tools/subtilis`, `DEREN_subtilis` extension): **implemented and
