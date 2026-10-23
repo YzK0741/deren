@@ -14,7 +14,8 @@ clusters from the hardware mesh-task prefix into a tiled CSR software raster. It
 and Subtilis and is default-off. It composes with HZB culling and recovery: HZB evaluates both the hardware prefix
 and software suffix, while software raster filters its suffix using the final HZB visibility/recovery flags. The
 software candidate is resolved before a depth-only merge updates the G-buffer depth. See
-[Subtilis M4](subtilis.md#10-milestone-status) for its current validation and outstanding measurement work.
+[Subtilis M4](subtilis.md#10-milestone-status) for the recorded evidence and the final closeout: the mode
+remains optional/default-off and is not optimized further.
 
 A second opt-in mode, `DEREN_SOFTWARE_RASTER_GPU=1`, moves the software-candidate routing itself into the HZB
 compaction: the compute stage classifies and reserves the bounded software list, emits the hardware survivors and
@@ -22,8 +23,9 @@ the compute-indirect arguments, and the software kernel consumes those arguments
 readback. Capture-only snapshots validate the hardware/software partition against the HZB flags/survivors (both
 frame slots, closed-history fallback, forced budget exhaustion, nonzero recovery). The mode is default-off and its
 same-build performance matrix shows no stable whole-frame win over software-off DAG+HZB; the full-stage
-resolve/merge verifier remains unconnected. See the
-[routing checkpoint](reviews/2026-10-23-software-routing.md) for the evidence and limitations.
+resolve/merge verifier remains unconnected. The mode is closed as an optional negative result and is not
+optimized further. See the [routing checkpoint](reviews/2026-10-23-software-routing.md) for the evidence and
+limitations and the [final closeout](reviews/2026-10-23-subtilis-final-closeout.md).
 
 ## What it is
 

@@ -47,13 +47,12 @@ lanes. These components currently have separate configuration gates rather than 
 narrower discussions, "Subtilis DAG" or "Subtilis LOD" refers to the hierarchy component; "the Subtilis
 system/path" refers to the composed renderer.
 
-> **Status (2026-10-22).** M1a/M1b, **M1c runtime import of offline cluster DAGs**, and the first
-> **M4 software-raster runtime path** are implemented.
-> `DEREN_subtilis` assets now load through the normal glTF path, share immutable CPU/GPU generations,
-> and feed the CPU cut into the existing visibility/HZB lanes. The explicit legacy builder remains usable.
-> M2 (GPU select/finalize) and M5 (streaming) are not implemented. M4 remains experimental: the three-round
-> corrected textured Bistro GPU matrix and a planar CPU/GPU readback fixture are recorded in the
-> corrected acceptance report. Broader GPU edge-case and full-stage validation remain open.
+> **Status (closed 2026-10-23).** M1a/M1b, **M1c runtime import of offline cluster DAGs**, the HZB lane and the
+> **optional M4 software-raster runtime path** are implemented. `DEREN_subtilis` assets load through the normal
+> glTF path, share immutable CPU/GPU generations, and feed the CPU cut into the existing visibility/HZB lanes;
+> DAG+HZB is the shipping path. M4 was closed as an experimental/default-off negative result: headroom and
+> subpixel-share sweeps found no stable whole-frame win, and no further software-raster optimization is planned.
+> M2 (GPU select/finalize) and M5 (streaming) are deferred and not implemented.
 > **Default OFF**: `[render] subtilis=true` opts into payload extraction/adoption at startup and requires
 > `visibility_buffer=true` plus frame admission. Unsupported assets/items keep complete LOD0.
 >
@@ -266,7 +265,9 @@ geometry-scene image differences above are LOD edge differences, not pixel ident
    CPU-vs-GPU fixture acceptance. The three-round Bistro GPU performance matrix is recorded in the
    [render optimization report](reviews/2026-10-22-render-optimization-comparison.md); raw GPU depth/ID
    readback and CPU-reference/repeat-capture checks now pass the planar fixture in the corrected acceptance
-   report. Full-stage and broader geometry/edge-case acceptance remain open. The GPU survivor routing mode
+   report. The M4 subpixel-share/HZB-headroom sweep then closed the ROI question (no stable net win; T1's no-HZB
+upper bound overestimated the shipping budget by ~3-5x); the software lane is now optional/default-off with no
+further optimization planned (see the [headroom report](reviews/2026-10-23-software-raster-headroom.md)). The GPU survivor routing mode
    (`DEREN_SOFTWARE_RASTER_GPU=1`) is implemented on top of this lane and validated as a prototype (see the routing
    checkpoint): it removes the CPU routing overhead but does not establish a net hybrid win on the measured scene,
    and the full-stage manifest/CSR/hardware/resolve/merge verifier is still not implemented - the capture-only
@@ -333,12 +334,12 @@ are repository-relative.
 - M1c - offline converter DAG import, shared generations, CPU selection and real-scene measurement: **implemented** 2026-10-22 (source-asset exceptions recorded).
 - M2 - GPU-side cut selection + finalize, indirect parameters: **not implemented**.
 - M3 - Hi-Z occlusion culling: **implemented as the HZB lane** 2026-10-21 (history prediction + current-frame recovery; default off, measured on Bistro).
-- M4 - software raster for sub-pixel clusters: **runtime path implemented, experimental/default off**;
-  CPU routing (direct list) and GPU survivor routing are implemented and separately validated as opt-in prototypes;
-  corrected three-round textured Bistro performance, planar CPU/GPU repeat-capture and GPU-partition/recovery
-  evidence are recorded. GPU routing removes the CPU routing cost but the same-build matrix shows no stable
-  whole-frame win; measured software cost still exceeds its benefit on the current textured test (prefer DAG+HZB
-  for that scene). Full-stage and broader GPU geometry acceptance remain open; M4 is NOT accepted.
+- M4 - software raster for sub-pixel clusters: **experimental/optional, default-off, NOT accepted**; closed
+  2026-10-23. The runtime path (tiled plus opt-in triangle producer and opt-in GPU survivor routing) has
+  correctness evidence, but same-build matrices show no stable whole-frame net win and the HZB-configuration
+  headroom sweep was unresolved. No further software-raster optimization is planned; see the
+  [headroom report](reviews/2026-10-23-software-raster-headroom.md) and
+  [final closeout](reviews/2026-10-23-subtilis-final-closeout.md).
 - M5 - streaming/paging: **not started**.
 - asset pipeline - automatic import-time build + on-disk cache: **not implemented** (explicit legacy builder and offline payload import are available).
 - offline glTF cluster-DAG converter (`tools/subtilis`, `DEREN_subtilis` extension): **implemented and

@@ -41,3 +41,6 @@ __pycache__/
 # Captures the app writes into the working directory (F12 / --capture-frames): output, not
 # repository content. 'docs/screenshots/*.png' stays tracked - those are the hand-picked README shots.
 /screenshot_*.png
+
+# Workspace scratch for measurement runs; durable evidence lives under D:/deren-assets, not the repo.
+/tmp/

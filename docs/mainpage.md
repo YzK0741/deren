@@ -70,7 +70,8 @@ implementation details, measured results and the limits of each feature.
   builder produces a unique-parent cluster forest, an explicit upload ties it to a resource generation, and a
   deterministic CPU screen-error cut feeds the visibility lane's per-frame meshlet set (default off, with the
   complete LOD0 run as the fallback). See \ref md_docs_2subtilis "Subtilis" for the current scope, the measured
-  numbers and the milestone status (M2 GPU selection / M4 software raster / M5 streaming remain open).
+  numbers and the closed phase status: DAG+HZB ships, the optional M4 software raster is a recorded
+  negative result, and M2/M5 are deferred.
 - **Ray-traced shadows.** `deren.engine.pass.ray_traced_shadow` sits beside the cascade path; see
   the module documentation and `docs/reference/` for the source notes it was built from.
 - **A toon character pipeline.** Per-material families (base / skin / face / hair / eye /
