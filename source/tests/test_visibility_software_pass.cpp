@@ -6,6 +6,7 @@
 #include "vk_test.h"
 
 #include <cstdint>
+#include <cstdlib>
 
 import deren.engine.pass;
 import deren.engine.render_resource;
@@ -50,5 +51,25 @@ int main() {
         io_with_extent.extent = {.width = 64u, .height = 64u};
         CHECK(raster.record_content(io_with_extent) == deren::promise::rhi::error::invalid_argument);
     }
+    // Explicit prototype request must refuse preparation without a device/pipeline;
+    // the runtime calls this before publishing a shortened hardware prefix.
+#ifdef _WIN32
+    _putenv_s("DEREN_SOFTWARE_RASTER_TRIANGLES", "1");
+#else
+    setenv("DEREN_SOFTWARE_RASTER_TRIANGLES", "1", 1);
+#endif
+    pass::software_visibility_pass unavailable;
+    unavailable.create({});
+    CHECK(!unavailable.prepare_triangles(0u, 1280u, 720u));
+    CHECK(!unavailable.prepare_triangles(1u, 1280u, 720u));
+    CHECK(!unavailable.triangles_active());
+    CHECK(!unavailable.prepare_gpu_route(0u, 1280u, 720u, {.threshold_px = 1.0f, .near_plane = 0.1f, .projection_scale = 1280.0f, .perspective = true}));
+    CHECK(!unavailable.gpu_routing());
+
+#ifdef _WIN32
+    _putenv_s("DEREN_SOFTWARE_RASTER_TRIANGLES", "");
+#else
+    unsetenv("DEREN_SOFTWARE_RASTER_TRIANGLES");
+#endif
     return deren::vk_test::finish("test_visibility_software_pass");
 }

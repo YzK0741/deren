@@ -507,6 +507,13 @@ export namespace deren::promise::rhi {
         /// The largest number of instances one acceleration structure may hold: the module refuses a frame
         /// whose instance count passes it rather than asking the driver to fail.
         [[nodiscard]] virtual std::uint64_t max_acceleration_structure_instances() const noexcept = 0;
+        /// Enabled shader int64 and storage-buffer int64 atomics; conservative default for other backends.
+        [[nodiscard]] virtual bool compute_indirect() const noexcept {
+            return false;
+        }
+        [[nodiscard]] virtual bool buffer_int64_atomics() const noexcept {
+            return false;
+        }
     };
 
     /// ABI9: heap 查询只返回值，不暴露后端 heap_limits 类型或引用。

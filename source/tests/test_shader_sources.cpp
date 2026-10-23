@@ -376,5 +376,56 @@ int32_t main() {
     auto const shading = read_text(deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/shaders/lighting/shading.slang");
     CHECK(shading.find("float light_count;") != deren::utility::vessel::string::npos);
     // The host/shader validity lane must gate the history texture fetch, not only its image layout.
+    auto const software = read_text(deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/shaders/scene/software_visibility.slang");
+    auto const resolve = read_text(deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/shaders/scene/visibility_resolve.slang");
+    CHECK(software.find("common/mesh_fetch.slang") != deren::utility::vessel::string::npos);
+    CHECK(software.find("software_header_words + tiles * 3u + 1u + software_entry_budget * 2u") != deren::utility::vessel::string::npos);
+    CHECK(software.find("if ((push.spare_lane & 2u) != 0u)") < software.find("if (group_id.x >= tiles_x || group_id.y >= tiles_y)"));
+    CHECK(resolve.find("common/mesh_fetch.slang") != deren::utility::vessel::string::npos);
+    CHECK(software.find("offsets_word") != deren::utility::vessel::string::npos);
+    CHECK(software.find("tile % tiles_x") != deren::utility::vessel::string::npos);
+    CHECK(software.find("tile / tiles_x") != deren::utility::vessel::string::npos);
+    CHECK(software.find("visibility_id_item_shift") != deren::utility::vessel::string::npos);
+    CHECK(software.find("visibility_id_meshlet_shift") != deren::utility::vessel::string::npos);
+    CHECK(software.find("visibility_id_valid") != deren::utility::vessel::string::npos);
+    CHECK(software.find("material.flags & 8u") != deren::utility::vessel::string::npos);
+    CHECK(software.find("clamp(raw_depth, 0.0, 1.0)") != deren::utility::vessel::string::npos);
+    CHECK(software.find("groupshared SoftwareTriangleData software_triangles[") != deren::utility::vessel::string::npos);
+    CHECK(software.find("software_prepare_triangle(") != deren::utility::vessel::string::npos);
+    CHECK(software.find("software_threads_per_tile = 64u") != deren::utility::vessel::string::npos);
+    CHECK(software.find("triangle += software_threads_per_tile") != deren::utility::vessel::string::npos);
+    CHECK(software.find("GroupMemoryBarrierWithGroupSync()") != deren::utility::vessel::string::npos);
+    CHECK(software.find("software_triangle_covers_pixel(") != deren::utility::vessel::string::npos);
+    CHECK(software.find("bounds_min") != deren::utility::vessel::string::npos);
+    CHECK(resolve.find("choose_visibility_candidate(") != deren::utility::vessel::string::npos);
+    auto const candidate_start = resolve.find("if (choose_visibility_candidate(packed, depth_value, sw_id, sw_depth))");
+    CHECK(candidate_start != deren::utility::vessel::string::npos);
+    if (candidate_start != deren::utility::vessel::string::npos) {
+        auto const candidate_end = resolve.find('}', candidate_start);
+        auto const candidate_block = resolve.substr(candidate_start, candidate_end - candidate_start);
+        CHECK(candidate_block.find("packed = sw_id;") != deren::utility::vessel::string::npos);
+        CHECK(candidate_block.find("depth_value = asfloat(sw_depth);") != deren::utility::vessel::string::npos);
+    }
+    auto const hzb_cull = read_text(deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/shaders/scene/hzb_cull.slang");
+    auto const runtime_frames = read_text(deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/engine/runtime/runtime.frames.cppm");
+    auto const runtime_constructor = read_text(deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/engine/runtime/runtime.constructor.cppm");
+    auto const render_graph_visibility = read_text(deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/engine/render_graph/visibility.cppm");
+    CHECK(hzb_cull.find("hzb_hardware_candidate(src, index)") != deren::utility::vessel::string::npos);
+    CHECK(hzb_cull.find("src.pad") != deren::utility::vessel::string::npos);
+    CHECK(software.find("hzb_results_lane_base(push.frame_slot)") != deren::utility::vessel::string::npos);
+    CHECK(software.find("hzb_survivors_usable(push.frame_slot, item_index)") != deren::utility::vessel::string::npos);
+    CHECK(software.find("flag != 0u && flag != 3u") != deren::utility::vessel::string::npos);
+    CHECK(software.find("item.meshlet_table > 2u") != deren::utility::vessel::string::npos);
+    CHECK(resolve.find("software_selected") != deren::utility::vessel::string::npos);
+    CHECK(resolve.find("software_selected && item.meshlet_table == 2u") != deren::utility::vessel::string::npos);
+    CHECK(runtime_frames.find("!this->hzb_cull_enabled && !this->hzb_recovery_enabled") == deren::utility::vessel::string::npos);
+    auto const software_request_start = runtime_constructor.find("bool const software_requested =");
+    CHECK(software_request_start != deren::utility::vessel::string::npos);
+    if (software_request_start != deren::utility::vessel::string::npos) {
+        auto const software_request_end = runtime_constructor.find(';', software_request_start);
+        CHECK(runtime_constructor.substr(software_request_start, software_request_end - software_request_start).find("hzb_cull_enabled") == deren::utility::vessel::string::npos);
+    }
+    CHECK(render_graph_visibility.find("std::optional<buffer_ref> hzb_results") != deren::utility::vessel::string::npos);
+    CHECK(render_graph_visibility.find("visibility_recovery") != deren::utility::vessel::string::npos);
     return deren::vk_test::finish("test_shader_sources");
 }

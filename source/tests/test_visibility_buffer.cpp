@@ -295,14 +295,16 @@ namespace {
     void test_resolve_shader_mirror() {
         std::vector<std::string> const lines = shader_lines("scene/visibility_resolve.slang");
         std::string const code = strip_comments(lines);
+        std::vector<std::string> const fetch_lines = shader_lines("common/mesh_fetch.slang");
+        std::string const fetch_code = strip_comments(fetch_lines);
         // ---- the draw-item record, field for field: deren.engine.visibility::draw_item's 12 lanes then the matrix
         std::vector<std::string> fields;
-        for (std::size_t i = 0; i < lines.size(); ++i) {
-            if (lines[i].find("struct VisibilityDrawItem") == std::string::npos) {
+        for (std::size_t i = 0; i < fetch_lines.size(); ++i) {
+            if (fetch_lines[i].find("struct VisibilityDrawItem") == std::string::npos) {
                 continue;
             }
-            for (std::size_t k = i + 1; k < lines.size() && lines[k].find('}') == std::string::npos; ++k) {
-                std::string declaration = lines[k];
+            for (std::size_t k = i + 1; k < fetch_lines.size() && fetch_lines[k].find('}') == std::string::npos; ++k) {
+                std::string declaration = fetch_lines[k];
                 if (std::size_t const comment_at = declaration.find("//"); comment_at != std::string::npos) {
                     declaration.erase(comment_at);
                 }
@@ -323,24 +325,24 @@ namespace {
         std::vector<std::string> const expected{"vertex_address_low", "vertex_address_high", "index_address_low", "index_address_high",
                                                 "first_index", "base_vertex", "index_width", "meshlet_base",
                                                 "meshlet_table", "material_index", "motion_index", "flags", "model"};
-        CHECK_MSG(fields.size() == expected.size(), "the resolve shader's VisibilityDrawItem must declare 12 lanes + model");
+        CHECK_MSG(fields.size() == expected.size(), "the shared VisibilityDrawItem must declare 12 lanes + model");
         for (std::size_t i = 0; i < fields.size() && i < expected.size(); ++i) {
             CHECK_MSG(fields[i] == expected[i], (std::string("the resolve shader's draw-item field ") + std::to_string(i) + " is '" + fields[i] + "', expected '" + expected[i] + "'").c_str());
         }
         // ---- the packed id's fields, pinned against the C++ constants
         static_assert(id_triangle_bits == 7u && id_meshlet_bits == 12u && id_item_bits == 12u && id_valid_bits == 1u);
-        CHECK_MSG(text_contains(code, "visibility_id_triangle_shift = 0u"), "the resolve shader's triangle shift must stay 0");
-        CHECK_MSG(text_contains(code, "visibility_id_meshlet_shift = 7u"), "the resolve shader's meshlet shift must stay 7");
-        CHECK_MSG(text_contains(code, "visibility_id_item_shift = 19u"), "the resolve shader's item shift must stay 19");
-        CHECK_MSG(text_contains(code, "visibility_id_valid = 1u << 31u"), "the resolve shader's valid bit must stay bit 31");
-        CHECK_MSG(text_contains(code, "visibility_id_triangle_mask = 0x7Fu"), "the resolve shader's triangle mask must stay 7 bits");
-        CHECK_MSG(text_contains(code, "visibility_id_meshlet_mask = 0xFFFu"), "the resolve shader's meshlet mask must stay 12 bits");
-        CHECK_MSG(text_contains(code, "visibility_id_item_mask = 0xFFFu"), "the resolve shader's item mask must stay 12 bits");
+        CHECK_MSG(text_contains(fetch_code, "visibility_id_triangle_shift = 0u"), "the shared fetch's triangle shift must stay 0");
+        CHECK_MSG(text_contains(fetch_code, "visibility_id_meshlet_shift = 7u"), "the shared fetch's meshlet shift must stay 7");
+        CHECK_MSG(text_contains(fetch_code, "visibility_id_item_shift = 19u"), "the shared fetch's item shift must stay 19");
+        CHECK_MSG(text_contains(fetch_code, "visibility_id_valid = 1u << 31u"), "the shared fetch's valid bit must stay bit 31");
+        CHECK_MSG(text_contains(fetch_code, "visibility_id_triangle_mask = 0x7Fu"), "the shared fetch's triangle mask must stay 7 bits");
+        CHECK_MSG(text_contains(fetch_code, "visibility_id_meshlet_mask = 0xFFFu"), "the shared fetch's meshlet mask must stay 12 bits");
+        CHECK_MSG(text_contains(fetch_code, "visibility_id_item_mask = 0xFFFu"), "the shared fetch's item mask must stay 12 bits");
         // ---- the item table's LANE ARITHMETIC: one descriptor with the per-frame lanes INSIDE it (measured: adding
         //      the frame slot to the heap slot instead read the next array's storage-image descriptor as a structured
         //      buffer, and the device was lost on the second frame slot)
         static_assert(id_item_capacity == 4096u);
-        CHECK_MSG(text_contains(code, "visibility_item_capacity = 4096u"), "the resolve shader's per-frame item stride must stay 4096 rows");
+        CHECK_MSG(text_contains(fetch_code, "visibility_item_capacity = 4096u"), "the shared fetch's per-frame item stride must stay 4096 rows");
         CHECK_MSG(text_contains(code, "push.frame_slot * visibility_item_capacity + id_item"), "the resolve must index the item table by frame-slot lane, not by heap slot");
         CHECK_MSG(!text_contains(code, "heap_slots_visibility_items + heap_frame_slot"), "the item table is ONE descriptor with per-frame rows, not a per-frame array of descriptors");
         // ---- the COMPUTE rules: no fragment-only statement, and the shared bodies are INCLUDED, not copied

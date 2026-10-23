@@ -1,14 +1,26 @@
 module;
+#include <cstdint>
 #include <expected>
 #include <memory>
+#include <span>
 #include <utility>
 export module deren.engine.subtilis.upload;
 import deren.engine.subtilis.builder;
+import deren.engine.meshlet;
+import deren.utility.shared;
 import deren.promise.rhi;
 import deren.engine.render_resource.instances;
 
 export namespace deren::engine::subtilis {
     namespace upload_rhi = deren::promise::rhi;
+    /// Conservative object-space maximum edge; malformed/nonfinite geometry returns infinity.
+    [[nodiscard]] double maximum_triangle_edge(meshlet const&, std::span<std::uint8_t const> vertices,
+                                               std::span<std::uint32_t const> indices, std::uint32_t stride) noexcept;
+    struct triangle_edge_record {
+        std::uint32_t first_index, index_count;
+        std::int32_t base_vertex;
+        double maximum_edge;
+    };
     class uploaded_geometry;
     /// The source must remain immutable through every alias after publication;
     /// do not move-assign or modify it through a separately retained mutable owner.
@@ -25,6 +37,7 @@ export namespace deren::engine::subtilis {
         };
         std::shared_ptr<void const> resources_;
         std::shared_ptr<built_geometry const> source_;
+        deren::utility::vessel::vector<triangle_edge_record> triangle_edges_;
         std::shared_ptr<render_resource::instances::generation const> vertices_, indices_;
         friend std::expected<std::shared_ptr<uploaded_geometry const>, upload_rhi::error>
         upload_geometry(upload_rhi::shared_object<upload_rhi::api_core> const&, std::shared_ptr<built_geometry const>, upload_rhi::buffer_flags);
@@ -32,15 +45,18 @@ export namespace deren::engine::subtilis {
     public:
         uploaded_geometry(construction_key /*unused*/, std::shared_ptr<void const> resources, std::shared_ptr<built_geometry const> source,
                           std::shared_ptr<render_resource::instances::generation const> vertices,
-                          std::shared_ptr<render_resource::instances::generation const> indices)
+                          std::shared_ptr<render_resource::instances::generation const> indices,
+                          deren::utility::vessel::vector<triangle_edge_record> edges)
             : resources_(std::move(resources))
             , source_(std::move(source))
+            , triangle_edges_(std::move(edges))
             , vertices_(std::move(vertices))
             , indices_(std::move(indices)) {
         }
 
         uploaded_geometry(uploaded_geometry const&) = delete;
         uploaded_geometry& operator=(uploaded_geometry const&) = delete;
+        [[nodiscard]] double triangle_edge(meshlet const& record) const noexcept;
         [[nodiscard]] built_geometry const& source() const noexcept {
             return *source_;
         }

@@ -1,12 +1,16 @@
 module;
 #include <array>
+#include <charconv>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>  // std::memcpy: the probe's same-frame camera snapshot for the metadata
 #include <expected> // the HZB lane's graph adapter answers std::expected, like the other adapters
+#include <limits>
 #include <memory>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <utility>
 module deren.engine.runtime;
 import deren.engine.render_graph.post;
@@ -27,7 +31,10 @@ import deren.engine.pass.taa;
 import deren.engine.pass;
 import deren.engine.pass.hzb_build; // the runtime-owned HZB build pass (lane 22) and its header constants
 import deren.engine.pass.hzb_cull;  // the runtime-owned HZB cull pass (lane 21, M3 phase B2)
+import deren.engine.pass.software_visibility;
+import deren.engine.pass.software_merge;
 import deren.engine.pass.output_targets;
+import deren.engine.visibility.software;
 import deren.engine.visibility.hzb; // the pyramid layout the probe's lane sizes are computed with (§4.1)
 import deren.promise.rhi;
 namespace deren::engine {
@@ -51,8 +58,8 @@ namespace deren::engine {
             // two passes): both are harmless while the visibility passes are pruned, and both mis-record another pass
             // the moment one runs - measured, first as a `post_bloom_3` begin_rendering in the wrong layout, then as
             // the post composite recording the resolve pass instead of itself (a transparent-black frame).
-            std::array<pass::resolved_io, 25> ios;
-            std::array<pass::frame_pass*, 25> passes{};
+            std::array<pass::resolved_io, 27> ios;
+            std::array<pass::frame_pass*, 27> passes{};
             rhi::error record(unsigned lane) const noexcept {
                 if (host.apply_behaviour) {
                     host.apply_behaviour(host.context, *passes[lane], ios[lane]);
@@ -130,6 +137,9 @@ namespace deren::engine {
         // ... and the same bookkeeping for the phase-B cull lane: `hzb_cull_active_frame` is THIS frame's frozen
         // verdict (set by evaluate_hzb_cull_lane below), `hzb_cull_recorded_this_frame` its recorder's answer.
         this->hzb_cull_active_frame = false;
+        this->software_gpu_route_active_frame = false;
+        if (this->software_visibility)
+            this->software_visibility->disable_gpu_route();
         this->hzb_recovery_active_frame = false;
         this->hzb_cull_recorded_this_frame = false;
         auto commands = this->frame_command_buffer();
@@ -642,6 +652,56 @@ namespace deren::engine {
             bool const hzb_build_lane = visibility_frame && this->hzb_build_enabled && this->hzb_resources_ready && this->hzb_build != nullptr && this->hzb_build->ready();
             std::uint32_t const hzb_item_count = static_cast<std::uint32_t>(this->frame_visible.size());
             bool const hzb_cull_lane = hzb_build_lane && this->hzb_cull_enabled && this->evaluate_hzb_cull_lane(hzb_item_count);
+            std::optional<graph::buffer_ref> software_tiles_ref{}, software_route_arguments_ref{};
+            std::optional<graph::visibility::software_routing_inputs> software_routing_ref{};
+            auto const* gpu_mode = std::getenv("DEREN_SOFTWARE_RASTER_GPU");
+            if (this->software_raster_active_frame && hzb_cull_lane && gpu_mode && std::string_view(gpu_mode) == "1" &&
+                this->software_visibility && this->software_tiles_mapped && this->software_tiles_buffer) {
+                namespace sw = deren::engine::visibility::software;
+                sw::camera_parameters camera{};
+                std::memcpy(camera.view.data(), &this->current_ubo.view, 64u);
+                std::memcpy(camera.proj.data(), &this->current_ubo.proj, 64u);
+                auto const extent = this->render_extent();
+                camera.width = extent.width;
+                camera.height = extent.height;
+                auto metrics = sw::prepare_camera(camera);
+                std::uint32_t budget = sw::software_entry_budget;
+                bool valid_budget = true;
+                if (auto const* requested = std::getenv("DEREN_SOFTWARE_GPU_BUDGET")) {
+                    std::string_view text(requested);
+                    auto parsed = std::from_chars(text.data(), text.data() + text.size(), budget);
+                    valid_budget = parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() && budget <= sw::software_entry_budget;
+                }
+                auto const bytes = sw::software_tiles_bytes(extent.width, extent.height);
+                if (metrics && valid_budget && bytes * this->frame_ring().slot_count() <= this->software_tiles_buffer->size()) {
+                    pass::gpu_route_parameters parameters{.threshold_px = this->software_raster_threshold_px,
+                                                          .near_plane = std::nextafter(static_cast<float>(metrics->near_plane), std::numeric_limits<float>::infinity()),
+                                                          .projection_scale = std::nextafter(static_cast<float>(metrics->proj_scale), std::numeric_limits<float>::infinity()),
+                                                          .perspective = metrics->kind == sw::projection_kind::perspective,
+                                                          .budget = budget};
+                    this->software_gpu_route_active_frame = this->software_visibility->prepare_gpu_route(this->frame_ring().position(), extent.width, extent.height, parameters);
+                }
+            }
+            if (this->software_raster_active_frame) {
+                auto generation = this->software_tiles_resource_view.find(render_resource::resource_id::software_tiles);
+                if (!generation || generation->device.get() != this->core_owner.get() || generation->objects.empty() || !generation->objects[0].buffer)
+                    return rhi::error::not_ready;
+                auto retained = resource_lease<rhi::buffer>::from_shared(this->core_owner, rhi::shared_object<rhi::buffer>{generation, generation->objects[0].buffer.get()});
+                auto imported = build.import_buffer(retained, {graph::initial_contents::defined, {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read}}, "software work list");
+                if (!imported)
+                    return post_build_error(imported.error());
+                software_tiles_ref = *imported;
+            }
+            if (this->software_gpu_route_active_frame) {
+                auto metadata = build.import_buffer(resource_lease<rhi::buffer>::from_shared(this->core_owner, this->software_visibility->route_metadata_buffer()),
+                                                    {graph::initial_contents::defined, {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read}}, "software route metadata");
+                auto arguments = build.import_buffer(resource_lease<rhi::buffer>::from_shared(this->core_owner, this->software_visibility->route_arguments_buffer()),
+                                                     {graph::initial_contents::defined, {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::write}}, "software route arguments");
+                if (!metadata || !arguments)
+                    return post_build_error(!metadata ? metadata.error() : arguments.error());
+                software_route_arguments_ref = *arguments;
+                software_routing_ref = graph::visibility::software_routing_inputs{shared_refs[0], *metadata, *software_tiles_ref, *arguments};
+            }
             // THE HISTORY LANES ARE IMPORTED ONCE, FOR BOTH LANES. A cull frame's history is DEFINED (it is the same
             // frame slot's previous use: the cull reads it and the build overwrites it, and the graph's WAR edge from
             // that read to the build's write is the §8.2 cull-before-build order). Without a cull lane the build
@@ -699,7 +759,7 @@ namespace deren::engine {
                 // [12]): the cull reads the records the host compacted in phase 2 and the model matrix the raster
                 // will project with, so the two lanes cannot disagree about either.
                 auto hzb_added = build.append([&](graph::builder& description) noexcept {
-                    return append_hzb_cull(description, *hzb_levels_ref, *hzb_header_ref, *items_import, shared_refs[9], shared_refs[12], *results_import, *survivors_import, shared_refs[11]);
+                    return append_hzb_cull(description, *hzb_levels_ref, *hzb_header_ref, *items_import, shared_refs[9], shared_refs[12], *results_import, *survivors_import, shared_refs[11], software_routing_ref);
                 });
                 if (!hzb_added) {
                     return post_build_error(hzb_added.error());
@@ -722,7 +782,7 @@ namespace deren::engine {
                 if (!host.resolve || !host.resolve(host.context, *passes[21], ios[21]) || ios[21].list != commands.get()) {
                     return rhi::error::not_ready;
                 }
-                this->hzb_cull->set_frame(hzb_item_count, this->render_extent());
+                this->hzb_cull->set_frame(hzb_item_count, this->render_extent(), false, this->software_gpu_route_active_frame);
                 auto hzb_bound = build.bind_pass<hzb_cull_parameters>(
                     *hzb_cull_ref, [this, payload](hzb_cull_parameters const&, rhi::command_buffer& command_buffer, graph::execution::record_context const&) noexcept {
                         auto const error = payload->record(21);
@@ -745,6 +805,11 @@ namespace deren::engine {
                 }
             }
             std::optional<graph::texture_ref> visibility_ref{};
+            std::optional<graph::texture_ref> software_depth_ref{}, software_id_ref{};
+
+            std::optional<graph::pass_ref> software_raster_ref{};
+            std::optional<graph::visibility::software_raster_inputs> software_inputs_ref{};
+            std::optional<graph::pass_ref> visibility_pass_ref{}, visibility_recovery_ref{}, hzb_build_pass_ref{};
             if (visibility_frame) {
                 graph::resource_state visibility_id_state{};
                 auto visibility_lease = retain(14, graph::invalid_index, visibility_id_state);
@@ -773,6 +838,38 @@ namespace deren::engine {
                 });
                 if (!visibility_added) {
                     return post_build_error(visibility_added.error());
+                }
+                visibility_pass_ref = visibility_added->pass;
+                if (this->software_raster_active_frame) {
+                    auto import_software_image = [&](std::size_t const family, std::string_view const name) -> std::optional<graph::texture_ref> {
+                        auto generation = this->output_resource_views[family].find(pass::output_targets_pass::ids[family]);
+                        if (!generation || generation->device.get() != this->core_owner.get() || index >= generation->objects.size()) {
+                            return {};
+                        }
+                        auto* image = generation->objects[index].image.get();
+                        if (!image) {
+                            return {};
+                        }
+                        auto image_lease = lease::from_shared(this->core_owner, rhi::shared_object<rhi::image>{std::move(generation), image});
+                        auto imported = build.import_texture(image_lease, {graph::initial_contents::undefined, {}}, name);
+                        return imported ? std::optional<graph::texture_ref>{*imported} : std::optional<graph::texture_ref>{};
+                    };
+                    auto depth_import = import_software_image(15u, "software visibility depth");
+                    auto id_import = import_software_image(16u, "software visibility id");
+                    if (!depth_import || !id_import || !software_tiles_ref)
+                        return rhi::error::not_ready;
+                    software_depth_ref = *depth_import;
+                    software_id_ref = *id_import;
+
+                    graph::visibility::software_raster_inputs inputs{*software_depth_ref, *software_id_ref, shared_refs[0], shared_refs[12], shared_refs[8], *software_tiles_ref, shared_refs[10], {}};
+                    if (this->subtilis_active_frame) {
+                        inputs.culled_meshlets = shared_refs[9];
+                    }
+                    if (hzb_cull_lane) {
+                        inputs.hzb_results = hzb_results_ref;
+                    }
+                    inputs.indirect_arguments = software_route_arguments_ref;
+                    software_inputs_ref = inputs;
                 }
                 // THE §8.2 ORDER, STATED RATHER THAN EMERGENT: cull BEFORE raster (phase B2's raster consumes the
                 // survivor table and indirect commands the cull just wrote).
@@ -831,6 +928,7 @@ namespace deren::engine {
                     if (!hzb_added) {
                         return post_build_error(hzb_added.error());
                     }
+                    hzb_build_pass_ref = *hzb_added;
                     std::array<pass::frame_pass*, 1> hzb_stage_passes{this->hzb_build.get()};
                     pass::stage hzb_stage{.name = "hzb build", .passes = hzb_stage_passes};
                     this->prepare_stage(hzb_stage);
@@ -865,6 +963,13 @@ namespace deren::engine {
                 }
                 return rhi::error::ok;
             };
+            // Build from the completed hardware depth before optional software coverage. Without software this is
+            // byte-equivalent input; with software it is conservative because omitted tiny occluders only reduce culling.
+            if (!this->hzb_recovery_active_frame) {
+                if (auto error = append_build_lane(); error != rhi::error::ok) {
+                    return error;
+                }
+            }
             if (this->hzb_recovery_active_frame) {
                 if (auto error = append_build_lane(); error != rhi::error::ok) {
                     return error;
@@ -873,7 +978,7 @@ namespace deren::engine {
                     return rhi::error::not_ready;
                 }
                 auto recovery_added = build.append([&](graph::builder& description) noexcept {
-                    return graph::visibility::append_hzb_recovery(description, *hzb_levels_ref, *hzb_header_ref, *hzb_items_ref, shared_refs[9], shared_refs[12], *hzb_results_ref, *hzb_survivors_ref, shared_refs[11]);
+                    return graph::visibility::append_hzb_recovery(description, *hzb_levels_ref, *hzb_header_ref, *hzb_items_ref, shared_refs[9], shared_refs[12], *hzb_results_ref, *hzb_survivors_ref, shared_refs[11], software_routing_ref);
                 });
                 if (!recovery_added) {
                     return post_build_error(recovery_added.error());
@@ -886,7 +991,7 @@ namespace deren::engine {
                 if (!host.resolve || !host.resolve(host.context, *passes[23], ios[23]) || ios[23].list != commands.get()) {
                     return rhi::error::not_ready;
                 }
-                this->hzb_recovery->set_frame(hzb_item_count, this->render_extent(), true);
+                this->hzb_recovery->set_frame(hzb_item_count, this->render_extent(), true, this->software_gpu_route_active_frame);
                 auto recovery_bound = build.bind_pass<graph::visibility::hzb_recovery_parameters>(*recovery_added,
                                                                                                   [this, payload](graph::visibility::hzb_recovery_parameters const&, rhi::command_buffer& command_buffer, graph::execution::record_context const&) noexcept {
                                                                                                       auto error = payload->record(23);
@@ -909,6 +1014,7 @@ namespace deren::engine {
                 if (!load_added) {
                     return post_build_error(load_added.error());
                 }
+                visibility_recovery_ref = load_added->pass;
                 std::array<pass::frame_pass*, 1> load_stages{this->visibility_recovery.get()};
                 pass::stage load_stage{.name = "visibility recovery", .passes = load_stages};
                 this->prepare_stage(load_stage);
@@ -930,6 +1036,52 @@ namespace deren::engine {
                     return post_build_error(load_bound.error());
                 }
             }
+            if (this->software_raster_active_frame) {
+                if (!software_inputs_ref || !visibility_pass_ref) {
+                    return rhi::error::not_ready;
+                }
+                this->software_visibility->set_hzb_results_active(hzb_cull_lane);
+                this->software_visibility->set_frame_inputs(this->software_active_tile_count, this->software_depth_images[index].get(),
+                                                            this->software_id_images[index].get());
+                std::array<pass::frame_pass*, 1> software_stage_passes{this->software_visibility.get()};
+                pass::stage software_stage{.name = "software visibility", .passes = software_stage_passes};
+                this->prepare_stage(software_stage);
+                passes[25] = this->software_visibility.get();
+                ios[25].push_block = {this, &runtime::push_software_block};
+                if (!passes[25] || !host.resolve || !host.resolve(host.context, *passes[25], ios[25]) || ios[25].list != commands.get()) {
+                    return rhi::error::not_ready;
+                }
+                auto software_added = build.append([&](graph::builder& description) noexcept {
+                    return graph::visibility::append_software_raster(description, *software_inputs_ref, *visibility_pass_ref, visibility_recovery_ref);
+                });
+                if (!software_added) {
+                    return post_build_error(software_added.error());
+                }
+                software_raster_ref = software_added->pass;
+                if (hzb_build_pass_ref) {
+                    if (auto ordered = build.order_after(*software_raster_ref, *hzb_build_pass_ref); !ordered) {
+                        return post_build_error(ordered.error());
+                    }
+                }
+                auto software_bound = build.bind_pass<graph::visibility::software_raster_parameters>(
+                    *software_raster_ref, [this, payload](graph::visibility::software_raster_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                        // The ordered mark range includes the optional HZB build/recovery steps, which precede this
+                        // pass whenever enabled. Fill omitted steps before the software timing boundary.
+                        this->gpu_mark_through(gpu_mark_id::visibility_recovery_end);
+                        // Visibility recording has now published this frame's candidate count.
+                        auto const index = this->current_image_index;
+                        this->software_visibility->set_frame_inputs(this->software_active_tile_count,
+                                                                    this->software_depth_images[index].get(), this->software_id_images[index].get());
+                        auto const error = payload->record(25);
+                        if (error == rhi::error::ok) {
+                            this->gpu_mark(gpu_mark_id::software_raster_end);
+                        }
+                        return error;
+                    });
+                if (!software_bound) {
+                    return post_build_error(software_bound.error());
+                }
+            }
             if (visibility_frame) {
                 if (this->visibility_resolve == nullptr) {
                     // the admission said both pipelines exist; a null here is a wiring error, not a fallback case
@@ -949,6 +1101,13 @@ namespace deren::engine {
                 }
                 resolve_inputs.shared->hzb_survivors = hzb_survivors_ref;
                 resolve_inputs.shared->hzb_results = hzb_results_ref;
+                if (this->software_raster_active_frame) {
+                    if (!software_depth_ref || !software_id_ref || !software_raster_ref) {
+                        return rhi::error::not_ready;
+                    }
+                    resolve_inputs.software_depth = software_depth_ref;
+                    resolve_inputs.software_id = software_id_ref;
+                }
                 auto resolve_added = build.append([&](graph::builder& description) noexcept {
                     return graph::visibility::append_resolve(description, resolve_inputs);
                 });
@@ -964,7 +1123,7 @@ namespace deren::engine {
                 }
                 auto resolve_bound = build.bind_pass<graph::visibility::resolve_parameters>(
                     resolve_added->pass, [this, payload](graph::visibility::resolve_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
-                        this->gpu_mark_through(gpu_mark_id::visibility_recovery_end);
+                        this->gpu_mark_through(gpu_mark_id::software_raster_end);
                         auto error = payload->record(20);
                         if (error != rhi::error::ok) {
                             return error;
@@ -983,10 +1142,34 @@ namespace deren::engine {
                 if (!resolve_bound) {
                     return post_build_error(resolve_bound.error());
                 }
-            }
-            if (!this->hzb_recovery_active_frame) {
-                if (auto error = append_build_lane(); error != rhi::error::ok) {
-                    return error;
+                if (this->software_raster_active_frame) {
+                    auto merge_added = build.append([&](graph::builder& description) noexcept {
+                        return graph::visibility::append_software_merge(
+                            description, {*software_depth_ref, *software_id_ref, *depth_ref}, resolve_added->pass, *software_raster_ref);
+                    });
+                    if (!merge_added) {
+                        return post_build_error(merge_added.error());
+                    }
+                    std::array<pass::frame_pass*, 1> merge_stage_passes{this->software_merge.get()};
+                    pass::stage merge_stage{.name = "software merge", .passes = merge_stage_passes};
+                    this->prepare_stage(merge_stage);
+                    passes[26] = this->software_merge.get();
+                    ios[26].push_block = host.push_block;
+                    if (!passes[26] || !host.resolve || !host.resolve(host.context, *passes[26], ios[26]) ||
+                        ios[26].list != commands.get() || ios[26].targets.size() != 1u) {
+                        return rhi::error::not_ready;
+                    }
+                    auto merge_bound = build.bind_pass<graph::visibility::software_merge_parameters>(
+                        merge_added->pass, [this, payload](graph::visibility::software_merge_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                            auto const error = payload->record(26);
+                            if (error == rhi::error::ok) {
+                                this->gpu_mark(gpu_mark_id::software_merge_end);
+                            }
+                            return error;
+                        });
+                    if (!merge_bound) {
+                        return post_build_error(merge_bound.error());
+                    }
                 }
             }
             // THE GEOMETRY LANE (the old producer) IS RECORDED ONLY WHEN THE VISIBILITY LANE IS NOT: the two write
@@ -1025,7 +1208,7 @@ namespace deren::engine {
                                                                                        // THE SPLIT MARK, before the pass: the geometry lane keeps the interval it
                                                                                        // always had ("scene" = this mark -> scene_end); the visibility slot reads ~0
                                                                                        this->gpu_mark(gpu_mark_id::visibility_raster_end);
-                                                                                       this->gpu_mark_through(gpu_mark_id::visibility_recovery_end);
+                                                                                       this->gpu_mark_through(gpu_mark_id::software_raster_end);
                                                                                        auto error = payload->record(7);
                                                                                        if (error != rhi::error::ok) {
                                                                                            return error;
@@ -1078,6 +1261,7 @@ namespace deren::engine {
                 }
                 auto bound = build.bind_pass<graph::lighting::parameters>(lit->pass,
                                                                           [this, payload](graph::lighting::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                                                                              this->gpu_mark_through(gpu_mark_id::software_merge_end);
                                                                               auto error = payload->record(6);
                                                                               if (error != rhi::error::ok) {
                                                                                   return error;
@@ -1432,6 +1616,102 @@ namespace deren::engine {
         // datum the depth-mismatch investigation needs. Copied out on the same screenshot frame as the Gaussian
         // HDR capture, for the same reason: this is where the frame exists and its layout is known. The
         // readback itself stays the screenshot path (runtime.readback.cppm).
+        if (this->screenshot_requested && std::getenv("DEREN_SOFTWARE_IMAGES_CAPTURE")) {
+            this->software_probe_extent = {};
+            auto const extent = this->render_extent();
+            std::array<rhi::image*, 2> const images{
+                this->software_depth_images[this->current_image_index].get(),
+                this->software_id_images[this->current_image_index].get()};
+            bool complete = this->software_raster_active_frame;
+            for (std::size_t i = 0; complete && i < images.size(); ++i) {
+                rhi::buffer_desc desc;
+                desc.size = static_cast<std::uint64_t>(extent.width) * extent.height * 4u;
+                desc.usage = rhi::buffer_usage::readback_coherent;
+                this->software_probe_readbacks[i] = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(desc)};
+                auto* image = images[i];
+                auto* destination = this->software_probe_readbacks[i].get();
+                if (!image || !destination) {
+                    complete = false;
+                    break;
+                }
+                auto const entered = commands->barrier(rhi::image_barrier{.resource = image,
+                                                                          .from = rhi::image_use::shader_write,
+                                                                          .to = rhi::image_use::transfer_source});
+                auto const copied = entered == rhi::error::ok
+                                        ? commands->copy_image_to_buffer(*destination, *image, {.extent = extent})
+                                        : entered;
+                auto const restored = commands->barrier(rhi::image_barrier{.resource = image,
+                                                                           .from = rhi::image_use::transfer_source,
+                                                                           .to = rhi::image_use::shader_read});
+                rhi::buffer_barrier const host{.resource = destination,
+                                               .from = rhi::buffer_use::transfer_destination,
+                                               .to = rhi::buffer_use::host_read};
+                auto const published = commands->barrier(rhi::barrier_group{.buffers = std::span{&host, 1}});
+                complete = copied == rhi::error::ok && restored == rhi::error::ok && published == rhi::error::ok;
+            }
+            this->software_route_probe_ready = false;
+            this->software_route_probe_items.clear();
+            if (complete && this->software_gpu_route_active_frame) {
+                auto const slot = this->frame_ring().position();
+                this->software_route_probe_slot = slot;
+                this->software_route_probe_budget = this->software_visibility->route_metadata_words()[4];
+                std::memcpy(this->software_route_probe_view.data(), &this->current_ubo.view, sizeof(float) * 16u);
+                std::memcpy(this->software_route_probe_proj.data(), &this->current_ubo.proj, sizeof(float) * 16u);
+                auto const* descriptions = static_cast<pass::hzb_item const*>(this->hzb_items_mapped) + slot * pass::hzb_cull_item_capacity;
+                auto const* candidates = static_cast<meshlet const*>(this->meshlet_culled_mapped) + slot * meshlet_capacity;
+                for (std::uint32_t i = 0; i < this->frame_visible.size(); ++i) {
+                    auto const& description = descriptions[i];
+                    if (description.source != pass::hzb_item_source_culled || !description.candidate_count)
+                        continue;
+                    if (description.meshlet_base > meshlet_capacity || description.candidate_count > meshlet_capacity - description.meshlet_base) {
+                        complete = false;
+                        break;
+                    }
+                    software_route_probe_item item;
+                    item.item = i;
+                    item.base = description.meshlet_base;
+                    item.records.assign(candidates + item.base, candidates + item.base + description.candidate_count);
+                    auto const* leaf = this->frame_visible[i];
+                    std::memcpy(item.model.data(), &leaf->push.model, sizeof(float) * 16u);
+                    item.double_sided = (this->material_flags_of(*leaf) & 8u) != 0u;
+                    if (leaf->subtilis_geometry) {
+                        auto const& source = leaf->subtilis_geometry->source();
+                        item.positions.resize(source.vertex_count());
+                        for (std::size_t v = 0; v < item.positions.size(); ++v)
+                            std::memcpy(item.positions[v].data(), source.vertices().data() + v * source.vertex_stride(), sizeof(float) * 3u);
+                        item.indices.assign(source.indices().begin(), source.indices().end());
+                    }
+                    this->software_route_probe_items.push_back(std::move(item));
+                }
+                std::array<rhi::buffer*, 3> sources{this->software_tiles_buffer.get(), this->hzb_results_buffer.get(), this->hzb_survivors_buffer.get()};
+                std::array<std::uint64_t, 3> sizes{visibility::software::software_tiles_bytes(extent.width, extent.height),
+                                                   pass::hzb_results_words_per_lane * 4ull, meshlet_capacity * sizeof(meshlet)};
+                for (std::size_t i = 0; complete && i < sources.size(); ++i) {
+                    rhi::buffer_desc desc;
+                    desc.size = sizes[i];
+                    desc.usage = rhi::buffer_usage::readback_coherent;
+                    this->software_route_probe_readbacks[i] = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(desc)};
+                    auto* destination = this->software_route_probe_readbacks[i].get();
+                    if (!sources[i] || !destination) {
+                        complete = false;
+                        break;
+                    }
+                    rhi::buffer_barrier enter{.resource = sources[i], .from = rhi::buffer_use::shader_read_write, .to = rhi::buffer_use::transfer_source};
+                    auto entered = commands->barrier(rhi::barrier_group{.buffers = std::span{&enter, 1}});
+                    auto copied = entered == rhi::error::ok ? commands->copy_buffer(*destination, *sources[i], sizes[i], slot * sizes[i], 0u) : entered;
+                    rhi::buffer_barrier restore{.resource = sources[i], .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_read_write};
+                    auto restored = commands->barrier(rhi::barrier_group{.buffers = std::span{&restore, 1}});
+                    rhi::buffer_barrier host{.resource = destination, .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read};
+                    auto published = commands->barrier(rhi::barrier_group{.buffers = std::span{&host, 1}});
+                    complete = copied == rhi::error::ok && restored == rhi::error::ok && published == rhi::error::ok;
+                }
+                this->software_route_probe_ready = complete;
+            }
+            if (complete)
+                this->software_probe_extent = extent;
+            else
+                deren::utility::log("software image capture: FAIL inactive lane or readback recording");
+        }
         if (this->screenshot_requested && std::getenv("DEREN_DEPTH_PROBE_CAPTURE")) {
             auto* const depth = this->gbuffer_depth_images[this->current_image_index].get();
             auto const extent = this->render_extent();

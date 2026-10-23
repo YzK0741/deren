@@ -1,7 +1,7 @@
 /**
  * @file source/engine/pass/software_merge.cppm
  * @defgroup engine_pass_software_merge Software Merge Pass
- * @brief the SOFTWARE RASTER's depth-only merge (M4 Task 2 scaffolding; docs/superpowers/specs/2026-10-22-software-
+ * @brief the SOFTWARE RASTER's depth-only merge (M4; docs/superpowers/specs/2026-10-22-software-
  *        raster-design.md §3.2/§5.2): one fullscreen depth-only graphics pass that folds the software image's depth
  *        into the frame's own G-buffer depth with LESS_OR_EQUAL + depth write, i.e. the write IS `min(hw, sw)`.
  *
@@ -20,8 +20,8 @@
  * candidates, so this pass must record AFTER the resolve. Its graph lane
  * (`render_graph/visibility.cppm`'s `append_software_merge`) declares exactly that edge.
  *
- * SCAFFOLDING, DELIBERATELY: M4 Task 2 lands this object, its depth-only pipeline and the tests that pin the
- * declaration; Task 3 fills the fragment stage's sampling and depth computation.
+ * The fragment stage samples the software id/depth pair and writes a valid software depth, or 1.0 for an empty
+ * candidate. General frame-path selection remains a later runtime task.
  */
 module;
 

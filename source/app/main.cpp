@@ -635,6 +635,8 @@ int main(int argc, char** argv) {
     runtime.set_subtilis(settings.render.subtilis);
     runtime.set_subtilis_error_px(settings.render.subtilis_error_px);
     runtime.set_subtilis_hysteresis(settings.render.subtilis_hysteresis);
+    runtime.set_software_raster(settings.render.software_raster);
+    runtime.set_software_raster_threshold_px(settings.render.software_raster_threshold_px);
 
     // 7. Collect the async startup results. FOR A GAUSSIAN-ONLY RUN THERE IS NO MODEL, so the slot holds an EMPTY
     //    scene: the import, the material resolve, the toon lookup and the animation state below then all work over

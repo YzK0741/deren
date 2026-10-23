@@ -58,13 +58,18 @@ namespace deren::engine::pass {
         // ---- THE PUSH BLOCK: the values the HOST knows (spec §7.2's expected extent and the item count) ----
         // The framework appends the two heap index lanes (frame_slot, image_index) after these four words, which is
         // the whole of what the shader reads besides the heap (see HzbCullPush in the shader).
-        std::array<std::uint32_t, 4> const push_block{this->frame_item_count, this->frame_extent.width, this->frame_extent.height, this->recovery_mode ? 1u : 0u};
+        std::array<std::uint32_t, 4> const push_block{this->frame_item_count, this->frame_extent.width, this->frame_extent.height, (this->recovery_mode ? 1u : 0u) | (this->gpu_software ? 2u : 0u)};
         if (!io.push_block(*io.list, std::as_bytes(std::span<std::uint32_t const>(push_block)))) {
             return rhi::error::invalid_argument;
         }
         // ---- THE DISPATCH: exactly one workgroup per item (spec §2.1 - the count is the host's answer, so the cull
         // does not need the dispatch-indirect verb the RHI deliberately does not have). ----
         io.list->dispatch(this->frame_item_count, 1u, 1u);
+        static bool gpu_logged = false;
+        if (this->gpu_software && !gpu_logged) {
+            deren::utility::log("software GPU routing active: HZB compaction, bounded software list");
+            gpu_logged = true;
+        }
         // THE LANE'S OWN WITNESS, once per session (the build lane has the same shape and the same reason: the
         // absence of a validation error cannot distinguish "the graph recorded the cull" from "the gate was on but no
         // frame had a history HZB"). The GPU-side counts are the stats block's - read at shutdown and by the probe.

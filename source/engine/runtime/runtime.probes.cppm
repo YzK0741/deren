@@ -709,6 +709,7 @@ namespace deren::engine {
             std::iota(candidate_ids.begin(), candidate_ids.end(), 0u);
             std::array<bool, pass::hzb_cull_item_capacity> keep = {};
             std::vector<std::uint32_t> compacted(pass::hzb_cull_item_capacity);
+            std::vector<std::uint32_t> hardware_compacted(pass::hzb_cull_item_capacity);
             for (std::uint32_t item = 0u; item < item_count; ++item) {
                 pass::hzb_item const& description = items[item_lane_base + item];
                 if (description.source != pass::hzb_item_source_culled || description.candidate_count == 0u) {
@@ -751,16 +752,21 @@ namespace deren::engine {
                 std::optional<hzb::hzb_compaction> const reference =
                     hzb::hzb_compact(std::span<std::uint32_t const>{candidate_ids.data(), count}, std::span<bool const>{keep.data(), count},
                                      std::span<std::uint32_t>{compacted.data(), count});
-                if (!reference.has_value()) {
+                std::uint32_t const hardware_count = std::min(description.pad, count);
+                std::optional<hzb::hzb_compaction> const hardware_reference =
+                    hzb::hzb_compact(std::span<std::uint32_t const>{candidate_ids.data(), hardware_count},
+                                     std::span<bool const>{keep.data(), hardware_count},
+                                     std::span<std::uint32_t>{hardware_compacted.data(), hardware_count});
+                if (!reference.has_value() || !hardware_reference.has_value()) {
                     count_bad += 1u;
                     continue;
                 }
-                if (results[results_lane_base + pass::hzb_results_pass1_count_offset + item] != reference->survivors) {
+                if (results[results_lane_base + pass::hzb_results_pass1_count_offset + item] != hardware_reference->survivors) {
                     count_bad += 1u;
                 }
-                for (std::uint32_t order = 0u; order < reference->survivors; ++order) {
+                for (std::uint32_t order = 0u; order < hardware_reference->survivors; ++order) {
                     deren::engine::meshlet const& gpu_record = survivors[survivor_lane_base + description.meshlet_base + order];
-                    deren::engine::meshlet const& reference_record = candidates[candidate_lane_base + description.meshlet_base + compacted[order]];
+                    deren::engine::meshlet const& reference_record = candidates[candidate_lane_base + description.meshlet_base + hardware_compacted[order]];
                     if (std::memcmp(&gpu_record, &reference_record, sizeof(deren::engine::meshlet)) != 0) {
                         ++order_bad;
                     }
@@ -786,13 +792,24 @@ namespace deren::engine {
                     }
                     auto recovered = hzb::hzb_compact_recovery(std::span<std::uint32_t const>{candidate_ids.data(), count}, std::span<std::uint32_t const>{history_flags.data(), count},
                                                                std::span<bool const>{keep_current.data(), count}, reference->survivors, std::span<std::uint32_t>{compacted.data(), count});
-                    if (!recovered || results[results_lane_base + pass::hzb_results_pass2_count_offset + item] != recovered->recovered) {
+                    std::uint32_t expected_hardware_recovered = 0u;
+                    for (std::uint32_t index = 0u; index < hardware_count; ++index) {
+                        if (history_flags[index] != 0u && keep_current[index]) {
+                            ++expected_hardware_recovered;
+                        }
+                    }
+                    if (!recovered || results[results_lane_base + pass::hzb_results_pass2_count_offset + item] != expected_hardware_recovered) {
                         ++recovery_count_bad;
                     }
                     if (recovered) {
+                        std::uint32_t hardware_order = 0u;
                         for (std::uint32_t order = reference->survivors; order < reference->survivors + recovered->recovered; ++order) {
-                            auto const& gpu_record = survivors[description.meshlet_base + order];
-                            auto const& expected_record = candidates[candidate_lane_base + description.meshlet_base + compacted[order]];
+                            std::uint32_t const candidate_index = compacted[order];
+                            if (candidate_index >= hardware_count) {
+                                continue;
+                            }
+                            auto const& gpu_record = survivors[description.meshlet_base + hardware_reference->survivors + hardware_order++];
+                            auto const& expected_record = candidates[candidate_lane_base + description.meshlet_base + candidate_index];
                             if (std::memcmp(&gpu_record, &expected_record, sizeof(deren::engine::meshlet)) != 0) {
                                 ++recovery_order_bad;
                             }
@@ -842,7 +859,8 @@ namespace deren::engine {
             std::ofstream output(metadata_path, std::ios::trunc);
             output << "{\n";
             output << "  \"kind\": \"hzb-cull-probe\",\n";
-            output << R"(  "version": )" << (recovery_probe ? 3 : 2) << ",\n";
+            output << R"(  "version": )" << (this->hzb_cull_probe_hybrid ? 4 : (recovery_probe ? 3 : 2)) << ",\n";
+            output << "  \"software_raster_active\": " << (this->hzb_cull_probe_hybrid ? "true" : "false") << ",\n";
             output << "  \"note\": \"the cull reads the HISTORY HZB: the previous use of this frame slot (2 frames old). The copies were recorded "
                       "INSIDE the cull lane, before this frame's build overwrote the lane, so these files describe the data the dispatch consumed.\",\n";
             output << "  \"extent\": {\"width\": " << extent.width << ", \"height\": " << extent.height << "},\n";

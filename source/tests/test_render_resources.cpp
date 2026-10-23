@@ -71,28 +71,29 @@ namespace {
         using rr::resource_id;
         using otp = up::output_targets_pass;
 
-        // ---- the OFF contract: the producer's own list stays at 15 and names NO software resource ----
-        CHECK(otp::resource_count == 15u);
+        // ---- output families include the software pair, but default selection keeps them off ----
+        CHECK(otp::resource_count == 17u);
         CHECK(otp::ids.size() == otp::resource_count);
-        for (auto const id : otp::ids) {
-            CHECK(id != resource_id::software_depth);
-            CHECK(id != resource_id::software_id);
-            CHECK(id != resource_id::software_tiles);
-        }
+        CHECK(otp::ids[15] == resource_id::software_depth);
+        CHECK(otp::ids[16] == resource_id::software_id);
 
         // ---- the declaration: exactly two IMAGE families, in this order, with these heap slots ----
         CHECK(otp::software_resource_count == 2u);
         CHECK(otp::software_ids.size() == otp::software_resource_count);
         CHECK(otp::software_heap_slots.size() == otp::software_resource_count);
+        CHECK(otp::software_storage_heap_slots.size() == otp::software_resource_count);
         CHECK(otp::software_ids[0] == resource_id::software_depth);
         CHECK(otp::software_ids[1] == resource_id::software_id);
         auto const families = otp::software_resource_families();
         CHECK(families.size() == otp::software_resource_count);
-        auto const flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::storage);
+        auto const flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::storage) |
+                           rhi::to_bits(rhi::image_flag::transfer_source);
         for (std::size_t i = 0; i < families.size(); ++i) {
             CHECK(families[i].id == otp::software_ids[i]);
             CHECK(families[i].heap_slot == otp::software_heap_slots[i]);
+            CHECK(families[i].storage_heap_slot == otp::software_storage_heap_slots[i]);
             CHECK(families[i].heap_slot == (i == 0 ? layout::heap_slots::software_depth : layout::heap_slots::software_id));
+            CHECK(families[i].storage_heap_slot == (i == 0 ? layout::heap_slots::software_depth_storage : layout::heap_slots::software_id_storage));
             CHECK(families[i].format == rhi::image_format::r32_uint);
             CHECK(families[i].flags == flags);
             CHECK(families[i].scope == rr::resource_scope::per_swapchain_image);
@@ -105,7 +106,10 @@ namespace {
         // state the same relations on the other side).
         CHECK(layout::heap_slots::software_depth == layout::heap_slot_base + 1239u); // the range v0.5 reserved for it
         CHECK(layout::heap_slots::software_depth + layout::heap_image_capacity <= layout::heap_slots::software_id);
+        CHECK(layout::heap_slots::software_atomic == layout::heap_slots::software_id_storage + layout::heap_image_capacity);
         CHECK(layout::heap_slots::software_tiles - layout::heap_slots::software_id == layout::heap_image_capacity);
+        CHECK(layout::heap_slots::software_depth_storage == layout::heap_slots::software_tiles + 2u);
+        CHECK(layout::heap_slots::software_id_storage == layout::heap_slots::software_depth_storage + layout::heap_image_capacity);
 
         // ---- the schema: the families themselves, and the buffer ----
         auto const* const depth = rr::find(resource_id::software_depth);
@@ -138,6 +142,18 @@ namespace {
             CHECK(requests[i].image.format == rhi::image_format::r32_uint);
             CHECK(requests[i].image.flags == flags);
         }
+        otp provider;
+        deren::utility::vessel::vector<rr::instances::request> selected;
+        provider.describe_resources(context, selected);
+        CHECK(selected.size() == 15u); // software targets stay unrequested by default
+        provider.select_software_resources(true);
+        selected.clear();
+        provider.describe_resources(context, selected);
+        CHECK(selected.size() == 18u);
+        CHECK(selected[15].id == resource_id::software_depth);
+        CHECK(selected[16].id == resource_id::software_id);
+        CHECK(selected[17].id == resource_id::software_tiles);
+        CHECK(selected[17].type == rr::instances::kind::buffer);
 
         // ---- THE CSR TILE-LIST BUFFER: one lane per frame slot, sized ONLY from the shared layout ----
         auto const tile_request = otp::software_tiles_description(context);
@@ -146,20 +162,21 @@ namespace {
         CHECK(tile_request.scope == rr::resource_scope::device_wide);
         CHECK(tile_request.life == rr::instances::lifetime::frame_slot);
         CHECK(tile_request.buffer.usage == rhi::buffer_usage::storage_coherent);
-        CHECK(tile_request.buffer.flags == rhi::to_bits(rhi::buffer_flag::device_address));
+        CHECK(tile_request.buffer.flags == (rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::transfer_source)));
         CHECK(tile_request.zero_on_create);
-        // THE LAYOUT ITSELF, pinned at 720p: header 5 words + counts 3600 + offsets 3601 = 7206 words (28,824 B), then
-        // the GLOBAL budget of 65,536 8-byte entries (524,288 B) = 553,112 B per lane; two frame lanes = 1,106,224 B.
+        // THE LAYOUT ITSELF, pinned at 720p: header 6 words + counts 3600 + offsets 3601 + active tiles 3600 =
+        // 10,807 words (43,228 B), then the GLOBAL budget of 65,536 8-byte entries (524,288 B) = 567,516 B per lane;
+        // two frame lanes = 1,135,032 B.
         // (3600 tiles = 80 x 45 for 1280x720 at 16x16; the budget is the module's one adjustable constant.)
         CHECK(sw::tile_size == 16u);
         CHECK(sw::software_entry_budget == 65'536u);
-        CHECK(sw::software_tiles_header_words == 5u);
+        CHECK(sw::software_tiles_header_words == 6u);
         CHECK(sw::software_tiles_entry_bytes == 8u);
-        CHECK(sw::software_tiles_bytes(1280u, 720u) == (5u + 3600u + 3601u) * 4u + 65'536u * 8u);
-        CHECK(sw::software_tiles_bytes(1280u, 720u) == 553'112u);
+        CHECK(sw::software_tiles_bytes(1280u, 720u) == (6u + 3600u + 3601u + 3600u) * 4u + 65'536u * 8u);
+        CHECK(sw::software_tiles_bytes(1280u, 720u) == 567'516u);
         CHECK(rr::software_tiles_buffer_bytes(1280u, 720u) == sw::software_tiles_bytes(1280u, 720u));
         CHECK(tile_request.buffer.size == context.frame_slots * rr::software_tiles_buffer_bytes(1280u, 720u));
-        CHECK(tile_request.buffer.size == 2u * 553'112u);
+        CHECK(tile_request.buffer.size == 2u * 567'516u);
     }
 } // namespace
 

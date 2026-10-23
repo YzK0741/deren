@@ -65,6 +65,7 @@ $slangSources = @(
     # depth-only merge's fullscreen triangle + SV_Depth fragment. Both passes build their own pipelines from these
     # through pass_context::shader, so they must be compiled AND registered; the merge file has two entries.
     "scene/software_visibility.slang:main:compute:software_visibility.comp.spv",
+    "scene/software_visibility_atomic.slang:main:compute:software_visibility_atomic.comp.spv",
     "scene/software_merge.slang:vert_main:vertex:software_merge.vert.spv",
     "scene/software_merge.slang:frag_main:fragment:software_merge.frag.spv",
     # THE HZB BUILD STAGE (M3 phase A2): one dispatch per pyramid level over the frame's G-buffer depth, plus the

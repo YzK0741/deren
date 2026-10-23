@@ -1236,6 +1236,10 @@ if(VR_BUILD_TESTS)
     enable_testing()
     target_compile_definitions(shared_utility PRIVATE DEREN_MEMORY_TESTING)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME test_software_raster_probe_verifier
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/measure/verify_software_raster.py" --self-test)
+    add_test(NAME test_software_raster_image_verifier
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/measure/verify_software_images.py" --self-test)
     add_test(NAME test_boost_graph_vendor
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/vendor_boost_graph.py"
                 --output "${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/boost" --verify)
@@ -2043,6 +2047,12 @@ set(VR_SHADER_INCLUDES
     # test_render_resources). heap_slots.slang and heap_access.slang include the same constants.
     "${VR_SHADER_SRC_DIR}/common/heap_slot_constants.slang"
     "${VR_SHADER_SRC_DIR}/common/heap_slots.slang"
+    # Visibility's shared fetch/projection helpers and M4's shared candidate rule are leaf includes; list them so
+    # changes rebuild the raster and resolve SPIR-V instead of leaving a stale geometry path behind.
+    "${VR_SHADER_SRC_DIR}/common/mesh_fetch.slang"
+    "${VR_SHADER_SRC_DIR}/common/software_candidate.slang"
+    "${VR_SHADER_SRC_DIR}/common/software_route.slang"
+    "${VR_SHADER_SRC_DIR}/scene/software_visibility.slang" # atomic variant reuses its coverage helpers
     # heap_access.slang and mesh_geometry.slang are the two OTHER includes every leaf pulls in - the shim's heap
     # accessors, and the device-address geometry fetch a mesh stage uses instead of the input assembler. Both were
     # missing from this list, and the mesh one cost a measurement to find: the build tree's pbr.vert.spv and
@@ -2197,6 +2207,7 @@ set(VR_SLANG_SOURCES
     # modules through pass_context::shader, so they are registered (chores.cpp) as well as compiled; the merge file has
     # TWO entries. Task 2 lands the entry points; Task 3 fills the tiled walk and the SV_Depth value.
     scene/software_visibility.slang:main:compute:software_visibility.comp.spv
+    scene/software_visibility_atomic.slang:main:compute:software_visibility_atomic.comp.spv
     scene/software_merge.slang:vert_main:vertex:software_merge.vert.spv
     scene/software_merge.slang:frag_main:fragment:software_merge.frag.spv
     # hzb_build.slang -> hzb_build.comp.spv is THE HZB OCCLUSION CULLING's BUILD STAGE (M3 phase A2): one dispatch

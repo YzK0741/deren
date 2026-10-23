@@ -24,10 +24,16 @@ import deren.promise.rhi;
 export namespace deren::engine::pass {
     class output_targets_pass final : public frame_pass {
     public:
-        static constexpr size_t resource_count = 15;
+        static constexpr size_t resource_count = 17;
 
     private:
-        deren::utility::vessel::array<bool, resource_count> required = [] { deren::utility::vessel::array<bool, resource_count> values; values.fill(true); return values; }();
+        deren::utility::vessel::array<bool, resource_count> required = [] {
+            deren::utility::vessel::array<bool, resource_count> values{};
+            for (size_t i = 0; i < 15; ++i)
+                values[i] = true;
+            return values;
+        }();
+        bool software_resources_selected = false;
         render_resource::instances::resource_snapshot resource_view;
 
     public:
@@ -38,7 +44,8 @@ export namespace deren::engine::pass {
             render_resource::resource_id::gbuffer_depth, render_resource::resource_id::taa_history, render_resource::resource_id::ldr,
             render_resource::resource_id::bloom_level0, render_resource::resource_id::bloom_level1,
             render_resource::resource_id::bloom_level2, render_resource::resource_id::bloom_level3,
-            render_resource::resource_id::rt_shadow_visibility, render_resource::resource_id::visibility_buffer};
+            render_resource::resource_id::rt_shadow_visibility, render_resource::resource_id::visibility_buffer,
+            render_resource::resource_id::software_depth, render_resource::resource_id::software_id};
         static constexpr deren::utility::vessel::array heap_slots{
             render_layout::heap_slots::post_color, render_layout::heap_slots::gbuffer_albedo,
             render_layout::heap_slots::gbuffer_normal, render_layout::heap_slots::gbuffer_material,
@@ -48,10 +55,13 @@ export namespace deren::engine::pass {
             render_layout::heap_slots::bloom_l0 + render_layout::heap_image_capacity,
             render_layout::heap_slots::bloom_l0 + 2u * render_layout::heap_image_capacity,
             render_layout::heap_slots::bloom_l0 + 3u * render_layout::heap_image_capacity,
-            render_layout::heap_slots::rt_visibility, render_layout::heap_slots::visibility};
+            render_layout::heap_slots::rt_visibility, render_layout::heap_slots::visibility,
+            render_layout::heap_slots::software_depth, render_layout::heap_slots::software_id};
         static constexpr deren::utility::vessel::array<uint32_t, resource_count> storage_slots = [] {
             deren::utility::vessel::array<uint32_t, resource_count> slots{};
             slots[13] = render_layout::heap_slots::rt_visibility_storage;
+            slots[15] = render_layout::heap_slots::software_depth_storage;
+            slots[16] = render_layout::heap_slots::software_id_storage;
             return slots;
         }();
         static deren::utility::vessel::array<render_resource::instances::request, resource_count> descriptions(render_resource::instances::resource_context const& context) {
@@ -63,7 +73,8 @@ export namespace deren::engine::pass {
                                                             render_layout::gbuffer_velocity_format, render_layout::hdr_format, rhi::image_format::depth,
                                                             render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format,
                                                             render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format,
-                                                            rhi::image_format::r16_sfloat, render_layout::visibility_format};
+                                                            rhi::image_format::r16_sfloat, render_layout::visibility_format,
+                                                            rhi::image_format::r32_uint, rhi::image_format::r32_uint};
             for (size_t i = 0; i < values.size(); ++i) {
                 auto& value = values[i];
                 value.id = ids[i];
@@ -93,6 +104,10 @@ export namespace deren::engine::pass {
                 if (i == 13) {
                     value.image.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::storage);
                 }
+                if (i >= 15) {
+                    value.image.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::storage) |
+                                        rhi::to_bits(rhi::image_flag::transfer_source);
+                }
                 if (i == 0) {
                     value.image.flags |= rhi::to_bits(rhi::image_flag::transfer_source);
                 }
@@ -106,11 +121,9 @@ export namespace deren::engine::pass {
         // ================================================================================================
         // THE SOFTWARE RASTER'S SURFACE (M4 Task 2; spec §3.2/§4.2/§6.2)
         //
-        // WHY A SEPARATE SURFACE AND NOT TWO MORE `ids` ENTRIES: the software lane is OFF by default, and while it is
-        // off the frame must allocate NOTHING - an OFF frame's images and its picture are the pre-M4 ones byte for
-        // byte. `ids`/`resource_count` ARE the request list this producer emits, so growing them would create these
-        // two images on every OFF frame. Task 4 promotes this surface into `ids`/`resource_count` only on a frame
-        // whose selection gate turns the lane on; until that gate exists this is the declaration the tests pin.
+        // WHY THESE FAMILIES ARE OPTIONAL: their ids are visible to the common resource table, but the provider's
+        // default selection leaves them out. Runtime enables them only for a software-raster frame, keeping OFF
+        // frames allocation-free.
         // ================================================================================================
         /// how many IMAGES this surface declares (the CSR tile-list buffer below is an image-less buffer)
         static constexpr std::uint32_t software_resource_count = 2;
@@ -118,6 +131,7 @@ export namespace deren::engine::pass {
         struct software_family {
             render_resource::resource_id id = render_resource::resource_id::none;
             std::uint32_t heap_slot = 0u;
+            std::uint32_t storage_heap_slot = 0u;
             deren::promise::rhi::image_format format = deren::promise::rhi::image_format::unknown;
             deren::promise::rhi::image_flags flags = 0u;
             render_resource::resource_scope scope = render_resource::resource_scope::per_swapchain_image;
@@ -128,6 +142,8 @@ export namespace deren::engine::pass {
                                                                     render_resource::resource_id::software_id};
         static constexpr deren::utility::vessel::array software_heap_slots{render_layout::heap_slots::software_depth,
                                                                            render_layout::heap_slots::software_id};
+        static constexpr deren::utility::vessel::array software_storage_heap_slots{render_layout::heap_slots::software_depth_storage,
+                                                                                   render_layout::heap_slots::software_id_storage};
         /**
          * @brief the two declarations: R32_UINT, frame-sized, sampled AND storage
          *
@@ -138,10 +154,12 @@ export namespace deren::engine::pass {
          */
         static constexpr deren::utility::vessel::array<software_family, software_resource_count> software_resource_families() noexcept {
             constexpr deren::promise::rhi::image_flags flags = deren::promise::rhi::to_bits(deren::promise::rhi::image_flag::sampled) |
-                                                               deren::promise::rhi::to_bits(deren::promise::rhi::image_flag::storage);
+                                                               deren::promise::rhi::to_bits(deren::promise::rhi::image_flag::storage) |
+                                                               deren::promise::rhi::to_bits(deren::promise::rhi::image_flag::transfer_source);
             return {{
                 {.id = render_resource::resource_id::software_depth,
                  .heap_slot = render_layout::heap_slots::software_depth,
+                 .storage_heap_slot = render_layout::heap_slots::software_depth_storage,
                  .format = deren::promise::rhi::image_format::r32_uint,
                  .flags = flags,
                  .scope = render_resource::resource_scope::per_swapchain_image,
@@ -149,6 +167,7 @@ export namespace deren::engine::pass {
                  .debug_name = "software depth image"},
                 {.id = render_resource::resource_id::software_id,
                  .heap_slot = render_layout::heap_slots::software_id,
+                 .storage_heap_slot = render_layout::heap_slots::software_id_storage,
                  .format = deren::promise::rhi::image_format::r32_uint,
                  .flags = flags,
                  .scope = render_resource::resource_scope::per_swapchain_image,
@@ -192,12 +211,19 @@ export namespace deren::engine::pass {
             value.buffer.size = static_cast<std::uint64_t>(context.frame_slots) *
                                 render_resource::software_tiles_buffer_bytes(context.render_extent.width, context.render_extent.height);
             value.buffer.usage = deren::promise::rhi::buffer_usage::storage_coherent;
-            value.buffer.flags = deren::promise::rhi::to_bits(deren::promise::rhi::buffer_flag::device_address);
+            value.buffer.flags = deren::promise::rhi::to_bits(deren::promise::rhi::buffer_flag::device_address) |
+                                 deren::promise::rhi::to_bits(deren::promise::rhi::buffer_flag::transfer_source);
             value.zero_on_create = true;
             return value;
         }
         void select_resources(deren::utility::vessel::array<bool, resource_count> selection) noexcept {
             required = selection;
+            software_resources_selected = selection[15] || selection[16];
+        }
+        void select_software_resources(bool const enabled) noexcept {
+            required[15] = enabled;
+            required[16] = enabled;
+            software_resources_selected = enabled;
         }
         void describe_resources(render_resource::instances::resource_context const& context,
                                 deren::utility::vessel::vector<render_resource::instances::request>& requests) const override {
@@ -206,6 +232,9 @@ export namespace deren::engine::pass {
                 if (required[i]) {
                     requests.push_back(values[i]);
                 }
+            }
+            if (software_resources_selected) {
+                requests.push_back(software_tiles_description(context));
             }
         }
         void bind_resources(render_resource::instances::resource_snapshot const& snapshot) override {

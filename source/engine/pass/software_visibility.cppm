@@ -1,7 +1,7 @@
 /**
  * @file source/engine/pass/software_visibility.cppm
  * @defgroup engine_pass_software_visibility Software Visibility Pass
- * @brief the SOFTWARE RASTER's recording half (M4 Task 2 scaffolding; docs/superpowers/specs/2026-10-22-software-raster-
+ * @brief the SOFTWARE RASTER's recording half (M4; docs/superpowers/specs/2026-10-22-software-raster-
  *        design.md §3.2/§4.2): a heap-native compute pass that rasterizes the frame's subpixel records into two private
  *        R32_UINT images, tile by tile, one workgroup per 16x16 tile.
  *
@@ -17,18 +17,19 @@
  * no attachment - the same shape as the visibility resolve and the cluster sort. The graph lane
  * (`render_graph/visibility.cppm`'s `append_software_raster`) owns what it reads and writes and the order it sits in.
  *
- * THE EXTENT IS THE FRAME'S (`extent_rule::full`), because the dispatch covers the render extent: `tile_extent` is the
- * CSR list's tile size and the group is 8x8 threads with four pixels each, so the two numbers are one contract
- * (16 = 8 x 2, and four pixels per thread covers the 16x16 tile).
+ * The pass first clears both storage images with a simple full-grid compute dispatch, then uses a write-after-write
+ * image barrier and dispatches raster work only for non-empty CSR tiles. This avoids stale pixels without transfer
+ * usage or a second pipeline.
  *
- * SCAFFOLDING, DELIBERATELY: M4 Task 2 lands this object, its pipeline and the tests that pin the declaration; Task 3
- * fills the tiled walk inside `software_visibility.slang`. The recording half is already the final shape - one
- * dispatch over the tile grid - so Task 3 only changes the shader.
+ * The pass pushes the frame/image heap lanes and dispatches one workgroup per active tile. The shader maps compact
+ * group indices through the CSR active-tile list and writes each in-bounds software depth/id pixel.
  */
 module;
 
+#include <array>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string_view>
 
 export module deren.engine.pass.software_visibility;
@@ -42,6 +43,12 @@ import deren.engine.visibility.software;
 
 export namespace deren::engine::pass {
     namespace rhi = deren::promise::rhi;
+
+    struct gpu_route_parameters {
+        float threshold_px = 1.0f, near_plane = 0.1f, projection_scale = 1.0f;
+        bool perspective = true;
+        std::uint32_t budget = visibility::software::software_entry_budget;
+    };
 
     class software_visibility_pass final : public frame_pass {
     public:
@@ -86,10 +93,39 @@ export namespace deren::engine::pass {
         [[nodiscard]] bool ready() const noexcept override {
             return this->has_pipeline();
         }
+        void set_hzb_results_active(bool const active) noexcept {
+            this->hzb_results_active = active;
+        }
+        void set_frame_inputs(std::uint32_t active_tile_count, rhi::image* software_depth_target, rhi::image* software_id_target) noexcept {
+            this->active_tile_count = active_tile_count;
+            this->software_depth_target = software_depth_target;
+            this->software_id_target = software_id_target;
+        }
         [[nodiscard]] rhi::pipeline* pipeline_handle() const noexcept override {
+            if (this->triangle_frame)
+                return this->triangle_pipeline ? this->triangle_pipeline->contract : nullptr;
             return this->visibility_pipeline.has_value() ? this->visibility_pipeline->contract : nullptr;
         }
 
+        /// Called after this frame slot's fence, before hardware runs are shortened.
+        [[nodiscard]] bool prepare_triangles(std::uint32_t frame_slot, std::uint32_t width, std::uint32_t height);
+        [[nodiscard]] bool prepare_gpu_route(std::uint32_t slot, std::uint32_t width, std::uint32_t height, gpu_route_parameters parameters);
+        void disable_gpu_route() noexcept {
+            this->gpu_route_ready = false;
+        }
+        [[nodiscard]] bool gpu_routing() const noexcept {
+            return this->gpu_route_ready;
+        }
+        [[nodiscard]] rhi::shared_object<rhi::buffer> const& route_metadata_buffer() const noexcept {
+            return this->route_metadata[this->triangle_slot];
+        }
+        [[nodiscard]] rhi::shared_object<rhi::buffer> const& route_arguments_buffer() const noexcept {
+            return this->route_arguments[this->triangle_slot];
+        }
+        [[nodiscard]] std::span<std::uint32_t> route_metadata_words() const noexcept;
+        [[nodiscard]] bool triangles_active() const noexcept {
+            return this->triangle_frame;
+        }
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const&) override {
             // nothing is per-generation: the pipeline depends on the device alone, and the images arrive per frame
@@ -100,6 +136,18 @@ export namespace deren::engine::pass {
     private:
         static constexpr std::string_view shader_name = "software_visibility.comp.spv";
         std::optional<pipelines::pipeline_handle> visibility_pipeline = std::nullopt;
+        std::optional<pipelines::pipeline_handle> triangle_pipeline;
+        std::array<rhi::unique_object<rhi::buffer>, 8u> triangle_scratch{};
+        std::array<rhi::shared_object<rhi::buffer>, 8u> route_metadata{}, route_arguments{};
+        bool gpu_route_ready = false;
+        rhi::api_core* device = nullptr;
+        std::uint32_t triangle_slot = 0u;
+        bool triangle_requested = false;
+        bool triangle_frame = false;
         void* built_against = nullptr;
+        bool hzb_results_active = false;
+        std::uint32_t active_tile_count = 0u;
+        rhi::image* software_depth_target = nullptr;
+        rhi::image* software_id_target = nullptr;
     };
 } // namespace deren::engine::pass

@@ -19,6 +19,7 @@
 // ============================================================================
 module;
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -36,6 +37,8 @@ import deren.utility.shared;
 import :declarations;
 
 import deren.promise.rhi;
+import deren.engine.visibility.software;
+import deren.engine.pass.hzb_cull;
 
 namespace deren::engine {
     std::expected<runtime::frame_image, deren::utility::vessel::string> runtime::acquire_current_frame_image() {
@@ -74,6 +77,92 @@ namespace deren::engine {
         // the caller's pacing - this wait, which is the context's own - is the ordering. The same rule
         // the contract states for `buffer::mapped()`.
         device.wait_idle();
+        if (auto const* prefix = std::getenv("DEREN_SOFTWARE_IMAGES_CAPTURE")) {
+            auto const captured = this->software_probe_extent;
+            std::uint64_t const required = static_cast<std::uint64_t>(captured.width) * captured.height * 4u;
+            if (!required)
+                return std::unexpected(deren::utility::vessel::string("software image capture: no completed capture"));
+            if (this->software_route_probe_ready) {
+                namespace software = deren::engine::visibility::software;
+                auto fail = [] { return std::unexpected(deren::utility::vessel::string("software GPU capture: invalid partition or reference")); };
+                auto const work_bytes = this->software_route_probe_readbacks[0]->mapped();
+                auto const result_bytes = this->software_route_probe_readbacks[1]->mapped();
+                auto const survivor_bytes = this->software_route_probe_readbacks[2]->mapped();
+                auto const* work = reinterpret_cast<std::uint32_t const*>(work_bytes.data());
+                auto const* results = reinterpret_cast<std::uint32_t const*>(result_bytes.data());
+                auto const* survivors = reinterpret_cast<meshlet const*>(survivor_bytes.data());
+                auto const grid = software::make_tile_grid(captured.width, captured.height);
+                std::size_t const entry_offset = 6u + grid.tile_count() * 3u + 1u;
+                if (work_bytes.size() < (entry_offset + software::software_entry_budget * 2u) * 4u ||
+                    result_bytes.size() < pass::hzb_results_words_per_lane * 4ull || survivor_bytes.size() < meshlet_capacity * sizeof(meshlet))
+                    return fail();
+                if (work[2] > this->software_route_probe_budget || work[2] > software::software_entry_budget)
+                    return fail();
+                deren::utility::vessel::vector<software::tile_entry> entries;
+                for (std::uint32_t i = 0; i < work[2]; ++i)
+                    entries.push_back({work[entry_offset + i * 2u], work[entry_offset + i * 2u + 1u]});
+                deren::utility::vessel::vector<software::gpu_partition_item> partition;
+                deren::utility::vessel::vector<software::reference_item> references;
+                for (auto const& item : this->software_route_probe_items) {
+                    partition.push_back({item.item, item.records, {results + pass::hzb_results_flags_offset + item.base, item.records.size()}, {survivors + item.base, item.records.size()}, results[pass::hzb_results_pass1_count_offset + item.item], results[pass::hzb_results_pass2_count_offset + item.item]});
+                    references.push_back({.item_index = item.item, .model = item.model, .records = item.records, .positions = item.positions, .indices = item.indices, .double_sided = item.double_sided});
+                }
+                if (!software::validate_gpu_partition(entries, partition))
+                    return fail();
+                software::camera_parameters camera{.view = this->software_route_probe_view, .proj = this->software_route_probe_proj, .width = captured.width, .height = captured.height};
+                // Independent diagnostic CSR uses the GPU's actual IDs, without reclassifying candidates.
+                deren::utility::vessel::vector<deren::utility::vessel::vector<software::tile_entry>> bins(grid.tile_count());
+                for (auto const& entry : entries) {
+                    auto const& item = *std::find_if(references.begin(), references.end(), [&](auto const& value) { return value.item_index == entry.item_index; });
+                    auto const projected = software::project(item.records[entry.meshlet_id], item.model, camera, grid);
+                    if (!projected.on_screen)
+                        continue;
+                    for (auto y = projected.tile_min_y; y <= projected.tile_max_y; ++y)
+                        for (auto x = projected.tile_min_x; x <= projected.tile_max_x; ++x)
+                            bins[std::size_t(y) * grid.tiles_x + x].push_back(entry);
+                }
+                software::software_tile_lists lists;
+                lists.grid = grid;
+                lists.cluster_count = static_cast<std::uint32_t>(entries.size());
+                lists.offsets.push_back(0u);
+                for (auto const& bin : bins) {
+                    lists.counts.push_back(static_cast<std::uint32_t>(bin.size()));
+                    lists.entries.insert(lists.entries.end(), bin.begin(), bin.end());
+                    lists.offsets.push_back(static_cast<std::uint32_t>(lists.entries.size()));
+                }
+                lists.entry_count = static_cast<std::uint32_t>(lists.entries.size());
+                auto reference = software::rasterize_tiles(lists, {.camera = camera, .items = references});
+                if (!reference)
+                    return fail();
+                std::array<char const*, 2> names{"-cpu-depth.u32", "-cpu-id.u32"};
+                std::array<std::uint32_t const*, 2> data{reference->depth_bits.data(), reference->id.data()};
+                for (std::size_t i = 0; i < names.size(); ++i) {
+                    std::ofstream output(std::string(prefix) + names[i], std::ios::binary | std::ios::out | std::ios::noreplace);
+                    output.write(reinterpret_cast<char const*>(data[i]), static_cast<std::streamsize>(required));
+                    if (!output)
+                        return fail();
+                }
+                std::ofstream report(std::string(prefix) + "-route.json", std::ios::out | std::ios::noreplace);
+                report << "{\"partition_valid\":true,\"slot\":" << this->software_route_probe_slot
+                       << ",\"software_candidates\":" << entries.size() << ",\"budget\":" << this->software_route_probe_budget << "}\n";
+                if (!report)
+                    return fail();
+                deren::utility::log("software GPU capture: partition valid, {} software candidates, slot {}", entries.size(), this->software_route_probe_slot);
+            }
+            std::array<char const*, 2> const suffixes{"-depth.u32", "-id.u32"};
+            for (std::size_t i = 0; i < suffixes.size(); ++i) {
+                auto* buffer = this->software_probe_readbacks[i].get();
+                if (!buffer)
+                    return std::unexpected(deren::utility::vessel::string("software image capture: missing buffer"));
+                auto const bytes = buffer->mapped();
+                if (bytes.size() < required)
+                    return std::unexpected(deren::utility::vessel::string("software image capture: short buffer"));
+                std::ofstream output(std::string(prefix) + suffixes[i], std::ios::binary | std::ios::out | std::ios::noreplace);
+                output.write(reinterpret_cast<char const*>(bytes.data()), static_cast<std::streamsize>(required));
+                if (!output)
+                    return std::unexpected(deren::utility::vessel::string("software image capture: file write failed"));
+            }
+        }
         if (auto const* path = std::getenv("DEREN_GAUSSIAN_HDR_CAPTURE"); path && this->gaussian_hdr_readback) {
             auto const bytes = this->gaussian_hdr_readback->mapped();
             std::uint64_t const required = static_cast<std::uint64_t>(this->gaussian_hdr_extent.width) * this->gaussian_hdr_extent.height * 8u;

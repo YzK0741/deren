@@ -3435,6 +3435,21 @@ namespace deren::vulkan {
         }
     }
 
+    rhi::error core::frame_commands::dispatch_indirect(rhi::buffer const& arguments, std::uint64_t offset) {
+        auto* self = this->owner;
+        auto const command = this->native();
+        if (!self || command == VK_NULL_HANDLE)
+            return rhi::error::not_ready;
+        if (!rhi::is_concrete(arguments, concrete::buffer))
+            return rhi::error::invalid_argument;
+        auto const* owned = static_cast<owned_buffer const*>(&arguments);
+        if (owned->owner != self || !rhi::has_flag(owned->declared_flags, rhi::buffer_flag::indirect) ||
+            rhi::validate_dispatch_indirect_range(owned->size_bytes, offset) != rhi::error::ok)
+            return rhi::error::invalid_argument;
+        vkCmdDispatchIndirect(command, owned->native, offset);
+        return rhi::error::ok;
+    }
+
     void core::frame_commands::dispatch(std::uint32_t const groups_x, std::uint32_t const groups_y, std::uint32_t const groups_z) noexcept {
         VkCommandBuffer const command_buffer = this->native();
         if (command_buffer != VK_NULL_HANDLE) {
@@ -4470,6 +4485,14 @@ namespace deren::vulkan {
     // A MISSING DEVICE (`owner == nullptr`, a released core) answers the same defaults an unqueried device
     // struct would have: false for the features, zero for the numbers - the callers' own guard rails treat a
     // zero limit as "visibly not a device" (the note `physical_properties_of` used to carry).
+    bool core::frame_device_capabilities::compute_indirect() const noexcept {
+        return this->owner != nullptr;
+    }
+
+    bool core::frame_device_capabilities::buffer_int64_atomics() const noexcept {
+        return this->owner != nullptr && this->owner->buffer_int64_atomics_available;
+    }
+
     bool core::frame_device_capabilities::mesh_shader() const noexcept {
         return this->owner != nullptr && this->owner->mesh_shader_available;
     }

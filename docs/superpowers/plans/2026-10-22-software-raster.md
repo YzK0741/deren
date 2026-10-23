@@ -3,12 +3,16 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans inline to implement this plan task-by-task. Preserve the current-session native execution method and current-checkout authorization. One fresh whole-change reviewer after implementation; no per-task agents. Steps use checkbox syntax for tracking.
 
 **Goal:** 在 visibility-buffer lane 上实现 subpixel cluster 的混合生产者：CPU cut 选中的小 cluster 由 tile 化 compute raster 写 `(depth, packed_id)` 辅助图像，**resolve 先读未合并的硬件 depth 选择硬件/软件候选并着色，depth-only merge 随后把 `min(hw,sw)` 写回同一 G-buffer depth**；默认 OFF、32-bit id 不变、M1c 的 cut/run/HZB/OFF 契约不变。先由 Task 1 测出「硬件让出 subpixel 工作量」的上界并给 GO/NO-GO，再由 Task 6 用 Bistro 派生资产三轮测量做最终 ROI 判决。
-**Architecture:** CPU 分类与 tile binning 在 M1c 的 per-item planning 阶段完成（确定性，无 GPU 反查）；硬件 dispatch 只覆盖 run 的硬件前缀；新 per-image 两张 `R32_UINT` 资源（software_depth/software_id）+ tile buffer + 一个 compute raster pass + 一个 depth-only merge pass + resolve 的候选选择；图顺序 = 硬件 raster → 软件 raster → **resolve → merge** → HZB build → lighting/post（HZB cull/recovery 帧 hybrid 逐帧互斥）。raster/resolve 既有数学除 resolve 的候选选择与 merge 的 depth 写回外不变。
+**Architecture:** CPU 分类与 tile binning 在 M1c 的 per-item planning 阶段完成（确定性，无 GPU 反查）；硬件 dispatch 只覆盖 run 的硬件前缀；新 per-image 两张 `R32_UINT` 资源（software_depth/software_id）+ tile buffer + 一个 compute raster pass + 一个 depth-only merge pass + resolve 的候选选择；图顺序 = 硬件 raster → 软件 raster → **resolve → merge** → HZB build → lighting/post。原计划中的 HZB cull/recovery 互斥约束已由后续实现替代，见本文件状态更新和 spec §5.5。
 **Tech Stack:** C++23 modules、Clang64/libc++、vessel/mimalloc、Slang/SPIR-V、CMake 4.3、Vulkan（现有 visibility/HZB lane）；CPU 测试无 Vulkan 依赖；无 CUDA。
 **Spec:** `docs/superpowers/specs/2026-10-22-software-raster-design.md`。代码基线 `1ba58d82`（M1c 已接受）。计划时 HEAD `1ba58d82`。
-**状态：** Lead 审阅通过（修正了合并/resolve 次序的阻塞设计缺陷，见 spec §3.2/§5.1）；用户已批准 Q2（方案 A/32-bit id 冻结）、Q4（ROI 判决门）、Q5（v1 与 HZB 互斥）（2026-10-22）；Q1/Q3/Q6 按推荐默认；**Q7 已解决（2026-10-22，用户决定）：改用 CSR 稀疏 tile 列表**（全局 entry 预算 65,536/lane），固定 per-tile 容量 32/64 被 T1 实测证伪（far 最热 tile 977/1,907，固定 1024/2048 会为 4.5-12.5k 实际 entries 预留 29.5/59MiB/lane）。已按计划开始 Task 1（GO/NO-GO 测量），T2+ 仅在 T1 GO 后开工。
+**状态更新（2026-10-22）：** 原 Q5 的“v1 与 HZB cull/recovery 互斥”已被后续实现扩展取代。当前实现允许三者同时开启：HZB 处理整个候选 run，软件 raster 再按 HZB 最终 flags 过滤自己的后缀；详见 `docs/visibility_buffer.md` 与 spec §5.5 的实现更新。其余早期计划状态/决策记录保留为历史上下文。
 
-**Task 1 状态（2026-10-22 收尾）：** 完成，判决 **GO**——far `visibility raster` 3 轮交错中位数差 **1.54 ms = M1c far ON 20.11 ms 的 7.66%**（门限 1.5%/0.302 ms），near 记录 0.09 ms（不作条件）；分类计数与 M1c 探针对照可解释（1.0 px 10.32% ≤ 23.28%），holes 移除工作量与探针后缀逐帧可对账。**per-tile 容量实测推翻 Q7 的 32/64 前提：far 单 tile 最大 977 条（2.0 px 1907），near 226/290，32 与 64 都每帧 overflow；而 far 1.0/2.0 只有 4,572/12,557 entries（129/170 个非零 tile），固定 1024/2048 会为 4.5-12.5k entries 预留 29.5/59MiB/lane。用户已批准 Q7 = CSR 稀疏列表（2026-10-22，spec §3.4/§9.2）：全局 entry 预算 65,536 entries（512KiB）/lane + counts/offsets，超预算才整帧 hardware-only；无 per-tile 容量。** 报告：`docs/reviews/2026-10-22-software-raster.md`；证据：`D:/deren-assets/2026-10-22-software-raster/`（98 文件逐文件 SHA-256，0 mismatch）。T2+ 尚未开始。
+**原计划状态（历史快照）：** Lead 审阅通过（修正了合并/resolve 次序的阻塞设计缺陷，见 spec §3.2/§5.1）；用户当时批准 Q2（方案 A/32-bit id 冻结）、Q4（ROI 判决门）、Q5（v1 与 HZB 互斥）（2026-10-22）；Q1/Q3/Q6 按推荐默认；**Q7 已解决（2026-10-22，用户决定）：改用 CSR 稀疏 tile 列表**（全局 entry 预算 65,536/lane），固定 per-tile 容量 32/64 被 T1 实测证伪（far 最热 tile 977/1,907，固定 1024/2048 会为 4.5-12.5k 实际 entries 预留 29.5/59MiB/lane）。
+
+**Task 1 状态（2026-10-22 收尾）：** 完成，判决 **GO**——far `visibility raster` 3 轮交错中位数差 **1.54 ms = M1c far ON 20.11 ms 的 7.66%**（门限 1.5%/0.302 ms），near 记录 0.09 ms（不作条件）；分类计数与 M1c 探针对照可解释（1.0 px 10.32% ≤ 23.28%），holes 移除工作量与探针后缀逐帧可对账。**per-tile 容量实测推翻 Q7 的 32/64 前提：far 单 tile 最大 977 条（2.0 px 1907），near 226/290，32 与 64 都每帧 overflow；而 far 1.0/2.0 只有 4,572/12,557 entries（129/170 个非零 tile），固定 1024/2048 会为 4.5-12.5k entries 预留 29.5/59MiB/lane。用户已批准 Q7 = CSR 稀疏列表（2026-10-22，spec §3.4/§9.2）：全局 entry 预算 65,536 entries（512KiB）/lane + counts/offsets，超预算才整帧 hardware-only；无 per-tile 容量。** 报告：`docs/reviews/2026-10-22-software-raster.md`；证据：`D:/deren-assets/2026-10-22-software-raster/`（98 文件逐文件 SHA-256，0 mismatch）。
+
+**实现状态（2026-10-23）：** M4 的实现按新批准的 `2026-10-23-software-routing-design.md` 演进（direct CPU list / triangle producer / GPU routing prototype），本计划的 T3-T5 tile-producer 断言由新计划与 2026-10-23 报告替代；仅 Task 1（GO）与 Task 2（脚手架，随后被生产者替换）已验收。M4 整体尚未验收：software raster 保持 default OFF，完整混合帧尚无稳定净收益（见 2026-10-23 各报告），GPU routing Task 3 仍有未完成项。
 
 ## Global Constraints
 
@@ -110,7 +114,7 @@
 - [x] `ctest -R 'test_visibility_software|test_render_graph_visibility|test_software_|test_render_resources|test_shader_sources'` 绿（含 CSR 前缀和/空 tile/预算边界与 offline CPU reference rasterizer）；`test_visibility_buffer`/`test_visibility_raster_pass`/`test_visibility_resolve_pass` 不回归；ASan/UBSan 新 CPU target 绿。
 - [x] Release 全量 CTest 绿（记录数量）；默认 OFF 的 frozen Full 15/15 + Visibility 1/1 不变（没有视觉变化）；validation 不需要（本任务无帧内新 pass）。
 - [x] `test_docs` 绿（VR_TEST_TARGETS 与 ci.yml 同步）。
-
+
 
 **Task 2 状态（2026-10-22，hzb-finish 收尾）：完成，未开始 T3/T4。** RED 证据：
 `build-release-dyn-clang64/m4-t2-current-build.log`（缺 `software_raster_inputs` / `append_software_raster` /

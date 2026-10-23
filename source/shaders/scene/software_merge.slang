@@ -1,4 +1,4 @@
-// shaders/scene/software_merge.slang - THE SOFTWARE RASTER'S DEPTH-ONLY MERGE (M4 Task 2 scaffolding).
+// shaders/scene/software_merge.slang - THE SOFTWARE RASTER'S DEPTH-ONLY MERGE.
 //
 // PRODUCES `software_merge.vert.spv` + `software_merge.frag.spv`. The hybrid visibility design's LAST step before the
 // HZB and the lighting (docs/superpowers/specs/2026-10-22-software-raster-design.md §3.2/§5.2): one fullscreen
@@ -11,12 +11,21 @@
 // UNMERGED hardware depth and the software candidates), and this merge runs after it. `render_graph/visibility.cppm`'s
 // `append_software_merge` declares both edges.
 //
-// WHAT THIS FILE IS TODAY: the fullscreen triangle and a fragment stage that writes 1.0 into SV_Depth, i.e. the depth
-// test can never pass (a scene depth is < 1 except where nothing was drawn, and there the hardware value is already
-// the far plane). That makes a recorded merge a NO-OP rather than a wrong picture until Task 3 fills the body: it
-// samples the two software images, reconstructs the software depth from the R32_UINT bit pattern
-// (`asfloat(sw_depth_bits)`, the same spelling as the CPU reference's `software_pixel_usable`), and writes it - a
-// value <= the stored depth passes the test and becomes the new depth, which is exactly min(hw, sw).
+// The fragment stage samples the software images, reconstructs depth from the R32_UINT bit pattern, and lets the
+// pipeline's LESS_OR_EQUAL depth test write min(hardware, software) into the frame depth attachment.
+
+#include "common/heap_access.slang"
+#include "common/software_candidate.slang"
+
+struct SoftwareMergePush
+{
+    uint frame_slot;
+    uint image_index;
+    uint spare_lane;
+};
+[[vk::push_constant]] ConstantBuffer<SoftwareMergePush> push;
+#define heap_frame_slot (push.frame_slot)
+#define heap_image_index (push.image_index)
 
 struct software_merge_vertex_output {
     float4 position : SV_Position;
@@ -34,12 +43,13 @@ software_merge_vertex_output vert_main(uint vertex_index : SV_VertexID)
 }
 
 // THE DEPTH-ONLY FRAGMENT STAGE: with no colour attachment this stage's ONLY output is SV_Depth. The pipeline's
-// LESS_OR_EQUAL compare against the existing depth turns a returned value into min(hw, sw) with no arithmetic here;
-// 1.0 is the far plane, so the scaffolding merge is a no-op. Task 3 samples `software_tiles`' owner's two heap images
-// (the depth bit pattern and the id) and returns the software depth, with the id's EMPTY value (0) returning 1.0 so an
-// empty software pixel never competes with the hardware one (spec §3.2's winner rule).
+// LESS_OR_EQUAL compare against the existing depth turns a returned value into min(hw, sw); an empty software pixel
+// returns 1.0, so it never competes with the hardware candidate (spec §3.2's winner rule).
 [shader("fragment")]
-float frag_main() : SV_Depth
+float frag_main(float4 position : SV_Position) : SV_Depth
 {
-    return 1.0;
+    const uint2 pixel = uint2(position.xy);
+    const uint id = heap_at<Texture2D<uint>>(heap_image_slot(heap_slots_software_id)).Load(int3(pixel, 0));
+    const uint depth_bits = heap_at<Texture2D<uint>>(heap_image_slot(heap_slots_software_depth)).Load(int3(pixel, 0));
+    return software_candidate_usable(id, depth_bits) ? asfloat(depth_bits) : 1.0;
 }

@@ -285,6 +285,15 @@ namespace deren::app_config {
                 if (auto value = node->value<bool>())
                     settings.render.subtilis_hysteresis = *value;
             }
+            if (toml::node const* node = render->get("software_raster")) {
+                if (auto value = node->value<bool>())
+                    settings.render.software_raster = *value;
+            }
+            if (auto const* node = render->get("software_raster_threshold_px")) {
+                if (auto value = node->value<double>(); value && std::isfinite(*value) && *value > 0 &&
+                                                        *value <= std::numeric_limits<float>::max() && static_cast<float>(*value) > 0)
+                    settings.render.software_raster_threshold_px = static_cast<float>(*value);
+            }
             if (toml::node const* node = render->get("character_forward")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
                     settings.render.character_forward = *value;

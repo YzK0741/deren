@@ -77,7 +77,7 @@ export namespace deren::engine::pass {
         std::uint32_t meshlet_base = 0;    ///< the run's first candidate index in its source table
         std::uint32_t candidate_count = 0; ///< candidates the run holds; 0 = this item offers the cull nothing
         std::uint32_t source = 0;          ///< `hzb_item_source_*`
-        std::uint32_t pad = 0;             ///< original host dispatch count; probe verifies commands (16 B entry)
+        std::uint32_t pad = 0;             ///< hardware-prefix count; equals the original dispatch when software raster is off
     };
     static_assert(sizeof(hzb_item) == 16u, "the shader's HzbItem is four u32 words - the entry must be exactly 16 B");
 
@@ -162,10 +162,11 @@ export namespace deren::engine::pass {
          *        describe before its pyramid may be indexed at all (§7.2's header guard)
          * @note called by the runtime once per frame it appends the lane, before the graph records
          */
-        void set_frame(std::uint32_t const item_count, rhi::image_extent const extent, bool const recovery = false) noexcept {
+        void set_frame(std::uint32_t const item_count, rhi::image_extent const extent, bool const recovery = false, bool const gpu_software = false) noexcept {
             this->frame_item_count = item_count;
             this->frame_extent = extent;
             this->recovery_mode = recovery;
+            this->gpu_software = gpu_software;
         }
 
         [[nodiscard]] rhi::error record_content(resolved_io const& io) noexcept override;
@@ -176,6 +177,7 @@ export namespace deren::engine::pass {
         std::uint32_t frame_item_count = 0;
         rhi::image_extent frame_extent = {};
         bool recovery_mode = false;
+        bool gpu_software = false;
         // Cross-pass visibility of results/survivors/commands belongs to scoped graph barriers.
     };
 } // namespace deren::engine::pass

@@ -597,6 +597,53 @@ namespace {
         std::size_t const tiles = static_cast<std::size_t>(lists->grid.tiles_x) * lists->grid.tiles_y;
         CHECK(lists->grid.tiles_x == 63u && lists->grid.tiles_y == 63u);
         CHECK(lists->item_count == 2u && lists->cluster_count == 2u && lists->entry_count == 2u);
+        // Same-frame projection reuse must preserve the complete wire CSR and stable split order.
+        auto const metrics = sw::prepare_camera(parameters);
+        CHECK(metrics.has_value());
+        auto const grid = sw::make_tile_grid(parameters.width, parameters.height);
+        std::array<sw::projected_record, 1> cache_zero{sw::project(item_zero[0], identity(), *metrics, grid)};
+        std::array<sw::projected_record, 1> cache_one{sw::project(item_one[0], identity(), *metrics, grid)};
+        auto cached_items = items;
+        cached_items[0].cached_projections = cache_zero;
+        cached_items[1].cached_projections = cache_one;
+        auto const cached = sw::build_tile_lists(cached_items, parameters, 4.0f, sw::software_entry_budget);
+        CHECK(cached.has_value());
+        if (cached) {
+            CHECK(cached->counts == lists->counts);
+            CHECK(cached->offsets == lists->offsets);
+            CHECK(cached->entry_count == lists->entry_count);
+            CHECK(std::equal(cached->entries.begin(), cached->entries.end(), lists->entries.begin(),
+                             [](auto const& a, auto const& b) { return a.item_index == b.item_index && a.meshlet_id == b.meshlet_id; }));
+        }
+        deren::utility::vessel::vector<std::uint32_t> order_a, order_b;
+        auto const split_a = sw::split_records(items[0], *metrics, 4.0f, order_a);
+        auto const split_b = sw::split_records(cached_items[0], *metrics, 4.0f, order_b);
+        CHECK(order_a == order_b && split_a.hardware_count == split_b.hardware_count && split_a.software_count == split_b.software_count);
+        std::array<sw::projected_record, 2> wrong_cache{};
+        cached_items[0].cached_projections = wrong_cache;
+        CHECK(!sw::build_tile_lists(cached_items, parameters, 4.0f, sw::software_entry_budget));
+        std::array<meshlet, 4> mixed{record(0, 0, -10, 0.002f), record(0, 0, -10, 0.5f),
+                                     record(10, 0, -10, 0.002f), record(0, 0, -0.5f, 0.002f)};
+        std::array<sw::projected_record, 4> projections;
+        for (std::size_t i = 0; i < mixed.size(); ++i)
+            projections[i] = sw::project(mixed[i], identity(), *metrics, grid);
+        for (float threshold : {0.01f, 1.0f, 4.0f, 4000.0f}) {
+            sw::item_records raw{.item_index = 0, .model = identity(), .records = mixed};
+            auto reuse = raw;
+            reuse.cached_projections = projections;
+            auto a = sw::split_records(raw, *metrics, threshold, order_a);
+            auto b = sw::split_records(reuse, *metrics, threshold, order_b);
+            CHECK(order_a == order_b && a.hardware_count == b.hardware_count && a.software_count == b.software_count);
+            auto x = sw::build_tile_lists(std::span{&raw, 1}, parameters, threshold);
+            auto y = sw::build_tile_lists(std::span{&reuse, 1}, parameters, threshold);
+            CHECK(x.has_value() == y.has_value());
+            if (x && y) {
+                CHECK(x->counts == y->counts && x->offsets == y->offsets);
+                CHECK(x->entries.size() == y->entries.size());
+                CHECK(std::equal(x->entries.begin(), x->entries.end(), y->entries.begin(),
+                                 [](auto const& left, auto const& right) { return left.item_index == right.item_index && left.meshlet_id == right.meshlet_id; }));
+            }
+        }
         // the CSR invariants: counts are the range sizes, offsets the exclusive prefix sum, offset[0] == 0,
         // offset[tiles] == entry_count, monotone
         CHECK(lists->counts.size() == tiles && lists->offsets.size() == tiles + 1u);
@@ -870,11 +917,30 @@ namespace {
     }
 
     void cpu_reference_rasterizer() {
+        // A record's signed vertex base is part of the shared GPU fetch contract.
+        auto baseline_fixture = planar_triangle(-2.0f, 0.0625f, 0u);
+        auto const baseline = rasterize({baseline_fixture});
+        auto shifted = baseline_fixture;
+        shifted.positions.insert(shifted.positions.begin(), 3u, {99.0f, 99.0f, 99.0f});
+        shifted.records[0].base_vertex = 3;
+        auto const shifted_image = rasterize({shifted});
+        CHECK(shifted_image.id == baseline.id);
+        CHECK(shifted_image.depth_bits == baseline.depth_bits);
         // ---- a subpixel triangle inside the centre tile of a 64x64 frame, all corners at eye z = -7.75, which the
         //      orthographic camera maps to NDC z = 0.5: the listed tile's entries are the only producer, so pixels
         //      inside the triangle carry the packed id and 0.5's bits while untouched pixels stay EMPTY (id 0,
         //      depth bits 0xFFFFFFFF) - the encoding the GPU images are cleared to
         auto fixture = planar_triangle(-7.75f, 0.0625f, 0u);
+        {
+            auto plan = single_entry_plan(4, 4, 2, 2, {0, 0});
+            auto reference = fixture.reference();
+            reference.double_sided = false;
+            auto image = sw::rasterize_tiles(plan, {.camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64, 64), .items = {&reference, 1}});
+            CHECK(image && image->at(39, 39).id == 0); // positive screen area is a culled back face
+            reference.double_sided = true;
+            image = sw::rasterize_tiles(plan, {.camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64, 64), .items = {&reference, 1}});
+            CHECK(image && image->at(39, 39).id != 0);
+        }
         auto const constant_depth = rasterize({fixture});
         auto const expected_id = deren::engine::visibility::pack_id(0u, 0u, 0u);
         CHECK(expected_id.has_value());
@@ -1014,6 +1080,185 @@ namespace {
             CHECK(!wrong_result.has_value() && wrong_result.error() == sw::software_error::invalid_reference);
         }
     }
+
+    void gpu_route_partition() {
+        std::array<meshlet, 4> candidates{};
+        for (std::uint32_t i = 0; i < 4u; ++i) {
+            candidates[i].first_index = i * 3u;
+            candidates[i].index_count = 3u;
+        }
+        std::array<std::uint32_t, 4> flags{0u, 1u, 3u, 0u};
+        std::array<meshlet, 1> hardware{candidates[3]};
+        sw::gpu_partition_item item{.item_index = 7u, .candidates = candidates, .flags = flags, .hardware = hardware, .primary_count = 1u, .recovery_count = 0u};
+        std::array<sw::tile_entry, 2> software{{{7u, 0u}, {7u, 2u}}};
+        CHECK(sw::validate_gpu_partition(software, std::span(&item, 1u)));
+        auto duplicate = software;
+        duplicate[1] = duplicate[0];
+        CHECK(!sw::validate_gpu_partition(duplicate, std::span(&item, 1u)));
+        auto culled = software;
+        culled[1].meshlet_id = 1u;
+        CHECK(!sw::validate_gpu_partition(culled, std::span(&item, 1u)));
+        item.primary_count = 0u;
+        CHECK(!sw::validate_gpu_partition(software, std::span(&item, 1u))); // missing hardware candidate
+        item.primary_count = 1u;
+        hardware[0] = candidates[0];
+        CHECK(!sw::validate_gpu_partition(software, std::span(&item, 1u))); // duplicated across HW/SW
+        std::array<meshlet, 3> fallback{candidates[0], candidates[3], candidates[2]};
+        item.hardware = fallback;
+        item.primary_count = 2u;
+        item.recovery_count = 1u;
+        CHECK(sw::validate_gpu_partition({}, std::span(&item, 1u))); // failed reservation: complete visible HW
+        flags[0] = 4u;
+        CHECK(!sw::validate_gpu_partition({}, std::span(&item, 1u))); // temporary flags must be normalized
+    }
+
+    void triangle_edge_projection() {
+        auto params = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 256u, 256u);
+        auto camera = sw::prepare_camera(params);
+        CHECK(camera.has_value());
+        if (!camera)
+            return;
+        auto m = record(0, 0, -5, 0.2f);
+        auto p = sw::project(m, identity(), *camera, sw::make_tile_grid(256, 256), 0.001);
+        CHECK(p.triangle_edge_upper_px < 1.0 && p.diameter_upper_px > 1.0);
+        deren::utility::vessel::vector<std::uint32_t> order;
+        std::array<meshlet, 1> records{m};
+        std::array<sw::projected_record, 1> projections{p};
+        sw::item_records item{.item_index = 0, .model = identity(), .records = records, .cached_projections = projections};
+        CHECK(sw::split_records(item, *camera, 1.0f, order).software_count == 0u);
+        CHECK(sw::split_records(item, *camera, 1.0f, order, sw::routing_metric::triangle_edge).software_count == 1u);
+        p = sw::project(m, identity(), *camera, sw::make_tile_grid(256, 256), 10.0);
+        CHECK(p.triangle_edge_upper_px > 1.0); // long/thin triangles still have a large maximum edge
+        p = sw::project(m, identity(), *camera, sw::make_tile_grid(256, 256));
+        CHECK(!std::isfinite(p.triangle_edge_upper_px)); // missing metadata stays hardware
+        auto pc = prepared(camera_parameters_for(perspective(0.1f, 1.5f, 1.1f), 1280u, 720u));
+        // Perspective bound covers diagonal/depth-varying edges on- and off-axis.
+        for (float cx : {0.0f, 2.0f, 8.0f}) {
+            auto sphere = record(cx, 0, -5, 0.4f);
+            double const edge = std::sqrt(0.2 * 0.2 + 0.2 * 0.2 + 0.3 * 0.3);
+            auto projection = sw::project(sphere, identity(), pc, sw::make_tile_grid(1280, 720), edge);
+            auto screen = [&](double x, double y, double z) {
+                auto clip = sw::transform_point(pc.proj, {x, y, z, 1.0});
+                return std::array<double, 2>{(clip[0] / clip[3] * 0.5 + 0.5) * 1280, (clip[1] / clip[3] * 0.5 + 0.5) * 720};
+            };
+            auto aa = screen(cx - 0.1, -0.1, -5.15), bb = screen(cx + 0.1, 0.1, -4.85);
+            CHECK(projection.triangle_edge_upper_px >= std::hypot(bb[0] - aa[0], bb[1] - aa[1]));
+        }
+        // Wide-FOV/off-axis sphere can cross the image edge even when its projected center is outside.
+        auto wide = prepared(camera_parameters_for(perspective(0.1f, 0.4f, 0.4f), 1000u, 1000u));
+        auto boundary = sw::project(record(27.2f, 0, -10, 1.0f), identity(), wide, sw::make_tile_grid(1000, 1000), 0.001);
+        CHECK(boundary.triangle_edge_upper_px < 1.0);
+        CHECK(boundary.on_screen); // point (26.855,0,-10.939) is inside the sphere and projects to x~991
+        std::array<sw::projected_record, 1> edge_projection{boundary};
+        std::array<std::uint32_t, 1> edge_order{0u};
+        sw::item_split edge_split{.item_index = 0u, .record_count = 1u, .hardware_count = 0u, .software_count = 1u};
+        deren::utility::vessel::vector<sw::tile_entry> edge_dispatch;
+        CHECK(sw::append_triangle_dispatch(edge_split, edge_order, edge_projection, edge_dispatch));
+        CHECK(edge_dispatch.size() == 1u);
+        auto crossing = sw::project(record(0, 0, -0.12f, 0.1f), identity(), pc, sw::make_tile_grid(1280, 720), 0.001);
+        CHECK(!std::isfinite(crossing.triangle_edge_upper_px));
+    }
+
+    void direct_triangle_dispatch() {
+        auto const params = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 256u, 256u);
+        auto const camera = sw::prepare_camera(params);
+        CHECK(camera.has_value());
+        if (!camera)
+            return;
+        auto const grid = sw::make_tile_grid(256u, 256u);
+        std::vector<meshlet> records = {record(0, 0, -5, 0.2f), record(4, 0, -5, 0.001f),
+                                        record(0, 0, -5, 0.001f), record(0.4f, 0, -5, 0.001f)};
+        std::vector<sw::projected_record> projections;
+        for (auto const& m : records)
+            projections.push_back(sw::project(m, identity(), *camera, grid));
+        sw::item_records item{.item_index = 7u, .model = identity(), .records = records, .cached_projections = projections};
+        deren::utility::vessel::vector<std::uint32_t> order;
+        auto const split = sw::split_records(item, *camera, 1.0f, order);
+        deren::utility::vessel::vector<sw::tile_entry> entries;
+        CHECK(sw::append_triangle_dispatch(split, order, projections, entries, sw::software_entry_budget));
+        CHECK(entries.size() == 2u);
+        if (entries.size() == 2u) {
+            CHECK(entries[0].item_index == 7u && entries[0].meshlet_id == 2u); // offscreen suffix keeps ID 1
+            CHECK(entries[1].meshlet_id == 3u);
+        }
+        auto csr = sw::build_tile_lists(std::span<sw::item_records const>(&item, 1), params, 1.0f);
+        CHECK(csr.has_value());
+        if (csr) {
+            auto expected = sw::triangle_dispatch_entries(*csr);
+            CHECK(expected && expected->size() == entries.size());
+            if (expected)
+                for (std::size_t i = 0; i < std::min(expected->size(), entries.size()); ++i)
+                    CHECK((*expected)[i].item_index == entries[i].item_index && (*expected)[i].meshlet_id == entries[i].meshlet_id);
+        }
+        auto const size = entries.size();
+        CHECK(!sw::append_triangle_dispatch(split, order, projections, entries, 3u));
+        CHECK(entries.size() == size); // failure is transactional
+        auto bad_order = order;
+        bad_order.back() = bad_order.front();
+        CHECK(!sw::append_triangle_dispatch(split, bad_order, projections, entries, 100u));
+        CHECK(entries.size() == size);
+        CHECK(!sw::append_triangle_dispatch(split, order, std::span(projections).first(2), entries, 100u));
+        auto bad = split;
+        ++bad.hardware_count;
+        CHECK(!sw::append_triangle_dispatch(bad, order, projections, entries, 100u));
+        sw::software_tile_lists direct{};
+        direct.grid = grid;
+        direct.entries = entries;
+        direct.entry_count = static_cast<std::uint32_t>(entries.size());
+        direct.cluster_count = split.software_count;
+        std::vector<std::uint32_t> lane(sw::software_tiles_bytes(256u, 256u) / 4u, 0xDEADBEEFu);
+        CHECK(sw::write_triangle_dispatch(lane, direct));
+        auto const offset = sw::software_tiles_entries_word(grid.tile_count());
+        CHECK(lane[0] == 16u && lane[1] == 16u && lane[2] == 2u && lane[3] == 0u && lane[4] == 3u && lane[5] == 2u);
+        CHECK(lane[6] == 0xDEADBEEFu && lane[offset - 1] == 0xDEADBEEFu && lane[offset + 4] == 0xDEADBEEFu);
+        CHECK(lane[offset] == 7u && lane[offset + 1] == 2u);
+        auto saved = lane;
+        ++direct.entry_count;
+        CHECK(!sw::write_triangle_dispatch(lane, direct));
+        CHECK(lane == saved);
+        CHECK(!sw::write_triangle_dispatch(std::span(lane).first(6), direct));
+    }
+
+    void triangle_dispatch_list() {
+        auto lists = single_entry_plan(2u, 1u, 0u, 0u, sw::tile_entry{.item_index = 7u, .meshlet_id = 3u});
+        lists.entries.push_back({.item_index = 2u, .meshlet_id = 4u});
+        lists.entries.push_back({.item_index = 7u, .meshlet_id = 3u});
+        lists.entry_count = 3u;
+        auto unique = sw::triangle_dispatch_entries(lists);
+        CHECK(unique && unique->size() == 2u);
+        if (unique && unique->size() == 2u) {
+            CHECK((*unique)[0].item_index == 2u && (*unique)[0].meshlet_id == 4u);
+            CHECK((*unique)[1].item_index == 7u && (*unique)[1].meshlet_id == 3u);
+        }
+        lists.overflow = true;
+        CHECK(!sw::triangle_dispatch_entries(lists));
+        lists.overflow = false;
+        lists.entry_count = 4u;
+        CHECK(!sw::triangle_dispatch_entries(lists));
+        // Lexicographic uint64 min must keep depth and ID from the same candidate.
+        auto const near = sw::atomic_candidate(0x3E800000u, 0xF0000000u);
+        auto const far = sw::atomic_candidate(0x3F000000u, 0x80000000u);
+        CHECK(near < far);
+        CHECK(sw::atomic_candidate(0x3E800000u, 0x80000000u) < near);
+        CHECK(far < UINT64_MAX);
+    }
+
+    void serialized_tile_lists() {
+        auto const lists = single_entry_plan(2u, 1u, 0u, 0u, sw::tile_entry{.item_index = 7u, .meshlet_id = 3u});
+        std::vector<std::uint32_t> lane(sw::software_tiles_bytes(32u, 16u) / sizeof(std::uint32_t), 0xDEADBEEFu);
+        auto const written = sw::write_tile_lists(lane, lists);
+        CHECK(written);
+        if (written) {
+            CHECK(lane[0] == 2u && lane[1] == 1u);
+            CHECK(lane[2] == 1u && lane[3] == 0u && lane[4] == 1u && lane[5] == 1u);
+            CHECK(lane[6] == 1u && lane[7] == 0u);
+            CHECK(lane[8] == 0u && lane[9] == 1u && lane[10] == 1u);
+            CHECK(lane[11] == 0u && lane[12] == 0u); // compact active-tile list contains tile 0 only; tail is zeroed
+            CHECK(lane[13] == 7u && lane[14] == 3u);
+            CHECK(lane.back() == 0u);
+        }
+        CHECK(!sw::write_tile_lists(std::span<std::uint32_t>(lane).first(10u), lists));
+    }
 } // namespace
 
 int main() {
@@ -1030,5 +1275,10 @@ int main() {
     csr_tile_lists();
     resolve_and_merge();
     cpu_reference_rasterizer();
+    serialized_tile_lists();
+    triangle_dispatch_list();
+    direct_triangle_dispatch();
+    triangle_edge_projection();
+    gpu_route_partition();
     return deren::vk_test::finish("test_visibility_software");
 }

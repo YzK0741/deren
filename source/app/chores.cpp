@@ -223,6 +223,9 @@ namespace deren::chores {
             deren::utility::vessel::vector<uint8_t> software_visibility_code;
             load_shader(shaders_dir, "software_visibility.comp.spv", software_visibility_code);
             runtime.register_shader("software_visibility.comp.spv", software_visibility_code);
+            deren::utility::vessel::vector<uint8_t> software_atomic_code;
+            load_shader(shaders_dir, "software_visibility_atomic.comp.spv", software_atomic_code);
+            runtime.register_shader("software_visibility_atomic.comp.spv", software_atomic_code);
             deren::utility::vessel::vector<uint8_t> software_merge_vertex_code;
             deren::utility::vessel::vector<uint8_t> software_merge_fragment_code;
             load_shader(shaders_dir, "software_merge.vert.spv", software_merge_vertex_code);

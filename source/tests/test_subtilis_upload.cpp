@@ -1,7 +1,10 @@
 #include "vk_test.h"
 
 #include <array>
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <span>
 import deren.utility.shared;
@@ -47,6 +50,22 @@ namespace {
     }
 } // namespace
 int main() {
+    {
+        std::array<std::array<float, 3>, 3> positions{{{0, 0, 0}, {3, 0, 0}, {0, 4, 0}}};
+        std::array<std::uint32_t, 3> indices{0, 1, 2};
+        deren::engine::meshlet record{};
+        record.index_count = 3;
+        auto edge = sub::maximum_triangle_edge(record, bytes(std::span<std::array<float, 3>>(positions)), indices, 12u);
+        CHECK(edge >= 5.0 && edge < 5.00001);
+        record.index_count = 4;
+        CHECK(!std::isfinite(sub::maximum_triangle_edge(record, bytes(std::span<std::array<float, 3>>(positions)), indices, 12u)));
+        record.index_count = 3;
+        indices[2] = 99u;
+        CHECK(!std::isfinite(sub::maximum_triangle_edge(record, bytes(std::span<std::array<float, 3>>(positions)), indices, 12u)));
+        indices[2] = 2u;
+        positions[1][0] = std::numeric_limits<float>::quiet_NaN();
+        CHECK(!std::isfinite(sub::maximum_triangle_edge(record, bytes(std::span<std::array<float, 3>>(positions)), indices, 12u)));
+    }
     auto device = deren::vk_test::probe_make_core({}, rhi::abi_version, true);
     auto original = source();
     CHECK(original && original->statistics().depth > 0);
@@ -60,13 +79,33 @@ int main() {
     if (empty) {
         CHECK(!sub::upload_geometry(device, std::make_shared<sub::built_geometry const>(std::move(*empty))));
     }
+#ifdef _WIN32
+    _putenv_s("DEREN_SOFTWARE_RASTER_EDGE", "1");
+#else
+    setenv("DEREN_SOFTWARE_RASTER_EDGE", "1", 1);
+#endif
     auto uploaded = sub::upload_geometry(device, original);
+#ifdef _WIN32
+    _putenv_s("DEREN_SOFTWARE_RASTER_EDGE", "");
+#else
+    unsetenv("DEREN_SOFTWARE_RASTER_EDGE");
+#endif
+
     CHECK(uploaded);
     if (!uploaded) {
         return deren::vk_test::finish("test_subtilis_upload");
     }
     auto const& generation = **uploaded;
     CHECK(&generation.source() == original.get());
+    for (auto const& record : original->hierarchy().clusters()) {
+        auto const edge = generation.triangle_edge(record);
+        CHECK(std::isfinite(edge) && edge > 0.0);
+        CHECK(edge == sub::maximum_triangle_edge(record, original->vertices(), original->indices(), original->vertex_stride()));
+    }
+    deren::engine::meshlet missing{};
+    missing.first_index = UINT32_MAX;
+    CHECK(!std::isfinite(generation.triangle_edge(missing)));
+
     CHECK(generation.vertices()->size() == original->vertices().size());
     CHECK(generation.indices()->size() == original->indices().size_bytes());
     auto vertex_bytes = deren::vk_test::probe_buffer_initial_bytes(*device, *generation.vertices());

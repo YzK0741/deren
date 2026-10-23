@@ -75,6 +75,8 @@ import deren.engine.pass.scene_constants;
 import deren.engine.pass.scene_deformation;
 import deren.engine.pass.scene_tables;
 import deren.engine.pass.output_targets;
+import deren.engine.pass.software_visibility;
+import deren.engine.pass.software_merge;
 import deren.engine.pass.chain;             // the chain container: what holds a run of passes and its ORDER
 import deren.engine.render_resource.shared; // the five samplers a pass's declaration chooses between
 import deren.engine.frame_constants;        // one frame's shared constants, filled by the frame loop and read by passes
@@ -682,13 +684,15 @@ namespace deren::engine {
             hzb_build_end,
             hzb_recovery_end,
             visibility_recovery_end,
-            scene_end,     // after the geometry instance: forward main (opaque + transparent), or
-                           // the background + G-buffer pass in the deferred path
-            rt_shadow_end, // after the ray-traced sun shadow pass (~0 when it does not run). Its own
-                           // mark because it sits BETWEEN the G-buffer pass and the lighting stage:
-                           // without it the traversals were reported as lighting time, which made the
-                           // lighting interval look four times more expensive with rays on
-            lighting_end,  // after deferred lighting, before Gaussian preparation and transparent work
+            software_raster_end, // after the optional per-tile software visibility producer
+            scene_end,           // after the geometry instance: forward main (opaque + transparent), or
+                                 // the background + G-buffer pass in the deferred path
+            rt_shadow_end,       // after the ray-traced sun shadow pass (~0 when it does not run). Its own
+                                 // mark because it sits BETWEEN the G-buffer pass and the lighting stage:
+                                 // without it the traversals were reported as lighting time, which made the
+                                 // lighting interval look four times more expensive with rays on
+            software_merge_end,  // after the optional depth-only merge of software visibility
+            lighting_end,        // after deferred lighting, before Gaussian preparation and transparent work
             gaussian_prepare_end,
             gaussian_sort_end,
             gaussian_finalize_end,
@@ -730,8 +734,10 @@ namespace deren::engine {
             {"hzb build", false},
             {"hzb recovery", false},
             {"visibility recovery", false},
+            {"software visibility", false},
             {"scene", false},
             {"rt shadow", false},
+            {"software merge", false},
             {"lighting", false},
             {"gaussian prepare", false},
             {"gaussian sort", false},
@@ -923,6 +929,7 @@ namespace deren::engine {
         pass::scene_constants_pass* fallback_constants_provider = nullptr;
         pass::scene_deformation_pass* fallback_deformation_provider = nullptr;
         pass::scene_tables_pass* fallback_tables_provider = nullptr;
+        pass::output_targets_pass* output_targets_provider = nullptr;
         deren::utility::vessel::array<render_resource::instances::resource_snapshot, pass::scene_tables_pass::resource_count> scene_table_resource_views;
         pass::output_targets_pass* fallback_output_provider = nullptr;
 
@@ -1035,6 +1042,9 @@ namespace deren::engine {
         /// by declaration name like the raster pass; null when the chain has none.
         deren::utility::vessel::array<pass::frame_pass*, 1> visibility_resolve_stage = {};
         pass::visibility_resolve_pass* visibility_resolve = nullptr;
+        std::unique_ptr<pass::software_visibility_pass> software_visibility;
+        std::unique_ptr<pass::software_merge_pass> software_merge;
+        bool software_raster_pipeline_failed = false;
         /// THE TRANSPARENT PASS (deren.engine.pass.transparent): the same scene, its own LOAD instance, after lighting
         // called transparent_pass, not transparent_stage: the local of that name in
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
@@ -1081,6 +1091,23 @@ namespace deren::engine {
         /// out on the screenshot frame when DEREN_DEPTH_PROBE_CAPTURE names a file (written by runtime.readback.cppm).
         rhi::unique_object<rhi::buffer> depth_probe_readback;
         rhi::image_extent depth_probe_extent = {};
+        deren::utility::vessel::array<rhi::unique_object<rhi::buffer>, 2> software_probe_readbacks;
+        rhi::image_extent software_probe_extent = {};
+        // Screenshot-only owned snapshots: delayed readback must not observe a reused frame lane.
+        struct software_route_probe_item {
+            std::uint32_t item = 0, base = 0;
+            deren::utility::vessel::vector<meshlet> records;
+            deren::utility::vessel::vector<std::array<float, 3>> positions;
+            deren::utility::vessel::vector<std::uint32_t> indices;
+            std::array<float, 16> model{};
+            bool double_sided = true;
+        };
+        deren::utility::vessel::vector<software_route_probe_item> software_route_probe_items;
+        deren::utility::vessel::array<rhi::unique_object<rhi::buffer>, 3> software_route_probe_readbacks;
+        std::array<float, 16> software_route_probe_view{}, software_route_probe_proj{};
+        bool software_route_probe_ready = false;
+        std::uint32_t software_route_probe_slot = 0, software_route_probe_budget = 0;
+
         // ================================================================================================
         // THE HZB BUILD LANE (M3 phase A2, docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md §4.1, §4.2,
         // §5.2, §10.2). Phase A BUILDS the max pyramid and its header from this frame's G-buffer depth and proves
@@ -1234,6 +1261,7 @@ namespace deren::engine {
         // the file names say "history" - a dump taken after the graph would describe the current frame and the CPU
         // reference would be verified against the wrong data.
         bool hzb_cull_probe_active = false;
+        bool hzb_cull_probe_hybrid = false;
         rhi::unique_object<rhi::buffer> hzb_cull_probe_pyramid_readback;   // the HISTORY pyramid lane the cull read
         rhi::unique_object<rhi::buffer> hzb_cull_probe_header_readback;    // ... and its header lane
         rhi::unique_object<rhi::buffer> hzb_cull_probe_survivors_readback; // this frame's survivor lane (after the cull)
@@ -1562,8 +1590,12 @@ namespace deren::engine {
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> velocity_image_views = {};
         /// the visibility buffer (V0.1b): per swapchain image, the id the raster wrote and the resolve samples
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> visibility_images = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> software_depth_images = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> software_id_images = {};
         /// depth now (it is the opaque producer, so the depth it clears/writes is the one the lighting stage samples),
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> visibility_image_views = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> software_depth_image_views = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> software_id_image_views = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> scene_color_images = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_swapchain_images> scene_color_image_views = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_swapchain_images> gbuffer_depth_images = {};
@@ -2236,6 +2268,10 @@ namespace deren::engine {
         static constexpr uint32_t visibility_item_capacity = deren::engine::visibility::id_item_capacity;
         render_resource::instances::borrowed<rhi::buffer> visibility_items_buffer = {};
         void* visibility_items_mapped = nullptr;
+        render_resource::instances::borrowed<rhi::buffer> software_tiles_buffer = {};
+        void* software_tiles_mapped = nullptr;
+        render_resource::instances::resource_snapshot software_tiles_resource_view;
+        bool software_raster_resources_ready = false;
         static bool visibility_items_write(void* owner, uint32_t base, std::span<std::byte const> records);
         /// the last command run of a frame's mesh table: the RUN THE VISIBILITY RASTER WRITES (the first two are
         /// the scene's culled/unculled classes and the shadow pass reuses them, so the visibility lane must not)
@@ -2251,6 +2287,11 @@ namespace deren::engine {
         bool subtilis_on = false;
         float subtilis_error_px = 1.f;
         bool subtilis_hysteresis = false;
+        bool software_raster_on = false;
+        float software_raster_threshold_px = 1.f;
+        bool software_raster_active_frame = false;
+        bool software_gpu_route_active_frame = false;
+        std::uint32_t software_active_tile_count = 0u;
         struct subtilis_history_entry {
             uint64_t lifetime_id = 0;
             std::weak_ptr<subtilis::uploaded_geometry const> generation;
@@ -2390,6 +2431,7 @@ namespace deren::engine {
         static bool push_stage_block(void* owner, ::deren::engine::recording_target const& target, std::span<std::byte const> bytes, uint32_t extra_lane);
         /// the pass-layer endpoint spelling: the resolved_io publisher still hands a contract command buffer.
         static bool push_pass_stage_block(void* owner, rhi::command_buffer& commands, std::span<std::byte const> bytes, uint32_t extra_lane);
+        static bool push_software_block(void* owner, rhi::command_buffer& commands, std::span<std::byte const> bytes, uint32_t mode);
         /**
          * @brief the same append, WITHOUT the post chain's third lane
          * @note the compute skin stage declares the two heap indices and nothing else, and pushing lanes a shader
@@ -2641,6 +2683,7 @@ namespace deren::engine {
          *       without that schema change: the acceptance evidence for this decision is in the task-4 report.
          */
         void ensure_hzb_resources();
+        void ensure_software_raster_passes();
         /// @brief create the three phase-B fixed-size tables into @p cluster, map the two host-visible ones, zero them
         /// @note called by `ensure_hzb_resources` only when both gates are set: an A2-only or OFF run allocates
         ///       nothing here. A failure marks the cull lane unavailable (the build lane keeps working) - the frame
@@ -3619,6 +3662,8 @@ namespace deren::engine {
         void set_subtilis(bool enabled) noexcept;
         void set_subtilis_error_px(float value) noexcept;
         void set_subtilis_hysteresis(bool enabled) noexcept;
+        void set_software_raster(bool enabled) noexcept;
+        void set_software_raster_threshold_px(float value) noexcept;
         [[nodiscard]] bool subtilis_enabled() const noexcept {
             return this->subtilis_on;
         }

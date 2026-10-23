@@ -432,6 +432,7 @@ namespace deren::vulkan {
             void draw(std::uint32_t vertex_count, std::uint32_t instance_count, std::uint32_t first_vertex, std::uint32_t first_instance) noexcept override;
             void draw_indexed(std::uint32_t index_count, std::uint32_t instance_count, std::uint32_t first_index, std::int32_t vertex_offset, std::uint32_t first_instance) noexcept override;
             void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error dispatch_indirect(deren::promise::rhi::buffer const& arguments, std::uint64_t offset) override;
             void draw_mesh_tasks(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept override;
             [[nodiscard]] deren::promise::rhi::error draw_indirect(deren::promise::rhi::buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override;
             [[nodiscard]] deren::promise::rhi::error draw_mesh_tasks_indirect(deren::promise::rhi::buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) override;
@@ -575,6 +576,9 @@ namespace deren::vulkan {
             }
             [[nodiscard]] rhi_error draw_indirect(rhi_buffer const& arguments, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) override {
                 return inner->draw_indirect(arguments, offset, count, stride);
+            }
+            [[nodiscard]] rhi_error dispatch_indirect(rhi_buffer const& arguments, std::uint64_t offset) override {
+                return inner->dispatch_indirect(arguments, offset);
             }
             void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept override {
                 inner->dispatch(groups_x, groups_y, groups_z);
@@ -1114,6 +1118,8 @@ namespace deren::vulkan {
             core* owner = nullptr;
 
             [[nodiscard]] bool mesh_shader() const noexcept override;
+            [[nodiscard]] bool buffer_int64_atomics() const noexcept override;
+            [[nodiscard]] bool compute_indirect() const noexcept override;
             [[nodiscard]] bool ray_query() const noexcept override;
             [[nodiscard]] std::uint32_t max_push_constants_size() const noexcept override;
             [[nodiscard]] std::uint32_t graphics_queue_family() const noexcept override;
@@ -1401,6 +1407,7 @@ namespace deren::vulkan {
          *       runtime::mesh_shaders), because a pass is not the only thing that could want it.
          */
         bool mesh_shader_available = false;
+        bool buffer_int64_atomics_available = false;
         bool task_shader_available = false;
         PFN_vkCmdDrawMeshTasksEXT mesh_dispatch = nullptr;
         /// ... and the INDIRECT form (`vkCmdDrawMeshTasksIndirectEXT`), resolved the same way and null on the same
@@ -1744,17 +1751,21 @@ namespace deren::vulkan {
         // THE SOFTWARE RASTER'S SURFACE (M4 Task 2) is part of the same grid, and these are this backend's half of the
         // mirror test_render_resources.cpp runs between the host grid and the shaders' baked constants. They are
         // asserted by RELATION rather than by repeating the numbers - the numbers live in deren.engine.render_layout
-        // only. (software_depth reuses the range visibility-buffer v0.5 reserved, 1239..1246, so it is NOT adjacent
-        // to software_id; only the id run and the tile-list lane are heap_image_capacity apart.)
+        // only. Sampled and storage views have distinct per-image runs, with the tile-list frame lanes between them.
         static_assert(deren::engine::render_layout::heap_slots::software_depth + deren::engine::render_layout::heap_image_capacity <=
                           deren::engine::render_layout::heap_slots::software_id,
                       "the software depth family must end before the software id family");
         static_assert(deren::engine::render_layout::heap_slots::software_tiles ==
                           deren::engine::render_layout::heap_slots::software_id + deren::engine::render_layout::heap_image_capacity,
                       "the software tile-list lane must follow the software id family");
-        static_assert(deren::engine::render_layout::heap_slots::software_tiles + 1u <
+        static_assert(deren::engine::render_layout::heap_slots::software_depth_storage == deren::engine::render_layout::heap_slots::software_tiles + 2u,
+                      "software storage descriptors must follow both tile-list frame lanes");
+        static_assert(deren::engine::render_layout::heap_slots::software_id_storage ==
+                          deren::engine::render_layout::heap_slots::software_depth_storage + deren::engine::render_layout::heap_image_capacity,
+                      "the software id storage run must follow the software depth storage run");
+        static_assert(deren::engine::render_layout::heap_slots::software_route_arguments + deren::engine::render_layout::heap_image_capacity <=
                           deren::engine::render_layout::heap_slot_base + deren::engine::render_layout::heap_slot_count,
-                      "the software tile-list lane must stay inside the grid");
+                      "the software storage image runs must stay inside the grid");
         static_assert(deren::engine::render_layout::heap_sampler_stride == 32u, "the sampler grid's stride moved");
         /// @brief the byte offset of slot 0 (see @ref heap_slots), or VK_WHOLE_SIZE when the heap is not in use
         VkDeviceSize heap_grid_offset = VK_WHOLE_SIZE;

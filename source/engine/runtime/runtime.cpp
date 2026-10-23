@@ -4,6 +4,7 @@ module;
 #include <array>
 #include <bit> // std::bit_cast for the caster world-matrix hash
 #include <chrono>
+#include <cmath>
 #include <cstdio> // std::snprintf: the software-raster workload probe's JSON floats (%.9g round-trips float32)
 #include <cstdlib>
 #include <cstring> // std::memcpy, for composing a pass's push block
@@ -12,7 +13,8 @@ module;
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <iterator> // std::prev: the ordered publication table's predecessor lookup
-#include <memory>   // std::shared_ptr: the frame's borrowed command buffer (see frame_command_buffer)
+#include <limits>
+#include <memory> // std::shared_ptr: the frame's borrowed command buffer (see frame_command_buffer)
 #include <optional>
 #include <source_location> // the panic sites of the graphics-queue-family derivation
 #include <span>            // the byte spans the contract's buffer descriptors and the push endpoints take
@@ -1416,6 +1418,14 @@ namespace deren::engine {
         this->subtilis_histories.clear();
     }
 
+    void runtime::set_software_raster(bool const enabled) noexcept {
+        this->software_raster_on = enabled;
+    }
+
+    void runtime::set_software_raster_threshold_px(float const value) noexcept {
+        this->software_raster_threshold_px = std::isfinite(value) && value > 0.f ? value : 1.f;
+    }
+
     bool runtime::visibility_available() const noexcept {
         // BOTH halves are required: the raster writes the ids (and the depth the resolve reconstructs against),
         // the resolve is the only consumer, so either missing means the path cannot produce a G-buffer at all.
@@ -1512,6 +1522,12 @@ namespace deren::engine {
     bool runtime::push_index_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
         runtime* const self = static_cast<runtime*>(owner);
         return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, recording_target(rhi::shared_object<rhi::command_buffer>::borrow(command_buffer)), bytes, extra_lane, 2u);
+    }
+
+    bool runtime::push_software_block(void* const owner, rhi::command_buffer& commands, std::span<std::byte const> const bytes, uint32_t const mode) {
+        auto* self = static_cast<runtime*>(owner);
+        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index,
+                               recording_target(rhi::shared_object<rhi::command_buffer>::borrow(commands)), bytes, mode, 3u);
     }
 
     bool runtime::push_raw_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes) {
@@ -1959,6 +1975,7 @@ namespace deren::engine {
         this->hzb_cull_probe_words = deren::engine::visibility::hzb::pyramid_words(extent.width, extent.height);
         this->hzb_cull_probe_levels = deren::engine::visibility::hzb::level_count(extent.width, extent.height);
         this->hzb_cull_probe_dumped = false;
+        this->hzb_cull_probe_hybrid = this->software_raster_active_frame;
         this->hzb_cull_probe_active = true;
         deren::utility::log("hzb cull probe capture: armed - the HISTORY pyramid/header lane {} ({} word(s) / {} B) and this frame's survivor "
                             "lane will be copied INSIDE the cull lane, before the build lane overwrites the history lane",
@@ -2095,6 +2112,11 @@ namespace deren::engine {
             };
             software_probe_item probe;
             deren::utility::vessel::vector<meshlet> probe_records;
+            deren::utility::vessel::vector<deren::engine::visibility::software::projected_record> software_projections;
+            deren::utility::vessel::vector<deren::engine::visibility::software::tile_entry> software_dispatch;
+            bool software_dispatch_valid = true;
+            bool software_allowed = false;
+            deren::utility::vessel::vector<float> gpu_route_edges;
             double probe_us = 0.0;
         };
         bool const exact_depth_redraw = this->feature_active("character_forward");
@@ -2150,8 +2172,28 @@ namespace deren::engine {
         // cut path (a visibility-lane frame with subtilis active) has a run to classify at all.
         bool software_probe_frame_active = software_probe_armed && this->subtilis_active_frame && !this->hzb_cull_active_frame &&
                                            !this->hzb_recovery_active_frame;
+        bool software_raster_frame_active = this->software_raster_active_frame;
+        if (software_raster_frame_active && (!this->software_visibility ||
+                                             (!this->software_gpu_route_active_frame && !this->software_visibility->prepare_triangles(frame_slot, extent.width, extent.height)))) {
+            software_raster_frame_active = false;
+            this->software_raster_active_frame = false;
+            static bool logged = false;
+            if (!logged) {
+                deren::utility::log("software triangle prototype: preparation refused; full hardware runs retained");
+                logged = true;
+            }
+        }
+        bool const gpu_routing = this->software_gpu_route_active_frame;
+        if (gpu_routing)
+            software_probe_frame_active = false;
+        auto const* gpu_requested = std::getenv("DEREN_SOFTWARE_RASTER_GPU");
+        auto const* edge_mode = std::getenv("DEREN_SOFTWARE_RASTER_EDGE");
+        bool const triangle_edge_routing = software_raster_frame_active && this->software_visibility->triangles_active() &&
+                                           ((edge_mode && std::string_view(edge_mode) == "1") || (gpu_requested && std::string_view(gpu_requested) == "1"));
+        auto const software_metric = triangle_edge_routing ? software::routing_metric::triangle_edge : software::routing_metric::cluster_diameter;
+        bool software_classification_frame_active = !gpu_routing && (software_probe_frame_active || software_raster_frame_active);
         std::optional<software::camera_metrics> software_probe_camera;
-        if (software_probe_frame_active) {
+        if (software_classification_frame_active) {
             software::camera_parameters probe_parameters{};
             std::memcpy(probe_parameters.view.data(), &this->current_ubo.view, 16u * sizeof(float));
             std::memcpy(probe_parameters.proj.data(), &this->current_ubo.proj, 16u * sizeof(float));
@@ -2160,6 +2202,9 @@ namespace deren::engine {
             auto prepared = software::prepare_camera(probe_parameters);
             if (!prepared) {
                 software_probe_frame_active = false;
+                software_raster_frame_active = false;
+                this->software_raster_active_frame = false;
+                software_classification_frame_active = false;
                 static bool logged_unclassifiable = false;
                 if (!logged_unclassifiable) {
                     logged_unclassifiable = true;
@@ -2285,6 +2330,7 @@ namespace deren::engine {
                 auto view = subtilis::make_item_view(leaf.push.model, this->current_ubo.view, this->current_ubo.proj, extent.width, extent.height);
                 view.selection.target_error_px = this->subtilis_error_px;
                 subtilis::item_policy const policy{this->material_flags_of(leaf), exact_depth_redraw && !leaf.environment};
+                plan.software_allowed = subtilis::coarse_allowed(leaf, policy);
                 plan.run = subtilis::prepare_item(leaf, policy, view, selected, published, [this](unsigned base, std::span<meshlet const> records) { return runtime::meshlet_culled_write(this, base, std::as_bytes(records)); }, histories.empty() ? nullptr : &histories[index], this->subtilis_view_epoch);
                 plan.input_count = plan.space.count;
                 if (this->gpu_timings_enabled)
@@ -2303,20 +2349,37 @@ namespace deren::engine {
                 }
             }
             vis::apply_meshlet_run(plan.row, plan.block, plan.run);
+            if (gpu_routing && plan.run.source == subtilis::run_source::visible && plan.run.count != 0u) {
+                plan.gpu_route_edges.resize(plan.run.count);
+                for (std::uint32_t record = 0u; record < plan.run.count; ++record) {
+                    auto const edge = plan.software_allowed && leaf.subtilis_geometry ? leaf.subtilis_geometry->triangle_edge(selected[record]) : std::numeric_limits<double>::infinity();
+                    plan.gpu_route_edges[record] = std::nextafter(static_cast<float>(edge), std::numeric_limits<float>::infinity());
+                }
+            }
             // ---- M4 TASK 1's HOLES CONTROL (capture-only, env-gated; see the block above PHASE 1) ----
-            if (software_probe_frame_active && software_probe_camera && plan.run.source == subtilis::run_source::visible &&
+            if (software_classification_frame_active && software_probe_camera && plan.software_allowed && plan.run.source == subtilis::run_source::visible &&
                 plan.run.count != 0u && !selected.empty()) {
-                bool const probe_capture_frame = this->screenshot_requested;
-                if (probe_capture_frame) {
+                bool const probe_capture_frame = software_probe_frame_active && this->screenshot_requested;
+                if (probe_capture_frame || software_raster_frame_active) {
                     // the host copy the serial dump classifies/bins (never the mapped lane: that would time PCIe reads)
                     plan.probe_records.assign(selected.begin(), selected.begin() + plan.run.count);
                 }
                 auto const probe_started = std::chrono::steady_clock::now();
+                if (software_raster_frame_active) {
+                    auto const grid = software::make_tile_grid(software_probe_camera->width, software_probe_camera->height);
+                    plan.software_projections.reserve(plan.run.count);
+                    for (std::uint32_t record = 0u; record < plan.run.count; ++record)
+                        plan.software_projections.push_back(software::project(selected[record], model, *software_probe_camera, grid,
+                                                                              triangle_edge_routing && leaf.subtilis_geometry ? leaf.subtilis_geometry->triangle_edge(selected[record]) : std::numeric_limits<double>::infinity()));
+                }
                 software::item_records const probe_item{.item_index = index,
                                                         .model = model,
-                                                        .records = std::span<meshlet const>(selected.data(), plan.run.count)};
-                auto const split = software::split_records(probe_item, *software_probe_camera, software::threshold_px_default,
-                                                           probe_order);
+                                                        .records = std::span<meshlet const>(selected.data(), plan.run.count),
+                                                        .cached_projections = plan.software_projections};
+                auto const threshold = software_raster_frame_active ? this->software_raster_threshold_px : software::threshold_px_default;
+                auto const split = software::split_records(probe_item, *software_probe_camera, threshold, probe_order, software_metric);
+                if (software_raster_frame_active && this->software_visibility->triangles_active())
+                    plan.software_dispatch_valid = software::append_triangle_dispatch(split, probe_order, plan.software_projections, plan.software_dispatch);
                 plan.probe.classified = true;
                 plan.probe.selected = split.record_count;
                 plan.probe.hardware = split.hardware_count;
@@ -2426,6 +2489,201 @@ namespace deren::engine {
                 }
             }
         }
+        // Build and publish the complete CSR lane only after every item has its final, overlap-safe run. Any
+        // classification, global-budget or mapping failure restores every selected run to hardware before phase 4.
+        this->software_active_tile_count = 0u;
+        if (gpu_routing) {
+            auto metadata = this->software_visibility->route_metadata_words();
+            if (metadata.size() < 8u + software::software_entry_budget)
+                return false;
+            for (auto const& plan : plans) {
+                if (plan.run.source != subtilis::run_source::visible || plan.run.count == 0u)
+                    continue;
+                if (plan.run.base > software::software_entry_budget || plan.run.count > software::software_entry_budget - plan.run.base ||
+                    plan.gpu_route_edges.size() != plan.run.count)
+                    return false;
+                for (std::uint32_t i = 0u; i < plan.run.count; ++i)
+                    metadata[8u + plan.run.base + i] = std::bit_cast<std::uint32_t>(plan.gpu_route_edges[i]);
+            }
+            auto const lane_bytes = software::software_tiles_bytes(extent.width, extent.height);
+            auto* words = static_cast<std::uint32_t*>(this->software_tiles_mapped);
+            software::software_tile_lists empty{};
+            empty.grid = software::make_tile_grid(extent.width, extent.height);
+            if (!words || !software::write_triangle_dispatch({words + frame_slot * lane_bytes / 4u, static_cast<std::size_t>(lane_bytes / 4u)}, empty))
+                return false;
+            static bool logged = false;
+            if (!logged) {
+                deren::utility::log("software raster active: GPU routing, threshold {} px", this->software_raster_threshold_px);
+                logged = true;
+            }
+        } else if (software_raster_frame_active) {
+            namespace software = deren::engine::visibility::software;
+            software::camera_parameters parameters{};
+            std::memcpy(parameters.view.data(), &this->current_ubo.view, 16u * sizeof(float));
+            std::memcpy(parameters.proj.data(), &this->current_ubo.proj, 16u * sizeof(float));
+            parameters.width = extent.width;
+            parameters.height = extent.height;
+            deren::utility::vessel::vector<software::item_records> items;
+            items.reserve(count);
+            for (std::uint32_t index = 0u; index < count; ++index) {
+                visibility_item_plan const& plan = plans[index];
+                if (plan.run.source != subtilis::run_source::visible || plan.run.count == 0u || !plan.probe.classified) {
+                    continue;
+                }
+                if (plan.probe_records.size() != plan.run.count) {
+                    software_raster_frame_active = false;
+                    break;
+                }
+                std::array<float, 16> model{};
+                std::memcpy(model.data(), &leaves[index]->push.model, sizeof(model));
+                items.push_back(software::item_records{.item_index = index,
+                                                       .model = model,
+                                                       .records = std::span<meshlet const>(plan.probe_records.data(), plan.probe_records.size()),
+                                                       .cached_projections = plan.software_projections});
+            }
+            bool const triangles = this->software_visibility->triangles_active();
+            std::expected<software::software_tile_lists, software::software_error> lists = std::unexpected(software::software_error::invalid_reference);
+            if (software_raster_frame_active && triangles) {
+                software::software_tile_lists direct{};
+                direct.grid = software::make_tile_grid(extent.width, extent.height);
+                direct.item_count = static_cast<std::uint32_t>(items.size());
+                bool valid = true;
+                for (auto const& plan : plans) {
+                    if (!plan.software_dispatch_valid || plan.software_dispatch.size() > software::software_entry_budget - direct.entries.size()) {
+                        valid = false;
+                        break;
+                    }
+                    direct.cluster_count += plan.probe.software;
+                    direct.entries.insert(direct.entries.end(), plan.software_dispatch.begin(), plan.software_dispatch.end());
+                }
+                if (valid) {
+                    direct.entry_count = static_cast<std::uint32_t>(direct.entries.size());
+                    lists = std::move(direct);
+                }
+            } else if (software_raster_frame_active)
+                lists = software::build_tile_lists(items, parameters, this->software_raster_threshold_px, software::software_entry_budget, software_metric);
+            std::uint64_t const lane_bytes = software::software_tiles_bytes(extent.width, extent.height);
+            auto* const tile_words = static_cast<std::uint32_t*>(this->software_tiles_mapped);
+            bool published = lists.has_value() && tile_words != nullptr && this->software_tiles_buffer &&
+                             lane_bytes <= this->software_tiles_buffer->size() / this->frame_ring().slot_count() &&
+                             static_cast<std::uint64_t>(frame_slot + 1u) * lane_bytes <= this->software_tiles_buffer->size();
+            if (published) {
+                std::span<std::uint32_t> lane{tile_words + (static_cast<std::size_t>(frame_slot) * lane_bytes / sizeof(std::uint32_t)),
+                                              static_cast<std::size_t>(lane_bytes / sizeof(std::uint32_t))};
+                published = triangles ? software::write_triangle_dispatch(lane, *lists) : software::write_tile_lists(lane, *lists);
+            }
+            if (published && this->screenshot_requested && std::getenv("DEREN_SOFTWARE_IMAGES_CAPTURE") && !this->hzb_cull_active_frame) {
+                // Snapshot the CPU oracle from the same camera, CSR and immutable source geometry.
+                // Read the published record order, since the software IDs name the reordered suffix.
+                deren::utility::vessel::vector<deren::utility::vessel::vector<std::array<float, 3>>> positions(count);
+                deren::utility::vessel::vector<deren::utility::vessel::vector<meshlet>> records(count);
+                deren::utility::vessel::vector<software::reference_item> references;
+                references.reserve(items.size());
+                for (auto const& item : items) {
+                    auto const* leaf = leaves[item.item_index];
+                    if (!leaf->subtilis_geometry)
+                        continue;
+                    auto const& source = leaf->subtilis_geometry->source();
+                    auto& vertices = positions[item.item_index];
+                    vertices.resize(source.vertex_count());
+                    auto const bytes = source.vertices();
+                    for (std::size_t v = 0; v < vertices.size(); ++v)
+                        std::memcpy(vertices[v].data(), bytes.data() + v * source.vertex_stride(), sizeof(float) * 3u);
+                    auto& ordered = records[item.item_index];
+                    deren::utility::vessel::vector<std::uint32_t> order(item.records.size());
+                    auto metrics = software::prepare_camera(parameters);
+                    if (!metrics)
+                        continue;
+                    auto const split = software::split_records(item, *metrics, this->software_raster_threshold_px, order, software_metric);
+                    if (split.record_count != item.records.size())
+                        continue;
+                    for (auto index : order)
+                        ordered.push_back(item.records[index]);
+                    references.push_back({.item_index = item.item_index, .model = item.model, .base_vertex = 0, .records = ordered, .positions = vertices, .indices = source.indices(), .double_sided = (this->material_flags_of(*leaf) & 8u) != 0u});
+                }
+                // CSR remains an independent screenshot-only oracle, never production triangle routing.
+                auto oracle_lists = triangles ? software::build_tile_lists(items, parameters, this->software_raster_threshold_px, software::software_entry_budget, software_metric)
+                                              : lists;
+                auto reference = oracle_lists ? software::rasterize_tiles(*oracle_lists, {.camera = parameters, .items = references})
+                                              : std::expected<software::software_image, software::software_error>{std::unexpected(software::software_error::invalid_reference)};
+                if (!reference) {
+                    for (auto const& entry : lists->entries) {
+                        auto const found = std::find_if(references.begin(), references.end(), [&](auto const& candidate) { return candidate.item_index == entry.item_index; });
+                        if (found == references.end() || entry.meshlet_id >= found->records.size()) {
+                            deren::utility::log("software CPU diagnostic: missing item {} record {}", entry.item_index, entry.meshlet_id);
+                            break;
+                        }
+                        auto const& record = found->records[entry.meshlet_id];
+                        if (static_cast<std::uint64_t>(record.first_index) + record.index_count > found->indices.size()) {
+                            deren::utility::log("software CPU diagnostic: item {} first {} count {} indices {}", entry.item_index, record.first_index, record.index_count, found->indices.size());
+                            break;
+                        }
+                        for (auto index : found->indices.subspan(record.first_index, record.index_count)) {
+                            if (index >= found->positions.size()) {
+                                deren::utility::log("software CPU diagnostic: vertex {} outside {}", index, found->positions.size());
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (reference) {
+                    auto const prefix = std::string(std::getenv("DEREN_SOFTWARE_IMAGES_CAPTURE"));
+                    std::ofstream depth_file(prefix + "-cpu-depth.u32", std::ios::binary | std::ios::out | std::ios::noreplace);
+                    std::ofstream id_file(prefix + "-cpu-id.u32", std::ios::binary | std::ios::out | std::ios::noreplace);
+                    depth_file.write(reinterpret_cast<char const*>(reference->depth_bits.data()), reference->depth_bits.size() * sizeof(std::uint32_t));
+                    id_file.write(reinterpret_cast<char const*>(reference->id.data()), reference->id.size() * sizeof(std::uint32_t));
+                    if (!depth_file || !id_file)
+                        deren::utility::log("software CPU capture: FAIL writing oracle");
+                } else
+                    deren::utility::log("software CPU capture: FAIL reference rasterization");
+            }
+            if (!published) {
+                software_raster_frame_active = false;
+                this->software_raster_active_frame = false;
+                auto* const lane_bytes_base = static_cast<std::byte*>(this->meshlet_culled_mapped);
+                for (visibility_item_plan& plan : plans) {
+                    if (plan.run.source != subtilis::run_source::visible || plan.run.count == 0u) {
+                        continue;
+                    }
+                    if (lane_bytes_base != nullptr && plan.probe_records.size() == plan.run.count) {
+                        auto* const records = reinterpret_cast<meshlet*>(lane_bytes_base +
+                                                                         (static_cast<std::size_t>(frame_slot) * deren::engine::meshlet_capacity + plan.run.base) * sizeof(meshlet));
+                        std::copy(plan.probe_records.begin(), plan.probe_records.end(), records);
+                    }
+                    plan.block.geometry.index_count = plan.run.count;
+                }
+                static bool logged_fallback = false;
+                if (!logged_fallback) {
+                    logged_fallback = true;
+                    deren::utility::log("software raster: this frame refused the complete work list; restored the full hardware meshlet runs");
+                }
+            } else {
+                this->software_active_tile_count = triangles ? lists->entry_count : software::active_tile_count(*lists);
+                static bool logged_activation = false;
+                if (triangle_edge_routing && !logged_activation)
+                    deren::utility::log("software routing: triangle-edge metric active");
+                if (!logged_activation) {
+                    logged_activation = true;
+                    deren::utility::log("software raster active: threshold {} px, {} software cluster(s), {} work entries in {} x {} tile grid",
+                                        this->software_raster_threshold_px, lists->cluster_count, lists->entry_count,
+                                        lists->grid.tiles_x, lists->grid.tiles_y);
+                }
+                static std::uint64_t raster_frames = 0u;
+                static std::uint64_t raster_clusters = 0u;
+                static std::uint64_t raster_entries = 0u;
+                static std::uint64_t raster_tiles_max = 0u;
+                ++raster_frames;
+                raster_clusters += lists->cluster_count;
+                raster_entries += lists->entry_count;
+                raster_tiles_max = std::max<std::uint64_t>(raster_tiles_max, lists->max_tile_entries);
+                if (raster_frames % 120u == 0u) {
+                    deren::utility::log("software raster: {} frames; {:.1f} software clusters/frame; {:.1f} work entries/frame; max tile {}; budget {}",
+                                        raster_frames, static_cast<double>(raster_clusters) / static_cast<double>(raster_frames),
+                                        static_cast<double>(raster_entries) / static_cast<double>(raster_frames), raster_tiles_max,
+                                        software::software_entry_budget);
+                }
+            }
+        }
         if (!histories.empty()) {
             for (uint32_t index = 0; index < count; ++index) {
                 auto saved = this->subtilis_histories.find(leaves[index]);
@@ -2475,7 +2733,7 @@ namespace deren::engine {
             probe_items.reserve(count);
             for (std::uint32_t index = 0u; index < count; ++index) {
                 visibility_item_plan const& plan = plans[index];
-                if (plan.run.source != subtilis::run_source::visible || plan.run.count == 0u) {
+                if (plan.run.source != subtilis::run_source::visible || plan.run.count == 0u || !plan.probe.classified) {
                     continue;
                 }
                 std::array<float, 16> model{};

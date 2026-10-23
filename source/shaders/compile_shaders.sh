@@ -90,6 +90,7 @@ scene/visibility.slang:main:fragment:visibility.frag.spv
 scene/visibility_resolve.slang:main:compute:visibility_resolve.comp.spv
 # THE SOFTWARE RASTER'S MODULES (M4 Task 2): the tiled compute stage and the depth-only merge's two entries.
 scene/software_visibility.slang:main:compute:software_visibility.comp.spv
+scene/software_visibility_atomic.slang:main:compute:software_visibility_atomic.comp.spv
 scene/software_merge.slang:vert_main:vertex:software_merge.vert.spv
 scene/software_merge.slang:frag_main:fragment:software_merge.frag.spv
 # THE HZB BUILD STAGE (M3 phase A2): one dispatch per pyramid level over the frame's G-buffer depth, plus the

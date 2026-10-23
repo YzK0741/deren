@@ -420,7 +420,9 @@ export namespace deren::promise::rhi {
     // it (or from weakening the panic/refusal split its own doc states).
     // ABI 46 changes the shared ownership control-block protocol: strong ownership now
     // carries an implicit weak reference. Old inline drop code cannot share these blocks.
-    inline constexpr std::uint32_t abi_version = 46u;
+    // ABI47 appends the enabled buffer-int64-atomics capability query.
+    // ABI48 adds compute indirect recording and its enabled-capability query.
+    inline constexpr std::uint32_t abi_version = 48u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

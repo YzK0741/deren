@@ -138,6 +138,9 @@ export namespace deren::engine::render_graph::visibility {
         return description.add_pass("hzb build", std::move(params), pass_options{.side_effect = true});
     }
 
+    struct software_routing_inputs {
+        buffer_ref camera, metadata, work, arguments;
+    };
     struct hzb_cull_parameters {
         buffer_read levels;
         buffer_read header;
@@ -147,16 +150,25 @@ export namespace deren::engine::render_graph::visibility {
         buffer_discard_write results;
         buffer_discard_write survivors;
         buffer_read_write commands;
+        std::optional<buffer_read> route_camera = {}, route_metadata = {};
+        std::optional<buffer_read_write> route_work = {}, route_arguments = {};
         void visit_resources(parameter_visitor& visit) const noexcept {
-            visit(levels, header, items, candidates, draw_items, results, survivors, commands);
+            visit(levels, header, items, candidates, draw_items, results, survivors, commands, route_camera, route_metadata, route_work, route_arguments);
         }
     };
 
     std::expected<pass_ref, graph_error> append_hzb_cull(builder& description, buffer_ref levels, buffer_ref header,
                                                          buffer_ref items, buffer_ref candidates, buffer_ref draw_items,
-                                                         buffer_ref results, buffer_ref survivors, buffer_ref commands) noexcept {
+                                                         buffer_ref results, buffer_ref survivors, buffer_ref commands,
+                                                         std::optional<software_routing_inputs> routing = {}) noexcept {
         constexpr access_scope storage{resource_usage::storage, pipeline_stage::compute_shader};
         hzb_cull_parameters params{{levels, {}, storage}, {header, {}, storage}, {items, {}, storage}, {candidates, {}, storage}, {draw_items, {}, storage}, {results, {}, storage}, {survivors, {}, storage}, {commands, {}, storage}};
+        if (routing) {
+            params.route_camera = buffer_read{routing->camera, {}, access_scope{resource_usage::uniform_buffer, pipeline_stage::compute_shader}};
+            params.route_metadata = buffer_read{routing->metadata, {}, storage};
+            params.route_work = buffer_read_write{routing->work, {}, storage};
+            params.route_arguments = buffer_read_write{routing->arguments, {}, storage};
+        }
         return description.add_pass("hzb cull", std::move(params), pass_options{.side_effect = true});
     }
     struct hzb_recovery_parameters {
@@ -168,16 +180,25 @@ export namespace deren::engine::render_graph::visibility {
         buffer_read_write results;
         buffer_read_write survivors;
         buffer_read_write commands;
+        std::optional<buffer_read> route_camera = {}, route_metadata = {};
+        std::optional<buffer_read_write> route_work = {}, route_arguments = {};
         void visit_resources(parameter_visitor& visit) const noexcept {
-            visit(levels, header, items, candidates, draw_items, results, survivors, commands);
+            visit(levels, header, items, candidates, draw_items, results, survivors, commands, route_camera, route_metadata, route_work, route_arguments);
         }
     };
 
     std::expected<pass_ref, graph_error> append_hzb_recovery(builder& description, buffer_ref levels, buffer_ref header,
                                                              buffer_ref items, buffer_ref candidates, buffer_ref draw_items,
-                                                             buffer_ref results, buffer_ref survivors, buffer_ref commands) noexcept {
+                                                             buffer_ref results, buffer_ref survivors, buffer_ref commands,
+                                                             std::optional<software_routing_inputs> routing = {}) noexcept {
         constexpr access_scope storage{resource_usage::storage, pipeline_stage::compute_shader};
         hzb_recovery_parameters params{{levels, {}, storage}, {header, {}, storage}, {items, {}, storage}, {candidates, {}, storage}, {draw_items, {}, storage}, {results, {}, storage}, {survivors, {}, storage}, {commands, {}, storage}};
+        if (routing) {
+            params.route_camera = buffer_read{routing->camera, {}, access_scope{resource_usage::uniform_buffer, pipeline_stage::compute_shader}};
+            params.route_metadata = buffer_read{routing->metadata, {}, storage};
+            params.route_work = buffer_read_write{routing->work, {}, storage};
+            params.route_arguments = buffer_read_write{routing->arguments, {}, storage};
+        }
         return description.add_pass("hzb recovery", std::move(params), pass_options{.side_effect = true});
     }
     // ---- THE RESOLVE LANE (visibility-buffer v0.4) -------------------------------------------------
@@ -335,6 +356,8 @@ export namespace deren::engine::render_graph::visibility {
         buffer_ref tiles;                               ///< the CSR tile list (host-written per frame lane, see visibility.software)
         buffer_ref statistics;                          ///< the mesh-statistics buffer; the raster's counters are atomic adds
         std::optional<buffer_ref> culled_meshlets = {}; ///< the compacted run table when the HZB cull produced one
+        std::optional<buffer_ref> hzb_results = {};     ///< final HZB/recovery flags, when that lane ran this frame
+        std::optional<buffer_ref> indirect_arguments = {};
     };
 
     struct software_raster_parameters {
@@ -342,8 +365,10 @@ export namespace deren::engine::render_graph::visibility {
         buffer_read camera, items, meshlets, tiles;
         buffer_read_write statistics;
         std::optional<buffer_read> culled_meshlets = {};
+        std::optional<buffer_read> hzb_results = {};
+        std::optional<buffer_read> indirect_arguments = {};
         void visit_resources(parameter_visitor& visit) const noexcept {
-            visit(software_depth, software_id, camera, items, meshlets, tiles, statistics, culled_meshlets);
+            visit(software_depth, software_id, camera, items, meshlets, tiles, statistics, culled_meshlets, hzb_results, indirect_arguments);
         }
     };
 
@@ -352,7 +377,7 @@ export namespace deren::engine::render_graph::visibility {
     };
 
     /**
-     * @brief append the software raster, declared AFTER @p hardware_raster
+     * @brief append the software raster after the hardware and optional visibility-recovery raster
      *
      * The explicit order edge is not redundant with the data edges (the hardware raster and this pass write
      * disjoint images): it is the ordering spec §3.2 requires - candidates are only meaningful once the hardware
@@ -360,7 +385,8 @@ export namespace deren::engine::render_graph::visibility {
      * execution order even when nothing reads a software image.
      */
     [[nodiscard]] inline std::expected<software_raster_outputs, graph_error> append_software_raster(builder& graph, software_raster_inputs const& in,
-                                                                                                    pass_ref hardware_raster) noexcept {
+                                                                                                    pass_ref hardware_raster,
+                                                                                                    std::optional<pass_ref> visibility_recovery = {}) noexcept {
         if (!graph.contains(hardware_raster)) {
             return std::unexpected(graph_error{.code = error_code::invalid_ref, .pass_name = "software visibility", .resource_name = "hardware raster predecessor"});
         }
@@ -379,6 +405,11 @@ export namespace deren::engine::render_graph::visibility {
         if (in.culled_meshlets) {
             params.culled_meshlets = buffer_read{*in.culled_meshlets, {}, storage};
         }
+        if (in.hzb_results) {
+            params.hzb_results = buffer_read{*in.hzb_results, {}, storage};
+        }
+        if (in.indirect_arguments)
+            params.indirect_arguments = buffer_read{*in.indirect_arguments, {}, access_scope{resource_usage::indirect_buffer, pipeline_stage::draw_indirect}};
         auto added = graph.add_pass("software visibility", std::move(params));
         if (!added) {
             return std::unexpected(added.error());
@@ -386,6 +417,15 @@ export namespace deren::engine::render_graph::visibility {
         auto ordered = graph.order_after(*added, hardware_raster);
         if (!ordered) {
             return std::unexpected(ordered.error());
+        }
+        if (visibility_recovery) {
+            if (!graph.contains(*visibility_recovery)) {
+                return std::unexpected(graph_error{.code = error_code::invalid_ref, .pass_name = "software visibility", .resource_name = "visibility recovery predecessor"});
+            }
+            auto recovery_ordered = graph.order_after(*added, *visibility_recovery);
+            if (!recovery_ordered) {
+                return std::unexpected(recovery_ordered.error());
+            }
         }
         return software_raster_outputs{*added};
     }

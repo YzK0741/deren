@@ -658,6 +658,8 @@ namespace deren::vulkan {
         //      export (`vkCmdDrawMeshTasksEXT` is an undefined symbol if called directly), which is why it is
         //      resolved here through vkGetDeviceProcAddr. Null means the extension is absent.
         this->mesh_shader_available = capabilities.mesh_shader_available;
+        this->buffer_int64_atomics_available = capabilities.features_2.features.shaderInt64 == VK_TRUE &&
+                                               capabilities.features_1_2.shaderBufferInt64Atomics == VK_TRUE;
         this->task_shader_available = capabilities.mesh_shader_available && capabilities.mesh_shader_features.taskShader == VK_TRUE;
         if (this->mesh_shader_available) {
             this->mesh_dispatch = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksEXT"));

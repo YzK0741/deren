@@ -190,11 +190,17 @@ static const uint heap_slots_hzb_commands = heap_slot_base + 1313u;
 // ---- THE SOFTWARE RASTER'S OWN SURFACE (M4 Task 2): the two per-swapchain-image R32_UINT results of the
 // tile-rasterized software pass, and the host-written CSR tile-list buffer per frame lane. The slot numbers mirror
 // deren.engine.render_layout::heap_slots; test_render_resources.cpp compares the two files (names AND values).
-// software_tiles is a per-FRAME array and is indexed with frame_slot * <lane stride>; the images are per-image
-// arrays indexed with heap_image_index. See docs/superpowers/specs/2026-10-22-software-raster-design.md §3.2/§4.2.
+// software_tiles is a per-FRAME array and is indexed with frame_slot * <lane stride>; sampled and storage image
+// descriptors are separate per-image arrays indexed with heap_image_index. See the software image declaration in
+// render_layout.cppm and docs/superpowers/specs/2026-10-22-software-raster-design.md §3.2/§4.2.
 static const uint heap_slots_software_depth = heap_slot_base + 1239u;
 static const uint heap_slots_software_id = heap_slot_base + 1314u;
 static const uint heap_slots_software_tiles = heap_slot_base + 1322u;
+static const uint heap_slots_software_depth_storage = heap_slot_base + 1324u;
+static const uint heap_slots_software_route_metadata = heap_slot_base + 1348u;
+static const uint heap_slots_software_route_arguments = heap_slot_base + 1356u;
+static const uint heap_slots_software_atomic = heap_slot_base + 1340u;
+static const uint heap_slots_software_id_storage = heap_slot_base + 1332u;
 static const uint heap_slots_gbuffer_albedo = heap_slot_base + 1063u;
 static const uint heap_slots_gbuffer_normal = heap_slot_base + 1071u;
 static const uint heap_slots_gbuffer_material = heap_slot_base + 1079u;

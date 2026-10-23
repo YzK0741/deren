@@ -81,12 +81,12 @@ export namespace deren::engine::visibility::software {
     inline constexpr std::uint32_t tile_entry_bytes = 8u;
     // ---- THE CSR TILE-LIST BUFFER'S BYTE LAYOUT (spec §3.4/§9 Q7): the single source for the host writer (Task 4),
     //      the shader walk (Task 3) and the buffer's creation size (their consumers). The order is:
-    //      header[software_tiles_header_words] {tiles_x, tiles_y, entry_count, overflow, cluster_count},
-    //      counts[tiles], offsets[tiles + 1] (exclusive prefix sum), entries[entry_count] of 8 bytes
+    //      header[software_tiles_header_words] {tiles_x, tiles_y, entry_count, overflow, cluster_count, active_tile_count},
+    //      counts[tiles], offsets[tiles + 1] (exclusive prefix sum), active_tiles[active_tile_count], entries[entry_count] of 8 bytes
     //      {item_index, meshlet_id}. Counts/offsets are uint32 words; entries are counted in tile_entry units.
     //      NOTHING HERE IS A PER-TILE CAPACITY: the list is CSR, so only the global budget bounds a frame. ----
     inline constexpr std::uint32_t software_tiles_word_bytes = 4u;
-    inline constexpr std::uint32_t software_tiles_header_words = 5u;
+    inline constexpr std::uint32_t software_tiles_header_words = 6u;
     inline constexpr std::uint32_t software_tiles_entry_bytes = tile_entry_bytes;
     /// the index of each header word, so the writer and the shader cannot disagree about the order
     enum class software_tiles_header_word : std::uint32_t {
@@ -95,6 +95,7 @@ export namespace deren::engine::visibility::software {
         entry_count = 2u,
         overflow = 3u,
         cluster_count = 4u,
+        active_tile_count = 5u,
     };
     /// the first counts[] word (header words precede it; 	iles is accepted so every accessor has the same shape)
     [[nodiscard]] constexpr std::uint32_t software_tiles_counts_word([[maybe_unused]] std::uint32_t const tiles) noexcept {
@@ -104,9 +105,13 @@ export namespace deren::engine::visibility::software {
     [[nodiscard]] constexpr std::uint32_t software_tiles_offsets_word(std::uint32_t const tiles) noexcept {
         return software_tiles_counts_word(tiles) + tiles;
     }
-    /// the first entries[] slot (offsets[] is one word per tile PLUS the sentinel offset[tiles])
-    [[nodiscard]] constexpr std::uint32_t software_tiles_entries_word(std::uint32_t const tiles) noexcept {
+    /// the first active-tile index (capacity is one uint per tile, actual count is in the header)
+    [[nodiscard]] constexpr std::uint32_t software_tiles_active_tiles_word(std::uint32_t const tiles) noexcept {
         return software_tiles_offsets_word(tiles) + tiles + 1u;
+    }
+    /// the first entries[] slot (offsets[] is one word per tile PLUS the sentinel offset[tiles], then tile indices)
+    [[nodiscard]] constexpr std::uint32_t software_tiles_entries_word(std::uint32_t const tiles) noexcept {
+        return software_tiles_active_tiles_word(tiles) + tiles;
     }
     /// the BYTES a software_tiles buffer needs for an extent and a global entry budget (the creation size)
     [[nodiscard]] constexpr std::uint64_t software_tiles_bytes(std::uint32_t const width, std::uint32_t const height,
@@ -286,8 +291,9 @@ export namespace deren::engine::visibility::software {
     struct record_measurement {
         bool finite = false;        ///< the inputs and every intermediate were finite: the numbers below are usable
         bool front_of_near = false; ///< the sphere is WHOLLY in front of the near plane with the 0.98 margin
-        double world_radius = 0.0;  ///< record.radius * ||linear 3x3||_F
-        double view_depth = 0.0;    ///< w = -(view * world_center).z
+        double model_scale = 0.0;
+        double world_radius = 0.0; ///< record.radius * ||linear 3x3||_F
+        double view_depth = 0.0;   ///< w = -(view * world_center).z
         double diameter_upper_px = std::numeric_limits<double>::infinity();
     };
 
@@ -340,6 +346,7 @@ export namespace deren::engine::visibility::software {
         measurement.finite = true;
         measurement.front_of_near = front_of_near;
         measurement.world_radius = world_radius;
+        measurement.model_scale = scale;
         measurement.view_depth = w;
         measurement.diameter_upper_px = diameter;
         return measurement;
@@ -401,12 +408,16 @@ export namespace deren::engine::visibility::software {
                          .tiles_y = (height + tile_size - 1u) / tile_size};
     }
 
+    enum class routing_metric { cluster_diameter,
+                                triangle_edge };
+
     /// one record's conservative screen-space box and the inclusive tile range it covers (empty when off-screen)
     struct projected_record {
         bool finite = false;
         bool front_of_near = false;
         bool on_screen = false;
         double diameter_upper_px = std::numeric_limits<double>::infinity();
+        double triangle_edge_upper_px = std::numeric_limits<double>::infinity();
         std::array<float, 2> center_px{};
         float radius_px = 0.0f; ///< conservative projected radius (half the diameter bound)
         std::int32_t tile_min_x = 0;
@@ -423,7 +434,8 @@ export namespace deren::engine::visibility::software {
      *       classified subpixel can only ever cover MORE tiles than its true footprint, never fewer.
      */
     [[nodiscard]] inline projected_record project(meshlet const& record, std::array<float, 16> const& model,
-                                                  camera_metrics const& camera, tile_grid const& grid) noexcept {
+                                                  camera_metrics const& camera, tile_grid const& grid,
+                                                  double const object_max_edge = std::numeric_limits<double>::infinity()) noexcept {
         projected_record result{};
         auto const measurement = measure_record(record, model, camera);
         result.finite = measurement.finite;
@@ -445,16 +457,31 @@ export namespace deren::engine::visibility::software {
         if (!std::isfinite(ndc_x) || !std::isfinite(ndc_y)) {
             return result;
         }
+        // Bound the perspective projection Jacobian over the entire sphere. Off-axis Z variation
+        // expands screen-space edges AND the sphere footprint; center-only scale can falsely cull
+        // a sphere whose center is offscreen but whose enclosed triangles cross the image boundary.
+        double projection_bound = camera.proj_scale * 0.5;
+        if (camera.kind == projection_kind::perspective) {
+            double const nearest = measurement.view_depth - measurement.world_radius;
+            if (nearest > 0.0) {
+                double const off_axis = (std::hypot(view_center[0], view_center[1]) + measurement.world_radius) / nearest;
+                projection_bound = projection_bound / nearest * std::sqrt(1.0 + off_axis * off_axis);
+            } else
+                projection_bound = std::numeric_limits<double>::infinity();
+        }
+        if (measurement.front_of_near && std::isfinite(object_max_edge) && object_max_edge >= 0.0)
+            result.triangle_edge_upper_px = std::nextafter(object_max_edge * measurement.model_scale * projection_bound,
+                                                           std::numeric_limits<double>::infinity());
         double const center_x = (ndc_x * 0.5 + 0.5) * static_cast<double>(camera.width);
         double const center_y = (ndc_y * 0.5 + 0.5) * static_cast<double>(camera.height);
         double const radius_px = measurement.front_of_near ? std::max<double>(minimum_screen_radius_px,
-                                                                              measurement.diameter_upper_px * 0.5)
+                                                                              std::nextafter(measurement.world_radius * projection_bound, std::numeric_limits<double>::infinity()))
                                                            : std::numeric_limits<double>::infinity();
-        if (!std::isfinite(radius_px) || !std::isfinite(center_x) || !std::isfinite(center_y)) {
+        if (!std::isfinite(radius_px) || !std::isfinite(center_x) || !std::isfinite(center_y))
             return result;
-        }
         result.center_px = {static_cast<float>(center_x), static_cast<float>(center_y)};
-        result.radius_px = static_cast<float>(radius_px);
+        // Round outward when storing the double bound in the float footprint field.
+        result.radius_px = std::nextafter(static_cast<float>(radius_px), std::numeric_limits<float>::infinity());
         // the conservative pixel box, rounded OUT by the guard, then clipped to the frame
         double const box_min_x = center_x - radius_px - tile_bounds_guard_px;
         double const box_min_y = center_y - radius_px - tile_bounds_guard_px;
@@ -499,6 +526,8 @@ export namespace deren::engine::visibility::software {
         std::uint32_t item_index = 0u;
         std::array<float, 16> model{};
         std::span<meshlet const> records{};
+        // Optional transient cache for these exact records/model/camera; never reused across frames.
+        std::span<projected_record const> cached_projections{};
     };
 
     /// one item's [hardware prefix | software suffix] split; `order_out` in split_records holds the new lane order
@@ -522,7 +551,8 @@ export namespace deren::engine::visibility::software {
      */
     [[nodiscard]] inline item_split split_records(item_records const& item, camera_metrics const& camera,
                                                   float const threshold_px,
-                                                  deren::utility::vessel::vector<std::uint32_t>& order_out) {
+                                                  deren::utility::vessel::vector<std::uint32_t>& order_out,
+                                                  routing_metric metric = routing_metric::cluster_diameter) {
         item_split split{};
         split.item_index = item.item_index;
         split.record_count = static_cast<std::uint32_t>(item.records.size());
@@ -542,8 +572,15 @@ export namespace deren::engine::visibility::software {
         std::vector<std::uint8_t> software; // one byte per record: 0 = hardware prefix, 1 = software suffix
         software.resize(item.records.size(), 0u);
         for (std::size_t index = 0u; index < item.records.size(); ++index) {
-            auto const classification = classify(item.records[index], item.model, camera, threshold_px);
-            if (classification.subpixel) {
+            bool subpixel;
+            if (item.cached_projections.size() == item.records.size()) {
+                auto const& p = item.cached_projections[index];
+                subpixel = p.finite && p.front_of_near &&
+                           (metric == routing_metric::triangle_edge ? p.triangle_edge_upper_px : p.diameter_upper_px) < static_cast<double>(threshold_px);
+            } else {
+                subpixel = metric == routing_metric::cluster_diameter && classify(item.records[index], item.model, camera, threshold_px).subpixel;
+            }
+            if (subpixel) {
                 software[index] = 1u;
                 ++split.software_count;
                 split.software_triangles += item.records[index].index_count / 3u;
@@ -747,11 +784,198 @@ export namespace deren::engine::visibility::software {
         }
     };
 
+    /// @brief serialize one frame's CSR into the exact uint-word layout consumed by software_visibility.slang
+    /// @return false for malformed lists or an undersized lane; no partial write occurs on failure
+    [[nodiscard]] inline bool write_tile_lists(std::span<std::uint32_t> lane, software_tile_lists const& lists) noexcept {
+        std::uint32_t const tiles = lists.grid.tile_count();
+        std::uint64_t const needed_words = static_cast<std::uint64_t>(software_tiles_entries_word(tiles)) +
+                                           static_cast<std::uint64_t>(lists.entry_budget) * (software_tiles_entry_bytes / sizeof(std::uint32_t));
+        if (lists.overflow || lists.entry_count > lists.entry_budget || lists.entries.size() != lists.entry_count ||
+            lists.counts.size() != tiles || lists.offsets.size() != static_cast<std::size_t>(tiles) + 1u || lists.offsets.empty() ||
+            lists.offsets.front() != 0u || lists.offsets.back() != lists.entry_count || lane.size() < needed_words) {
+            return false;
+        }
+        for (std::uint32_t tile = 0u; tile < tiles; ++tile) {
+            if (lists.offsets[tile] > lists.offsets[tile + 1u] || lists.offsets[tile + 1u] > lists.entry_count ||
+                lists.counts[tile] != lists.offsets[tile + 1u] - lists.offsets[tile]) {
+                return false;
+            }
+        }
+        std::fill(lane.begin(), lane.end(), 0u);
+        lane[0] = lists.grid.tiles_x;
+        lane[1] = lists.grid.tiles_y;
+        lane[2] = lists.entry_count;
+        lane[3] = 0u;
+        lane[4] = lists.cluster_count;
+        std::uint32_t active_tile_count = 0u;
+        for (std::uint32_t tile = 0u; tile < tiles; ++tile) {
+            if (lists.counts[tile] != 0u) {
+                lane[software_tiles_active_tiles_word(tiles) + active_tile_count] = tile;
+                ++active_tile_count;
+            }
+        }
+        lane[5] = active_tile_count;
+        std::copy(lists.counts.begin(), lists.counts.end(), lane.begin() + software_tiles_counts_word(tiles));
+        std::copy(lists.offsets.begin(), lists.offsets.end(), lane.begin() + software_tiles_offsets_word(tiles));
+        std::uint32_t const entries_word = software_tiles_entries_word(tiles);
+        for (std::uint32_t index = 0u; index < lists.entry_count; ++index) {
+            lane[entries_word + index * 2u] = lists.entries[index].item_index;
+            lane[entries_word + index * 2u + 1u] = lists.entries[index].meshlet_id;
+        }
+        return true;
+    }
+
+    /// Packed ordering for normal-Z atomic min: depth and ID are one indivisible candidate.
+    [[nodiscard]] constexpr std::uint64_t atomic_candidate(std::uint32_t depth, std::uint32_t id) noexcept {
+        return (static_cast<std::uint64_t>(depth) << 32u) | id;
+    }
+
+    [[nodiscard]] inline std::expected<deren::utility::vessel::vector<tile_entry>, software_error>
+    triangle_dispatch_entries(software_tile_lists const& lists) {
+        if (lists.overflow || lists.entry_count != lists.entries.size() || lists.entry_count > software_entry_budget)
+            return std::unexpected(software_error::invalid_reference);
+        auto entries = lists.entries;
+        auto less = [](tile_entry const& a, tile_entry const& b) {
+            return a.item_index < b.item_index || (a.item_index == b.item_index && a.meshlet_id < b.meshlet_id);
+        };
+        std::sort(entries.begin(), entries.end(), less);
+        entries.erase(std::unique(entries.begin(), entries.end(), [](tile_entry const& a, tile_entry const& b) {
+                          return a.item_index == b.item_index && a.meshlet_id == b.meshlet_id;
+                      }),
+                      entries.end());
+        return entries;
+    }
+
+    /// Number of non-empty CSR tiles dispatched by the sparse software raster pass.
+    [[nodiscard]] inline std::uint32_t active_tile_count(software_tile_lists const& lists) noexcept {
+        return static_cast<std::uint32_t>(std::count_if(lists.counts.begin(), lists.counts.end(), [](std::uint32_t const count) { return count != 0u; }));
+    }
+
+    struct gpu_partition_item {
+        std::uint32_t item_index = 0u;
+        std::span<meshlet const> candidates;
+        std::span<std::uint32_t const> flags;
+        std::span<meshlet const> hardware;
+        std::uint32_t primary_count = 0u, recovery_count = 0u;
+    };
+    /// Capture-only independent coverage oracle. HW must equal the stable primary/recovery survivors
+    /// after subtracting actual SW IDs; duplicates, missing candidates and temporary flags are refused.
+    [[nodiscard]] inline bool validate_gpu_partition(std::span<tile_entry const> software, std::span<gpu_partition_item const> items) {
+        std::array<int, visibility::id_item_capacity> lookup{};
+        lookup.fill(-1);
+        deren::utility::vessel::vector<deren::utility::vessel::vector<std::uint8_t>> masks(items.size());
+        for (std::size_t i = 0u; i < items.size(); ++i) {
+            auto const& item = items[i];
+            if (item.item_index >= lookup.size() || lookup[item.item_index] >= 0 || item.candidates.size() > visibility::id_meshlet_capacity ||
+                item.flags.size() != item.candidates.size() || item.primary_count > item.candidates.size() ||
+                item.recovery_count > item.candidates.size() - item.primary_count ||
+                item.hardware.size() < item.primary_count + item.recovery_count)
+                return false;
+            for (auto flag : item.flags)
+                if (flag != 0u && flag != 1u && flag != 3u)
+                    return false;
+            lookup[item.item_index] = static_cast<int>(i);
+            masks[i].resize(item.candidates.size(), 0u);
+        }
+        for (auto const& entry : software) {
+            if (entry.item_index >= lookup.size() || lookup[entry.item_index] < 0)
+                return false;
+            auto const i = static_cast<std::size_t>(lookup[entry.item_index]);
+            auto const& item = items[i];
+            if (entry.meshlet_id >= item.candidates.size() || masks[i][entry.meshlet_id] || item.flags[entry.meshlet_id] == 1u)
+                return false;
+            masks[i][entry.meshlet_id] = 1u;
+        }
+        for (std::size_t i = 0u; i < items.size(); ++i) {
+            auto const& item = items[i];
+            for (std::uint32_t phase : {0u, 3u}) {
+                auto const offset = phase == 0u ? 0u : item.primary_count;
+                auto const expected = phase == 0u ? item.primary_count : item.recovery_count;
+                std::uint32_t count = 0u;
+                for (std::size_t c = 0u; c < item.candidates.size(); ++c) {
+                    if (item.flags[c] != phase || masks[i][c])
+                        continue;
+                    if (count >= expected || std::bit_cast<std::array<std::uint32_t, 12>>(item.hardware[offset + count]) !=
+                                                 std::bit_cast<std::array<std::uint32_t, 12>>(item.candidates[c]))
+                        return false;
+                    ++count;
+                }
+                if (count != expected)
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    /// Append one already-classified item exactly once. IDs are suffix POSITIONS, including offscreen gaps.
+    /// All validation/budget checks precede mutation; caller restores full hardware on false.
+    [[nodiscard]] inline bool append_triangle_dispatch(item_split const& split, std::span<std::uint32_t const> order,
+                                                       std::span<projected_record const> projections, deren::utility::vessel::vector<tile_entry>& output,
+                                                       std::uint32_t budget = software_entry_budget) {
+        if (budget == 0u || budget > software_entry_budget || output.size() > budget ||
+            split.hardware_count > split.record_count || split.software_count != split.record_count - split.hardware_count)
+            return false;
+        if (split.software_count == 0u)
+            return true; // includes oversized all-hardware runs
+        if (split.item_index >= visibility::id_item_capacity || split.record_count > visibility::id_meshlet_capacity ||
+            order.size() != split.record_count || projections.size() != split.record_count)
+            return false;
+        std::array<std::uint64_t, visibility::id_meshlet_capacity / 64u> seen{};
+        std::uint32_t needed = 0u;
+        for (std::uint32_t position = 0u; position < split.record_count; ++position) {
+            auto const original = order[position];
+            if (original >= split.record_count)
+                return false;
+            auto const mask = std::uint64_t{1u} << (original % 64u);
+            if ((seen[original / 64u] & mask) != 0u)
+                return false;
+            seen[original / 64u] |= mask;
+            if (position >= split.hardware_count) {
+                auto const& projection = projections[original];
+                if (!projection.finite || !projection.front_of_near)
+                    return false;
+                if (projection.on_screen)
+                    ++needed;
+            }
+        }
+        if (needed > budget - output.size())
+            return false;
+        output.reserve(output.size() + needed);
+        for (std::uint32_t position = split.hardware_count; position < split.record_count; ++position)
+            if (projections[order[position]].on_screen)
+                output.push_back({.item_index = split.item_index, .meshlet_id = position});
+        return true;
+    }
+
+    /// Triangle mode keeps the existing frame stride/entry offset but never reads CSR padding.
+    /// Only header and used entries are written; unused counts/offsets/entries need no host clearing.
+    [[nodiscard]] inline bool write_triangle_dispatch(std::span<std::uint32_t> lane, software_tile_lists const& list) noexcept {
+        auto const offset = software_tiles_entries_word(list.grid.tile_count());
+        if (list.overflow || list.entry_budget == 0u || list.entry_budget > software_entry_budget ||
+            list.entry_count != list.entries.size() || list.entry_count > list.entry_budget ||
+            static_cast<std::uint64_t>(offset) + list.entry_count * 2ull > lane.size())
+            return false;
+        for (auto const& entry : list.entries)
+            if (entry.item_index >= visibility::id_item_capacity || entry.meshlet_id >= visibility::id_meshlet_capacity)
+                return false;
+        lane[0] = list.grid.tiles_x;
+        lane[1] = list.grid.tiles_y;
+        lane[2] = list.entry_count;
+        lane[3] = 0u;
+        lane[4] = list.cluster_count;
+        lane[5] = list.entry_count;
+        for (std::uint32_t i = 0u; i < list.entry_count; ++i) {
+            lane[offset + i * 2u] = list.entries[i].item_index;
+            lane[offset + i * 2u + 1u] = list.entries[i].meshlet_id;
+        }
+        return true;
+    }
+
     namespace detail {
         /// the CSR producer's one binning body: two passes over deterministic order, prefix sum between them
         [[nodiscard]] inline std::expected<software_tile_lists, software_error> bin_csr_tile_lists(
             std::span<item_records const> const items, camera_metrics const& camera, float const threshold_px,
-            std::uint32_t const entry_budget) {
+            std::uint32_t const entry_budget, routing_metric metric) {
             software_tile_lists lists{};
             lists.grid = make_tile_grid(camera.width, camera.height);
             lists.entry_budget = entry_budget;
@@ -764,18 +988,27 @@ export namespace deren::engine::visibility::software {
             struct filed_item {
                 item_split split{};
                 deren::utility::vessel::vector<std::uint8_t> software;
-                deren::utility::vessel::vector<projected_record> projections; // indexed by ORIGINAL record index
+                deren::utility::vessel::vector<projected_record> owned_projections;
+                std::span<projected_record const> projections; // indexed by ORIGINAL record index
             };
             deren::utility::vessel::vector<filed_item> filed;
             filed.reserve(items.size());
             std::uint64_t total_entries = 0u;
             for (item_records const& item : items) {
                 filed_item entry_set{};
+                if (!item.cached_projections.empty() && item.cached_projections.size() != item.records.size()) {
+                    return std::unexpected{software_error::invalid_reference};
+                }
                 item_split& split = entry_set.split;
                 split.item_index = item.item_index;
                 split.record_count = static_cast<std::uint32_t>(item.records.size());
                 entry_set.software.assign(item.records.size(), 0u);
-                entry_set.projections.resize(item.records.size());
+                if (item.cached_projections.empty()) {
+                    entry_set.owned_projections.resize(item.records.size());
+                    entry_set.projections = entry_set.owned_projections;
+                } else {
+                    entry_set.projections = item.cached_projections;
+                }
                 if (item.records.size() > visibility::id_meshlet_capacity) {
                     // the packed id cannot carry a suffix: the item stays wholly on the hardware path (safe direction)
                     for (meshlet const& record : item.records) {
@@ -787,11 +1020,14 @@ export namespace deren::engine::visibility::software {
                     continue;
                 }
                 for (std::size_t index = 0u; index < item.records.size(); ++index) {
-                    auto const projection = project(item.records[index], item.model, camera, lists.grid);
+                    auto const projection = item.cached_projections.empty()
+                                                ? project(item.records[index], item.model, camera, lists.grid)
+                                                : item.cached_projections[index];
                     bool const subpixel = projection.finite && projection.front_of_near &&
-                                          projection.diameter_upper_px < static_cast<double>(threshold_px);
+                                          (metric == routing_metric::triangle_edge ? projection.triangle_edge_upper_px : projection.diameter_upper_px) < static_cast<double>(threshold_px);
                     entry_set.software[index] = subpixel ? 1u : 0u;
-                    entry_set.projections[index] = projection;
+                    if (item.cached_projections.empty())
+                        entry_set.owned_projections[index] = projection;
                     if (subpixel) {
                         ++split.software_count;
                         split.software_triangles += item.records[index].index_count / 3u;
@@ -878,7 +1114,7 @@ export namespace deren::engine::visibility::software {
      */
     [[nodiscard]] inline std::expected<software_tile_lists, software_error> build_tile_lists(
         std::span<item_records const> const items, camera_parameters const& parameters, float const threshold_px,
-        std::uint32_t const entry_budget = software_entry_budget) {
+        std::uint32_t const entry_budget = software_entry_budget, routing_metric metric = routing_metric::cluster_diameter) {
         if (!std::isfinite(threshold_px) || threshold_px <= 0.0f) {
             return std::unexpected{software_error::invalid_threshold};
         }
@@ -889,7 +1125,7 @@ export namespace deren::engine::visibility::software {
         if (!camera.has_value()) {
             return std::unexpected{camera.error()};
         }
-        return detail::bin_csr_tile_lists(items, *camera, threshold_px, entry_budget);
+        return detail::bin_csr_tile_lists(items, *camera, threshold_px, entry_budget, metric);
     }
 
     // ================================================================================================
@@ -1031,6 +1267,7 @@ export namespace deren::engine::visibility::software {
         std::span<meshlet const> records{};                ///< the item's run: hardware prefix, then software suffix
         std::span<std::array<float, 3> const> positions{}; ///< item-local positions (the 64-byte vertex's position lane)
         std::span<std::uint32_t const> indices{};          ///< item index buffer; a record's first_index is absolute into it
+        bool double_sided = true;                          ///< fixtures may opt out of material backface culling
     };
 
     /// the CPU reference's whole input: the frame camera and every item the CSR list can name
@@ -1107,7 +1344,7 @@ export namespace deren::engine::visibility::software {
                             if (index_position >= item->indices.size()) {
                                 return std::unexpected{software_error::invalid_reference};
                             }
-                            std::int64_t const vertex_index = static_cast<std::int64_t>(item->indices[index_position]) + item->base_vertex;
+                            std::int64_t const vertex_index = static_cast<std::int64_t>(item->indices[index_position]) + record.base_vertex + item->base_vertex;
                             if (vertex_index < 0 || static_cast<std::size_t>(vertex_index) >= item->positions.size()) {
                                 return std::unexpected{software_error::invalid_reference};
                             }
@@ -1133,6 +1370,8 @@ export namespace deren::engine::visibility::software {
                         if (!usable || visibility::triangle_twice_area(screen[0], screen[1], screen[2]) == 0.0f) {
                             continue; // degenerate or clipped: covers no pixel
                         }
+                        if (!item->double_sided && visibility::triangle_twice_area(screen[0], screen[1], screen[2]) >= 0.0f)
+                            continue;
                         float const min_x = std::min({screen[0][0], screen[1][0], screen[2][0]});
                         float const max_x = std::max({screen[0][0], screen[1][0], screen[2][0]});
                         float const min_y = std::min({screen[0][1], screen[1][1], screen[2][1]});

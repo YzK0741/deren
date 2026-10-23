@@ -1,9 +1,43 @@
-# Subtilis - hierarchical cluster LOD
+# Subtilis - large-scene rendering system
 
-> **Status (2026-10-22).** M1a/M1b and **M1c runtime import of offline cluster DAGs** are implemented.
+> **Triangle software prototype (2026-10-23):** an opt-in UE-inspired triangle producer reduces the
+> software pass from 2.33/0.18 ms to 0.10/0.09 ms (far/near). Same-build whole-frame medians are
+> 10.52/5.53 ms versus tiled software 11.84/5.86 ms and software-off DAG+HZB 10.31/5.46 ms.
+> This removes most GPU producer cost but does not establish stable net hybrid benefit; CPU routing
+> still costs more. Software remains default-off. See the [prototype report](reviews/2026-10-23-software-triangle-atomic.md).
+
+> **CPU cost update (2026-10-23):** same-frame projection reuse reduces all-enabled CPU-active medians
+> from 10.39/10.00 ms to 9.07/8.29 ms (far/near); GPU time is effectively unchanged.
+> An affine GPU arithmetic experiment was rejected after an edge-coverage finding and no clear frame-time gain.
+> See [cost reduction results](reviews/2026-10-23-software-raster-cost.md).
+
+> **Corrected textured results (2026-10-23):** three rounds / 24 captures are complete.
+> DAG+HZB measures 10.44 ms far / 5.64 ms near; adding software raster measures 12.12 / 6.32 ms,
+> with higher CPU-active cost. Software remains experimental/default off. See the
+> [corrected acceptance and limitations](reviews/2026-10-23-subtilis-textured-acceptance.md).
+
+> **2026-10-23 validation correction:** GPU readback exposed three software-raster wiring defects
+> (sparse dispatch bounds, CSR frame stride, and mode push constants). They are fixed in the current
+> workspace. A full-DAG planar fixture now matches CPU coverage/IDs at 117,180 pixels, with at most
+> 2 ULP depth difference and identical GPU hashes across 8/9-frame captures. Earlier software-enabled
+> timings, including 5.22 ms / about 26x, are historical results awaiting remeasurement after these fixes;
+> they are not accepted performance evidence for the corrected renderer.
+> See [closeout checkpoint](reviews/2026-10-23-subtilis-closeout-checkpoint.md).
+
+Subtilis is the name of the renderer's **large-scene geometry optimization system**. Its runtime path combines
+the visibility-buffer producer/resolve, hierarchical Cluster DAG LOD, HZB occlusion culling and the optional
+software-raster lane. This manual focuses on the Cluster DAG/LOD component, whose CPU cut feeds the other
+lanes. These components currently have separate configuration gates rather than one master switch. In code and
+narrower discussions, "Subtilis DAG" or "Subtilis LOD" refers to the hierarchy component; "the Subtilis
+system/path" refers to the composed renderer.
+
+> **Status (2026-10-22).** M1a/M1b, **M1c runtime import of offline cluster DAGs**, and the first
+> **M4 software-raster runtime path** are implemented.
 > `DEREN_subtilis` assets now load through the normal glTF path, share immutable CPU/GPU generations,
 > and feed the CPU cut into the existing visibility/HZB lanes. The explicit legacy builder remains usable.
-> M2 (GPU select/finalize), M4 (software raster) and M5 (streaming) are not implemented.
+> M2 (GPU select/finalize) and M5 (streaming) are not implemented. M4 remains experimental: the three-round
+> corrected textured Bistro GPU matrix and a planar CPU/GPU readback fixture are recorded in the
+> corrected acceptance report. Broader GPU edge-case and full-stage validation remain open.
 > **Default OFF**: `[render] subtilis=true` opts into payload extraction/adoption at startup and requires
 > `visibility_buffer=true` plus frame admission. Unsupported assets/items keep complete LOD0.
 >
@@ -18,9 +52,9 @@
 
 ## 1. What it is
 
-Subtilis is the renderer's **static, opaque, fully-resident hierarchical cluster LOD** system, in the style
-of virtualized geometry (the code never uses the "Nanite" trademark; documents say "Nanite-style" when the
-comparison matters):
+The **Cluster DAG/LOD component** is the renderer's static, opaque, fully-resident hierarchical geometry path,
+in the style of virtualized geometry (the code never uses the "Nanite" trademark; documents say "Nanite-style"
+when the comparison matters):
 
 - the **offline converter** creates a shared-vertex **cluster DAG**, with unique producer/consumer links,
   fine/coarse reference lists and monotone error/bounds; coarse indices are appended after the complete
@@ -114,7 +148,8 @@ subtilis_hysteresis = false # imported DAGs: coarsen at 80%, refine above 100%
   and generation replacement invalidate it. It does not retain GPU generations. The per-item planning
   phase is parallel (thread pool), with an item-ordered
   overlap resolution so alias/shared items keep the serial semantics byte for byte.
-- Off: nothing above runs and the frame is identical to the pre-Subtilis build.
+- With the Subtilis DAG/LOD option off: no hierarchy cut runs, and the visibility lane uses the complete LOD0
+  records as its input.
 
 Shared-table overflow never publishes a partial meshlet run. An overflowing visible object rejects
 the whole visibility frame; after overflow, ordinary mesh pipelines also replace meshlet pipelines
@@ -143,7 +178,7 @@ The cut cost was then **parallelized**: `post` phase 8.6 -> **about 2 ms** (far 
 near 14.57 -> 6.28 ms) with byte-identical cuts and pixel-identical screenshots; the end-to-end frame does
 not move because the frame is GPU-bound, but the CPU headroom is what M2/M3/streaming will spend.
 
-**Capacity prerequisite** (not a Subtilis gain): the 1024-item build fell back to the legacy path at
+**Capacity prerequisite for the Subtilis path:** the 1024-item build fell back to the legacy path at
 178.5 ms GPU frame; the 4096-item build runs the meshlet lane at 26.7-27.0 ms (**about 6.6x**) and is what makes
 Subtilis effective on a 2909-item scene at all (`visibility raster: recorded 2906 item(s)`).
 
@@ -151,6 +186,18 @@ Subtilis effective on a 2909-item scene at all (`visibility raster: recorded 290
 of the cut-selected candidates (100% agreement with the CPU reference), and the complete HZB lane measured
 **-78.6% (near) / -61.6% (far)** GPU frame on moving views - that gain is occlusion, not LOD; Subtilis
 supplies the candidate set and remains responsible for the LOD error, the HZB for conservative visibility.
+
+**Bistro path comparison (2026-10-22, 1280x720, GPU frame median):**
+
+| Path | Far | Near |
+| --- | ---: | ---: |
+| Traditional legacy path | 152.55 ms | 132.93 ms |
+| Visibility buffer, optimizations off | 24.50 ms | 21.17 ms |
+| Subtilis: Cluster DAG/LOD only | 20.73 ms | 18.73 ms |
+| Subtilis + HZB | 9.82 ms | 5.94 ms |
+| Subtilis + HZB + software raster | 9.55 ms | 5.22 ms |
+
+The near-view comparison is **132.93 / 5.22 = 25.5x**, or about **26x**, from the old legacy route to the current Subtilis rendering path. This is the system-level gain across the visibility-buffer lane, capacity expansion, Cluster DAG LOD, HZB and software raster; it is not the isolated gain of the DAG/LOD component. In the current build, the DAG cut alone reduces near-view triangles from 3,626,626 to 2,860,109 (-21.1%) and GPU frame time from 21.17 to 18.73 ms (-11.5%). HZB then culls 90.84% of candidates; software raster brings the measured GPU median from 5.94 to 5.22 ms, with higher CPU-active time. The full configuration matrix, including individual and pairwise combinations, is in the [render optimization report](reviews/2026-10-22-render-optimization-comparison.md).
 
 **Textured acceptance boundary.** The 4096-item contract was verified on the original unmerged
 hierarchy (2909 primitives -> 2906 visible items, no fallback) together with the 1024-slot texture array
@@ -185,11 +232,22 @@ geometry-scene image differences above are LOD edge differences, not pixel ident
 2. **Shared-vertex v1 only** - converter payload import is implemented; automatic build-at-load, disk
    caching and extra-attribute profiles are not. OFF startup cannot enable unavailable payloads later.
 3. **Textured-scene Subtilis OFF/ON** is open; the textured acceptance covered capacity/PBR, not LOD.
-4. **M4 software raster / M5 streaming** are not started; the new DAG probe finds 23.28% of far and
-   5.37% of near selected clusters below 1px. This alone does not establish software-raster ROI.
-5. The screen-error cut is a heuristic with a recorded conservative bound, not a strict per-pixel error
+4. **M4 software raster** is wired behind `[render] software_raster=true` and remains default-off. It requires
+   `visibility_buffer=true` and `subtilis=true`; `software_raster_threshold_px` defaults to 1.0 and must be finite
+   and positive. It composes with HZB culling/recovery: HZB tests the hardware prefix and software suffix, and the
+   software pass consumes HZB's final visibility/recovery flags. A refused/oversized CSR restores every selected
+   run to hardware. The 2026-10-22 Bistro smoke (1280x720, far camera, 8 frames, validation enabled)
+   activated with 4,179 software clusters / 4,554 CSR entries and no validation messages; the same-pose OFF/ON
+  captures differed at 18 pixels (mean absolute channel delta 0.0000098, max 6; bbox x=555..568, y=303..312). This is a smoke result, not the
+   CPU-vs-GPU fixture acceptance. The three-round Bistro GPU performance matrix is recorded in the
+   [render optimization report](reviews/2026-10-22-render-optimization-comparison.md); raw GPU depth/ID
+   readback and CPU-reference/repeat-capture checks now pass the planar fixture in the corrected acceptance
+   report. Full-stage and broader geometry/edge-case acceptance remain open.
+5. **M5 streaming/paging** is not started. The DAG probe finds 23.28% of far and 5.37% of near selected clusters
+   below 1px; this alone does not establish software-raster ROI.
+6. The screen-error cut is a heuristic with a recorded conservative bound, not a strict per-pixel error
    guarantee; image differences and tiny near-view OFF variation are quantified in the runtime report.
-6. Optional imported-DAG hysteresis defaults off; toon exact-depth redraw, unsupported strategies,
+7. Optional imported-DAG hysteresis defaults off; toon exact-depth redraw, unsupported strategies,
    shadows and BLAS keep LOD0. Real Bistro retains pre-existing core-validator errors; no source cleanup
    is silently performed by runtime import.
 
@@ -247,7 +305,10 @@ are repository-relative.
 - M1c - offline converter DAG import, shared generations, CPU selection and real-scene measurement: **implemented** 2026-10-22 (source-asset exceptions recorded).
 - M2 - GPU-side cut selection + finalize, indirect parameters: **not implemented**.
 - M3 - Hi-Z occlusion culling: **implemented as the HZB lane** 2026-10-21 (history prediction + current-frame recovery; default off, measured on Bistro).
-- M4 - software raster for sub-pixel clusters: **not started** (probe: 22% of far clusters <1 px).
+- M4 - software raster for sub-pixel clusters: **runtime path implemented, experimental/default off**;
+  corrected three-round textured Bistro performance and planar CPU/GPU repeat-capture evidence are recorded.
+  Full-stage and broader GPU geometry acceptance remain open. Measured software cost exceeds its benefit on
+  the current textured test; prefer DAG+HZB for that scene.
 - M5 - streaming/paging: **not started**.
 - asset pipeline - automatic import-time build + on-disk cache: **not implemented** (explicit legacy builder and offline payload import are available).
 - offline glTF cluster-DAG converter (`tools/subtilis`, `DEREN_subtilis` extension): **implemented and

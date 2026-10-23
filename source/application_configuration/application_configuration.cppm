@@ -285,6 +285,8 @@ namespace deren::app_config {
         bool subtilis = false; // CPU-selected LOD0 runs; requires an admitted visibility frame
         float subtilis_error_px = 1.f;
         bool subtilis_hysteresis = false;
+        bool software_raster = false; // M4 hybrid raster; requires visibility_buffer + subtilis
+        float software_raster_threshold_px = 1.f;
         // The TOON CHARACTER STAGE ([render] character_forward): a pass that re-shades the scene's OPAQUE
         // leaves OVER the lit frame, at depth-EQUAL, so a character can have its own hand-authored shading
         // instead of the deferred one - and without being lit twice, which is what happens if a finished

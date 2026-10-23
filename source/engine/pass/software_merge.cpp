@@ -60,7 +60,7 @@ namespace deren::engine::pass {
         //
         // LOAD + STORE, not CLEAR: the existing depth is the comparison's other half. The depth test is the merge
         // (LESS_OR_EQUAL writes only when the fragment's SV_Depth is <= the stored value), so the pass itself carries
-        // no arithmetic; Task 3's fragment stage produces the software depth it compares.
+        // no arithmetic; the fragment stage provides the software depth it compares.
         rhi::depth_attachment const depth{.view = io.targets[0].view_handle,
                                           .load = rhi::load_op::load,
                                           .store = rhi::store_op::store,
@@ -78,6 +78,10 @@ namespace deren::engine::pass {
         auto const begun = io.list->begin_rendering(rendering_info);
         if (begun != rhi::error::ok) {
             return begun;
+        }
+        if (!io.push_block(*io.list, {})) {
+            io.list->end_rendering();
+            return rhi::error::invalid_argument;
         }
         io.list->set_cull_mode(rhi::cull_mode::none); // the fullscreen triangle has no facing to cull
         io.list->draw(3, 1, 0, 0);

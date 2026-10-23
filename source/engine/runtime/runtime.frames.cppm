@@ -875,6 +875,8 @@ namespace deren::engine {
         this->visibility_admission_frame = this->visibility_frame_admission(this->main_graph_frame);
         this->visibility_lane_frame = deren::engine::visibility::choose_opaque_lane(this->visibility_buffer_on, this->visibility_admission_frame);
         this->subtilis_active_frame = this->subtilis_on && this->visibility_lane_frame == deren::engine::visibility::opaque_lane::visibility;
+        this->software_raster_active_frame = this->software_raster_on && this->subtilis_active_frame && this->software_raster_resources_ready &&
+                                             this->software_visibility && this->software_visibility->ready() && this->software_merge && this->software_merge->ready();
         if (this->subtilis_on) {
             this->subtilis_peak_items = std::max(this->subtilis_peak_items, static_cast<uint32_t>(this->frame_visible.size()));
             if (this->visibility_admission_frame == visibility::admission::item_overflow || this->visibility_admission_frame == visibility::admission::meshlet_overflow)
@@ -2680,6 +2682,7 @@ namespace deren::engine {
         // which the record step treats as "no pass here" rather than as an error.
         this->frame_chain = &chain;
         auto const at = [&chain](std::string_view const name) -> pass::frame_pass* { return chain.find(name); };
+        this->output_targets_provider = static_cast<pass::output_targets_pass*>(at("output_targets"));
         this->cluster_pass = {at("cluster")};
         this->shadow_pass = {at("shadow")};
         this->visibility_pass = {at("visibility raster")};

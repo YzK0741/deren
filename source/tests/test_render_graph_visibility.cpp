@@ -18,6 +18,12 @@ namespace rg = deren::engine::render_graph;
 namespace visibility = rg::visibility;
 
 namespace {
+    struct buffer_writer {
+        rg::buffer_discard_write buffer;
+        void visit_resources(rg::parameter_visitor& visit) const noexcept {
+            visit(buffer);
+        }
+    };
     struct cull_outputs {
         rg::buffer_discard_write survivors, results;
         rg::buffer_read_write commands;
@@ -90,6 +96,46 @@ namespace {
     }
 } // namespace
 namespace {
+    void gpu_software_route_resources() {
+        rg::builder graph;
+        std::array<rg::buffer_ref, 14> b{};
+        for (unsigned i = 0; i < b.size(); ++i)
+            b[i] = *graph.import_buffer({95, 100 + i}, rg::initial_contents::defined, "route table", {256},
+                                        rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader, rg::memory_access::read});
+        visibility::software_routing_inputs routing{b[0], b[10], b[11], b[12]};
+        auto cull = visibility::append_hzb_cull(graph, b[6], b[7], b[8], b[3], b[9], b[5], b[4], b[2], routing);
+        CHECK(cull.has_value());
+        auto image = [&](unsigned id, bool depth = false) { return *graph.import_texture({95, id}, rg::initial_contents::undefined, "route image", {1, 1, depth ? rg::texture_aspect::depth : rg::texture_aspect::color}, rg::resource_state{}); };
+        auto vid = image(1), depth = image(2, true), sd = image(3), si = image(4);
+        visibility::shared_inputs shared{b[0], b[1], b[2]};
+        shared.culled_meshlets = b[3];
+        shared.hzb_survivors = b[4];
+        shared.hzb_results = b[5];
+        auto hw = visibility::append(graph, {vid, depth, shared});
+        CHECK(hw.has_value());
+        auto recovery = visibility::append_hzb_recovery(graph, b[6], b[7], b[8], b[3], b[9], b[5], b[4], b[2], routing);
+        CHECK(recovery.has_value());
+        visibility::software_raster_inputs in{sd, si, b[0], b[9], b[1], b[11], b[13], b[3], b[5]};
+        in.indirect_arguments = b[12];
+        auto sw = visibility::append_software_raster(graph, in, hw->pass);
+        CHECK(sw.has_value());
+        CHECK(graph.export_resource(si).has_value());
+        auto compiled = graph.compile({true});
+        CHECK(compiled.has_value());
+        if (compiled && sw) {
+            bool args_barrier = false, work_barrier = false;
+            for (auto const& barrier : compiled->barriers) {
+                if (barrier.before_pass != sw->pass.index() || !barrier.memory_dependency)
+                    continue;
+                if (barrier.resource == b[12].index() && barrier.after.stages == rg::pipeline_stage::draw_indirect)
+                    args_barrier = true;
+                if (barrier.resource == b[11].index() && barrier.after.stages == rg::pipeline_stage::compute_shader)
+                    work_barrier = true;
+            }
+            CHECK(args_barrier && work_barrier);
+        }
+    }
+
     void test_full_recovery_chain() {
         rg::builder graph;
         std::array<rg::buffer_ref, 13> b{};
@@ -183,6 +229,7 @@ namespace {
         auto const culled = table(6);
         auto const materials = table(7);
         auto const previous = table(8);
+        auto const hzb_results = table(9);
         // ---- hardware raster (the software lanes' predecessor) ----
         visibility::inputs hw_inputs{vis_id, hw_depth, visibility::shared_inputs{camera, meshlets, indirect}};
         hw_inputs.shared->culled_meshlets = culled;
@@ -199,7 +246,14 @@ namespace {
         software_inputs.tiles = tiles;
         software_inputs.statistics = statistics;
         software_inputs.culled_meshlets = culled;
-        auto software = visibility::append_software_raster(graph, software_inputs, hardware->pass);
+        software_inputs.hzb_results = hzb_results;
+        constexpr rg::access_scope compute{rg::resource_usage::storage, rg::pipeline_stage::compute_shader};
+        auto recovery = graph.add_pass("visibility recovery", buffer_writer{{hzb_results, {}, compute}});
+        CHECK(recovery.has_value());
+        if (recovery && hardware) {
+            CHECK(graph.order_after(*recovery, hardware->pass).has_value());
+        }
+        auto software = visibility::append_software_raster(graph, software_inputs, hardware->pass, recovery ? std::optional<rg::pass_ref>{*recovery} : std::nullopt);
         CHECK(software.has_value());
         // ---- resolve: its two OPTIONAL software reads turn the candidate selection on, nothing else changes ----
         visibility::resolve_inputs resolve_inputs{};
@@ -222,7 +276,7 @@ namespace {
         // ---- the compiled plan: the three explicit order edges and the execution order ----
         auto plan = graph.compile({true});
         CHECK(plan.has_value());
-        if (!plan || !hardware || !software || !resolve || !merge) {
+        if (!plan || !hardware || !recovery || !software || !resolve || !merge) {
             return;
         }
         auto const explicit_edge = [&](rg::pass_ref const from, rg::pass_ref const to) {
@@ -234,6 +288,7 @@ namespace {
             return false;
         };
         CHECK(explicit_edge(hardware->pass, software->pass)); // software raster after hardware raster
+        CHECK(explicit_edge(*recovery, software->pass));      // HZB-recovered geometry is included before software resolve
         CHECK(explicit_edge(software->pass, resolve->pass));  // resolve after software raster
         CHECK(explicit_edge(resolve->pass, merge->pass));     // merge after resolve (the winner rule needs it)
         auto const position = [&](rg::pass_ref const ref) {
@@ -241,6 +296,7 @@ namespace {
             return found == plan->execution_order.end() ? std::numeric_limits<std::size_t>::max() : static_cast<std::size_t>(found - plan->execution_order.begin());
         };
         CHECK(position(hardware->pass) < position(software->pass));
+        CHECK(position(*recovery) < position(software->pass));
         CHECK(position(software->pass) < position(resolve->pass));
         CHECK(position(resolve->pass) < position(merge->pass));
         // ---- the declarations themselves: the software pass names + the merge's reads/writes ----
@@ -351,6 +407,7 @@ namespace {
 
 int main() {
     test_full_recovery_chain();
+    gpu_software_route_resources();
     test_hzb_consumers();
     software_lanes();
     software_absent_when_off();

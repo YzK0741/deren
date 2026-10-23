@@ -1,6 +1,8 @@
 # M4 软件光栅：subpixel cluster 的硬件/软件混合可见性（设计）
 
-日期：2026-10-22。状态：**设计 + 分阶段计划已由 Lead 审阅（含一处阻塞设计缺陷的修正：merge 必须在 resolve 之后，winner 规则才能区分“软件严格更近”与“tie”）；用户已批准 Q2/Q4/Q5（2026-10-22），Q1/Q3/Q6 按推荐默认、Q7 由 Task 1 数据决定；已按计划开始 Task 1，尚未实施 T2+。** 基线 HEAD `1ba58d82`：M1c（converter cluster DAG 的 runtime 导入、共享 generation、CPU cut）已验收，M2/M4/M5 未实现。用户决定：直接产出 spec + 计划（不单设 ROI 探针阶段），但 spec 必须以刚验收的 M1c 重探针证据界定 scope/ROI，并把"实际 subpixel workload 与 hybrid 收益"的证明定义成计划 Task 1 的测量/验收，而不是假设。实施计划见
+> **实现更新（2026-10-22）：** 原 Q5 的 HZB 互斥约束已由后续实现替代。Cluster DAG + 软件光栅 + HZB cull/recovery 可在同帧运行：HZB 对完整 host-selected candidate run 生成可见/recovered flags，但只为硬件前缀压缩 mesh-task indirect list；软件后缀保持原始 run-local id，并由软件光栅读取最终 flags，仅绘制可见或 recovery 后恢复的候选。实机 Bistro 组合 smoke 已通过；详细状态见 `docs/visibility_buffer.md` 和 `docs/subtilis.md`。
+
+日期：2026-10-22。**本文其余状态与约束记录设计/计划阶段的历史快照；原 Q5 互斥决策已由顶部的三路组合实现更新 supersede。** 当时设计与分阶段计划经 Lead 审阅（含一处阻塞设计缺陷的修正：merge 必须在 resolve 之后，winner 规则才能区分“软件严格更近”与“tie”）；用户批准 Q2/Q4/Q5，Q1/Q3/Q6 按推荐默认，Q7 后由 Task 1 数据决定。基线 HEAD `1ba58d82` 时 M1c 已验收，M2/M4/M5 尚未实现。实施计划见
 [2026-10-22-software-raster.md](../plans/2026-10-22-software-raster.md)，验收记录待实施后写 `docs/reviews/2026-10-22-software-raster.md`。
 
 约束：本文件不修改代码、根 CMake、既有计划/审查；不设计 M2/M5/material binning/streaming；M4 保持 default OFF；硬件 raster/resolve 数学除明确设计的 merge 外不变；32-bit id 保持（64-bit/两级表联合决策保留给 M2/M4 联合评估）。

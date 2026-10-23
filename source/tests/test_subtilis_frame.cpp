@@ -18,6 +18,7 @@ import deren.engine.subtilis.builder;
 import deren.engine.subtilis.dag_import;
 import deren.asset.subtilis.dag;
 import deren.engine.visibility;
+import deren.engine.visibility.software;
 import deren.engine.render_layout;
 import deren.engine.render_resource;
 import deren.engine.pass;
@@ -250,6 +251,30 @@ int exercise(bool adopted) {
     CHECK(row_at(masked, 0).meshlet_table == 1);
     auto old = selected_bytes(coarse);
     CHECK(old.size() == saved.size() && std::memcmp(old.data(), saved.data(), saved.size()) == 0);
+    // MASK geometry must remain entirely hardware even when the software threshold accepts every sphere.
+    runtime.register_shader("software_visibility.comp.spv", shader);
+    runtime.register_shader("software_merge.vert.spv", shader);
+    runtime.register_shader("software_merge.frag.spv", shader);
+    runtime.set_software_raster_threshold_px(4096.0f);
+    runtime.set_software_raster(true);
+    CHECK(runtime.pace_and_acquire() == deren::engine::frame_status::proceed);
+    CHECK(runtime.begin_recording() == deren::engine::frame_status::proceed);
+    runtime.record_main_drawcalls();
+    CHECK(runtime.end_recording() == deren::engine::frame_status::proceed);
+    auto tiles = deren::vk_test::probe_heap_buffer(*core, layout::heap_slot_offset(layout::heap_slots::software_tiles));
+    auto const software_lane = (1u - masked.frame_slot) * deren::engine::visibility::software::software_tiles_bytes(32u, 32u);
+    CHECK(tiles.size() >= software_lane + 24u);
+    if (tiles.size() >= software_lane + 24u) {
+        std::uint32_t clusters = UINT32_MAX;
+        std::memcpy(&clusters, tiles.data() + software_lane + 16u, 4u);
+        CHECK(clusters == 0u);
+        std::array<std::uint32_t, 2> grid{};
+        std::memcpy(grid.data(), tiles.data() + software_lane, 8u);
+        CHECK(grid[0] == 2u && grid[1] == 2u); // active empty software frame, not a silent whole-frame refusal
+    }
+    CHECK(runtime.submit_and_present() == deren::engine::frame_status::proceed);
+    runtime.set_software_raster(false);
+
     mask = 0;
     std::memcpy(flags, &mask, sizeof(mask));
     runtime.set_character_forward(true);

@@ -276,12 +276,14 @@ def main() -> int:
                 item_problems += 1
             continue
         kept = [meshlet_base + offset for offset in range(count) if flags[meshlet_base + offset] == 0]
+        hardware_count = min(original_count, count) if metadata.get("version", 1) >= 2 else count
+        hardware_kept = [meshlet_base + offset for offset in range(hardware_count) if flags[meshlet_base + offset] == 0]
         counts_total += counts[index]
-        if counts[index] != len(kept):
+        if counts[index] != len(hardware_kept):
             item_problems += 1
             if item_problems <= 8:
-                print(f"FAIL item {index}: pass1_count {counts[index]} != the item's kept candidates {len(kept)}")
-        for order, candidate in enumerate(kept):
+                print(f"FAIL item {index}: pass1_count {counts[index]} != the item's visible hardware prefix {len(hardware_kept)}")
+        for order, candidate in enumerate(hardware_kept):
             survivor_bytes = survivors_raw[(survivor_lane + meshlet_base + order) * MESHLET_BYTES:
                                            (survivor_lane + meshlet_base + order + 1) * MESHLET_BYTES]
             candidate_bytes = candidates_raw[candidate * MESHLET_BYTES:(candidate + 1) * MESHLET_BYTES]
@@ -289,8 +291,11 @@ def main() -> int:
                 order_problems += 1
                 if order_problems <= 8:
                     print(f"FAIL item {index}: survivor {order} is not candidate {candidate} (the ascending compaction contract)")
-    checker.check(counts_total == planned - culled_total,
-                  f"the per-item counts sum to the candidates minus the culled ({counts_total} == {planned} - {culled_total})")
+    expected_hardware_survivors = sum(
+        sum(flags[base + offset] == 0 for offset in range(min(pad, count) if metadata.get("version", 1) >= 2 else count))
+        for base, count, source, pad in items if source == SOURCE_CULLED and count != 0)
+    checker.check(counts_total == expected_hardware_survivors,
+                  f"hardware pass1 counts equal visible hardware-prefix candidates ({counts_total} == {expected_hardware_survivors})")
     checker.check(item_problems == 0, f"every per-item count equals its item's kept candidates ({item_problems} mismatch(es))")
     checker.check(order_problems == 0, f"the survivor list is the ascending compaction of the kept candidates ({order_problems} bad record(s))")
 
@@ -330,21 +335,23 @@ def main() -> int:
         checker.check(current_header["magic"]==HZB_HEADER_MAGIC,"current-depth header magic")
         checker.check((current_header["width"],current_header["height"],current_header["levels"])==(width,height,levels),"current-depth header extent/levels")
         retested=0; recovered_total=0
-        for index,(base,count,source,_) in enumerate(items[:item_count]):
+        for index,(base,count,source,original_hardware_count) in enumerate(items[:item_count]):
             suffix=[]
+            hardware_count=min(original_hardware_count,count) if metadata.get("version",1)>=2 else count
             if source==SOURCE_CULLED:
                 valid_flags=all(flags[base+i] in (0,1,3) for i in range(count))
                 checker.check(valid_flags,f"item {index}: flags encode original rejection and current recovery")
                 retested+=sum(bool(flags[base+i]&1) for i in range(count))
                 suffix=[base+i for i in range(count) if flags[base+i]&2]
-            checker.check(second[index]==len(suffix),f"item {index}: pass2 count matches flags ({second[index]}/{len(suffix)})")
+            hardware_suffix=[candidate for candidate in suffix if candidate-base < hardware_count]
+            checker.check(second[index]==len(hardware_suffix),f"item {index}: pass2 count matches hardware-prefix recovery flags ({second[index]}/{len(hardware_suffix)})")
             recovered_total+=len(suffix)
-            checker.check(tuple(commands2[index*3:index*3+3])==(second[index],1,1),f"item {index}: recovery command matches pass2 count")
+            checker.check(tuple(commands2[index*3:index*3+3])==(second[index],1,1),f"item {index}: recovery command matches hardware pass2 count")
             if source==SOURCE_CULLED:
-                checker.check(counts[index]+second[index]<=count,f"item {index}: prefix plus suffix fits the original candidate run")
-                for order,candidate in enumerate(suffix):
+                checker.check(counts[index]+second[index]<=hardware_count,f"item {index}: hardware survivor and recovery runs fit the hardware prefix")
+                for order,candidate in enumerate(hardware_suffix):
                     target=base+counts[index]+order
-                    checker.check(survivors_raw[target*MESHLET_BYTES:(target+1)*MESHLET_BYTES]==candidates_raw[candidate*MESHLET_BYTES:(candidate+1)*MESHLET_BYTES],f"item {index}: recovery record {order} preserves stable candidate order")
+                    checker.check(survivors_raw[target*MESHLET_BYTES:(target+1)*MESHLET_BYTES]==candidates_raw[candidate*MESHLET_BYTES:(candidate+1)*MESHLET_BYTES],f"item {index}: hardware recovery record {order} preserves stable candidate order")
         checker.check(stats[4]==retested==culled_total,"recovery retests exactly the history-rejected candidates")
         checker.check(stats[5]==recovered_total,"recovery stats count every appended survivor")
         checker.check(stats[6]==retested-recovered_total,"recovery still-occluded stats match the partition")

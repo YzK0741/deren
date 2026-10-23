@@ -1079,7 +1079,7 @@ int main(int const argc, char** const argv) {
 
     // handshake number moved with it.
 
-    CHECK(rhi::abi_version == 46u);
+    CHECK(rhi::abi_version == 48u);
 
     if (!wants_device(argc, argv)) {
 

@@ -46,8 +46,10 @@ import deren.engine.pipelines;
 import deren.engine.render_resource;
 import deren.engine.render_resource.shared;
 import deren.engine.pass.buffer_storage;
-import deren.engine.pass.hzb_build;   // the runtime-owned HZB build pass (see ensure_hzb_resources)
-import deren.engine.pass.hzb_cull;    // ... and its phase-B GPU consumer (the three fixed-size tables + the cull pass)
+import deren.engine.pass.hzb_build; // the runtime-owned HZB build pass (see ensure_hzb_resources)
+import deren.engine.pass.hzb_cull;  // ... and its phase-B GPU consumer (the three fixed-size tables + the cull pass)
+import deren.engine.pass.software_visibility;
+import deren.engine.pass.software_merge;
 import deren.engine.resource_cluster; // the cluster create_hzb_cull_tables creates the phase-B tables in
 import deren.engine.visibility.hzb;   // the pyramid layout the HZB buffers are sized with (§4.1's one formula)
 
@@ -1353,6 +1355,15 @@ namespace deren::engine {
     rhi::error runtime::prepare_managed_resources(bool output_only) {
         namespace managed = render_resource::instances;
         this->shadow_cascades = std::clamp(this->shadow_cascades, 1u, deren::engine::max_shadow_cascades);
+        bool const software_requested = this->software_raster_on && this->visibility_buffer_on && this->subtilis_on;
+        if (software_requested && !this->software_raster_pipeline_failed) {
+            this->ensure_software_raster_passes();
+        }
+        bool const software_resources_wanted = software_requested && this->software_visibility && this->software_visibility->ready() && this->software_merge &&
+                                               this->software_merge->ready();
+        if (this->output_targets_provider != nullptr) {
+            this->output_targets_provider->select_software_resources(software_resources_wanted);
+        }
         managed::resource_context const context{
             .frame_slots = this->frame_ring().slot_count(),
             .output_images = rhi::max_swapchain_images,
@@ -1441,7 +1452,7 @@ namespace deren::engine {
         }
         deren::utility::vessel::array<bool, pass::output_targets_pass::resource_count> missing_output;
         for (size_t i = 0; i < missing_output.size(); ++i) {
-            missing_output[i] = !primary.find(pass::output_targets_pass::ids[i]);
+            missing_output[i] = (i < 15u || software_resources_wanted) && !primary.find(pass::output_targets_pass::ids[i]);
         }
         if (std::any_of(missing_output.begin(), missing_output.end(), [](bool missing) { return missing; })) {
             if (this->fallback_output_provider == nullptr) {
@@ -1537,6 +1548,9 @@ namespace deren::engine {
         auto const required_outputs = pass::output_targets_pass::descriptions(context);
         bool outputs_changed = false;
         for (size_t i = 0; i < outputs.size(); ++i) {
+            if (i >= 15u && !software_resources_wanted) {
+                continue;
+            }
             auto const& expected = required_outputs[i];
             output_views[i] = missing_output[i] ? fallback_view : primary;
             auto const value = output_views[i].find(expected.id);
@@ -1551,6 +1565,19 @@ namespace deren::engine {
             }
             outputs[i] = value;
             outputs_changed |= this->output_resource_views[i].find(expected.id) != value;
+        }
+        auto software_tiles_view = software_resources_wanted && primary.find(resource_id::software_tiles) ? primary : fallback_view;
+        auto software_tiles_generation = software_resources_wanted ? software_tiles_view.find(resource_id::software_tiles) : nullptr;
+        if (software_resources_wanted) {
+            std::uint64_t const expected_tile_bytes = render_resource::software_tiles_buffer_bytes(context.render_extent.width, context.render_extent.height);
+            if (!software_tiles_generation || software_tiles_generation->description.type != managed::kind::buffer ||
+                software_tiles_generation->description.scope != render_resource::resource_scope::device_wide ||
+                software_tiles_generation->description.life != managed::lifetime::frame_slot ||
+                software_tiles_generation->objects.size() != 1u || software_tiles_generation->description.buffer.size < expected_tile_bytes * context.frame_slots ||
+                software_tiles_generation->description.buffer.usage != rhi::buffer_usage::storage_coherent ||
+                software_tiles_generation->objects[0].buffer->mapped().size() < expected_tile_bytes * context.frame_slots) {
+                return rhi::error::invalid_argument;
+            }
         }
         bool const shadow_changed = !output_only && this->shadow_resource_view.find(resource_id::shadow_map) != shadow;
         bool const cluster_changed = !output_only && (this->cluster_resource_view.find(resource_id::cluster_counts) != counts ||
@@ -1720,9 +1747,38 @@ namespace deren::engine {
             }
             adopt(13, this->rt_shadow_images, this->rt_shadow_image_views);
             adopt(14, this->visibility_images, this->visibility_image_views);
-            // family 15 is the RETIRED capture-step depth (see runtime.declarations.cppm's member note): adopted and
-            // published for schema stability, imported by no frame since v0.5.
+            if (software_resources_wanted) {
+                adopt(15, this->software_depth_images, this->software_depth_image_views);
+                adopt(16, this->software_id_images, this->software_id_image_views);
+            } else {
+                this->software_depth_images = {};
+                this->software_id_images = {};
+                this->software_depth_image_views = {};
+                this->software_id_image_views = {};
+            }
             this->reset_image_generation_state();
+        }
+        if (!software_resources_wanted) {
+            this->software_tiles_resource_view = {};
+            this->software_tiles_buffer = {};
+            this->software_tiles_mapped = nullptr;
+            this->software_raster_resources_ready = false;
+        } else {
+            bool const tile_generation_changed = this->software_tiles_resource_view.find(resource_id::software_tiles) != software_tiles_generation;
+            if (tile_generation_changed) {
+                this->software_tiles_resource_view = software_tiles_view;
+                this->software_tiles_buffer = {software_tiles_generation->objects[0].buffer.get()};
+                this->software_tiles_mapped = software_tiles_generation->objects[0].buffer->mapped().data();
+            }
+            if (!this->software_tiles_buffer || this->software_tiles_mapped == nullptr) {
+                return rhi::error::invalid_argument;
+            }
+            if (contract_heap_ready(this->rhi_face()) &&
+                !this->write_heap_buffer(*this->software_tiles_buffer, deren::engine::render_layout::heap_slots::software_tiles,
+                                         this->software_tiles_buffer->size(), rhi::descriptor_type::storage_buffer)) {
+                deren::utility::log("software raster: CSR tile buffer descriptor publication failed");
+            }
+            this->software_raster_resources_ready = static_cast<bool>(this->software_depth_images[0]) && static_cast<bool>(this->software_id_images[0]);
         }
         this->output_resource_views = output_views;
         this->camera_resource_view = camera_view;
@@ -2091,6 +2147,38 @@ namespace deren::engine {
                             pass::hzb_header_byte_capacity);
     }
 
+    void runtime::ensure_software_raster_passes() {
+        if (this->software_raster_pipeline_failed || !contract_heap_ready(this->rhi_face())) {
+            return;
+        }
+        if (this->registered_shader("software_visibility.comp.spv").empty() ||
+            this->registered_shader("software_merge.vert.spv").empty() ||
+            this->registered_shader("software_merge.frag.spv").empty()) {
+            return; // shader registration happens after runtime construction; retry at the next resource preparation
+        }
+        if (!this->software_visibility) {
+            auto owned = std::make_unique<pass::software_visibility_pass>();
+            owned->create(this->make_pass_context());
+            if (!owned->ready()) {
+                this->software_raster_pipeline_failed = true;
+                deren::utility::log("software raster unavailable: software visibility pipeline creation failed");
+                return;
+            }
+            this->software_visibility = std::move(owned);
+        }
+        if (!this->software_merge) {
+            auto owned = std::make_unique<pass::software_merge_pass>();
+            owned->create(this->make_pass_context());
+            if (!owned->ready()) {
+                this->software_raster_pipeline_failed = true;
+                deren::utility::log("software raster unavailable: depth merge pipeline creation failed");
+                return;
+            }
+            this->software_merge = std::move(owned);
+        }
+        deren::utility::log("software raster: raster and depth-merge passes ready");
+    }
+
     void runtime::create_hzb_cull_tables(resource_cluster& cluster) {
         std::uint32_t const frame_slots = this->frame_ring().slot_count();
         std::uint64_t const items_bytes = static_cast<std::uint64_t>(frame_slots) * pass::hzb_cull_item_capacity * sizeof(pass::hzb_item);
@@ -2103,7 +2191,7 @@ namespace deren::engine {
         rhi::buffer_desc results_desc{};
         results_desc.size = results_bytes;
         results_desc.usage = rhi::buffer_usage::storage_coherent; // GPU-written, host-read at shutdown/probe time
-        results_desc.flags = rhi::to_bits(rhi::buffer_flag::device_address);
+        results_desc.flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::transfer_source);
         rhi::buffer_desc survivors_desc{};
         survivors_desc.size = survivors_bytes;
         survivors_desc.usage = rhi::buffer_usage::storage_gpu_only; // GPU-only: nothing but a GPU consumer reads it

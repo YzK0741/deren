@@ -408,6 +408,8 @@ visibility_buffer = false
 subtilis = false
 subtilis_error_px = 1.0 # finite, positive screen-space error target
 subtilis_hysteresis = false # optional 80% coarsening threshold; refines above target
+software_raster = false # experimental hybrid visibility producer; requires visibility_buffer and subtilis
+software_raster_threshold_px = 1.0 # conservative projected-diameter cutoff for moving clusters to software
 
 # character_forward: the TOON CHARACTER STAGE. It draws the scene's opaque leaves a SECOND time, after the
 # lighting stage, through a pipeline whose depth compare is EQUAL and whose depth write is held off - so it

@@ -1462,6 +1462,16 @@ export namespace deren::promise::rhi {
     ///
     /// A FIELD ADDED HERE IS NOT A FREE CHANGE: this value is what a caller passes as the stride, so the layout
     /// is as frozen as the verb that consumes it.
+    struct dispatch_indirect_command {
+        std::uint32_t groups_x = 0u, groups_y = 1u, groups_z = 1u;
+    };
+    static_assert(sizeof(dispatch_indirect_command) == 12u);
+    [[nodiscard]] constexpr error validate_dispatch_indirect_range(std::uint64_t size, std::uint64_t offset) noexcept {
+        return offset % 4u != 0u || offset > size || size - offset < sizeof(dispatch_indirect_command)
+                   ? error::invalid_argument
+                   : error::ok;
+    }
+
     struct draw_indirect_command {
         std::uint32_t vertex_count = 0, instance_count = 0, first_vertex = 0, first_instance = 0;
     };
@@ -1633,6 +1643,10 @@ export namespace deren::promise::rhi {
 
         // compute + geometry
         virtual void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;
+        /// ABI48: one compute dispatch from a 12-byte argument record; unavailable backends refuse explicitly.
+        [[nodiscard]] virtual error dispatch_indirect(buffer const&, std::uint64_t) {
+            return error::unsupported;
+        }
         virtual void draw_mesh_tasks(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;
         [[nodiscard]] virtual error draw_mesh_tasks_indirect(buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) = 0;
         /// Record a ray-tracing LAUNCH over `width` x `height` pixels, `depth` rays deep, reading the shader
@@ -1843,6 +1857,10 @@ export namespace deren::promise::rhi {
 
         // compute + geometry
         virtual void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;
+        /// ABI48: one compute dispatch from a 12-byte argument record; unavailable backends refuse explicitly.
+        [[nodiscard]] virtual error dispatch_indirect(buffer const&, std::uint64_t) {
+            return error::unsupported;
+        }
         virtual void draw_mesh_tasks(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;
         [[nodiscard]] virtual error draw_mesh_tasks_indirect(buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) = 0;
         /// Record a ray-tracing LAUNCH over `width` x `height` pixels, `depth` rays deep, reading the shader

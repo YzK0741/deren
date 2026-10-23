@@ -63,6 +63,16 @@ namespace {
 
     static_assert(offsetof(rhi::draw_indirect_command, instance_count) == 4u);
 
+    static_assert(requires(rhi::command_buffer& commands, rhi::buffer const& args) { commands.dispatch_indirect(args, 0u); });
+    static_assert(requires(rhi::mergeable_command_buffer& commands, rhi::buffer const& args) { commands.dispatch_indirect(args, 0u); });
+    static_assert(sizeof(rhi::dispatch_indirect_command) == 12u);
+    static_assert(rhi::validate_dispatch_indirect_range(12u, 0u) == rhi::error::ok);
+    static_assert(rhi::validate_dispatch_indirect_range(16u, 4u) == rhi::error::ok);
+    static_assert(rhi::validate_dispatch_indirect_range(28u, 16u) == rhi::error::ok);
+    static_assert(rhi::validate_dispatch_indirect_range(12u, 4u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_dispatch_indirect_range(16u, 1u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_dispatch_indirect_range(11u, 0u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_dispatch_indirect_range(UINT64_MAX, UINT64_MAX - 3u) == rhi::error::invalid_argument);
     static_assert(rhi::validate_draw_indirect_range(16u, 0u, 1u, 16u) == rhi::error::ok);
 
     static_assert(rhi::validate_draw_indirect_range(36u, 4u, 2u, 16u) == rhi::error::ok);
@@ -612,7 +622,7 @@ namespace {
 
         // the frame's command buffer.
 
-        CHECK(rhi::abi_version == 46u);
+        CHECK(rhi::abi_version == 48u);
 
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
 

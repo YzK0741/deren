@@ -495,7 +495,8 @@ int main(int const argc, char** const argv) {
         application.reset(); // release the producer snapshot too; submitted slots retain the generation
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         auto selected = producer.resources();
-        for (size_t family = 0; family < pass::output_targets_pass::ids.size(); ++family) {
+        // The software depth/id families are optional and remain absent on this OFF frame.
+        for (size_t family = 0; family < 15u; ++family) {
             auto value = selected.find(pass::output_targets_pass::ids[family]);
             CHECK(value != nullptr);
             bool const per_slot = pass::output_targets_pass::ids[family] == rr::resource_id::rt_shadow_visibility;
@@ -504,6 +505,8 @@ int main(int const argc, char** const argv) {
             for (size_t i = 0; i < value->objects.size(); ++i)
                 CHECK(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(pass::output_targets_pass::heap_slots[family] + i)) == value->objects[i].image.get());
         }
+        CHECK(selected.find(rr::resource_id::software_depth) == nullptr);
+        CHECK(selected.find(rr::resource_id::software_id) == nullptr);
         CHECK(!prior.expired()); // other submitted slot still owns the former generation
         finish_frame();
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);

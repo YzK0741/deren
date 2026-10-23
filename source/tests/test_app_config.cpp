@@ -59,6 +59,8 @@ namespace {
         CHECK(settings.render.subtilis);
         CHECK(settings.render.subtilis_error_px == 2.f && settings.render.subtilis_hysteresis);
         CHECK(settings.render.visibility_buffer); // fixture: the GPU-driven opaque path on (the switch's non-default read-back)
+        CHECK(settings.render.software_raster);   // fixture: the M4 hybrid path on
+        CHECK(settings.render.software_raster_threshold_px == 2.f);
         // the frame's static surround (`[render] background_glb`): a STRING key, so unlike the boolean
         // switches above this CHECK cannot pass by accident - an empty compiled default would read back as
         // "" and the comparison would fail
@@ -96,6 +98,8 @@ namespace {
         CHECK(!settings.render.subtilis);
         CHECK(settings.render.subtilis_error_px == 1.f && !settings.render.subtilis_hysteresis);
         CHECK(!settings.render.visibility_buffer);
+        CHECK(!settings.render.software_raster);
+        CHECK(settings.render.software_raster_threshold_px == 1.f);
         // default: NO background model - the frame is the one import it always was (see the key's note)
         CHECK(settings.render.background_glb.empty());
         CHECK(settings.render.shadow_cascades == 3); // default: three cascades
@@ -129,6 +133,7 @@ namespace {
         CHECK(!settings.render.taa);
         CHECK(!settings.render.subtilis);
         CHECK(!settings.render.visibility_buffer); // the example ships the switch OFF (the historic frame)
+        CHECK(!settings.render.software_raster);
         CHECK(settings.lighting.demo_lights == 0);
         CHECK(settings.lighting.env_size == 256);
         // environment_hdr empty is the contract that keeps the procedural sky (and therefore every frame
@@ -147,6 +152,14 @@ namespace {
         CHECK(settings.lighting.area_light_shadow);
         CHECK(settings.lighting.area_light_softness == 0.0f);
         CHECK(settings.gui.show);
+    }
+
+    void test_software_raster_threshold_rejects_nonpositive_and_nonfinite() {
+        for (std::string_view const file : {"config_software_raster_negative.toml", "config_software_raster_zero.toml", "config_software_raster_nan.toml"}) {
+            auto const path = std::filesystem::path{VR_TEST_SOURCE_DIR} / "source" / "tests" / "fixtures" / file;
+            auto const settings = deren::app_config::load_settings(path.string());
+            CHECK(settings.render.software_raster_threshold_px == 1.f);
+        }
     }
 
     // The [lighting] resolutions feed the CPU IBL precompute, which runs BEFORE the runtime sees the
@@ -454,6 +467,7 @@ int32_t main() {
     }
     test_load_settings_applies_toml();
     test_example_config_matches_documentation();
+    test_software_raster_threshold_rejects_nonpositive_and_nonfinite();
     test_load_settings_missing_file_keeps_defaults();
     test_lighting_sizes_are_clamped();
     test_generated_config_parses();

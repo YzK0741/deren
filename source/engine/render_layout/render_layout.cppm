@@ -423,21 +423,27 @@ export namespace deren::engine::render_layout {
         //      float BIT PATTERN and its packed 32-bit visibility id. The resolve reads them for winner selection
         //      BEFORE the merge rewrites depth (spec §3.2's order), and the merge reads them to write min(hw, sw).
         //
-        //      software_depth REUSES 1239..1246, the range visibility-buffer v0.5 reserved when the capture-only
-        //      private depth retired - it was reserved for exactly this family, so the new surface moves no existing
-        //      slot. The other two append after hzb_commands, where every family that grows the grid lands: a slot
-        //      number IS the descriptor's position, so growing an array in place would renumber every array after it.
+        //      software_depth's sampled view REUSES 1239..1246, the range visibility-buffer v0.5 reserved when the
+        //      capture-only private depth retired. software_id's sampled view and software_tiles follow hzb_commands.
+        //      Storage views occupy new per-image runs after the tile-list frame lanes because a descriptor slot has
+        //      one image type (sampled or storage), so those shader uses cannot alias one slot.
         //
         //      THE SLOT NUMBERS ARE A SHADER CONTRACT (source/shaders/common/heap_slot_constants.slang mirrors them,
-        //      and test_render_resources.cpp compares the two files). Both images are per-swapchain-image arrays, so
-        //      a shader indexes them with `heap_image_index`; software_tiles is a per-FRAME array and is indexed with
-        //      `heap_frame_slot`.
+        //      and test_render_resources.cpp compares the two files). Sampled and storage image views are each
+        //      per-swapchain-image arrays; software_tiles is a per-FRAME array indexed with `heap_frame_slot`.
         /// the software raster's depth image (R32_UINT = the float depth's bit pattern), per swapchain image
         static constexpr uint32_t software_depth = heap_slot_base + 1239u;
         /// the software raster's packed-id image (R32_UINT, the same packing as @ref visibility), per swapchain image
         static constexpr uint32_t software_id = heap_slot_base + 1314u;
         /// the CSR tile list buffer (host-written per frame lane; layout in deren.engine.visibility.software)
         static constexpr uint32_t software_tiles = heap_slot_base + 1322u;
+        /// storage view of software_depth; sampled/storage image descriptors occupy separate heap slots
+        static constexpr uint32_t software_depth_storage = heap_slot_base + 1324u;
+        /// storage view of software_id; one per-image run after software_depth's storage-view run
+        static constexpr uint32_t software_id_storage = heap_slot_base + 1332u;
+        static constexpr uint32_t software_route_metadata = heap_slot_base + 1348u;
+        static constexpr uint32_t software_route_arguments = heap_slot_base + 1356u;
+        static constexpr uint32_t software_atomic = heap_slot_base + 1340u; // two private per-frame scratch buffers
     };
 
     /**
@@ -462,10 +468,8 @@ export namespace deren::engine::render_layout {
                   "the texture run between the bindless array and the material table IS the array's capacity");
     static_assert(heap_slots::scene_color_storage + heap_image_capacity <= heap_slot_base + heap_slot_count,
                   "the highest used slot must stay inside the grid");
-    // `hzb_commands` used to be the highest used slot; since M4 Task 2 the software raster's `software_tiles`
-    // family is (its second frame lane), so the guard names that one. The assert above would keep passing if a
-    // family ever grew past the grid, because it only knows about the resolve's outputs.
-    static_assert(heap_slots::software_tiles + 1u <= heap_slot_base + heap_slot_count - 1u,
+    // The software raster has sampled and storage descriptor runs for each image, plus its per-frame CSR lanes.
+    static_assert(heap_slots::software_route_arguments + heap_image_capacity <= heap_slot_base + heap_slot_count - 1u,
                   "the highest used slot must stay inside the grid");
     // THE SOFTWARE FAMILIES' SPACING IS THE GRID'S, and these are the contract. `software_depth` sits in the range
     // the visibility work RESERVED (1239..1246, one per-image run) and `software_id` follows the HZB tables, so the
@@ -475,6 +479,10 @@ export namespace deren::engine::render_layout {
                   "the software depth family's image run must end before the software id family starts");
     static_assert(heap_slots::software_tiles == heap_slots::software_id + heap_image_capacity,
                   "the software tile-list lane must start after the software id family's image run");
+    static_assert(heap_slots::software_depth_storage == heap_slots::software_tiles + 2u,
+                  "the software storage image runs must follow both frame-lane tile buffers");
+    static_assert(heap_slots::software_id_storage == heap_slots::software_depth_storage + heap_image_capacity,
+                  "the software id storage run must follow the software depth storage run");
 
     // ================================================================================================
     // THE RENDER SCALE'S ONE CLAMP (③-D/E step 2's merged slice, ruling: ONE owner of the rule)

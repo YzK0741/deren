@@ -53,6 +53,13 @@ struct HzbCullPush
 /// the same number (source/engine/pass/hzb_cull.cpp). The serial compaction below relies on this being the width.
 static const uint hzb_cull_group_size = 64u;
 
+// `pad` carries the host's hardware-prefix length. HZB tests every original candidate, but only this prefix is
+// compacted into the mesh-task survivor table; the software suffix consumes the same flags in its compute raster.
+bool hzb_hardware_candidate(HzbItem src, uint index)
+{
+    return index < min(src.pad, src.candidate_count);
+}
+
 // ---- THE DRAW-ITEM MODEL MATRIX, from heap_slots_visibility_items ----
 //
 // The cull needs ONE field of the item: the model matrix. The draw-item record is 112 bytes = 28 u32 words (whose
@@ -96,6 +103,8 @@ void hzb_stat_add(RWStructuredBuffer<uint> results, uint results_lane_base, uint
     }
 }
 
+#include "common/software_route.slang"
+
 void hzb_recover(uint item, uint thread_id, HzbItem src)
 {
     const uint slot = push.frame_slot;
@@ -125,7 +134,7 @@ void hzb_recover(uint item, uint thread_id, HzbItem src)
         {
             const MeshletRecord record=culled_meshlet_at(slot,src.meshlet_base+index);
             const bool keep = !current.usable || !current.projection_ok || !hzb_occluded(current,pyramid,pyramid_base,model,record.center,record.radius);
-            results[flags_base+index] = keep ? 3u : 1u;
+            results[flags_base+index] = keep ? (software_gpu_candidate(item,src,index,record)?7u:3u) : 1u;
         }
     }
     DeviceMemoryBarrierWithGroupSync();
@@ -133,15 +142,23 @@ void hzb_recover(uint item, uint thread_id, HzbItem src)
     {
         RWStructuredBuffer<MeshletRecord> survivors=heap_at<RWStructuredBuffer<MeshletRecord>>(heap_slots_hzb_survivors);
         const uint output_base=slot*hzb_candidate_capacity+src.meshlet_base+first;
-        uint retested=0u,recovered=0u;
+        uint retested=0u,recovered=0u,recovered_hardware=0u;
         for(uint index=0u;index<src.candidate_count;++index)
         {
             const uint flag=results[flags_base+index];
             if((flag&1u)!=0u) ++retested;
-            if((flag&2u)!=0u) survivors[output_base+recovered++]=culled_meshlet_at(slot,src.meshlet_base+index);
+            if((flag&2u)!=0u)
+            {
+                ++recovered;
+                if(!software_gpu_route_active() && hzb_hardware_candidate(src,index)) survivors[output_base+recovered_hardware++]=culled_meshlet_at(slot,src.meshlet_base+index);
+            }
         }
-        results[lane+hzb_results_pass2_count+item]=recovered;
-        commands[command_word]=recovered;
+        if(software_gpu_route_active()) {
+            uint ignored;
+            recovered_hardware=software_gpu_compact(item,src,true,ignored);
+        }
+        results[lane+hzb_results_pass2_count+item]=recovered_hardware;
+        commands[command_word]=recovered_hardware;
         hzb_stat_add(results,lane,hzb_stat_retested,retested);
         hzb_stat_add(results,lane,hzb_stat_recovered,recovered);
         hzb_stat_add(results,lane,hzb_stat_still_occluded,retested-recovered);
@@ -171,7 +188,7 @@ void main(uint3 group_id : SV_GroupID, uint thread_id : SV_GroupThreadID)
     RWStructuredBuffer<MeshletRecord> survivors = heap_at<RWStructuredBuffer<MeshletRecord>>(heap_slots_hzb_survivors);
     HzbItem src = heap_at<RWStructuredBuffer<HzbItem>>(heap_slots_hzb_items)[hzb_items_lane_base(slot) + item];
 
-    if(push.mode==1u)
+    if((push.mode&1u)!=0u)
     {
         hzb_recover(item,thread_id,src);
         return;
@@ -219,14 +236,19 @@ void main(uint3 group_id : SV_GroupID, uint thread_id : SV_GroupThreadID)
         for (uint index = thread_id; index < src.candidate_count; index += hzb_cull_group_size)
         {
             const MeshletRecord record = culled_meshlet_at(slot, src.meshlet_base + index);
-            results[results_lane_base + hzb_results_flags + src.meshlet_base + index] = 0u;
-            survivors[candidate_base + index] = record;
+            results[results_lane_base + hzb_results_flags + src.meshlet_base + index] = software_gpu_candidate(item,src,index,record)?4u:0u;
+            if (!software_gpu_route_active() && hzb_hardware_candidate(src, index))
+            {
+                survivors[candidate_base + index] = record;
+            }
         }
         DeviceMemoryBarrierWithGroupSync();
         if (thread_id == 0u)
         {
-            results[count_slot] = src.candidate_count;
-            hzb_write_command(slot, item, src.candidate_count);
+            uint ignored;
+            const uint hardware_count = software_gpu_route_active()?software_gpu_compact(item,src,false,ignored):min(src.pad, src.candidate_count);
+            results[count_slot] = hardware_count;
+            hzb_write_command(slot, item, hardware_count);
             hzb_stat_add(results, results_lane_base, hzb_stat_candidates, src.candidate_count);
             hzb_stat_add(results, results_lane_base, hzb_stat_survivors, src.candidate_count);
         }
@@ -241,7 +263,7 @@ void main(uint3 group_id : SV_GroupID, uint thread_id : SV_GroupThreadID)
     {
         const MeshletRecord record = culled_meshlet_at(slot, src.meshlet_base + index);
         const bool culled_by_history = hzb_occluded(history, pyramid, pyramid_lane_base, model, record.center, record.radius);
-        results[results_lane_base + hzb_results_flags + src.meshlet_base + index] = culled_by_history ? 1u : 0u;
+        results[results_lane_base + hzb_results_flags + src.meshlet_base + index] = culled_by_history ? 1u : (software_gpu_candidate(item,src,index,record)?4u:0u);
     }
     // THE COMPACTION'S PRECONDITION: every flag thread of this workgroup has written its word before thread 0 reads
     // the run back in index order (device-memory visibility is required because flags live in a UAV).
@@ -251,21 +273,27 @@ void main(uint3 group_id : SV_GroupID, uint thread_id : SV_GroupThreadID)
         // ---- THE DETERMINISTIC COMPACTION (see the file header): thread 0 walks the item's candidates in ascending
         // order and copies the kept ones to `meshlet_base + k`. The candidate records are read again from the lane -
         // up to `candidate_count` reads on one thread, bounded by the meshlet table's capacity in total. ----
-        uint running = 0u;
+        uint hardware_running = 0u;
+        uint visible_count = 0u;
         for (uint index = 0u; index < src.candidate_count; ++index)
         {
-            if (results[results_lane_base + hzb_results_flags + src.meshlet_base + index] == 0u)
+            if ((results[results_lane_base + hzb_results_flags + src.meshlet_base + index]&3u) == 0u)
             {
-                survivors[candidate_base + running] = culled_meshlet_at(slot, src.meshlet_base + index);
-                ++running;
+                ++visible_count;
+                if (!software_gpu_route_active() && hzb_hardware_candidate(src, index))
+                {
+                    survivors[candidate_base + hardware_running] = culled_meshlet_at(slot, src.meshlet_base + index);
+                    ++hardware_running;
+                }
             }
         }
-        results[count_slot] = running;
-        hzb_write_command(slot, item, running);
-        // ---- THE STATS (§4.3/§10.3): one atomic per item per row. `candidates = culled + survivors` by
-        // construction, which is what the host/probe checks. ----
+        if(software_gpu_route_active()) hardware_running=software_gpu_compact(item,src,false,visible_count);
+        results[count_slot] = hardware_running;
+        hzb_write_command(slot, item, hardware_running);
+        // HZB stats describe the complete candidate set, including its software suffix. The pass1 count/command
+        // describe only the hardware prefix; software visibility filters its suffix from the same final flags.
         hzb_stat_add(results, results_lane_base, hzb_stat_candidates, src.candidate_count);
-        hzb_stat_add(results, results_lane_base, hzb_stat_culled, src.candidate_count - running);
-        hzb_stat_add(results, results_lane_base, hzb_stat_survivors, running);
+        hzb_stat_add(results, results_lane_base, hzb_stat_culled, src.candidate_count - visible_count);
+        hzb_stat_add(results, results_lane_base, hzb_stat_survivors, visible_count);
     }
 }
