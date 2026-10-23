@@ -1,0 +1,3206 @@
+{
+  "rounds": 3,
+  "frames": 130,
+  "executable_sha256": "443e06477f93f8fca4bb33b02e6f8e248aeaeb89bd4eb4a2d8d74a369e6689cf",
+  "shader_bundle_sha256": "f7806b9dec4b1c09f1c6bf7e76fddee511a45bea23fd942e4aac037ceed42b58",
+  "asset_sha256": "5b626f6f6d777dcaec8f7a6d6b46f5c3f556af0eb4500be89ed6c5e9a35c46f3",
+  "keys": [
+    "1280x720-far",
+    "1280x720-far_farther",
+    "1280x720-near",
+    "1920x1080-far",
+    "1920x1080-near",
+    "640x360-far",
+    "640x360-near"
+  ],
+  "modes": {
+    "640x360-far": [
+      "off",
+      "triangles"
+    ],
+    "640x360-near": [
+      "off",
+      "triangles"
+    ],
+    "1280x720-far": [
+      "off",
+      "tiled",
+      "triangles"
+    ],
+    "1280x720-near": [
+      "off",
+      "tiled",
+      "triangles"
+    ],
+    "1920x1080-far": [
+      "off",
+      "triangles"
+    ],
+    "1920x1080-near": [
+      "off",
+      "triangles"
+    ],
+    "1280x720-far_farther": [
+      "off",
+      "triangles"
+    ]
+  },
+  "share_definitions": {
+    "share_vs_hzb_survivors": "software clusters/frame divided by HZB survivors per culling frame (fraction of the hardware-visible candidate stream routed to software)",
+    "share_vs_hzb_candidates": "software clusters/frame divided by HZB candidates per culling frame (fraction of the post-history-test candidate stream routed to software)"
+  },
+  "per_key": {
+    "1280x720-far": {
+      "off": {
+        "runs": 3,
+        "gpu_ms": 10.59,
+        "gpu_ms_spread": [
+          9.26,
+          11.28
+        ],
+        "cpu_active_ms": 8.799999999999999,
+        "cpu_active_ms_spread": [
+          8.22,
+          9.28
+        ],
+        "cut_wall_us": 1474.594166666666,
+        "cut_wall_us_spread": [
+          1430.6408333333331,
+          1501.2933333333335
+        ],
+        "gpu_total_ms": 10.59,
+        "gpu_total_ms_spread": [
+          9.26,
+          11.28
+        ],
+        "visibility_raster_ms": 8.57,
+        "visibility_raster_ms_spread": [
+          7.38,
+          9.28
+        ],
+        "hzb_cull_ms": 0.37,
+        "hzb_cull_ms_spread": [
+          0.36,
+          0.38
+        ],
+        "hzb_build_ms": 0.47,
+        "hzb_build_ms_spread": [
+          0.46,
+          0.48
+        ],
+        "hzb_recovery_ms": 0.25,
+        "hzb_recovery_ms_spread": [
+          0.25,
+          0.26
+        ],
+        "visibility_recovery_ms": 0.15,
+        "visibility_recovery_ms_spread": [
+          0.12,
+          0.17
+        ],
+        "software_visibility_ms": 0.0,
+        "software_visibility_ms_spread": [
+          0.0,
+          0.0
+        ],
+        "software_merge_ms": 0.0,
+        "software_merge_ms_spread": [
+          0.0,
+          0.0
+        ],
+        "scene_ms": 0.21,
+        "scene_ms_spread": [
+          0.19,
+          0.24
+        ],
+        "lighting_ms": 0.08,
+        "lighting_ms_spread": [
+          0.08,
+          0.1
+        ],
+        "process_wall_seconds": 25.21661669999594,
+        "process_wall_seconds_spread": [
+          24.449212399995304,
+          25.940269000006083
+        ],
+        "software_clusters_per_frame": null,
+        "software_clusters_per_frame_spread": null,
+        "software_entries_per_frame": null,
+        "software_entries_per_frame_spread": null,
+        "hzb_culled_percent": 70.59749177435506,
+        "hzb_culled_percent_spread": [
+          70.59749177435506,
+          70.59749177435506
+        ],
+        "hzb_survivors_per_culling_frame": 12332.0,
+        "hzb_survivors_per_culling_frame_spread": [
+          12332.0,
+          12332.0
+        ],
+        "hzb_candidates_per_culling_frame": 41942.0,
+        "hzb_candidates_per_culling_frame_spread": [
+          41942.0,
+          41942.0
+        ],
+        "hzb_recovered": 0,
+        "hzb_recovered_spread": [
+          0,
+          0
+        ]
+      },
+      "tiled": {
+        "runs": 3,
+        "gpu_ms": 10.84,
+        "gpu_ms_spread": [
+          9.62,
+          11.05
+        ],
+        "cpu_active_ms": 9.59,
+        "cpu_active_ms_spread": [
+          9.57,
+          11.649999999999999
+        ],
+        "cut_wall_us": 2286.903333333334,
+        "cut_wall_us_spread": [
+          2284.9191666666666,
+          2553.965833333335
+        ],
+        "gpu_total_ms": 10.84,
+        "gpu_total_ms_spread": [
+          9.62,
+          11.05
+        ],
+        "visibility_raster_ms": 8.13,
+        "visibility_raster_ms_spread": [
+          7.12,
+          8.21
+        ],
+        "hzb_cull_ms": 0.36,
+        "hzb_cull_ms_spread": [
+          0.36,
+          0.38
+        ],
+        "hzb_build_ms": 0.44,
+        "hzb_build_ms_spread": [
+          0.44,
+          0.47
+        ],
+        "hzb_recovery_ms": 0.24,
+        "hzb_recovery_ms_spread": [
+          0.23,
+          0.25
+        ],
+        "visibility_recovery_ms": 0.14,
+        "visibility_recovery_ms_spread": [
+          0.12,
+          0.15
+        ],
+        "software_visibility_ms": 0.65,
+        "software_visibility_ms_spread": [
+          0.62,
+          1.03
+        ],
+        "software_merge_ms": 0.03,
+        "software_merge_ms_spread": [
+          0.03,
+          0.04
+        ],
+        "scene_ms": 0.2,
+        "scene_ms_spread": [
+          0.19,
+          0.22
+        ],
+        "lighting_ms": 0.08,
+        "lighting_ms_spread": [
+          0.07,
+          0.08
+        ],
+        "process_wall_seconds": 28.19935990000522,
+        "process_wall_seconds_spread": [
+          25.531490000001213,
+          31.060542199993506
+        ],
+        "software_clusters_per_frame": 2399.0,
+        "software_clusters_per_frame_spread": [
+          2399.0,
+          2399.0
+        ],
+        "software_entries_per_frame": 2564.0,
+        "software_entries_per_frame_spread": [
+          2564.0,
+          2564.0
+        ],
+        "hzb_culled_percent": 70.59749177435506,
+        "hzb_culled_percent_spread": [
+          70.59749177435506,
+          70.59749177435506
+        ],
+        "hzb_survivors_per_culling_frame": 12332.0,
+        "hzb_survivors_per_culling_frame_spread": [
+          12332.0,
+          12332.0
+        ],
+        "hzb_candidates_per_culling_frame": 41942.0,
+        "hzb_candidates_per_culling_frame_spread": [
+          41942.0,
+          41942.0
+        ],
+        "hzb_recovered": 0,
+        "hzb_recovered_spread": [
+          0,
+          0
+        ]
+      },
+      "triangles": {
+        "runs": 3,
+        "gpu_ms": 9.19,
+        "gpu_ms_spread": [
+          9.07,
+          10.28
+        ],
+        "cpu_active_ms": 10.3,
+        "cpu_active_ms_spread": [
+          8.94,
+          12.03
+        ],
+        "cut_wall_us": 2134.856666666667,
+        "cut_wall_us_spread": [
+          1960.9816666666666,
+          2397.124166666668
+        ],
+        "gpu_total_ms": 9.19,
+        "gpu_total_ms_spread": [
+          9.07,
+          10.28
+        ],
+        "visibility_raster_ms": 7.25,
+        "visibility_raster_ms_spread": [
+          7.07,
+          8.24
+        ],
+        "hzb_cull_ms": 0.35,
+        "hzb_cull_ms_spread": [
+          0.35,
+          0.36
+        ],
+        "hzb_build_ms": 0.44,
+        "hzb_build_ms_spread": [
+          0.44,
+          0.48
+        ],
+        "hzb_recovery_ms": 0.25,
+        "hzb_recovery_ms_spread": [
+          0.25,
+          0.25
+        ],
+        "visibility_recovery_ms": 0.13,
+        "visibility_recovery_ms_spread": [
+          0.12,
+          0.14
+        ],
+        "software_visibility_ms": 0.1,
+        "software_visibility_ms_spread": [
+          0.09,
+          0.1
+        ],
+        "software_merge_ms": 0.04,
+        "software_merge_ms_spread": [
+          0.04,
+          0.05
+        ],
+        "scene_ms": 0.18,
+        "scene_ms_spread": [
+          0.17,
+          0.21
+        ],
+        "lighting_ms": 0.08,
+        "lighting_ms_spread": [
+          0.08,
+          0.09
+        ],
+        "process_wall_seconds": 29.305557500003488,
+        "process_wall_seconds_spread": [
+          25.85526650000247,
+          32.2908352999948
+        ],
+        "software_clusters_per_frame": 2399.0,
+        "software_clusters_per_frame_spread": [
+          2399.0,
+          2399.0
+        ],
+        "software_entries_per_frame": 2399.0,
+        "software_entries_per_frame_spread": [
+          2399.0,
+          2399.0
+        ],
+        "hzb_culled_percent": 70.59749177435506,
+        "hzb_culled_percent_spread": [
+          70.59749177435506,
+          70.59749177435506
+        ],
+        "hzb_survivors_per_culling_frame": 12332.0,
+        "hzb_survivors_per_culling_frame_spread": [
+          12332.0,
+          12332.0
+        ],
+        "hzb_candidates_per_culling_frame": 41942.0,
+        "hzb_candidates_per_culling_frame_spread": [
+          41942.0,
+          41942.0
+        ],
+        "hzb_recovered": 0,
+        "hzb_recovered_spread": [
+          0,
+          0
+        ]
+      }
+    },
+    "1280x720-far_farther": {
+      "off": {
+        "runs": 3,
+        "gpu_ms": 9.58,
+        "gpu_ms_spread": [
+          8.62,
+          10.04
+        ],
+        "cpu_active_ms": 8.790000000000001,
+        "cpu_active_ms_spread": [
+          8.37,
+          9.290000000000001
+        ],
+        "cut_wall_us": 1448.1258333333333,
+        "cut_wall_us_spread": [
+          1401.4524999999996,
+          1471.4016666666673
+        ],
+        "gpu_total_ms": 9.58,
+        "gpu_total_ms_spread": [
+          8.62,
+          10.04
+        ],
+        "visibility_raster_ms": 7.64,
+        "visibility_raster_ms_spread": [
+          6.88,
+          8.27
+        ],
+        "hzb_cull_ms": 0.37,
+        "hzb_cull_ms_spread": [
+          0.37,
+          0.43
+        ],
+        "hzb_build_ms": 0.43,
+        "hzb_build_ms_spread": [
+          0.42,
+          0.45
+        ],
+        "hzb_recovery_ms": 0.22,
+        "hzb_recovery_ms_spread": [
+          0.2,
+          0.26
+        ],
+        "visibility_recovery_ms": 0.15,
+        "visibility_recovery_ms_spread": [
+          0.13,
+          0.17
+        ],
+        "software_visibility_ms": 0.0,
+        "software_visibility_ms_spread": [
+          0.0,
+          0.0
+        ],
+        "software_merge_ms": 0.0,
+        "software_merge_ms_spread": [
+          0.0,
+          0.0
+        ],
+        "scene_ms": 0.15,
+        "scene_ms_spread": [
+          0.12,
+          0.15
+        ],
+        "lighting_ms": 0.07,
+        "lighting_ms_spread": [
+          0.06,
+          0.07
+        ],
+        "process_wall_seconds": 26.792900200001895,
+        "process_wall_seconds_spread": [
+          24.90495550000196,
+          27.166183699999237
+        ],
+        "software_clusters_per_frame": null,
+        "software_clusters_per_frame_spread": null,
+        "software_entries_per_frame": null,
+        "software_entries_per_frame_spread": null,
+        "hzb_culled_percent": 69.37726285300506,
+        "hzb_culled_percent_spread": [
+          69.37726285300506,
+          69.37726285300506
+        ],
+        "hzb_survivors_per_culling_frame": 12687.0,
+        "hzb_survivors_per_culling_frame_spread": [
+          12687.0,
+          12687.0
+        ],
+        "hzb_candidates_per_culling_frame": 41430.0,
+        "hzb_candidates_per_culling_frame_spread": [
+          41430.0,
+          41430.0
+        ],
+        "hzb_recovered": 0,
+        "hzb_recovered_spread": [
+          0,
+          0
+        ]
+      },
+      "triangles": {
+        "runs": 3,
+        "gpu_ms": 9.6,
+        "gpu_ms_spread": [
+          8.76,
+          10.08
+        ],
+        "cpu_active_ms": 9.24,
+        "cpu_active_ms_spread": [
+          8.75,
+          9.91
+        ],
+        "cut_wall_us": 1929.9299999999996,
+        "cut_wall_us_spread": [
+          1918.0666666666664,
+          2053.3491666666673
+        ],
+        "gpu_total_ms": 9.6,
+        "gpu_total_ms_spread": [
+          8.76,
+          10.08
+        ],
+        "visibility_raster_ms": 7.55,
+        "visibility_raster_ms_spread": [
+          6.9,
+          8.23
+        ],
+        "hzb_cull_ms": 0.37,
+        "hzb_cull_ms_spread": [
+          0.36,
+          0.38
+        ],
+        "hzb_build_ms": 0.44,
+        "hzb_build_ms_spread": [
+          0.43,
+          0.45
+        ],
+        "hzb_recovery_ms": 0.21,
+        "hzb_recovery_ms_spread": [
+          0.19,
+          0.23
+        ],
+        "visibility_recovery_ms": 0.13,
+        "visibility_recovery_ms_spread": [
+          0.13,
+          0.15
+        ],
+        "software_visibility_ms": 0.1,
+        "software_visibility_ms_spread": [
+          0.1,
+          0.11
+        ],
+        "software_merge_ms": 0.04,
+        "software_merge_ms_spread": [
+          0.03,
+          0.04
+        ],
+        "scene_ms": 0.15,
+        "scene_ms_spread": [
+          0.14,
+          0.21
+        ],
+        "lighting_ms": 0.05,
+        "lighting_ms_spread": [
+          0.05,
+          0.06
+        ],
+        "process_wall_seconds": 29.199248900004022,
+        "process_wall_seconds_spread": [
+          26.177642599999672,
+          29.442843900003936
+        ],
+        "software_clusters_per_frame": 4160.0,
+        "software_clusters_per_frame_spread": [
+          4160.0,
+          4160.0
+        ],
+        "software_entries_per_frame": 4160.0,
+        "software_entries_per_frame_spread": [
+          4160.0,
+          4160.0
+        ],
+        "hzb_culled_percent": 69.37726285300506,
+        "hzb_culled_percent_spread": [
+          69.37726285300506,
+          69.37726285300506
+        ],
+        "hzb_survivors_per_culling_frame": 12687.0,
+        "hzb_survivors_per_culling_frame_spread": [
+          12687.0,
+          12687.0
+        ],
+        "hzb_candidates_per_culling_frame": 41430.0,
+        "hzb_candidates_per_culling_frame_spread": [
+          41430.0,
+          41430.0
+        ],
+        "hzb_recovered": 0,
+        "hzb_recovered_spread": [
+          0,
+          0
+        ]
+      }
+    },
+    "1280x720-near": {
+      "off": {
+        "runs": 3,
+        "gpu_ms": 4.84,
+        "gpu_ms_spread": [
+          4.79,
+          6.33
+        ],
+        "cpu_active_ms": 8.2,
+        "cpu_active_ms_spread": [
+          8.1,
+          10.39
+        ],
+        "cut_wall_us": 1264.225833333333,
+        "cut_wall_us_spread": [
+          1244.6924999999999,
+          1497.6258333333342
+        ],
+        "gpu_total_ms": 4.84,
+        "gpu_total_ms_spread": [
+          4.79,
+          6.33
+        ],
+        "visibility_raster_ms": 2.73,
+        "visibility_raster_ms_spread": [
+          2.7,
+          4.23
+        ],
+        "hzb_cull_ms": 0.24,
+        "hzb_cull_ms_spread": [
+          0.24,
+          0.24
+        ],
+        "hzb_build_ms": 0.44,
+        "hzb_build_ms_spread": [
+          0.43,
+          0.48
+        ],
+        "hzb_recovery_ms": 0.24,
+        "hzb_recovery_ms_spread": [
+          0.24,
+          0.25
+        ],
+        "visibility_recovery_ms": 0.12,
+        "visibility_recovery_ms_spread": [
+          0.11,
+          0.14
+        ],
+        "software_visibility_ms": 0.0,
+        "software_visibility_ms_spread": [
+          0.0,
+          0.0
+        ],
+        "software_merge_ms": 0.0,
+        "software_merge_ms_spread": [
+          0.0,
+          0.0
+        ],
+        "scene_ms": 0.46,
+        "scene_ms_spread": [
+          0.44,
+          0.46
+        ],
+        "lighting_ms": 0.16,
+        "lighting_ms_spread": [
+          0.16,
+          0.17
+        ],
+        "process_wall_seconds": 28.149289000000863,
+        "process_wall_seconds_spread": [
+          27.62191940000048,
+          28.81725340000412
+        ],
+        "software_clusters_per_frame": null,
+        "software_clusters_per_frame_spread": null,
+        "software_entries_per_frame": null,
+        "software_entries_per_frame_spread": null,
+        "hzb_culled_percent": 91.04962042028826,
+        "hzb_culled_percent_spread": [
+          91.04962042028826,
+          91.04962042028826
+        ],
+        "hzb_survivors_per_culling_frame": 3254.0,
+        "hzb_survivors_per_culling_frame_spread": [
+          3254.0,
+          3254.0
+        ],
+        "hzb_candidates_per_culling_frame": 36356.0,
+        "hzb_candidates_per_culling_frame_spread": [
+          36356.0,
+          36356.0
+        ],
+        "hzb_recovered": 0,
+        "hzb_recovered_spread": [
+          0,
+          0
+        ]
+      },
+      "tiled": {
+        "runs": 3,
+        "gpu_ms": 5.05,
+        "gpu_ms_spread": [
+          4.62,
+          5.76
+        ],
+        "cpu_active_ms": 9.780000000000001,
+        "cpu_active_ms_spread": [
+          9.26,
+          10.48
+        ],
+        "cut_wall_us": 2264.1791666666663,
+        "cut_wall_us_spread": [
+          2093.1483333333344,
+          2268.3691666666678
+        ],
+        "gpu_total_ms": 5.05,
+        "gpu_total_ms_spread": [
+          4.62,
+          5.76
+        ],
+        "visibility_raster_ms": 2.6,
+        "visibility_raster_ms_spread": [
+          2.33,
+          3.38
+        ],
+        "hzb_cull_ms": 0.24,
+        "hzb_cull_ms_spread": [
+          0.24,
+          0.24
+        ],
+        "hzb_build_ms": 0.46,
+        "hzb_build_ms_spread": [
+          0.43,
+          0.46
+        ],
+        "hzb_recovery_ms": 0.23,
+        "hzb_recovery_ms_spread": [
+          0.23,
+          0.24
+        ],
+        "visibility_recovery_ms": 0.14,
+        "visibility_recovery_ms_spread": [
+          0.1,
+          0.14
+        ],
+        "software_visibility_ms": 0.22,
+        "software_visibility_ms_spread": [
+          0.2,
+          0.24
+        ],
+        "software_merge_ms": 0.05,
+        "software_merge_ms_spread": [
+          0.04,
+          0.05
+        ],
+        "scene_ms": 0.45,
+        "scene_ms_spread": [
+          0.43,
+          0.47
+        ],
+        "lighting_ms": 0.19,
+        "lighting_ms_spread": [
+          0.16,
+          0.2
+        ],
+        "process_wall_seconds": 26.328574999999546,
+        "process_wall_seconds_spread": [
+          25.958919799995783,
+          31.759504100002232
+        ],
+        "software_clusters_per_frame": 758.0,
+        "software_clusters_per_frame_spread": [
+          758.0,
+          758.0
+        ],
+        "software_entries_per_frame": 816.0,
+        "software_entries_per_frame_spread": [
+          816.0,
+          816.0
+        ],
+        "hzb_culled_percent": 91.04962042028826,
+        "hzb_culled_percent_spread": [
+          91.04962042028826,
+          91.04962042028826
+        ],
+        "hzb_survivors_per_culling_frame": 3254.0,
+        "hzb_survivors_per_culling_frame_spread": [
+          3254.0,
+          3254.0
+        ],
+        "hzb_candidates_per_culling_frame": 36356.0,
+        "hzb_candidates_per_culling_frame_spread": [
+          36356.0,
+          36356.0
+        ],
+        "hzb_recovered": 0,
+        "hzb_recovered_spread": [
+          0,
+          0
+        ]
+      },
+      "triangles": {
+        "runs": 3,
+        "gpu_ms": 4.63,
+        "gpu_ms_spread": [
+          4.6,
+          6.24
+        ],
+        "cpu_active_ms": 9.32,
+        "cpu_active_ms_spread": [
+          8.97,
+          11.04
+        ],
+        "cut_wall_us": 1834.9241666666667,
+        "cut_wall_us_spread": [
+          1709.3966666666665,
+          2012.8733333333332
+        ],
+        "gpu_total_ms": 4.63,
+        "gpu_total_ms_spread": [
+          4.6,
+          6.24
+        ],
+        "visibility_raster_ms": 2.48,
+        "visibility_raster_ms_spread": [
+          2.47,
+          3.72
+        ],
+        "hzb_cull_ms": 0.24,
+        "hzb_cull_ms_spread": [
+          0.24,
+          0.24
+        ],
+        "hzb_build_ms": 0.44,
+        "hzb_build_ms_spread": [
+          0.42,
+          0.5
+        ],
+        "hzb_recovery_ms": 0.25,
+        "hzb_recovery_ms_spread": [
+          0.22,
+          0.26
+        ],
+        "visibility_recovery_ms": 0.11,
+        "visibility_recovery_ms_spread": [
+          0.11,
+          0.14
+        ],
+        "software_visibility_ms": 0.08,
+        "software_visibility_ms_spread": [
+          0.08,
+          0.09
+        ],
+        "software_merge_ms": 0.05,
+        "software_merge_ms_spread": [
+          0.04,
+          0.08
+        ],
+        "scene_ms": 0.43,
+        "scene_ms_spread": [
+          0.43,
+          0.54
+        ],
+        "lighting_ms": 0.16,
+        "lighting_ms_spread": [
+          0.15,
+          0.21
+        ],
+        "process_wall_seconds": 26.047902300000715,
+        "process_wall_seconds_spread": [
+          25.45236450000084,
+          30.339260900000227
+        ],
+        "software_clusters_per_frame": 758.0,
+        "software_clusters_per_frame_spread": [
+          758.0,
+          758.0
+        ],
+        "software_entries_per_frame": 756.0,
+        "software_entries_per_frame_spread": [
+          756.0,
+          756.0
+        ],
+        "hzb_culled_percent": 91.04962042028826,
+        "hzb_culled_percent_spread": [
+          91.04962042028826,
+          91.04962042028826
+        ],
+        "hzb_survivors_per_culling_frame": 3254.0,
+        "hzb_survivors_per_culling_frame_spread": [
+          3254.0,
+          3254.0
+        ],
+        "hzb_candidates_per_culling_frame": 36356.0,
+        "hzb_candidates_per_culling_frame_spread": [
+          36356.0,
+          36356.0
+        ],
+        "hzb_recovered": 0,
+        "hzb_recovered_spread": [
+          0,
+          0
+        ]
+      }
+    },
+    "1920x1080-far": {
+      "off": {
+        "runs": 3,
+        "gpu_ms": 10.8,
+        "gpu_ms_spread": [
+          9.86,
+          11.79
+        ],
+        "cpu_active_ms": 9.1,
+        "cpu_active_ms_spread": [
+          8.92,
+          9.19
+        ],
+        "cut_wall_us": 1477.4408333333324,
+        "cut_wall_us_spread": [
+          1366.0591666666658,
+          1575.2566666666671
+        ],
+        "gpu_total_ms": 10.8,
+        "gpu_total_ms_spread": [
+          9.86,
+          11.79
+        ],
+        "visibility_raster_ms": 7.59,
+        "visibility_raster_ms_spread": [
+          6.91,
+          8.46
+        ],
+        "hzb_cull_ms": 0.39,
+        "hzb_cull_ms_spread": [
+          0.39,
+          0.41
+        ],
+        "hzb_build_ms": 0.94,
+        "hzb_build_ms_spread": [
+          0.91,
+          1.01
+        ],
+        "hzb_recovery_ms": 0.25,
+        "hzb_recovery_ms_spread": [
+          0.24,
+          0.26
+        ],
+        "visibility_recovery_ms": 0.16,
+        "visibility_recovery_ms_spread": [
+          0.11,
+          0.17
+        ],
+        "software_visibility_ms": 0.0,
+        "software_visibility_ms_spread": [
+          0.0,
+          0.0
+        ],
+        "software_merge_ms": 0.0,
+        "software_merge_ms_spread": [
+          0.0,
+          0.0
+        ],
+        "scene_ms": 0.46,
+        "scene_ms_spread": [
+          0.39,
+          0.51
+        ],
+        "lighting_ms": 0.24,
+        "lighting_ms_spread": [
+          0.19,
+          0.25
+        ],
+        "process_wall_seconds": 26.837438599999587,
+        "process_wall_seconds_spread": [
+          25.51191779999499,
+          29.787822800004506
+        ],
+        "software_clusters_per_frame": null,
+        "software_clusters_per_frame_spread": null,
+        "software_entries_per_frame": null,
+        "software_entries_per_frame_spread": null,
+        "hzb_culled_percent": 70.94738334987944,
+        "hzb_culled_percent_spread": [
+          70.94738334987944,
+          70.94738334987944
+        ],
+        "hzb_survivors_per_culling_frame": 12291.0,
+        "hzb_survivors_per_culling_frame_spread": [
+          12291.0,
+          12291.0
+        ],
+        "hzb_candidates_per_culling_frame": 42306.0,
+        "hzb_candidates_per_culling_frame_spread": [
+          42306.0,
+          42306.0
+        ],
+        "hzb_recovered": 0,
+        "hzb_recovered_spread": [
+          0,
+          0
+        ]
+      },
+      "triangles": {
+        "runs": 3,
+        "gpu_ms": 10.58,
+        "gpu_ms_spread": [
+          10.23,
+          12.22
+        ],
+        "cpu_active_ms": 9.97,
+        "cpu_active_ms_spread": [
+          9.81,
+          11.21
+        ],
+        "cut_wall_us": 2111.1,
+        "cut_wall_us_spread": [
+          1918.6525,
+          2160.9266666666663
+        ],
+        "gpu_total_ms": 10.58,
+        "gpu_total_ms_spread": [
+          10.23,
+          12.22
+        ],
+        "visibility_raster_ms": 7.17,
+        "visibility_raster_ms_spread": [
+          6.95,
+          8.16
+        ],
+        "hzb_cull_ms": 0.37,
+        "hzb_cull_ms_spread": [
+          0.37,
+          0.38
+        ],
+        "hzb_build_ms": 0.97,
+        "hzb_build_ms_spread": [
+          0.91,
+          1.27
+        ],
+        "hzb_recovery_ms": 0.26,
+        "hzb_recovery_ms_spread": [
+          0.23,
+          0.27
+        ],
+        "visibility_recovery_ms": 0.13,
+        "visibility_recovery_ms_spread": [
+          0.13,
+          0.16
+        ],
+        "software_visibility_ms": 0.2,
+        "software_visibility_ms_spread": [
+          0.2,
+          0.21
+        ],
+        "software_merge_ms": 0.09,
+        "software_merge_ms_spread": [
+          0.09,
+          0.15
+        ],
+        "scene_ms": 0.47,
+        "scene_ms_spread": [
+          0.47,
+          0.71
+        ],
+        "lighting_ms": 0.22,
+        "lighting_ms_spread": [
+          0.21,
+          0.22
+        ],
+        "process_wall_seconds": 26.07429019999836,
+        "process_wall_seconds_spread": [
+          25.012014799998724,
+          26.502295599995705
+        ],
+        "software_clusters_per_frame": 1543.0,
+        "software_clusters_per_frame_spread": [
+          1543.0,
+          1543.0
+        ],
+        "software_entries_per_frame": 1543.0,
+        "software_entries_per_frame_spread": [
+          1543.0,
+          1543.0
+        ],
+        "hzb_culled_percent": 70.94738334987944,
+        "hzb_culled_percent_spread": [
+          70.94738334987944,
+          70.94738334987944
+        ],
+        "hzb_survivors_per_culling_frame": 12291.0,
+        "hzb_survivors_per_culling_frame_spread": [
+          12291.0,
+          12291.0
+        ],
+        "hzb_candidates_per_culling_frame": 42306.0,
+        "hzb_candidates_per_culling_frame_spread": [
+          42306.0,
+          42306.0
+        ],
+        "hzb_recovered": 0,
+        "hzb_recovered_spread": [
+          0,
+          0
+        ]
+      }
+    },
+    "1920x1080-near": {
+      "off": {
+        "runs": 3,
+        "gpu_ms": 6.77,
+        "gpu_ms_spread": [
+          6.69,
+          6.97
+        ],
+        "cpu_active_ms": 8.540000000000001,
+        "cpu_active_ms_spread": [
+          7.83,
+          11.12
+        ],
+        "cut_wall_us": 1326.408333333333,
+        "cut_wall_us_spread": [
+          1253.8750000000002,
+          1594.8450000000003
+        ],
+        "gpu_total_ms": 6.77,
+        "gpu_total_ms_spread": [
+          6.69,
+          6.97
+        ],
+        "visibility_raster_ms": 3.02,
+        "visibility_raster_ms_spread": [
+          2.77,
+          3.43
+        ],
+        "hzb_cull_ms": 0.25,
+        "hzb_cull_ms_spread": [
+          0.25,
+          0.25
+        ],
+        "hzb_build_ms": 0.93,
+        "hzb_build_ms_spread": [
+          0.9,
+          0.96
+        ],
+        "hzb_recovery_ms": 0.28,
+        "hzb_recovery_ms_spread": [
+          0.24,
+          0.3
+        ],
+        "visibility_recovery_ms": 0.1,
+        "visibility_recovery_ms_spread": [
+          0.1,
+          0.16
+        ],
+        "software_visibility_ms": 0.0,
+        "software_visibility_ms_spread": [
+          0.0,
+          0.0
+        ],
+        "software_merge_ms": 0.0,
+        "software_merge_ms_spread": [
+          0.0,
+          0.0
+        ],
+        "scene_ms": 0.99,
+        "scene_ms_spread": [
+          0.97,
+          1.16
+        ],
+        "lighting_ms": 0.39,
+        "lighting_ms_spread": [
+          0.37,
+          0.44
+        ],
+        "process_wall_seconds": 26.428479200003494,
+        "process_wall_seconds_spread": [
+          24.831614000002446,
+          29.126987700001337
+        ],
+        "software_clusters_per_frame": null,
+        "software_clusters_per_frame_spread": null,
+        "software_entries_per_frame": null,
+        "software_entries_per_frame_spread": null,
+        "hzb_culled_percent": 90.89078191764418,
+        "hzb_culled_percent_spread": [
+          90.89078191764418,
+          90.89078191764418
+        ],
+        "hzb_survivors_per_culling_frame": 3347.0,
+        "hzb_survivors_per_culling_frame_spread": [
+          3347.0,
+          3347.0
+        ],
+        "hzb_candidates_per_culling_frame": 36743.0,
+        "hzb_candidates_per_culling_frame_spread": [
+          36743.0,
+          36743.0
+        ],
+        "hzb_recovered": 0,
+        "hzb_recovered_spread": [
+          0,
+          0
+        ]
+      },
+      "triangles": {
+        "runs": 3,
+        "gpu_ms": 8.23,
+        "gpu_ms_spread": [
+          6.58,
+          8.33
+        ],
+        "cpu_active_ms": 9.780000000000001,
+        "cpu_active_ms_spread": [
+          9.16,
+          11.62
+        ],
+        "cut_wall_us": 1865.7708333333337,
+        "cut_wall_us_spread": [
+          1799.5466666666673,
+          2143.9083333333333
+        ],
+        "gpu_total_ms": 8.23,
+        "gpu_total_ms_spread": [
+          6.58,
+          8.33
+        ],
+        "visibility_raster_ms": 3.47,
+        "visibility_raster_ms_spread": [
+          2.48,
+          3.79
+        ],
+        "hzb_cull_ms": 0.25,
+        "hzb_cull_ms_spread": [
+          0.25,
+          0.25
+        ],
+        "hzb_build_ms": 0.96,
+        "hzb_build_ms_spread": [
+          0.95,
+          1.44
+        ],
+        "hzb_recovery_ms": 0.25,
+        "hzb_recovery_ms_spread": [
+          0.25,
+          0.27
+        ],
+        "visibility_recovery_ms": 0.13,
+        "visibility_recovery_ms_spread": [
+          0.11,
+          0.15
+        ],
+        "software_visibility_ms": 0.19,
+        "software_visibility_ms_spread": [
+          0.17,
+          0.19
+        ],
+        "software_merge_ms": 0.18,
+        "software_merge_ms_spread": [
+          0.15,
+          0.18
+        ],
+        "scene_ms": 1.17,
+        "scene_ms_spread": [
+          1.07,
+          1.19
+        ],
+        "lighting_ms": 0.43,
+        "lighting_ms_spread": [
+          0.38,
+          0.47
+        ],
+        "process_wall_seconds": 26.338150600000517,
+        "process_wall_seconds_spread": [
+          25.53350190000492,
+          29.006553299994266
+        ],
+        "software_clusters_per_frame": 400.0,
+        "software_clusters_per_frame_spread": [
+          400.0,
+          400.0
+        ],
+        "software_entries_per_frame": 399.0,
+        "software_entries_per_frame_spread": [
+          399.0,
+          399.0
+        ],
+        "hzb_culled_percent": 90.89078191764418,
+        "hzb_culled_percent_spread": [
+          90.89078191764418,
+          90.89078191764418
+        ],
+        "hzb_survivors_per_culling_frame": 3347.0,
+        "hzb_survivors_per_culling_frame_spread": [
+          3347.0,
+          3347.0
+        ],
+        "hzb_candidates_per_culling_frame": 36743.0,
+        "hzb_candidates_per_culling_frame_spread": [
+          36743.0,
+          36743.0
+        ],
+        "hzb_recovered": 0,
+        "hzb_recovered_spread": [
+          0,
+          0
+        ]
+      }
+    },
+    "640x360-far": {
+      "off": {
+        "runs": 3,
+        "gpu_ms": 9.17,
+        "gpu_ms_spread": [
+          8.4,
+          9.37
+        ],
+        "cpu_active_ms": 8.86,
+        "cpu_active_ms_spread": [
+          8.18,
+          8.9
+        ],
+        "cut_wall_us": 1474.4408333333333,
+        "cut_wall_us_spread": [
+          1367.9649999999995,
+          1549.1324999999997
+        ],
+        "gpu_total_ms": 9.17,
+        "gpu_total_ms_spread": [
+          8.4,
+          9.37
+        ],
+        "visibility_raster_ms": 7.97,
+        "visibility_raster_ms_spread": [
+          7.2,
+          8.25
+        ],
+        "hzb_cull_ms": 0.34,
+        "hzb_cull_ms_spread": [
+          0.33,
+          0.34
+        ],
+        "hzb_build_ms": 0.15,
+        "hzb_build_ms_spread": [
+          0.14,
+          0.15
+        ],
+        "hzb_recovery_ms": 0.22,
+        "hzb_recovery_ms_spread": [
+          0.21,
+          0.22
+        ],
+        "visibility_recovery_ms": 0.16,
+        "visibility_recovery_ms_spread": [
+          0.11,
+          0.17
+        ],
+        "software_visibility_ms": 0.0,
+        "software_visibility_ms_spread": [
+          0.0,
+          0.0
+        ],
+        "software_merge_ms": 0.0,
+        "software_merge_ms_spread": [
+          0.0,
+          0.0
+        ],
+        "scene_ms": 0.05,
+        "scene_ms_spread": [
+          0.04,
+          0.05
+        ],
+        "lighting_ms": 0.03,
+        "lighting_ms_spread": [
+          0.03,
+          0.03
+        ],
+        "process_wall_seconds": 26.965033599997696,
+        "process_wall_seconds_spread": [
+          25.148529900005087,
+          29.90225329999521
+        ],
+        "software_clusters_per_frame": null,
+        "software_clusters_per_frame_spread": null,
+        "software_entries_per_frame": null,
+        "software_entries_per_frame_spread": null,
+        "hzb_culled_percent": 71.19283813210743,
+        "hzb_culled_percent_spread": [
+          71.19283813210743,
+          71.19283813210743
+        ],
+        "hzb_survivors_per_culling_frame": 11906.0,
+        "hzb_survivors_per_culling_frame_spread": [
+          11906.0,
+          11906.0
+        ],
+        "hzb_candidates_per_culling_frame": 41330.0,
+        "hzb_candidates_per_culling_frame_spread": [
+          41330.0,
+          41330.0
+        ],
+        "hzb_recovered": 0,
+        "hzb_recovered_spread": [
+          0,
+          0
+        ]
+      },
+      "triangles": {
+        "runs": 3,
+        "gpu_ms": 8.36,
+        "gpu_ms_spread": [
+          8.22,
+          9.61
+        ],
+        "cpu_active_ms": 9.569999999999999,
+        "cpu_active_ms_spread": [
+          8.81,
+          10.110000000000001
+        ],
+        "cut_wall_us": 2159.6733333333336,
+        "cut_wall_us_spread": [
+          1942.2308333333328,
+          2298.480833333334
+        ],
+        "gpu_total_ms": 8.36,
+        "gpu_total_ms_spread": [
+          8.22,
+          9.61
+        ],
+        "visibility_raster_ms": 7.11,
+        "visibility_raster_ms_spread": [
+          7.04,
+          8.31
+        ],
+        "hzb_cull_ms": 0.33,
+        "hzb_cull_ms_spread": [
+          0.33,
+          0.33
+        ],
+        "hzb_build_ms": 0.15,
+        "hzb_build_ms_spread": [
+          0.15,
+          0.16
+        ],
+        "hzb_recovery_ms": 0.22,
+        "hzb_recovery_ms_spread": [
+          0.21,
+          0.23
+        ],
+        "visibility_recovery_ms": 0.16,
+        "visibility_recovery_ms_spread": [
+          0.11,
+          0.17
+        ],
+        "software_visibility_ms": 0.06,
+        "software_visibility_ms_spread": [
+          0.06,
+          0.07
+        ],
+        "software_merge_ms": 0.01,
+        "software_merge_ms_spread": [
+          0.01,
+          0.01
+        ],
+        "scene_ms": 0.05,
+        "scene_ms_spread": [
+          0.05,
+          0.07
+        ],
+        "lighting_ms": 0.03,
+        "lighting_ms_spread": [
+          0.02,
+          0.03
+        ],
+        "process_wall_seconds": 27.575193600001512,
+        "process_wall_seconds_spread": [
+          25.925048800003424,
+          29.399306599996635
+        ],
+        "software_clusters_per_frame": 4968.6,
+        "software_clusters_per_frame_spread": [
+          4968.6,
+          4968.7
+        ],
+        "software_entries_per_frame": 4968.6,
+        "software_entries_per_frame_spread": [
+          4968.6,
+          4968.7
+        ],
+        "hzb_culled_percent": 71.19283813210743,
+        "hzb_culled_percent_spread": [
+          71.19283813210743,
+          71.19283813210743
+        ],
+        "hzb_survivors_per_culling_frame": 11906.0,
+        "hzb_survivors_per_culling_frame_spread": [
+          11906.0,
+          11906.0
+        ],
+        "hzb_candidates_per_culling_frame": 41330.0,
+        "hzb_candidates_per_culling_frame_spread": [
+          41330.0,
+          41330.0
+        ],
+        "hzb_recovered": 0,
+        "hzb_recovered_spread": [
+          0,
+          0
+        ]
+      }
+    },
+    "640x360-near": {
+      "off": {
+        "runs": 3,
+        "gpu_ms": 5.01,
+        "gpu_ms_spread": [
+          3.6,
+          5.05
+        ],
+        "cpu_active_ms": 8.25,
+        "cpu_active_ms_spread": [
+          7.98,
+          8.26
+        ],
+        "cut_wall_us": 1275.6033333333335,
+        "cut_wall_us_spread": [
+          1269.2541666666664,
+          1284.5258333333336
+        ],
+        "gpu_total_ms": 5.01,
+        "gpu_total_ms_spread": [
+          3.6,
+          5.05
+        ],
+        "visibility_raster_ms": 3.79,
+        "visibility_raster_ms_spread": [
+          2.39,
+          3.86
+        ],
+        "hzb_cull_ms": 0.22,
+        "hzb_cull_ms_spread": [
+          0.22,
+          0.22
+        ],
+        "hzb_build_ms": 0.15,
+        "hzb_build_ms_spread": [
+          0.15,
+          0.17
+        ],
+        "hzb_recovery_ms": 0.24,
+        "hzb_recovery_ms_spread": [
+          0.21,
+          0.25
+        ],
+        "visibility_recovery_ms": 0.14,
+        "visibility_recovery_ms_spread": [
+          0.11,
+          0.15
+        ],
+        "software_visibility_ms": 0.0,
+        "software_visibility_ms_spread": [
+          0.0,
+          0.0
+        ],
+        "software_merge_ms": 0.0,
+        "software_merge_ms_spread": [
+          0.0,
+          0.0
+        ],
+        "scene_ms": 0.14,
+        "scene_ms_spread": [
+          0.12,
+          0.17
+        ],
+        "lighting_ms": 0.05,
+        "lighting_ms_spread": [
+          0.04,
+          0.05
+        ],
+        "process_wall_seconds": 24.293874299997697,
+        "process_wall_seconds_spread": [
+          23.76388240000233,
+          26.62505070000043
+        ],
+        "software_clusters_per_frame": null,
+        "software_clusters_per_frame_spread": null,
+        "software_entries_per_frame": null,
+        "software_entries_per_frame_spread": null,
+        "hzb_culled_percent": 91.04728311077517,
+        "hzb_culled_percent_spread": [
+          91.04728311077517,
+          91.04728311077517
+        ],
+        "hzb_survivors_per_culling_frame": 3198.0,
+        "hzb_survivors_per_culling_frame_spread": [
+          3198.0,
+          3198.0
+        ],
+        "hzb_candidates_per_culling_frame": 35721.0,
+        "hzb_candidates_per_culling_frame_spread": [
+          35721.0,
+          35721.0
+        ],
+        "hzb_recovered": 0,
+        "hzb_recovered_spread": [
+          0,
+          0
+        ]
+      },
+      "triangles": {
+        "runs": 3,
+        "gpu_ms": 4.54,
+        "gpu_ms_spread": [
+          3.8,
+          5.45
+        ],
+        "cpu_active_ms": 9.280000000000001,
+        "cpu_active_ms_spread": [
+          9.07,
+          11.12
+        ],
+        "cut_wall_us": 1894.3725,
+        "cut_wall_us_spread": [
+          1817.416666666667,
+          2029.0608333333334
+        ],
+        "gpu_total_ms": 4.54,
+        "gpu_total_ms_spread": [
+          3.8,
+          5.45
+        ],
+        "visibility_raster_ms": 3.33,
+        "visibility_raster_ms_spread": [
+          2.58,
+          4.02
+        ],
+        "hzb_cull_ms": 0.22,
+        "hzb_cull_ms_spread": [
+          0.22,
+          0.26
+        ],
+        "hzb_build_ms": 0.14,
+        "hzb_build_ms_spread": [
+          0.14,
+          0.18
+        ],
+        "hzb_recovery_ms": 0.23,
+        "hzb_recovery_ms_spread": [
+          0.23,
+          0.24
+        ],
+        "visibility_recovery_ms": 0.15,
+        "visibility_recovery_ms_spread": [
+          0.14,
+          0.18
+        ],
+        "software_visibility_ms": 0.04,
+        "software_visibility_ms_spread": [
+          0.04,
+          0.06
+        ],
+        "software_merge_ms": 0.01,
+        "software_merge_ms_spread": [
+          0.01,
+          0.01
+        ],
+        "scene_ms": 0.14,
+        "scene_ms_spread": [
+          0.13,
+          0.16
+        ],
+        "lighting_ms": 0.05,
+        "lighting_ms_spread": [
+          0.04,
+          0.07
+        ],
+        "process_wall_seconds": 25.4252462000004,
+        "process_wall_seconds_spread": [
+          24.583910100001958,
+          26.263906100000895
+        ],
+        "software_clusters_per_frame": 1581.0,
+        "software_clusters_per_frame_spread": [
+          1581.0,
+          1581.0
+        ],
+        "software_entries_per_frame": 1577.0,
+        "software_entries_per_frame_spread": [
+          1577.0,
+          1577.0
+        ],
+        "hzb_culled_percent": 91.04728311077517,
+        "hzb_culled_percent_spread": [
+          91.04728311077517,
+          91.04728311077517
+        ],
+        "hzb_survivors_per_culling_frame": 3198.0,
+        "hzb_survivors_per_culling_frame_spread": [
+          3198.0,
+          3198.0
+        ],
+        "hzb_candidates_per_culling_frame": 35721.0,
+        "hzb_candidates_per_culling_frame_spread": [
+          35721.0,
+          35721.0
+        ],
+        "hzb_recovered": 0,
+        "hzb_recovered_spread": [
+          0,
+          0
+        ]
+      }
+    }
+  },
+  "hybrid": {
+    "1280x720-far": {
+      "visibility_raster_ms": [
+        7.25,
+        8.57,
+        -1.3200000000000003
+      ],
+      "visibility_recovery_ms": [
+        0.13,
+        0.15,
+        -0.01999999999999999
+      ],
+      "hzb_build_ms": [
+        0.44,
+        0.47,
+        -0.02999999999999997
+      ],
+      "hzb_recovery_ms": [
+        0.25,
+        0.25,
+        0.0
+      ],
+      "scene_ms": [
+        0.18,
+        0.21,
+        -0.03
+      ],
+      "software_visibility_ms": [
+        0.1,
+        0.0,
+        0.1
+      ],
+      "software_merge_ms": [
+        0.04,
+        0.0,
+        0.04
+      ],
+      "gpu_total_ms": [
+        9.19,
+        10.59,
+        -1.4000000000000004
+      ],
+      "gpu_ms": [
+        9.19,
+        10.59,
+        -1.4000000000000004
+      ],
+      "cpu_active_ms": [
+        10.3,
+        8.799999999999999,
+        1.5000000000000018
+      ],
+      "cut_wall_us": [
+        2134.856666666667,
+        1474.594166666666,
+        660.262500000001
+      ],
+      "hardware_raster_saving_ms": 1.3200000000000003,
+      "hardware_raster_saving_incl_recovery_ms": 1.3400000000000003,
+      "frame_delta_ms": -1.4000000000000004,
+      "added_pass_cost_ms": 0.11000000000000001,
+      "net_from_passes_ms": 1.2300000000000002,
+      "off_gpu_spread": [
+        9.26,
+        11.28
+      ],
+      "on_gpu_spread": [
+        9.07,
+        10.28
+      ],
+      "spread_overlap": true,
+      "share_vs_hzb_survivors": 0.19453454427505676,
+      "share_vs_hzb_candidates": 0.05719803538219446
+    },
+    "1280x720-far_farther": {
+      "visibility_raster_ms": [
+        7.55,
+        7.64,
+        -0.08999999999999986
+      ],
+      "visibility_recovery_ms": [
+        0.13,
+        0.15,
+        -0.01999999999999999
+      ],
+      "hzb_build_ms": [
+        0.44,
+        0.43,
+        0.010000000000000009
+      ],
+      "hzb_recovery_ms": [
+        0.21,
+        0.22,
+        -0.010000000000000009
+      ],
+      "scene_ms": [
+        0.15,
+        0.15,
+        0.0
+      ],
+      "software_visibility_ms": [
+        0.1,
+        0.0,
+        0.1
+      ],
+      "software_merge_ms": [
+        0.04,
+        0.0,
+        0.04
+      ],
+      "gpu_total_ms": [
+        9.6,
+        9.58,
+        0.019999999999999574
+      ],
+      "gpu_ms": [
+        9.6,
+        9.58,
+        0.019999999999999574
+      ],
+      "cpu_active_ms": [
+        9.24,
+        8.790000000000001,
+        0.4499999999999993
+      ],
+      "cut_wall_us": [
+        1929.9299999999996,
+        1448.1258333333333,
+        481.80416666666633
+      ],
+      "hardware_raster_saving_ms": 0.08999999999999986,
+      "hardware_raster_saving_incl_recovery_ms": 0.10999999999999985,
+      "frame_delta_ms": 0.019999999999999574,
+      "added_pass_cost_ms": 0.14,
+      "net_from_passes_ms": -0.030000000000000165,
+      "off_gpu_spread": [
+        8.62,
+        10.04
+      ],
+      "on_gpu_spread": [
+        8.76,
+        10.08
+      ],
+      "spread_overlap": true,
+      "share_vs_hzb_survivors": 0.3278946953574525,
+      "share_vs_hzb_candidates": 0.10041033067825247
+    },
+    "1280x720-near": {
+      "visibility_raster_ms": [
+        2.48,
+        2.73,
+        -0.25
+      ],
+      "visibility_recovery_ms": [
+        0.11,
+        0.12,
+        -0.009999999999999995
+      ],
+      "hzb_build_ms": [
+        0.44,
+        0.44,
+        0.0
+      ],
+      "hzb_recovery_ms": [
+        0.25,
+        0.24,
+        0.010000000000000009
+      ],
+      "scene_ms": [
+        0.43,
+        0.46,
+        -0.030000000000000027
+      ],
+      "software_visibility_ms": [
+        0.08,
+        0.0,
+        0.08
+      ],
+      "software_merge_ms": [
+        0.05,
+        0.0,
+        0.05
+      ],
+      "gpu_total_ms": [
+        4.63,
+        4.84,
+        -0.20999999999999996
+      ],
+      "gpu_ms": [
+        4.63,
+        4.84,
+        -0.20999999999999996
+      ],
+      "cpu_active_ms": [
+        9.32,
+        8.2,
+        1.120000000000001
+      ],
+      "cut_wall_us": [
+        1834.9241666666667,
+        1264.225833333333,
+        570.6983333333337
+      ],
+      "hardware_raster_saving_ms": 0.25,
+      "hardware_raster_saving_incl_recovery_ms": 0.26,
+      "frame_delta_ms": -0.20999999999999996,
+      "added_pass_cost_ms": 0.09999999999999998,
+      "net_from_passes_ms": 0.16000000000000003,
+      "off_gpu_spread": [
+        4.79,
+        6.33
+      ],
+      "on_gpu_spread": [
+        4.6,
+        6.24
+      ],
+      "spread_overlap": true,
+      "share_vs_hzb_survivors": 0.2329440688383528,
+      "share_vs_hzb_candidates": 0.020849378369457588
+    },
+    "1920x1080-far": {
+      "visibility_raster_ms": [
+        7.17,
+        7.59,
+        -0.41999999999999993
+      ],
+      "visibility_recovery_ms": [
+        0.13,
+        0.16,
+        -0.03
+      ],
+      "hzb_build_ms": [
+        0.97,
+        0.94,
+        0.030000000000000027
+      ],
+      "hzb_recovery_ms": [
+        0.26,
+        0.25,
+        0.010000000000000009
+      ],
+      "scene_ms": [
+        0.47,
+        0.46,
+        0.009999999999999953
+      ],
+      "software_visibility_ms": [
+        0.2,
+        0.0,
+        0.2
+      ],
+      "software_merge_ms": [
+        0.09,
+        0.0,
+        0.09
+      ],
+      "gpu_total_ms": [
+        10.58,
+        10.8,
+        -0.22000000000000064
+      ],
+      "gpu_ms": [
+        10.58,
+        10.8,
+        -0.22000000000000064
+      ],
+      "cpu_active_ms": [
+        9.97,
+        9.1,
+        0.870000000000001
+      ],
+      "cut_wall_us": [
+        2111.1,
+        1477.4408333333324,
+        633.6591666666675
+      ],
+      "hardware_raster_saving_ms": 0.41999999999999993,
+      "hardware_raster_saving_incl_recovery_ms": 0.44999999999999996,
+      "frame_delta_ms": -0.22000000000000064,
+      "added_pass_cost_ms": 0.3,
+      "net_from_passes_ms": 0.14999999999999997,
+      "off_gpu_spread": [
+        9.86,
+        11.79
+      ],
+      "on_gpu_spread": [
+        10.23,
+        12.22
+      ],
+      "spread_overlap": true,
+      "share_vs_hzb_survivors": 0.1255390122854121,
+      "share_vs_hzb_candidates": 0.036472367985628515
+    },
+    "1920x1080-near": {
+      "visibility_raster_ms": [
+        3.47,
+        3.02,
+        0.4500000000000002
+      ],
+      "visibility_recovery_ms": [
+        0.13,
+        0.1,
+        0.03
+      ],
+      "hzb_build_ms": [
+        0.96,
+        0.93,
+        0.029999999999999916
+      ],
+      "hzb_recovery_ms": [
+        0.25,
+        0.28,
+        -0.030000000000000027
+      ],
+      "scene_ms": [
+        1.17,
+        0.99,
+        0.17999999999999994
+      ],
+      "software_visibility_ms": [
+        0.19,
+        0.0,
+        0.19
+      ],
+      "software_merge_ms": [
+        0.18,
+        0.0,
+        0.18
+      ],
+      "gpu_total_ms": [
+        8.23,
+        6.77,
+        1.4600000000000009
+      ],
+      "gpu_ms": [
+        8.23,
+        6.77,
+        1.4600000000000009
+      ],
+      "cpu_active_ms": [
+        9.780000000000001,
+        8.540000000000001,
+        1.2400000000000002
+      ],
+      "cut_wall_us": [
+        1865.7708333333337,
+        1326.408333333333,
+        539.3625000000006
+      ],
+      "hardware_raster_saving_ms": -0.4500000000000002,
+      "hardware_raster_saving_incl_recovery_ms": -0.4800000000000002,
+      "frame_delta_ms": 1.4600000000000009,
+      "added_pass_cost_ms": 0.5499999999999999,
+      "net_from_passes_ms": -1.0300000000000002,
+      "off_gpu_spread": [
+        6.69,
+        6.97
+      ],
+      "on_gpu_spread": [
+        6.58,
+        8.33
+      ],
+      "spread_overlap": true,
+      "share_vs_hzb_survivors": 0.11951000896325067,
+      "share_vs_hzb_candidates": 0.010886427346705495
+    },
+    "640x360-far": {
+      "visibility_raster_ms": [
+        7.11,
+        7.97,
+        -0.8599999999999994
+      ],
+      "visibility_recovery_ms": [
+        0.16,
+        0.16,
+        0.0
+      ],
+      "hzb_build_ms": [
+        0.15,
+        0.15,
+        0.0
+      ],
+      "hzb_recovery_ms": [
+        0.22,
+        0.22,
+        0.0
+      ],
+      "scene_ms": [
+        0.05,
+        0.05,
+        0.0
+      ],
+      "software_visibility_ms": [
+        0.06,
+        0.0,
+        0.06
+      ],
+      "software_merge_ms": [
+        0.01,
+        0.0,
+        0.01
+      ],
+      "gpu_total_ms": [
+        8.36,
+        9.17,
+        -0.8100000000000005
+      ],
+      "gpu_ms": [
+        8.36,
+        9.17,
+        -0.8100000000000005
+      ],
+      "cpu_active_ms": [
+        9.569999999999999,
+        8.86,
+        0.7099999999999991
+      ],
+      "cut_wall_us": [
+        2159.6733333333336,
+        1474.4408333333333,
+        685.2325000000003
+      ],
+      "hardware_raster_saving_ms": 0.8599999999999994,
+      "hardware_raster_saving_incl_recovery_ms": 0.8599999999999994,
+      "frame_delta_ms": -0.8100000000000005,
+      "added_pass_cost_ms": 0.06999999999999999,
+      "net_from_passes_ms": 0.7899999999999995,
+      "off_gpu_spread": [
+        8.4,
+        9.37
+      ],
+      "on_gpu_spread": [
+        8.22,
+        9.61
+      ],
+      "spread_overlap": true,
+      "share_vs_hzb_survivors": 0.4173189988241223,
+      "share_vs_hzb_candidates": 0.12021775949673362
+    },
+    "640x360-near": {
+      "visibility_raster_ms": [
+        3.33,
+        3.79,
+        -0.45999999999999996
+      ],
+      "visibility_recovery_ms": [
+        0.15,
+        0.14,
+        0.009999999999999981
+      ],
+      "hzb_build_ms": [
+        0.14,
+        0.15,
+        -0.009999999999999981
+      ],
+      "hzb_recovery_ms": [
+        0.23,
+        0.24,
+        -0.009999999999999981
+      ],
+      "scene_ms": [
+        0.14,
+        0.14,
+        0.0
+      ],
+      "software_visibility_ms": [
+        0.04,
+        0.0,
+        0.04
+      ],
+      "software_merge_ms": [
+        0.01,
+        0.0,
+        0.01
+      ],
+      "gpu_total_ms": [
+        4.54,
+        5.01,
+        -0.46999999999999975
+      ],
+      "gpu_ms": [
+        4.54,
+        5.01,
+        -0.46999999999999975
+      ],
+      "cpu_active_ms": [
+        9.280000000000001,
+        8.25,
+        1.0300000000000011
+      ],
+      "cut_wall_us": [
+        1894.3725,
+        1275.6033333333335,
+        618.7691666666665
+      ],
+      "hardware_raster_saving_ms": 0.45999999999999996,
+      "hardware_raster_saving_incl_recovery_ms": 0.44999999999999996,
+      "frame_delta_ms": -0.46999999999999975,
+      "added_pass_cost_ms": 0.05,
+      "net_from_passes_ms": 0.39999999999999997,
+      "off_gpu_spread": [
+        3.6,
+        5.05
+      ],
+      "on_gpu_spread": [
+        3.8,
+        5.45
+      ],
+      "spread_overlap": true,
+      "share_vs_hzb_survivors": 0.49437148217636023,
+      "share_vs_hzb_candidates": 0.0442596791803141
+    }
+  },
+  "changed_pixels": {
+    "1280x720-far": [
+      {
+        "changed_pixels": 678,
+        "pixels": 921600,
+        "mean_channel_delta": 0.0002907986111111111,
+        "max_channel_delta": 4,
+        "round": 1
+      },
+      {
+        "changed_pixels": 678,
+        "pixels": 921600,
+        "mean_channel_delta": 0.0002907986111111111,
+        "max_channel_delta": 4,
+        "round": 2
+      },
+      {
+        "changed_pixels": 678,
+        "pixels": 921600,
+        "mean_channel_delta": 0.0002907986111111111,
+        "max_channel_delta": 4,
+        "round": 3
+      }
+    ],
+    "1280x720-far:off_repeat": [
+      {
+        "changed_pixels": 678,
+        "pixels": 921600,
+        "mean_channel_delta": 0.0002907986111111111,
+        "max_channel_delta": 4
+      }
+    ],
+    "1280x720-far_farther": [
+      {
+        "changed_pixels": 0,
+        "pixels": 921600,
+        "mean_channel_delta": 0.0,
+        "max_channel_delta": 0,
+        "round": 1
+      },
+      {
+        "changed_pixels": 0,
+        "pixels": 921600,
+        "mean_channel_delta": 0.0,
+        "max_channel_delta": 0,
+        "round": 2
+      },
+      {
+        "changed_pixels": 368,
+        "pixels": 921600,
+        "mean_channel_delta": 0.00016927083333333334,
+        "max_channel_delta": 4,
+        "round": 3
+      }
+    ],
+    "1280x720-far_farther:off_repeat": [
+      {
+        "changed_pixels": 0,
+        "pixels": 921600,
+        "mean_channel_delta": 0.0,
+        "max_channel_delta": 0
+      }
+    ],
+    "1280x720-near": [
+      {
+        "changed_pixels": 14823,
+        "pixels": 921600,
+        "mean_channel_delta": 0.008547815393518518,
+        "max_channel_delta": 30,
+        "round": 1
+      },
+      {
+        "changed_pixels": 14823,
+        "pixels": 921600,
+        "mean_channel_delta": 0.008547815393518518,
+        "max_channel_delta": 30,
+        "round": 2
+      },
+      {
+        "changed_pixels": 0,
+        "pixels": 921600,
+        "mean_channel_delta": 0.0,
+        "max_channel_delta": 0,
+        "round": 3
+      }
+    ],
+    "1280x720-near:off_repeat": [
+      {
+        "changed_pixels": 0,
+        "pixels": 921600,
+        "mean_channel_delta": 0.0,
+        "max_channel_delta": 0
+      }
+    ],
+    "1920x1080-far": [
+      {
+        "changed_pixels": 0,
+        "pixels": 2073600,
+        "mean_channel_delta": 0.0,
+        "max_channel_delta": 0,
+        "round": 1
+      },
+      {
+        "changed_pixels": 0,
+        "pixels": 2073600,
+        "mean_channel_delta": 0.0,
+        "max_channel_delta": 0,
+        "round": 2
+      },
+      {
+        "changed_pixels": 0,
+        "pixels": 2073600,
+        "mean_channel_delta": 0.0,
+        "max_channel_delta": 0,
+        "round": 3
+      }
+    ],
+    "1920x1080-far:off_repeat": [
+      {
+        "changed_pixels": 1636,
+        "pixels": 2073600,
+        "mean_channel_delta": 0.0003385416666666667,
+        "max_channel_delta": 6
+      }
+    ],
+    "1920x1080-near": [
+      {
+        "changed_pixels": 43052,
+        "pixels": 2073600,
+        "mean_channel_delta": 0.011022055041152263,
+        "max_channel_delta": 27,
+        "round": 1
+      },
+      {
+        "changed_pixels": 43052,
+        "pixels": 2073600,
+        "mean_channel_delta": 0.011022055041152263,
+        "max_channel_delta": 27,
+        "round": 2
+      },
+      {
+        "changed_pixels": 0,
+        "pixels": 2073600,
+        "mean_channel_delta": 0.0,
+        "max_channel_delta": 0,
+        "round": 3
+      }
+    ],
+    "1920x1080-near:off_repeat": [
+      {
+        "changed_pixels": 0,
+        "pixels": 2073600,
+        "mean_channel_delta": 0.0,
+        "max_channel_delta": 0
+      }
+    ],
+    "640x360-far": [
+      {
+        "changed_pixels": 0,
+        "pixels": 230400,
+        "mean_channel_delta": 0.0,
+        "max_channel_delta": 0,
+        "round": 1
+      },
+      {
+        "changed_pixels": 0,
+        "pixels": 230400,
+        "mean_channel_delta": 0.0,
+        "max_channel_delta": 0,
+        "round": 2
+      },
+      {
+        "changed_pixels": 0,
+        "pixels": 230400,
+        "mean_channel_delta": 0.0,
+        "max_channel_delta": 0,
+        "round": 3
+      }
+    ],
+    "640x360-far:off_repeat": [
+      {
+        "changed_pixels": 0,
+        "pixels": 230400,
+        "mean_channel_delta": 0.0,
+        "max_channel_delta": 0
+      }
+    ],
+    "640x360-near": [
+      {
+        "changed_pixels": 0,
+        "pixels": 230400,
+        "mean_channel_delta": 0.0,
+        "max_channel_delta": 0,
+        "round": 1
+      },
+      {
+        "changed_pixels": 2276,
+        "pixels": 230400,
+        "mean_channel_delta": 0.005115740740740741,
+        "max_channel_delta": 6,
+        "round": 2
+      },
+      {
+        "changed_pixels": 0,
+        "pixels": 230400,
+        "mean_channel_delta": 0.0,
+        "max_channel_delta": 0,
+        "round": 3
+      }
+    ],
+    "640x360-near:off_repeat": [
+      {
+        "changed_pixels": 0,
+        "pixels": 230400,
+        "mean_channel_delta": 0.0,
+        "max_channel_delta": 0
+      }
+    ]
+  },
+  "e1": {
+    "far": {
+      "key": "1280x720-far",
+      "modes": {
+        "off": {
+          "runs": 3,
+          "gpu_ms": 10.59,
+          "gpu_ms_spread": [
+            9.26,
+            11.28
+          ],
+          "cpu_active_ms": 8.799999999999999,
+          "cpu_active_ms_spread": [
+            8.22,
+            9.28
+          ],
+          "cut_wall_us": 1474.594166666666,
+          "cut_wall_us_spread": [
+            1430.6408333333331,
+            1501.2933333333335
+          ],
+          "gpu_total_ms": 10.59,
+          "gpu_total_ms_spread": [
+            9.26,
+            11.28
+          ],
+          "visibility_raster_ms": 8.57,
+          "visibility_raster_ms_spread": [
+            7.38,
+            9.28
+          ],
+          "hzb_cull_ms": 0.37,
+          "hzb_cull_ms_spread": [
+            0.36,
+            0.38
+          ],
+          "hzb_build_ms": 0.47,
+          "hzb_build_ms_spread": [
+            0.46,
+            0.48
+          ],
+          "hzb_recovery_ms": 0.25,
+          "hzb_recovery_ms_spread": [
+            0.25,
+            0.26
+          ],
+          "visibility_recovery_ms": 0.15,
+          "visibility_recovery_ms_spread": [
+            0.12,
+            0.17
+          ],
+          "software_visibility_ms": 0.0,
+          "software_visibility_ms_spread": [
+            0.0,
+            0.0
+          ],
+          "software_merge_ms": 0.0,
+          "software_merge_ms_spread": [
+            0.0,
+            0.0
+          ],
+          "scene_ms": 0.21,
+          "scene_ms_spread": [
+            0.19,
+            0.24
+          ],
+          "lighting_ms": 0.08,
+          "lighting_ms_spread": [
+            0.08,
+            0.1
+          ],
+          "process_wall_seconds": 25.21661669999594,
+          "process_wall_seconds_spread": [
+            24.449212399995304,
+            25.940269000006083
+          ],
+          "software_clusters_per_frame": null,
+          "software_clusters_per_frame_spread": null,
+          "software_entries_per_frame": null,
+          "software_entries_per_frame_spread": null,
+          "hzb_culled_percent": 70.59749177435506,
+          "hzb_culled_percent_spread": [
+            70.59749177435506,
+            70.59749177435506
+          ],
+          "hzb_survivors_per_culling_frame": 12332.0,
+          "hzb_survivors_per_culling_frame_spread": [
+            12332.0,
+            12332.0
+          ],
+          "hzb_candidates_per_culling_frame": 41942.0,
+          "hzb_candidates_per_culling_frame_spread": [
+            41942.0,
+            41942.0
+          ],
+          "hzb_recovered": 0,
+          "hzb_recovered_spread": [
+            0,
+            0
+          ]
+        },
+        "tiled": {
+          "runs": 3,
+          "gpu_ms": 10.84,
+          "gpu_ms_spread": [
+            9.62,
+            11.05
+          ],
+          "cpu_active_ms": 9.59,
+          "cpu_active_ms_spread": [
+            9.57,
+            11.649999999999999
+          ],
+          "cut_wall_us": 2286.903333333334,
+          "cut_wall_us_spread": [
+            2284.9191666666666,
+            2553.965833333335
+          ],
+          "gpu_total_ms": 10.84,
+          "gpu_total_ms_spread": [
+            9.62,
+            11.05
+          ],
+          "visibility_raster_ms": 8.13,
+          "visibility_raster_ms_spread": [
+            7.12,
+            8.21
+          ],
+          "hzb_cull_ms": 0.36,
+          "hzb_cull_ms_spread": [
+            0.36,
+            0.38
+          ],
+          "hzb_build_ms": 0.44,
+          "hzb_build_ms_spread": [
+            0.44,
+            0.47
+          ],
+          "hzb_recovery_ms": 0.24,
+          "hzb_recovery_ms_spread": [
+            0.23,
+            0.25
+          ],
+          "visibility_recovery_ms": 0.14,
+          "visibility_recovery_ms_spread": [
+            0.12,
+            0.15
+          ],
+          "software_visibility_ms": 0.65,
+          "software_visibility_ms_spread": [
+            0.62,
+            1.03
+          ],
+          "software_merge_ms": 0.03,
+          "software_merge_ms_spread": [
+            0.03,
+            0.04
+          ],
+          "scene_ms": 0.2,
+          "scene_ms_spread": [
+            0.19,
+            0.22
+          ],
+          "lighting_ms": 0.08,
+          "lighting_ms_spread": [
+            0.07,
+            0.08
+          ],
+          "process_wall_seconds": 28.19935990000522,
+          "process_wall_seconds_spread": [
+            25.531490000001213,
+            31.060542199993506
+          ],
+          "software_clusters_per_frame": 2399.0,
+          "software_clusters_per_frame_spread": [
+            2399.0,
+            2399.0
+          ],
+          "software_entries_per_frame": 2564.0,
+          "software_entries_per_frame_spread": [
+            2564.0,
+            2564.0
+          ],
+          "hzb_culled_percent": 70.59749177435506,
+          "hzb_culled_percent_spread": [
+            70.59749177435506,
+            70.59749177435506
+          ],
+          "hzb_survivors_per_culling_frame": 12332.0,
+          "hzb_survivors_per_culling_frame_spread": [
+            12332.0,
+            12332.0
+          ],
+          "hzb_candidates_per_culling_frame": 41942.0,
+          "hzb_candidates_per_culling_frame_spread": [
+            41942.0,
+            41942.0
+          ],
+          "hzb_recovered": 0,
+          "hzb_recovered_spread": [
+            0,
+            0
+          ]
+        },
+        "triangles": {
+          "runs": 3,
+          "gpu_ms": 9.19,
+          "gpu_ms_spread": [
+            9.07,
+            10.28
+          ],
+          "cpu_active_ms": 10.3,
+          "cpu_active_ms_spread": [
+            8.94,
+            12.03
+          ],
+          "cut_wall_us": 2134.856666666667,
+          "cut_wall_us_spread": [
+            1960.9816666666666,
+            2397.124166666668
+          ],
+          "gpu_total_ms": 9.19,
+          "gpu_total_ms_spread": [
+            9.07,
+            10.28
+          ],
+          "visibility_raster_ms": 7.25,
+          "visibility_raster_ms_spread": [
+            7.07,
+            8.24
+          ],
+          "hzb_cull_ms": 0.35,
+          "hzb_cull_ms_spread": [
+            0.35,
+            0.36
+          ],
+          "hzb_build_ms": 0.44,
+          "hzb_build_ms_spread": [
+            0.44,
+            0.48
+          ],
+          "hzb_recovery_ms": 0.25,
+          "hzb_recovery_ms_spread": [
+            0.25,
+            0.25
+          ],
+          "visibility_recovery_ms": 0.13,
+          "visibility_recovery_ms_spread": [
+            0.12,
+            0.14
+          ],
+          "software_visibility_ms": 0.1,
+          "software_visibility_ms_spread": [
+            0.09,
+            0.1
+          ],
+          "software_merge_ms": 0.04,
+          "software_merge_ms_spread": [
+            0.04,
+            0.05
+          ],
+          "scene_ms": 0.18,
+          "scene_ms_spread": [
+            0.17,
+            0.21
+          ],
+          "lighting_ms": 0.08,
+          "lighting_ms_spread": [
+            0.08,
+            0.09
+          ],
+          "process_wall_seconds": 29.305557500003488,
+          "process_wall_seconds_spread": [
+            25.85526650000247,
+            32.2908352999948
+          ],
+          "software_clusters_per_frame": 2399.0,
+          "software_clusters_per_frame_spread": [
+            2399.0,
+            2399.0
+          ],
+          "software_entries_per_frame": 2399.0,
+          "software_entries_per_frame_spread": [
+            2399.0,
+            2399.0
+          ],
+          "hzb_culled_percent": 70.59749177435506,
+          "hzb_culled_percent_spread": [
+            70.59749177435506,
+            70.59749177435506
+          ],
+          "hzb_survivors_per_culling_frame": 12332.0,
+          "hzb_survivors_per_culling_frame_spread": [
+            12332.0,
+            12332.0
+          ],
+          "hzb_candidates_per_culling_frame": 41942.0,
+          "hzb_candidates_per_culling_frame_spread": [
+            41942.0,
+            41942.0
+          ],
+          "hzb_recovered": 0,
+          "hzb_recovered_spread": [
+            0,
+            0
+          ]
+        }
+      },
+      "visibility_raster_ms": [
+        7.25,
+        8.57,
+        -1.3200000000000003
+      ],
+      "visibility_recovery_ms": [
+        0.13,
+        0.15,
+        -0.01999999999999999
+      ],
+      "hzb_build_ms": [
+        0.44,
+        0.47,
+        -0.02999999999999997
+      ],
+      "hzb_recovery_ms": [
+        0.25,
+        0.25,
+        0.0
+      ],
+      "scene_ms": [
+        0.18,
+        0.21,
+        -0.03
+      ],
+      "software_visibility_ms": [
+        0.1,
+        0.0,
+        0.1
+      ],
+      "software_merge_ms": [
+        0.04,
+        0.0,
+        0.04
+      ],
+      "gpu_total_ms": [
+        9.19,
+        10.59,
+        -1.4000000000000004
+      ],
+      "gpu_ms": [
+        9.19,
+        10.59,
+        -1.4000000000000004
+      ],
+      "cpu_active_ms": [
+        10.3,
+        8.799999999999999,
+        1.5000000000000018
+      ],
+      "cut_wall_us": [
+        2134.856666666667,
+        1474.594166666666,
+        660.262500000001
+      ],
+      "hardware_raster_saving_ms": 1.3200000000000003,
+      "hardware_raster_saving_incl_recovery_ms": 1.3400000000000003,
+      "frame_delta_ms": -1.4000000000000004,
+      "added_pass_cost_ms": 0.11000000000000001,
+      "net_from_passes_ms": 1.2300000000000002,
+      "off_gpu_spread": [
+        9.26,
+        11.28
+      ],
+      "on_gpu_spread": [
+        9.07,
+        10.28
+      ],
+      "spread_overlap": true,
+      "share_vs_hzb_survivors": 0.19453454427505676,
+      "share_vs_hzb_candidates": 0.05719803538219446,
+      "visibility_raster_off_ms": 8.57,
+      "visibility_raster_triangle_ms": 7.25,
+      "visibility_raster_tiled_ms": 8.13
+    },
+    "near": {
+      "key": "1280x720-near",
+      "modes": {
+        "off": {
+          "runs": 3,
+          "gpu_ms": 4.84,
+          "gpu_ms_spread": [
+            4.79,
+            6.33
+          ],
+          "cpu_active_ms": 8.2,
+          "cpu_active_ms_spread": [
+            8.1,
+            10.39
+          ],
+          "cut_wall_us": 1264.225833333333,
+          "cut_wall_us_spread": [
+            1244.6924999999999,
+            1497.6258333333342
+          ],
+          "gpu_total_ms": 4.84,
+          "gpu_total_ms_spread": [
+            4.79,
+            6.33
+          ],
+          "visibility_raster_ms": 2.73,
+          "visibility_raster_ms_spread": [
+            2.7,
+            4.23
+          ],
+          "hzb_cull_ms": 0.24,
+          "hzb_cull_ms_spread": [
+            0.24,
+            0.24
+          ],
+          "hzb_build_ms": 0.44,
+          "hzb_build_ms_spread": [
+            0.43,
+            0.48
+          ],
+          "hzb_recovery_ms": 0.24,
+          "hzb_recovery_ms_spread": [
+            0.24,
+            0.25
+          ],
+          "visibility_recovery_ms": 0.12,
+          "visibility_recovery_ms_spread": [
+            0.11,
+            0.14
+          ],
+          "software_visibility_ms": 0.0,
+          "software_visibility_ms_spread": [
+            0.0,
+            0.0
+          ],
+          "software_merge_ms": 0.0,
+          "software_merge_ms_spread": [
+            0.0,
+            0.0
+          ],
+          "scene_ms": 0.46,
+          "scene_ms_spread": [
+            0.44,
+            0.46
+          ],
+          "lighting_ms": 0.16,
+          "lighting_ms_spread": [
+            0.16,
+            0.17
+          ],
+          "process_wall_seconds": 28.149289000000863,
+          "process_wall_seconds_spread": [
+            27.62191940000048,
+            28.81725340000412
+          ],
+          "software_clusters_per_frame": null,
+          "software_clusters_per_frame_spread": null,
+          "software_entries_per_frame": null,
+          "software_entries_per_frame_spread": null,
+          "hzb_culled_percent": 91.04962042028826,
+          "hzb_culled_percent_spread": [
+            91.04962042028826,
+            91.04962042028826
+          ],
+          "hzb_survivors_per_culling_frame": 3254.0,
+          "hzb_survivors_per_culling_frame_spread": [
+            3254.0,
+            3254.0
+          ],
+          "hzb_candidates_per_culling_frame": 36356.0,
+          "hzb_candidates_per_culling_frame_spread": [
+            36356.0,
+            36356.0
+          ],
+          "hzb_recovered": 0,
+          "hzb_recovered_spread": [
+            0,
+            0
+          ]
+        },
+        "tiled": {
+          "runs": 3,
+          "gpu_ms": 5.05,
+          "gpu_ms_spread": [
+            4.62,
+            5.76
+          ],
+          "cpu_active_ms": 9.780000000000001,
+          "cpu_active_ms_spread": [
+            9.26,
+            10.48
+          ],
+          "cut_wall_us": 2264.1791666666663,
+          "cut_wall_us_spread": [
+            2093.1483333333344,
+            2268.3691666666678
+          ],
+          "gpu_total_ms": 5.05,
+          "gpu_total_ms_spread": [
+            4.62,
+            5.76
+          ],
+          "visibility_raster_ms": 2.6,
+          "visibility_raster_ms_spread": [
+            2.33,
+            3.38
+          ],
+          "hzb_cull_ms": 0.24,
+          "hzb_cull_ms_spread": [
+            0.24,
+            0.24
+          ],
+          "hzb_build_ms": 0.46,
+          "hzb_build_ms_spread": [
+            0.43,
+            0.46
+          ],
+          "hzb_recovery_ms": 0.23,
+          "hzb_recovery_ms_spread": [
+            0.23,
+            0.24
+          ],
+          "visibility_recovery_ms": 0.14,
+          "visibility_recovery_ms_spread": [
+            0.1,
+            0.14
+          ],
+          "software_visibility_ms": 0.22,
+          "software_visibility_ms_spread": [
+            0.2,
+            0.24
+          ],
+          "software_merge_ms": 0.05,
+          "software_merge_ms_spread": [
+            0.04,
+            0.05
+          ],
+          "scene_ms": 0.45,
+          "scene_ms_spread": [
+            0.43,
+            0.47
+          ],
+          "lighting_ms": 0.19,
+          "lighting_ms_spread": [
+            0.16,
+            0.2
+          ],
+          "process_wall_seconds": 26.328574999999546,
+          "process_wall_seconds_spread": [
+            25.958919799995783,
+            31.759504100002232
+          ],
+          "software_clusters_per_frame": 758.0,
+          "software_clusters_per_frame_spread": [
+            758.0,
+            758.0
+          ],
+          "software_entries_per_frame": 816.0,
+          "software_entries_per_frame_spread": [
+            816.0,
+            816.0
+          ],
+          "hzb_culled_percent": 91.04962042028826,
+          "hzb_culled_percent_spread": [
+            91.04962042028826,
+            91.04962042028826
+          ],
+          "hzb_survivors_per_culling_frame": 3254.0,
+          "hzb_survivors_per_culling_frame_spread": [
+            3254.0,
+            3254.0
+          ],
+          "hzb_candidates_per_culling_frame": 36356.0,
+          "hzb_candidates_per_culling_frame_spread": [
+            36356.0,
+            36356.0
+          ],
+          "hzb_recovered": 0,
+          "hzb_recovered_spread": [
+            0,
+            0
+          ]
+        },
+        "triangles": {
+          "runs": 3,
+          "gpu_ms": 4.63,
+          "gpu_ms_spread": [
+            4.6,
+            6.24
+          ],
+          "cpu_active_ms": 9.32,
+          "cpu_active_ms_spread": [
+            8.97,
+            11.04
+          ],
+          "cut_wall_us": 1834.9241666666667,
+          "cut_wall_us_spread": [
+            1709.3966666666665,
+            2012.8733333333332
+          ],
+          "gpu_total_ms": 4.63,
+          "gpu_total_ms_spread": [
+            4.6,
+            6.24
+          ],
+          "visibility_raster_ms": 2.48,
+          "visibility_raster_ms_spread": [
+            2.47,
+            3.72
+          ],
+          "hzb_cull_ms": 0.24,
+          "hzb_cull_ms_spread": [
+            0.24,
+            0.24
+          ],
+          "hzb_build_ms": 0.44,
+          "hzb_build_ms_spread": [
+            0.42,
+            0.5
+          ],
+          "hzb_recovery_ms": 0.25,
+          "hzb_recovery_ms_spread": [
+            0.22,
+            0.26
+          ],
+          "visibility_recovery_ms": 0.11,
+          "visibility_recovery_ms_spread": [
+            0.11,
+            0.14
+          ],
+          "software_visibility_ms": 0.08,
+          "software_visibility_ms_spread": [
+            0.08,
+            0.09
+          ],
+          "software_merge_ms": 0.05,
+          "software_merge_ms_spread": [
+            0.04,
+            0.08
+          ],
+          "scene_ms": 0.43,
+          "scene_ms_spread": [
+            0.43,
+            0.54
+          ],
+          "lighting_ms": 0.16,
+          "lighting_ms_spread": [
+            0.15,
+            0.21
+          ],
+          "process_wall_seconds": 26.047902300000715,
+          "process_wall_seconds_spread": [
+            25.45236450000084,
+            30.339260900000227
+          ],
+          "software_clusters_per_frame": 758.0,
+          "software_clusters_per_frame_spread": [
+            758.0,
+            758.0
+          ],
+          "software_entries_per_frame": 756.0,
+          "software_entries_per_frame_spread": [
+            756.0,
+            756.0
+          ],
+          "hzb_culled_percent": 91.04962042028826,
+          "hzb_culled_percent_spread": [
+            91.04962042028826,
+            91.04962042028826
+          ],
+          "hzb_survivors_per_culling_frame": 3254.0,
+          "hzb_survivors_per_culling_frame_spread": [
+            3254.0,
+            3254.0
+          ],
+          "hzb_candidates_per_culling_frame": 36356.0,
+          "hzb_candidates_per_culling_frame_spread": [
+            36356.0,
+            36356.0
+          ],
+          "hzb_recovered": 0,
+          "hzb_recovered_spread": [
+            0,
+            0
+          ]
+        }
+      },
+      "visibility_raster_ms": [
+        2.48,
+        2.73,
+        -0.25
+      ],
+      "visibility_recovery_ms": [
+        0.11,
+        0.12,
+        -0.009999999999999995
+      ],
+      "hzb_build_ms": [
+        0.44,
+        0.44,
+        0.0
+      ],
+      "hzb_recovery_ms": [
+        0.25,
+        0.24,
+        0.010000000000000009
+      ],
+      "scene_ms": [
+        0.43,
+        0.46,
+        -0.030000000000000027
+      ],
+      "software_visibility_ms": [
+        0.08,
+        0.0,
+        0.08
+      ],
+      "software_merge_ms": [
+        0.05,
+        0.0,
+        0.05
+      ],
+      "gpu_total_ms": [
+        4.63,
+        4.84,
+        -0.20999999999999996
+      ],
+      "gpu_ms": [
+        4.63,
+        4.84,
+        -0.20999999999999996
+      ],
+      "cpu_active_ms": [
+        9.32,
+        8.2,
+        1.120000000000001
+      ],
+      "cut_wall_us": [
+        1834.9241666666667,
+        1264.225833333333,
+        570.6983333333337
+      ],
+      "hardware_raster_saving_ms": 0.25,
+      "hardware_raster_saving_incl_recovery_ms": 0.26,
+      "frame_delta_ms": -0.20999999999999996,
+      "added_pass_cost_ms": 0.09999999999999998,
+      "net_from_passes_ms": 0.16000000000000003,
+      "off_gpu_spread": [
+        4.79,
+        6.33
+      ],
+      "on_gpu_spread": [
+        4.6,
+        6.24
+      ],
+      "spread_overlap": true,
+      "share_vs_hzb_survivors": 0.2329440688383528,
+      "share_vs_hzb_candidates": 0.020849378369457588,
+      "visibility_raster_off_ms": 2.73,
+      "visibility_raster_triangle_ms": 2.48,
+      "visibility_raster_tiled_ms": 2.6
+    }
+  },
+  "e2": {
+    "pairs": [
+      {
+        "share_vs_hzb_survivors": 0.19453454427505676,
+        "frame_delta_ms": -1.4000000000000004
+      },
+      {
+        "share_vs_hzb_survivors": 0.3278946953574525,
+        "frame_delta_ms": 0.019999999999999574
+      },
+      {
+        "share_vs_hzb_survivors": 0.2329440688383528,
+        "frame_delta_ms": -0.20999999999999996
+      },
+      {
+        "share_vs_hzb_survivors": 0.1255390122854121,
+        "frame_delta_ms": -0.22000000000000064
+      },
+      {
+        "share_vs_hzb_survivors": 0.11951000896325067,
+        "frame_delta_ms": 1.4600000000000009
+      },
+      {
+        "share_vs_hzb_survivors": 0.4173189988241223,
+        "frame_delta_ms": -0.8100000000000005
+      },
+      {
+        "share_vs_hzb_survivors": 0.49437148217636023,
+        "frame_delta_ms": -0.46999999999999975
+      }
+    ],
+    "spearman_share_vs_frame_delta": -0.39285714285714285,
+    "note": "a NEGATIVE frame delta means the hybrid frame was faster; the hypothesis predicts a negative correlation between subpixel share and frame delta"
+  }
+}

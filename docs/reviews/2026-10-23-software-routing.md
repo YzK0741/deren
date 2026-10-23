@@ -124,3 +124,18 @@ complete retained geometry (the far textured recovery frame's partition validate
 image comparison differed at one pixel, so it is not used as image evidence); no fixed-clock measurement; and GPU
 mode requires HZB + triangle producer + int64 atomics + compute-indirect, falling back to the valid CPU routing
 when unavailable (verified for the closed-history case).
+
+### Follow-up: shipping-configuration headroom / subpixel-share sweep (E1+E2)
+
+The retained question "is software raster only unprofitable because the test scene lacks tiny triangles?" was
+measured on the same textured asset with DAG+HZB fully enabled: 7 configurations (640x360 / 1280x720 / 1920x1080,
+far+near, plus one farther camera at 720p) × off/triangle modes × 3 interleaved rounds × 129 GPU samples, 48 runs
+on one fixed build. Subpixel share (software clusters/frame ÷ HZB survivors/frame) varied from 12% to 49% while the
+software pass itself stayed at 0.04-0.20 ms, but the hybrid frame delta did not track it (Spearman -0.39, n=7,
+not significant) and **no configuration showed a win outside its run spread** - the session's GPU clock/thermal drift
+(up to ±13% raster spread within one mode) dominates every sub-ms delta. The T1 1.54 ms upper bound does not survive
+the shipping configuration intact: HZB already culls 70.6/91.0% of candidates, so the work-fraction estimate is
+~0.4 ms (best paired raster delta 2.2 ms, median paired delta 0.33 ms) and the CPU routing cost (+0.5-1.6 ms) has to
+be recovered on top. **Verdict: unresolved - the evidence does not support the subpixel-share hypothesis, and the
+software lane stays optional/default-off as a closed negative result** (user decision 2026-10-23). Details, tables
+and limitations: [software-raster headroom report](2026-10-23-software-raster-headroom.md).

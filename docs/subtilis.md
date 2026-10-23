@@ -1,5 +1,11 @@
 # Subtilis - large-scene rendering system
 
+> **Phase closed (2026-10-23).** The Subtilis phase is closed. DAG+HZB is the accepted shipping path
+> (textured Bistro 10.44/5.64 ms far/near); the software-raster lane remains optional/default-off and will
+> not be optimized further (negative result, see the [headroom report](reviews/2026-10-23-software-raster-headroom.md)
+> and [final closeout](reviews/2026-10-23-subtilis-final-closeout.md)). M2 (GPU cut selection) and M5
+> (streaming/paging) are deferred and not started.
+
 > **GPU survivor routing (2026-10-23):** the opt-in `DEREN_SOFTWARE_RASTER_GPU=1` prototype is implemented and
 > now validated on one final build: HZB compaction classifies/reserves/emits the software list on the GPU, the
 > software kernel consumes compute-indirect arguments, and capture-only snapshots validate the hardware/software

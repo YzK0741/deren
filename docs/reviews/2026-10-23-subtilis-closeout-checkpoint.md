@@ -20,6 +20,10 @@ opt-in, default-off and NOT accepted for shipping; DAG+HZB remains the shipping 
 frozen Full 15/15 + Visibility 1/1, converter 6/6); final archive manifest 728 files / 1,055,832,427 B
 (SHA-256 re-hash 0 mismatches).
 
+**Final closeout (2026-10-23):** the Subtilis phase is closed; see
+[2026-10-23-subtilis-final-closeout.md](2026-10-23-subtilis-final-closeout.md). Software raster is
+optional/default-off and not optimized further; DAG+HZB remains the shipping path.
+
 ## Resumed result
 
 The quota window reset and work resumed. The independent fixture generator and raw-image verifier are now in `scripts/measure/`; the verifier is registered with CTest. The hardlink boundary test passes outside the sandbox. The corrected textured matrix completed all 24 captures; accepted numbers and evidence are in [the corrected report](2026-10-23-subtilis-textured-acceptance.md). Earlier partial matrices below are historical. Diagnostic file writes now refuse replacement. The broader full-stage oracle, tangent-profile support and exhaustive GPU edge-case fixtures remain documented limitations rather than completed acceptance claims.
