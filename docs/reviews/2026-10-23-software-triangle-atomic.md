@@ -22,7 +22,7 @@ All captures below enabled Vulkan validation and used 1280x720, fixed camera `(0
 | Sloped grid (0.25) | 109,327 | Exact | 3 ULP | Exact GPU depth/ID |
 | Coplanar duplicate items plus farther overlapping item | 119,734 | Exact | 2 ULP | Exact GPU depth/ID |
 
-Planar GPU depth/ID also exactly match the previous tiled producer. The overlap fixture exercises inter-workgroup contention and equal-depth ID ordering. Validation reported no errors. Raw prefixes: `tmp/sw-triangle-{8,9}`, `tmp/sw-triangle-slope-{8,9}`, `tmp/sw-triangle-tie-{8,9}`. These are software-producer comparisons; they do not constitute full-stage hardware/resolve/merge acceptance.
+Planar GPU depth/ID also exactly match the previous tiled producer. The overlap fixture exercises inter-workgroup contention and equal-depth ID ordering. Validation reported no errors. The temporary `tmp/sw-triangle-*` scratch prefixes were cleaned; the tracked `2026-10-23-software-triangle-results.json` is durable and the archived captures are under `D:/deren-assets/2026-10-23-software-raster/` (see the archive manifests). These are software-producer comparisons; they do not constitute full-stage hardware/resolve/merge acceptance.
 
 Helper tests cover unique dispatch sorting/deduplication, malformed counts/overflow rejection and uint64 candidate ordering. Explicit prototype preparation without device/pipeline refuses both slots. The missing helpers first failed to compile, and missing-device assertions first failed before the fix. Full build succeeded with 14 workers; full CTest passed **66/66**. Fresh independent review found no Important/Critical defect; two preexisting-style comments describing tiled-only recording/two scratch slots remain deferred documentation polish.
 

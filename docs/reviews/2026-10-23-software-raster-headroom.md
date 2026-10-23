@@ -30,6 +30,10 @@ raster（也等于 total）差；它**不含**软件 pass/merge/resolve 成本�
 - 执行文件 SHA-256 `443e06477f93f8fca4bb33b02e6f8e248aeaeb89bd4eb4a2d8d74a369e6689cf`，shader bundle
   SHA-256 `f7806b9dec4b1c09f1c6bf7e76fddee511a45bea23fd942e4aac037ceed42b58`；测量结束时再次核对未变。
 
+`tmp/` paths below are workspace scratch only; the archived, hash-verified measurements and logs are under
+`D:/deren-assets/2026-10-23-software-raster/headroom/` (251 files, SHA-256 manifest), so replaying a command
+should use a fresh work directory and the archived asset/build hashes.
+
 ### 2.2 矩阵
 
 新脚本 `scripts/measure/measure_software_headroom.py`（48 次运行）+ `scripts/measure/analyze_software_headroom.py`

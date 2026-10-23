@@ -9,8 +9,7 @@ re-hashed every archived file: **0 missing / 0 mismatches**. The archive keeps e
 scratch fixture generators and matrices. Some abbreviations quoted in the intermediate notes above
 (e.g. `tmp/sw-rawpush-*`, `tmp/sw-triangle-*`) are not present in the current workspace/archive because those
 early prefixes were cleaned or superseded by later names; the durable raw files for the corrected matrix and the
-final correctness captures are the `subtilis-*`/`software-*` directories in the archive. Workspace `tmp/` is left
-in place until the M4 decision is final; the archive is the durable copy for review/acceptance.
+final correctness captures are the `subtilis-*`/`software-*` directories in the archive. Workspace `tmp/` was cleaned after the phase closed; the archive is the durable copy for review/acceptance.
 
 **M4 decision (2026-10-23):** the final fresh review is complete
 (`docs/reviews/2026-10-23-software-routing-review.md`: 0 Critical / 4 Important / 12 Minor) and the Lead

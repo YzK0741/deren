@@ -6,7 +6,7 @@ Approved sequence: direct CPU cluster list, triangle-scale routing, GPU routing 
 
 Triangle mode now emits one entry per on-screen software suffix record from the parallel stable split. Normal frames no longer construct tile counts/offsets/CSR duplicates or sort/deduplicate them. Existing GPU layout is retained, but CPU publication only writes the six header words and used entries. Offscreen suffix positions remain part of packed IDs; malformed/capacity failures restore complete hardware runs. Legacy tiled mode retains CSR; explicit screenshots independently rebuild CSR for the CPU oracle.
 
-New helper tests were RED before implementation and pass; full CTest **66/66**. Validation-enabled coplanar-overlap fixture captures at 8/9 frames cover both slots: 119,734 pixels, exact software IDs and depth versus prior triangle producer, CPU depth maximum 2 ULP. Raw prefixes `tmp/sw-direct-tie-8/9`.
+New helper tests were RED before implementation and pass; full CTest **66/66**. Validation-enabled coplanar-overlap fixture captures at 8/9 frames cover both slots: 119,734 pixels, exact software IDs and depth versus prior triangle producer, CPU depth maximum 2 ULP. The temporary `tmp/sw-direct-tie-8/9` scratch prefix was cleaned; the tracked results JSON is durable and the archived captures are under `D:/deren-assets/2026-10-23-software-raster/gpu-routing-acceptance/`.
 
 Three rounds per far/near camera, same textured asset/settings and 129 timed frames each. Shader bundle hash is unchanged from the preceding triangle prototype. Stages were sequential, not interleaved; GPU/frame variations cannot be attributed to this CPU-only edit. [Raw rows and identities](2026-10-23-software-direct-results.json).
 

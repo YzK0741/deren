@@ -36,8 +36,10 @@
 > (sparse dispatch bounds, CSR frame stride, and mode push constants). They are fixed in the current
 > workspace. A full-DAG planar fixture now matches CPU coverage/IDs at 117,180 pixels, with at most
 > 2 ULP depth difference and identical GPU hashes across 8/9-frame captures. Earlier software-enabled
-> timings, including 5.22 ms / about 26x, are historical results awaiting remeasurement after these fixes;
-> they are not accepted performance evidence for the corrected renderer.
+> timings, including 5.22 ms / about 26x, were remeasured after these fixes and remain withdrawn; they are
+> not accepted performance evidence for the corrected renderer (see the
+> [M4 decision](reviews/2026-10-23-m4-decision.md) and
+> [headroom report](reviews/2026-10-23-software-raster-headroom.md)).
 > See [closeout checkpoint](reviews/2026-10-23-subtilis-closeout-checkpoint.md).
 
 Subtilis is the name of the renderer's **large-scene geometry optimization system**. Its runtime path combines
@@ -224,9 +226,10 @@ the [render optimization report](reviews/2026-10-22-render-optimization-comparis
 
 **Textured acceptance boundary.** The 4096-item contract was verified on the original unmerged
 hierarchy (2909 primitives -> 2906 visible items, no fallback) together with the 1024-slot texture array
-(516 runtime slots) and the PBR path; see the textured report. **A Subtilis OFF/ON image comparison on the
-textured scene is still open** (it needs the experiment-only build-at-import patch), and the original
-geometry-scene image differences above are LOD edge differences, not pixel identity.
+(516 runtime slots) and the PBR path. The corrected 2026-10-23 textured acceptance covers the
+visibility/DAG/DAG+HZB/software matrix and quantifies the OFF/ON edge differences (no pixel-identity claim);
+the original geometry-scene image differences above remain LOD edge differences. See the
+[corrected acceptance](reviews/2026-10-23-subtilis-textured-acceptance.md).
 
 ## 7. Tests and how to reproduce
 
@@ -254,20 +257,20 @@ geometry-scene image differences above are LOD edge differences, not pixel ident
    and parallel but still costs CPU and a visible table write per frame.
 2. **Shared-vertex v1 only** - converter payload import is implemented; automatic build-at-load, disk
    caching and extra-attribute profiles are not. OFF startup cannot enable unavailable payloads later.
-3. **Textured-scene Subtilis OFF/ON** is open; the textured acceptance covered capacity/PBR, not LOD.
+3. **Textured-scene Subtilis OFF/ON** was covered by the corrected 2026-10-23 acceptance (visibility baseline/DAG/DAG+HZB/software matrix, quantified edge differences, no pixel-identity claim).
 4. **M4 software raster** is wired behind `[render] software_raster=true` and remains default-off. It requires
    `visibility_buffer=true` and `subtilis=true`; `software_raster_threshold_px` defaults to 1.0 and must be finite
    and positive. It composes with HZB culling/recovery: HZB tests the hardware prefix and software suffix, and the
    software pass consumes HZB's final visibility/recovery flags. A refused/oversized CSR restores every selected
    run to hardware. The 2026-10-22 Bistro smoke (1280x720, far camera, 8 frames, validation enabled)
    activated with 4,179 software clusters / 4,554 CSR entries and no validation messages; the same-pose OFF/ON
-  captures differed at 18 pixels (mean absolute channel delta 0.0000098, max 6; bbox x=555..568, y=303..312). This is a smoke result, not the
+   captures differed at 18 pixels (mean absolute channel delta 0.0000098, max 6; bbox x=555..568, y=303..312). This is a smoke result, not the
    CPU-vs-GPU fixture acceptance. The three-round Bistro GPU performance matrix is recorded in the
    [render optimization report](reviews/2026-10-22-render-optimization-comparison.md); raw GPU depth/ID
    readback and CPU-reference/repeat-capture checks now pass the planar fixture in the corrected acceptance
-   report. The M4 subpixel-share/HZB-headroom sweep then closed the ROI question (no stable net win; T1's no-HZB
-upper bound overestimated the shipping budget by ~3-5x); the software lane is now optional/default-off with no
-further optimization planned (see the [headroom report](reviews/2026-10-23-software-raster-headroom.md)). The GPU survivor routing mode
+      report. The M4 subpixel-share/HZB-headroom sweep then closed the ROI question (no stable net win; T1's no-HZB
+   upper bound overestimated the shipping budget by ~3-5x); the software lane is now optional/default-off with
+   no further optimization planned (see the [headroom report](reviews/2026-10-23-software-raster-headroom.md)). The GPU survivor routing mode
    (`DEREN_SOFTWARE_RASTER_GPU=1`) is implemented on top of this lane and validated as a prototype (see the routing
    checkpoint): it removes the CPU routing overhead but does not establish a net hybrid win on the measured scene,
    and the full-stage manifest/CSR/hardware/resolve/merge verifier is still not implemented - the capture-only
@@ -318,7 +321,7 @@ are repository-relative.
 - `docs/reviews/2026-10-20-bistro-performance/README.md` - the OFF/ON numbers, the 6.6x capacity unlock, the
   probes, the CPU-selection parallelization and the tuning experiments (negative results included).
 - `docs/reviews/2026-10-20-bistro-textured/README.md` - 2906 visible items, 516 texture slots, PBR channel
-  captures; textured Subtilis OFF/ON remains open.
+  captures; textured OFF/ON was later covered by the corrected acceptance.
 - `docs/reviews/2026-10-21-hzb-recovery.md` - the M3 lane that consumes the cut records; measured
   -78.6%/-61.6% GPU frame on moving Bistro views.
 - `docs/reviews/2026-10-21-subtilis-converter.md` - the separate CPU offline glTF DAG converter
