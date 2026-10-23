@@ -55,8 +55,6 @@ namespace deren::tools::subtilis {
     result<void> preflight_references(document const&);
     bool eligible(document const&, primitive_key, bool skinned_mesh);
     result<vector<byte>> make_glb(std::string_view, std::span<byte const>, asset::limits const&);
-    result<void> publish_no_replace(path const& staging, path const& target);
-    result<void> publish_replace(path const& staging, path const& target);
     bool same_path(path const&, path const&);
     vector<primitive_key> asset_keys(document const&);
     result<asset::validated_asset> full_asset(document const&, primitive_key);

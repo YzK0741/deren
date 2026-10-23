@@ -58,7 +58,11 @@ viewers. Unreferenced old binary ranges are retained to preserve other IDs.
 
 Current milestone: local glTF/GLB and base64 data URI input, GLB or glTF
 directory-package output, deterministic bounded multi-core build. Local buffer
-URIs support percent escaping. Known buffer references can merge into GLB;
+URIs support percent escaping and are resolved relative to the input document;
+parent-directory (`..`) segments are allowed by design (the tool trusts its input
+tree) while absolute URIs and network URLs are rejected. This is the accepted
+hardening decision from the converter review, not a filesystem sandbox. Known
+buffer references can merge into GLB;
 PNG/JPEG resources can embed without changing their bytes. Unknown extensions or
 buffer metadata that cannot relocate safely cause an explicit error for GLB and
 are preserved by the glTF package. The same GLB relocation-safety rule applies to
