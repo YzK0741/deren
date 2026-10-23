@@ -1,5 +1,17 @@
 # Subtilis closeout checkpoint - 2026-10-23
 
+## Raw evidence archive (2026-10-23)
+
+The workspace `tmp/` raw evidence was archived to `D:/deren-assets/2026-10-23-software-raster/`:
+**1,801 files / 2,391,269,261 B**, per-file SHA-256 manifest (`sha256-manifest.json`), verification
+re-hashed every archived file: **0 missing / 0 mismatches**. The archive keeps every experiment directory
+(software cost/direct/edge/triangle sweeps, textured acceptance rounds, captures, validation runs) plus the
+scratch fixture generators and matrices. Some abbreviations quoted in the intermediate notes above
+(e.g. `tmp/sw-rawpush-*`, `tmp/sw-triangle-*`) are not present in the current workspace/archive because those
+early prefixes were cleaned or superseded by later names; the durable raw files for the corrected matrix and the
+final correctness captures are the `subtilis-*`/`software-*` directories in the archive. Workspace `tmp/` is left
+in place until the M4 decision is final; the archive is the durable copy for review/acceptance.
+
 ## Resumed result
 
 The quota window reset and work resumed. The independent fixture generator and raw-image verifier are now in `scripts/measure/`; the verifier is registered with CTest. The hardlink boundary test passes outside the sandbox. The corrected textured matrix completed all 24 captures; accepted numbers and evidence are in [the corrected report](2026-10-23-subtilis-textured-acceptance.md). Earlier partial matrices below are historical. Diagnostic file writes now refuse replacement. The broader full-stage oracle, tangent-profile support and exhaustive GPU edge-case fixtures remain documented limitations rather than completed acceptance claims.
