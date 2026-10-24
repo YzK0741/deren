@@ -285,8 +285,11 @@ namespace deren::vulkan::gui {
                     }
                 }
                 auto& native_target = static_cast<deren::vulkan::mergeable_command_buffer&>(*target);
-                if (native_target.prepare_native() != deren::promise::rhi::error::ok)
+                if (native_target.prepare_native() != deren::promise::rhi::error::ok) {
+                    (void)target->end_recording();
+                    deren::utility::log("gui plugin: preparing the overlay's native recording state failed");
                     return {};
+                }
                 this->content.record(native);
                 native_target.finish_native();
                 if (target->end_recording() != deren::promise::rhi::error::ok) {

@@ -1,5 +1,9 @@
 # RHI command recorder consolidation
 
+
+> **Historical note:** this review describes the ABI 48/49 tree. The ABI 53 checkpoint (commit
+> c7382586) later passed the device probes; the red device-suite sentence below is retained as the
+> historical record of the ABI 49 state, not as a current HEAD claim.
 ## Result
 
 RHI ABI 49 introduces `command_recorder`, shared by the sibling owners `command_buffer`
@@ -51,9 +55,12 @@ base; the later texture-group reservation cannot return the required base. Both 
 layout constants and reservation code predate this change. Repair requires a separate
 heap/shader layout decision and is deliberately outside this interface consolidation.
 
-Consequently the new mergeable reserved-push-range regression is present in
-`test_texture_group`, but its device execution remains blocked by the existing pipeline
-creation failure. Do not count that check as passed. The full device suites are not green.
+Consequently the new mergeable reserved-push-range regression was present in
+`test_texture_group`, but its device execution remained blocked by the existing pipeline
+creation failure. Do not count that check as passed on the ABI 49 tree. This report describes
+the ABI 49/48 tree; the ABI 53 device probes later passed (see
+`docs/reviews/2026-10-24-render-operations.md` and its review), so the following red state is
+historical, not the current HEAD state.
 
 Local raw evidence: `tmp/rhi-recorder-verification/`, `tmp/rhi-recorder-ctest.log` and
 `tmp/rhi-recorder-build-final.log`. No commit or publication was made for this change.
