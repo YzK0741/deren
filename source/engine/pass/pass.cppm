@@ -217,8 +217,7 @@ export namespace deren::engine::pass {
         deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer> cmd = {};
         /// THE RECORDING VIEW (abi 20): the contract list the record series rides (`barrier`,
         /// `begin_rendering`, `draw`, ...), the same object `begin_commands()` answers this frame. The raw
-        /// handle above stays for the third-party overlay's recording and the heap push endpoint, which the
-        /// record series deliberately does not carry (the heap face's push_data already takes the list).
+        /// owner above supplies lifetime; the borrowed list records both rendering and push_constants.
         deren::promise::rhi::command_buffer* list = nullptr;
         /// the storage `own` views
         deren::utility::vessel::array<resolved_binding, max_own_bindings> own_storage = {};

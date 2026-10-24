@@ -234,9 +234,8 @@ export namespace deren::promise::rhi {
     /// to an existing tier-1 vtable (the series is declared once on the borrowed view, which the
     /// owning `command_buffer` reaches through `recording()`), which is the case the number exists
     /// for; the descriptors the verbs take had already landed as plain PODs, so this bump is the
-    /// interface half and nothing else. `push_data` is deliberately NOT in the series: the
-    /// descriptor-heap face's `push_data(heap_push_info)` already takes the list and is the one heap
-    /// verb that is a command-buffer operation - a second spelling would declare the verb twice.
+    /// interface half and nothing else. Push was still a descriptor-heap operation in that series;
+    /// ABI 52 subsequently moves it to command_recorder::push_constants and removes the heap entry.
     /// NOT BUMPED AGAIN BY THE OWNER'S CONVENIENCE ENTRY POINTS (added after this line, unchanged number):
     /// `command_buffer` gained NON-VIRTUAL inline forwarders for the series - `buffer->draw(...)`,
     /// `buffer->barrier(...)` and the rest - each delegating to the same `recording()` object the note
@@ -422,7 +421,12 @@ export namespace deren::promise::rhi {
     // carries an implicit weak reference. Old inline drop code cannot share these blocks.
     // ABI47 appends the enabled buffer-int64-atomics capability query.
     // ABI48 adds compute indirect recording and its enabled-capability query.
-    inline constexpr std::uint32_t abi_version = 48u;
+    // ABI 49: shared command_recorder base and single extension recording target.
+    // ABI 50: root operations split into borrowed resources/commands/frames subviews.
+    // ABI 51: immutable general resource groups, pipeline binding layout and recording/factory verbs.
+    // ABI 52: unified recorder push_constants, retired heap push API/property.
+    // ABI 53: deferred recording application and native interop lifecycle.
+    inline constexpr std::uint32_t abi_version = 53u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
@@ -457,6 +461,15 @@ export namespace deren::promise::rhi {
         out_of_host_memory = 17,    ///< host memory exhausted: usually fatal
         initialization_failed = 18, ///< creation failed and no code above names the cause: report and exit
     };
+
+    /// Shader parameter writes use four-byte units. Subtract only after comparing offset to avoid
+    /// overflow even for a UINT64_MAX byte count. Empty writes are invalid, not silent no-ops.
+    [[nodiscard]] constexpr error validate_push_constants_range(std::uint32_t offset, std::uint64_t size,
+                                                                std::uint32_t limit) noexcept {
+        return size == 0 || (offset & 3u) != 0 || (size & 3u) != 0 || offset > limit || size > limit - offset
+                   ? error::invalid_argument
+                   : error::ok;
+    }
 
     /// Which subsystem an `error` belongs to - as the CONTRACT derives it, never as a stored field.
     ///
@@ -867,6 +880,11 @@ export namespace deren::promise::rhi {
             }
             return this->alias_owner != nullptr ? static_cast<std::uint32_t>(this->alias_owner.use_count()) : 0u;
         }
+        /// True for an owning reference or lifetime alias, false for borrow()/empty.
+        /// An alias owner must actually retain its target; this cannot inspect arbitrary owner types.
+        [[nodiscard]] bool owns_lifetime() const noexcept {
+            return instance != nullptr && ((control != nullptr && control->drop != nullptr) || alias_owner != nullptr);
+        }
         [[nodiscard]] bool unique() const noexcept {
             return this->use_count() == 1u;
         }
@@ -1109,7 +1127,7 @@ export namespace deren::promise::rhi {
         heap_image_write = 1,
         heap_buffer_write = 2,
         heap_bind = 3,
-        heap_push = 4,
+        heap_push = 4,                  ///< retired in ABI 52; never reused
         command_buffer_inheritance = 5, ///< attachment formats in the portable RHI vocabulary
         /// appended with the descriptor space ability: one portable sampled-descriptor write into a
         /// `descriptor_position` (see `descriptor_write`). A value, not a vtable, so appending it moves

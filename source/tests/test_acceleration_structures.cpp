@@ -583,9 +583,9 @@ namespace {
 
         } caster;
 
-        caster.vertex_buffer = rhi::unique_object<rhi::buffer>{device.create_buffer({.size = 192, .usage = rhi::buffer_usage::storage_gpu_only})};
+        caster.vertex_buffer = rhi::unique_object<rhi::buffer>{device.resources->create_buffer({.size = 192, .usage = rhi::buffer_usage::storage_gpu_only})};
 
-        caster.index_buffer = rhi::unique_object<rhi::buffer>{device.create_buffer({.size = 12, .usage = rhi::buffer_usage::storage_gpu_only})};
+        caster.index_buffer = rhi::unique_object<rhi::buffer>{device.resources->create_buffer({.size = 12, .usage = rhi::buffer_usage::storage_gpu_only})};
 
         caster.vertex_stride = 32;
 
@@ -1068,7 +1068,7 @@ int main(int const argc, char** const argv) {
 
         deren::engine::normal_draw_primitive leaf;
 
-        leaf.vertex_buffer = rhi::unique_object<rhi::buffer>{device.create_buffer({.size = 96})};
+        leaf.vertex_buffer = rhi::unique_object<rhi::buffer>{device.resources->create_buffer({.size = 96})};
 
         check_geometry_lease(leaf.vertex_buffer);
     }
@@ -1079,7 +1079,7 @@ int main(int const argc, char** const argv) {
 
     // handshake number moved with it.
 
-    CHECK(rhi::abi_version == 48u);
+    CHECK(rhi::abi_version == 53u);
 
     if (!wants_device(argc, argv)) {
 
@@ -1164,11 +1164,11 @@ int main(int const argc, char** const argv) {
 
     auto const index_data = std::span<std::uint32_t const>(indices).first(multi_geometry ? 6u : triangle_vertices);
 
-    rhi::unique_object<rhi::buffer> vertex_buffer = core->create_buffer(rhi::buffer_desc{
+    rhi::unique_object<rhi::buffer> vertex_buffer = core->resources->create_buffer(rhi::buffer_desc{
 
         .size = vertices.size() * sizeof(vertex), .usage = rhi::buffer_usage::storage_coherent, .flags = build_input_flags});
 
-    rhi::unique_object<rhi::buffer> index_buffer = core->create_buffer(rhi::buffer_desc{
+    rhi::unique_object<rhi::buffer> index_buffer = core->resources->create_buffer(rhi::buffer_desc{
 
         .size = index_data.size_bytes(), .usage = rhi::buffer_usage::storage_coherent, .flags = build_input_flags});
 
@@ -1213,7 +1213,7 @@ int main(int const argc, char** const argv) {
 
     //         into the native handle the module's recording takes, and the probe submits it itself.
 
-    rhi::unique_object<rhi::command_buffer> commands = core->create_command_buffer({});
+    rhi::unique_object<rhi::command_buffer> commands = core->commands->create_command_buffer({});
 
     CHECK(commands != nullptr);
 
@@ -1270,7 +1270,7 @@ int main(int const argc, char** const argv) {
 
     deren::utility::vessel::array<rhi::acceleration_structure_geometry, 2> const geometries{away_geometry, hit_geometry};
 
-    rhi::unique_object<rhi::acceleration_structure> blas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
+    rhi::unique_object<rhi::acceleration_structure> blas = core->resources->create_acceleration_structure(rhi::acceleration_structure_desc{
 
         .type = rhi::acceleration_structure_type::bottom_level,
 
@@ -1289,7 +1289,7 @@ int main(int const argc, char** const argv) {
         return deren::vk_test::finish("test_acceleration_structures");
     }
 
-    rhi::unique_object<rhi::acceleration_structure> static_blas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
+    rhi::unique_object<rhi::acceleration_structure> static_blas = core->resources->create_acceleration_structure(rhi::acceleration_structure_desc{
 
         .type = rhi::acceleration_structure_type::bottom_level,
 
@@ -1301,7 +1301,7 @@ int main(int const argc, char** const argv) {
 
     CHECK(static_blas != nullptr);
 
-    rhi::unique_object<rhi::acceleration_structure> tlas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
+    rhi::unique_object<rhi::acceleration_structure> tlas = core->resources->create_acceleration_structure(rhi::acceleration_structure_desc{
 
         .type = rhi::acceleration_structure_type::top_level,
 
@@ -1452,7 +1452,7 @@ int main(int const argc, char** const argv) {
 
         };
 
-        triangle_soup = rhi::unique_object<rhi::acceleration_structure>{core->create_acceleration_structure(rhi::acceleration_structure_desc{
+        triangle_soup = rhi::unique_object<rhi::acceleration_structure>{core->resources->create_acceleration_structure(rhi::acceleration_structure_desc{
 
             .type = rhi::acceleration_structure_type::bottom_level,
 
@@ -1526,7 +1526,7 @@ int main(int const argc, char** const argv) {
 
             std::uint32_t const micro_index = 0u;
 
-            rhi::unique_object<rhi::micromap> micromap = core->create_micromap(rhi::micromap_desc{
+            rhi::unique_object<rhi::micromap> micromap = core->resources->create_micromap(rhi::micromap_desc{
 
                 .triangle_count = 1u,
 
@@ -1566,7 +1566,7 @@ int main(int const argc, char** const argv) {
 
                 };
 
-                rhi::unique_object<rhi::acceleration_structure> shaded = core->create_acceleration_structure(rhi::acceleration_structure_desc{
+                rhi::unique_object<rhi::acceleration_structure> shaded = core->resources->create_acceleration_structure(rhi::acceleration_structure_desc{
 
                     .type = rhi::acceleration_structure_type::bottom_level,
 
@@ -1606,7 +1606,7 @@ int main(int const argc, char** const argv) {
 
     {
 
-        CHECK(core->submit(*commands) == rhi::error::ok);
+        CHECK(core->commands->submit(*commands) == rhi::error::ok);
 
         core->wait_idle();
 

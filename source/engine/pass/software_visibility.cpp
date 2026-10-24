@@ -88,9 +88,9 @@ namespace deren::engine::pass {
             return false;
         auto& scratch = this->triangle_scratch[slot];
         if (!scratch || scratch->size() != pixels * sizeof(std::uint64_t)) {
-            auto replacement = this->device->create_buffer({.size = pixels * sizeof(std::uint64_t),
-                                                            .usage = rhi::buffer_usage::storage_gpu_only,
-                                                            .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage)});
+            auto replacement = this->device->resources->create_buffer({.size = pixels * sizeof(std::uint64_t),
+                                                                       .usage = rhi::buffer_usage::storage_gpu_only,
+                                                                       .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage)});
             if (!replacement)
                 return false;
             scratch = std::move(replacement);
@@ -133,7 +133,7 @@ namespace deren::engine::pass {
                 auto flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage);
                 if (indirect)
                     flags |= rhi::to_bits(rhi::buffer_flag::indirect);
-                auto created = this->device->create_buffer({.size = bytes, .usage = rhi::buffer_usage::storage_coherent, .flags = flags});
+                auto created = this->device->resources->create_buffer({.size = bytes, .usage = rhi::buffer_usage::storage_coherent, .flags = flags});
                 if (!created)
                     return false;
                 buffer = rhi::shared_object<rhi::buffer>{std::move(created)};

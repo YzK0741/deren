@@ -64,10 +64,10 @@ int main() {
     CHECK(ready);
     if (!ready)
         return deren::vk_test::finish("test_render_graph_execute");
-    auto frame = core->frame_begin();
+    auto frame = core->frames->frame_begin();
     (void)frame;
     unsigned calls = 0;
-    auto result = ready->record(*core->begin_commands(), [&](execute::record_context const& context) noexcept {
+    auto result = ready->record(*core->frames->begin_commands(), [&](execute::record_context const& context) noexcept {
         CHECK(context.pass_index() == calls);
         CHECK(context.pass().name == (calls == 0 ? "write" : "read"));
         CHECK(context.image(ref.index()) == image.get());
@@ -78,10 +78,10 @@ int main() {
     CHECK(result == rhi::error::ok && calls == 2);
     CHECK(deren::vk_test::probe_scoped_record_count(*core) >= 2);
     auto foreign = deren::vk_test::probe_make_core({}, rhi::abi_version, true);
-    auto foreign_frame = foreign->frame_begin();
+    auto foreign_frame = foreign->frames->frame_begin();
     (void)foreign_frame;
     calls = 0;
-    result = ready->record(*foreign->begin_commands(), [&](execute::record_context const&) noexcept { ++calls; return rhi::error::ok; });
+    result = ready->record(*foreign->frames->begin_commands(), [&](execute::record_context const&) noexcept { ++calls; return rhi::error::ok; });
     CHECK(result != rhi::error::ok && calls == 0);
     deren::vk_test::probe_scoped_enabled(*core, false);
     CHECK(!execute::prepared_graph::prepare(core, plan, bindings));
@@ -101,8 +101,8 @@ int main() {
         unsigned empty_calls = 0;
         auto callback = [&](execute::record_context const&) noexcept { ++empty_calls; return rhi::error::ok; };
         if (prepared) {
-            CHECK(prepared->record(*foreign->begin_commands(), callback) != rhi::error::ok);
-            CHECK(prepared->record(*core->begin_commands(), callback) == rhi::error::ok);
+            CHECK(prepared->record(*foreign->frames->begin_commands(), callback) != rhi::error::ok);
+            CHECK(prepared->record(*core->frames->begin_commands(), callback) == rhi::error::ok);
         }
         CHECK(empty_calls == 0);
     }
@@ -115,7 +115,7 @@ int main() {
         CHECK(execute::prepared_graph::prepare(core, std::move(export_plan), bindings));
     }
     calls = 0;
-    result = ready->record(*core->begin_commands(), [&](execute::record_context const&) noexcept { ++calls; return rhi::error::operation_failed; });
+    result = ready->record(*core->frames->begin_commands(), [&](execute::record_context const&) noexcept { ++calls; return rhi::error::operation_failed; });
     CHECK(result == rhi::error::operation_failed && calls == 1);
     {
         rhi::buffer_desc buffer_desc{};
@@ -132,7 +132,7 @@ int main() {
         auto prepared = execute::prepared_graph::prepare(core, buffer_plan, buffer_bindings);
         CHECK(prepared);
         if (prepared) {
-            CHECK(prepared->record(*core->begin_commands(), [&](execute::record_context const& context) noexcept {
+            CHECK(prepared->record(*core->frames->begin_commands(), [&](execute::record_context const& context) noexcept {
                 CHECK(context.buffer(buffer_ref.index()) == buffer.get());
                 CHECK(context.image(buffer_ref.index()) == nullptr);
                 return rhi::error::ok;

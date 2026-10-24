@@ -1495,12 +1495,12 @@ namespace deren::engine {
                 if (i == 4 && ldr) {
                     return ldr.get();
                 }
-                return this->rhi_face().frame_image();
+                return this->rhi_face().frames->frame_image();
             }();
             if (ios[i].targets[0].image_handle != expected) {
                 return rhi::error::invalid_argument;
             }
-            if (expected == this->rhi_face().frame_image()) {
+            if (expected == this->rhi_face().frames->frame_image()) {
                 ios[i].target_storage[0] = {.image_handle = frame.get(), .view_handle = view->get()};
                 ios[i].targets = std::span<pass::resolved_binding const>{ios[i].target_storage.data(), 1};
             }
@@ -1587,7 +1587,7 @@ namespace deren::engine {
             rhi::buffer_desc desc;
             desc.size = static_cast<std::uint64_t>(extent.width) * extent.height * 8u;
             desc.usage = rhi::buffer_usage::readback_coherent;
-            this->gaussian_hdr_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(desc)};
+            this->gaussian_hdr_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().resources->create_buffer(desc)};
             // THE PAIR IS THE LEGACY ONE ON PURPOSE: the contract's transition vocabulary has a
             // (color_attachment -> transfer_source) recipe and no (sampled-read -> transfer_source) one, because
             // nothing in the frame pipeline copies out of an image it just sampled. A copy after a sampled read
@@ -1627,7 +1627,7 @@ namespace deren::engine {
                 rhi::buffer_desc desc;
                 desc.size = static_cast<std::uint64_t>(extent.width) * extent.height * 4u;
                 desc.usage = rhi::buffer_usage::readback_coherent;
-                this->software_probe_readbacks[i] = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(desc)};
+                this->software_probe_readbacks[i] = rhi::unique_object<rhi::buffer>{this->rhi_face().resources->create_buffer(desc)};
                 auto* image = images[i];
                 auto* destination = this->software_probe_readbacks[i].get();
                 if (!image || !destination) {
@@ -1690,7 +1690,7 @@ namespace deren::engine {
                     rhi::buffer_desc desc;
                     desc.size = sizes[i];
                     desc.usage = rhi::buffer_usage::readback_coherent;
-                    this->software_route_probe_readbacks[i] = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(desc)};
+                    this->software_route_probe_readbacks[i] = rhi::unique_object<rhi::buffer>{this->rhi_face().resources->create_buffer(desc)};
                     auto* destination = this->software_route_probe_readbacks[i].get();
                     if (!sources[i] || !destination) {
                         complete = false;
@@ -1718,7 +1718,7 @@ namespace deren::engine {
             rhi::buffer_desc desc;
             desc.size = static_cast<std::uint64_t>(extent.width) * extent.height * 4u;
             desc.usage = rhi::buffer_usage::readback_coherent;
-            this->depth_probe_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(desc)};
+            this->depth_probe_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().resources->create_buffer(desc)};
             // THE PAIR IS THE LEGACY ONE, deliberately (same reasoning as the Gaussian HDR copy above): unified
             // image layouts make every state GENERAL, so this pair is a synchronization recipe, and the depth is
             // re-imported with undefined contents by the next frame.
@@ -1761,11 +1761,11 @@ namespace deren::engine {
             rhi::buffer_desc levels_desc;
             levels_desc.size = levels_bytes;
             levels_desc.usage = rhi::buffer_usage::readback_coherent;
-            this->hzb_probe_pyramid_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(levels_desc)};
+            this->hzb_probe_pyramid_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().resources->create_buffer(levels_desc)};
             rhi::buffer_desc header_desc;
             header_desc.size = pass::hzb_header_byte_capacity;
             header_desc.usage = rhi::buffer_usage::readback_coherent;
-            this->hzb_probe_header_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(header_desc)};
+            this->hzb_probe_header_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().resources->create_buffer(header_desc)};
             if (!levels || !header || !this->hzb_probe_pyramid_readback || !this->hzb_probe_header_readback) {
                 deren::utility::log("hzb probe capture: FAIL allocation");
             } else if (!this->hzb_recorded_this_frame) {

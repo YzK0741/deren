@@ -57,7 +57,7 @@ namespace deren::engine {
         // queue family and the submission are the backend's now - the probe keeps what it always had, which is a
         // buffer of its own that nothing else records into (the mask bake looked isolated too and turned out to
         // record into the frame's buffer; this one really is).
-        rhi::shared_object<rhi::command_buffer> commands = this->rhi_face().make_command_buffer({.kind = rhi::command_buffer_kind::primary});
+        rhi::shared_object<rhi::command_buffer> commands = this->rhi_face().commands->make_command_buffer({.kind = rhi::command_buffer_kind::primary});
         if (commands == nullptr) {
             deren::utility::log("descriptor heap: {} could not allocate a contract command buffer", what);
             return nullptr;
@@ -78,7 +78,7 @@ namespace deren::engine {
         // `vkQueueSubmit` that stood here was this file's second and last Vulkan call. NOTHING IS PRESENTED for an
         // owned list (no swapchain image, no acquire state), and the wait afterwards is still the contract's
         // `wait_idle()`, which the callers already perform.
-        return this->rhi_face().submit(commands) == rhi::error::ok;
+        return this->rhi_face().commands->submit(commands) == rhi::error::ok;
     }
 
     void runtime::run_heap_probe(uint32_t const texture_slot) {
@@ -109,7 +109,7 @@ namespace deren::engine {
         // THE CONTRACT OWNS IT (unique_object releases the reference on every path out of this function,
         // including the two early returns below), and `mapped()` is the byte view `create_buffer` threw away
         // for everything that is not host-visible.
-        rhi::unique_object<rhi::buffer> answer{this->vulkan_core.create_buffer(rhi::buffer_desc{
+        rhi::unique_object<rhi::buffer> answer{this->vulkan_core.resources->create_buffer(rhi::buffer_desc{
             .size = 16u,
             .usage = rhi::buffer_usage::storage_coherent,
             .flags = rhi::to_bits(rhi::buffer_flag::device_address),
@@ -154,8 +154,7 @@ namespace deren::engine {
             texture_slot,
             sampler_slot, // the host's choice of sampler, not the shader's
         };
-        rhi::heap_push_info const push_info{.commands = commands.get(), .offset = 0u, .data = std::as_bytes(std::span(push))};
-        if (heap->push_data(push_info) != rhi::error::ok) {
+        if (commands->push_constants(0u, std::as_bytes(std::span(push))) != rhi::error::ok) {
             deren::utility::log("descriptor heap: the heap-native probe's push data was refused");
             return;
         }
@@ -225,7 +224,7 @@ namespace deren::engine {
         target_desc.format = probe_format;
         target_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::host_transfer);
         target_desc.debug_name = "heap probe target";
-        rhi::unique_object<rhi::image> target{this->rhi_face().create_image(target_desc)};
+        rhi::unique_object<rhi::image> target{this->rhi_face().resources->create_image(target_desc)};
         if (!static_cast<bool>(target)) {
             deren::utility::log("descriptor heap: the heap-native graphics probe could not allocate its target");
             return;
@@ -298,8 +297,7 @@ namespace deren::engine {
         // way a parameter reaches the fragment stage - and running the probe with a wrong value here is the
         // negative proof (see the caller).
         deren::utility::vessel::array<uint32_t, 4> const push = {material_slot, 0u, 0u, 0u};
-        rhi::heap_push_info const push_info{.commands = commands.get(), .offset = 0u, .data = std::as_bytes(std::span(push))};
-        if (heap->push_data(push_info) != rhi::error::ok || commands->bind_pipeline(*built->contract) != rhi::error::ok) {
+        if (commands->push_constants(0u, std::as_bytes(std::span(push))) != rhi::error::ok || commands->bind_pipeline(*built->contract) != rhi::error::ok) {
             deren::utility::log("descriptor heap: the heap-native graphics probe's push or pipeline bind was refused");
             return;
         }

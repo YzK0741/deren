@@ -57,8 +57,8 @@ namespace deren::engine {
         // acquire returned - the copy was recorded into THAT frame's command buffer, and by the time the
         // caller asks the frame has been submitted - and the read-back slot is the backend's own,
         // host-visible buffer.
-        deren::promise::rhi::image* const image = device.frame_image();
-        deren::promise::rhi::buffer* const slot = device.frame_readback_buffer();
+        deren::promise::rhi::image* const image = device.frames->frame_image();
+        deren::promise::rhi::buffer* const slot = device.frames->frame_readback_buffer();
         if (image == nullptr || slot == nullptr) {
             return std::unexpected(deren::utility::vessel::string("screenshot: the backend has no frame image or read-back slot"));
         }

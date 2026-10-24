@@ -95,11 +95,11 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
     desc.first_stage = rhi::shader_stage::compute;
     desc.compute_code = code;
     desc.texture_group = {.enabled = true, .push_byte_offset = 8, .shader_stage_bits = 4};
-    rhi::unique_object<rhi::pipeline> pipeline{core.create_pipeline(desc)};
+    rhi::unique_object<rhi::pipeline> pipeline{core.resources->create_pipeline(desc)};
     CHECK(pipeline);
     auto wrong = desc;
     wrong.texture_group.push_byte_offset = 0; // destination is uint64, not the group token
-    CHECK(!core.create_pipeline(wrong));
+    CHECK(!core.resources->create_pipeline(wrong));
     if (!pipeline)
         return;
     auto make_image = [&core](std::uint32_t pixel) {
@@ -108,7 +108,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
         info.format = rhi::image_format::rgba8_unorm;
         info.flags = rhi::to_bits(rhi::image_flag::sampled);
         info.initial_bytes = std::as_bytes(std::span(&pixel, 1));
-        return rhi::unique_object<rhi::image>(core.create_image(info));
+        return rhi::unique_object<rhi::image>(core.resources->create_image(info));
     };
     auto red = make_image(0xff0000ffu), blue = make_image(0xffff0000u), green = make_image(0xff00ff00u);
     CHECK(red && blue && green);
@@ -120,7 +120,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
     rhi::texture_group_info b{};
     b.textures[0] = green.get();
     b.textures[15] = green.get();
-    auto group_a = core.assign_texture_group(a), group_b = core.assign_texture_group(b);
+    auto group_a = core.resources->assign_texture_group(a), group_b = core.resources->assign_texture_group(b);
     CHECK(group_a && group_b);
     if (!group_a || !group_b)
         return;
@@ -128,8 +128,8 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
     red.reset();
     blue.reset();
     green.reset();
-    rhi::unique_object<rhi::buffer> output{core.create_buffer({.size = 60, .usage = rhi::buffer_usage::storage_coherent, .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
-    auto commands = core.make_command_buffer({});
+    rhi::unique_object<rhi::buffer> output{core.resources->create_buffer({.size = 60, .usage = rhi::buffer_usage::storage_coherent, .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::transfer_source) | rhi::to_bits(rhi::buffer_flag::transfer_destination)})};
+    auto commands = core.commands->make_command_buffer({});
     auto* heap = rhi::query_extension<rhi::descriptor_heap>(core);
     auto* addresses = rhi::query_extension<rhi::device_address>(core);
     CHECK(output && commands && heap && addresses);
@@ -182,11 +182,23 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
         std::uint32_t index;
     };
     parameters data{addresses->buffer_address(*output, 0), 0, 0};
-    CHECK(heap->push_data({.commands = commands.get(), .data = std::as_bytes(std::span(&data.destination, 1))}) == rhi::error::ok);
-    CHECK(heap->push_data({.commands = commands.get(), .offset = 8, .data = std::as_bytes(std::span(&data.token, 1))}) == rhi::error::invalid_argument);
+    CHECK(commands.get()->push_constants(0u, std::as_bytes(std::span(&data.destination, 1))) == rhi::error::ok);
+    CHECK(commands.get()->push_constants(8, std::as_bytes(std::span(&data.token, 1))) == rhi::error::invalid_argument);
+    // The batch-only owner uses the same pipeline-reserved push range as a primary.
+    auto segment = core.commands->make_mergeable_command_buffer({});
+    CHECK(segment);
+    if (segment) {
+        rhi::command_recorder& recorder = *segment;
+        CHECK(recorder.begin_recording({}) == rhi::error::ok);
+        CHECK(recorder.bind_pipeline(*pipeline) == rhi::error::ok);
+        CHECK(heap->bind({.commands = &recorder}) == rhi::error::ok);
+        CHECK(recorder.push_constants(8, std::as_bytes(std::span(&data.token, 1))) == rhi::error::invalid_argument);
+        CHECK(recorder.push_constants(12, std::as_bytes(std::span(&data.index, 1))) == rhi::error::ok);
+        CHECK(recorder.end_recording() == rhi::error::ok);
+    }
     for (std::uint32_t i = 0; i < 5; ++i) {
         data.index = i;
-        CHECK(heap->push_data({.commands = commands.get(), .offset = 12, .data = std::as_bytes(std::span(&data.index, 1))}) == rhi::error::ok);
+        CHECK(commands.get()->push_constants(12, std::as_bytes(std::span(&data.index, 1))) == rhi::error::ok);
         if (i == 0 || i == 4)
             CHECK(commands->load_texture_group(group_a) == rhi::error::ok);
         if (i == 0) {
@@ -223,13 +235,13 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
     extra_info.textures[0] = extra_image.get();
     rhi::shared_object<rhi::texture_group>::weak lifetime_a = group_a, lifetime_b = group_b;
     queue_gate gate(core, main_context.device, main_context.graphics_queue);
-    CHECK(core.submit(*submitted) == rhi::error::ok);
+    CHECK(core.commands->submit(*submitted) == rhi::error::ok);
     group_a.reset();
     group_b.reset();
     commands.reset();
     submitted.reset();
     CHECK(!lifetime_a.expired() && !lifetime_b.expired());
-    auto new_group = core.assign_texture_group(extra_info);
+    auto new_group = core.resources->assign_texture_group(extra_info);
     CHECK(new_group); // new records/descriptors must not overwrite the delayed groups
     gate.release();
     CHECK(lifetime_a.expired() && lifetime_b.expired());
@@ -255,21 +267,21 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
     // Two independent segments copy one value each into two halves of a host-visible buffer; ONE batch
     // submission executes both, and the mapped read-back shows both writes - the minimal observable
     // difference between "the batch ran" and "the handles were accepted".
-    rhi::unique_object<rhi::buffer> batch_output{core.create_buffer({.size = 8u,
-                                                                     .usage = rhi::buffer_usage::storage_coherent,
-                                                                     .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
+    rhi::unique_object<rhi::buffer> batch_output{core.resources->create_buffer({.size = 8u,
+                                                                                .usage = rhi::buffer_usage::storage_coherent,
+                                                                                .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::transfer_source) | rhi::to_bits(rhi::buffer_flag::transfer_destination)})};
     std::uint32_t const first_value = 0x11111111u, second_value = 0x22222222u;
-    rhi::unique_object<rhi::buffer> first_source{core.create_buffer({.size = 4u,
-                                                                     .usage = rhi::buffer_usage::storage_coherent,
-                                                                     .flags = rhi::to_bits(rhi::buffer_flag::device_address),
-                                                                     .initial_bytes = std::as_bytes(std::span(&first_value, 1))})};
-    rhi::unique_object<rhi::buffer> second_source{core.create_buffer({.size = 4u,
-                                                                      .usage = rhi::buffer_usage::storage_coherent,
-                                                                      .flags = rhi::to_bits(rhi::buffer_flag::device_address),
-                                                                      .initial_bytes = std::as_bytes(std::span(&second_value, 1))})};
+    rhi::unique_object<rhi::buffer> first_source{core.resources->create_buffer({.size = 4u,
+                                                                                .usage = rhi::buffer_usage::storage_coherent,
+                                                                                .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::transfer_source) | rhi::to_bits(rhi::buffer_flag::transfer_destination),
+                                                                                .initial_bytes = std::as_bytes(std::span(&first_value, 1))})};
+    rhi::unique_object<rhi::buffer> second_source{core.resources->create_buffer({.size = 4u,
+                                                                                 .usage = rhi::buffer_usage::storage_coherent,
+                                                                                 .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::transfer_source) | rhi::to_bits(rhi::buffer_flag::transfer_destination),
+                                                                                 .initial_bytes = std::as_bytes(std::span(&second_value, 1))})};
     CHECK(batch_output && first_source && second_source);
-    rhi::mergeable_command_buffer_ref mergeable_a = core.make_mergeable_command_buffer({});
-    rhi::mergeable_command_buffer_ref mergeable_b = core.make_mergeable_command_buffer({});
+    rhi::mergeable_command_buffer_ref mergeable_a = core.commands->make_mergeable_command_buffer({});
+    rhi::mergeable_command_buffer_ref mergeable_b = core.commands->make_mergeable_command_buffer({});
     CHECK(mergeable_a && mergeable_b);
     if (batch_output && first_source && second_source && mergeable_a && mergeable_b) {
         CHECK(mergeable_a->begin_recording({}) == rhi::error::ok);
@@ -279,7 +291,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
         CHECK(mergeable_b->copy_buffer(*batch_output, *second_source, 4u, 0u, 4u) == rhi::error::ok);
         CHECK(mergeable_b->end_recording() == rhi::error::ok);
         rhi::mergeable_command_buffer_ref const batch[] = {mergeable_a, mergeable_b};
-        CHECK(core.submit(std::span<rhi::mergeable_command_buffer_ref const>(batch)) == rhi::error::ok);
+        CHECK(core.commands->submit(std::span<rhi::mergeable_command_buffer_ref const>(batch)) == rhi::error::ok);
         core.wait_idle();
         deren::utility::vessel::array<std::uint32_t, 2> observed{};
         std::memcpy(observed.data(), batch_output->mapped().data(), sizeof(observed));
@@ -289,9 +301,9 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
         // ---- ABI 36: THE RECORDING-TIME BATCH MERGE on the real backend --------------------------------
         // The same two segments, merged into an ORDINARY primary while recording (the shape the engine's
         // multithreaded passes use): one execute(span) call, then the normal single-buffer submit.
-        rhi::unique_object<rhi::buffer> merged_output{core.create_buffer({.size = 8u,
-                                                                          .usage = rhi::buffer_usage::storage_coherent,
-                                                                          .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
+        rhi::unique_object<rhi::buffer> merged_output{core.resources->create_buffer({.size = 8u,
+                                                                                     .usage = rhi::buffer_usage::storage_coherent,
+                                                                                     .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::transfer_source) | rhi::to_bits(rhi::buffer_flag::transfer_destination)})};
         CHECK(merged_output);
         if (merged_output) {
             CHECK(mergeable_a->begin_recording({}) == rhi::error::ok);
@@ -300,14 +312,14 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
             CHECK(mergeable_b->begin_recording({}) == rhi::error::ok);
             CHECK(mergeable_b->copy_buffer(*merged_output, *second_source, 4u, 0u, 4u) == rhi::error::ok);
             CHECK(mergeable_b->end_recording() == rhi::error::ok);
-            auto recording_target = core.make_command_buffer({.kind = rhi::command_buffer_kind::primary});
+            auto recording_target = core.commands->make_command_buffer({.kind = rhi::command_buffer_kind::primary});
             CHECK(recording_target != nullptr);
             if (recording_target) {
                 CHECK(recording_target->begin_recording({}) == rhi::error::ok);
                 rhi::mergeable_command_buffer_ref const merged[] = {mergeable_a, mergeable_b};
                 CHECK(recording_target->execute(std::span<rhi::mergeable_command_buffer_ref const>(merged)) == rhi::error::ok);
                 CHECK(recording_target->end_recording() == rhi::error::ok);
-                CHECK(core.submit(*recording_target) == rhi::error::ok);
+                CHECK(core.commands->submit(*recording_target) == rhi::error::ok);
                 core.wait_idle();
                 deren::utility::vessel::array<std::uint32_t, 2> merged_values{};
                 std::memcpy(merged_values.data(), merged_output->mapped().data(), sizeof(merged_values));
@@ -340,17 +352,18 @@ int main(int argc, char** argv) {
     VkDevice const device = main_context->device;
     VkQueue const queue = main_context->graphics_queue;
     test_heap_sampling(*core, *main_context);
-    rhi::unique_object<rhi::buffer> output{core->create_buffer({.size = 4, .usage = rhi::buffer_usage::readback_coherent})};
-    auto primary = core->make_command_buffer({});
+    rhi::unique_object<rhi::buffer> output{core->resources->create_buffer({.size = 4, .usage = rhi::buffer_usage::readback_coherent})};
+    auto primary = core->commands->make_command_buffer({});
     CHECK(output && primary);
     if (!output || !primary)
         return deren::vk_test::finish("test_texture_group");
     // abi 42: the fill travels through the CONTRACT (a copy from a host-initialised buffer), because the
     // escape no longer lends a native buffer handle - only the recording target a third-party renderer needs.
     std::array<std::byte, 4> const source_value{std::byte{0x44}, std::byte{0x33}, std::byte{0x22}, std::byte{0x11}};
-    rhi::unique_object<rhi::buffer> source{core->create_buffer({.size = 4,
-                                                                .usage = rhi::buffer_usage::storage_coherent,
-                                                                .initial_bytes = std::span<std::byte const>(source_value.data(), source_value.size())})};
+    rhi::unique_object<rhi::buffer> source{core->resources->create_buffer({.size = 4,
+                                                                           .usage = rhi::buffer_usage::storage_coherent,
+                                                                           .flags = rhi::to_bits(rhi::buffer_flag::transfer_source),
+                                                                           .initial_bytes = std::span<std::byte const>(source_value.data(), source_value.size())})};
     CHECK(source);
     if (!source)
         return deren::vk_test::finish("test_texture_group");
@@ -382,9 +395,9 @@ int main(int argc, char** argv) {
     wait.pWaitSemaphores = &gate;
     wait.pWaitDstStageMask = &stage;
     CHECK(vkQueueSubmit(queue, 1, &wait, VK_NULL_HANDLE) == VK_SUCCESS);
-    CHECK(core->submit(*primary) == rhi::error::ok);
+    CHECK(core->commands->submit(*primary) == rhi::error::ok);
     CHECK(primary->begin_recording({}) == rhi::error::not_ready);
-    CHECK(core->submit(*primary) == rhi::error::not_ready);
+    CHECK(core->commands->submit(*primary) == rhi::error::not_ready);
     primary.reset(); // its command pool must survive the caller until completion
     VkSemaphoreSignalInfo signal{};
     signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
@@ -396,12 +409,12 @@ int main(int argc, char** argv) {
     std::memcpy(&actual, output->mapped().data(), sizeof(actual));
     CHECK(actual == 0x11223344u);
     vkDestroySemaphore(device, gate, nullptr);
-    auto recycled = core->make_command_buffer({});
+    auto recycled = core->commands->make_command_buffer({});
     CHECK(recycled);
     if (recycled) {
         CHECK(recycled->begin_recording({}) == rhi::error::ok);
         CHECK(recycled->end_recording() == rhi::error::ok);
-        CHECK(core->submit(*recycled) == rhi::error::ok);
+        CHECK(core->commands->submit(*recycled) == rhi::error::ok);
         core->wait_idle();
         CHECK(recycled->begin_recording({}) == rhi::error::ok);
         CHECK(recycled->end_recording() == rhi::error::ok);

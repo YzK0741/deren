@@ -57,7 +57,7 @@ namespace {
         rhi::radix_sort_requirements requirements(std::uint32_t) const noexcept override {
             return {64u, 16u, rhi::to_bits(rhi::buffer_flag::storage) | rhi::to_bits(rhi::buffer_flag::transfer_destination)};
         }
-        rhi::error record(rhi::command_buffer& list, rhi::radix_sort_info const& info) override {
+        rhi::error record(rhi::command_recorder& list, rhi::radix_sort_info const& info) override {
             CHECK(info.keys && info.values && info.scratch);
             static_cast<commands&>(list).operations.push_back("sort");
             return rhi::error::ok;

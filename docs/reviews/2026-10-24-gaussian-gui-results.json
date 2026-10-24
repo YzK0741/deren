@@ -1,0 +1,57 @@
+[
+  {
+    "case": "control-legacy",
+    "bright_gui_pixels": 0,
+    "image": "tmp\\gui-flicker\\control-legacy\\screenshot_20261023_171615.png",
+    "sha256": "c344965b834759b98e92cd077341808fc1d42b30e42e7306f7ce3e994ea2296e",
+    "validation_errors": 0,
+    "path": "gaussian path: GPU (562974 candidates)"
+  },
+  {
+    "case": "fixed-slot0",
+    "bright_gui_pixels": 1842,
+    "image": "tmp\\gui-flicker\\fixed-slot0\\screenshot_20261023_171636.png",
+    "sha256": "a34045a0055289105096fade139c07d5b74184f1e3cfaf01ef7c814d1085b8f6",
+    "validation_errors": 0,
+    "path": "gaussian path: GPU (562974 candidates)"
+  },
+  {
+    "case": "fixed-slot1",
+    "bright_gui_pixels": 1853,
+    "image": "tmp\\gui-flicker\\fixed-slot1\\screenshot_20261023_171657.png",
+    "sha256": "8f7bc3fecc9511c6c957aab9620dfaad1580059fa9ca821ab34cdcf22b666855",
+    "validation_errors": 0,
+    "path": "gaussian path: GPU (562974 candidates)"
+  },
+  {
+    "case": "fixed-cpu",
+    "bright_gui_pixels": 2367,
+    "image": "tmp\\gui-flicker\\fixed-cpu\\screenshot_20261023_171721.png",
+    "sha256": "4225e12a0615657eac2240ad50d9239ef4b66931a8a738308c79a4b9a8fe9633",
+    "validation_errors": 0,
+    "path": "gaussian path: CPU"
+  },
+  {
+    "case": "fixed-pbr",
+    "bright_gui_pixels": 1852,
+    "image": "tmp\\gui-flicker\\fixed-pbr\\screenshot_20261023_171740.png",
+    "sha256": "3edb88968568d6c1e7ded95e883438134eb54239eab0218d85edae74a1b70700",
+    "validation_errors": 0,
+    "path": "PBR"
+  },
+  {
+    "case": "fixed-moving",
+    "bright_gui_pixels": 1843,
+    "image": "tmp\\gui-flicker\\fixed-moving\\screenshot_20261023_171802.png",
+    "sha256": "7456ee74a63a09c38fd8006b96241d4d806ce1d04900130e60fc2b41751267ba",
+    "validation_errors": 0,
+    "path": "gaussian path: GPU (562974 candidates)"
+  },
+  {
+    "case": "production-final",
+    "bright_gui_pixels": 1844,
+    "sha256": "fde05df3ab263fe6849544a4ea904a4cdf94e459531421c1ce0ccb37010e3ac3",
+    "validation_errors": 0,
+    "image": "tmp\\gui-flicker\\production-final\\screenshot_20261023_172020.png"
+  }
+]

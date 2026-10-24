@@ -55,13 +55,13 @@ namespace deren::engine::gaussian_splatting {
                     desc.usage = rhi::buffer_usage::storage_coherent;
                     desc.flags = flags;
                     desc.initial_bytes = std::as_bytes(data);
-                    return rhi::unique_object<rhi::buffer>{core.create_buffer(desc)};
+                    return rhi::unique_object<rhi::buffer>{core.resources->create_buffer(desc)};
                 };
                 auto requirements = sorter->requirements(count);
                 auto kb = make(keys, static_cast<std::uint64_t>(count) * 4u, rhi::to_bits(rhi::buffer_flag::storage) | rhi::to_bits(rhi::buffer_flag::indirect));
                 auto vb = make(values, static_cast<std::uint64_t>(count) * 4u, rhi::to_bits(rhi::buffer_flag::storage));
                 auto scratch = make({}, requirements.scratch_bytes, requirements.scratch_flags);
-                auto commands = core.make_command_buffer({.kind = rhi::command_buffer_kind::primary});
+                auto commands = core.commands->make_command_buffer({.kind = rhi::command_buffer_kind::primary});
                 if (!kb || !vb || !scratch || !commands) {
                     return fail("GPU sort probe allocation failed");
                 }
@@ -89,10 +89,20 @@ namespace deren::engine::gaussian_splatting {
                         return fail("GPU sorter accepted missing scratch");
                     }
                 }
-                if (sorter->record(*commands, info) != rhi::error::ok || commands->end_recording() != rhi::error::ok || core.submit(*commands) != rhi::error::ok) {
+                if (sorter->record(*commands, info) != rhi::error::ok || commands->end_recording() != rhi::error::ok) {
                     return fail("GPU sort probe recording/submission failed");
                 }
-                core.wait_idle(); // Diagnostic only: wait before reading host-coherent output.
+                if (auto* completion = rhi::query_extension<rhi::command_submission>(core)) {
+                    auto submitted = completion->submit(*commands);
+                    if (!submitted || completion->wait(*submitted, UINT64_MAX) != rhi::error::ok) {
+                        return fail("GPU sort probe submission/completion failed");
+                    }
+                } else {
+                    if (core.commands->submit(*commands) != rhi::error::ok) {
+                        return fail("GPU sort probe submission failed");
+                    }
+                    core.wait_idle(); // Compatibility path for backends without completion tokens.
+                }
                 auto km = kb->mapped();
                 auto vm = vb->mapped();
                 if (km.size() < count * 4ull || vm.size() < count * 4ull) {

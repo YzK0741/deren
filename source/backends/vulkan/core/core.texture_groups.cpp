@@ -25,13 +25,8 @@ namespace deren::vulkan {
             return rhi::error::unsupported;
         }
         auto const base = VkDeviceSize(texture_group_state::table_slot) * 64;
-        if (texture_groups.reserved_offset == VK_WHOLE_SIZE) {
-            auto offset = descriptor_heaps.reserve_bytes(static_cast<std::uint64_t>(2049u) * 64u, base);
-            if (offset != base) {
-                return rhi::error::unsupported;
-            }
-            texture_groups.reserved_offset = offset;
-        }
+        if (texture_groups.reserved_offset != base)
+            return rhi::error::unsupported;
         rhi::unique_object<rhi::buffer> records{create_buffer({.size = static_cast<std::uint64_t>(1025u) * 80u,
                                                                .usage = rhi::buffer_usage::storage_coherent,
                                                                .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
@@ -73,7 +68,7 @@ namespace deren::vulkan {
 
     rhi::error core::validate_texture_group_pipeline(rhi::pipeline_desc const& desc) {
         auto const& binding = desc.texture_group;
-        if (rhi::validate_heap_push_range(binding.push_byte_offset, 4, heap_view.properties().max_push_data) != rhi::error::ok) {
+        if (rhi::validate_push_constants_range(binding.push_byte_offset, 4, capabilities_view.max_push_constants_size()) != rhi::error::ok) {
             return rhi::error::invalid_argument;
         }
         if (binding.profile != rhi::texture_group_profile::sampled_2d_16 || !desc.ray_tracing_stages.empty()) {
@@ -192,7 +187,7 @@ namespace deren::vulkan {
         group.record.indices[index] = lease->slot;
         group.record.present_mask |= 1u << index;
         group.views[index] = std::move(lease);
-        // THE RECORD IS THE SHADER-FACING HALF of the write: the group table descriptor (slot 17664) points at
+        // THE RECORD IS THE SHADER-FACING HALF of the write: the group table descriptor (slot 32768) points at
         // this buffer, and the pushed token selects the record. Publishing here keeps "one slot written" and
         // "the record that names it" from ever being observed apart.
         if (group.allocation < 1024 && texture_groups.records) {
@@ -317,6 +312,9 @@ namespace deren::vulkan {
     }
 
     rhi::error core::frame_commands::load_texture_group(rhi::texture_group_ref const& group) {
+        ++owner->operation_requests[32]; // load_texture_group
+        if (recording_error != rhi::error::ok)
+            return recording_error;
         if (!recording || native() == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
@@ -347,18 +345,8 @@ namespace deren::vulkan {
         if (!owner->descriptor_heaps.ready()) {
             return rhi::error::not_ready;
         }
-        bool retained = group && std::find(group_refs.begin(), group_refs.end(), group) == group_refs.end();
-        if (retained) {
-            group_refs.push_back(group);
-        }
-        owner->descriptor_heaps.record_bind(native());
-        if (!owner->descriptor_heaps.push_data(native(), bound_pipeline->group_binding.push_byte_offset,
-                                               std::as_bytes(std::span(&token, 1)))) {
-            if (retained) {
-                group_refs.pop_back();
-            }
-            return rhi::error::operation_failed;
-        }
+        operations.append<deren::promise::rhi::recording::operation_kind::texture_group>({token}, {}, {}, group);
+        ++owner->deferred_requested;
         return rhi::error::ok;
     }
 } // namespace deren::vulkan

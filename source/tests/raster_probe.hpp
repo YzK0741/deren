@@ -50,7 +50,7 @@ namespace raster_test {
         }
     };
 
-    struct raster_probe_core : rhi::api_core {
+    struct raster_probe_core : rhi::api_core, rhi::resource_factory, rhi::command_context, rhi::frame_context {
     void release() noexcept override {}
         bool supported = true;
         bool pipeline_fail = false;
@@ -70,6 +70,7 @@ namespace raster_test {
         deren::utility::vessel::vector<deren::utility::vessel::vector<std::byte>> bytes;
         raster_probe_core()
             : api_core("gaussian_raster_probe_core") {
+            bind_views(*this, *this, *this);
         }
         rhi::ability_bits abilities() const noexcept override {
             return supported ? rhi::to_bits(rhi::extension_kind::device_address) : 0;
@@ -158,6 +159,7 @@ namespace raster_test {
         rhi::swapchain* frame_swapchain() noexcept override {
             return nullptr;
         }
+    rhi::error submit() override { return rhi::error::unsupported; }
         rhi::error submit(rhi::command_buffer&) override {
             return rhi::error::unsupported;
         }

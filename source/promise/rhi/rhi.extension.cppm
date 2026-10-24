@@ -39,6 +39,7 @@ module;
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <future>
 #include <memory>
 #include <span>
@@ -78,8 +79,8 @@ export namespace deren::promise::rhi {
     struct heap_image_write_info;
     struct heap_buffer_write_info;
     struct heap_bind_info;
-    struct heap_push_info;
     struct buffer;
+    struct command_recorder;
     struct command_buffer;
     struct image;
     struct image_view;
@@ -137,6 +138,7 @@ export namespace deren::promise::rhi {
         /// backend can serve a texture group - the object the position is about - the same rule the other
         /// bits live by.
         descriptor_space = 1u << 12,
+        command_submission = 1u << 13, ///< independent graphics submission completion tokens
     };
 
     /// What `api_core::abilities()` returns: a set of `extension_kind` bits.
@@ -155,7 +157,7 @@ export namespace deren::promise::rhi {
         return (abilities & to_bits(kind)) != no_abilities;
     }
 
-    /// Every ACTIVE bit defined here: what a backend with all eleven abilities reports, and the
+    /// Every ACTIVE bit defined here: what a backend with all active abilities reports, and the
     /// set the plan's §8 consistency gate iterates.
     [[nodiscard]] constexpr auto all_abilities() noexcept -> ability_bits {
         // `extension_kind::ray_tracing` IS NOT HERE ANY MORE (abi 26): its whole shape moved to tier-1, so no
@@ -164,15 +166,15 @@ export namespace deren::promise::rhi {
         return to_bits(extension_kind::device_address) | to_bits(extension_kind::descriptor_heap) |
                to_bits(extension_kind::mesh_shader) |
                to_bits(extension_kind::host_image_copy) |
-               to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access) | to_bits(extension_kind::gpu_sorting) | to_bits(extension_kind::async_presentation) | to_bits(extension_kind::scoped_synchronization) | to_bits(extension_kind::frame_resources) | to_bits(extension_kind::descriptor_space);
+               to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access) | to_bits(extension_kind::gpu_sorting) | to_bits(extension_kind::async_presentation) | to_bits(extension_kind::scoped_synchronization) | to_bits(extension_kind::frame_resources) | to_bits(extension_kind::descriptor_space) | to_bits(extension_kind::command_submission);
     }
 
-    /// The same eleven, as a LIST: what a gate walks to check one bit at a time.
+    /// The active abilities, as a LIST: what a gate walks to check one bit at a time.
     ///
     /// `all_abilities()` is the set as a bitmask; this is the enumeration the consistency gates and
     /// the tests iterate (`abilities()` set => `query_extension()` non-null, and the reverse), so the
     /// list is spelled in ONE place instead of per caller.
-    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> deren::utility::vessel::array<extension_kind, 11> {
+    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> deren::utility::vessel::array<extension_kind, 12> {
         return {
             extension_kind::device_address,
             extension_kind::descriptor_heap,
@@ -185,11 +187,12 @@ export namespace deren::promise::rhi {
             extension_kind::scoped_synchronization,
             extension_kind::frame_resources,
             extension_kind::descriptor_space,
+            extension_kind::command_submission,
         };
     }
 
     static_assert(to_bits(extension_kind::device_address) == 0x1u, "the ability bits are ABI: they do not move");
-    static_assert(all_abilities() == 0x1FD7u, "eleven active abilities; retired bits are never reused");
+    static_assert(all_abilities() == 0x3FD7u, "twelve active abilities; retired bits are never reused");
 
     /// The common root of the tier-2 abilities.
     ///
@@ -256,7 +259,7 @@ export namespace deren::promise::rhi {
         /// Validate every entry without recording any commands.
         [[nodiscard]] virtual error validate(std::span<scoped_image_barrier const>, std::span<scoped_buffer_barrier const>) const noexcept = 0;
         /// Validate the complete group, then record it atomically. Empty groups still check command ownership/state.
-        [[nodiscard]] virtual error record(command_buffer&, std::span<scoped_image_barrier const>, std::span<scoped_buffer_barrier const>) const noexcept = 0;
+        [[nodiscard]] virtual error record(command_recorder&, std::span<scoped_image_barrier const>, std::span<scoped_buffer_barrier const>) const noexcept = 0;
     };
 
     /// tier-2 ability: where a buffer lives on the device.
@@ -283,6 +286,34 @@ export namespace deren::promise::rhi {
             return extension_kind::async_presentation;
         }
         virtual std::shared_future<error> begin() = 0;
+    };
+
+    /// Copyable, non-owning receipt for one successful submission. Not persistent across processes.
+    /// Keep the originating core alive while using it; dropping a token does not cancel GPU work.
+    struct submission_token {
+        std::uint64_t device_id = 0;
+        std::uint64_t sequence = 0;
+        friend constexpr bool operator==(submission_token const&, submission_token const&) = default;
+    };
+
+    /// Independent graphics work only; does not submit/present an acquired frame.
+    struct command_submission : extension {
+        static constexpr extension_kind extension_id = extension_kind::command_submission;
+        explicit command_submission(std::string_view name) noexcept
+            : extension(name) {
+        }
+        extension_kind kind() const noexcept final {
+            return extension_id;
+        }
+        /// Failed submissions produce no token. Resource/recording lifetime rules match command_context::submit.
+        [[nodiscard]] virtual std::expected<submission_token, error> submit(command_buffer&) = 0;
+        [[nodiscard]] virtual std::expected<submission_token, error> submit(std::span<shared_object<mergeable_command_buffer> const>) = 0;
+        /// ok = completed, not_ready = pending. Invalid/foreign/future values are invalid_argument.
+        /// Device errors stay errors; native completion storage may be reclaimed without invalidating tokens.
+        [[nodiscard]] virtual error poll(submission_token token) noexcept = 0;
+        /// timeout_ns=0 checks without waiting (pending returns timeout). UINT64_MAX waits indefinitely.
+        /// Waits only for this submission; does not hold queue locks while waiting.
+        [[nodiscard]] virtual error wait(submission_token token, std::uint64_t timeout_ns) noexcept = 0;
     };
 
     struct gpu_sorting : extension {
@@ -344,7 +375,6 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error write_image(heap_image_write_info const& info) noexcept = 0;
         [[nodiscard]] virtual error write_buffer(heap_buffer_write_info const& info) noexcept = 0;
         [[nodiscard]] virtual error bind(heap_bind_info const& info) const noexcept = 0;
-        [[nodiscard]] virtual error push_data(heap_push_info const& info) const noexcept = 0;
     };
 
     /// ONE SHADER-BINDING-TABLE REGION: where a ray-tracing launch reads one table's records, how many bytes
@@ -406,7 +436,7 @@ export namespace deren::promise::rhi {
         }
         /// Record `groups_x` x `groups_y` x `groups_z` mesh workgroups into `commands`
         /// (plan §5: 19 `vkCmdDrawMeshTasksEXT` calls plus 4 indirect ones).
-        virtual void dispatch_mesh(command_buffer& commands, std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) = 0;
+        virtual void dispatch_mesh(command_recorder& commands, std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) = 0;
     };
 
     // ---- `struct ray_tracing : extension` STOOD HERE, AND IT IS RETIRED (abi 26) ---------------------
@@ -485,8 +515,8 @@ export namespace deren::promise::rhi {
         /// acceleration-structure input usage on a buffer is decided by.
         [[nodiscard]] virtual bool ray_query() const noexcept = 0;
 
-        /// The largest push block the device accepts, in bytes: the stage block's own limit (a mesh stage
-        /// needs more than a vertex one, so this is the number its availability is checked against).
+        /// Usable byte capacity of command_recorder::push_constants for this backend's active binding
+        /// mechanism; zero when unavailable. This is not necessarily a native push-constant device limit.
         [[nodiscard]] virtual std::uint32_t max_push_constants_size() const noexcept = 0;
 
         /// The queue family the backend's GRAPHICS queue belongs to. A command pool created by anyone else
@@ -528,7 +558,6 @@ export namespace deren::promise::rhi {
         std::uint32_t buffer_descriptor_size = 0;
         std::uint32_t image_descriptor_size = 0;
         std::uint32_t sampler_descriptor_size = 0;
-        std::uint32_t max_push_data = 0;
         std::uint32_t max_embedded_samplers = 0;
     };
 
@@ -574,28 +603,8 @@ export namespace deren::promise::rhi {
     };
     struct heap_bind_info {
         structure_header header{structure_type::heap_bind, sizeof(heap_bind_info), nullptr};
-        command_buffer* commands = nullptr;
-        /// ABI 36: the batch-only recording target, so a mergeable segment can publish its heap binding
-        /// without a command_buffer round trip. Exactly one of the two targets is set.
-        mergeable_command_buffer* mergeable_commands = nullptr;
+        command_recorder* commands = nullptr;
     };
-    struct heap_push_info {
-        structure_header header{structure_type::heap_push, sizeof(heap_push_info), nullptr};
-        command_buffer* commands = nullptr;
-        std::uint32_t offset = 0;
-        std::span<std::byte const> data;
-        /// ABI 36: same rule as `heap_bind_info::mergeable_commands` - exactly one target is set.
-        mergeable_command_buffer* mergeable_commands = nullptr;
-    };
-
-    /// 推送常量以4字节为单位；先比较offset再相减，避免大跨度输入溢出。
-    [[nodiscard]] constexpr error validate_heap_push_range(std::uint32_t const offset, std::uint64_t const size,
-                                                           std::uint32_t const limit) noexcept {
-        return size == 0 || (offset & 3u) != 0 || (size & 3u) != 0 || offset > limit || size > limit - offset
-                   ? error::invalid_argument
-                   : error::ok;
-    }
-
     /// A LOGICAL POSITION inside a backend's descriptor space - what an immutable texture group was
     /// registered at.
     ///

@@ -17,16 +17,16 @@ int main(int argc, char** argv) {
         CHECK(core);
         if (!core)
             return deren::vk_test::finish("test_render_graph_frame");
-        (void)core->frame_begin();
+        (void)core->frames->frame_begin();
         auto frames = rhi::query_extension<rhi::frame_resources>(*core);
         auto snapshot = frames ? frames->retain_image() : rhi::shared_object<rhi::image>{};
-        auto* commands = core->begin_commands();
+        auto* commands = core->frames->begin_commands();
         CHECK(snapshot && commands);
         if (snapshot && commands) {
             CHECK(commands->begin_recording({}) == rhi::error::ok);
             CHECK(commands->barrier(rhi::image_barrier{.resource = snapshot.get(), .from = rhi::image_use::undefined, .to = rhi::image_use::color_attachment}) == rhi::error::ok);
             CHECK(commands->barrier(rhi::image_barrier{.resource = snapshot.get(), .from = rhi::image_use::color_attachment, .to = rhi::image_use::color_attachment}) == rhi::error::ok);
-            auto reusable = core->create_command_buffer({});
+            auto reusable = core->commands->create_command_buffer({});
             CHECK(reusable);
             if (reusable) {
                 CHECK(reusable->begin_recording({}) == rhi::error::ok);
@@ -34,7 +34,8 @@ int main(int argc, char** argv) {
                 CHECK(reusable->end_recording() == rhi::error::ok);
             }
             CHECK(commands->end_recording() == rhi::error::ok);
-            CHECK(core->submit(*commands) == rhi::error::ok);
+            CHECK(core->commands->submit(*commands) == rhi::error::invalid_argument);
+            CHECK(core->frames->submit() == rhi::error::ok);
             core->wait_idle();
         }
         return deren::vk_test::finish("test_render_graph_frame");
@@ -45,9 +46,9 @@ int main(int argc, char** argv) {
     if (!frames)
         return deren::vk_test::finish("test_render_graph_frame");
     CHECK(!frames->retain_image());
-    (void)core->frame_begin();
+    (void)core->frames->frame_begin();
     auto shared = frames->retain_image();
-    CHECK(shared && shared.get() != core->frame_image());
+    CHECK(shared && shared.get() != core->frames->frame_image());
     CHECK(frames->retain_image().get() == shared.get());
     auto image = deren::engine::resource_lease<rhi::image>::from_shared(core, shared);
     auto identity = rg::execution::identify(image);
@@ -70,15 +71,16 @@ int main(int argc, char** argv) {
     unsigned calls = 0;
     auto callback = [&](rg::execution::record_context const&) noexcept { ++calls; return rhi::error::ok; };
     if (ready)
-        CHECK(ready->record(*core->begin_commands(), callback) == rhi::error::ok);
+        CHECK(ready->record(*core->frames->begin_commands(), callback) == rhi::error::ok);
     CHECK(calls == 2);
-    CHECK(core->submit(*core->begin_commands()) == rhi::error::ok);
-    (void)core->frame_begin();
+    CHECK(core->commands->submit(*core->frames->begin_commands()) == rhi::error::invalid_argument);
+    CHECK(core->frames->submit() == rhi::error::ok);
+    (void)core->frames->frame_begin();
     auto next = frames->retain_image();
     CHECK(next && next != shared);
     calls = 0;
     if (ready)
-        CHECK(ready->record(*core->begin_commands(), callback) != rhi::error::ok);
+        CHECK(ready->record(*core->frames->begin_commands(), callback) != rhi::error::ok);
     CHECK(calls == 0);
     CHECK(!rg::execution::prepared_graph::prepare(core, *plan, bindings));
     // A read-only pass can require no barriers. Identity checks must still reject
@@ -98,9 +100,9 @@ int main(int argc, char** argv) {
         CHECK(read_ready);
         calls = 0;
         if (read_ready) {
-            auto error = read_ready->record(*core->begin_commands(), [&](rg::execution::record_context const&) noexcept {
+            auto error = read_ready->record(*core->frames->begin_commands(), [&](rg::execution::record_context const&) noexcept {
                 ++calls;
-                (void)core->frame_begin();
+                (void)core->frames->frame_begin();
                 return rhi::error::ok;
             });
             CHECK(error == rhi::error::not_ready && calls == 1);

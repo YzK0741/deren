@@ -108,6 +108,10 @@ debug/heap_probe.slang:main:vertex:heap_probe.vert.spv
 debug/heap_probe.slang:frag_main:fragment:heap_probe.frag.spv
 debug/heap_probe.slang:mesh_main:mesh:heap_probe.mesh.spv
 debug/heap_probe_comp.slang:comp_main:compute:heap_probe.comp.spv
+debug/resource_group_probe.slang:main:compute:resource_group_probe.comp.spv
+debug/resource_group_graphics_probe.slang:vertex_main:vertex:resource_group_probe.vert.spv
+debug/resource_group_graphics_probe.slang:fragment_main:fragment:resource_group_probe.frag.spv
+debug/resource_group_graphics_probe.slang:vertex_resource_main:vertex:resource_group_depth_probe.vert.spv
 debug/texture_group_probe.slang:main:compute:texture_group_probe.comp.spv
 lighting/rt_shadow.slang:chit_main:closesthit:rt_shadow.rchit.spv
 lighting/rt_shadow.slang:miss_main:miss:rt_shadow.rmiss.spv

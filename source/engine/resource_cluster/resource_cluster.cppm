@@ -129,13 +129,13 @@ export namespace deren::engine {
         }
 
         [[nodiscard]] auto create_buffer(deren::promise::rhi::buffer_desc const& desc) {
-            return keep(core->create_buffer(desc).release());
+            return keep(core->resources->create_buffer(desc).release());
         }
         [[nodiscard]] auto create_image(deren::promise::rhi::image_desc const& desc) {
-            return keep(core->create_image(desc).release());
+            return keep(core->resources->create_image(desc).release());
         }
         [[nodiscard]] auto create_sampler(deren::promise::rhi::sampler_desc const& desc) {
-            return keep(core->create_sampler(desc).release());
+            return keep(core->resources->create_sampler(desc).release());
         }
         [[nodiscard]] std::expected<resource_lease<deren::promise::rhi::image_view>, deren::promise::rhi::error>
         create_image_view(resource_lease<deren::promise::rhi::image> const& image, deren::promise::rhi::image_view_desc const& desc) {

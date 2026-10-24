@@ -214,7 +214,7 @@ namespace deren::engine {
             // THE ENGINE'S OWN VIEWS OF THOSE IMAGES GO FIRST (③-D/E step 2): the rebuild destroys the
             // images, and a view of an image that is gone must not exist while it happens.
             this->release_frame_swapchain_views();
-            rhi::swapchain* const surface = this->rhi_face().frame_swapchain();
+            rhi::swapchain* const surface = this->rhi_face().frames->frame_swapchain();
             if (surface != nullptr && surface->recreate() == rhi::error::ok) {
                 this->on_swapchain_recreated();
             }
@@ -304,7 +304,7 @@ namespace deren::engine {
     void runtime::refresh_frame_extents() noexcept {
         // THE PRESENTATION EXTENT COMES FROM THE CONTRACT: `swapchain::extent()` is the size the
         // backend's images have (it does not pre-multiply any scale - that is a renderer decision).
-        rhi::swapchain* const surface = this->rhi_face().frame_swapchain();
+        rhi::swapchain* const surface = this->rhi_face().frames->frame_swapchain();
         rhi::image_extent const output = surface != nullptr ? surface->extent() : rhi::image_extent{};
         this->output_extent = rhi::image_extent{output.width, output.height};
         // ... and the frame's resolution is that EXTENT times this engine's own scale, ROUNDED to
@@ -325,7 +325,7 @@ namespace deren::engine {
         // `unsupported`, and it answers that BEFORE any index check (see gpu_profiler_view's
         // get_stage_info) - so this predicate is the capability itself, not a guess from a report
         // that happens to be empty. The engine used to read `core::gpu_timing_available()` directly.
-        rhi::gpu_profiler* const profiler = this->rhi_face().profiler();
+        rhi::gpu_profiler* const profiler = this->rhi_face().frames->profiler();
         return profiler != nullptr && profiler->get_stage_info(0, nullptr, nullptr) != rhi::error::unsupported;
     }
 
@@ -340,7 +340,7 @@ namespace deren::engine {
         // detail of the query pool's owner, so the engine no longer names a VkPipelineStageFlagBits
         // here at all). No list means no frame in flight: nothing to record into, and the frame's
         // marks are written only inside a recording window anyway.
-        rhi::command_buffer* const commands = this->rhi_face().begin_commands();
+        rhi::command_buffer* const commands = this->rhi_face().frames->begin_commands();
         if (commands == nullptr) {
             return;
         }
@@ -381,7 +381,7 @@ namespace deren::engine {
         // 读归引擎: the backend LATCHED this slot's completed frame inside wait_and_acquire() (the
         // position that made the old read_gpu_timings call correct); the contract's profiler face
         // reports the latched frame. Durations come back in NANOSECONDS - the display layer converts.
-        rhi::gpu_profiler& profiler = *this->rhi_face().profiler();
+        rhi::gpu_profiler& profiler = *this->rhi_face().frames->profiler();
         std::uint32_t const stages = profiler.stage_count();
         if (stages < 2) {
             return; // nothing measured in that submission (the first frames, or a failed recording)
@@ -517,8 +517,8 @@ namespace deren::engine {
         // contract and handed over. The plugin records ImGui into one per frame and returns it, and the frame
         // executes it inside the rendering instance. Two of them = one per frame-slot parity; the frame ring
         // waits its slot before recording, so alternating reuse is safe.
-        info.recording_targets[0] = vk.make_mergeable_command_buffer(rhi::command_buffer_desc{});
-        info.recording_targets[1] = vk.make_mergeable_command_buffer(rhi::command_buffer_desc{});
+        info.recording_targets[0] = vk.commands->make_mergeable_command_buffer(rhi::command_buffer_desc{});
+        info.recording_targets[1] = vk.commands->make_mergeable_command_buffer(rhi::command_buffer_desc{});
         if (!info.recording_targets[0] || !info.recording_targets[1]) {
             deren::utility::log("gui overlay: the backend refused the overlay's recording targets");
             return false;
@@ -1474,9 +1474,9 @@ namespace deren::engine {
         /// Push @p bytes and then @p lanes index lanes (see runtime::push_stage_block). The three endpoints differ
         /// only in that count, because a stage's shader declares exactly as many lanes as it reads: the post chain
         /// three (its source slot included), everything else two, the mask bake none.
-        bool push_with_lanes(rhi::api_core& face, uint32_t const frame_slot, uint32_t const image_index, recording_target const& target,
+        bool push_with_lanes(uint32_t const frame_slot, uint32_t const image_index, recording_target const& target,
                              std::span<std::byte const> const bytes, uint32_t const extra_lane, std::size_t const lanes) {
-            constexpr std::size_t window = 256; // maxPushDataSize on this device (see heap_limits)
+            constexpr std::size_t window = 256; // capacity of the engine's packed stage-parameter block
             deren::utility::vessel::array<std::byte, window> staging = {};
             std::size_t const lane_bytes = lanes * sizeof(uint32_t);
             if (bytes.size() + lane_bytes > staging.size()) {
@@ -1488,7 +1488,7 @@ namespace deren::engine {
             }
             deren::utility::vessel::array<uint32_t, 3> const indices = {frame_slot, image_index, extra_lane};
             std::memcpy(staging.data() + bytes.size(), indices.data(), lane_bytes);
-            return contract_push_heap_data(face, target.command.get(), target.mergeable.get(), 0u, std::span<std::byte const>(staging.data(), bytes.size() + lane_bytes));
+            return target.get() != nullptr && target.get()->push_constants(0u, std::span<std::byte const>(staging.data(), bytes.size() + lane_bytes)) == rhi::error::ok;
         }
     } // namespace
 
@@ -1516,29 +1516,24 @@ namespace deren::engine {
         uint32_t const source_slot = extra_lane == 0u
                                          ? deren::engine::render_layout::heap_slots::post_color + self->current_image_index
                                          : deren::engine::render_layout::heap_slots::bloom_l0 + (extra_lane - 1u) * deren::engine::render_layout::heap_image_capacity + self->current_image_index;
-        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, target, bytes, source_slot, 3u);
+        return push_with_lanes(self->frame_ring().position(), self->current_image_index, target, bytes, source_slot, 3u);
     }
 
     bool runtime::push_index_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
         runtime* const self = static_cast<runtime*>(owner);
-        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, recording_target(rhi::shared_object<rhi::command_buffer>::borrow(command_buffer)), bytes, extra_lane, 2u);
+        return push_with_lanes(self->frame_ring().position(), self->current_image_index, recording_target(rhi::shared_object<rhi::command_buffer>::borrow(command_buffer)), bytes, extra_lane, 2u);
     }
 
     bool runtime::push_software_block(void* const owner, rhi::command_buffer& commands, std::span<std::byte const> const bytes, uint32_t const mode) {
         auto* self = static_cast<runtime*>(owner);
-        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index,
+        return push_with_lanes(self->frame_ring().position(), self->current_image_index,
                                recording_target(rhi::shared_object<rhi::command_buffer>::borrow(commands)), bytes, mode, 3u);
     }
 
-    bool runtime::push_raw_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes) {
-        runtime* const self = static_cast<runtime*>(owner);
-        if (bytes.size() > 256u) {
-            deren::utility::log("heap push: a block of {} B plus 0 index lanes does not fit the push-data window", bytes.size());
-            return false;
-        }
+    bool runtime::push_raw_block(void* const /*owner*/, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes) {
         // This synchronous push retains neither the bytes nor the command buffer. A borrowed
         // shared_object would allocate a control block for every item in both raster passes.
-        return contract_push_heap_data(self->rhi_face(), &command_buffer, nullptr, 0u, bytes);
+        return command_buffer.push_constants(0u, bytes) == rhi::error::ok;
     }
 
     // ---- the MESH session's endpoints (docs/mesh_shaders.md step 1): what a draw without an input assembler
@@ -1556,13 +1551,12 @@ namespace deren::engine {
         return self->buffer_address(buffer);
     }
 
-    bool runtime::push_geometry_block(void* const owner, recording_target const& target, uint32_t const offset, std::span<std::byte const> const bytes) {
-        runtime* const self = static_cast<runtime*>(owner);
+    bool runtime::push_geometry_block(void* const /*owner*/, recording_target const& target, uint32_t const offset, std::span<std::byte const> const bytes) {
         // A raw push at an offset the STAGE declares (see mesh_geometry_offset): the block `push_stage_block` sends
         // already ends with the three heap index lanes, so the geometry lanes of a mesh stage's block cannot ride
         // along with it - they are appended after them, which is a second push rather than a second block.
-        // The descriptor heap validates the contract buffer and resolves its backend recording target.
-        return contract_push_heap_data(self->rhi_face(), target.command.get(), target.mergeable.get(), offset, bytes);
+        // The recorder validates its state, parameter range and any protected pipeline fields.
+        return target.get() != nullptr && target.get()->push_constants(offset, bytes) == rhi::error::ok;
     }
 
     bool runtime::draw_mesh_tasks(void* const owner, recording_target const& target, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
@@ -1950,9 +1944,9 @@ namespace deren::engine {
         rhi::buffer_desc survivors_desc;
         survivors_desc.size = survivors_bytes;
         survivors_desc.usage = rhi::buffer_usage::readback_coherent;
-        this->hzb_cull_probe_pyramid_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(pyramid_desc)};
-        this->hzb_cull_probe_header_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(header_desc)};
-        this->hzb_cull_probe_survivors_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(survivors_desc)};
+        this->hzb_cull_probe_pyramid_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().resources->create_buffer(pyramid_desc)};
+        this->hzb_cull_probe_header_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().resources->create_buffer(header_desc)};
+        this->hzb_cull_probe_survivors_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().resources->create_buffer(survivors_desc)};
         if (!this->hzb_cull_probe_pyramid_readback || !this->hzb_cull_probe_header_readback || !this->hzb_cull_probe_survivors_readback) {
             deren::utility::log("hzb cull probe capture: FAIL allocation");
             return false;
@@ -1963,8 +1957,8 @@ namespace deren::engine {
         this->hzb_cull_probe_expected_view = this->hzb_source_view[expected_slot];
         this->hzb_cull_probe_expected_proj = this->hzb_source_proj[expected_slot];
         if (this->hzb_recovery_probe_enabled) {
-            this->hzb_recovery_probe_pyramid_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(pyramid_desc)};
-            this->hzb_recovery_probe_header_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().create_buffer(header_desc)};
+            this->hzb_recovery_probe_pyramid_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().resources->create_buffer(pyramid_desc)};
+            this->hzb_recovery_probe_header_readback = rhi::unique_object<rhi::buffer>{this->rhi_face().resources->create_buffer(header_desc)};
             if (!this->hzb_recovery_probe_pyramid_readback || !this->hzb_recovery_probe_header_readback) {
                 return false;
             }

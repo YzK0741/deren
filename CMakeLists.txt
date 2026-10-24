@@ -345,6 +345,7 @@ target_sources(promise
         source/promise/rhi/rhi.core_desc.cppm
         source/promise/rhi/rhi.extension.cppm
         source/promise/rhi/rhi.api_core.cppm
+        source/promise/rhi/render_operations.cppm
         source/promise/gui/gui.cppm
 )
 
@@ -522,10 +523,12 @@ target_sources(deren_vulkan
         source/backends/vulkan/core/core.cpp
         # The RHI contract's virtuals for this backend (plan §11.4, S1-C): `core` derives from
         # `deren::promise::rhi::api_core`, so this is where abilities() and the frame calls live.
+        source/backends/vulkan/core/core.render_operations.cpp
         source/backends/vulkan/core/core.api_core.cpp
         source/backends/vulkan/core/core.scoped_synchronization.cpp
         source/backends/vulkan/core/core.frame_resources.cpp
         source/backends/vulkan/core/radix_sort.cpp
+        source/backends/vulkan/core/core.resource_groups.cpp
         source/backends/vulkan/core/core.texture_groups.cpp
         source/backends/vulkan/core/core.descriptor_space.cpp
         source/backends/vulkan/core/core.submission_lifetimes.cpp
@@ -969,7 +972,15 @@ target_include_directories(deren_engine
 
 # THE APPLICATION (the runtime switch and the S1-S3 gate that used to wrap this are retired: see the
 # comment above `deren_engine`).
-add_executable(deren source/app/main.cpp)
+add_executable(deren source/app/main.cpp source/app/startup_splash.cpp)
+if(WIN32)
+    enable_language(RC)
+    target_sources(deren PRIVATE source/app/resources/deren.rc)
+    set_source_files_properties(source/app/resources/deren.rc PROPERTIES
+        OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/source/app/resources/deren.ico;${CMAKE_CURRENT_SOURCE_DIR}/source/app/resources/deren-splash.bmp")
+    target_include_directories(deren PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/source/app/resources")
+    target_link_libraries(deren user32 gdi32)
+endif()
 # Release builds link as a Windows GUI-subsystem executable: no console window appears when
 # running. On the MSYS2 clang64 / MinGW-w64 toolchain WIN32_EXECUTABLE maps to -mwindows; the CRT
 # still calls main(), only the subsystem changes. Debug keeps the console for terminal log output.
@@ -1281,7 +1292,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb test_visibility_software test_visibility_software_pass test_visibility_merge_pass)
+    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb test_visibility_software test_visibility_software_pass test_visibility_merge_pass test_render_operations)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1657,6 +1668,15 @@ add_dependencies(test_runtime_dyn deren_vulkan)
 add_executable(test_texture_group source/tests/test_texture_group.cpp)
 target_link_libraries(test_texture_group backend_loader promise static_utility vstd_lib vulkan_main_context Vulkan::Vulkan)
 add_dependencies(test_texture_group deren_vulkan)
+
+# Device-only completion token probe; deliberately outside headless CTest.
+add_executable(test_resource_group source/tests/test_resource_group.cpp)
+target_link_libraries(test_resource_group backend_loader promise static_utility vstd_lib vulkan_main_context Vulkan::Vulkan)
+add_dependencies(test_resource_group deren_vulkan)
+
+add_executable(test_submission_completion source/tests/test_submission_completion.cpp)
+target_link_libraries(test_submission_completion backend_loader promise static_utility vstd_lib vulkan_main_context Vulkan::Vulkan)
+add_dependencies(test_submission_completion deren_vulkan)
 
 # ---- THE ACCELERATION-STRUCTURE DEVICE PROBE (plan S1's P0) ------------------------------------------
 #
@@ -2264,6 +2284,10 @@ set(VR_SLANG_SOURCES
     debug/heap_probe.slang:mesh_main:mesh:heap_probe.mesh.spv
     # The COMPUTE half is its own file because it has its own push layout (one push block per stage).
     debug/heap_probe_comp.slang:comp_main:compute:heap_probe.comp.spv
+    debug/resource_group_graphics_probe.slang:vertex_resource_main:vertex:resource_group_depth_probe.vert.spv
+    debug/resource_group_graphics_probe.slang:vertex_main:vertex:resource_group_probe.vert.spv
+    debug/resource_group_graphics_probe.slang:fragment_main:fragment:resource_group_probe.frag.spv
+    debug/resource_group_probe.slang:main:compute:resource_group_probe.comp.spv
     debug/texture_group_probe.slang:main:compute:texture_group_probe.comp.spv
     # compute_skin.slang feeds the acceleration structures the deformed vertex positions; its A/B needs the
     # skinned fixture with rt_shadow on (see docs/slang_migration.md).
@@ -2362,6 +2386,13 @@ endif()
 if(TARGET test_runtime_dyn)
     add_dependencies(test_runtime_dyn shaders)
 endif()
+add_dependencies(test_resource_group shaders)
+target_compile_definitions(test_resource_group PRIVATE VR_RESOURCE_GROUP_SHADER_PATH="${VR_SHADER_OUT_DIR}/resource_group_probe.comp.spv"
+    VR_RESOURCE_GROUP_VERTEX_PATH="${VR_SHADER_OUT_DIR}/resource_group_probe.vert.spv"
+    VR_RESOURCE_GROUP_FRAGMENT_PATH="${VR_SHADER_OUT_DIR}/resource_group_probe.frag.spv"
+    VR_RESOURCE_GROUP_DEPTH_VERTEX_PATH="${VR_SHADER_OUT_DIR}/resource_group_depth_probe.vert.spv")
 add_dependencies(test_texture_group shaders)
 target_compile_definitions(test_texture_group PRIVATE VR_TEXTURE_GROUP_SHADER_PATH="${VR_SHADER_OUT_DIR}/texture_group_probe.comp.spv")
 message(STATUS "slangc: ${VR_SLANGC_EXECUTABLE} - every build compiles source/shaders/*.spv into ${VR_SHADER_OUT_DIR}")
+
+target_link_libraries(test_render_operations promise)

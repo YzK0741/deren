@@ -161,7 +161,7 @@ namespace deren::engine {
         return heap != nullptr && heap->write_buffer(info) == rhi::error::ok;
     }
 
-    void contract_record_heap_bind(rhi::api_core& face, rhi::command_buffer& commands) noexcept {
+    void contract_record_heap_bind(rhi::api_core& face, rhi::command_recorder& commands) noexcept {
         auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
         if (heap != nullptr) {
             rhi::heap_bind_info info{};
@@ -174,21 +174,6 @@ namespace deren::engine {
     //  `VkBindHeapInfoEXT` a secondary used to inherit. The pass layer stopped calling it at abi 20 and the
     //  BACKEND derives that inheritance from its own bound heaps now, so this was a second truth with no reader.)
 
-    bool contract_push_heap_data(rhi::api_core& face, rhi::command_buffer* const commands,
-                                 rhi::mergeable_command_buffer* const mergeable_commands, std::uint32_t const offset,
-                                 std::span<std::byte const> const data) noexcept {
-        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
-        if (heap == nullptr) {
-            return false;
-        }
-        rhi::heap_push_info info{};
-        info.commands = commands;
-        info.mergeable_commands = mergeable_commands;
-        info.offset = offset;
-        info.data = data;
-        return heap->push_data(info) == rhi::error::ok;
-    }
-
     // ---- runtime_detail: THE ONE DERIVATION OF EVERY BACKEND FACT THE ENGINE READS (③-D/E step 2) ----
     //
     // DEFINED HERE, in a partition, rather than in the declarations interface, and that is the same
@@ -200,12 +185,6 @@ namespace deren::engine {
         // `physical_properties_of` STOOD HERE, and the push-constant limit was the only field anyone read out of
         // it - so it is `max_push_constants_of` below now: one integer, from the ability that already holds the
         // query's answer, instead of a whole `VkPhysicalDeviceProperties` fetched per call site.
-
-        std::uint32_t heap_max_push_data(rhi::api_core& face) noexcept {
-            // THE HEAP'S PUSH BUDGET, from the ability's own value-only POD - never from the backend's
-            // `heap_limits` type (abi 9's rule: the contract answers values, not references).
-            return contract_heap_properties(face).max_push_data;
-        }
 
         deren::promise::rhi::shader_binding_table_properties ray_tracing_properties_of(rhi::api_core& face) noexcept {
             // THE SHADER-BINDING-TABLE NUMBERS, from the device-capability ability: three integers a pass cannot
@@ -374,7 +353,7 @@ namespace deren::engine {
         // and the pipelines that render into the presentation image are created up front (see the
         // contract's own note on the accessor). Asked here, in the constructor, and read from this member
         // by `make_pipeline` and `make_pass_context`.
-        this->swap_chain_image_format = this->rhi_face().frame_swapchain()->format();
+        this->swap_chain_image_format = this->rhi_face().frames->frame_swapchain()->format();
         // THE DEVICE'S CAPABILITIES: a device fact does not change while the device lives, so the five
         // legacy `core::ray_query_available` / `core::mesh_shader_available` reads become one query each.
         // The two derivations are the ENGINE's, from facts the escape exposes (the enabled device
@@ -1255,7 +1234,7 @@ namespace deren::engine {
             // one entry: the alpha-blended pass's secondary (see secondary_pass). The shadow cascades
             // and the main-pass segments own their buffers elsewhere, because they record concurrently.
             deren::utility::vessel::array<rhi::mergeable_command_buffer_ref, static_cast<std::size_t>(secondary_pass::count)> pair = {
-                face.make_mergeable_command_buffer({}), // transparent
+                face.commands->make_mergeable_command_buffer({}), // transparent
             };
             this->secondary_command_buffers.push_back(std::move(pair));
 
@@ -1264,13 +1243,13 @@ namespace deren::engine {
             deren::utility::vessel::vector<rhi::mergeable_command_buffer_ref> cascade_recording;
             cascade_recording.reserve(deren::engine::max_shadow_cascades);
             for (uint32_t cascade = 0; cascade < deren::engine::max_shadow_cascades; ++cascade) {
-                cascade_recording.push_back(face.make_mergeable_command_buffer({}));
+                cascade_recording.push_back(face.commands->make_mergeable_command_buffer({}));
             }
             this->shadow_recording.push_back(std::move(cascade_recording));
             deren::utility::vessel::vector<rhi::mergeable_command_buffer_ref> segments;
             segments.reserve(record_workers);
             for (uint32_t s = 0; s < record_workers; ++s) {
-                segments.push_back(face.make_mergeable_command_buffer({})); // one per worker
+                segments.push_back(face.commands->make_mergeable_command_buffer({})); // one per worker
             }
             this->main_segments.push_back(std::move(segments));
         }

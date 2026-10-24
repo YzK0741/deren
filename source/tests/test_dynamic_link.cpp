@@ -95,21 +95,21 @@ namespace {
 
     // 推送常量的地址与长度都以4字节为单位；越界检查必须避免加法溢出。
 
-    static_assert(rhi::validate_heap_push_range(0u, 4u, 4u) == rhi::error::ok);
+    static_assert(rhi::validate_push_constants_range(0u, 4u, 4u) == rhi::error::ok);
 
-    static_assert(rhi::validate_heap_push_range(4u, 4u, 8u) == rhi::error::ok);
+    static_assert(rhi::validate_push_constants_range(4u, 4u, 8u) == rhi::error::ok);
 
-    static_assert(rhi::validate_heap_push_range(1u, 4u, 8u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_push_constants_range(1u, 4u, 8u) == rhi::error::invalid_argument);
 
-    static_assert(rhi::validate_heap_push_range(0u, 1u, 8u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_push_constants_range(0u, 1u, 8u) == rhi::error::invalid_argument);
 
-    static_assert(rhi::validate_heap_push_range(0u, 0u, 8u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_push_constants_range(0u, 0u, 8u) == rhi::error::invalid_argument);
 
-    static_assert(rhi::validate_heap_push_range(4u, 8u, 8u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_push_constants_range(4u, 8u, 8u) == rhi::error::invalid_argument);
 
-    static_assert(rhi::validate_heap_push_range(12u, 4u, 8u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_push_constants_range(12u, 4u, 8u) == rhi::error::invalid_argument);
 
-    static_assert(rhi::validate_heap_push_range(4u, UINT64_MAX - 3u, 8u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_push_constants_range(4u, UINT64_MAX - 3u, 8u) == rhi::error::invalid_argument);
 
     // ABI 参数误标、截断及未知扩展必须被拒绝；这些用例在编译时执行，不需要GPU。
 
@@ -622,7 +622,7 @@ namespace {
 
         // the frame's command buffer.
 
-        CHECK(rhi::abi_version == 48u);
+        CHECK(rhi::abi_version == 53u);
 
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
 
@@ -715,7 +715,7 @@ namespace {
 
         rhi::error group_error = rhi::error::ok;
 
-        rhi::texture_group_ref const empty_probe_group = core->assign_texture_group(empty_group, &group_error);
+        rhi::texture_group_ref const empty_probe_group = core->resources->assign_texture_group(empty_group, &group_error);
 
         CHECK(empty_probe_group != nullptr);
 
@@ -869,15 +869,15 @@ namespace {
 
         // backend's inner object, not the caller's wrapper).
 
-        rhi::mergeable_command_buffer_ref first_mergeable = core->make_mergeable_command_buffer({});
+        rhi::mergeable_command_buffer_ref first_mergeable = core->commands->make_mergeable_command_buffer({});
 
-        rhi::mergeable_command_buffer_ref second_mergeable = core->make_mergeable_command_buffer({});
+        rhi::mergeable_command_buffer_ref second_mergeable = core->commands->make_mergeable_command_buffer({});
 
         CHECK_MSG(first_mergeable != nullptr && second_mergeable != nullptr, which_half);
 
         if (first_mergeable != nullptr && second_mergeable != nullptr) {
 
-            CHECK(first_mergeable->begin_recording({}) == rhi::error::ok);
+            CHECK(first_mergeable->begin_recording({.usage = rhi::to_bits(rhi::command_buffer_usage::render_pass_continue)}) == rhi::error::ok);
 
             CHECK(first_mergeable->end_recording() == rhi::error::ok);
 
@@ -887,17 +887,17 @@ namespace {
 
             rhi::mergeable_command_buffer_ref const batch[] = {first_mergeable, second_mergeable};
 
-            CHECK_MSG(core->submit(std::span<rhi::mergeable_command_buffer_ref const>(batch)) == rhi::error::ok, which_half);
+            CHECK_MSG(core->commands->submit(std::span<rhi::mergeable_command_buffer_ref const>(batch)) == rhi::error::ok, which_half);
 
             // the same segment twice is not one batch (refused whole, nothing queued)
 
             rhi::mergeable_command_buffer_ref const duplicate[] = {second_mergeable, second_mergeable};
 
-            CHECK(core->submit(std::span<rhi::mergeable_command_buffer_ref const>(duplicate)) == rhi::error::invalid_argument);
+            CHECK(core->commands->submit(std::span<rhi::mergeable_command_buffer_ref const>(duplicate)) == rhi::error::invalid_argument);
 
             // an empty batch is a caller bug
 
-            CHECK(core->submit(std::span<rhi::mergeable_command_buffer_ref const>{}) == rhi::error::invalid_argument);
+            CHECK(core->commands->submit(std::span<rhi::mergeable_command_buffer_ref const>{}) == rhi::error::invalid_argument);
         }
 
         // ---- ABI 36: THE RECORDING-TIME BATCH MERGE -------------------------------------------------
@@ -906,7 +906,7 @@ namespace {
 
         // path the engine's multithreaded passes will use); the batch rules are the submission's.
 
-        rhi::shared_object<rhi::command_buffer> recording_target = core->make_command_buffer({.kind = rhi::command_buffer_kind::primary});
+        rhi::shared_object<rhi::command_buffer> recording_target = core->commands->make_command_buffer({.kind = rhi::command_buffer_kind::primary});
 
         CHECK_MSG(recording_target != nullptr, which_half);
 
@@ -948,7 +948,7 @@ namespace {
 
         // which is exactly what "the shape can be reviewed before the shapes it carries" means.
 
-        rhi::unique_object<rhi::buffer> buffer = core->create_buffer(rhi::buffer_desc{.size = 64u});
+        rhi::unique_object<rhi::buffer> buffer = core->resources->create_buffer(rhi::buffer_desc{.size = 64u});
 
         CHECK(buffer);
 
@@ -994,7 +994,7 @@ namespace {
 
         {
 
-            rhi::unique_object<rhi::buffer> owned{core->create_buffer(rhi::buffer_desc{.size = 128u})};
+            rhi::unique_object<rhi::buffer> owned{core->resources->create_buffer(rhi::buffer_desc{.size = 128u})};
 
             CHECK(static_cast<bool>(owned));
 
@@ -1055,23 +1055,23 @@ namespace {
 
         // which is why this line comes before any `frame_begin()`: nothing is in flight yet.
 
-        CHECK(core->begin_commands() == nullptr);
+        CHECK(core->frames->begin_commands() == nullptr);
 
         // ... and `present()` (abi 14, now answering) refuses that same no-frame state by name: a
 
         // frame that was never acquired has nothing to show.
 
-        CHECK_MSG(core->present() == rhi::error::not_ready, which_half);
+        CHECK_MSG(core->frames->present() == rhi::error::not_ready, which_half);
 
-        rhi::frame_walker* const walker = core->walk_frames();
+        rhi::frame_walker* const walker = core->frames->walk_frames();
 
         CHECK(walker != nullptr);
 
-        CHECK(core->walk_frames() == walker); // the same borrowed view every call, never a new object
+        CHECK(core->frames->walk_frames() == walker); // the same borrowed view every call, never a new object
 
         CHECK(walker->slot_count() == 2u); // the probe's ring
 
-        rhi::submit_info const first = core->frame_begin();
+        rhi::submit_info const first = core->frames->frame_begin();
 
         CHECK(first.frame_index == walker->position()); // one cursor, two faces agreeing
 
@@ -1079,7 +1079,7 @@ namespace {
 
         walker->walk_to_next();
 
-        rhi::submit_info const second = core->frame_begin();
+        rhi::submit_info const second = core->frames->frame_begin();
 
         CHECK(second.frame_index == walker->position());
 
@@ -1109,11 +1109,11 @@ namespace {
 
         // state, checked below).
 
-        rhi::swapchain* const surface = core->frame_swapchain();
+        rhi::swapchain* const surface = core->frames->frame_swapchain();
 
         CHECK(surface != nullptr);
 
-        CHECK(core->frame_swapchain() == surface); // the same borrowed view every call
+        CHECK(core->frames->frame_swapchain() == surface); // the same borrowed view every call
 
         CHECK(surface->extent().width == 3u);
 
@@ -1123,7 +1123,7 @@ namespace {
 
         CHECK(surface->format() == rhi::image_format::bgra8_srgb);
 
-        CHECK(surface->format() == core->frame_image()->format());
+        CHECK(surface->format() == core->frames->frame_image()->format());
 
         CHECK_MSG(surface->recreate() == rhi::error::ok, which_half);
 
@@ -1137,11 +1137,11 @@ namespace {
 
         // index that is not the next mark is refused BY NAME.
 
-        rhi::command_buffer* const commands = core->begin_commands();
+        rhi::command_buffer* const commands = core->frames->begin_commands();
 
         CHECK(commands != nullptr); // a frame is open: wait_and_acquire above opened it
 
-        CHECK(core->begin_commands() == commands);
+        CHECK(core->frames->begin_commands() == commands);
 
         CHECK(commands->begin_gpu_timing() == rhi::error::unsupported);
 
@@ -1159,13 +1159,15 @@ namespace {
 
         foreign_command_buffer foreign_list_stand_in{};
 
-        CHECK_MSG(core->submit(foreign_list_stand_in) == rhi::error::invalid_argument, which_half);
+        CHECK_MSG(core->commands->submit(foreign_list_stand_in) == rhi::error::invalid_argument, which_half);
 
-        CHECK_MSG(core->submit(*commands) == rhi::error::ok, which_half);
+        CHECK_MSG(core->commands->submit(*commands) == rhi::error::invalid_argument, which_half);
 
-        CHECK(core->begin_commands() == nullptr); // handed over: no frame is open to record into
+        CHECK_MSG(core->frames->submit() == rhi::error::ok, which_half);
 
-        CHECK(core->submit(*commands) == rhi::error::not_ready);
+        CHECK(core->frames->begin_commands() == nullptr); // handed over: no frame is open to record into
+
+        CHECK(core->frames->submit() == rhi::error::not_ready);
 
         // ---- the abi 15 surface: the OWNED command buffer ---------------------------------------
 
@@ -1175,7 +1177,7 @@ namespace {
 
         // answers with the SAME pointer, and what this block measures is the LIFE CYCLE, not identity.
 
-        rhi::unique_object<rhi::command_buffer> recorded = core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::primary});
+        rhi::unique_object<rhi::command_buffer> recorded = core->commands->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::primary});
 
         CHECK_MSG(static_cast<bool>(recorded), which_half);
 
@@ -1198,6 +1200,14 @@ namespace {
             CHECK(recorded->begin_recording(rhi::command_buffer_begin_info{.usage = rhi::to_bits(rhi::command_buffer_usage::one_time_submit)}) == rhi::error::ok);
 
             CHECK(recorded->end_recording() == rhi::error::ok);
+            CHECK(recorded->apply_operations() == rhi::error::not_ready);
+            CHECK(recorded->begin_recording({}) == rhi::error::ok);
+            recorded->draw(3, 1, 0, 0);
+            CHECK(recorded->apply_operations() == rhi::error::invalid_argument);
+            CHECK(recorded->end_recording() == rhi::error::invalid_argument);
+            CHECK(recorded->begin_recording({}) == rhi::error::ok);
+            CHECK(recorded->apply_operations() == rhi::error::ok);
+            CHECK(recorded->end_recording() == rhi::error::ok);
 
             CHECK_MSG(recorded->begin_gpu_timing() == rhi::error::not_ready, which_half); // the frame's range is not this buffer's
 
@@ -1207,7 +1217,7 @@ namespace {
 
             // which the mergeable blocks above drive end to end.
 
-            CHECK_MSG(!core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary}), which_half);
+            CHECK_MSG(!core->commands->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary}), which_half);
 
             // DROPPING the container drops the one reference, and the probe echoes it: every later verb is
 
@@ -1222,7 +1232,7 @@ namespace {
 
         // a kind outside the two roles is the factory's one refusal (`nullptr`, the contract's rule)
 
-        CHECK(!core->create_command_buffer(rhi::command_buffer_desc{.kind = static_cast<rhi::command_buffer_kind>(99u)}));
+        CHECK(!core->commands->create_command_buffer(rhi::command_buffer_desc{.kind = static_cast<rhi::command_buffer_kind>(99u)}));
 
         // ---- the abi 16 surface: THE WIDENED SAMPLER DESCRIPTOR -----------------------------------
 
@@ -1258,7 +1268,7 @@ namespace {
 
             desc.compare_op = rhi::sampler_compare_op::less_or_equal;
 
-            rhi::unique_object<rhi::sampler> made = core->create_sampler(desc);
+            rhi::unique_object<rhi::sampler> made = core->resources->create_sampler(desc);
 
             CHECK_MSG(static_cast<bool>(made), which_half);
 
@@ -1290,11 +1300,11 @@ namespace {
 
         // constant zero and a named refusal, never silence and never a fake measurement
 
-        rhi::gpu_profiler* const profiler = core->profiler();
+        rhi::gpu_profiler* const profiler = core->frames->profiler();
 
         CHECK(profiler != nullptr);
 
-        CHECK(core->profiler() == profiler);
+        CHECK(core->frames->profiler() == profiler);
 
         CHECK(profiler->stage_count() == 0u);
 
@@ -1308,7 +1318,7 @@ namespace {
 
         // and the present that answers: a frame was acquired, so the probe echoes the call with ok
 
-        CHECK_MSG(core->present() == rhi::error::ok, which_half);
+        CHECK_MSG(core->frames->present() == rhi::error::ok, which_half);
 
         core->wait_idle();
 
@@ -1324,7 +1334,7 @@ namespace {
 
         {
 
-            rhi::image* const frame = core->frame_image();
+            rhi::image* const frame = core->frames->frame_image();
 
             CHECK_MSG(frame != nullptr, which_half); // a frame is open at this point in the probe's fiction
 

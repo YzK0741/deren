@@ -291,7 +291,7 @@ struct probe_address : rhi::device_address {
         return buffer.index == zero_at ? 0 : buffer.index * 4096ull + (buffer.index == unaligned_at ? 1 : 0);
     }
 };
-struct upload_probe : rhi::api_core {
+struct upload_probe : rhi::api_core, rhi::resource_factory, rhi::command_context, rhi::frame_context {
     void release() noexcept override {
     }
     bool supported = true;
@@ -303,6 +303,7 @@ struct upload_probe : rhi::api_core {
     deren::utility::vessel::vector<deren::utility::vessel::vector<std::byte>> bytes;
     upload_probe()
         : api_core("gaussian_upload_probe") {
+        bind_views(*this, *this, *this);
     }
     rhi::ability_bits abilities() const noexcept override {
         return supported ? rhi::to_bits(rhi::extension_kind::device_address) : 0;
@@ -382,6 +383,9 @@ struct upload_probe : rhi::api_core {
     }
     rhi::swapchain* frame_swapchain() noexcept override {
         return nullptr;
+    }
+    rhi::error submit() override {
+        return rhi::error::unsupported;
     }
     rhi::error submit(rhi::command_buffer&) override {
         return rhi::error::unsupported;

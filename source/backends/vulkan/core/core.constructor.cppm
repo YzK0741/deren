@@ -150,6 +150,7 @@ namespace deren::vulkan {
     core::core(deren::promise::rhi::create_info const& desc)
         : deren::promise::rhi::api_core(concrete::api_core)
         , create_options{sanitize_create_info(desc)} {
+        bind_views(*this, *this, *this);
         // THE RENDER SCALE BEFORE ANYTHING IS CREATED: `init_swap_chain` below sets `swap_chain_extent`,
         // which `render_extent()` multiplies, and `create_depth_resources` is created with the result (the
         // ENGINE's render targets are created with it too, but by the engine, through the contract).
@@ -254,6 +255,13 @@ namespace deren::vulkan {
                 // THE LAYOUT, reserved once and published (see core.cppm): the runtime WRITES the contents, the
                 // pipeline builders build the mappings, and both read these two numbers rather than computing their
                 // own - the one way this design has of being wrong without anything saying so.
+                // Reserve the private texture-group range before any dynamic descriptors.
+                if (heap_grid_offset != VK_WHOLE_SIZE) {
+                    VkDeviceSize const base = VkDeviceSize(texture_group_state::table_slot) * 64u;
+                    auto const offset = descriptor_heaps.reserve_bytes(2049u * 64u, base);
+                    if (offset == base)
+                        texture_groups.reserved_offset = offset;
+                }
                 this->heap_texture_array_offset = this->descriptor_heaps.reserve(scene_texture_capacity, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
                 this->heap_material_table_offset = this->descriptor_heaps.reserve(1u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
                 deren::utility::log("descriptor heap: layout reserved (texture array at {}, material table at {})", this->heap_texture_array_offset, this->heap_material_table_offset);
@@ -304,6 +312,7 @@ namespace deren::vulkan {
         this->descriptor_space_view.owner = this;
         this->address_view.owner = this;
         this->sorting_view.owner = this;
+        this->completion_view.owner = this;
         this->async_presentation_view.owner = this;
         this->host_copy_view.owner = this;
         // THE DEVICE-CAPABILITY VIEW READS THIS CORE'S CACHED FACTS, so it needs the owner exactly as the views
@@ -357,7 +366,11 @@ namespace deren::vulkan {
     core::~core() {
         this->wait_idle();
         this->present_worker.reset();
+        if (completion_timeline != VK_NULL_HANDLE) {
+            vkDestroySemaphore(logical_device, completion_timeline, nullptr);
+        }
         commands_view.group_refs.clear();
+        commands_view.resource_refs.clear();
         commands_view.secondary_refs.clear();
         texture_groups.cache.clear();
         texture_groups.dummy_view.reset();

@@ -178,7 +178,7 @@ int main(int const argc, char** const argv) {
 
     // handshake number moved with it.
 
-    CHECK(rhi::abi_version == 48u);
+    CHECK(rhi::abi_version == 53u);
 
     if (!wants_device(argc, argv)) {
 
@@ -272,9 +272,9 @@ int main(int const argc, char** const argv) {
 
             // measured on the same real device here.
 
-            auto secondary = face.make_mergeable_command_buffer({});
+            auto secondary = face.commands->make_mergeable_command_buffer({});
 
-            auto primary = face.make_command_buffer({});
+            auto primary = face.commands->make_command_buffer({});
 
             CHECK(secondary && primary);
 
@@ -304,7 +304,7 @@ int main(int const argc, char** const argv) {
 
         CHECK(face.type == "deren_api_core_vulkan");
 
-        auto commands = face.make_command_buffer({});
+        auto commands = face.commands->make_command_buffer({});
 
         CHECK(commands != nullptr);
 
@@ -339,7 +339,7 @@ int main(int const argc, char** const argv) {
 
         rhi::error group_error = rhi::error::invalid_argument;
 
-        auto empty_group = face.assign_texture_group(empty_info, &group_error);
+        auto empty_group = face.resources->assign_texture_group(empty_info, &group_error);
 
         CHECK(empty_group && group_error == rhi::error::ok);
 
@@ -347,11 +347,11 @@ int main(int const argc, char** const argv) {
 
         empty_info.textures[15] = nullptr;
 
-        CHECK(face.assign_texture_group(empty_info, &group_error) && group_error == rhi::error::ok);
+        CHECK(face.resources->assign_texture_group(empty_info, &group_error) && group_error == rhi::error::ok);
 
         empty_info.struct_size = sizeof(empty_info) - 1u;
 
-        CHECK(!face.assign_texture_group(empty_info, &group_error));
+        CHECK(!face.resources->assign_texture_group(empty_info, &group_error));
 
         CHECK(group_error == rhi::error::invalid_argument);
 
@@ -363,7 +363,7 @@ int main(int const argc, char** const argv) {
 
         parent_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
 
-        rhi::unique_object<rhi::image> original{face.create_image(parent_desc)};
+        rhi::unique_object<rhi::image> original{face.resources->create_image(parent_desc)};
 
         CHECK(original);
 
@@ -386,7 +386,7 @@ int main(int const argc, char** const argv) {
 
                 invalid_desc.flags = rhi::to_bits(rhi::image_flag::storage);
 
-            rhi::unique_object<rhi::image> invalid{face.create_image(invalid_desc)};
+            rhi::unique_object<rhi::image> invalid{face.resources->create_image(invalid_desc)};
 
             CHECK(invalid);
 
@@ -396,7 +396,7 @@ int main(int const argc, char** const argv) {
 
                 info.textures[0] = invalid.get();
 
-                CHECK(!face.assign_texture_group(info, &group_error));
+                CHECK(!face.resources->assign_texture_group(info, &group_error));
 
                 CHECK(group_error == rhi::error::invalid_argument);
             }
@@ -416,7 +416,7 @@ int main(int const argc, char** const argv) {
 
                 rhi::shared_object<rhi::image>::weak lifetime = retained;
 
-                auto group = face.assign_texture_group(info, &group_error);
+                auto group = face.resources->assign_texture_group(info, &group_error);
 
                 retained.reset();
 
@@ -437,7 +437,7 @@ int main(int const argc, char** const argv) {
 
                 for (std::size_t i = 0; i < inputs.size(); ++i) {
 
-                    inputs[i] = rhi::unique_object<rhi::image>(face.create_image(parent_desc));
+                    inputs[i] = rhi::unique_object<rhi::image>(face.resources->create_image(parent_desc));
 
                     CHECK(inputs[i]);
 
@@ -448,20 +448,20 @@ int main(int const argc, char** const argv) {
 
                 for (unsigned i = 0; i < 1024; ++i) {
 
-                    groups.push_back(face.assign_texture_group(info, &group_error));
+                    groups.push_back(face.resources->assign_texture_group(info, &group_error));
 
                     CHECK(groups.back() && group_error == rhi::error::ok);
                 }
 
-                CHECK(!face.assign_texture_group(info, &group_error));
+                CHECK(!face.resources->assign_texture_group(info, &group_error));
 
                 CHECK(group_error == rhi::error::out_of_device_memory);
 
-                CHECK(face.assign_texture_group({}, &group_error) && group_error == rhi::error::ok);
+                CHECK(face.resources->assign_texture_group({}, &group_error) && group_error == rhi::error::ok);
 
                 groups[500].reset();
 
-                auto replacement = face.assign_texture_group(info, &group_error);
+                auto replacement = face.resources->assign_texture_group(info, &group_error);
 
                 CHECK(replacement && group_error == rhi::error::ok);
             }
@@ -474,7 +474,7 @@ int main(int const argc, char** const argv) {
 
                 if (other_device) {
 
-                    rhi::unique_object<rhi::image> foreign{other_device->create_image(parent_desc)};
+                    rhi::unique_object<rhi::image> foreign{other_device->resources->create_image(parent_desc)};
 
                     CHECK(foreign);
 
@@ -482,7 +482,7 @@ int main(int const argc, char** const argv) {
 
                     info.textures[0] = foreign.get();
 
-                    CHECK(!face.assign_texture_group(info, &group_error));
+                    CHECK(!face.resources->assign_texture_group(info, &group_error));
 
                     CHECK(group_error == rhi::error::invalid_argument);
                 }
@@ -490,7 +490,7 @@ int main(int const argc, char** const argv) {
 
             {
 
-                rhi::unique_object<rhi::image> released{face.create_image(parent_desc)};
+                rhi::unique_object<rhi::image> released{face.resources->create_image(parent_desc)};
 
                 auto retained = released->share();
 
@@ -500,7 +500,7 @@ int main(int const argc, char** const argv) {
 
                 info.textures[0] = released.get();
 
-                auto group = face.assign_texture_group(info, &group_error);
+                auto group = face.resources->assign_texture_group(info, &group_error);
 
                 retained.reset();
 
@@ -598,12 +598,12 @@ int main(int const argc, char** const argv) {
 
         for (auto const usage : {rhi::buffer_usage::storage_coherent, rhi::buffer_usage::vertex, rhi::buffer_usage::index}) {
 
-            rhi::unique_object<rhi::buffer> invalid{face.create_buffer({.size = bytes.size(), .usage = usage, .initial_bytes = short_input})};
+            rhi::unique_object<rhi::buffer> invalid{face.resources->create_buffer({.size = bytes.size(), .usage = usage, .initial_bytes = short_input})};
 
             CHECK_MSG(!invalid, "a nonempty initialization span shorter than the allocation must be refused");
         }
 
-        rhi::unique_object<rhi::buffer> initialized{face.create_buffer({.size = short_input.size(), .usage = rhi::buffer_usage::storage_coherent, .initial_bytes = short_input})};
+        rhi::unique_object<rhi::buffer> initialized{face.resources->create_buffer({.size = short_input.size(), .usage = rhi::buffer_usage::storage_coherent, .initial_bytes = short_input})};
 
         CHECK(initialized);
 
@@ -612,7 +612,7 @@ int main(int const argc, char** const argv) {
             CHECK(std::equal(short_input.begin(), short_input.end(), initialized->mapped().begin()));
         }
 
-        rhi::unique_object<rhi::buffer> allocation_only{face.create_buffer({.size = bytes.size(), .usage = rhi::buffer_usage::storage_coherent})};
+        rhi::unique_object<rhi::buffer> allocation_only{face.resources->create_buffer({.size = bytes.size(), .usage = rhi::buffer_usage::storage_coherent})};
 
         CHECK(allocation_only);
 
@@ -626,7 +626,10 @@ int main(int const argc, char** const argv) {
 
             CHECK(heap->bind({}) == rhi::error::invalid_argument);
 
-            CHECK(heap->push_data({.data = short_input.first(4)}) == rhi::error::invalid_argument);
+            auto unrecorded = face.commands->make_command_buffer({});
+            CHECK(unrecorded);
+            if (unrecorded)
+                CHECK(unrecorded->push_constants(0u, short_input.first(4)) == rhi::error::not_ready);
         }
 
         rhi::ability_bits const abilities = face.abilities();
@@ -639,7 +642,7 @@ int main(int const argc, char** const argv) {
 
         CHECK(rhi::has_ability(abilities, rhi::extension_kind::device_address));
 
-        CHECK(face.frame_swapchain() != nullptr);
+        CHECK(face.frames->frame_swapchain() != nullptr);
 
         auto const async_present = rhi::extension_kind::async_presentation;
 
@@ -654,21 +657,21 @@ int main(int const argc, char** const argv) {
             CHECK(overlap->begin().get() == rhi::error::not_ready);
         }
 
-        CHECK(face.frame_swapchain()->format() != rhi::image_format::unknown);
+        CHECK(face.frames->frame_swapchain()->format() != rhi::image_format::unknown);
 
-        CHECK(face.present() == rhi::error::unsupported);
+        CHECK(face.frames->present() == rhi::error::unsupported);
 
-        CHECK(face.frame_swapchain()->recreate() == rhi::error::unsupported);
+        CHECK(face.frames->frame_swapchain()->recreate() == rhi::error::unsupported);
 
-        CHECK(face.frame_swapchain()->extent().width == 640u);
+        CHECK(face.frames->frame_swapchain()->extent().width == 640u);
 
-        CHECK(face.frame_swapchain()->extent().height == 480u);
+        CHECK(face.frames->frame_swapchain()->extent().height == 480u);
 
-        auto const acquired_frame = face.frame_begin();
+        auto const acquired_frame = face.frames->frame_begin();
 
         (void)acquired_frame;
 
-        auto* const borrowed_image = face.frame_image();
+        auto* const borrowed_image = face.frames->frame_image();
 
         CHECK(borrowed_image != nullptr);
 
@@ -678,7 +681,7 @@ int main(int const argc, char** const argv) {
 
             info.textures[0] = borrowed_image;
 
-            CHECK(!face.assign_texture_group(info, &group_error));
+            CHECK(!face.resources->assign_texture_group(info, &group_error));
 
             CHECK(group_error == rhi::error::invalid_argument);
 
@@ -702,9 +705,9 @@ int main(int const argc, char** const argv) {
 
             if (frame != 0)
 
-                (void)face.walk_frames()->wait_and_acquire();
+                (void)face.frames->walk_frames()->wait_and_acquire();
 
-            auto* const recording = face.begin_commands();
+            auto* const recording = face.frames->begin_commands();
 
             CHECK(recording != nullptr);
 
@@ -714,12 +717,12 @@ int main(int const argc, char** const argv) {
 
                 CHECK(recording->end_recording() == rhi::error::ok);
 
-                CHECK(face.submit(*recording) == rhi::error::ok);
+                CHECK(face.commands->submit(*recording) == rhi::error::ok);
             }
 
-            CHECK(face.present() == rhi::error::unsupported);
+            CHECK(face.frames->present() == rhi::error::unsupported);
 
-            face.walk_frames()->walk_to_next();
+            face.frames->walk_frames()->walk_to_next();
         }
 
         face.wait_idle();
@@ -728,7 +731,7 @@ int main(int const argc, char** const argv) {
 
         deren::vk_test::write_line("runtime_dyn: constructed through deren_make_api_core(); presentation format = {}",
 
-                                   static_cast<std::uint32_t>(face.frame_swapchain()->format()));
+                                   static_cast<std::uint32_t>(face.frames->frame_swapchain()->format()));
     }
 
     CHECK(renderer_window_count() == windows_before);

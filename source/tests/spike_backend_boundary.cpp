@@ -130,8 +130,8 @@ namespace {
      * because "not handed out by the backend" is what this side knows and the DLL cannot.
      */
     struct foreign_command_buffer final : rhi::command_buffer {
-        foreign_command_buffer() noexcept
-            : rhi::command_buffer("foreign_command_buffer") {
+        explicit foreign_command_buffer(std::string_view tag = "foreign_command_buffer") noexcept
+            : rhi::command_buffer(tag) {
         }
         // the owner-side lifecycle, in the same everything-refused shape: this stand-in is "not
         // handed out by the backend" for BOTH questions the contract asks (submit's list and
@@ -355,7 +355,7 @@ namespace {
             host_visible.flags = rhi::to_bits(rhi::buffer_flag::device_address);
             host_visible.initial_bytes = std::span<std::byte const>(initial_bytes.data(), initial_bytes.size());
 
-            rhi::unique_object<rhi::buffer> owned{core->create_buffer(host_visible)};
+            rhi::unique_object<rhi::buffer> owned{core->resources->create_buffer(host_visible)};
             CHECK(static_cast<bool>(owned));
             if (owned) {
                 CHECK(owned->size() == 64u);
@@ -369,7 +369,7 @@ namespace {
             rhi::buffer_desc gpu_only{};
             gpu_only.size = 256u;
             gpu_only.usage = rhi::buffer_usage::storage_gpu_only;
-            rhi::unique_object<rhi::buffer> device_local{core->create_buffer(gpu_only)};
+            rhi::unique_object<rhi::buffer> device_local{core->resources->create_buffer(gpu_only)};
             CHECK(static_cast<bool>(device_local));
             if (device_local) {
                 CHECK(device_local->size() == 256u);
@@ -378,7 +378,7 @@ namespace {
 
             mark("create_buffer: a zero-byte descriptor is refused by name-less nullptr (no buffer asked for)");
             rhi::buffer_desc nothing{};
-            CHECK(!core->create_buffer(nothing));
+            CHECK(!core->resources->create_buffer(nothing));
 
             // ---- THE device_address ABILITY, ON A REAL ALLOCATION ---------------------------------
             // The descriptor asked for `buffer_flag::device_address`, so the ability has to answer with
@@ -423,8 +423,8 @@ namespace {
             rhi::sampler_desc default_desc{};
             default_desc.address_mode = rhi::sampler_address_mode::repeat;
             default_desc.max_lod = 12.0f;
-            rhi::unique_object<rhi::sampler> compare_sampler{core->create_sampler(compare_desc)};
-            rhi::unique_object<rhi::sampler> default_sampler{core->create_sampler(default_desc)};
+            rhi::unique_object<rhi::sampler> compare_sampler{core->resources->create_sampler(compare_desc)};
+            rhi::unique_object<rhi::sampler> default_sampler{core->resources->create_sampler(default_desc)};
             CHECK(static_cast<bool>(compare_sampler));
             CHECK(static_cast<bool>(default_sampler));
             if (compare_sampler && default_sampler) {
@@ -450,7 +450,7 @@ namespace {
             }
             image_desc.initial_bytes = std::span<std::byte const>(texels.data(), texels.size());
 
-            rhi::unique_object<rhi::image> image_handle{core->create_image(image_desc)};
+            rhi::unique_object<rhi::image> image_handle{core->resources->create_image(image_desc)};
             CHECK(static_cast<bool>(image_handle));
             if (image_handle) {
                 CHECK(image_handle->extent().width == 4u);
@@ -489,13 +489,13 @@ namespace {
             rhi::shader_desc empty_shader{};
             empty_shader.stage = rhi::shader_stage::vertex;
             empty_shader.debug_name = "spike empty shader";
-            CHECK(!core->create_shader(empty_shader));
+            CHECK(!core->resources->create_shader(empty_shader));
             rhi::image_format const bad_formats[] = {rhi::image_format::unknown};
             rhi::pipeline_desc bad_pipeline{};
             bad_pipeline.color_formats = std::span<rhi::image_format const>(bad_formats);
             bad_pipeline.vertex_code = std::span<std::byte const>();
             bad_pipeline.debug_name = "spike unknown-format pipeline";
-            CHECK(!core->create_pipeline(bad_pipeline));
+            CHECK(!core->resources->create_pipeline(bad_pipeline));
 
             // ---- THE FRAME FACE (abi 13): the two borrowed views, on the real device --------------
             // STRUCTURE ONLY, ON PURPOSE: the contract has no submit verb yet, so a frame this test
@@ -507,14 +507,14 @@ namespace {
             // "no-timing device" refusal (this machine times) and the named-stage report after real
             // marks (the engine's frame loop, once it walks the face) are witnessed where they run.
             mark("walk_frames/profiler: the frame face's two borrowed views");
-            rhi::frame_walker* const walker = core->walk_frames();
+            rhi::frame_walker* const walker = core->frames->walk_frames();
             CHECK(walker != nullptr);
-            CHECK(core->walk_frames() == walker); // the same borrowed view every call, never a new object
+            CHECK(core->frames->walk_frames() == walker); // the same borrowed view every call, never a new object
             CHECK(walker->slot_count() > 0u);
             CHECK(walker->position() < walker->slot_count()); // the cursor, read before any frame
-            rhi::gpu_profiler* const profiler = core->profiler();
+            rhi::gpu_profiler* const profiler = core->frames->profiler();
             CHECK(profiler != nullptr);
-            CHECK(core->profiler() == profiler);
+            CHECK(core->frames->profiler() == profiler);
             CHECK(profiler->stage_count() == 0u); // nothing has latched: no frame has run in this test
             std::string_view stage_name{};
             std::uint64_t duration_ns = 0;
@@ -534,9 +534,9 @@ namespace {
             // abi 14's positional mark rule is witnessed on the probe's device-less list by
             // source/tests/test_dynamic_link.cpp.)
             mark("frame_swapchain: the presentation surface's borrowed view");
-            rhi::swapchain* const surface = core->frame_swapchain();
+            rhi::swapchain* const surface = core->frames->frame_swapchain();
             CHECK(surface != nullptr);
-            CHECK(core->frame_swapchain() == surface); // the same borrowed view every call, never a new object
+            CHECK(core->frames->frame_swapchain() == surface); // the same borrowed view every call, never a new object
             rhi::image_extent const output = surface->extent();
             // A real swapchain exists in this context, and a zero-sized one is the deferred state
             // (the constructor's build path never created targets from it), so the extent is real.
@@ -554,19 +554,43 @@ namespace {
             // is the structural fact this context can witness about them - the handle the verbs
             // would be called on does not exist, so an out-of-order mark cannot even be attempted
             // here (its refusal is measured where a list exists, see the note above).
-            CHECK(core->begin_commands() == nullptr);
+            CHECK(core->frames->begin_commands() == nullptr);
 
             // SUBMIT: with no frame context the list to hand over does not exist. What this test CAN
             // measure is the other half of the verb's precondition - a list the backend never handed
             // out is refused BY NAME, never accepted and never guessed at.
             foreign_command_buffer foreign{};
-            CHECK_MSG(core->submit(foreign) == rhi::error::invalid_argument,
+            CHECK_MSG(core->commands->submit(foreign) == rhi::error::invalid_argument,
                       "a command list this backend did not hand out is refused by name");
+            auto* const heap = rhi::query_extension<rhi::descriptor_heap>(*core);
+            auto* const sync = rhi::query_extension<rhi::scoped_synchronization>(*core);
+            auto* const sorting = rhi::query_extension<rhi::gpu_sorting>(*core);
+            rhi::unique_object<rhi::radix_sorter> sorter{sorting ? sorting->create_radix_sorter() : nullptr};
+            if (!sorter) {
+                mark("radix recorder checks skipped: GPU sorting is unavailable");
+            }
+            CHECK(heap && heap->ready());
+            CHECK(sync);
+            std::uint32_t const push_word = 0;
+            for (auto tag : {"foreign_command_buffer", "deren_command_buffer_vulkan", "deren_mergeable_command_buffer_vulkan", "deren_frame_commands_vulkan"}) {
+                foreign_command_buffer impostor(tag);
+                rhi::command_recorder& recorder = impostor;
+                if (heap && heap->ready()) {
+                    CHECK(heap->bind({.commands = &recorder}) == rhi::error::invalid_argument);
+                    CHECK(recorder.push_constants(0u, std::as_bytes(std::span(&push_word, 1))) == rhi::error::unsupported);
+                }
+                if (sync) {
+                    CHECK(sync->record(recorder, {}, {}) == rhi::error::invalid_argument);
+                }
+                if (sorter) {
+                    CHECK(sorter->record(recorder, {}) == rhi::error::invalid_argument);
+                }
+            }
 
             // PRESENT: no frame was ever acquired, so there is nothing to show - the answer is
             // `not_ready`, and the backend never reaches vkQueuePresentKHR with a present-ready
             // semaphore nothing has signalled (which is exactly why that guard exists).
-            CHECK_MSG(core->present() == rhi::error::not_ready,
+            CHECK_MSG(core->frames->present() == rhi::error::not_ready,
                       "present with no acquired frame is refused by name, not run");
 
             // ---- THE OWNED COMMAND BUFFER (abi 15), ON THE REAL DEVICE ---------------------------
@@ -575,14 +599,14 @@ namespace {
             // primary executes the secondary and submits without a frame. Presentation is covered
             // by the engine's frame path and the render gate.
             mark("create_command_buffer: an owned primary, recorded and merged with a mergeable batch");
-            rhi::unique_object<rhi::command_buffer> primary{core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::primary})};
-            auto secondary = core->make_mergeable_command_buffer({});
+            rhi::unique_object<rhi::command_buffer> primary{core->commands->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::primary})};
+            auto secondary = core->commands->make_mergeable_command_buffer({});
             CHECK(static_cast<bool>(primary));
             CHECK(secondary != nullptr);
             // abi 37: the secondary KIND is retired - the factory refuses it by name, and any kind outside
             // the one remaining contract role is the factory's refusal too.
-            CHECK(!core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary}));
-            CHECK(!core->create_command_buffer(rhi::command_buffer_desc{.kind = static_cast<rhi::command_buffer_kind>(99u)}));
+            CHECK(!core->commands->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary}));
+            CHECK(!core->commands->create_command_buffer(rhi::command_buffer_desc{.kind = static_cast<rhi::command_buffer_kind>(99u)}));
             if (primary && secondary != nullptr) {
                 CHECK(primary->type == "deren_command_buffer_vulkan");
                 // THE BORROWED RECORDING VIEW IS GONE WITH `command_list` (its `recording()` and the
@@ -590,7 +614,7 @@ namespace {
                 // this line used to draw - the view is NOT the frame's list - is drawn against the
                 // frame's own buffer instead: `begin_commands()` answers nothing outside a frame
                 // (checked above), and the owned buffer is a different object from it.
-                CHECK(core->begin_commands() != static_cast<rhi::command_buffer*>(&*primary));
+                CHECK(core->frames->begin_commands() != static_cast<rhi::command_buffer*>(&*primary));
                 // X4 accepts recorded caller-owned primaries; submit is tested after end_recording
                 // below. An allocated but unrecorded native buffer is not valid submission input.
                 rhi::error const timing_open = primary->begin_gpu_timing();
@@ -610,13 +634,43 @@ namespace {
                 // THE SEGMENT, the executable path: recorded with no usage flags (so executing it
                 // outside a render pass instance is legal) and ended - only an ended segment may be merged.
                 CHECK(secondary->begin_recording(rhi::command_buffer_begin_info{}) == rhi::error::ok);
+                rhi::command_recorder& recorder = *secondary;
+                if (sorter) {
+                    CHECK(sorter->record(recorder, {}) == rhi::error::ok);
+                }
+                if (heap && heap->ready()) {
+                    CHECK(heap->bind({.commands = &recorder}) == rhi::error::ok);
+                    CHECK(recorder.push_constants(0u, std::as_bytes(std::span(&push_word, 1))) == rhi::error::ok);
+                }
+                if (sync) {
+                    CHECK(sync->record(recorder, {}, {}) == rhi::error::ok);
+                    if (owned) {
+                        namespace sync_types = rhi::synchronization;
+                        rhi::scoped_buffer_barrier const transition{
+                            .resource = owned.get(),
+                            .transition = {.before = {sync_types::stage::compute_shader, sync_types::access::write},
+                                           .after = {sync_types::stage::compute_shader, sync_types::access::read},
+                                           .size = owned->size()}};
+                        CHECK(sync->record(recorder, {}, std::span(&transition, 1)) == rhi::error::ok);
+                    }
+                }
                 CHECK(secondary->end_recording() == rhi::error::ok);
+                if (sorter) {
+                    CHECK(sorter->record(recorder, {}) == rhi::error::not_ready);
+                }
+                if (heap && heap->ready()) {
+                    CHECK(heap->bind({.commands = &recorder}) == rhi::error::not_ready);
+                    CHECK(recorder.push_constants(0u, std::as_bytes(std::span(&push_word, 1))) == rhi::error::not_ready);
+                }
+                if (sync) {
+                    CHECK(sync->record(recorder, {}, {}) == rhi::error::not_ready);
+                }
 
                 // THE CHAIN: a `render_pass_continue` continuation must declare its attachment
                 // inheritance, and that rides the tagged structure - the portable begin info stays free
                 // of Vulkan's attachment model. Here the inheritance is EMPTY (no colour, no depth) and
                 // a chain this backend does not serve is refused BY NAME, never dropped.
-                auto continuation = core->make_mergeable_command_buffer({});
+                auto continuation = core->commands->make_mergeable_command_buffer({});
                 CHECK(continuation != nullptr);
                 if (continuation) {
                     deren::utility::vessel::array<rhi::image_format, 1> const portable_formats{rhi::image_format::rgba8_unorm};
@@ -655,7 +709,7 @@ namespace {
                 CHECK_MSG(primary->execute(std::span<rhi::mergeable_command_buffer_ref const>(batch)) == rhi::error::ok,
                           "an ended mergeable segment is merged by the recording primary");
                 CHECK(primary->end_recording() == rhi::error::ok);
-                CHECK_MSG(core->submit(*primary) == rhi::error::ok,
+                CHECK_MSG(core->commands->submit(*primary) == rhi::error::ok,
                           "a recorded owned primary submits without acquiring a frame");
                 core->wait_idle(); // keep both buffers alive until execution completes
             }

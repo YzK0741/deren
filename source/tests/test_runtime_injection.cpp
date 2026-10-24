@@ -257,14 +257,14 @@ namespace {
         image_desc.extent = {.width = 4, .height = 4, .depth = 1};
         image_desc.format = rhi::image_format::rgba8_unorm;
         image_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
-        rhi::unique_object<rhi::image> image = core->create_image(image_desc);
+        rhi::unique_object<rhi::image> image = core->resources->create_image(image_desc);
         CHECK(image);
         if (!image)
             return;
         rhi::texture_group_info info{};
         info.textures[2] = image.get();
         rhi::error assign_error = rhi::error::ok;
-        rhi::texture_group_ref group = core->assign_texture_group(info, &assign_error);
+        rhi::texture_group_ref group = core->resources->assign_texture_group(info, &assign_error);
         CHECK(group != nullptr);
         CHECK(assign_error == rhi::error::ok);
         auto* const space = rhi::query_extension<rhi::descriptor_space>(*core);
@@ -346,11 +346,19 @@ int main(int const argc, char** const argv) {
         CHECK(engine.begin_recording() == deren::engine::frame_status::proceed);
         float observed_history = -1;
         pass::resolved_io io;
-        io.list = device->begin_commands();
+        io.list = device->frames->begin_commands();
         CHECK(io.list != nullptr);
         if (io.list == nullptr) {
             return deren::vk_test::finish("post_resources");
         }
+        // record_owned normally runs after the host binds its pipeline. Mirror that precondition
+        // in this direct pass probe now that application validates deferred consumers.
+        deren::vk_test::probe_graphics_enabled(*device, true);
+        auto fixture_pipeline = device->resources->create_pipeline({});
+        deren::vk_test::probe_graphics_enabled(*device, false);
+        CHECK(fixture_pipeline);
+        if (fixture_pipeline)
+            CHECK(io.list->bind_pipeline(*fixture_pipeline) == rhi::error::ok);
         // Mirror the host's two views of the same frame-owned recording object.
         io.cmd = rhi::shared_object<rhi::command_buffer>::borrow(*io.list);
         io.frame.image_count = rhi::max_swapchain_images;
@@ -402,7 +410,7 @@ int main(int const argc, char** const argv) {
         auto* before = deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::taa_history));
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
         CHECK(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::taa_history)) == before);
-        CHECK(device->begin_commands() == nullptr);
+        CHECK(device->frames->begin_commands() == nullptr);
         // Check Bloom rounding, history reuse and growth rollback on an independent chain.
         context.render_extent = {.width = 9, .height = 7, .depth = 1};
         CHECK(replacement.prepare_resources(device, context) == rhi::error::ok);
@@ -437,7 +445,7 @@ int main(int const argc, char** const argv) {
         auto* hdr = deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::post_color));
         deren::vk_test::probe_resource_failure(*device, 0);
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
-        CHECK(device->begin_commands() == nullptr);
+        CHECK(device->frames->begin_commands() == nullptr);
         CHECK(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::post_color)) == hdr);
         deren::vk_test::probe_resource_failure(*device, -1);
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
@@ -521,14 +529,14 @@ int main(int const argc, char** const argv) {
         auto* before = deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::post_color));
         engine.set_pass_chain(bad_chain, {});
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
-        CHECK(device->begin_commands() == nullptr);
+        CHECK(device->frames->begin_commands() == nullptr);
         CHECK(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::post_color)) == before);
         pass::pass_chain allocation_failure;
         allocation_failure.emplace<pass::output_targets_pass>();
         engine.set_pass_chain(allocation_failure, {});
         deren::vk_test::probe_resource_failure(*device, 0);
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
-        CHECK(device->begin_commands() == nullptr);
+        CHECK(device->frames->begin_commands() == nullptr);
         CHECK(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::post_color)) == before);
         deren::vk_test::probe_resource_failure(*device, -1);
         engine.set_pass_chain(*replacement, {});
@@ -786,12 +794,12 @@ int main(int const argc, char** const argv) {
         engine.set_pass_chain(invalid, {});
         auto* old_binding = actual.data();
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
-        CHECK(device->begin_commands() == nullptr);
+        CHECK(device->frames->begin_commands() == nullptr);
         CHECK(deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(layout::heap_slots::materials)).data() == old_binding);
         invalid_provider.need.buffer.size = required_tables[0].buffer.size;
         invalid_provider.need.scope = rr::resource_scope::per_frame_slot;
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
-        CHECK(device->begin_commands() == nullptr);
+        CHECK(device->frames->begin_commands() == nullptr);
         invalid_provider.need.scope = rr::resource_scope::device_wide;
         invalid_provider.need.zero_on_frame = true;
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
@@ -878,10 +886,10 @@ int main(int const argc, char** const argv) {
         };
         auto current_skin = snapshot.find(rr::resource_id::skin_matrices);
         CHECK(std::memcmp(current_skin->objects[0].buffer->mapped().data(), pose.data(), sizeof(pose)) == 0);
-        uint32_t const first = device->walk_frames()->position();
+        uint32_t const first = device->frames->walk_frames()->position();
         finish();
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
-        uint32_t const second = device->walk_frames()->position();
+        uint32_t const second = device->frames->walk_frames()->position();
         pose[0] = glm::mat4(3.0f);
         engine.set_skin_matrices(pose);
         glm::mat4 first_pose{};
@@ -922,17 +930,17 @@ int main(int const argc, char** const argv) {
         engine.set_pass_chain(invalid, {});
         auto* old_morph = engine.morph_scratch(0);
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
-        CHECK(device->begin_commands() == nullptr);
+        CHECK(device->frames->begin_commands() == nullptr);
         CHECK(engine.morph_scratch(0) == old_morph);
         invalid_producer.need.buffer.size = sizes.back();
         invalid_producer.need.zero_on_frame = true;
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
-        CHECK(device->begin_commands() == nullptr);
+        CHECK(device->frames->begin_commands() == nullptr);
         CHECK(engine.morph_scratch(0) == old_morph);
         invalid_producer.need.zero_on_frame = false;
         invalid_producer.need.scope = rr::resource_scope::device_wide;
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
-        CHECK(device->begin_commands() == nullptr);
+        CHECK(device->frames->begin_commands() == nullptr);
         invalid_producer.need.scope = rr::resource_scope::per_frame_slot;
         deren::vk_test::probe_resource_failure(*device, 0);
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
@@ -977,7 +985,7 @@ int main(int const argc, char** const argv) {
             CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
             CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
         };
-        auto first = device->walk_frames()->position();
+        auto first = device->frames->walk_frames()->position();
         auto second = (first + 1u) % rhi::max_frames_in_flight;
         auto first_bytes = bytes(first);
         auto second_bytes = bytes(second);
@@ -1019,20 +1027,20 @@ int main(int const argc, char** const argv) {
         engine.set_pass_chain(invalid, {});
         auto const old_binding = deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(layout::heap_slots::scene_camera)).data();
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
-        CHECK(device->begin_commands() == nullptr);
+        CHECK(device->frames->begin_commands() == nullptr);
         CHECK(deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(layout::heap_slots::scene_camera)).data() == old_binding);
         invalid_producer.need.buffer.size = sizeof(deren::engine::camera_ubo);
         invalid_producer.need.zero_on_frame = true;
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
-        CHECK(device->begin_commands() == nullptr);
+        CHECK(device->frames->begin_commands() == nullptr);
         invalid_producer.need.zero_on_frame = false;
         invalid_producer.need.scope = rr::resource_scope::device_wide;
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
-        CHECK(device->begin_commands() == nullptr);
+        CHECK(device->frames->begin_commands() == nullptr);
         invalid_producer.need.scope = rr::resource_scope::per_frame_slot;
         deren::vk_test::probe_resource_failure(*device, 0);
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
-        CHECK(device->begin_commands() == nullptr);
+        CHECK(device->frames->begin_commands() == nullptr);
         CHECK(deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(layout::heap_slots::scene_camera)).data() == old_binding);
         deren::vk_test::probe_resource_failure(*device, -1);
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
@@ -1131,7 +1139,7 @@ int main(int const argc, char** const argv) {
         deren::utility::vessel::array<deren::engine::punctual_light, 1> lights{};
         engine.set_point_lights(lights);
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
-        uint32_t const first = device->walk_frames()->position();
+        uint32_t const first = device->frames->walk_frames()->position();
         uint32_t const second = (first + 1u) % 2u;
         CHECK(read_light(first).light_count.x == 1 && read_light(first).light_count.y == 2.5f);
         CHECK(read_head(first).center == head.center);
@@ -1177,7 +1185,7 @@ int main(int const argc, char** const argv) {
         engine.set_pass_chain(invalid_provider, {});
         auto head_before = deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(layout::heap_slots::scene_head)).data();
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
-        CHECK(device->begin_commands() == nullptr);
+        CHECK(device->frames->begin_commands() == nullptr);
         CHECK(deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(layout::heap_slots::scene_head)).data() == head_before);
         return deren::vk_test::finish("scene_constants");
     }
@@ -1259,7 +1267,7 @@ int main(int const argc, char** const argv) {
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         check_heap(installed.resources().snapshot());
         auto original_counts = installed.resources().snapshot().find(rr::resource_id::cluster_counts);
-        uint32_t const original_slot = device->walk_frames()->position();
+        uint32_t const original_slot = device->frames->walk_frames()->position();
         original_counts->objects[original_slot].buffer->mapped()[0] = std::byte{89};
         finish_frame();
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
@@ -1278,7 +1286,7 @@ int main(int const argc, char** const argv) {
         incomplete.emplace<resource_provider>(original_counts->description);
         engine.set_pass_chain(incomplete, {});
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
-        CHECK(device->begin_commands() == nullptr);
+        CHECK(device->frames->begin_commands() == nullptr);
         CHECK(deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(layout::heap_slots::cluster_counts)).data() == fallback_count_bytes.data());
         pass::pass_chain wrong_usage;
         auto wrong_counts = original_counts->description;
@@ -1291,7 +1299,7 @@ int main(int const argc, char** const argv) {
         wrong_usage.emplace<resource_provider>(wrong_indices);
         engine.set_pass_chain(wrong_usage, {});
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
-        CHECK(device->begin_commands() == nullptr);
+        CHECK(device->frames->begin_commands() == nullptr);
         CHECK(deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(layout::heap_slots::cluster_counts)).data() == fallback_count_bytes.data());
         engine.set_pass_chain(installed, {});
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
@@ -1456,7 +1464,7 @@ int main(int const argc, char** const argv) {
         CHECK(allocated != nullptr);
         if (!allocated)
             return deren::vk_test::finish("managed_frames");
-        uint32_t const first = root->walk_frames()->position();
+        uint32_t const first = root->frames->walk_frames()->position();
         std::fill(allocated->objects[first].buffer->mapped().begin(), allocated->objects[first].buffer->mapped().end(), std::byte{9});
         finish_frame();
         std::weak_ptr<managed::generation const> submitted = allocated;
@@ -1468,13 +1476,13 @@ int main(int const argc, char** const argv) {
         finish_frame();
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         CHECK(submitted.expired());
-        auto slot = root->walk_frames()->position();
+        auto slot = root->frames->walk_frames()->position();
         CHECK(provider.bound.find(request.id)->objects[slot].buffer->mapped()[0] == std::byte{9}); // persistent motion survives reuse/growth
         finish_frame();
         provider.need.buffer.size = request.buffer.size + 32;
         deren::vk_test::probe_resource_failure(*root, 1);
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::acquire_failed);
-        CHECK(root->begin_commands() == nullptr); // failure did not open/acquire a frame
+        CHECK(root->frames->begin_commands() == nullptr); // failure did not open/acquire a frame
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         finish_frame();
         pass::pass_chain replacement;
@@ -1572,8 +1580,8 @@ int main(int const argc, char** const argv) {
             CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
             CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
         };
-        CHECK(root->walk_frames()->slot_count() == 2);
-        uint32_t const first = root->walk_frames()->position();
+        CHECK(root->frames->walk_frames()->slot_count() == 2);
+        uint32_t const first = root->frames->walk_frames()->position();
         uint32_t const second = (first + 1u) % 2u;
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         CHECK(engine.begin_recording() == deren::engine::frame_status::proceed);
@@ -1646,7 +1654,7 @@ int main(int const argc, char** const argv) {
         deren::engine::runtime engine{root, options};
         engine.set_scene(scene);
         CHECK(&engine.rhi_face() == identity);
-        auto* const frames = root->walk_frames();
+        auto* const frames = root->frames->walk_frames();
         auto const initial_slot = frames->position();
         deren::utility::vessel::array<glm::mat4, 5> const first_pose = {glm::mat4(1), glm::mat4(1), glm::mat4(1), glm::mat4(1), glm::mat4(9)};
         engine.set_skin_matrices(first_pose, initial_slot);
@@ -1661,12 +1669,12 @@ int main(int const argc, char** const argv) {
             std::memcpy(&value, first_history.data() + 5 * sizeof(value), sizeof(value));
             CHECK(value == glm::mat4(0));
         }
-        CHECK(root->begin_commands() != nullptr);
+        CHECK(root->frames->begin_commands() != nullptr);
         engine.record_main_drawcalls();
         CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
         CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
         CHECK(frames->position() == (initial_slot + 1u) % frames->slot_count());
-        CHECK(root->begin_commands() == nullptr);
+        CHECK(root->frames->begin_commands() == nullptr);
         CHECK(root->query_extension(rhi::extension_kind::vulkan_escape) == nullptr);
         auto* const shared = reinterpret_cast<rhi::pipeline*>(std::uintptr_t{0x1234});
         CHECK(engine.resolve_pipeline("post_hdr").contract == nullptr);

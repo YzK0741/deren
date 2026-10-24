@@ -1,8 +1,8 @@
 // Backend sampling interface; the caller's push block provides texture_group.
 #ifndef DEREN_TEXTURE_GROUP_SLANG
 #define DEREN_TEXTURE_GROUP_SLANG
-static const uint texture_group_table_slot = 17664u;
-static const uint texture_group_texture_base = 17665u;
+static const uint texture_group_table_slot = 32768u;
+static const uint texture_group_texture_base = 32769u;
 struct TextureGroup {
     uint indices[16];
     uint present_mask;

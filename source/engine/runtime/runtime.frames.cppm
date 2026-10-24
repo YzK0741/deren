@@ -39,12 +39,10 @@ import deren.promise.rhi;            // the contract's recording surface: the fr
 
 namespace deren::engine {
     namespace {
-        /// abi 36: bind a pipeline through whichever contract interface the session records into.
+        /// Bind through the shared recording vocabulary while retaining the typed owner.
         void bind_pipeline_on(recording_target const& target, auto const& pipeline) noexcept {
-            if (target.command != nullptr) {
-                pipeline.begin_pipeline(*target.command);
-            } else if (target.mergeable != nullptr) {
-                pipeline.begin_pipeline(*target.mergeable);
+            if (target) {
+                pipeline.begin_pipeline(*target.get());
             }
         }
     } // namespace
@@ -83,7 +81,7 @@ namespace deren::engine {
         // THE OUTPUT IS THE OWNER, not the handle: an `unique_object` is move-only and null-on-move, so the
         // reference the factory hands over is taken by the manager and released by ITS destructor - on every
         // path out, which is the whole reason the type exists.
-        output = rhi::unique_object<rhi::buffer>{static_cast<rhi::api_core&>(device).create_buffer(make_buffer_desc(initial_bytes.size(), usage, flags, initial_bytes))};
+        output = rhi::unique_object<rhi::buffer>{static_cast<rhi::api_core&>(device).resources->create_buffer(make_buffer_desc(initial_bytes.size(), usage, flags, initial_bytes))};
         if (!output) {
             deren::utility::panic(std::source_location::current(), "failed to create {}", what);
         }
@@ -93,7 +91,7 @@ namespace deren::engine {
     }
 
     void create_buffers(rhi::api_core& device, deren::utility::vessel::vector<rhi::unique_object<rhi::buffer>>& outputs, rhi::buffer_usage const usage, rhi::buffer_flags const flags, std::span<std::byte const> const initial_bytes, std::string_view const what, deren::utility::vessel::vector<void*>* const mapped) {
-        for (int32_t slot = 0; slot < static_cast<int32_t>(device.walk_frames()->slot_count()); ++slot) {
+        for (int32_t slot = 0; slot < static_cast<int32_t>(device.frames->walk_frames()->slot_count()); ++slot) {
             outputs.emplace_back();
             void* slot_mapped = nullptr;
             create_buffer(device, usage, flags, initial_bytes, what, outputs.back(), mapped != nullptr ? &slot_mapped : nullptr);
@@ -126,7 +124,7 @@ namespace deren::engine {
         // THE FACE, PER CALL SITE: walk_frames() answers this core's own borrowed view (the same
         // object every call) - a virtual call through `rhi::api_core&`, so no backend symbol joins
         // the boundary worklist for it (the same rule create_buffer's contract-interface note states).
-        return *this->rhi_face().walk_frames();
+        return *this->rhi_face().frames->walk_frames();
     }
 
     rhi::shared_object<rhi::command_buffer> runtime::frame_command_buffer() const noexcept {
@@ -139,7 +137,7 @@ namespace deren::engine {
         // `nullptr` IS THE HONEST ANSWER OUTSIDE A FRAME: nothing is recording, so there is no buffer to
         // hand out - the state the removed `frame_primary_handle()` answered VK_NULL_HANDLE for, and the
         // state the frame loop's own begin/end guards already name.
-        rhi::command_buffer* const list = this->rhi_face().begin_commands();
+        rhi::command_buffer* const list = this->rhi_face().frames->begin_commands();
         if (list == nullptr) {
             return {};
         }
@@ -235,7 +233,7 @@ namespace deren::engine {
         // command buffer and the acquire semaphore: acquiring first could reuse a binary acquire
         // semaphore with pending operations, VUID-vkAcquireNextImageKHR-semaphore-01779) is the
         // backend's now, and so is the cursor: `open.frame.frame_index` is the one truth.
-        rhi::frame_walker& frames = *this->rhi_face().walk_frames();
+        rhi::frame_walker& frames = *this->rhi_face().frames->walk_frames();
         rhi::frame_open_info const open = frames.wait_and_acquire();
         // 读归引擎: the LATCH (inside wait_and_acquire) collected the slot's completed frame - the
         // backend's job; this aggregation is the engine's. It runs on EVERY path below, the skipped
@@ -264,7 +262,7 @@ namespace deren::engine {
                 // THE ENGINE'S PRESENTATION-IMAGE VIEWS GO FIRST (see release_frame_swapchain_views):
                 // the rebuild destroys the images they were made over.
                 this->release_frame_swapchain_views();
-                rhi::swapchain* const surface = this->rhi_face().frame_swapchain();
+                rhi::swapchain* const surface = this->rhi_face().frames->frame_swapchain();
                 if (surface != nullptr && surface->recreate() == rhi::error::ok) {
                     this->on_swapchain_recreated();
                 }
@@ -527,7 +525,7 @@ namespace deren::engine {
         // the device's honest state and is already reported by gpu_timing_summary(), while any other
         // refusal means the range did not open and is worth a line.
         this->gpu_marks_written = 0;
-        if (rhi::command_buffer* const frame_commands = this->rhi_face().begin_commands(); frame_commands != nullptr) {
+        if (rhi::command_buffer* const frame_commands = this->rhi_face().frames->begin_commands(); frame_commands != nullptr) {
             rhi::error const opened = frame_commands->begin_gpu_timing();
             if (opened != rhi::error::ok && opened != rhi::error::unsupported) {
                 deren::utility::log("runtime: opening the GPU timing range was refused ({})", static_cast<std::uint32_t>(opened));
@@ -1121,16 +1119,9 @@ namespace deren::engine {
         // it, and a secondary records that itself (state is not inherited from the primary). The offset is the
         // declaration's own - where the scene's push block ends.
         uint32_t const index = cascade_index;
-        // PUSHED AS DATA, not as a push constant: the pipeline has no layout any more (see
-        // render_environment::push_block). This is ONE 4-byte slice of the shadow stage's block - the cascade
-        // index's own offset - while the rest of the block is the material's, pushed per caster below. A
-        // secondary records its own state (nothing is inherited from the primary), which is why it is set here.
-        // THE ABILITY'S OWN VERB (abi 22's escape-shrink batch): the push was the ONE thing this function derived a
-        // native handle for, so that derivation is gone with it - `descriptor_heap::push_data` takes the CONTRACT
-        // buffer the cascade is being recorded into.
-        rhi::descriptor_heap* const heap = rhi::query_extension<rhi::descriptor_heap>(self->rhi_face());
-        rhi::heap_push_info const push_info{.offset = render_resource::shadow_io.push->offset, .data = std::as_bytes(std::span(&index, 1)), .mergeable_commands = secondary.get()};
-        [[maybe_unused]] bool const pushed = heap != nullptr && heap->push_data(push_info) == rhi::error::ok;
+        // The cascade index occupies one slice of the shader parameter block; record it on its own secondary.
+        [[maybe_unused]] bool const pushed = secondary->push_constants(render_resource::shadow_io.push->offset,
+                                                                       std::as_bytes(std::span(&index, 1))) == rhi::error::ok;
         // THE SESSION'S BUFFER IS THE CASCADE'S OWN SECONDARY, handed over as a NON-OWNING view: the runtime owns
         // those buffers (`shadow_recording`) and this callback only records into one of them for the duration of the
         // call, so the control block must drop nothing.
@@ -1628,14 +1619,13 @@ namespace deren::engine {
         // "the pass asked and was refused" is too late. The answer is logged either way: whether the shadow pass
         // drew its casters as dispatches must not be something a reader has to infer from a picture.
         //  1. the extension and its `meshShader` feature (core::mesh_shader_available), and
-        //  2. the device's push-constant budget, and the heap's push-data window, both >= the stage block a mesh
+        //  2. the backend's usable shader parameter budget >= the stage block a mesh
         //     stage needs (`mesh_stage_block_size`): a mesh stage is handed the draw's whole geometry window as
         //     data because it has no input assembler to take it from, and that block is larger than the 128 bytes
         //     the spec guarantees - so the path is available where the device reports room and the VERTEX path
         //     stays where it does not.
         {
             uint32_t const push_constants = runtime_detail::max_push_constants_of(this->rhi_face());
-            uint32_t const push_data = runtime_detail::heap_max_push_data(this->rhi_face());
             this->mesh_shaders = this->evaluate_mesh_shaders(&this->mesh_shaders_unavailable_reason);
             if (!this->mesh_shaders) {
                 // ---- THE EXTENSION IS A REQUIREMENT NOW (docs/mesh_shaders.md step 4): the vertex geometry path is
@@ -1646,10 +1636,9 @@ namespace deren::engine {
                                       "mesh shaders are required and this device does not offer them: {} (docs/mesh_shaders.md step 4)",
                                       this->mesh_shaders_unavailable_reason);
             }
-            deren::utility::log("mesh shaders: REQUIRED and available - every geometry stage is dispatched (push block {} B, within {} B push constants / {} B push data)",
+            deren::utility::log("mesh shaders: REQUIRED and available - every geometry stage is dispatched (push block {} B, within {} B shader parameter capacity)",
                                 deren::engine::mesh_stage_block_size,
-                                push_constants,
-                                push_data);
+                                push_constants);
         }
         pass::pass_context const build = this->make_pass_context();
         // ONE CREATE STEP OVER EVERY PASS, in the order the OWNING chain holds them (see the member block in the
@@ -1704,10 +1693,9 @@ namespace deren::engine {
 
     bool runtime::evaluate_mesh_shaders(deren::utility::vessel::string* const reason) const noexcept {
         // THE GATE, as one question asked in two places (create_passes, for the log and the pass context; and the
-        // G-buffer pipeline's builder, which runs earlier). In both cases the answer is the same three facts, and
+        // G-buffer pipeline's builder, which runs earlier). In both cases it checks the same feature/budget, and
         // the reason string is only filled in for the one caller that logs it.
         uint32_t const push_constants = runtime_detail::max_push_constants_of(this->rhi_face());
-        uint32_t const push_data = runtime_detail::heap_max_push_data(this->rhi_face());
         auto const unavailable = [reason](deren::utility::vessel::string text) {
             if (reason != nullptr) {
                 *reason = std::move(text);
@@ -1718,10 +1706,7 @@ namespace deren::engine {
             return unavailable("the device has no mesh shader feature");
         }
         if (push_constants < deren::engine::mesh_stage_block_size) {
-            return unavailable(deren::utility::vessel::format("maxPushConstantsSize is {} B, under the {} B block a mesh stage needs", push_constants, deren::engine::mesh_stage_block_size));
-        }
-        if (push_data < deren::engine::mesh_stage_block_size) {
-            return unavailable(deren::utility::vessel::format("the heap's maxPushDataSize is {} B, under the {} B block a mesh stage needs", push_data, deren::engine::mesh_stage_block_size));
+            return unavailable(deren::utility::vessel::format("the shader parameter budget is {} B, under the {} B block a mesh stage needs", push_constants, deren::engine::mesh_stage_block_size));
         }
         if (reason != nullptr) {
             reason->clear();
@@ -1898,7 +1883,7 @@ namespace deren::engine {
         // B), published at the index acquire returned - which is exactly what `resolve_declaration` looks
         // a render target up by (`instance_for(per_swapchain_image, frame)` is `frame.image_index`). The
         // view is kept in this slot's member until this slot comes around again (see that member's note).
-        if (rhi::image* const frame_image = this->rhi_face().frame_image(); frame_image != nullptr) {
+        if (rhi::image* const frame_image = this->rhi_face().frames->frame_image(); frame_image != nullptr) {
             std::size_t const slot = static_cast<std::size_t>(this->frame_ring().position());
             if (slot < this->frame_swapchain_views.size()) {
                 this->frame_swapchain_views[slot] = rhi::unique_object<rhi::image_view>{frame_image->make_view(rhi::image_view_desc{})};
@@ -2837,7 +2822,7 @@ namespace deren::engine {
             // into `resolved_io::cmd` for every pass it resolves (see resolve_declaration), so the two
             // lanes name the same borrowed handle by construction.
             .cmd = this->frame_command_buffer(),
-            .list = this->rhi_face().begin_commands(),
+            .list = this->rhi_face().frames->begin_commands(),
             .extent_of = [](void* owner, render_resource::resource_id id, uint32_t element) { return static_cast<runtime*>(owner)->resolve_resource_extent(id, element); },
             .pipeline = [](void* owner, std::string_view name) { return static_cast<runtime*>(owner)->resolve_pipeline(name); },
             .owner = this,
@@ -3269,7 +3254,7 @@ namespace deren::engine {
                 this->main_graph_not_ready_reported = true;
             }
             auto* const commands = this->frame_command_buffer().get();
-            auto* const image = this->rhi_face().frame_image();
+            auto* const image = this->rhi_face().frames->frame_image();
             rhi::subresource_range const whole{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u};
             if (commands == nullptr || image == nullptr) {
                 return false;
@@ -3324,9 +3309,9 @@ namespace deren::engine {
         // hand-written version carried - the shadow gate (A5) proves they land on the same barriers. THE
         // SUBMITTER DOES NOT CHANGE: this runtime submits the same command buffer below.
         if (post_wrote_swapchain && this->screenshot_requested) {
-            deren::promise::rhi::command_buffer* const commands = vk.begin_commands();
-            deren::promise::rhi::image* const frame_image = vk.frame_image();
-            deren::promise::rhi::buffer* const slot = vk.frame_readback_buffer();
+            deren::promise::rhi::command_buffer* const commands = vk.frames->begin_commands();
+            deren::promise::rhi::image* const frame_image = vk.frames->frame_image();
+            deren::promise::rhi::buffer* const slot = vk.frames->frame_readback_buffer();
             if (commands != nullptr && frame_image != nullptr && slot != nullptr) {
                 deren::promise::rhi::image_copy_region const region{.extent = frame_image->extent()};
                 // BOTH BARRIERS ARE CHECKED (the recording surface answers with an error instead of
@@ -3400,7 +3385,7 @@ namespace deren::engine {
                 return frame_status::end_recording_failed;
             }
         } else {
-            (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->rhi_face().frame_image(),
+            (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->rhi_face().frames->frame_image(),
                                                                            .from = post_wrote_swapchain ? rhi::image_use::color_attachment : rhi::image_use::undefined,
                                                                            .to = (this->create_options.native_window == nullptr) ? rhi::image_use::shader_read : rhi::image_use::present,
                                                                            .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
@@ -3461,7 +3446,7 @@ namespace deren::engine {
         }
         auto const submit_started = std::chrono::steady_clock::now(); // sub-phase marks: what of submit is the
         // queue submission (with its timeline signal) and what is the present call below
-        rhi::command_buffer* const commands = this->rhi_face().begin_commands();
+        rhi::command_buffer* const commands = this->rhi_face().frames->begin_commands();
         if (commands == nullptr) {
             // A frame that reached the submit point is the frame `wait_and_acquire()` opened, so this
             // is an invariant, not a state a caller can produce: refusing by not submitting is the
@@ -3470,7 +3455,7 @@ namespace deren::engine {
             deren::utility::log("runtime: submit called with no frame in flight");
             return frame_status::submit_failed;
         }
-        rhi::error const submitted = this->rhi_face().submit(*commands);
+        rhi::error const submitted = this->rhi_face().frames->submit();
         if (submitted != rhi::error::ok) {
             // The contract's answer names WHAT failed (device_lost, out_of_*_memory, ...) - the
             // information the old `!= VK_SUCCESS` test threw away.
@@ -3509,7 +3494,7 @@ namespace deren::engine {
                 return frame_status::present_failed;
             }
         } else if (presented == rhi::error::ok) {
-            presented = this->create_options.native_window == nullptr ? rhi::error::ok : this->rhi_face().present();
+            presented = this->create_options.native_window == nullptr ? rhi::error::ok : this->rhi_face().frames->present();
         }
         this->cpu_timings.add(deren::engine::profiling::cpu_phase::present, std::chrono::steady_clock::now() - present_started);
         if (presented == rhi::error::out_of_date) {
@@ -3520,7 +3505,7 @@ namespace deren::engine {
             // THE ENGINE'S PRESENTATION-IMAGE VIEWS GO FIRST (see release_frame_swapchain_views): the
             // rebuild destroys the images they were made over.
             this->release_frame_swapchain_views();
-            rhi::swapchain* const surface = this->rhi_face().frame_swapchain();
+            rhi::swapchain* const surface = this->rhi_face().frames->frame_swapchain();
             if (surface != nullptr && surface->recreate() == rhi::error::ok) {
                 this->on_swapchain_recreated();
             }

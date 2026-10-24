@@ -117,16 +117,16 @@ namespace deren::engine::gaussian_splatting {
             desc.extent = camera.extent;
             desc.format = rhi::image_format::r16g16b16a16_sfloat;
             desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::host_transfer);
-            rhi::unique_object<rhi::image> color{core.create_image(desc)};
+            rhi::unique_object<rhi::image> color{core.resources->create_image(desc)};
             desc.format = rhi::image_format::depth;
             desc.flags = rhi::to_bits(rhi::image_flag::depth_attachment) | rhi::to_bits(rhi::image_flag::sampled);
-            rhi::unique_object<rhi::image> depth{core.create_image(desc)};
+            rhi::unique_object<rhi::image> depth{core.resources->create_image(desc)};
             if (!color || !depth) {
                 return failure("Gaussian probe target creation failed", error_code::allocation_failure);
             }
             rhi::unique_object<rhi::image_view> color_view{color->make_view({.role = rhi::view_role::color_attachment})};
             rhi::unique_object<rhi::image_view> depth_view{depth->make_view({.role = rhi::view_role::depth_attachment})};
-            auto commands = core.make_command_buffer({.kind = rhi::command_buffer_kind::primary});
+            auto commands = core.commands->make_command_buffer({.kind = rhi::command_buffer_kind::primary});
             if (!color_view || !depth_view || !commands) {
                 return failure("Gaussian probe recording resources failed", error_code::allocation_failure);
             }
@@ -166,21 +166,21 @@ namespace deren::engine::gaussian_splatting {
             io.target_storage[1] = {.image_handle = depth.get(), .view_handle = depth_view.get()};
             io.targets = std::span{io.target_storage}.first(2);
             io.push_block = {
-                &heap,
-                [](void* owner, rhi::command_buffer& list, std::span<std::byte const> bytes, std::uint32_t extra_lane) {
+                nullptr,
+                [](void*, rhi::command_buffer& list, std::span<std::byte const> bytes, std::uint32_t extra_lane) {
                     // Match runtime::push_stage_block, including all three heap index lanes.
                     deren::utility::vessel::vector<std::byte> transmitted(bytes.begin(), bytes.end());
                     deren::utility::vessel::array<std::uint32_t, 3> const lanes = {0u, 0u, extra_lane};
                     auto const lane_bytes = std::as_bytes(std::span{lanes});
                     transmitted.insert(transmitted.end(), lane_bytes.begin(), lane_bytes.end());
-                    return static_cast<rhi::descriptor_heap*>(owner)->push_data({.commands = &list, .offset = 0u, .data = transmitted}) == rhi::error::ok;
+                    return list.push_constants(0u, transmitted) == rhi::error::ok;
                 },
             };
             raster.record_owned(io);
             if (raster.last_error() != rhi::error::ok) {
                 return failure("Gaussian probe raster recording refused");
             }
-            if (commands->end_recording() != rhi::error::ok || core.submit(*commands) != rhi::error::ok) {
+            if (commands->end_recording() != rhi::error::ok || core.commands->submit(*commands) != rhi::error::ok) {
                 return failure("Gaussian probe submission refused");
             }
             // All frame/asset/target owners remain in scope through completion.
@@ -202,8 +202,8 @@ namespace deren::engine::gaussian_splatting {
             rhi::buffer_desc desc;
             desc.size = lane_bytes * 4u + 16u;
             desc.usage = rhi::buffer_usage::readback_coherent;
-            rhi::unique_object<rhi::buffer> readback{core.create_buffer(desc)};
-            auto list = core.make_command_buffer({.kind = rhi::command_buffer_kind::primary});
+            rhi::unique_object<rhi::buffer> readback{core.resources->create_buffer(desc)};
+            auto list = core.commands->make_command_buffer({.kind = rhi::command_buffer_kind::primary});
             if (!readback || !list || list->begin_recording({.usage = rhi::to_bits(rhi::command_buffer_usage::one_time_submit)}) != rhi::error::ok) {
                 return failure("GPU reference readback allocation failed");
             }
@@ -219,7 +219,7 @@ namespace deren::engine::gaussian_splatting {
                 offset += sizes[i];
             }
             rhi::buffer_barrier const host{.resource = readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read};
-            if (list->barrier(rhi::barrier_group{.buffers = std::span{&host, 1}}) != rhi::error::ok || list->end_recording() != rhi::error::ok || core.submit(*list) != rhi::error::ok) {
+            if (list->barrier(rhi::barrier_group{.buffers = std::span{&host, 1}}) != rhi::error::ok || list->end_recording() != rhi::error::ok || core.commands->submit(*list) != rhi::error::ok) {
                 return failure("GPU reference readback submission failed");
             }
             core.wait_idle(); // isolated diagnostic, never used by the viewer

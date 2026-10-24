@@ -57,19 +57,19 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
         auto invalid = bindings;
         invalid[0].byte_offset = static_cast<std::uint32_t>(heap->properties().resource_size - 64);
         desc.acceleration_structure_bindings = invalid;
-        rhi::unique_object<rhi::pipeline> out_of_range{core.create_pipeline(desc)};
+        rhi::unique_object<rhi::pipeline> out_of_range{core.resources->create_pipeline(desc)};
         CHECK(!out_of_range); // second array element must fit too
         invalid = bindings;
         invalid[0].array_count = 0xFFFFFFFFu;
-        rhi::unique_object<rhi::pipeline> overflowing{core.create_pipeline(desc)};
+        rhi::unique_object<rhi::pipeline> overflowing{core.resources->create_pipeline(desc)};
         CHECK(!overflowing);
         deren::utility::vessel::array<rhi::acceleration_structure_heap_binding, 2> const duplicates{bindings[0], bindings[0]};
         desc.acceleration_structure_bindings = duplicates;
-        rhi::unique_object<rhi::pipeline> duplicate{core.create_pipeline(desc)};
+        rhi::unique_object<rhi::pipeline> duplicate{core.resources->create_pipeline(desc)};
         CHECK(!duplicate);
         desc.acceleration_structure_bindings = bindings;
     }
-    rhi::unique_object<rhi::pipeline> pipeline{core.create_pipeline(desc)};
+    rhi::unique_object<rhi::pipeline> pipeline{core.resources->create_pipeline(desc)};
     CHECK(pipeline);
     if (!pipeline) { return; }
 
@@ -93,15 +93,15 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
         void release() noexcept override {}
     } foreign;
     CHECK(group_access->read(foreign, 0, 1, handles) == rhi::error::invalid_argument);
-    rhi::unique_object<rhi::buffer> table{core.create_buffer({
+    rhi::unique_object<rhi::buffer> table{core.resources->create_buffer({
         .size = 3u * stride + properties.base_alignment - 1u, .usage = rhi::buffer_usage::storage_coherent,
         .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::shader_binding_table),
     })};
-    rhi::unique_object<rhi::buffer> output{core.create_buffer({
+    rhi::unique_object<rhi::buffer> output{core.resources->create_buffer({
         .size = 6u * sizeof(std::uint32_t), .usage = rhi::buffer_usage::storage_coherent,
         .flags = rhi::to_bits(rhi::buffer_flag::device_address),
     })};
-    rhi::unique_object<rhi::acceleration_structure> second_tlas{core.create_acceleration_structure({
+    rhi::unique_object<rhi::acceleration_structure> second_tlas{core.resources->create_acceleration_structure({
         .type = rhi::acceleration_structure_type::top_level, .instance_capacity = 1,
     })};
     CHECK(table && output && second_tlas);
@@ -123,7 +123,7 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
                               .type = rhi::descriptor_type::acceleration_structure}))) { return; }
     if (!checked(heap->write_buffer({.offset = offset + 64, .address = second_tlas->device_address(), .size = second_tlas->size_bytes(),
                               .type = rhi::descriptor_type::acceleration_structure}))) { return; }
-    rhi::unique_object<rhi::command_buffer> commands{core.create_command_buffer({})};
+    rhi::unique_object<rhi::command_buffer> commands{core.commands->create_command_buffer({})};
     CHECK(commands);
     if (!commands) { return; }
     if (!checked(commands->begin_recording({}))) { return; }
@@ -137,12 +137,12 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
     auto const region = [stride](std::uint64_t address) { return rhi::shader_binding_table_region{.address = address, .size = stride, .stride = stride}; };
     for (std::uint32_t slot = 0; slot < 2; ++slot) {
         push const data{.destination = addresses.buffer_address(*output, 0), .slot = slot, .resource_heap = heap_binding.address};
-        if (!checked(heap->push_data({.commands = commands.get(), .data = std::as_bytes(std::span(&data, 1))}))) { return; }
+        if (!checked(commands.get()->push_constants(0u, std::as_bytes(std::span(&data, 1))))) { return; }
         commands->trace_rays(region(aligned), region(aligned + stride), region(aligned + 2 * stride), {}, 3, 1, 1);
     }
     if (!checked(commands->end_recording())) { return; }
     // abi 42: the owned primary submits through the CONTRACT (the escape's raw submit is gone).
-    if (!checked(core.submit(*commands))) { return; }
+    if (!checked(core.commands->submit(*commands))) { return; }
     core.wait_idle();
     deren::vk_test::write_line("rt_traversal: submitted and waited through the contract");
     deren::utility::vessel::array<std::uint32_t, 6> values{};

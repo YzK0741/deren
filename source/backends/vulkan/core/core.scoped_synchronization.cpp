@@ -253,22 +253,14 @@ namespace deren::vulkan {
         return rhi::error::ok;
     }
 
-    rhi::error core::scoped_sync_view::record(rhi::command_buffer& commands, std::span<rhi::scoped_image_barrier const> images, std::span<rhi::scoped_buffer_barrier const> buffers) const noexcept {
+    rhi::error core::scoped_sync_view::record(rhi::command_recorder& commands, std::span<rhi::scoped_image_barrier const> images, std::span<rhi::scoped_buffer_barrier const> buffers) const noexcept {
         if (!owner) {
             return rhi::error::not_ready;
         }
-        frame_commands* list = nullptr;
-        if (&commands == &owner->commands_view) {
-            list = &owner->commands_view;
-        } else {
-            std::lock_guard const lock(owner->contract_command_buffers_mutex);
-            if (!owner->contract_command_buffers.contains(&commands)) {
-                return rhi::error::invalid_argument;
-            }
-            list = static_cast<owned_command_buffer*>(&commands);
-        }
-        if (list->owner != owner) {
-            return rhi::error::invalid_argument;
+        rhi::error resolved{};
+        frame_commands* const list = owner->resolve_recorder(&commands, resolved);
+        if (resolved != rhi::error::ok) {
+            return resolved;
         }
         if (!list->recording || list->rendering_active || list->native() == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
@@ -329,6 +321,8 @@ namespace deren::vulkan {
         info.pImageMemoryBarriers = native_images.data();
         info.bufferMemoryBarrierCount = static_cast<uint32_t>(native_buffers.size());
         info.pBufferMemoryBarriers = native_buffers.data();
+        if (auto applied = list->apply_operations(); applied != rhi::error::ok)
+            return applied;
         vkCmdPipelineBarrier2(list->native(), &info);
         return rhi::error::ok;
     }

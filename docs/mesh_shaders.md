@@ -304,13 +304,14 @@ when the device reports room for it - which, since step 4 removed the vertex for
 there, and a device under those limits is a startup panic rather than a slow path.
 
 ```
-mesh shaders: REQUIRED and available - every geometry stage is dispatched (push block 144 B, within 256 B push constants / 256 B push data)
+mesh shaders: REQUIRED and available - every geometry stage is dispatched (push block 144 B, within 256 B shader parameter capacity)
 ```
 
-That line is the gate: `core::mesh_shader_available` AND `maxPushConstantsSize >= 144` AND the heap's
-`maxPushDataSize >= 144`, checked once in `runtime::create_passes` before any pass is created (a pass that tried
-and was refused would already have produced a validation ERROR at `vkCreateShaderModule`). On this device the two
-limits are 256/256, and the same box's other GPU reporting 128 is exactly why the check exists. (While the vertex
+That line is the gate: the mesh-shader feature AND a usable shader parameter capacity >= 144,
+queried through `device_capabilities::max_push_constants_size()` in `runtime::create_passes` before any pass is created (a pass that tried
+and was refused would already have produced a validation ERROR at `vkCreateShaderModule`). This Vulkan
+backend reports its active heap parameter budget (256 B here); other native mechanisms can report a
+different usable capacity. (While the vertex
 form was still there, that device fell back to it; after step 4 the same answer is a panic naming the limit.) A mesh
 pipeline also has to be built before `create_passes` returns, and it is not: the pass builds it at create time only
 when `pass_context::mesh_shaders` says the device can run one.
@@ -740,7 +741,7 @@ extension, and removing the vertex forms makes "the device lacks it" a startup f
 panics with the reason, before any pass is created, and the startup line says what it means:
 
 ```
-mesh shaders: REQUIRED and available - every geometry stage is dispatched (push block 144 B, within 256 B push constants / 256 B push data)
+mesh shaders: REQUIRED and available - every geometry stage is dispatched (push block 144 B, within 256 B shader parameter capacity)
 ```
 
 WHAT WAS REMOVED, in the order it went:
@@ -810,8 +811,9 @@ form it replaced.
   pass dispatched would be a command with no effect, which is why the draw paths stopped binding at all when step 4
   removed the last path that needed it.
 - **A 144-byte push block is legal on THIS device and not on every device.** The check is
-  `maxPushConstantsSize` (256 here, 128 on the same box's other GPU) and the heap's `maxPushDataSize` (256 here);
-  see step 1 for why the block is that size and why the gate exists.
+  `device_capabilities::max_push_constants_size()` for the backend's active mechanism (256 B here);
+  see step 1 for why the block is that size and why the gate exists. Since ABI 52 the frontend does
+  not independently combine native constant and descriptor-heap limits.
 - **`serialize` the strings, not the code**: the mesh `.spv` is 12996 B against the vertex entry's 8288 B for the
   same depth pass (and 3660 B against 920 B for the probe's one triangle), which is a cheap way to tell which
   compiler produced the module you are looking at when a probe's result does not move. (Both comparisons are from

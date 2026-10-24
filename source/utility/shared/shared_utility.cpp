@@ -19,6 +19,15 @@ module deren.utility.shared;
 // three doors.
 // ============================================================================
 namespace deren::utility {
+    std::uint64_t allocate_identity() noexcept {
+        static std::atomic<std::uint64_t> next{1};
+        auto value = next.fetch_add(1, std::memory_order_relaxed);
+        if (value == 0 || value == UINT64_MAX) {
+            fast_panic("process identity space exhausted");
+        }
+        return value;
+    }
+
     namespace {
         // Startup rotation for the Release log file: move the previous session's debug.log content
         // aside to debug.log.old (with a session-end timestamp when the content carries none), then

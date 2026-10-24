@@ -218,7 +218,6 @@ namespace deren::engine {
         /// THE STAGE BLOCK'S LIMIT (one integer, not a whole `VkPhysicalDeviceProperties`): the engine used to
         /// fetch the device's property struct - per call site - to read only this field out of it.
         [[nodiscard]] std::uint32_t max_push_constants_of(rhi::api_core& face) noexcept;
-        [[nodiscard]] std::uint32_t heap_max_push_data(rhi::api_core& face) noexcept;
         [[nodiscard]] deren::promise::rhi::shader_binding_table_properties ray_tracing_properties_of(rhi::api_core& face) noexcept;
         [[nodiscard]] bool ray_query_available_of(rhi::api_core& face) noexcept;
         [[nodiscard]] bool mesh_shader_available_of(rhi::api_core& face) noexcept;
@@ -317,10 +316,7 @@ namespace deren::engine {
                                                  rhi::image_view_desc const& view, rhi::descriptor_type type) noexcept;
     [[nodiscard]] bool contract_write_heap_buffer(rhi::api_core& face, std::uint64_t offset, std::uintptr_t address,
                                                   std::uint64_t size, rhi::descriptor_type type) noexcept;
-    void contract_record_heap_bind(rhi::api_core& face, rhi::command_buffer& commands) noexcept;
-    [[nodiscard]] bool contract_push_heap_data(rhi::api_core& face, rhi::command_buffer* commands,
-                                               rhi::mergeable_command_buffer* mergeable_commands, std::uint32_t offset,
-                                               std::span<std::byte const> data) noexcept;
+    void contract_record_heap_bind(rhi::api_core& face, rhi::command_recorder& commands) noexcept;
 
     // (THE `contract_image_extent` HELPER IS GONE - plan X5 B3.2. It existed because the pass layer held
     //  `rhi::image_extent` while the engine spelled its own sizes differently, so it was "the ONE place the two
@@ -792,7 +788,7 @@ namespace deren::engine {
         deren::engine::profiling::cpu_phases cpu_timings;
         void collect_gpu_timings();
 
-        /// THE FRAME RING'S FACE (abi 13): the borrowed view `rhi_face().walk_frames()` answers - the
+        /// THE FRAME RING'S FACE (abi 13): the borrowed view `rhi_face().frames->walk_frames()` answers - the
         /// same object on every call, the backend's own cursor behind it. This is how the engine stops
         /// keeping a second copy of the slot index: every read that named `vk.current_frame` or
         /// `core::MAX_FRAMES_IN_FLIGHT` goes through `position()` / `slot_count()` here.

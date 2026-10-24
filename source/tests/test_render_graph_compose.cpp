@@ -67,7 +67,7 @@ concept bindable = requires(ex::builder& frame, rg::pass_ref pass, F&& fn) {
 static_assert(bindable<move_only> && !bindable<move_only&>);
 int main() {
     auto core = deren::vk_test::probe_make_core({}, rhi::abi_version, true);
-    (void)core->frame_begin();
+    (void)core->frames->frame_begin();
     auto cluster = deren::engine::resource_cluster::create(core);
     rhi::image_desc desc{};
     desc.extent = {4, 4, 1};
@@ -116,8 +116,8 @@ int main() {
     }();
     CHECK(prepared && !weak.expired());
     if (prepared) {
-        CHECK(prepared->record(*core->begin_commands(), [](ex::record_context const&) noexcept { return rhi::error::ok; }) == rhi::error::invalid_argument);
-        CHECK(prepared->record(*core->begin_commands()) == rhi::error::ok && calls == 2);
+        CHECK(prepared->record(*core->frames->begin_commands(), [](ex::record_context const&) noexcept { return rhi::error::ok; }) == rhi::error::invalid_argument);
+        CHECK(prepared->record(*core->frames->begin_commands()) == rhi::error::ok && calls == 2);
         auto retention = prepared->retention();
         prepared = std::unexpected(ex::build_error{});
         CHECK(!weak.expired());
@@ -161,7 +161,7 @@ int main() {
         CHECK(frame.retain(owner));
         owner.reset();
         auto ready = frame.prepare();
-        CHECK(ready && ready->record(*core->begin_commands()) == rhi::error::ok && !weak_owner.expired());
+        CHECK(ready && ready->record(*core->frames->begin_commands()) == rhi::error::ok && !weak_owner.expired());
     }
     {
         ex::builder frame(core);
@@ -171,7 +171,7 @@ int main() {
             CHECK(frame.bind_pass<parameters>(*pass, [&recorded](parameters const&, rhi::command_buffer&, ex::record_context const&) noexcept { ++recorded; return rhi::error::unsupported; }));
         }
         auto ready = frame.prepare();
-        CHECK(ready && ready->record(*core->begin_commands()) == rhi::error::unsupported && recorded == 1);
+        CHECK(ready && ready->record(*core->frames->begin_commands()) == rhi::error::unsupported && recorded == 1);
     }
     {
         auto alias = *cluster->create_image(desc);
@@ -191,7 +191,7 @@ int main() {
         CHECK(frame.bind_pass<writer>(*pass, [](writer const&, rhi::command_buffer&, ex::record_context const&) noexcept { return rhi::error::ok; }));
         CHECK(frame.export_resource(*ref));
         auto ready = frame.prepare();
-        CHECK(ready && ready->record(*core->begin_commands()) == rhi::error::ok);
+        CHECK(ready && ready->record(*core->frames->begin_commands()) == rhi::error::ok);
     }
     {
         rhi::buffer_desc description{};
@@ -204,12 +204,12 @@ int main() {
         CHECK(frame.bind_pass<buffer_writer>(*pass, [](buffer_writer const&, rhi::command_buffer&, ex::record_context const&) noexcept { return rhi::error::ok; }));
         CHECK(frame.export_resource(*ref));
         auto ready = frame.prepare();
-        CHECK(ready && ready->record(*core->begin_commands()) == rhi::error::ok);
+        CHECK(ready && ready->record(*core->frames->begin_commands()) == rhi::error::ok);
     }
     {
         auto frames = rhi::query_extension<rhi::frame_resources>(*core);
         auto snapshot = deren::engine::resource_lease<rhi::image>::from_shared(core, frames->retain_image());
-        (void)core->frame_begin();
+        (void)core->frames->frame_begin();
         ex::builder frame(core);
         CHECK(!frame.import_texture(snapshot, {}, "stale") && !frame.prepare());
         deren::vk_test::probe_scoped_enabled(*core, false);

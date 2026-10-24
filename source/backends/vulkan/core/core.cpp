@@ -105,6 +105,9 @@ namespace deren::vulkan {
     }
 
     rhi::error core::frame_commands::begin_gpu_timing() noexcept {
+        ++owner->operation_requests[29]; // begin_gpu_timing
+        if (auto result = apply_operations(); result != rhi::error::ok)
+            return result;
         core& owner = *this->owner;
         if (!owner.gpu_timing_supported) {
             return rhi::error::unsupported; // the device cannot timestamp: the report stays honestly empty
@@ -123,6 +126,9 @@ namespace deren::vulkan {
     }
 
     rhi::error core::frame_commands::mark_gpu_timing(std::uint32_t const mark_index, std::string_view const stage_name) noexcept {
+        ++owner->operation_requests[30]; // mark_gpu_timing
+        if (auto result = apply_operations(); result != rhi::error::ok)
+            return result;
         core& owner = *this->owner;
         if (!owner.gpu_timing_supported) {
             return rhi::error::unsupported;
@@ -260,6 +266,7 @@ namespace deren::vulkan {
         submission->timeline = frame_done_semaphores[slot];
         submission->value = signal_value;
         submission->groups = commands_view.group_refs;
+        submission->resources = commands_view.resource_refs;
         submission->secondaries = commands_view.secondary_refs;
         std::lock_guard lock(submissions_mutex);
         for (auto const& secondary : submission->secondaries) {

@@ -1,0 +1,3 @@
+// The first icon group is used by Windows Explorer for deren.exe.
+101 ICON "deren.ico"
+102 BITMAP "deren-splash.bmp"

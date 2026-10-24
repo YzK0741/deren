@@ -69,6 +69,7 @@
 //     contract's own `release()` is what a caller observes instead).
 // ============================================================================
 import deren.promise.rhi;
+import deren.promise.render_operations;
 
 #include "../promise/rhi/backend_entry.hpp"
 
@@ -264,16 +265,31 @@ namespace {
     /// (`frame_scoped == true`), `command_buffer` is the owned one (`frame_scoped == false`), which is
     /// how the frame-scoped verbs tell "the frame's" from "the caller's" exactly as the real backend's
     /// `target != VK_NULL_HANDLE` test does.
+    struct push_capture {
+        std::mutex mutex;
+        deren::utility::vessel::map<std::size_t, deren::utility::vessel::vector<std::byte>> values;
+    };
+
     struct probe_command_buffer final : rhi::command_buffer {
         probe_command_buffer() noexcept
             : rhi::command_buffer("deren_command_buffer_probe") {
         }
+        [[nodiscard]] rhi::error push_constants(std::uint32_t, std::span<std::byte const>) noexcept override;
         impl* owner = nullptr;
         rhi::command_buffer_kind kind_echo = rhi::command_buffer_kind::primary;
         rhi::command_buffer_flags usage_echo = rhi::no_command_buffer_flags;
         std::uint32_t executions = 0;
         bool released = false;
         bool recording = false;
+        bool replaying = false;
+        bool final_application = false;
+        bool rendering_inherited = false;
+        bool executable = false;
+        rhi::error recording_error = rhi::error::ok;
+        rhi::pipeline const* desired_pipeline = nullptr;
+        rhi::recording::operation_stream operations;
+        [[nodiscard]] rhi::error apply_operations() noexcept override;
+
         bool rendering_active = false;
 
         void release() noexcept override;
@@ -292,6 +308,11 @@ namespace {
         /// was handed is echoed into this object - the same "make the crossing visible" shape
         /// `probe_buffer::release()` uses for the owned-handle path.
         [[nodiscard]] rhi::error use(rhi::image const&, rhi::image_use const from, rhi::image_use const to) noexcept override {
+            if (recording && !replaying) {
+                auto result = apply_operations();
+                if (result != rhi::error::ok)
+                    return result;
+            }
             if (!this->frame_scoped) {
                 return rhi::error::not_ready; // the frame's image is not in this buffer (the frame-scoped rule)
             }
@@ -345,6 +366,11 @@ namespace {
         // visible" shape the members below follow); nothing is faked and nothing is dropped, because
         // a silent verb is exactly what the answering rule exists to refuse.
         [[nodiscard]] rhi::error begin_rendering(rhi::rendering_info const& info) noexcept override {
+            if (recording && !replaying) {
+                auto result = apply_operations();
+                if (result != rhi::error::ok)
+                    return result;
+            }
             this->rendering_active = true;
             this->begun_renderings += 1;
             this->last_layer_count = info.layer_count;
@@ -353,23 +379,44 @@ namespace {
         }
 
         void end_rendering() noexcept override {
+            if (recording && !replaying)
+                static_cast<void>(apply_operations());
             this->rendering_active = false;
             this->ended_renderings += 1;
         }
 
         [[nodiscard]] rhi::error bind_pipeline(rhi::pipeline const& handle) noexcept override {
+            if (recording_error != rhi::error::ok)
+                return recording_error;
+            if (recording && !replaying) {
+                desired_pipeline = &handle;
+                operations.append<rhi::recording::operation_kind::pipeline>({reinterpret_cast<std::uintptr_t>(&handle)});
+                return rhi::error::ok;
+            }
             this->bound_pipelines += 1;
             this->last_bound_pipeline = &handle;
             return rhi::error::ok;
         }
 
         [[nodiscard]] rhi::error bind_vertex_buffer(rhi::buffer const& handle, std::uint64_t const offset) noexcept override {
+            if (recording_error != rhi::error::ok)
+                return recording_error;
+            if (recording && !replaying) {
+                operations.append<rhi::recording::operation_kind::vertex>({reinterpret_cast<std::uintptr_t>(&handle), offset});
+                return rhi::error::ok;
+            }
             this->last_bound_vertex = &handle;
             this->last_vertex_offset = offset;
             return rhi::error::ok;
         }
 
         [[nodiscard]] rhi::error bind_index_buffer(rhi::buffer const& handle, std::uint64_t const offset, rhi::index_type const type) noexcept override {
+            if (recording_error != rhi::error::ok)
+                return recording_error;
+            if (recording && !replaying) {
+                operations.append<rhi::recording::operation_kind::index>({reinterpret_cast<std::uintptr_t>(&handle), offset, static_cast<std::uint64_t>(type)});
+                return rhi::error::ok;
+            }
             this->last_bound_index = &handle;
             this->last_index_offset = offset;
             this->last_index_type = type;
@@ -377,18 +424,58 @@ namespace {
         }
 
         void draw(std::uint32_t const vertex_count, std::uint32_t const instance_count, std::uint32_t const first_vertex, std::uint32_t const first_instance) noexcept override {
+            if (!recording || recording_error != rhi::error::ok)
+                return;
+            if (!rendering_active) {
+                recording_error = rhi::error::invalid_argument;
+                return;
+            }
+            if (recording && !replaying) {
+                operations.append<rhi::recording::operation_kind::draw>({vertex_count, instance_count, first_vertex, first_instance});
+                return;
+            }
             this->last_draw = {vertex_count, instance_count, first_vertex, first_instance};
         }
 
         void draw_indexed(std::uint32_t const index_count, std::uint32_t const instance_count, std::uint32_t const first_index, std::int32_t const vertex_offset, std::uint32_t const first_instance) noexcept override {
+            if (!recording || recording_error != rhi::error::ok)
+                return;
+            if (!rendering_active) {
+                recording_error = rhi::error::invalid_argument;
+                return;
+            }
+            if (recording && !replaying) {
+                operations.append<rhi::recording::operation_kind::draw_indexed>({index_count, instance_count, first_index, static_cast<std::uint32_t>(vertex_offset), first_instance});
+                return;
+            }
             this->last_indexed_draw = {index_count, instance_count, first_index, vertex_offset, first_instance};
         }
 
         void dispatch(std::uint32_t const groups_x, std::uint32_t const groups_y, std::uint32_t const groups_z) noexcept override {
+            if (!recording || recording_error != rhi::error::ok)
+                return;
+            if (rendering_active) {
+                recording_error = rhi::error::invalid_argument;
+                return;
+            }
+            if (recording && !replaying) {
+                operations.append<rhi::recording::operation_kind::dispatch>({groups_x, groups_y, groups_z});
+                return;
+            }
             this->last_dispatch = {groups_x, groups_y, groups_z};
         }
 
         void draw_mesh_tasks(std::uint32_t const groups_x, std::uint32_t const groups_y, std::uint32_t const groups_z) noexcept override {
+            if (!recording || recording_error != rhi::error::ok)
+                return;
+            if (!rendering_active) {
+                recording_error = rhi::error::invalid_argument;
+                return;
+            }
+            if (recording && !replaying) {
+                operations.append<rhi::recording::operation_kind::mesh>({groups_x, groups_y, groups_z});
+                return;
+            }
             this->last_mesh_tasks = {groups_x, groups_y, groups_z};
         }
 
@@ -396,6 +483,12 @@ namespace {
             return rhi::error::unsupported;
         }
         [[nodiscard]] rhi::error draw_mesh_tasks_indirect(rhi::buffer const& handle, std::uint64_t const offset, std::uint32_t const count, std::uint32_t const stride) noexcept override {
+            if (recording_error != rhi::error::ok)
+                return recording_error;
+            if (recording && !replaying) {
+                operations.append<rhi::recording::operation_kind::mesh_indirect>({reinterpret_cast<std::uintptr_t>(&handle), offset, count, stride});
+                return rhi::error::ok;
+            }
             this->last_indirect_mesh = {&handle, offset, count, stride};
             return rhi::error::ok;
         }
@@ -407,26 +500,51 @@ namespace {
         }
 
         void set_viewport(rhi::viewport const& vp) noexcept override {
+            if (recording && !replaying) {
+                operations.append<rhi::recording::operation_kind::viewport>(rhi::recording::pack(vp));
+                return;
+            }
             this->last_viewport = vp;
         }
 
         void set_scissor(rhi::rect const& scissor) noexcept override {
+            if (recording && !replaying) {
+                operations.append<rhi::recording::operation_kind::scissor>(rhi::recording::pack(scissor));
+                return;
+            }
             this->last_scissor = scissor;
         }
 
         void set_cull_mode(rhi::cull_mode const mode) noexcept override {
+            if (recording && !replaying) {
+                operations.append<rhi::recording::operation_kind::cull>({static_cast<std::uint64_t>(mode)});
+                return;
+            }
             this->last_cull_mode = mode;
         }
 
         void set_depth_write(bool const enable) noexcept override {
+            if (recording && !replaying) {
+                operations.append<rhi::recording::operation_kind::depth_write>({enable});
+                return;
+            }
             this->last_depth_write = enable;
         }
 
         void set_depth_bias(float const constant_factor, float const slope_factor, float const clamp) noexcept override {
+            if (recording && !replaying) {
+                operations.append<rhi::recording::operation_kind::depth_bias>(rhi::recording::pack(deren::utility::vessel::array<float, 3>{constant_factor, slope_factor, clamp}));
+                return;
+            }
             this->last_depth_bias = {constant_factor, slope_factor, clamp};
         }
 
         [[nodiscard]] rhi::error barrier(rhi::barrier_group const& group) noexcept override {
+            if (recording && !replaying) {
+                auto result = apply_operations();
+                if (result != rhi::error::ok)
+                    return result;
+            }
             this->barrier_groups += 1;
             this->last_group_images = group.images.size();
             this->last_group_buffers = group.buffers.size();
@@ -434,22 +552,42 @@ namespace {
         }
 
         [[nodiscard]] rhi::error barrier(rhi::image_barrier const& one) noexcept override {
+            if (recording && !replaying) {
+                auto result = apply_operations();
+                if (result != rhi::error::ok)
+                    return result;
+            }
             this->single_barriers += 1;
             this->last_single_barrier_to = one.to;
             return rhi::error::ok;
         }
 
         [[nodiscard]] rhi::error copy_image(rhi::image_copy const& copy) noexcept override {
+            if (recording && !replaying) {
+                auto result = apply_operations();
+                if (result != rhi::error::ok)
+                    return result;
+            }
             this->last_image_copy = &copy;
             return rhi::error::ok;
         }
 
         [[nodiscard]] rhi::error copy_buffer(rhi::buffer& destination, rhi::buffer const& source, std::uint64_t const size, std::uint64_t const source_offset, std::uint64_t const destination_offset) noexcept override {
+            if (recording && !replaying) {
+                auto result = apply_operations();
+                if (result != rhi::error::ok)
+                    return result;
+            }
             this->last_buffer_copy = {&destination, &source, size, source_offset, destination_offset};
             return rhi::error::ok;
         }
 
         [[nodiscard]] rhi::error clear_color_image(rhi::image const& target, deren::utility::vessel::array<float, 4> const& color, rhi::subresource_range const& range) noexcept override {
+            if (recording && !replaying) {
+                auto result = apply_operations();
+                if (result != rhi::error::ok)
+                    return result;
+            }
             this->last_cleared_image = &target;
             this->last_clear_color = color;
             this->last_clear_range = range;
@@ -537,6 +675,12 @@ namespace {
         }
         impl* owner = nullptr;
         probe_command_buffer inner;
+        [[nodiscard]] rhi::error apply_operations() noexcept override {
+            return inner.apply_operations();
+        }
+        [[nodiscard]] rhi::error push_constants(std::uint32_t offset, std::span<std::byte const> data) noexcept override {
+            return inner.push_constants(offset, data);
+        }
         bool submitted = false;
 
         void release() noexcept override;
@@ -922,8 +1066,6 @@ namespace {
         std::int32_t image_writes_until_failure = -1;
         bool persistent_image_failure = false;
         deren::utility::vessel::vector<rhi::heap_buffer_write_info> written_buffers;
-        mutable std::mutex push_mutex;
-        mutable deren::utility::vessel::map<std::size_t, deren::utility::vessel::vector<std::byte>> last_pushes;
         // Retain only image identity and offset; view pointers in the write descriptor are transient.
         deren::utility::vessel::vector<std::pair<std::uint64_t, rhi::image const*>> written_images;
         bool ready() const noexcept override {
@@ -931,7 +1073,6 @@ namespace {
         }
         rhi::descriptor_heap_properties properties() const noexcept override {
             rhi::descriptor_heap_properties info{};
-            info.max_push_data = 256;
             info.buffer_descriptor_size = 64;
             info.image_descriptor_size = 64;
             info.sampler_descriptor_size = 32;
@@ -963,14 +1104,6 @@ namespace {
         }
         rhi::error bind(rhi::heap_bind_info const& info) const noexcept override {
             return info.commands != nullptr ? rhi::error::ok : rhi::error::invalid_argument;
-        }
-        rhi::error push_data(rhi::heap_push_info const& info) const noexcept override {
-            auto status = info.commands == nullptr ? rhi::error::invalid_argument : rhi::validate_heap_push_range(info.offset, info.data.size(), 256);
-            if (status == rhi::error::ok && info.offset == 0) {
-                std::lock_guard lock(push_mutex);
-                last_pushes[info.data.size()].assign(info.data.begin(), info.data.end());
-            }
-            return status;
         }
     };
 
@@ -1186,9 +1319,10 @@ namespace {
             }
             return rhi::error::ok;
         }
-        rhi::error record(rhi::command_buffer&, std::span<rhi::scoped_image_barrier const>, std::span<rhi::scoped_buffer_barrier const>) const noexcept override;
+        rhi::error record(rhi::command_recorder&, std::span<rhi::scoped_image_barrier const>, std::span<rhi::scoped_buffer_barrier const>) const noexcept override;
     };
-    struct impl final : rhi::api_core {
+    struct impl final : rhi::api_core, rhi::resource_factory, rhi::command_context, rhi::frame_context {
+        push_capture pushes;
         /// the probe root's own control block (the entry hands it out as a shared_object)
         rhi::shared_object<rhi::api_core>::weak self_owner;
         void attach_self(rhi::shared_object<rhi::api_core> const& root) noexcept {
@@ -1337,6 +1471,7 @@ namespace {
             answer->owner = this;
             answer->inner.owner = this;
             answer->inner.frame_scoped = false;
+            answer->inner.kind_echo = rhi::command_buffer_kind::secondary;
             this->mergeable_buffers.push_back(answer);
             return rhi::mergeable_command_buffer_ref(answer);
         }
@@ -1360,7 +1495,7 @@ namespace {
                 if (owned.submitted) {
                     return rhi::error::invalid_argument; // one batch per recording
                 }
-                if (owned.inner.recording || owned.inner.released) {
+                if (owned.inner.recording || owned.inner.released || !owned.inner.executable) {
                     return rhi::error::not_ready; // still recording, or the one reference was dropped
                 }
                 for (std::size_t j = 0; j < i; ++j) {
@@ -1385,7 +1520,7 @@ namespace {
             // nothing is in flight, and the probe keeps that rule with its own frame fiction
             // (`frame_begin()` / the walker's `wait_and_acquire()` open it, `submit()` closes it).
             // abi 14's timing verbs live ON this list, which is the reason it is handed out at all.
-            return this->frame_open ? &this->commands : nullptr;
+            return this->frame_open ? &this->frame_commands : nullptr;
         }
 
         [[nodiscard]] rhi::submit_info frame_begin() override {
@@ -1401,7 +1536,7 @@ namespace {
             // ... AND THE FRAME IS OPEN: this is the window `begin_commands()` and the recording verbs
             // answer in, the same window the real backend's acquire opens (see begin_commands()).
             this->frame_open = true;
-            this->commands.rendering_active = false;
+            this->frame_commands.rendering_active = false;
             this->frame_acquired = true;
             return info;
         }
@@ -1450,10 +1585,10 @@ namespace {
         /// abi 14: the frame verb the contract was missing. The list must be THIS probe's own borrowed
         /// recording view (a foreign list is a caller bug, refused by name, never guessed at), and
         /// there must be a frame to hand over - the same two-way check the real backend makes.
-        [[nodiscard]] rhi::error submit(rhi::command_buffer& commands_ref) override {
-            if (&commands_ref != static_cast<rhi::command_buffer*>(&this->commands)) {
-                return rhi::error::invalid_argument;
-            }
+        [[nodiscard]] rhi::error submit(rhi::command_buffer&) override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error submit() override {
             if (!this->frame_open) {
                 return rhi::error::not_ready;
             }
@@ -1469,7 +1604,7 @@ namespace {
         /// member (a probe has no device to allocate from), so the control block deleter is a no-op -
         /// release() is what the test observes, and the object itself outlives every reference.
         [[nodiscard]] rhi::shared_object<rhi::command_buffer> make_command_buffer(rhi::command_buffer_desc const& desc) override {
-            rhi::command_buffer* const raw = this->create_command_buffer(desc).release();
+            rhi::command_buffer* const raw = this->commands->create_command_buffer(desc).release();
             if (raw == nullptr) {
                 return {};
             }
@@ -1543,15 +1678,16 @@ namespace {
         /// whether a frame was ever opened, which is what `present()` refuses on (abi 14)
         bool frame_acquired = false;
         probe_frame_walker walker{};
-        probe_command_buffer commands{};
+        probe_command_buffer frame_commands{};
         probe_swapchain swapchain_view{};   // not `swapchain`: a type name, not a member name
         probe_gpu_profiler profiler_view{}; // not `profiler`: the accessor above owns that name
 
         impl() noexcept
             : rhi::api_core("deren_api_core_probe") {
+            bind_views(*this, *this, *this);
             // THE OWNER IS SET IN THE CONSTRUCTOR - the same lesson the real backend's constructor
             // states: a view handed out with a null owner dereferences null on its first call.
-            this->commands.owner = this;
+            this->frame_commands.owner = this;
             this->scoped_sync.owner = this;
             this->frame_resources.owner = this;
             this->scoped_sync.registry = this->resource_registry;
@@ -1585,10 +1721,10 @@ namespace {
     }
 
     // The frame walker's bodies, where `impl` is complete (they answer through its cursor).
-    rhi::error cpu_scoped_synchronization::record(rhi::command_buffer& commands, std::span<rhi::scoped_image_barrier const> images, std::span<rhi::scoped_buffer_barrier const> buffers) const noexcept {
+    rhi::error cpu_scoped_synchronization::record(rhi::command_recorder& commands, std::span<rhi::scoped_image_barrier const> images, std::span<rhi::scoped_buffer_barrier const> buffers) const noexcept {
         probe_command_buffer const* owned = nullptr;
-        if (&commands == static_cast<rhi::command_buffer*>(&owner->commands))
-            owned = &owner->commands;
+        if (&commands == static_cast<rhi::command_buffer*>(&owner->frame_commands))
+            owned = &owner->frame_commands;
         else if (&commands == static_cast<rhi::command_buffer*>(&owner->command_buffer))
             owned = &owner->command_buffer;
         else
@@ -1625,7 +1761,7 @@ namespace {
         // Opening a frame here IS opening the recording window: `begin_commands()` and abi 14's
         // timing verbs answer in it, exactly as they do after the real backend's acquire.
         this->owner->frame_open = true;
-        this->owner->commands.rendering_active = false;
+        this->owner->frame_commands.rendering_active = false;
         this->owner->frame_acquired = true;
         return {.frame = {.frame_index = this->owner->current_slot, .image_index = this->owner->portable_mode ? 0u : this->owner->creation_window_width}, .result = {}};
     }
@@ -1662,6 +1798,25 @@ namespace {
         this->rendering_active = false;
     }
 
+    rhi::error probe_command_buffer::push_constants(std::uint32_t offset, std::span<std::byte const> data) noexcept {
+        if (!owner || released || !recording)
+            return rhi::error::not_ready;
+        if (recording_error != rhi::error::ok)
+            return recording_error;
+        auto result = rhi::validate_push_constants_range(offset, data.size(), 256);
+        if (result != rhi::error::ok)
+            return result;
+        if (recording && !replaying) {
+            operations.append<rhi::recording::operation_kind::push>({offset}, data);
+            return rhi::error::ok;
+        }
+        if (offset == 0) {
+            std::lock_guard lock(owner->pushes.mutex);
+            owner->pushes.values[data.size()].assign(data.begin(), data.end());
+        }
+        return rhi::error::ok;
+    }
+
     rhi::error probe_command_buffer::begin_recording(rhi::command_buffer_begin_info const& info) {
         if (this->released) {
             return rhi::error::not_ready;
@@ -1669,17 +1824,105 @@ namespace {
         // THE USAGE CROSSES AND IS ECHOED: the four-flag set the caller composed is what the probe
         // remembers, so the test can tell "the call arrived with these bits" from "a default was used".
         this->usage_echo = info.usage;
+        operations.clear();
+        recording_error = rhi::error::ok;
+        desired_pipeline = last_bound_pipeline = nullptr;
+        final_application = executable = false;
         this->recording = true;
-        this->rendering_active = false;
+        rendering_inherited = kind_echo == rhi::command_buffer_kind::secondary && rhi::has_flag(info.usage, rhi::command_buffer_usage::render_pass_continue);
+        rendering_active = rendering_inherited;
+        return rhi::error::ok;
+    }
+
+    rhi::error probe_command_buffer::apply_operations() noexcept {
+        if (!recording || released)
+            return rhi::error::not_ready;
+        if (recording_error != rhi::error::ok)
+            return recording_error;
+        auto selected = operations.simplify(final_application);
+        auto* pipeline = last_bound_pipeline;
+        for (auto* op : selected) {
+            if (op->kind() == rhi::recording::operation_kind::pipeline)
+                pipeline = reinterpret_cast<rhi::pipeline const*>(op->data[0]);
+            if (op->is_unique() && !pipeline) {
+                recording_error = rhi::error::invalid_argument;
+                return recording_error;
+            }
+        }
+        replaying = true;
+        using kind = rhi::recording::operation_kind;
+        for (auto* op : selected) {
+            auto const& d = op->data;
+            switch (op->kind()) {
+            case kind::pipeline:
+                static_cast<void>(bind_pipeline(*reinterpret_cast<rhi::pipeline const*>(d[0])));
+                break;
+            case kind::vertex:
+                static_cast<void>(bind_vertex_buffer(*reinterpret_cast<rhi::buffer const*>(d[0]), d[1]));
+                break;
+            case kind::index:
+                static_cast<void>(bind_index_buffer(*reinterpret_cast<rhi::buffer const*>(d[0]), d[1], static_cast<rhi::index_type>(d[2])));
+                break;
+            case kind::draw:
+                draw(d[0], d[1], d[2], d[3]);
+                break;
+            case kind::draw_indexed:
+                draw_indexed(d[0], d[1], d[2], static_cast<std::int32_t>(d[3]), d[4]);
+                break;
+            case kind::dispatch:
+                dispatch(d[0], d[1], d[2]);
+                break;
+            case kind::mesh:
+                draw_mesh_tasks(d[0], d[1], d[2]);
+                break;
+            case kind::mesh_indirect:
+                static_cast<void>(draw_mesh_tasks_indirect(*reinterpret_cast<rhi::buffer const*>(d[0]), d[1], d[2], d[3]));
+                break;
+            case kind::viewport:
+                set_viewport(rhi::recording::unpack<rhi::viewport>(d));
+                break;
+            case kind::scissor:
+                set_scissor(rhi::recording::unpack<rhi::rect>(d));
+                break;
+            case kind::cull:
+                set_cull_mode(static_cast<rhi::cull_mode>(d[0]));
+                break;
+            case kind::depth_write:
+                set_depth_write(d[0]);
+                break;
+            case kind::depth_bias: {
+                auto v = rhi::recording::unpack<deren::utility::vessel::array<float, 3>>(d);
+                set_depth_bias(v[0], v[1], v[2]);
+                break;
+            }
+            case kind::push:
+                static_cast<void>(push_constants(d[0], op->bytes));
+                break;
+            default:
+                break;
+            }
+        }
+        replaying = false;
+        operations.clear();
         return rhi::error::ok;
     }
 
     rhi::error probe_command_buffer::end_recording() noexcept {
-        this->recording = false;
-        return this->released ? rhi::error::not_ready : rhi::error::ok;
+        if (!recording || released)
+            return rhi::error::not_ready;
+        final_application = true;
+        auto result = apply_operations();
+        final_application = false;
+        if (rendering_active && !rendering_inherited && result == rhi::error::ok)
+            result = rhi::error::invalid_argument;
+        recording = rendering_active = false;
+        executable = result == rhi::error::ok;
+        return result;
     }
 
     rhi::error probe_command_buffer::execute(std::span<rhi::mergeable_command_buffer_ref const> batch) {
+        if (auto applied = apply_operations(); applied != rhi::error::ok)
+            return applied;
         if (this->released) {
             return rhi::error::not_ready;
         }
@@ -1697,7 +1940,7 @@ namespace {
             if (std::find(this->owner->mergeable_buffers.begin(), this->owner->mergeable_buffers.end(), mergeable) == this->owner->mergeable_buffers.end()) {
                 return rhi::error::invalid_argument;
             }
-            if (mergeable->inner.recording || mergeable->inner.released) {
+            if (mergeable->inner.recording || mergeable->inner.released || !mergeable->inner.executable) {
                 return rhi::error::not_ready;
             }
         }
@@ -1782,7 +2025,7 @@ namespace deren::vk_test {
         static_cast<impl&>(core).scoped_sync.stage_mask = enabled ? 255U | 512U : 255U;
     }
     std::uint64_t probe_rendering_count(deren::promise::rhi::api_core const& core) noexcept {
-        return static_cast<impl const&>(core).commands.begun_renderings;
+        return static_cast<impl const&>(core).frame_commands.begun_renderings;
     }
     void probe_scoped_validation_failure(deren::promise::rhi::api_core& core, std::int32_t successful_validations) noexcept {
         static_cast<impl&>(core).scoped_sync.validations_until_failure = successful_validations;
@@ -1825,13 +2068,13 @@ namespace deren::vk_test {
         return {};
     }
     std::span<std::byte const> probe_last_push(deren::promise::rhi::api_core& core, std::size_t byte_count) {
-        auto& heap = static_cast<impl&>(core).heap;
-        std::lock_guard lock(heap.push_mutex);
-        auto found = heap.last_pushes.find(byte_count);
-        return found == heap.last_pushes.end() ? std::span<std::byte const>{} : std::span<std::byte const>{found->second};
+        auto& pushes = static_cast<impl&>(core).pushes;
+        std::lock_guard lock(pushes.mutex);
+        auto found = pushes.values.find(byte_count);
+        return found == pushes.values.end() ? std::span<std::byte const>{} : std::span<std::byte const>{found->second};
     }
     deren::promise::rhi::mesh_task_command probe_last_indirect(deren::promise::rhi::api_core& core) {
-        auto const& call = static_cast<impl&>(core).commands.last_indirect_mesh;
+        auto const& call = static_cast<impl&>(core).frame_commands.last_indirect_mesh;
         rhi::mesh_task_command result{};
         if (call.buffer) {
             auto bytes = const_cast<rhi::buffer*>(call.buffer)->mapped();

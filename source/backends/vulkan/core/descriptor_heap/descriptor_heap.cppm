@@ -10,6 +10,7 @@ module; // the macro-using Vulkan header must not be imported into a module purv
 // along. Textually including glm merges the two copies. Do not remove this include to "clean up".
 #include <fstream>
 #include <glm/glm.hpp>
+#include <mutex>
 /**
  * @file source/backends/vulkan/core/descriptor_heap/descriptor_heap.cppm
  * @brief VK_EXT_descriptor_heap as this renderer's binding model: descriptors in a buffer the application
@@ -111,6 +112,10 @@ namespace deren::vulkan {
 
         [[nodiscard]] bool ready() const noexcept {
             return this->write_resource_descriptors != nullptr && this->bind_resource_heap != nullptr && this->bind_sampler_heap != nullptr && this->resource_heap_address != 0;
+        }
+        /// Usable parameter capacity for the active native mechanism; absent entry point means unsupported.
+        [[nodiscard]] uint32_t push_capacity() const noexcept {
+            return ready() && cmd_push_data != nullptr ? configured_limits.max_push_data : 0u;
         }
         /// @brief where the resource heap begins, i.e. what a mapping's heapOffset is relative to
         [[nodiscard]] std::uintptr_t resource_address() const noexcept {
@@ -273,6 +278,7 @@ namespace deren::vulkan {
         VkDeviceSize sampler_heap_size = 0;
         /// the bump pointer for reserve(), which starts past the implementation's reserved window
         VkDeviceSize next_free = 0;
+        std::mutex reservations;
         // called configured_limits, not limits: the limits parameter of init() would hide a member of that name and
         // MSVC /W4 reports C4458, an error under /WX; the limits() accessor would collide with it as well
         heap_limits configured_limits = {};
@@ -297,7 +303,7 @@ namespace deren::vulkan {
         /// sampler heap is capped at 128 KiB by the API, so its grid base is 64 KiB instead, which has to leave
         /// room for the samplers themselves - 64 KiB was entirely the reserved window the embedded-sampler path
         /// requires, i.e. no usable sampler space at all.
-        constexpr VkDeviceSize resource_working_size = static_cast<VkDeviceSize>(1280u) * 1024u; // the 1 MiB grid base + its 128 KiB (2048 slots) + the texture array's reserved block; it has to follow the grid whenever the grid grows
+        constexpr VkDeviceSize resource_working_size = static_cast<VkDeviceSize>(4096u) * 1024u; // scene grid, disjoint texture-group block, and reusable dynamic resource-group descriptors
         constexpr VkDeviceSize sampler_working_size = static_cast<VkDeviceSize>(128u) * 1024u;   // the API's maximum (64 reserved + 64 usable)
 
         /// the VkBuffer behind a vk_buffer (the wrapper holds a VMA handle, not the Vulkan one)
@@ -538,7 +544,7 @@ namespace deren::vulkan {
         if (!this->ready() || this->cmd_push_data == nullptr || command_buffer == VK_NULL_HANDLE || data.empty()) {
             return false;
         }
-        if (promise::rhi::validate_heap_push_range(offset, data.size(), this->configured_limits.max_push_data) != promise::rhi::error::ok) {
+        if (promise::rhi::validate_push_constants_range(offset, data.size(), this->configured_limits.max_push_data) != promise::rhi::error::ok) {
             deren::utility::log("descriptor heap: a push of {} B at offset {} violates the 4-byte granularity or {} B push-data window", data.size(), offset, this->configured_limits.max_push_data);
             return false;
         }
@@ -554,6 +560,7 @@ namespace deren::vulkan {
     }
 
     VkDeviceSize descriptor_heap::reserve(uint32_t const count, VkDescriptorType const type) noexcept {
+        std::lock_guard lock(reservations);
         if (!this->ready() || count == 0) {
             return VK_WHOLE_SIZE;
         }
@@ -569,6 +576,7 @@ namespace deren::vulkan {
     }
 
     VkDeviceSize descriptor_heap::reserve_bytes(VkDeviceSize const bytes, VkDeviceSize const alignment) noexcept {
+        std::lock_guard lock(reservations);
         if (!this->ready() || bytes == 0) {
             return VK_WHOLE_SIZE;
         }

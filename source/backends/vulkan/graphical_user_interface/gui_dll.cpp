@@ -178,6 +178,7 @@ namespace deren::vulkan::gui {
                     }
                 }
                 gui_create_info translated = {};
+                this->engine_heap = rhi::query_extension<rhi::descriptor_heap>(*context->core);
                 translated.window = info.window;
                 translated.instance = context->instance;
                 translated.physical_device = context->physical_device;
@@ -273,7 +274,21 @@ namespace deren::vulkan::gui {
                     deren::utility::log("gui plugin: the recording target names no native command buffer");
                     return {};
                 }
+                // Start from explicit heap state before ImGui replaces it with its own descriptor sets.
+                // This keeps GUI texture sampling reliable on static/empty scene command streams.
+                // The segment must not inherit heaps: the following legacy binds invalidate them.
+                if (this->engine_heap) {
+                    if (this->engine_heap->bind({.commands = target.get()}) != deren::promise::rhi::error::ok) {
+                        (void)target->end_recording();
+                        deren::utility::log("gui plugin: preparing the overlay's descriptor state failed");
+                        return {};
+                    }
+                }
+                auto& native_target = static_cast<deren::vulkan::mergeable_command_buffer&>(*target);
+                if (native_target.prepare_native() != deren::promise::rhi::error::ok)
+                    return {};
                 this->content.record(native);
+                native_target.finish_native();
                 if (target->end_recording() != deren::promise::rhi::error::ok) {
                     deren::utility::log("gui plugin: ending the overlay's recording segment failed");
                     return {};
@@ -287,6 +302,7 @@ namespace deren::vulkan::gui {
 
         private:
             gui_content content;
+            deren::promise::rhi::descriptor_heap const* engine_heap = nullptr; // borrowed from the GUI device
             bool platform_ready = false;
             /// THE OVERLAY'S OWN RECORDING TARGETS (abi 5): two mergeable segments the host created and the
             /// overlay alternates between - the frame's slot ring makes alternating reuse safe.

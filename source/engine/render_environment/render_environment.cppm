@@ -59,9 +59,8 @@ namespace deren::engine {
      *
      * The engine's multithreaded passes record into `mergeable_command_buffer` segments (their batches are
      * merged into the frame's primary with `command_buffer::execute(span)`), while the single-threaded passes
-     * still record straight into a `command_buffer`. Every verb the draw path records exists on BOTH contracts
-     * - heap push is the only one that names the target in its request - so the environment carries the target
-     * as this two-armed value and the small helpers below pick the arm.
+     * still record straight into a `command_buffer`. Typed owners preserve their lifetime and submission
+     * permissions; get() exposes their common recording interface without branching at each verb.
      */
     export struct recording_target {
         deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer> command = {};
@@ -79,55 +78,33 @@ namespace deren::engine {
             return this->command != nullptr || this->mergeable != nullptr;
         }
 
+        [[nodiscard]] deren::promise::rhi::command_recorder* get() const noexcept {
+            return command != nullptr ? static_cast<deren::promise::rhi::command_recorder*>(command.get()) : mergeable.get();
+        }
         [[nodiscard]] deren::promise::rhi::error bind_pipeline(deren::promise::rhi::pipeline const& pipeline) const noexcept {
-            return this->command != nullptr ? this->command->bind_pipeline(pipeline) : this->mergeable->bind_pipeline(pipeline);
+            return get()->bind_pipeline(pipeline);
         }
         void set_viewport(deren::promise::rhi::viewport const& viewport) const noexcept {
-            if (this->command != nullptr) {
-                this->command->set_viewport(viewport);
-            } else {
-                this->mergeable->set_viewport(viewport);
-            }
+            get()->set_viewport(viewport);
         }
         void set_scissor(deren::promise::rhi::rect const& scissor) const noexcept {
-            if (this->command != nullptr) {
-                this->command->set_scissor(scissor);
-            } else {
-                this->mergeable->set_scissor(scissor);
-            }
+            get()->set_scissor(scissor);
         }
-        void set_depth_write(bool const enabled) const noexcept {
-            if (this->command != nullptr) {
-                this->command->set_depth_write(enabled);
-            } else {
-                this->mergeable->set_depth_write(enabled);
-            }
+        void set_depth_write(bool enabled) const noexcept {
+            get()->set_depth_write(enabled);
         }
-        void set_depth_bias(float const constant_factor, float const slope_factor, float const clamp) const noexcept {
-            if (this->command != nullptr) {
-                this->command->set_depth_bias(constant_factor, slope_factor, clamp);
-            } else {
-                this->mergeable->set_depth_bias(constant_factor, slope_factor, clamp);
-            }
+        void set_depth_bias(float constant_factor, float slope_factor, float clamp) const noexcept {
+            get()->set_depth_bias(constant_factor, slope_factor, clamp);
         }
-        void set_cull_mode(deren::promise::rhi::cull_mode const mode) const noexcept {
-            if (this->command != nullptr) {
-                this->command->set_cull_mode(mode);
-            } else {
-                this->mergeable->set_cull_mode(mode);
-            }
+        void set_cull_mode(deren::promise::rhi::cull_mode mode) const noexcept {
+            get()->set_cull_mode(mode);
         }
-        void draw_mesh_tasks(std::uint32_t const groups_x, std::uint32_t const groups_y, std::uint32_t const groups_z) const noexcept {
-            if (this->command != nullptr) {
-                this->command->draw_mesh_tasks(groups_x, groups_y, groups_z);
-            } else {
-                this->mergeable->draw_mesh_tasks(groups_x, groups_y, groups_z);
-            }
+        void draw_mesh_tasks(std::uint32_t x, std::uint32_t y, std::uint32_t z) const noexcept {
+            get()->draw_mesh_tasks(x, y, z);
         }
-        [[nodiscard]] deren::promise::rhi::error draw_mesh_tasks_indirect(deren::promise::rhi::buffer const& arguments, std::uint64_t const offset,
-                                                                          std::uint32_t const count, std::uint32_t const stride) const noexcept {
-            return this->command != nullptr ? this->command->draw_mesh_tasks_indirect(arguments, offset, count, stride)
-                                            : this->mergeable->draw_mesh_tasks_indirect(arguments, offset, count, stride);
+        [[nodiscard]] deren::promise::rhi::error draw_mesh_tasks_indirect(deren::promise::rhi::buffer const& arguments, std::uint64_t offset,
+                                                                          std::uint32_t count, std::uint32_t stride) const noexcept {
+            return get()->draw_mesh_tasks_indirect(arguments, offset, count, stride);
         }
     };
 

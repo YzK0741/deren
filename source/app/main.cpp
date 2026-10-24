@@ -1,5 +1,7 @@
 #define GLFW_INCLUDE_NONE // glfw3.h must not pull <GL/gl.h>: we link no OpenGL, and this states it instead of relying on the environment
-#include <GLFW/glfw3.h>   // the application's window: this file creates it and the backend only binds to it (see glfw_window_host)
+#include "startup_splash.hpp"
+
+#include <GLFW/glfw3.h> // the application's window: this file creates it and the backend only binds to it (see glfw_window_host)
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 // ---- THE GOO REFERENCE'S PRE-INTEGRATED FGD LUT IS A PNG, AND THIS IS THE DECODER ----
@@ -431,6 +433,12 @@ int main(int argc, char** argv) {
     deren::app_config::app_settings const& settings = config.settings;
     std::filesystem::path const& shaders_dir = config.shaders_dir;
     deren::utility::vessel::string const& model_path = config.model_path;
+    // Keep the splash younger than its GLFW owner, including early-exit teardown.
+    bool const offscreen = settings.render.offscreen || (capture.frames > 0 && !capture.windowed);
+    glfw_window_host const window{settings.render.window_width, settings.render.window_height,
+                                  settings.render.window_title.c_str(), capture.frames == 0, offscreen};
+    deren::app::startup_splash splash{capture.frames == 0 && !settings.render.offscreen};
+    splash.attach_owner(window.window);
 
     // startup banner: version (single source: project(VERSION) in CMakeLists.txt)
     deren::utility::log("deren {}.{}.{}", DEREN_VERSION_MAJOR, DEREN_VERSION_MINOR, DEREN_VERSION_PATCH);
@@ -516,14 +524,6 @@ int main(int argc, char** argv) {
     bool const gaussian_only = model_format == deren::app_config::model_format::gaussian_ply;
     auto load_future = gaussian_only ? std::future<std::expected<deren::gltf::scenes, deren::gltf::error_code>>{}
                                      : deren::gltf::load_model_async(model_path, {settings.render.subtilis});
-
-    // 4b. THE WINDOW IS THE APPLICATION'S (see glfw_window_host above): GLFW is initialised and the window
-    //     created HERE, before the runtime, so that the declaration order above gives the teardown order the
-    //     engine needs - the runtime (and the core's surface, built from this window) is destroyed first,
-    //     then the window, then GLFW. What travels to the backend is the borrowed pointer, nothing else.
-    bool const offscreen = settings.render.offscreen || (capture.frames > 0 && !capture.windowed);
-    glfw_window_host const window{settings.render.window_width, settings.render.window_height,
-                                  settings.render.window_title.c_str(), capture.frames == 0, offscreen};
 
     // 5. THE APPLICATION ACQUIRES THE DEVICE ROOT, THEN BUILDS THE RENDERER FROM IT (batch ⑥). Three
     //    steps, in this order, and the split is the point: the loader is the app's decision (which
@@ -2786,6 +2786,7 @@ int main(int argc, char** argv) {
         }
 
         // A frame was presented: publish its stamp for cheap readers (frame_clock)
+        splash.close();
         frame_clock.stamp();
 
         // scripted capture: once the requested number of frames has been PRESENTED, request the

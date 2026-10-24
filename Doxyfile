@@ -1093,6 +1093,7 @@ INPUT                  = ./docs/managed_resources.md \
 				./docs/mainpage.md \
 				./docs/conventions.md \
 				./docs/dynamic_runtime.md \
+				./docs/resource_groups.md \
 				./docs/shaders.md \
 				./docs/pass_io_design.md \
 				./docs/runtime_split.md \

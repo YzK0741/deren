@@ -57,6 +57,9 @@ export module deren.utility.shared;
 export import deren.vstd;
 
 namespace deren::utility {
+    /// Process-local identity shared across plugins; never reuse zero or a retired identity.
+    export [[nodiscard]] std::uint64_t allocate_identity() noexcept;
+
     /**
      * @ingroup utility
      * @brief THE sink's one door: queue a pre-formatted line for this process's log worker

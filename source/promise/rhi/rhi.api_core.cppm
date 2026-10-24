@@ -654,7 +654,7 @@ export namespace deren::promise::rhi {
     // (vma_allocator's ownership comment).
     //
     // A BORROWED VIEW IS NOT AN OWNED HANDLE, and this is the other half of the ownership model.
-    // `api_core::frame_image()`, `api_core::frame_readback_buffer()` and `api_core::begin_commands()`
+    // `frame_context::frame_image()`, `frame_context::frame_readback_buffer()` and `frame_context::begin_commands()`
     // answer with objects the BACKEND owns and lends for a window (a frame, or until the next
     // acquire). Those are VIEWS, not factory products: they carry no reference, and `release()` on one is a
     // lifecycle PRECONDITION violation that TERMINATES (the container-based ownership introduced in abi 41 is
@@ -1173,6 +1173,39 @@ export namespace deren::promise::rhi {
         std::uint32_t shader_stage_bits = 0;
         texture_group_profile profile = texture_group_profile::sampled_2d_16;
     };
+    /// Logical resource kinds, independent of descriptor storage.
+    enum class resource_kind : std::uint32_t {
+        texture_group,
+        sampled_image,
+        storage_image,
+        uniform_buffer,
+        storage_buffer,
+        sampler,
+        acceleration_structure
+    };
+    /// One shader-visible uint32 handle field. Its byte offset is a shader parameter location,
+    /// never an offset in descriptor storage. Stage bits: vertex=1, fragment=2, compute=4, mesh=8.
+    struct resource_group_binding {
+        std::uint32_t binding = 0;
+        resource_kind kind = resource_kind::texture_group;
+        std::uint32_t push_byte_offset = 0;
+        std::uint32_t shader_stage_bits = 0;
+    };
+    inline constexpr std::uint32_t resource_group_capacity = 32;
+    [[nodiscard]] constexpr error validate_resource_group_layout(std::span<resource_group_binding const> layout) noexcept {
+        if (layout.size() > resource_group_capacity)
+            return error::invalid_argument;
+        for (std::size_t i = 0; i < layout.size(); ++i) {
+            auto const& a = layout[i];
+            if (a.kind > resource_kind::acceleration_structure || a.shader_stage_bits == 0 ||
+                (a.shader_stage_bits & ~15u) || (a.push_byte_offset & 3u) || a.push_byte_offset > UINT32_MAX - 4u)
+                return error::invalid_argument;
+            for (std::size_t j = 0; j < i; ++j)
+                if (a.binding == layout[j].binding || a.push_byte_offset == layout[j].push_byte_offset)
+                    return error::invalid_argument;
+        }
+        return error::ok;
+    }
     struct pipeline_desc {
         std::uint32_t struct_size = sizeof(pipeline_desc); ///< size of this structure as the CALLER compiled it
         std::span<image_format const> color_formats;       ///< attachment order; empty = depth-only
@@ -1232,6 +1265,7 @@ export namespace deren::promise::rhi {
         /// older callers keep an empty list. Currently supported by ray-tracing pipelines.
         std::span<acceleration_structure_heap_binding const> acceleration_structure_bindings;
         texture_group_binding texture_group{};
+        std::span<resource_group_binding const> resource_group;
     };
 
     /// The descriptors of the remaining factories. Opaque until S1 (see the banner).
@@ -1331,7 +1365,7 @@ export namespace deren::promise::rhi {
         virtual ~radix_sorter() noexcept = default;
         virtual void release() noexcept = 0;
         [[nodiscard]] virtual radix_sort_requirements requirements(std::uint32_t count) const noexcept = 0;
-        [[nodiscard]] virtual error record(command_buffer&, radix_sort_info const&) = 0;
+        [[nodiscard]] virtual error record(command_recorder&, radix_sort_info const&) = 0;
     };
 
     struct query : object {
@@ -1521,18 +1555,40 @@ export namespace deren::promise::rhi {
     };
     using texture_group_ref = shared_object<texture_group>;
 
-    /// A command buffer the caller OWNS (abi 15).
-    ///
-    /// ONE REFERENCE, dropped through `release()` - the ownership the other owned handles carry (see
-    /// the ownership note above). What is specific to this type is that the resource is a RECORDING
-    /// SESSION rather than memory: the verbs below are that session's lifecycle, and the backend keeps
-    /// the pool, the query pool and the API's state machine behind them.
-    struct command_buffer : object {
-
-        explicit command_buffer(std::string_view const name) noexcept
+    /// Immutable composition: texture_group is one member kind, not the general binding container.
+    /// `resource` must be an owning/alias shared reference of the kind declared. Buffer size 0 means
+    /// the remainder after offset. View selects an image subresource. Spans are borrowed until return.
+    struct resource_group_entry {
+        std::uint32_t binding = 0;
+        resource_kind kind = resource_kind::texture_group;
+        shared_object<object> resource;
+        std::uint64_t offset = 0;
+        std::uint64_t size = 0;
+        image_view_desc view{};
+    };
+    struct resource_group_desc {
+        std::uint32_t struct_size = sizeof(resource_group_desc);
+        std::span<resource_group_entry const> entries;
+    };
+    /// Group owns member references; recorded/pending commands retain the group. Core/backend must
+    /// outlive every group. Immutability covers bindings, not resource content or synchronization.
+    struct resource_group : object {
+        explicit resource_group(std::string_view name) noexcept
             : object(name) {
         }
-        virtual ~command_buffer() noexcept = default;
+        virtual ~resource_group() noexcept = default;
+        virtual void release() noexcept = 0;
+    };
+    using resource_group_ref = shared_object<resource_group>;
+
+    /// Shared recording vocabulary (ABI 49). Owners expose these verbs directly.
+    /// This base carries no individual submission or batch execution permission.
+    struct command_recorder : object {
+
+        explicit command_recorder(std::string_view const name) noexcept
+            : object(name) {
+        }
+        virtual ~command_recorder() noexcept = default;
 
         /// RELEASE THE CALLER'S ONE REFERENCE (see `buffer::release()`): the recording session and the
         /// allocation behind it die with the last reference, inside the backend.
@@ -1546,9 +1602,16 @@ export namespace deren::promise::rhi {
         /// (`device_lost`, `out_of_*_memory`) travel as themselves.
         [[nodiscard]] virtual error begin_recording(command_buffer_begin_info const& info) = 0;
 
-        /// Close the recording session: the buffer becomes executable by `api_core::submit()`. A
+        /// Close the recording session: the buffer becomes executable by `command_context::submit()`. A
         /// `mergeable_command_buffer` segment becomes executable through `execute(span)` instead.
         [[nodiscard]] virtual error end_recording() noexcept = 0;
+
+        /// Apply pending CPU operations in order, preserving final state for later recording.
+        /// end_recording applies automatically. Deferred errors make the recording non-executable.
+        /// Borrowed pipeline/buffer owners must live through pending recording AND GPU completion.
+        [[nodiscard]] virtual error apply_operations() noexcept {
+            return error::unsupported;
+        }
 
         // ---- THE RECORDING SERIES, NOW ON THE OWNER (user's ruling) ------------------------------
         // command_list is GONE: the recording verbs live on the one handle a caller holds, so a
@@ -1604,18 +1667,16 @@ export namespace deren::promise::rhi {
         // ---- the portable record series (abi 20) ------------------------------------------------
         // THE RECORDING SURFACE'S OWN VOCABULARY: the verbs this renderer's passes actually record,
         // replacing 140 raw `vkCmd*` call sites in the engine's sources. Declared ONCE on the owning
-        // `command_buffer`; the sibling `mergeable_command_buffer` declares the same series again on
-        // purpose (the two types have different submit rules - abi 35). `push_data` is deliberately
-        // NOT here: the descriptor-heap face's `push_data(heap_push_info)` already takes the list and
-        // is the one heap verb that is a command-buffer operation, and a second spelling would be
-        // exactly the double declaration this block refuses.
+        // `command_recorder`; sibling owners retain different submit rules. Shader parameter pushes
+        // are recorded here too, independent of the backend's descriptor storage.
         //
         // THE ANSWERING RULE, and the one place it deliberately deviates from the obvious shape: a verb that
         // RECEIVES A CONTRACT HANDLE answers `error` - "a handle this backend did not hand out" is a
         // real, checkable refusal (`invalid_argument`), the same answer `use()` and
         // `copy_image_to_buffer()` already give, and a barrier or a binding that was silently not
         // recorded is the corruption this surface exists to make impossible. A verb that receives
-        // ONLY VALUES has nothing to refuse and answers `void` (the plan's sketch, unchanged): a
+        // ONLY VALUES generally answers `void`; push_constants answers error because its byte range and
+        // reserved pipeline fields need explicit validation. For the remaining legacy void verbs, a
         // wrong-state call on a non-recording buffer is the validation layer's catch, exactly as it
         // is for the raw calls today. `not_ready` on an answering verb means this list is not
         // currently recording; `unsupported` means a mechanism this backend cannot serve.
@@ -1626,9 +1687,24 @@ export namespace deren::promise::rhi {
         // block was written, and the `host_read` roles (`image_use` / `buffer_use`) carry the
         // host-visible half now (the escape itself is deleted in abi 43).
 
+        /// Immediate binding; exact binding-number/kind match with the current pipeline is required.
+        /// Validates before native recording; retains group through recorded and pending GPU use.
+        [[nodiscard]] virtual error load_resource_group(resource_group_ref const&) {
+            return error::unsupported;
+        }
+
         // render scope
         [[nodiscard]] virtual error begin_rendering(rendering_info const& info) = 0;
         virtual void end_rendering() noexcept = 0;
+
+        /// Record shader parameter bytes immediately; the span is consumed before return.
+        /// Require recording, nonempty four-byte units and containment within the capacity reported by
+        /// device_capabilities::max_push_constants_size(). Reject overlap with bound pipeline resource
+        /// group/texture token fields. A pipeline need not already be bound. Unsupported implementations
+        /// refuse explicitly; no pointer or parameter storage is retained by the default operation.
+        [[nodiscard]] virtual error push_constants(std::uint32_t, std::span<std::byte const>) noexcept {
+            return error::unsupported;
+        }
 
         // binding
         [[nodiscard]] virtual error bind_pipeline(pipeline const& handle) = 0;
@@ -1712,10 +1788,17 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error load_texture_group(texture_group_ref const& /*group*/) {
             return error::unsupported;
         }
+    };
 
+    /// Individually submittable owner and receiver of mergeable batches.
+    struct command_buffer : command_recorder {
+        explicit command_buffer(std::string_view name) noexcept
+            : command_recorder(name) {
+        }
+        ~command_buffer() noexcept override = default;
         /// ABI 36. Merge a BATCH of mergeable segments into THIS recording buffer - the recording-time
         /// counterpart of the submission-time batch. The batch rules are the same ones
-        /// `api_core::submit(span)` states: span order, self-contained segments, no implicit memory
+        /// `command_context::submit(span)` states: span order, self-contained segments, no implicit memory
         /// barriers, whole-batch validation. `unsupported` = a backend whose merge must happen at submit
         /// time (the default body): that backend serves `submit(span)` instead.
         [[nodiscard]] virtual error execute(std::span<mergeable_command_buffer_ref const> /*batch*/) {
@@ -1723,209 +1806,13 @@ export namespace deren::promise::rhi {
         }
     };
 
-    /// A command buffer that can only be executed AS PART OF A BATCH (`api_core::submit(span)`).
-    ///
-    /// IT IS A SIBLING OF `command_buffer`, NOT A SUBTYPE: the recording vocabulary is deliberately
-    /// declared twice rather than shared through inheritance, because the two types have genuinely
-    /// different submit rules. A `command_buffer` has its own submit (`submit(command_buffer&)`) and can
-    /// be a merge receiver (`execute()`); a `mergeable_command_buffer` is a LEAF segment: the backend
-    /// owns the merge (Vulkan records `vkCmdExecuteCommands` into a backend-owned primary, D3D12 hands
-    /// the lists to `ExecuteCommandLists`), so it carries no `execute()` and no submit of its own.
-    ///
-    /// THE BATCH SEMANTICS (see `api_core::submit(std::span<mergeable_command_buffer_ref const>)`):
-    /// ordered execution in span order, self-contained state per buffer, no implicit memory barriers,
-    /// atomic validation of the whole batch, and the backend retains the handles until the submission
-    /// completes.
-    ///
-    /// A BACKEND IMPLEMENTS IT WITH THE SAME RECORDING MACHINERY as its `command_buffer` (Vulkan: a
-    /// secondary allocation behind the same recording core; D3D12: a command list): the split is about
-    /// SUBMISSION semantics, not about a second recorder.
-    struct mergeable_command_buffer : object {
-
-        explicit mergeable_command_buffer(std::string_view const name) noexcept
-            : object(name) {
+    /// Batch-only owner: ordered, self-contained segments retained until completion.
+    /// Sibling of command_buffer; cannot receive execute() or be submitted individually.
+    struct mergeable_command_buffer : command_recorder {
+        explicit mergeable_command_buffer(std::string_view name) noexcept
+            : command_recorder(name) {
         }
-        virtual ~mergeable_command_buffer() noexcept = default;
-
-        /// RELEASE THE CALLER'S ONE REFERENCE (see `buffer::release()`): the recording session and the
-        /// allocation behind it die with the last reference, inside the backend.
-        virtual void release() noexcept = 0;
-
-        /// Open this buffer's recording session.
-        ///
-        /// `ok` = recording; `not_ready` = this handle holds no reference any more, or the backend's
-        /// recording context is not available; `unsupported` = a usage bit or a chain entry this
-        /// backend cannot serve (REFUSED BY NAME, never silently dropped); device-level failures
-        /// (`device_lost`, `out_of_*_memory`) travel as themselves.
-        [[nodiscard]] virtual error begin_recording(command_buffer_begin_info const& info) = 0;
-
-        /// Close the recording session: the segment becomes executable by `api_core::submit(span)` (the
-        /// submission-time merge) or by `command_buffer::execute(span)` (the recording-time merge, abi 36) -
-        /// those two are the only ways a mergeable's commands reach the queue.
-        [[nodiscard]] virtual error end_recording() noexcept = 0;
-
-        // ---- THE RECORDING SERIES, NOW ON THE OWNER (user's ruling) ------------------------------
-        // command_list is GONE: the recording verbs live on the one handle a caller holds, so a
-        // call site is `buffer->draw(...)` / `->barrier(...)` with no borrowed view in between. The
-        // non-virtual forwarders this type used to carry are gone with it: these ARE the series.
-
-        /// Declare that `resource` moves from one role to the other, and let the backend record what that
-        /// needs. THE PAIR, not a single use, is deliberate: this is plan §6.4 option (a) ("explicit
-        /// barrier") spelled in option (c)'s vocabulary - the caller knows what it just did (it recorded
-        /// it), the backend knows what the pair costs. A single-use form cannot be derived here: the
-        /// barrier describes what the CALLER just did, and the backend cannot know the "from" of a
-        /// recording it was not told about.
-        ///
-        /// THE CALLER OWNS THE CORRECTNESS: a missing pair, or a reversed one, is a WRONG barrier - the
-        /// one failure this contract cannot catch for you. The shadow gate compares the barriers this
-        /// produces, field by field, against the recipes the renderer ships with.
-        ///
-        /// IT ANSWERS, IT DOES NOT DROP SILENTLY: a barrier that was not recorded leaves the image in a
-        /// state nobody declared, which is exactly the validation failure this surface was built to avoid
-        /// (task-148's). So the answer is an `error` and the caller has to look at it (`[[nodiscard]]`).
-        /// `not_ready` = no frame is being recorded, or the list is not this frame's (the same window
-        /// `begin_commands()` answers in); `unsupported` = a role pair this backend cannot spell;
-        /// `invalid_argument` = an image this backend did not hand out.
-        [[nodiscard]] virtual error use(image const& resource, image_use from, image_use to) noexcept = 0;
-
-        /// Record a copy of `region` of `source` into `destination`, at the source's CURRENT layout (this
-        /// renderer keeps every image in GENERAL - docs/unified_image_layouts.md).
-        ///
-        /// The destination is a DEVICE buffer, not host memory: "record it into this frame" and "read it
-        /// on the host" are two moments, and the second one is `buffer::mapped()` once the frame lands.
-        [[nodiscard]] virtual error copy_image_to_buffer(buffer& destination, image const& source, image_copy_region const& region) noexcept = 0;
-
-        // ---- the GPU timing recording verbs (abi 14) -------------------------------------------
-        // One mark's duration is the interval it OPENS: stage i runs from mark i to mark i + 1 and is
-        // named by the name mark i carries (read back through `gpu_profiler`). WHICH PIPELINE STAGE a
-        // timestamp resolves at is a MEASUREMENT detail of the backend that owns the query pool, not
-        // a caller decision - the caller marks pass boundaries in order and names them; the contract
-        // deliberately does not carry a pipeline-stage vocabulary (that would import one API's
-        // execution model into every backend).
-        /// Open the frame's timing range: reset this frame slot's queries on the recorded timeline.
-        /// Call once per frame, before any mark. `unsupported` = this device cannot timestamp;
-        /// `not_ready` = no frame is being recorded (the same window `use()` refuses in).
-        [[nodiscard]] virtual error begin_gpu_timing() noexcept = 0;
-
-        /// Write one timing mark into the frame's range, named for the stage it opens. @p mark_index
-        /// must be the marks this frame has already written (the marks are POSITIONAL: an
-        /// out-of-order index would mislabel every later interval, so it is refused with
-        /// `invalid_argument` rather than accepted silently). `stage_name` is the caller's STATIC
-        /// text - a literal outliving the frame (the same rule as the creation descriptor's
-        /// `window_title`); the backend stores the view and reports it verbatim.
-        [[nodiscard]] virtual error mark_gpu_timing(std::uint32_t mark_index, std::string_view stage_name) noexcept = 0;
-
-        // ---- the portable record series (abi 20) ------------------------------------------------
-        // THE RECORDING SURFACE'S OWN VOCABULARY: the verbs this renderer's passes actually record,
-        // replacing 140 raw `vkCmd*` call sites in the engine's sources. Declared ONCE on the owning
-        // `command_buffer`; the sibling `mergeable_command_buffer` declares the same series again on
-        // purpose (the two types have different submit rules - abi 35). `push_data` is deliberately
-        // NOT here: the descriptor-heap face's `push_data(heap_push_info)` already takes the list and
-        // is the one heap verb that is a command-buffer operation, and a second spelling would be
-        // exactly the double declaration this block refuses.
-        //
-        // THE ANSWERING RULE, and the one place it deliberately deviates from the obvious shape: a verb that
-        // RECEIVES A CONTRACT HANDLE answers `error` - "a handle this backend did not hand out" is a
-        // real, checkable refusal (`invalid_argument`), the same answer `use()` and
-        // `copy_image_to_buffer()` already give, and a barrier or a binding that was silently not
-        // recorded is the corruption this surface exists to make impossible. A verb that receives
-        // ONLY VALUES has nothing to refuse and answers `void` (the plan's sketch, unchanged): a
-        // wrong-state call on a non-recording buffer is the validation layer's catch, exactly as it
-        // is for the raw calls today. `not_ready` on an answering verb means this list is not
-        // currently recording; `unsupported` means a mechanism this backend cannot serve.
-        //
-        // EVERY DESCRIPTOR here is the plan's measured vocabulary: what the 140 sites name, nothing
-        // more. Layouts are the images' current ones (GENERAL - docs/unified_image_layouts.md); the
-        // host-visible mask pairs and the queue-family transfers were raw through the escape when this
-        // block was written, and the `host_read` roles (`image_use` / `buffer_use`) carry the
-        // host-visible half now (the escape itself is deleted in abi 43).
-
-        // render scope
-        [[nodiscard]] virtual error begin_rendering(rendering_info const& info) = 0;
-        virtual void end_rendering() noexcept = 0;
-
-        // binding
-        [[nodiscard]] virtual error bind_pipeline(pipeline const& handle) = 0;
-        [[nodiscard]] virtual error bind_vertex_buffer(buffer const& handle, std::uint64_t offset) = 0;
-        [[nodiscard]] virtual error bind_index_buffer(buffer const& handle, std::uint64_t offset, index_type type) = 0;
-
-        // draw
-        virtual void draw(std::uint32_t vertex_count, std::uint32_t instance_count, std::uint32_t first_vertex, std::uint32_t first_instance) noexcept = 0;
-        virtual void draw_indexed(std::uint32_t index_count, std::uint32_t instance_count, std::uint32_t first_index, std::int32_t vertex_offset, std::uint32_t first_instance) noexcept = 0;
-
-        [[nodiscard]] virtual error draw_indirect(buffer const& arguments, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) = 0;
-
-        // compute + geometry
-        virtual void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;
-        /// ABI48: one compute dispatch from a 12-byte argument record; unavailable backends refuse explicitly.
-        [[nodiscard]] virtual error dispatch_indirect(buffer const&, std::uint64_t) {
-            return error::unsupported;
-        }
-        virtual void draw_mesh_tasks(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;
-        [[nodiscard]] virtual error draw_mesh_tasks_indirect(buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) = 0;
-        /// Record a ray-tracing LAUNCH over `width` x `height` pixels, `depth` rays deep, reading the shader
-        /// binding table the CALLER built: one region per table - ray generation, miss, hit - plus the callable
-        /// table a shader may invoke (an all-zero region when there are none).
-        ///
-        /// WHY THE LAUNCH IS A RECORD VERB AND NOT PART OF THE `ray_tracing` ABILITY: it is a recorded command
-        /// exactly like `draw`, `dispatch` and `draw_mesh_tasks` - it takes a command buffer, it is ordered with
-        /// the rest of a frame's commands, and it needs nothing the recording face does not already have. The
-        /// `ray_tracing` ability declares the ACCELERATION-STRUCTURE half, whose descriptor shapes are still the
-        /// S1 design surface and are deliberately incomplete - and a launch reachable only through an ANNOUNCED
-        /// ability would be unreachable on a backend that serves the recording face but has not frozen those
-        /// shapes yet, which is exactly this renderer's state.
-        ///
-        /// APPENDED IN ABI 24 (a tier-1 slot). The regions are the contract's own
-        /// `shader_binding_table_region`; the verb answers NOTHING (`void`), like `draw` and `draw_mesh_tasks`, and
-        /// a backend whose device published no `vkCmdTraceRaysKHR` records nothing - a pass that launches rays is
-        /// only built when its pipeline could be created, which needs that extension.
-        virtual void trace_rays(shader_binding_table_region const& raygen, shader_binding_table_region const& miss, shader_binding_table_region const& hit,
-                                shader_binding_table_region const& callable, std::uint32_t width, std::uint32_t height, std::uint32_t depth) noexcept = 0;
-
-        /// APPENDED IN ABI 26: record the BUILD of @p target - its geometries (a bottom-level structure) or its
-        /// instance list (a top-level one), whichever it was created with, over the memory the backend owns.
-        /// `ok` = recorded; `not_ready` = this buffer is not recording; `invalid_argument` = a handle this
-        /// backend did not hand out; `unsupported` = a level or a shape it cannot serve (REFUSED BY NAME, never
-        /// silently skipped - a missing build would produce an empty traversal, which is a wrong picture rather
-        /// than a missing one).
-        [[nodiscard]] virtual error build_acceleration_structure(acceleration_structure& target) = 0;
-
-        /// APPENDED IN ABI 26: REFIT @p target in place, for the structures whose description declared
-        /// `acceleration_structure_flag::allow_update` - the addresses and counts are unchanged and only the
-        /// memory they point at has been rewritten (the zero-copy shape a compute-skinning frame produces).
-        /// Refused by name when the structure was not created refittable, which is exactly what declaring it
-        /// is for.
-        [[nodiscard]] virtual error refit_acceleration_structure(acceleration_structure& target) = 0;
-
-        /// APPENDED IN ABI 27: record the BUILD of @p target - the attributes, the per-triangle records and the
-        /// index array its description was created from. `ok` = recorded; `not_ready` = this buffer is not
-        /// recording; `invalid_argument` = a handle this backend did not hand out; `unsupported` = a shape it
-        /// cannot serve, refused BY NAME.
-        ///
-        /// A MICROMAP MUST BE BUILT BEFORE THE GEOMETRY THAT CONSULTS IT: that is the order the caller records
-        /// them in, and the ordering this verb owns (the barrier is the backend's, as it is for a build).
-        [[nodiscard]] virtual error build_micromap(micromap& target) = 0;
-
-        // dynamic state
-        virtual void set_viewport(viewport const& vp) noexcept = 0;
-        virtual void set_scissor(rect const& scissor) noexcept = 0;
-        virtual void set_cull_mode(cull_mode mode) noexcept = 0;
-        virtual void set_depth_write(bool enable) noexcept = 0;
-        virtual void set_depth_bias(float constant_factor, float slope_factor, float clamp) noexcept = 0;
-
-        // synchronisation
-        [[nodiscard]] virtual error barrier(barrier_group const& group) = 0;
-        [[nodiscard]] virtual error barrier(image_barrier const& one) = 0;
-
-        // copy + clear
-        [[nodiscard]] virtual error copy_image(image_copy const& copy) = 0;
-        [[nodiscard]] virtual error copy_buffer(buffer& destination, buffer const& source, std::uint64_t size, std::uint64_t source_offset, std::uint64_t destination_offset) = 0;
-        [[nodiscard]] virtual error clear_color_image(image const& target, deren::utility::vessel::array<float, 4> const& color, subresource_range const& range) = 0;
-
-        /// ABI 31. Success retains the group for recorded work; nullptr clears it.
-        [[nodiscard]] virtual error load_texture_group(texture_group_ref const& /*group*/) {
-            return error::unsupported;
-        }
+        ~mergeable_command_buffer() noexcept override = default;
     };
 
     /// What starting a frame hands back.
@@ -2053,241 +1940,125 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error get_stage_info(std::uint32_t index, std::string_view* name, std::uint64_t* duration_ns) const noexcept = 0;
     };
 
-    /// The backend's context and its factories - today's `vulkan::core`, behind the
-    /// boundary.
-    ///
-    /// One object per backend instance, created by `deren_make_api_core()` and owned by
-    /// the engine's `shared_object<api_core>` (abi 44). It is deliberately allowed to grow (it is the
-    /// one interface the plan lets be "big"), and deliberately not allowed to learn engine
-    /// concepts (§4.1 item 2).
-    struct api_core : object {
-
-        explicit api_core(std::string_view const name) noexcept
-            : object(name) {
-        }
-        virtual ~api_core() noexcept = default;
-
-        /// DROP THE CALLER'S ONE REFERENCE TO THE ROOT (abi 44): the entry hands the root over as a
-        /// `shared_object<api_core>`, whose last copy performs this call (for the root, destruction).
-        virtual void release() noexcept = 0;
-
-        /// tier-2: the abilities this backend SERVES THROUGH THIS CONTRACT, as `extension_kind`
-        /// bits. Queried once at startup, then compared against what the passes need (§3.6).
-        ///
-        /// A set bit is a promise about SERVICE, not about the device: `query_extension(kind)` must
-        /// answer with an object that can carry out every operation the ability declares, on objects
-        /// this backend can actually produce. A bit set with a null `query_extension()`, or an
-        /// ability whose operands cannot be produced at all, is a backend BUG and fails the
-        /// consistency gate - a device-level fact ("this device is 1.2, so bufferDeviceAddress
-        /// exists") is not an ability until there is a `buffer` to ask about.
-        [[nodiscard]] virtual ability_bits abilities() const noexcept = 0;
-
-        /// tier-2: the ability itself, or `nullptr` when it was not announced. The ONLY
-        /// entry point to abilities, which is what keeps this vtable stable when one is
-        /// added. The caller `static_cast`s the result it asked for (no RTTI).
-        ///
-        /// The invariant is two-way: announced => an object whose `kind()` matches, and not
-        /// announced => `nullptr`.
-        [[nodiscard]] virtual extension* query_extension(extension_kind kind) noexcept = 0;
-
-        // ---- factories ---------------------------------------------------------
-        // A factory returns an EMPTY unique_object when it cannot honour the descriptor: the plan has
-        // no throwing path across the boundary (§4.2), and the caller is expected to have checked
-        // `abilities()` before asking for something optional (§3.6). The return container IS the
-        // lifetime: hold it and the resource is released on scope exit - there is no separate ownership
-        // vocabulary to learn and no call site spells `release()` for a factory product.
-        [[nodiscard]] virtual unique_object<swapchain> create_swapchain(swapchain_desc const& desc) = 0;
+    /// Borrowed resource creation interface. Empty products mean creation was refused/failed.
+    /// Descriptors are borrowed until return; products retain their existing ownership rules.
+    struct resource_factory {
+        resource_factory() noexcept = default;
+        virtual ~resource_factory() noexcept = default;
+        resource_factory(resource_factory const&) = delete;
+        resource_factory& operator=(resource_factory const&) = delete;
         [[nodiscard]] virtual unique_object<buffer> create_buffer(buffer_desc const& desc) = 0;
         [[nodiscard]] virtual unique_object<image> create_image(image_desc const& desc) = 0;
-        /// APPENDED IN ABI 26: allocate an acceleration structure (see the type's own note for why this is
-        /// tier-1 furniture rather than an ability). The BACKEND owns the storage and the scratch a build needs;
-        /// `desc` carries what the structure IS - its level, whether it may be refitted, and its geometries or
-        /// its instance capacity - and is borrowed only until the call returns. `nullptr` = this backend cannot
-        /// serve it, with its own named diagnosis logged, exactly as the other factories answer.
         [[nodiscard]] virtual unique_object<acceleration_structure> create_acceleration_structure(acceleration_structure_desc const& desc) = 0;
-        /// APPENDED IN ABI 27: allocate an opacity micromap (see the type's own note). The backend owns the
-        /// storage, the scratch AND the setup buffers the build reads - including the 256-byte address alignment
-        /// the API requires of them, which is a requirement on an address and therefore cannot be a caller's
-        /// problem. `nullptr` = this backend cannot serve it, with its own named diagnosis logged.
         [[nodiscard]] virtual unique_object<micromap> create_micromap(micromap_desc const& desc) = 0;
         [[nodiscard]] virtual unique_object<sampler> create_sampler(sampler_desc const& desc) = 0;
         [[nodiscard]] virtual unique_object<shader> create_shader(shader_desc const& desc) = 0;
         [[nodiscard]] virtual unique_object<pipeline> create_pipeline(pipeline_desc const& desc) = 0;
         [[nodiscard]] virtual unique_object<query> create_query(query_desc const& desc) = 0;
-
-        // ---- frame -------------------------------------------------------------
-        /// The RECORDING VIEW of the frame in flight, or nullptr when no frame is being recorded.
-        ///
-        /// ONE per frame, wrapping the frame's PRIMARY command buffer (a mergeable segment is the
-        /// caller's own contract handle, abi 35 - the GUI overlay's two recording targets are that
-        /// kind, not this one). OWNERSHIP: the backend's - the caller borrows it, never deletes it, and must not
-        /// touch it after the frame has been submitted. The backend may hand back the same object every
-        /// frame. LIFETIME: from the moment the frame starts recording until that frame is submitted.
-        /// THREADING: single-threaded; recording is the primary thread's (the repository's rule).
-        ///
-        /// The NAME is the plan's and is kept; the frame's own begin/end/submit still belong to the
-        /// engine (only the engine knows the present recipe), so this call starts nothing. It hands out
-        /// the list the engine's frame is recording into.
-        [[nodiscard]] virtual command_buffer* begin_commands() = 0;
-
-        /// The image the LAST acquire returned, as a BORROWED view - or nullptr BEFORE THE FIRST ONE: a
-        /// backend that has never acquired has no "last" image to name, and the answer is not image 0
-        /// (which is a real image, just not this frame's).
-        /// VALID UNTIL THE NEXT ACQUIRE - one step longer than the frame it belongs to, and deliberately so.
-        ///
-        /// WHY NOT "until that frame is submitted": the frame-domain READ of what a frame wrote cannot
-        /// happen INSIDE the frame. The image is a swapchain image, and the submit that hands it to the
-        /// presentation engine closes the recording window; the read stage still needs the EXTENT and the
-        /// FORMAT of the frame it captured, and this is the object that names them. MEASURED: answering
-        /// frame-scoped here made the read-back report "no captured frame" on every capturing scene (14/14
-        /// in `check_render.ps1 -Full`), because the read runs after `submit_and_present()`.
-        ///
-        /// THE RECORDING VERBS KEEP THE SHORTER WINDOW AND THAT IS NOT A CONTRADICTION: `use()` and
-        /// `copy_image_to_buffer()` record INTO a frame, so with no frame being recorded they answer
-        /// `error::not_ready` - and `begin_commands()` answers nullptr, the list is not even handed out. A
-        /// getter that has to survive the submit and a recorder that must not are two lifetimes on purpose.
-        ///
-        /// Frame-scoped naming is also why this exists instead of a factory: the factories still answer
-        /// nullptr and their descriptors have no definition, so no `rhi::image` handle can come from one yet.
-        [[nodiscard]] virtual image* frame_image() noexcept = 0;
-
-        /// The backend's host-visible read-back slot, as a BORROWED view: at least
-        /// `frame_image()->extent()` texels wide in the frame's format. Valid until the next call, and it
-        /// is the destination `copy_image_to_buffer()` writes into.
-        [[nodiscard]] virtual buffer* frame_readback_buffer() noexcept = 0;
-
-        /// Open a frame: the backend advances its frame-in-flight state and says which
-        /// ring slot and which swapchain image this frame may use.
-        [[nodiscard]] virtual submit_info frame_begin() = 0;
-
-        /// Hand the recorded frame to the presentation engine.
-        ///
-        /// ABI 14 CHANGED THE RETURN from `void` to `error` - the shape change the renumbering also
-        /// covers. A presentation that failed SILENTLY was information loss, the exact kind the error
-        /// mechanism exists to end: the caller cannot distinguish "shown" from "the swapchain just
-        /// expired" (out_of_date => rebuild) from "the device is gone" (device_lost => fatal), and
-        /// `command_buffer::use` set the style for frame verbs that answer.
-        [[nodiscard]] virtual error present() = 0;
-
-        /// Block until nothing is in flight.
-        virtual void wait_idle() = 0;
-
-        // ---- the frame face (abi 13, grown in abi 14) -------------------------------------------
-        // The accessors answer BORROWED VIEWS owned by the backend - the same object every call,
-        // never released by the caller (see the types' notes above). They are APPENDED after every
-        // virtual the older engines dispatch, which is the one vtable change the abi number exists
-        // to number.
-        /// The frame ring's cursor: wait the slot, latch its timings, acquire, report, advance.
-        [[nodiscard]] virtual frame_walker* walk_frames() noexcept = 0;
-
-        /// The last completed frame's GPU timing report.
-        [[nodiscard]] virtual gpu_profiler* profiler() noexcept = 0;
-
-        /// The presentation surface the frames render into, as a BORROWED view (the same object every
-        /// call; `release()` on it is the borrowed-view no-op, not a reference). The REBUILD and the
-        /// EXTENT verbs live on it - a swapchain rebuild is the swapchain's behaviour, not the
-        /// context's (see the type's note).
-        [[nodiscard]] virtual swapchain* frame_swapchain() noexcept = 0;
-
-        /// Hand recorded commands to the queue. A frame list from `begin_commands()` uses the
-        /// backend's acquire state and presentation semaphores. An ended, caller-owned primary
-        /// from `create_command_buffer()` submits independently of a frame; the caller keeps its
-        /// resources alive until `wait_idle()` completes. `ok` = submitted; `invalid_argument` =
-        /// a list this backend did not hand out; `not_ready` = no acquired frame (for a frame list)
-        /// or no native recording (for an owned list). Device-level failures travel as themselves.
-        [[nodiscard]] virtual error submit(command_buffer& commands) = 0;
-
-        /// Create a command buffer the caller OWNS (abi 15). `nullptr` = this backend cannot serve the
-        /// descriptor (a kind it does not have; the reason is on the record, the contract's named-
-        /// refusal rule). The handle carries ONE reference - `rhi::unique_object<command_buffer>` is
-        /// the owner spelling and `release()` drops it inside the backend - and the allocation behind
-        /// it (the API's own pool/allocator) stays the backend's, so nothing but the handle crosses
-        /// this boundary.
-        [[nodiscard]] virtual unique_object<command_buffer> create_command_buffer(command_buffer_desc const& desc) = 0;
-
-        /// CREATE A COMMAND BUFFER THE CALLER OWNS, AS A `shared_object` (abi 21; the container is the
-        /// contract's own since abi 44).
-        ///
-        /// THE SAME OWNERSHIP SHAPE THE ENTRY POINT USES for `api_core`: the control block owns the
-        /// RHI reference, so the LAST copy calls the object's `release()` and destroys the session
-        /// inside the backend - NO call site needs to spell `release()`. An EMPTY handle is the named
-        /// refusal (the descriptor this backend cannot serve), exactly as `create_command_buffer`
-        /// answers `nullptr`.
-        [[nodiscard]] virtual shared_object<command_buffer> make_command_buffer(command_buffer_desc const& desc) = 0;
-
-        /// THE OBJECT'S OWN ABI NUMBER, ASKED OF THE OBJECT (abi 19).
-        ///
-        /// THE THIRD, INDEPENDENT CHECK OF THE SAME FACT, and each one guards a different side of the
-        /// boundary: `rhi::abi_version` is what BOTH halves compile from this module; the entry's first
-        /// argument (`deren_make_api_core(abi_version, ...)`) is the CREATION side checking the caller
-        /// (a mismatched caller is refused before an object exists); and this virtual is the CONSUMPTION
-        /// side checking the OBJECT it was handed - the case the argument cannot cover, because a host
-        /// may be given an `api_core` it did not create (a probe, a wrapper, a backend loaded by
-        /// something else, an object that crossed an older loader).
-        ///
-        /// THE ENGINE ASKS IT FIRST, IN THE RUNTIME'S CONSTRUCTOR, and a mismatch is a PANIC rather than
-        /// a refusal: a different number means the two halves disagree about this vtable and the layout
-        /// of everything the contract passes by value, so continuing is undefined behaviour, not a
-        /// degraded mode. FATAL IS THE ENGINE'S TO EXECUTE (the rule the startup path already follows):
-        /// the backend reports, the engine decides.
-        ///
-        /// IT IS A CONTRACT VIRTUAL, SO IT COSTS NO BACKEND SYMBOL: the engine dispatches it through its
-        /// own copy of this vtable, which is why the boundary's measured symbol count and the import
-        /// meter are unaffected by it (the flip's whole premise). What it DOES cost is a vtable slot on
-        /// an existing tier-1 interface - an APPEND, hence abi 19.
-        [[nodiscard]] virtual std::uint32_t api_version() const noexcept = 0;
-
-        /// ABI 31. Raw inputs are borrowed only during this call. Failure returns empty.
+        [[nodiscard]] virtual std::expected<resource_group_ref, error> create_resource_group(resource_group_desc const&) {
+            return std::unexpected(error::unsupported);
+        }
         [[nodiscard]] virtual texture_group_ref assign_texture_group(texture_group_info const& /*info*/, error* result = nullptr) {
             if (result != nullptr) {
                 *result = error::unsupported;
             }
             return {};
         }
+    };
 
-        /// Create a command buffer the caller OWNS that can ONLY be submitted as part of a batch
-        /// (see `mergeable_command_buffer`). `nullptr`/empty is the named refusal, exactly as
-        /// `make_command_buffer` answers it: the backend could not allocate the recording or the
-        /// descriptor asks for one it cannot serve.
+    /// Borrowed independent command allocation/submission interface; rejects acquired-frame commands.
+    /// Submit validates provenance and recording state before queuing. Caller-owned buffers/images
+    /// must outlive GPU use; existing primary/secondary/texture-group retention remains in force.
+    /// Batches execute in span order, validate atomically, and add no implicit visibility barriers.
+    struct command_context {
+        command_context() noexcept = default;
+        virtual ~command_context() noexcept = default;
+        command_context(command_context const&) = delete;
+        command_context& operator=(command_context const&) = delete;
+        [[nodiscard]] virtual unique_object<command_buffer> create_command_buffer(command_buffer_desc const& desc) = 0;
+        [[nodiscard]] virtual shared_object<command_buffer> make_command_buffer(command_buffer_desc const& desc) = 0;
         [[nodiscard]] virtual mergeable_command_buffer_ref make_mergeable_command_buffer(command_buffer_desc const& desc) = 0;
-
-        /// Submit ONE BATCH of mergeable command buffers, in span order.
-        ///
-        /// THE BATCH IS THE SUBMISSION UNIT: the backend records the whole list into one queue
-        /// submission (Vulkan: a backend-owned primary + `vkCmdExecuteCommands`; D3D12:
-        /// `ExecuteCommandLists`) and no partial submission exists - the whole batch is validated
-        /// first (non-empty, same backend, `end_recording()` done, never submitted, not released)
-        /// and ANY failure refuses the whole batch with no commands queued.
-        ///
-        /// THE SEMANTICS the batch guarantees: the segments execute in span order; each segment is
-        /// self-contained (state and render scopes do not carry across a segment boundary); and the
-        /// merge inserts NO implicit memory barrier (a hazard is the recorder's, written with the
-        /// `barrier` verbs). A backend may add the execution ordering its API requires, but never
-        /// visibility semantics the caller did not record.
-        ///
-        /// THE BACKEND RETAINS the handles in the span until this submission completes, so the
-        /// caller may drop its references when this call returns. `invalid_argument` = an empty
-        /// batch, a handle this backend did not hand out, or a batch mixing cores; `not_ready` = a
-        /// segment still recording, released, or already pending; device-level failures travel as
-        /// themselves. A `command_buffer` cannot appear in a batch (different type on purpose).
+        [[nodiscard]] virtual error submit(command_buffer& commands) = 0;
         [[nodiscard]] virtual error submit(std::span<mergeable_command_buffer_ref const> batch) = 0;
+    };
 
-        // ---- the main-thread context (abi 39) ----
-        /// THE BACKEND'S MAIN-THREAD CONTEXT, borrowed for this core's lifetime; nullptr when the backend
-        /// has nothing to hand out.
-        ///
-        /// WHY IT IS ONE OPAQUE HANDLE rather than more escape slots: a non-engine consumer that must bring
-        /// itself up on the main thread (the GUI overlay) needs device-side state the portable contract
-        /// deliberately does not carry (an instance, a physical device, the device and its queue, the
-        /// presentation format). The contract names NONE of that: it answers an opaque `main_context` whose
-        /// concrete tag says what layout the handle really is, and the API-specific consumer casts it to the
-        /// layout its API's plugin and backend share. See `rhi::main_context`'s own note.
-        ///
-        /// THE DEFAULT BODY ANSWERS nullptr, the same rule `command_buffer::execute(span)` follows: a backend
-        /// (or a test double) with no such context stays concrete without editing, and a consumer that needs
-        /// one names the refusal itself.
+    /// Borrowed frame/presentation interface, also present for offscreen frames (present is unsupported).
+    /// Walker/profiler/surface are stable borrowed views: never release/delete them.
+    struct frame_context {
+        frame_context() noexcept = default;
+        virtual ~frame_context() noexcept = default;
+        frame_context(frame_context const&) = delete;
+        frame_context& operator=(frame_context const&) = delete;
+        [[nodiscard]] virtual unique_object<swapchain> create_swapchain(swapchain_desc const& desc) = 0;
+        /// Current frame's primary, or null outside recording. Borrowed until frame submission.
+        [[nodiscard]] virtual command_buffer* begin_commands() = 0;
+        /// Last acquired image; null before first acquire, valid through submit until the next acquire.
+        [[nodiscard]] virtual image* frame_image() noexcept = 0;
+        /// Host-visible slot used by the frame copy; completion/host visibility is the caller's responsibility.
+        [[nodiscard]] virtual buffer* frame_readback_buffer() noexcept = 0;
+        /// Legacy acquisition result; prefer walk_frames()->wait_and_acquire() for full error information.
+        [[nodiscard]] virtual submit_info frame_begin() = 0;
+        [[nodiscard]] virtual error present() = 0;
+        [[nodiscard]] virtual frame_walker* walk_frames() noexcept = 0;
+        [[nodiscard]] virtual gpu_profiler* profiler() noexcept = 0;
+        [[nodiscard]] virtual swapchain* frame_swapchain() noexcept = 0;
+        /// Submit the current frame using backend-owned acquire/presentation state.
+        [[nodiscard]] virtual error submit() = 0;
+    };
+
+    /// Read-only binding to a core-owned interface. Only api_core may bind it during construction.
+    /// No ownership, allocation, release, reset, rebinding, or implicit pointer conversion.
+    /// Arrow access requires a fully constructed/bound core. Const freezes binding, not device activity.
+    template <class T>
+    class context_view final {
+        T* target = nullptr;
+        friend struct api_core;
+        context_view() noexcept = default;
+        void bind(T& value) noexcept {
+            target = &value;
+        }
+
+    public:
+        context_view(context_view const&) = delete;
+        context_view& operator=(context_view const&) = delete;
+        [[nodiscard]] T* operator->() const noexcept {
+            return target;
+        }
+        [[nodiscard]] T* get() const noexcept {
+            return target;
+        }
+        [[nodiscard]] explicit operator bool() const noexcept {
+            return target != nullptr;
+        }
+    };
+
+    /// Device ownership, capabilities and global control. Public subviews borrow the same core.
+    /// Derived constructors bind fully constructed interface implementations before publication.
+    struct api_core : object {
+        context_view<resource_factory> resources;
+        context_view<command_context> commands;
+        context_view<frame_context> frames;
+        explicit api_core(std::string_view name) noexcept
+            : object(name) {
+        }
+        virtual ~api_core() noexcept = default;
+        virtual void release() noexcept = 0;
+        [[nodiscard]] virtual ability_bits abilities() const noexcept = 0;
+        [[nodiscard]] virtual extension* query_extension(extension_kind kind) noexcept = 0;
+        virtual void wait_idle() = 0;
+        [[nodiscard]] virtual std::uint32_t api_version() const noexcept = 0;
         [[nodiscard]] virtual main_context* main_context() noexcept {
             return nullptr;
+        }
+
+    protected:
+        void bind_views(resource_factory& resource, command_context& command, frame_context& frame) noexcept {
+            if (resources || commands || frames) {
+                deren::utility::fast_panic("RHI core subviews already bound");
+            }
+            resources.bind(resource);
+            commands.bind(command);
+            frames.bind(frame);
         }
     };
 

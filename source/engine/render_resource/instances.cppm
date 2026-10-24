@@ -218,7 +218,7 @@ export namespace deren::engine::render_resource::instances {
                             if (value.initial_data) {
                                 desc.initial_bytes = {value.initial_data.get(), value.initial_data_size};
                             }
-                            object.image = rhi::unique_object<rhi::image>{device->create_image(desc)};
+                            object.image = rhi::unique_object<rhi::image>{device->resources->create_image(desc)};
                             if (!object.image) {
                                 return rhi::error::initialization_failed;
                             }
@@ -240,7 +240,7 @@ export namespace deren::engine::render_resource::instances {
                                 }
                             }
                         } else if (value.type == kind::sampler) {
-                            object.sampler = rhi::unique_object<rhi::sampler>{device->create_sampler(value.sampler)};
+                            object.sampler = rhi::unique_object<rhi::sampler>{device->resources->create_sampler(value.sampler)};
                             if (!object.sampler) {
                                 return rhi::error::initialization_failed;
                             }
@@ -252,7 +252,7 @@ export namespace deren::engine::render_resource::instances {
                             desc.data = value.micromap_data->data;
                             desc.triangles = value.micromap_data->triangles;
                             desc.indices = value.micromap_data->indices;
-                            object.micromap = rhi::unique_object<rhi::micromap>{device->create_micromap(desc)};
+                            object.micromap = rhi::unique_object<rhi::micromap>{device->resources->create_micromap(desc)};
                             if (!object.micromap) {
                                 return rhi::error::initialization_failed;
                             }
@@ -260,7 +260,7 @@ export namespace deren::engine::render_resource::instances {
                             auto desc = value.structure;
                             desc.geometries = value.geometries.empty() ? nullptr : value.geometries.data();
                             desc.geometry_count = static_cast<uint32_t>(value.geometries.size());
-                            object.structure = rhi::unique_object<rhi::acceleration_structure>{device->create_acceleration_structure(desc)};
+                            object.structure = rhi::unique_object<rhi::acceleration_structure>{device->resources->create_acceleration_structure(desc)};
                             if (!object.structure) {
                                 return rhi::error::initialization_failed;
                             }
@@ -274,7 +274,7 @@ export namespace deren::engine::render_resource::instances {
                             if (value.initial_data) {
                                 desc.initial_bytes = {value.initial_data.get(), value.initial_data_size};
                             }
-                            object.buffer = rhi::unique_object<rhi::buffer>{device->create_buffer(desc)};
+                            object.buffer = rhi::unique_object<rhi::buffer>{device->resources->create_buffer(desc)};
                             if (!object.buffer) {
                                 return rhi::error::initialization_failed;
                             }

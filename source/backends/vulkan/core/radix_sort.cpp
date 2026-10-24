@@ -36,15 +36,13 @@ namespace deren::vulkan {
                 }
                 return {.scratch_bytes = req.size, .buffer_alignment = std::max<std::uint64_t>(4u, owner_->device_properties.limits.minStorageBufferOffsetAlignment), .scratch_flags = rhi::to_bits(rhi::buffer_flag::storage) | rhi::to_bits(rhi::buffer_flag::transfer_destination)};
             }
-            rhi::error record(rhi::command_buffer& commands, rhi::radix_sort_info const& info) override {
-                if (!rhi::is_concrete(commands, concrete::command_buffer) && !rhi::is_concrete(commands, concrete::frame_commands)) {
-                    return rhi::error::invalid_argument;
+            rhi::error record(rhi::command_recorder& commands, rhi::radix_sort_info const& info) override {
+                rhi::error resolved{};
+                auto* const list = owner_->resolve_recorder(&commands, resolved);
+                if (resolved != rhi::error::ok) {
+                    return resolved;
                 }
-                auto& list = static_cast<core::frame_commands&>(commands);
-                if (list.owner != owner_) {
-                    return rhi::error::invalid_argument;
-                }
-                if (!list.recording || list.native() == VK_NULL_HANDLE) {
+                if (list->rendering_active) {
                     return rhi::error::not_ready;
                 }
                 if (info.element_count == 0u) {
@@ -90,7 +88,9 @@ namespace deren::vulkan {
                 dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                 dependency.memoryBarrierCount = 1u;
                 dependency.pMemoryBarriers = &memory;
-                vkCmdPipelineBarrier2(list.native(), &dependency);
+                if (auto applied = list->prepare_native(); applied != rhi::error::ok)
+                    return applied;
+                vkCmdPipelineBarrier2(list->native(), &dependency);
                 VrdxSortInfo native{};
                 native.elementCount = info.element_count;
                 native.keysBuffer = keys->native;
@@ -99,17 +99,17 @@ namespace deren::vulkan {
                 native.valuesOffset = info.values_offset;
                 native.storageBuffer = scratch->native;
                 native.storageOffset = info.scratch_offset;
-                vrdxCmdSort(list.native(), native_, &native);
+                vrdxCmdSort(list->native(), native_, &native);
                 memory.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
                 memory.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_2_HOST_BIT;
                 memory.dstAccessMask |= VK_ACCESS_2_HOST_READ_BIT;
-                vkCmdPipelineBarrier2(list.native(), &dependency);
+                vkCmdPipelineBarrier2(list->native(), &dependency);
                 // VRDX uses traditional push descriptors, which invalidate descriptor-heap bindings.
                 // Restore this device's heaps for subsequent native heap pipelines (including post-processing).
                 if (owner_->descriptor_heaps.ready()) {
-                    owner_->descriptor_heaps.record_bind(list.native());
+                    owner_->descriptor_heaps.record_bind(list->native());
                 }
-                list.bound_pipeline = nullptr;
+                list->finish_native();
                 return rhi::error::ok;
             }
 

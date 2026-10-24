@@ -54,6 +54,10 @@ export namespace deren::vulkan {
             return this->native;
         }
 
+        /// Flush before raw native recording, then invalidate RHI applied state on completion.
+        [[nodiscard]] virtual deren::promise::rhi::error prepare_native() noexcept = 0;
+        virtual void finish_native() noexcept = 0;
+
         /// @brief backend only: publish the current recording target
         void set_target(VkCommandBuffer const target) noexcept {
             this->native = target;
@@ -76,6 +80,10 @@ export namespace deren::vulkan {
         [[nodiscard]] VkCommandBuffer get() const noexcept {
             return this->native;
         }
+
+        /// Flush before raw native recording, then invalidate RHI applied state on completion.
+        [[nodiscard]] virtual deren::promise::rhi::error prepare_native() noexcept = 0;
+        virtual void finish_native() noexcept = 0;
 
         /// @brief backend only: publish the recording target
         void set_target(VkCommandBuffer const target) noexcept {

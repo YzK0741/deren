@@ -132,16 +132,19 @@ namespace deren::vulkan {
             return fail("failed to create vertex shader module");
         }
 
-        auto fragment_shader_module = make_shader_module(fragment_shader_code, device);
-        if (!fragment_shader_module) {
+        auto fragment_shader_module = fragment_shader_code.empty() ? std::optional<vk_shader_module>{} : make_shader_module(fragment_shader_code, device);
+        if (!fragment_shader_code.empty() && !fragment_shader_module) {
             return fail("failed to create fragment shader module");
         }
 
         // ---- 3. Fixed-function pipeline state (constexpr factories, see above) ----
         deren::utility::vessel::array<VkPipelineShaderStageCreateInfo, 2> shader_stage_create_infos = {
             make_shader_stage(**vertex_shader_module, first_stage),
-            make_shader_stage(**fragment_shader_module, VK_SHADER_STAGE_FRAGMENT_BIT),
+            {},
         };
+
+        if (fragment_shader_module)
+            shader_stage_create_infos[1] = make_shader_stage(**fragment_shader_module, VK_SHADER_STAGE_FRAGMENT_BIT);
 
         // double-sided materials need per-draw cull control (core dynamic state since Vulkan 1.3);
         // transparent (alphaMode BLEND) leaves disable depth writes per draw, also a 1.3 core
@@ -210,7 +213,7 @@ namespace deren::vulkan {
         pipeline_create_info.pRasterizationState = &rasterization_state_create_info;
         pipeline_create_info.pMultisampleState = &multisample_state_create_info;
         pipeline_create_info.pDynamicState = &dynamic_state_create_info;
-        pipeline_create_info.stageCount = 2;
+        pipeline_create_info.stageCount = fragment_shader_module ? 2u : 1u;
         pipeline_create_info.pStages = shader_stage_create_infos.data();
         pipeline_create_info.subpass = 0;
         pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
