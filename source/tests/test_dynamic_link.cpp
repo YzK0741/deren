@@ -86,6 +86,13 @@ namespace {
     static_assert(rhi::validate_draw_indirect_range(32u, 0u, 2u, 12u) == rhi::error::invalid_argument);
 
     static_assert(rhi::validate_draw_indirect_range(40u, 0u, 2u, 17u) == rhi::error::invalid_argument);
+    // The mesh-task record is 12 B: the draw-indirect validator's 16 B minimum must NOT be used for it.
+    static_assert(rhi::validate_mesh_task_indirect_range(12u, 0u, 1u, 12u) == rhi::error::ok);
+    static_assert(rhi::validate_mesh_task_indirect_range(24u, 12u, 1u, 12u) == rhi::error::ok);
+    static_assert(rhi::validate_mesh_task_indirect_range(36u, 0u, 3u, 12u) == rhi::error::ok);
+    static_assert(rhi::validate_mesh_task_indirect_range(12u, 0u, 2u, 12u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_mesh_task_indirect_range(24u, 1u, 1u, 12u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_mesh_task_indirect_range(24u, 0u, 1u, 8u) == rhi::error::invalid_argument);
 
     static_assert(rhi::validate_draw_indirect_range(UINT64_MAX, UINT64_MAX - 3u, 1u, 16u) == rhi::error::invalid_argument);
 

@@ -1531,6 +1531,23 @@ export namespace deren::promise::rhi {
     inline constexpr std::uint32_t mesh_task_command_size = 12u;
     static_assert(sizeof(mesh_task_command) == mesh_task_command_size, "the record's size IS the stride callers pass");
 
+    /// The mesh-task argument record is 12 B, not the 16 B draw-indirect record: a range check that reused the
+    /// draw-indirect minimum rejected every mesh-task indirect dispatch (the visibility lane's item recorder
+    /// called it and the lane refused recording). Same alignment/overflow contract, its own minimum stride.
+    [[nodiscard]] constexpr error validate_mesh_task_indirect_range(std::uint64_t size, std::uint64_t offset, std::uint32_t count,
+                                                                    std::uint32_t stride) noexcept {
+        if (offset % 4u != 0u || stride < mesh_task_command_size || stride % 4u != 0u || offset > size) {
+            return error::invalid_argument;
+        }
+        if (count == 0u) {
+            return error::ok;
+        }
+        std::uint64_t const remaining = size - offset;
+        return remaining >= mesh_task_command_size && (static_cast<std::uint64_t>(count) - 1u) <= (remaining - mesh_task_command_size) / stride
+                   ? error::ok
+                   : error::invalid_argument;
+    }
+
     /// How many sampled slots one immutable texture group carries (`texture_group_info::textures`).
     inline constexpr std::uint32_t texture_group_capacity = 16u;
 

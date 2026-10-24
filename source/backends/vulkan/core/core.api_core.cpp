@@ -4373,7 +4373,7 @@ namespace deren::vulkan {
         auto const* const owned = static_cast<owned_buffer const*>(&argument_buffer);
         if (owned->owner != owner || !rhi::has_flag(owned->declared_flags, rhi::buffer_flag::indirect))
             return rhi::error::invalid_argument;
-        auto const valid = rhi::validate_draw_indirect_range(owned->size_bytes, offset, count, stride);
+        auto const valid = rhi::validate_mesh_task_indirect_range(owned->size_bytes, offset, count, stride);
         if (valid != rhi::error::ok || count == 0)
             return valid;
         if (!rendering_active)
