@@ -187,7 +187,8 @@ not add requirements beyond those clauses, but following it keeps lifetime reaso
   scope; a `unique_object` is the better default.
 - **`borrow()`**: a non-owning view. Use it only when the owner is provably alive for the whole use, and never
   where the contract requires retention (group membership, pending commands, frame resources). Borrowed
-  `release()` is a one-time log and releases nothing; that silence is not permission to rely on it.
+  `release()` is a one-time log and releases nothing; that silence is not permission to rely on it. A borrowed
+  handle is allocation-free: it stores only the pointer (no control block), and copies stay non-owning.
 
 ### 6.2.3 Recommended lifetimes
 

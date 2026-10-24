@@ -726,11 +726,12 @@ export namespace deren::promise::rhi {
             }
         }
 
-        /// a BORROWED handle: shares the pointer with copies, drops no reference
+        /// A BORROWED handle: shares the pointer with copies and drops no reference. A null control block is
+        /// the non-owning spelling: copies copy the pointer, destruction clears it, `weak()` is empty and no
+        /// allocation happens. The owner must keep @p instance alive for the whole use (standard §6.2.2).
         static shared_object borrow(rhi_object& instance) noexcept {
             shared_object borrowed;
             borrowed.instance = &instance;
-            borrowed.control = new detail::shared_object_control{nullptr, nullptr};
             return borrowed;
         }
 
