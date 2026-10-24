@@ -154,6 +154,68 @@ header block specifies it):
   (`not_ready` for a second); `compute_indirect` and `buffer_int64_atomics` are separate questions.
 
 
+## 6.2 Recommended ownership and sharing (non-normative guidance)
+
+Sections 7-8 are normative. This section is the recommended style for callers choosing a handle type; it does
+not add requirements beyond those clauses, but following it keeps lifetime reasoning local.
+
+### 6.2.1 Default choice per object
+
+| Object / factory product | Recommended default | Share only when | Notes |
+| --- | --- | --- | --- |
+| `buffer`, `acceleration_structure`, `micromap` | `unique_object` owned by the pass/primitive that created it | a second long-lived owner genuinely needs it, or it must outlive the creating pass | Prefer one owner and short lifetimes; do not share merely to avoid a copy of the handle. |
+| `image` | `unique_object` for pass-owned targets | multiple passes/frames keep it alive, or it is a cache/streaming resource | `image::share()` copies an owning reference without consuming the factory reference; repeated calls use one control block. Store the shared owner, not a raw pointer. |
+| `image_view` | `unique_object` | a view is handed to another owner that outlives the creating scope | A view retains its parent image; sharing the view is usually the honest unit when the parent must live on. |
+| `sampler`, `shader`, `pipeline` | `unique_object` in the owning registry/cache | a shared renderer state really outlives the registry entry | Pipelines are cheap handles on backend objects but still have a native lifetime; do not copy them as raw values. |
+| `texture_group` / `resource_group` | the `*_ref` (`shared_object`) returned by the factory | always, while recorded/pending commands can use it | These are shared-by-design handles. `borrow()` members are rejected where a retaining owner is required; group members are owned by the group. |
+| `command_buffer` (from `create_command_buffer`) | `unique_object` for a one-shot recording | it must be shared with another owner before submission | A submitted buffer is retained by the backend until completion; do not keep a second independent owner to extend the GPU window. |
+| `command_buffer` (from `make_command_buffer`) / `mergeable_command_buffer` | `shared_object` / `*_ref` | while recorded batches are pending | Frame primaries are borrowed views, not factory products. |
+| `swapchain`, `query` | reserved/empty in ABI 53 | - | `create_swapchain`/`create_query` MUST return empty; use `frame_swapchain()`. |
+| frame views (`begin_commands()`, `frame_image()`, `frame_readback_buffer()`, `frame_swapchain()`) | **borrow only** | never share or release | Valid only in the frame/acquire window; do not store them past submit/acquire. |
+| extensions (`query_extension<T>()`), `main_context()`, walkers/profilers/surface | **borrow only** | never own/release/delete | Borrowed from the core; keep the core alive. Re-query after a core change rather than caching across a backend rebuild. |
+| `submission_token` | copyable receipt | copy freely; it owns no resource | Dropping/copying a token does not cancel work; the core must outlive its use. |
+| `retain_image()` (frame resources) | `shared_object` | hand to another frame-scoped owner | One strong reference; valid only within the acquire epoch, empty outside a frame. |
+
+### 6.2.2 The three handle kinds
+
+- **`unique_object<T>`**: move-only, owns one reference, releases exactly once at destruction. Use it for
+  factory products that have one clear owner. Do not copy it, do not call `release()` on the raw handle as well
+  (that would double-drop the reference), and do not construct a second `unique_object` from the same pointer.
+- **`shared_object<T>`**: copyable, owns one reference through a shared control block. Create it only through the
+  contract (`share()`, `get_image()`, `make_command_buffer()`, `retain_image()`, `*_ref` factories), never by
+  wrapping a raw pointer in an independent control block. Use it when lifetime genuinely crosses the creating
+  scope; a `unique_object` is the better default.
+- **`borrow()`**: a non-owning view. Use it only when the owner is provably alive for the whole use, and never
+  where the contract requires retention (group membership, pending commands, frame resources). Borrowed
+  `release()` is a one-time log and releases nothing; that silence is not permission to rely on it.
+
+### 6.2.3 Recommended lifetimes
+
+- **Per-frame resources** (pass targets, staging/readback, one-shot command buffers): create as `unique_object`,
+  record/use, then let the container drop after GPU completion. Do not extend a pass by sharing its target unless
+  a later pass genuinely reads it; retention from recorded work is the backend's job, not a reason to add an
+  owner.
+- **Cross-frame resources** (cached images, materials, persistent scene buffers, pipelines): store a
+  `shared_object` (or the owning registry) for the whole cache lifetime. The core/backend must outlive every
+  cached handle; release the cache before `api_core::release()`.
+- **Groups**: create once, keep the `*_ref` in shared state, load it before the first consuming draw/dispatch,
+  and let recorded/pending work retain it. Do not reload the group to work around a pipeline switch in ABI 53;
+  the backend retains and republishes compatible logical state.
+- **Frame boundaries**: keep the frame's borrowed primary/image/readback inside the frame; submit before
+  reacquiring. A `shared_object` obtained from `retain_image()` must be dropped or used before the next acquire.
+- **Backends**: internal sharing (content-keyed images, cached pipelines, group tables) is allowed, but it is a
+  backend implementation detail. It never changes the reference the caller owns or the lifetime rule above.
+
+### 6.2.4 Anti-patterns
+
+- Wrapping a raw `image*`/`buffer*` in a second `shared_object` (two control blocks, double destruction).
+- Calling `release()` on a handle held by `unique_object`/`shared_object`, or `delete` on any contract handle.
+- Storing `begin_commands()`/`frame_image()`/`retain_image()` past the frame/epoch window.
+- Using `borrow()` for group members or for anything that must survive into pending GPU work.
+- Keeping a `unique_object` alive only to keep a pipeline/resource alive; create a proper owner or use a
+  shared handle where the lifetime really is shared.
+- Releasing the backend core while a token, group, recorded buffer or shared image owner is alive.
+
 ## 7. Core interfaces
 
 Status: draft for review (the core-interface half of the standard).
