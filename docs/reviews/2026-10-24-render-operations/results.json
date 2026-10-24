@@ -50,5 +50,6 @@
   "developer_controls": {
     "DEREN_RENDER_OPERATION_STATS": "developer-only; emits per-frame request/lowering counters at shutdown",
     "DEREN_RENDER_OPERATIONS_UNOPTIMIZED": "developer-only; disables simplification/native-state skipping for the optimized-vs-unoptimized control"
-  }
+  },
+  "evidence_note": "The two arms produced byte-identical screenshots per scenario; only the optimized-arm PNGs are retained (deferred-opt.png, gaussian_splat-opt.png). Both arms hashes are in this file."
 }

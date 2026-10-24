@@ -576,7 +576,7 @@ def scan_backend_imports(repo_root: str, backend_modules: set[str], backend_file
     scanned = 0
     for directory, subdirectories, names in os.walk(repo_root):
         subdirectories[:] = [d for d in subdirectories
-                             if d not in (".git", "third_party") and not d.startswith("build")]
+                             if d not in (".git", "third_party", "tmp") and not d.startswith("build")]
         for name in names:
             if not name.endswith(SOURCE_SUFFIXES):
                 continue

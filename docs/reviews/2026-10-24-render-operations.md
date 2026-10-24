@@ -41,8 +41,9 @@ savings, not the cost of deferral itself.
   steady-state line is used.
 - Build identity of both arms: `executable_sha256 b7e7c2b0...`, `deren_vulkan.dll 770d51fa...`, 59-shader bundle
   `fdedf14f...` (recorded in `results.json`).
-- Raw per-frame stats, debug logs and screenshots: `docs/reviews/2026-10-24-render-operations/` with
-  `results.json`.
+- Raw per-frame stats, debug logs and one screenshot per scenario: `docs/reviews/2026-10-24-render-operations/`
+  with `results.json`. The optimized and unoptimized arms are byte-identical per scenario, so only the
+  optimized-arm PNG is retained; both PNG hashes are recorded in `results.json`.
 
 ## Test coverage
 
@@ -62,6 +63,23 @@ savings, not the cost of deferral itself.
   interactions across pipeline switches. These are recorded as residual gaps, code-inspected only where noted,
   not claimed as proven.
 
+## Optional device-probe lane (CI visibility, F1)
+
+Headless CI cannot create a Vulkan device, so the ABI 53 device probes stay outside CTest by design. To make
+them a recorded, repeatable lane instead of ad-hoc commands:
+
+```
+pwsh -File scripts/windows/check_device_probes.ps1 -BuildDir build-release-dyn-clang64 `
+  -OutFile docs/reviews/2026-10-24-render-operations/device-probes.json
+```
+
+Latest run (2026-10-24): 5/5 passed - `test_resource_group` 158 checks, `test_texture_group` 95,
+`test_submission_completion` 63, `test_render_graph_frame` 12, `test_gaussian_gpu_frame` 65, all `0 failed`.
+The script checks the expected counts, records them to `device-probes.json`, and exits non-zero on a mismatch.
+This does not make the probes CI-visible on a headless runner; the follow-up remains to make the deferred
+restore/native-boundary semantics testable headlessly (probe-backend equivalence per plan M1) or to run this
+lane on a device-capable runner.
+
 ## Limitations
 
 - The control is simplified-vs-unoptimized on the same deferred stream, not a pre-deferral build; the plan's
@@ -74,12 +92,16 @@ savings, not the cost of deferral itself.
   synchronization or render-graph inference is added.
 - The full stage verifier / native lowering equivalence for every family is not implemented; validation is on
   the operation contracts and device probes above.
-- CPU recording cost and allocation counts required by the spec are not measured (I2). The count table is not a
-  benchmark; fewer native setters do not establish a frame-time improvement.
+- CPU recording cost and allocation counts (the spec's measurement list) are explicitly out of scope for this
+  acceptance checkpoint (I2); no performance claim is made. Any future performance statement must add those
+  measurements first. The count table is not a benchmark; fewer native setters do not establish a frame-time
+  improvement.
 - `DEREN_RENDER_OPERATION_STATS` and `DEREN_RENDER_OPERATIONS_UNOPTIMIZED` are developer-only controls
-  (documented in `results.json`), not product options.
+  (documented in `results.json` and the ABI 53 manual section), not product options; the latter logs once when
+  armed.
 - The CPU probe backend is an ABI-surface double (no saved-state/restore/identity equivalence), so device probes
-  are the contract evidence. Device probes remain outside headless CTest by design.
+  are the contract evidence. Device probes remain outside headless CTest by design; the optional lane above
+  records their counts, but does not make them CI-visible on a headless runner (F1 follow-up).
 
 ## Verification
 

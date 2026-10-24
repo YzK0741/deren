@@ -1,0 +1,42 @@
+{
+  "generated": "2026-10-24T21:00:00+08:00",
+  "build_dir": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64",
+  "probes": [
+    {
+      "name": "test_resource_group",
+      "exit": 0,
+      "checks": 158,
+      "expected": 158,
+      "status": "PASS"
+    },
+    {
+      "name": "test_texture_group",
+      "exit": 0,
+      "checks": 95,
+      "expected": 95,
+      "status": "PASS"
+    },
+    {
+      "name": "test_submission_completion",
+      "exit": 0,
+      "checks": 63,
+      "expected": 63,
+      "status": "PASS"
+    },
+    {
+      "name": "test_render_graph_frame",
+      "exit": 0,
+      "checks": 12,
+      "expected": 12,
+      "status": "PASS"
+    },
+    {
+      "name": "test_gaussian_gpu_frame",
+      "exit": 0,
+      "checks": 65,
+      "expected": 65,
+      "status": "PASS"
+    }
+  ],
+  "failed": 0
+}

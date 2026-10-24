@@ -121,7 +121,10 @@ CPU probes capture the recorder operation directly. Engine parameter packing and
 lifetime rules are unchanged. ABI 52 itself did not implement lazy state, adjacent-write merging or changes
 to draw/dispatch return types; ABI 53 now queues push/group state and applies it at explicit/native
 boundaries (see the ABI 53 section above). ABI 52 changes recorder/heap vtables and heap-property layout,
-so rebuild application, backend and plugins together.
+so rebuild application, backend and plugins together. Developer-only controls for this mechanism are
+`DEREN_RENDER_OPERATION_STATS` (per-frame request/lowering counters) and
+`DEREN_RENDER_OPERATIONS_UNOPTIMIZED` (diagnostic: disables simplification and native-state skipping; logs
+once when armed). Neither is a product option.
 
 ## Recording and submission (ABI 49)
 

@@ -1506,21 +1506,29 @@ export namespace deren::promise::rhi {
                    : error::ok;
     }
 
-    struct draw_indirect_command {
-        std::uint32_t vertex_count = 0, instance_count = 0, first_vertex = 0, first_instance = 0;
-    };
-    static_assert(sizeof(draw_indirect_command) == 16u);
-    [[nodiscard]] constexpr error validate_draw_indirect_range(std::uint64_t size, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) noexcept {
-        if (offset % 4u != 0u || stride < 16u || stride % 4u != 0u || offset > size) {
+    /// One indirect-command range rule, parameterised by the family's record size. Callers must pass the
+    /// size their argument record really has (16 B draw commands, 12 B mesh-task commands); using one
+    /// family's minimum for another was the visibility-lane defect this parameter removes.
+    [[nodiscard]] constexpr error validate_indirect_range(std::uint64_t size, std::uint64_t offset, std::uint32_t count,
+                                                          std::uint32_t stride, std::uint32_t record_size) noexcept {
+        if (record_size < 4u || offset % 4u != 0u || stride < record_size || stride % 4u != 0u || offset > size) {
             return error::invalid_argument;
         }
         if (count == 0u) {
             return error::ok;
         }
         std::uint64_t const remaining = size - offset;
-        return remaining >= 16u && (static_cast<std::uint64_t>(count) - 1u) <= (remaining - 16u) / stride
+        return remaining >= record_size && (static_cast<std::uint64_t>(count) - 1u) <= (remaining - record_size) / stride
                    ? error::ok
                    : error::invalid_argument;
+    }
+
+    struct draw_indirect_command {
+        std::uint32_t vertex_count = 0, instance_count = 0, first_vertex = 0, first_instance = 0;
+    };
+    static_assert(sizeof(draw_indirect_command) == 16u);
+    [[nodiscard]] constexpr error validate_draw_indirect_range(std::uint64_t size, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) noexcept {
+        return validate_indirect_range(size, offset, count, stride, sizeof(draw_indirect_command));
     }
 
     struct mesh_task_command {
@@ -1536,16 +1544,7 @@ export namespace deren::promise::rhi {
     /// called it and the lane refused recording). Same alignment/overflow contract, its own minimum stride.
     [[nodiscard]] constexpr error validate_mesh_task_indirect_range(std::uint64_t size, std::uint64_t offset, std::uint32_t count,
                                                                     std::uint32_t stride) noexcept {
-        if (offset % 4u != 0u || stride < mesh_task_command_size || stride % 4u != 0u || offset > size) {
-            return error::invalid_argument;
-        }
-        if (count == 0u) {
-            return error::ok;
-        }
-        std::uint64_t const remaining = size - offset;
-        return remaining >= mesh_task_command_size && (static_cast<std::uint64_t>(count) - 1u) <= (remaining - mesh_task_command_size) / stride
-                   ? error::ok
-                   : error::invalid_argument;
+        return validate_indirect_range(size, offset, count, stride, mesh_task_command_size);
     }
 
     /// How many sampled slots one immutable texture group carries (`texture_group_info::textures`).

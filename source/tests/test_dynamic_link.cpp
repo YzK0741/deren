@@ -93,6 +93,11 @@ namespace {
     static_assert(rhi::validate_mesh_task_indirect_range(12u, 0u, 2u, 12u) == rhi::error::invalid_argument);
     static_assert(rhi::validate_mesh_task_indirect_range(24u, 1u, 1u, 12u) == rhi::error::invalid_argument);
     static_assert(rhi::validate_mesh_task_indirect_range(24u, 0u, 1u, 8u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_indirect_range(16u, 0u, 1u, 16u, 16u) == rhi::error::ok);
+    static_assert(rhi::validate_indirect_range(12u, 0u, 1u, 12u, 12u) == rhi::error::ok);
+    static_assert(rhi::validate_indirect_range(12u, 0u, 1u, 12u, 16u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_indirect_range(24u, 0u, 2u, 12u, 12u) == rhi::error::ok);
+    static_assert(rhi::validate_indirect_range(23u, 0u, 2u, 12u, 12u) == rhi::error::invalid_argument);
 
     static_assert(rhi::validate_draw_indirect_range(UINT64_MAX, UINT64_MAX - 3u, 1u, 16u) == rhi::error::invalid_argument);
 

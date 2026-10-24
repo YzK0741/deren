@@ -34,6 +34,14 @@ namespace deren::vulkan {
         if (operations.empty() && !restore_state)
             return rhi::error::ok;
         bool const optimize = std::getenv("DEREN_RENDER_OPERATIONS_UNOPTIMIZED") == nullptr;
+        if (!optimize) {
+            static bool const warned = [] {
+                deren::utility::log("render operations: DEREN_RENDER_OPERATIONS_UNOPTIMIZED is set - developer-only: "
+                                    "simplification and native-state skipping are disabled");
+                return true;
+            }();
+            (void)warned;
+        }
         rec::operation_stream combined;
         if (restore_state) {
             for (auto const* op : saved_state.simplify(false))

@@ -1289,6 +1289,7 @@ if(VR_BUILD_TESTS)
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_backend_boundary.py"
                 --build-dir "${CMAKE_CURRENT_BINARY_DIR}"
                 --report "${CMAKE_CURRENT_BINARY_DIR}/backend_boundary_report.json"
+                --require-zero
         DEPENDS deren
         VERBATIM)
 
