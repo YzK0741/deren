@@ -10,11 +10,12 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-24-render-operations-design.md`
 
-**Status (2026-10-24):** the implementation is present in the working tree - the shared operation stream,
-ABI 53 `command_recorder::apply_operations()` and the Vulkan deferral/flush integration, with
-`test_render_operations` registered in CTest. The Task 1-3 checkboxes remain unticked because the final
-device comparison, independent review and `docs/reviews/2026-10-24-render-operations.md` are not completed
-yet; this plan is a partial checkpoint, not an accepted implementation.
+**Status (2026-10-24, accepted with follow-ups):** the shared operation stream, ABI 53
+`command_recorder::apply_operations()` and the Vulkan deferral/flush integration are implemented and accepted
+with follow-ups. Independent review: `docs/reviews/2026-10-24-render-operations-review.md` (0 Critical / 5
+Important / 11 Minor); acceptance: `docs/reviews/2026-10-24-render-operations.md`. Open follow-ups (do not
+claim them as done): a pre-deferral recording-cost baseline (I1), CPU recording/allocation measurements (I2),
+native-interop/execute/post-ABI53 GUI restore coverage (I3), and the remaining device coverage gaps (I5).
 
 
 ## Global constraints
@@ -37,30 +38,30 @@ yet; this plan is a partial checkpoint, not an accepted implementation.
 
 Files: new `source/promise/rhi/render_operations.cppm`, `source/tests/test_render_operations.cpp`; modify `CMakeLists.txt`, Vulkan recorder instrumentation.
 
-- [ ] Capture current PBR/Gaussian per-frame RHI entry counts with an opt-in statistics log before enabling deferral. Save matching configs and raw logs under `tmp/render-operations-baseline`.
-- [ ] Add tests for adjacent duplicates, overwritten state, A/B/A with consumers, protected duplicate execution, push copying/full/partial overlap, terminal/intermediate windows and independent state keys. Watch missing stream implementation fail.
-- [ ] Implement `operation_kind`, `render_operation`, typed derived values, pooled storage, and `operation_stream::simplify(bool final)` plus per-kind accepted/retained counters.
-- [ ] Build/run `test_render_operations`; compare interpreter outputs for deterministic generated streams with simplification on/off.
+- [ ] Capture a pre-deferral baseline: not reconstructed (the feature builds on already-authorized uncommitted RHI changes). The recorded control is optimized-vs-`DEREN_RENDER_OPERATIONS_UNOPTIMIZED` on the same deferred stream; request counts live in the untracked `tmp/render-operations-baseline` and have no native setter counts/build identity.
+- [x] Add tests for adjacent duplicates, overwritten state, A/B/A with consumers, protected duplicate execution, push copying/full/partial overlap, terminal/intermediate windows and independent state keys. Watch missing stream implementation fail. Expanded with independent cull/depth-write state kinds (275 checks PASS).
+- [x] Implement `operation_kind`, `render_operation`, typed derived values, pooled storage, and `operation_stream::simplify(bool final)`. Per-kind accepted/retained counters are not implemented; backend stats (`DEREN_RENDER_OPERATION_STATS`) provide request/retained/setter/work totals.
+- [x] Build/run `test_render_operations`; compare interpreter outputs for deterministic generated streams with simplification on/off (275 checks PASS).
 
 ## Task 2: Integrate validated Vulkan deferral
 
 Files: `core.declarations.cppm`, new `core.render_operations.cpp`, `core.api_core.cpp`, `core.resource_groups.cpp`, `core.texture_groups.cpp`, `core.cpp`, `radix_sort.cpp`, scoped synchronization and shared Vulkan command buffer bridge.
 
-- [ ] Add ABI 53 `command_recorder::apply_operations() -> error`, native interop preparation/finish, and mergeable forwarding; update ABI assertions/documentation.
-- [ ] Add failing device probes for pending copied push, explicit application, mid-window state, stale buffer/pipeline identity, scope failure/reset and secondary ordering.
-- [ ] Enqueue validated state/execution; keep unsupported families as ordered application boundaries. Add generation identities for borrowed buffer/pipeline bindings.
-- [ ] Replay only after complete batch validation, latch deferred errors, flush before immediate/native work and end recording, reset storage on legal begin. Preserve logical group/push state across compatible pipeline changes and republish at consumers.
-- [ ] Update CPU probe recording semantics without test-only production switches.
-- [ ] Run operation/contract tests and resource-group, texture-group, completion and frame device probes.
+- [x] Add ABI 53 `command_recorder::apply_operations() -> error`, native interop preparation/finish, and mergeable forwarding; update ABI assertions/documentation. ABI 53 docs corrected for queued group/push semantics.
+- [ ] Device-probe coverage is incomplete: `test_resource_group` covers copied pending push, explicit application, stale buffer/pipeline identity, scope failure/reset and group retention; `test_dynamic_link` covers the apply lifecycle. Missing: mid-window state beyond the apply-then-bind case and secondary/mergeable ordering under a failing implicit flush (I5).
+- [x] Enqueue validated state/execution; keep unsupported families as ordered application boundaries. Add generation identities for borrowed buffer/pipeline bindings.
+- [x] Replay only after complete batch validation, latch deferred errors, flush before immediate/native work and end recording, reset storage on legal begin. Preserve logical group/push state across compatible pipeline changes and republish at consumers (code-inspected; native restore path not directly device-probed, I3).
+- [ ] CPU probe backend is an ABI-surface double, not equivalent save/restore/identity semantics (M1). `DEREN_RENDER_OPERATIONS_UNOPTIMIZED` remains a developer-only switch (M2).
+- [x] Run operation/contract tests and resource-group, texture-group, completion and frame device probes (all PASS with `--with-device`).
 
 ## Task 3: Verify rendering and record comparison
 
 Files: new `docs/reviews/2026-10-24-render-operations.md`; update relevant contract/manual docs and this progress ledger.
 
-- [ ] Build all and run the complete CTest suite.
-- [ ] Repeat baseline PBR/Gaussian configs; compare requests, retained operations, native lowering calls and captures. Explain warmup and native GUI exclusions.
-- [ ] Independently review the resulting change; resolve actionable findings and rerun affected checks.
-- [ ] Report measured counts and limitations; leave changes uncommitted.
+- [x] Build all and run the complete CTest suite: Release 69/69 PASS.
+- [x] Repeat PBR/Gaussian configs; compare requests, retained operations, native lowering calls and captures: deferred setters 33 vs 41, gaussian 40 vs 52, work counts equal, screenshots byte-identical; warmup excluded; GUI enabled captures excluded (render gate forces GUI off) (I1 narrows the claim).
+- [x] Independently review the resulting change: docs/reviews/2026-10-24-render-operations-review.md (0 Critical / 5 Important / 11 Minor, accepted with follow-ups); I4 fixed, I1/I2/I3/I5 recorded as follow-ups, gates rerun.
+- [x] Report measured counts and limitations: docs/reviews/2026-10-24-render-operations.md + results.json (build identity included). Changes committed as the Lead checkpoint, not left uncommitted.
 
 ## Execution ledger
 

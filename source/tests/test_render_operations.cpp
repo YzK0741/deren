@@ -39,6 +39,29 @@ int main() {
     CHECK(stream.simplify(true).empty());
     stream.clear();
 
+    // Adjacent duplicate STATE collapses (the earlier copy is dead); repeated EXECUTION is still protected.
+    stream.append<rec::operation_kind::vertex>({1});
+    stream.append<rec::operation_kind::vertex>({1});
+    stream.append<rec::operation_kind::draw_indexed>({2});
+    result = stream.simplify(true);
+    CHECK(result.size() == 2);
+    CHECK(result[0]->kind() == rec::operation_kind::vertex);
+    CHECK(result[1]->kind() == rec::operation_kind::draw_indexed);
+    stream.clear();
+
+    // Independent state kinds deduplicate separately, and execution still follows the surviving state.
+    stream.append<rec::operation_kind::cull>({1});
+    stream.append<rec::operation_kind::cull>({1});
+    stream.append<rec::operation_kind::depth_write>({1});
+    stream.append<rec::operation_kind::depth_write>({1});
+    stream.append<rec::operation_kind::draw>({3});
+    result = stream.simplify(true);
+    CHECK(result.size() == 3);
+    CHECK(result[0]->kind() == rec::operation_kind::cull);
+    CHECK(result[1]->kind() == rec::operation_kind::depth_write);
+    CHECK(result[2]->kind() == rec::operation_kind::draw);
+    stream.clear();
+
     // Push bytes are owned; partial overlaps must preserve the earlier non-overwritten bytes.
     std::array bytes{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
                      std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8}};

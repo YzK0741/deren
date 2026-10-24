@@ -74,10 +74,13 @@ or final submission retirement releases the corresponding owners; private descri
 only after the group's last owner dies. Loading a later group cannot release resources used by earlier
 recorded draws.
 
-This version records immediately. Reload a compatible group after changing pipelines and complete
-all required bindings before draw/dispatch/trace. Complete draw-state tracking and changes to void
-draw/dispatch error reporting are outside this batch. Shader parameters now use command_recorder::push_constants. Lazy state application and merging
-adjacent state updates remain subsequent work.
+Under ABI 53, `load_resource_group` (like push parameters) queues logical recorder state; a
+compatible group loaded before a pipeline switch is retained across that switch and the backend
+validates/republishes it at the next consuming operation. Re-binding the same pipeline preserves a
+loaded compatible group. Callers must still load the group before the first draw/dispatch/trace
+that consumes it; validation and deferred errors surface at `apply_operations()`/`end_recording()`.
+Complete draw-state tracking and changes to void draw/dispatch error reporting remain outside this
+batch. Shader parameters use `command_recorder::push_constants` (ABI 52; queued under ABI 53).
 
 ## Backend and version
 
@@ -92,6 +95,6 @@ The old texture-group range overlapped the scene grid. Its private table/pool no
 constants. The resource heap working budget increased from 1280 KiB to 4 MiB for disjoint fixed ranges
 and reusable group descriptors. Rebuild shaders and backend together.
 
-Resource groups originated in RHI ABI **51**. Unified recorder push_constants requires current ABI
-**52**; application, backend and plugins need matching rebuilt binaries. Validation evidence and boundaries are recorded in
+Resource groups originated in RHI ABI **51**. Unified recorder push_constants and deferred recording require current ABI
+**53**; application, backend and plugins need matching rebuilt binaries. Validation evidence and boundaries are recorded in
 `docs/reviews/2026-10-24-resource-group.md`.

@@ -1,0 +1,54 @@
+{
+  "scenario": {
+    "deferred": {
+      "opt": {
+        "requests": 47,
+        "retained": 47,
+        "setters": 33,
+        "work": 8,
+        "image_sha256": "fae60c0b1d8c119188236e31bfa37d9fe56b333d1518480e661f48fe7adbd15d"
+      },
+      "unopt": {
+        "requests": 47,
+        "retained": 47,
+        "setters": 41,
+        "work": 8,
+        "image_sha256": "fae60c0b1d8c119188236e31bfa37d9fe56b333d1518480e661f48fe7adbd15d"
+      },
+      "same_image": true,
+      "setter_saving": 8,
+      "work_equal": true
+    },
+    "gaussian_splat": {
+      "opt": {
+        "requests": 56,
+        "retained": 55,
+        "setters": 40,
+        "work": 11,
+        "image_sha256": "8555c8295938d11882de329ce4104bfecbba4408fa4e3fbaaeb32e05da867730"
+      },
+      "unopt": {
+        "requests": 56,
+        "retained": 56,
+        "setters": 52,
+        "work": 11,
+        "image_sha256": "8555c8295938d11882de329ce4104bfecbba4408fa4e3fbaaeb32e05da867730"
+      },
+      "same_image": true,
+      "setter_saving": 12,
+      "work_equal": true
+    }
+  },
+  "note": "steady-state lines are the repeated per-frame stats after warmup; all captures on one Release build",
+  "build_identity": {
+    "executable_sha256": "b7e7c2b08e11e86d027740c41e3571681560db3ea72380781d2afadc8c36f68f",
+    "backend_dll_sha256": "770d51fa3d0bd61c7818a546bca0322ac23770ce7f7ad66a6c5ea889fb509661",
+    "shader_bundle_sha256": "fdedf14f54d0a3b32bbe083f1f80744d61877f60e6f9230f9aa4d28625f58983",
+    "shader_count": 59,
+    "build_type": "Release (build-release-dyn-clang64)"
+  },
+  "developer_controls": {
+    "DEREN_RENDER_OPERATION_STATS": "developer-only; emits per-frame request/lowering counters at shutdown",
+    "DEREN_RENDER_OPERATIONS_UNOPTIMIZED": "developer-only; disables simplification/native-state skipping for the optimized-vs-unoptimized control"
+  }
+}

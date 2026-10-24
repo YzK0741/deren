@@ -88,7 +88,10 @@ applies operations immediately. Borrowed pipeline/buffer owners must stay alive 
 GPU completion. Immediate/native interop boundaries flush pending operations before the native call, and
 `command_buffer::execute`/`mergeable_command_buffer` forwarding keeps the same order. The API change is one
 appended virtual on the shared `command_recorder`, so backends without deferral remain valid and simply
-advertise it through the default `unsupported` result.
+advertise it through the default `unsupported` result. Push constants and resource-group/texture-group
+loads become queued logical state under ABI 53: a compatible group is retained across a pipeline switch and
+the backend validates/republishes it at the next consumer, errors surface at apply/end, and a re-bound same
+pipeline preserves the loaded compatible group.
 
 ## Unified shader parameters (ABI 52)
 
@@ -100,7 +103,8 @@ auto capacity = capabilities ? capabilities->max_push_constants_size() : 0u;
 auto result = commands.push_constants(offset, std::as_bytes(std::span(&parameters, 1)));
 ```
 
-`push_constants` returns an error, consumes the bytes before return and records immediately. It
+`push_constants` returns an error and consumes the bytes before return. Under ABI 53 the payload is queued
+as logical state (ABI 52 recorded it immediately); it
 requires recording, nonempty four-byte units and a range within the reported capacity. A pipeline
 need not already be bound. When one is bound, application bytes cannot overlap its resource-group
 handle fields or legacy texture-group token. Internal group publication owns those protected bytes.
@@ -113,9 +117,10 @@ It continues using vkCmdPushDataEXT internally; no second public Vulkan-style sp
 Other implementations can use their native constant mechanism or return unsupported explicitly.
 
 CPU probes capture the recorder operation directly. Engine parameter packing and all resource/group
-lifetime rules are unchanged. This does not implement lazy state, adjacent-write merging or changes
-to draw/dispatch return types. ABI 52 changes recorder/heap vtables and heap-property layout, so rebuild
-application, backend and plugins together.
+lifetime rules are unchanged. ABI 52 itself did not implement lazy state, adjacent-write merging or changes
+to draw/dispatch return types; ABI 53 now queues push/group state and applies it at explicit/native
+boundaries (see the ABI 53 section above). ABI 52 changes recorder/heap vtables and heap-property layout,
+so rebuild application, backend and plugins together.
 
 ## Recording and submission (ABI 49)
 

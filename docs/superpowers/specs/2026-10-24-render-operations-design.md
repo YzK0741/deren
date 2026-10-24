@@ -1,7 +1,8 @@
 # Deferred render operations
 
 Date: 2026-10-24
-Status: mechanism agreed in discussion; design only, implementation pending.
+Status: implemented in the 2026-10-24 checkpoint; accepted with follow-ups (see
+`docs/reviews/2026-10-24-render-operations.md` and `...-review.md`).
 Independent builder check: no important unanswered planning questions reported.
 
 ## Intent and decisions
