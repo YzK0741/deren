@@ -23,7 +23,8 @@ namespace deren::vulkan {
 
     namespace rhi = deren::promise::rhi;
 
-    std::expected<rhi::submission_token, rhi::error> core::command_submission_view::submit(rhi::command_buffer& commands) {
+    std::expected<deren::promise::rhi::submission_token, deren::promise::rhi::error>
+    core::command_submission_view::submit(deren::promise::rhi::command_buffer& commands) {
         if (!owner) {
             return std::unexpected(rhi::error::not_ready);
         }
@@ -34,7 +35,8 @@ namespace deren::vulkan {
         }
         return token;
     }
-    std::expected<rhi::submission_token, rhi::error> core::command_submission_view::submit(std::span<rhi::mergeable_command_buffer_ref const> batch) {
+    std::expected<deren::promise::rhi::submission_token, deren::promise::rhi::error>
+    core::command_submission_view::submit(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) {
         if (!owner) {
             return std::unexpected(rhi::error::not_ready);
         }
