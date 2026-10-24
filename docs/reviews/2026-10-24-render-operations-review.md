@@ -46,6 +46,19 @@ Not re-run by this reviewer (reported by the author and accepted as reported, or
 "unverifiable" below): the two measurement captures themselves, the GPU sort probe (its PASS line
 is visible in both gaussian debug logs), and any long-duration GUI smoke.
 
+## Post-review disposition (commit cae23b92)
+
+- I4 is fixed: `docs/resource_groups.md` now documents ABI 53 queued group/push state, same-pipeline
+  preservation, switch retention/republish and apply/end error surfacing; `docs/dynamic_runtime.md` ABI 53
+  and ABI 52 wording updated.
+- I5 is partially addressed: the CPU stream test gained independent cull/depth-write state coverage (275
+  checks) and the acceptance report's residual-gap list was expanded.
+- I1, I2 and I3 remain open follow-ups (pre-deferral baseline, CPU/allocation cost, native-interop/execute/
+  post-ABI53 GUI smoke); they are not claimed as done. The plan is marked accepted-with-follow-ups with
+  those boxes open.
+- The findings above describe the tree at review time (HEAD 7f38b720) and are kept as the historical review
+  record; the acceptance report carries the current disposition.
+
 ## Important findings
 
 ### I1. The optimized-vs-unoptimized control does not establish the plan's baseline claim

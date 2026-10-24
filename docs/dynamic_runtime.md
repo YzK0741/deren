@@ -75,8 +75,9 @@ and plugins together for ABI 50. The previous root factory/frame/submit entry po
 Pipelines declare logical numbered bindings and shader parameter locations; `load_resource_group`
 validates a complete matching group and retains it for recorded/pending work. Backend descriptor
 allocations remain private. See [resource groups](resource_groups.md) for usage, ownership and limits.
-Lazy recording remains subsequent work. Resource groups originated in ABI 51; current binaries
-require ABI 53 after deferred recording application; the subview split originated in ABI 50.
+ABI 51 itself recorded immediately; deferred/lazy state recording arrived in ABI 53 (see the ABI 53
+section below). Resource groups originated in ABI 51; current binaries require ABI 53 after deferred
+recording application; the subview split originated in ABI 50.
 
 ## Deferred recording application (ABI 53)
 
