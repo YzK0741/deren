@@ -68,6 +68,64 @@ import :contract;
 
 export namespace deren::promise::rhi {
 
+    // ============================ ABI 53 EXTENSION CONTRACT CLARIFICATIONS ============================
+    // These are normative for every backend; they do not change the ABI 53 vtables.
+    //
+    // EXTENSION DISCOVERY. `query_extension(kind)` returns null for a kind the backend does not serve; that
+    // means `error::unsupported` to the caller, never a silent downgrade. The inverse is also required: a
+    // non-null extension MUST correspond to its ability bit being set in `api_core::abilities()`. A backend
+    // that cannot serve a bit MUST NOT announce it. Default virtual bodies are NOT a capability claim: some
+    // default to `unsupported`, some value/boolean abilities default to false; a backend that announces an
+    // ability MUST override every method of it.
+    //
+    // MESH SHADER. `mesh_shader` is RESERVED in ABI 53: no backend in this tree announces the kind, and its
+    // `dispatch_mesh` verb has no error channel. Callers MUST use the tier-1
+    // `command_recorder::draw_mesh_tasks`/`draw_mesh_tasks_indirect` path instead. A future backend that
+    // announces the kind must define the preconditions/error behavior and bump the ABI.
+    //
+    // DESCRIPTOR HEAP. A backend that announces `descriptor_heap` MUST provide a ready heap; otherwise the
+    // extension is absent. `write_image`/`write_buffer` write host-owned descriptors: the caller MUST keep the
+    // written image/view/buffer alive until GPU work using the descriptor completes; the heap does not retain
+    // them. A heap write offset is a byte offset at the descriptor stride reported by `properties()`; a
+    // backend whose indexing is not stride-relative must reject the write by name. `bind` binds the heaps for
+    // the supplied recorder; a caller must bind them before any pipeline that reads the heaps.
+    //
+    // DESCRIPTOR SPACE. A backend MUST NOT answer `descriptor_space` without `descriptor_heap`; both are
+    // gated on a ready heap. `write` accepts sampled/combined image descriptors only in ABI 53; other types
+    // answer `unsupported`. The position must name this space, the group-profile width and a live generation;
+    // a malformed position or out-of-range index answers `invalid_argument`. A write does not insert barriers.
+    //
+    // HOST IMAGE COPY. ABI 53 copies the COLOR aspect only; `image_copy_region` carries no aspect. The
+    // destination is row-major, tightly packed; the source image MUST be in the backend's host-readable
+    // state (GENERAL in the reference backend) and the caller MUST make GPU writes visible first. The copy is
+    // host-side work and records/submits nothing.
+    //
+    // SHADER GROUP ACCESS. `read` writes one record per group; the record size is the device's
+    // `shader_binding_table().handle_size`, and consecutive records are spaced by at least `handle_alignment`.
+    // A caller sizing `out` from any other number violates the contract; a backend MUST reject a store smaller
+    // than the records it would write.
+    //
+    // SCOPED SYNCHRONIZATION. `describe`/`validate`/`record` reject objects owned by another core before
+    // casting. A fully empty group still validates command ownership/recording state. Depth/stencil-independent
+    // transitions are not served in ABI 53 and answer `unsupported`; `synchronization::error` maps to
+    // `rhi::error` as published in the synchronization module (invalid argument/not ready/unsupported), and a
+    // backend MUST not translate a device failure into success.
+    //
+    // FRAME RESOURCES. `retain_image()` returns one strong reference to the current acquired image and empty
+    // outside a frame; the identity is stable only within one acquire epoch, and scoped describe/record
+    // rejects the snapshot once its epoch ends. The returned owner keeps the core alive, not the native image
+    // beyond the backend's acquire/submit protocol.
+    //
+    // ASYNC PRESENTATION. Only one presentation call may be outstanding: a second `begin()` before the first
+    // future is collected answers a future holding `not_ready`. The result MUST be collected/wait_idle before
+    // the next frame submission; completion means the host call returned, not GPU/display idle.
+    //
+    // DEVICE CAPABILITIES. `compute_indirect` means "indirect compute dispatch is supported"; the int64
+    // sentence that used to be attached to it belongs to `buffer_int64_atomics`. Value/boolean ability defaults
+    // are false; announcing the ability MUST override every corresponding method truthfully.
+    //
+    // ==============================================================================================
+
     // The tier-1 objects the abilities below take by reference. They are declared by
     // source/promise/rhi/rhi.api_core.cppm: an ability is a tier-2 view of the same backend, so it
     // speaks about the same objects.
@@ -425,6 +483,7 @@ export namespace deren::promise::rhi {
     };
 
     /// tier-2 ability: mesh and task shaders.
+    /// RESERVED in ABI 53: no backend announces this kind; callers use the tier-1 draw_mesh_tasks path.
     struct mesh_shader : extension {
 
         static constexpr extension_kind extension_id = extension_kind::mesh_shader;
@@ -537,10 +596,11 @@ export namespace deren::promise::rhi {
         /// The largest number of instances one acceleration structure may hold: the module refuses a frame
         /// whose instance count passes it rather than asking the driver to fail.
         [[nodiscard]] virtual std::uint64_t max_acceleration_structure_instances() const noexcept = 0;
-        /// Enabled shader int64 and storage-buffer int64 atomics; conservative default for other backends.
+        /// Whether this backend serves indirect compute dispatch; false is the conservative default.
         [[nodiscard]] virtual bool compute_indirect() const noexcept {
             return false;
         }
+        /// Enabled shader int64 and storage-buffer int64 atomics; false is the conservative default.
         [[nodiscard]] virtual bool buffer_int64_atomics() const noexcept {
             return false;
         }

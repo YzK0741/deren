@@ -366,6 +366,11 @@ executable locates it by walking up from its working directory.
 
 ## Writing a second backend
 
+The normative per-interface standard for every virtual function is [The deren RHI API standard](rhi_api_standard.md);
+this page is the architectural overview. The standard records ABI 53's reserved interfaces (`query`,
+`create_query`, `create_swapchain`, `mesh_shader`) and the genuinely unspecified behavior a second backend must not
+rely on.
+
 1. Implement `deren::promise::rhi::api_core` and its resource, command and frame interfaces. Bind
    those views in the derived constructor before returning the core to callers.
 2. Export `deren_make_api_core` with the contract's `abi_version` as the first argument.

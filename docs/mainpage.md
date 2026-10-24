@@ -19,7 +19,8 @@ implementation details, measured results and the limits of each feature.
   backend DLL by name at run time. A versioned entry point checks ABI compatibility;
   optional capabilities are queried through extensions. The executable has no graphics-API
   imports. A second backend can implement the same contract; Vulkan is the implemented
-  graphics backend today. See \ref md_docs_2dynamic__runtime "The dynamic API".
+  graphics backend today. See \ref md_docs_2dynamic__runtime "The dynamic API", and the normative
+  [RHI API standard](rhi_api_standard.md) for every interface/virtual clause.
 - **Gaussian splatting.** Trained PLY clouds retain their anisotropic shape, opacity and
   view-dependent spherical-harmonic color. GPU preparation, VRDX stable sorting, cached
   projection/color and indirect draws accelerate the frame; a CPU reference path supports

@@ -74,6 +74,60 @@ import :extension;
 
 export namespace deren::promise::rhi {
 
+    // ================================ ABI 53 CONTRACT CLARIFICATIONS ================================
+    // These are normative for every backend and complement the per-method comments. They clarify behavior
+    // that was previously only in the reference backend or in docs, without changing the ABI 53 vtable.
+    //
+    // OWNERSHIP. Every handle derives from `object`; `release()` drops the caller's ONE reference and the
+    // object dies with the last reference. A borrowed view answers a one-time log and releases nothing. A
+    // backend MAY keep the underlying resource alive for shared/content-keyed reuse, but MUST NOT expose a
+    // dead handle. The backend core MUST outlive every handle, group, command buffer and pending submission.
+    //
+    // RESERVED IN ABI 53. `query` is reserved/incomplete: `query_desc` is a forward declaration, so
+    // `resource_factory::create_query` MUST return an empty product and callers MUST NOT rely on query
+    // behavior. `frame_context::create_swapchain` is likewise reserved because `swapchain_desc` is a forward
+    // declaration: it MUST return empty; the frame's swapchain is reached through `frame_swapchain()`. These
+    // are completeness markers, not capabilities a second backend can implement in ABI 53.
+    //
+    // RECORDING ERROR RULE. A handle-taking verb answers `error`; a value-only verb answers `void`. A void
+    // verb latches its failure into the recording, and `end_recording()`/`apply_operations()` reports it and
+    // makes the recording non-executable. Callers MUST serialize calls on one recorder; the contract does not
+    // grant concurrent calls on the same command buffer.
+    //
+    // COMMAND DATA. `copy_buffer` MUST reject size==0, offsets past either buffer, or a range past either
+    // buffer with `invalid_argument`; a backend MUST NOT pass an overrun to the native API. `bind_vertex_buffer`
+    // and `bind_index_buffer` MUST reject an offset >= the buffer size. `clear_color_image`'s four components
+    // are RGBA, and an all-zero subresource range means every mip/layer of the image. `mark_gpu_timing`'s
+    // label text is borrowed static text that MUST stay valid for the process lifetime; the backend does not
+    // copy it. `begin_rendering`/`end_rendering` MUST be paired and MUST NOT nest; an open scope at
+    // `end_recording` fails that recording and nothing is published. `dispatch`/`draw_mesh_tasks` require an
+    // open recording with the matching pipeline; a device that cannot run mesh work is reported through
+    // `device_capabilities`, and a void mesh verb latches `invalid_argument` rather than drawing nothing
+    // silently.
+    //
+    // API CORE. `wait_idle()` waits for all submitted work; it has no error channel (device loss surfaces on
+    // later calls) and is legal outside a recording (inside one it does not end the recording).
+    // `main_context()` is optional: null means the backend exposes no native/plugin interop context; a
+    // non-null pointer is borrowed until api_core::release() and must be validated by tag before casting.
+    //
+    // FRAME VIEWS. `begin_commands()` returns the frame's primary (null outside recording) borrowed until the
+    // frame is submitted; `frame_image()` is valid from acquire through submit until the next acquire;
+    // `frame_readback_buffer()` is borrowed for the same window. Using any of them outside its window is a
+    // contract violation the backend may refuse.
+    //
+    // ASSIGN TEXTURE GROUP. On success the returned shared handle owns one reference and `*result` (when
+    // non-null) is `ok`; on failure the returned handle is empty and `*result` is the named error. Passing a
+    // null `result` is allowed; empty (all-null) slots are legal and preserve group capacity. A backend that
+    // does not support groups returns an empty handle with `unsupported`.
+    //
+    // RADIX SORT. `requirements(count)` reports scratch bytes, scratch alignment and scratch buffer flags; a
+    // nonzero count with scratch_bytes==0 means the backend cannot serve that count. `record` validates the
+    // operands and returns `invalid_argument` for a null/foreign buffer, an offset/size out of range or a
+    // scratch size below the requirement; it overwrites the recorder's pipeline/layout/push state
+    // (consumers rebind). All operand buffers are borrowed through GPU completion.
+    //
+    // ==============================================================================================
+
     /// WHAT A BUFFER IS FOR, as the contract names it: the memory intent, not a Vulkan memory property.
     ///
     /// The vocabulary is the renderer's own census of buffer uses (twelve creation sites today, counted
@@ -1368,6 +1422,7 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error record(command_recorder&, radix_sort_info const&) = 0;
     };
 
+    /// RESERVED in ABI 53: incomplete; create_query MUST return an empty product and callers MUST NOT rely on query behavior.
     struct query : object {
 
         explicit query(std::string_view const name) noexcept
@@ -1970,6 +2025,7 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual unique_object<sampler> create_sampler(sampler_desc const& desc) = 0;
         [[nodiscard]] virtual unique_object<shader> create_shader(shader_desc const& desc) = 0;
         [[nodiscard]] virtual unique_object<pipeline> create_pipeline(pipeline_desc const& desc) = 0;
+        /// RESERVED in ABI 53: query_desc is a forward declaration, so this MUST return empty; query is not a usable ABI 53 product.
         [[nodiscard]] virtual unique_object<query> create_query(query_desc const& desc) = 0;
         [[nodiscard]] virtual std::expected<resource_group_ref, error> create_resource_group(resource_group_desc const&) {
             return std::unexpected(error::unsupported);
@@ -2005,6 +2061,7 @@ export namespace deren::promise::rhi {
         virtual ~frame_context() noexcept = default;
         frame_context(frame_context const&) = delete;
         frame_context& operator=(frame_context const&) = delete;
+        /// RESERVED in ABI 53: swapchain_desc is a forward declaration, so this MUST return empty; use frame_swapchain().
         [[nodiscard]] virtual unique_object<swapchain> create_swapchain(swapchain_desc const& desc) = 0;
         /// Current frame's primary, or null outside recording. Borrowed until frame submission.
         [[nodiscard]] virtual command_buffer* begin_commands() = 0;

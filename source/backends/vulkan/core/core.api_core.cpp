@@ -4502,6 +4502,11 @@ namespace deren::vulkan {
         }
         auto const* const destination_owned = static_cast<owned_buffer const*>(&destination);
         auto const* const source_owned = static_cast<owned_buffer const*>(&source);
+        // ABI 53: reject an empty copy or an overrun instead of handing it to vkCmdCopyBuffer2.
+        if (size == 0u || source_offset > source_owned->size_bytes || size > source_owned->size_bytes - source_offset ||
+            destination_offset > destination_owned->size_bytes || size > destination_owned->size_bytes - destination_offset) {
+            return rhi::error::invalid_argument;
+        }
         VkBufferCopy2 const regions = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2,
             .pNext = nullptr,
