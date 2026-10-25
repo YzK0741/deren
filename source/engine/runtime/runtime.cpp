@@ -79,22 +79,12 @@ namespace deren::engine {
     } // namespace runtime_detail
 
     void runtime::write_rt_structure_binding(deren::promise::rhi::acceleration_structure* const tlas, uint32_t const frame_slot) {
-        // The top level structure is a HEAP slot now, and this is the one thing this function still does: a heap
-        // descriptor for an acceleration structure is an ADDRESS RANGE carrying the structure's device address
-        // (the heap's payload union has no AS member - see docs/descriptor_heap_migration.md), and it is
-        // per FRAME SLOT because the structure is rebuilt every frame - which is why heap_slots::tlas is a
-        // two-slot array. The size is the one the structure was created with: a heap range must carry a real
-        // size, a lesson this renderer already paid for on the material table.
-        //
-        // BOTH NUMBERS COME FROM THE OBJECT (tier-1 since abi 26): this function used to resolve
-        // `vkGetAccelerationStructureDeviceAddressKHR` through `vkGetDeviceProcAddr` and fill a
-        // `VkAccelerationStructureDeviceAddressInfoKHR` to read the address out of the handle - the LAST Vulkan
-        // reference this file had, and the reason its census entry was `vkGetDeviceProcAddr`.
-        if (!contract_heap_ready(this->rhi_face()) || tlas == nullptr) {
+        // Publish this frame slot's structure object. The descriptor space validates its provenance
+        // and resolves the native address/range; runtime knows only the shader-facing slot.
+        if (!contract_descriptor_ready(this->rhi_face()) || tlas == nullptr) {
             return;
         }
-        std::uint64_t const tlas_address = tlas->device_address();
-        if (!contract_write_heap_buffer(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(deren::engine::render_layout::heap_slots::tlas + frame_slot), tlas_address, tlas->size_bytes(), rhi::descriptor_type::acceleration_structure)) {
+        if (!contract_write_descriptor_structure(this->rhi_face(), deren::engine::render_layout::heap_slots::tlas + frame_slot, *tlas)) {
             deren::utility::log("descriptor heap: the top level structure did not reach grid slot {}", deren::engine::render_layout::heap_slots::tlas + frame_slot);
         }
 
@@ -3430,8 +3420,8 @@ namespace deren::engine {
         // instead of a second copy of the geometry. The flag is the DEVICE's, not the config's: the
         // usage bit needs the extension enabled, and a buffer uploaded without it can never be built
         // from - so it is decided where the upload happens, once, and not per frame by whoever wants
-        // to trace. THE BYTES THEMSELVES TRAVEL IN THE DESCRIPTOR (`initial_bytes` IS the upload),
-        // which is also what lets the backend's content-keyed registry see them at creation.
+        // to trace. Subtilis uploads both buffers in one transfer batch when supported, waiting
+        // before publication. Ordinary geometry carries initial_bytes in the creation descriptor.
         rhi::buffer_flags const geometry_flags = rhi::to_bits(rhi::buffer_flag::device_address) |
                                                  (runtime_detail::ray_query_available_of(this->rhi_face()) ? rhi::to_bits(rhi::buffer_flag::acceleration_structure_input) : rhi::no_buffer_flags);
         if (geometry_source) {

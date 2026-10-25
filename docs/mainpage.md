@@ -173,13 +173,13 @@ One contract, and every graphics backend is an implementation of it.
   `std::shared_ptr` no longer manages an RHI handle. Both sides of the boundary compile the SAME
   interface unit, so the two compilations cannot drift.
 - **The C ABI is one symbol.** `source/promise/rhi/backend_entry.hpp` declares the single `extern "C"` entry
-  the host resolves, `deren_make_api_core`. Its first argument is `rhi::abi_version` (53 today), so a
+  the host resolves, `deren_make_api_core`. Its first argument is `rhi::abi_version` (55 today), so a
   mismatched backend is refused BEFORE an object exists, with the backend's own number in the returned
   error; it returns an owning `rhi::shared_object<api_core>` (the contract's own shared container), so there
   is no second destroy entry.
 - **Capabilities are queried, not assumed.** `abilities()` says what the device can do and
-  `query_extension<T>()` hands out the optional interfaces - mesh shaders, the descriptor heap, host
-  image copy, the device capabilities (which carry the ray-query fact, the push-block limit and the
+  `query_extension<T>()` hands out the optional interfaces - the descriptor heap, host
+  image copy, the device capabilities (which carry mesh-shader support, the ray-query fact, the push-block limit and the
   acceleration-structure numbers). The engine asks for what it needs and keeps compiling when an answer
   is "no".
 - **The backends are DLLs resolved BY NAME** out of the executable's own directory, by absolute path

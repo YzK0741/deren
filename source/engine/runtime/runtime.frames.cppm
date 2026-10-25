@@ -117,7 +117,7 @@ namespace deren::engine {
     }
 
     bool runtime::write_heap_buffer(rhi::buffer const& buffer, uint32_t const slot, std::uint64_t const size, rhi::descriptor_type const type) const {
-        return contract_write_heap_buffer(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(slot), this->buffer_address(buffer), size, type);
+        return contract_write_descriptor_buffer(this->rhi_face(), slot, buffer, size, type);
     }
 
     rhi::frame_walker& runtime::frame_ring() const noexcept {
@@ -511,8 +511,8 @@ namespace deren::engine {
         // PUSH HERE, and its absence is the design: the frame slot and the swapchain image travel INSIDE each
         // stage's own push block (see source/shaders/heap_slots.glsl), which is what replaced the mapping shim's pushed
         // index - the binding is per frame, the indices are per stage.
-        if (contract_heap_ready(vk)) {
-            contract_record_heap_bind(vk, *recording_commands);
+        if (contract_descriptor_ready(vk)) {
+            contract_record_descriptor_bind(vk, *recording_commands);
         }
         // GPU pass timing: open this frame's timestamp range and take the first mark. Marks are
         // written in gpu_mark_id order from here on (see gpu_mark); opening the range outside any
@@ -2895,8 +2895,8 @@ namespace deren::engine {
             if (image == nullptr) {
                 return;
             }
-            [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(slot),
-                                                                            *image, rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image);
+            [[maybe_unused]] bool const written = contract_write_descriptor_image(this->rhi_face(), slot,
+                                                                                  *image, rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image);
         };
         auto const target_image = [](auto const& owned) -> rhi::image const* { return owned.get(); };
         std::size_t const heap_image = static_cast<std::size_t>(this->current_image_index);
@@ -2927,8 +2927,8 @@ namespace deren::engine {
                 }
                 rhi::image_view_desc range{};
                 range.role = rhi::view_role::storage;
-                [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(slot),
-                                                                                *image, range, rhi::descriptor_type::storage_image);
+                [[maybe_unused]] bool const written = contract_write_descriptor_image(this->rhi_face(), slot,
+                                                                                      *image, range, rhi::descriptor_type::storage_image);
             };
             // ---- ONLY ON A FRAME THAT RUNS THE RESOLVE (item 4's cleanup half): five descriptor writes per
             // frame were issued on EVERY frame, but the only reader is the visibility resolve lane and the

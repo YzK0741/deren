@@ -1,6 +1,6 @@
 # The deren RHI API standard
 
-Status: **draft v1 for RHI ABI 53 (2026-10-24)**. This document is normative for every backend DLL that
+Status: **draft v1 for RHI ABI 55 (2026-10-25)**. This document is normative for every backend DLL that
 implements `deren::promise::rhi` and for every engine/application consumer of the contract. When this
 document and the contract source disagree, the source is authoritative and this document is the defect;
 updates to the contract require an update here in the same change.
@@ -17,7 +17,7 @@ RFC 2119 sense.
 - Every interface method listed in sections 7-8 is a virtual function that a backend implements. Default
   implementations return `error::unsupported` (or perform the documented trivial operation); a backend MUST NOT
   claim an ability it does not implement.
-- The current ABI is `rhi::abi_version == 53`. A backend is loaded by the application as a DLL through
+- The current ABI is `rhi::abi_version == 55`. A backend is loaded by the application as a DLL through
   `deren_make_api_core(abi_version, create_info, error_info)`; the first argument is the caller's ABI and a
   mismatch is refused by name.
 - The contract carries no Vulkan/API-specific types except through optional escape extensions. Backend modules
@@ -31,30 +31,40 @@ RFC 2119 sense.
 - Handles are reference-counted views on backend-owned objects. `release()` drops the caller's ONE reference;
   the object dies with its last reference. A backend MAY keep the underlying object alive for shared/cached
   content (e.g. content-deduplicated images) after the last contract reference dies, but MUST NOT expose a dead
-  handle. After `release()` the caller MUST NOT touch the handle; a borrowed view answers a one-time log and
-  releases nothing.
+  handle. After `release()` the caller MUST NOT touch the handle. A borrowed view carries no caller-owned
+  reference: calling its underlying `release()` is an ownership precondition violation, and a backend MAY
+  terminate on it. Callers MUST NOT rely on a log-only or no-op response.
 - Factory methods return `unique_object<T>` unless documented otherwise; `unique_object` owns one reference and
-  releases it. `shared_object<T>` copies an owning reference without consuming the factory reference; `share()`
-  and `get_image()` exist for the handle kinds that opt into shared ownership. `borrow()` is non-owning and
+  releases it. Copies of an owning `shared_object<T>` share its control block; constructing one by moving a
+  `unique_object<T>` transfers that factory reference. `share()` and `get_image()` provide owning references
+  for the handle kinds that support them without consuming the source owner. `borrow()` is non-owning and
   MUST NOT be used where a retaining owner is required (the group creation/loading paths reject borrowed
   members by name).
 - The backend core and its DLL MUST outlive every handle, group, command buffer, pending submission and
   completion token it produced. A caller that drops the core while a handle/token is alive violates the
   contract; backends need not defend against it beyond the documented `self_owner`/core lifetime rules.
-- Ownership of GPU work follows the recording/retention rules on each verb: command buffers retain resources
-  from record through GPU completion; resource/texture groups retain members from load through pending and
-  recorded GPU use; push bytes are copied at record time; secondary/mergeable segments are retained until the
-  batch completes.
+- Ownership of GPU work follows the recording/retention rules on each verb. Directly bound pipelines and
+  borrowed buffer/image operands MUST be kept alive by the caller through pending CPU recording and GPU
+  completion; naming them in a command does not transfer ownership. Resource/texture group loads retain the
+  group and its owned members through recorded and pending GPU use; push bytes are copied at record time;
+  submitted command buffers and merged segments are retained through completion. These specific retention
+  guarantees MUST NOT be generalized to every resource named by a recording.
 
 ## 3. Errors, validation and optional capabilities
 
-- Contract methods return `rhi::error` or `std::expected<T, rhi::error>`; backends MUST NOT throw, allocate a
-  failure path that can throw, use RTTI, or abort on caller errors. A fatal device/backend condition is
-  `device_lost`/`out_of_*_memory` as appropriate and MUST NOT be reported as success.
-- Validation order is: structure header (`struct_size`, type tag, pNext rules) -> concrete handle tag ->
-  backend ownership/domain -> call state (recording/not recording, frame in flight) -> argument range/meaning
-  -> backend capability. The first failing check returns its named error; no partial native work is published
-  for a failed validation.
+- Fallible verbs use `rhi::error`, `std::expected<T, rhi::error>` or their documented empty-handle channel;
+  value-only recording verbs latch failures as specified below. Backends MUST NOT throw, allocate a failure
+  path that can throw, use RTTI, or abort on recoverable caller validation errors. Ownership
+  precondition violations (such as releasing a borrowed frame view) are outside that recoverable-error
+  guarantee. A fatal device/backend condition is `device_lost`/`out_of_*_memory` as appropriate and MUST NOT
+  be reported as success.
+- Validation MUST establish structure coverage before reading omitted fields and establish handle provenance
+  before accessing backend-specific object state. No universal error priority is imposed when several
+  preconditions fail: unless a verb specifies an order, a backend MAY check recording/frame state before tags
+  or ranges, and callers MUST NOT depend on which failing precondition is reported first. For example, a
+  binding call outside recording may return `not_ready` even when its handle is foreign. Failed validation
+  emits no native work for the rejected operation; commands from an earlier successful application are not
+  rolled back. Deferred application follows the whole-batch rule below.
 - Error meanings: `invalid_argument` = caller error, no native work; `not_ready` = no frame/recording or the
   handle no longer holds a reference; `unsupported` = a capability/format/mechanism this backend does not
   serve, refused by name rather than dropped; `operation_failed` = backend failure without a more precise
@@ -71,6 +81,26 @@ RFC 2119 sense.
   capacity, shader binding table properties). Callers MUST query them; backends MUST NOT write them into the
   contract as a second source of truth.
 
+### 3.1 Recoverable refusal and fatal backend failure
+
+No-exception operation does not promise recovery from every failure. For recoverable caller validation and
+unsupported mechanisms, use the verb's existing error channel (or an empty factory handle); do not terminate.
+A returned error MUST NOT be mistaken for success, and a failed recording MUST NOT become executable.
+
+| Condition | Required handling / current scope |
+| --- | --- |
+| Invalid descriptor, unsupported capability, foreign operand, invalid recording state | Refuse through the documented return channel; ownership precondition violations remain separate |
+| Device error on a method returning `error` / `expected` | Preserve the named error when the path reports it; no successful result or completion receipt |
+| Factory with only an owning-handle return | Empty means refusal; no precise cause can be inferred from emptiness |
+| Fatal host allocation failure or unrecoverable backend initialization failure | May terminate through the project's panic policy; no portable recoverable-OOM guarantee is added |
+
+Current Vulkan limitation: native buffer allocation failure returns an empty allocation, but later upload or
+mapping failure in VMA may terminate; native command-pool/command-buffer setup also has fatal paths. These
+are implementation limits, not additional caller validation rules or evidence that all device errors are
+recoverable. A factory's empty-result clause describes a returned refusal, not a guarantee that every fatal
+failure returns. Changing these paths to recoverable results requires explicit cleanup/error propagation and
+fault-injection tests. This standard does not silently reclassify ordinary validation errors as fatal.
+
 ## 4. Recording, frames and synchronization
 
 - A recording object has one owner thread at a time. The contract does not promise concurrent calls on the same
@@ -83,8 +113,9 @@ RFC 2119 sense.
   interop boundaries (`prepare_native`/`finish_native`, `execute`, scoped synchronization, radix sorting, frame
   begin/end) flush pending operations before the native work and restore the documented logical state for later
   consumers. A backend that cannot defer returns `unsupported` from `apply_operations` and applies immediately.
-- `submit`/`execute` MUST retain the segments/resources until GPU completion and MUST NOT publish a partial
-  batch after a validation/flush failure. Presentation is a frame-context operation; readback/shared ownership
+- `submit`/`execute` MUST retain command buffers, merged segments and explicitly retained group owners until
+  GPU completion, with borrowed resource operands remaining the caller's responsibility. They MUST NOT publish
+  a partial batch after a validation/flush failure. Presentation is a frame-context operation; readback/shared ownership
   follows the handle-specific rules. `wait_idle` waits for all submitted work and is the caller's ordering
   tool when no finer synchronization is exposed.
 - Barriers/copies/timestamps/builds are effectful operations: they MUST be executed in recorded order and MUST
@@ -92,18 +123,146 @@ RFC 2119 sense.
   remove only redundant state operations whose values are provably dead before their next consumer, and must
   preserve every effect operation and the final observable state.
 
+## 4.1 Resource creation and mapped updates
+
+`buffer_usage` describes memory/access intent; `buffer_flags` adds operation capabilities. A flag does not
+change the host-access promise of the intent: requesting `storage` or `transfer_source` does not turn a
+GPU-only allocation into a host-visible one. Conversely, a nonempty mapped span does not authorize an
+operation whose required usage/capability was not requested. Backends may provide extra native capabilities,
+but portable callers MUST NOT depend on such extras.
+
+| Buffer intent | Host access after successful creation | Intended use |
+| --- | --- | --- |
+| `vertex`, `index`, `uniform_gpu_only` | No portable mapping guarantee | GPU consumers; initial upload where supported |
+| `uniform_coherent` | Direct coherent mapping | CPU-updated shader parameters |
+| `storage_coherent` | Direct coherent mapping | CPU-written tables also used as GPU storage |
+| `uniform_cached` | Direct coherent mapping; cached memory preferred | Host reads; caching is a placement preference, not a correctness condition |
+| `readback_coherent` | Direct coherent mapping | Destination of GPU-to-CPU transfers |
+| `staging_source` | Direct coherent mapping | CPU-written source of recorded GPU transfers |
+| `storage_gpu_only`, AS storage/scratch | No portable mapping guarantee | GPU-produced data and build storage |
+
+For the host-mapped intents above, successful creation MUST provide storage usable without explicit host
+cache flush/invalidate calls. ABI 54 exposes no such calls. A backend unable to supply that property MUST
+refuse creation; it MUST NOT hand out a mapping that silently requires unexposed cache maintenance. The
+Vulkan backend requires HOST_VISIBLE and HOST_COHERENT; HOST_CACHED is preferred for `uniform_cached`.
+Internal upload staging is not a public mapping and may use non-coherent memory with backend-managed flushes.
+
+Creation has the following boundaries:
+
+- The factory consumes initial byte storage before returning; the caller may then reuse that input storage.
+  Nonempty buffer initialization must equal `size`; allocation-only contents remain undefined (section 7.3).
+- A successful factory call supplies a usable resource handle, not proof that unrelated GPU work has completed.
+  Callers still establish the appropriate use/layout and dependencies for their first consumer.
+- `unique_object` owns a handle reference; it does not promise exclusive physical memory. The backend may reuse
+  content-keyed storage where the resource contract allows it. Allocation-only buffers are not content-keyed.
+- A mapped span borrows storage from its buffer; it does not extend ownership. Frame readback spans additionally
+  obey the frame-view window. After owner release or expiry of that window, retaining the span is invalid.
+- `mapped()` does not wait, flush deferred recording, insert a resource barrier, or claim a range for the CPU.
+  An empty answer is not a request to retry until the GPU finishes: it means there is no available mapping.
+
+**CPU writes:** finish writes before submitting GPU readers. Before overwriting bytes already named by pending
+work, establish completion of every use of that range; coherence does not prevent a CPU/GPU race. A mapped
+upload buffer remains alive until the GPU copy completes, even though the CPU finished filling it earlier.
+Different frame slots or separately owned staging ranges can avoid waiting; a frame index alone is not proof
+that a range is reusable.
+
+**CPU reads:** publish GPU writes for `host_read` using the appropriate barrier, then establish completion of
+the submission that contains those writes (a matching completion token, the frame completion protocol, or
+`wait_idle`). Only then read the mapped bytes. A barrier without completion and completion without the required
+visibility dependency are different incomplete steps. Caller synchronization also governs CPU threads reading
+or modifying the same span.
+
+Example: create a `staging_source`, fill its mapping, record `copy_buffer` into a buffer with transfer-destination
+capability, and publish the destination for its next consumer. For readback, copy into `readback_coherent`,
+record transfer-destination -> host-read, submit, wait for that submission, then read. The token tracks this
+work; it does not own either buffer or publish a resource transition on the caller's behalf.
+
+Image extent/format/subresource and view-role validation follow the image clauses in section 7. A view is a
+selector of existing storage, not a separate upload. Host image copy is optional and has its own format/layout
+requirements; buffer mapping guarantees MUST NOT be generalized to images or to presentation images.
+
+## 4.2 Submission acceptance, completion and reuse
+
+| Observation | What it establishes | What it does not establish |
+| --- | --- | --- |
+| `end_recording() == ok` | A finished executable recording | Queued or completed GPU work |
+| Submission succeeds | Work accepted with its explicit retention guarantees | GPU completion, display presentation, or automatic resource barriers |
+| `poll(token) == not_ready` | That issued submission is pending | Failure or permission to reuse its resources |
+| `wait(token, timeout) == timeout` | Completion was not established within this wait | Cancellation or permission to reset/release borrowed operands |
+| `poll` / `wait` returns `ok` | Completion of the work covered by that token | Completion of unrelated later work or presentation |
+| Async presentation future completes | The host presentation call returned with its reported result | GPU/display idle |
+| `wait_idle()` returns normally | All submitted device work has drained | Submission/application of unsubmitted recorder operations |
+
+A `submission_token` is a copyable, non-owning receipt for one successful independent graphics submission.
+Its `device_id` and `sequence` form an issued pair; callers MUST NOT fabricate a token from counters or use
+one with another core. Zero, foreign-device and never-issued future values are invalid. Tokens are not
+persistent across process runs. Keep the originating core/DLL alive while using one; destroying the receipt
+neither cancels work nor releases the backend's pending-work retention.
+
+A timed-out wait is retryable with the same token. `timeout_ns == 0` is a nonblocking completion check with
+`timeout` for pending work; `poll` instead reports `not_ready`. `UINT64_MAX` requests an indefinite wait.
+A wait MUST NOT hold queue/submission locks while blocking, and waiting for an older completed submission
+MUST NOT wait for later work. Completed receipts remain queryable after native per-submission storage is
+collected, while the originating core remains alive. Device failures remain failures, never completion.
+
+The extension does not submit/present an acquired frame; frame work follows `frame_context`/frame-walker
+protocols. Ordinary `command_context::submit` supplies the same work-retention rules without a receipt.
+Before reusing or destroying a borrowed operand, the caller must account for ALL recordings/submissions
+that use it, not just the first completed token. `simultaneous_use` is an execution permission, not permission
+to record/reset an in-flight command buffer or modify its borrowed data concurrently.
+
+## 4.3 Binding, capabilities and synchronization boundaries
+
+- Loading a resource group retains that immutable group; it does not imply visibility of writes to its members.
+  Pipeline/group compatibility and reserved push ranges are checked as specified in section 7. Push bytes are
+  copied when accepted, so later changes to the source bytes do not change the queued value.
+- Rebinding the same pipeline preserves a compatible group. Switching pipelines retains logical group state,
+  with compatibility checked before the next consumer. Native interop restores logical state through the
+  boundary protocol in section 7.5; raw native state is not an independent portable state model.
+- Capability presence means a mechanism exists, not that every descriptor, range or format is supported.
+  Query limits and extension properties, then supply valid operands. `unsupported` identifies an unavailable
+  mechanism/shape; `invalid_argument` identifies a bad operand where the verb defines that error;
+  `not_ready` identifies a missing execution/recording precondition. Section 3 defines validation priority.
+- A factory returning only an owning handle reports refusal as empty; callers MUST NOT infer a precise
+  `error` code from emptiness. This standard does not add an unknown-enum/unknown-flag validation policy or a
+  new out-of-memory result channel to existing factories.
+- Submission order, resource visibility, host-cache coherence and object ownership are separate obligations.
+  Barrier/execute/batch submission MUST NOT be read as a blanket guarantee for the other three.
+
 ## 5. ABI and compatibility
 
-- Virtual functions are append-only: a new virtual on an existing interface, a new extension interface or an
-  appended enum value bumps `abi_version`; existing slots and values are never renumbered or reused. A backend
-  compiled against a different ABI MUST be refused by the loader, not coerced.
+- Changing an existing interface's vtable (including adding, removing or reordering virtual functions), a
+  by-value ABI layout or the entry-point signature bumps `abi_version`. Appending an enum value or adding a
+  separate interface does not by itself bump it; changing an existing query interface to expose that interface
+  would. Existing enum values, including retired values, MUST NOT be renumbered or reused. A backend compiled
+  against a different ABI MUST be refused by the loader, not coerced; a bump permits a deliberate vtable
+  revision and does not preserve compatibility with earlier slots.
 - Enum values, structure `struct_size` and the `pNext` rules are ABI. A caller compiled against an older
   structure may omit trailing fields; the callee checks `struct_size`/field coverage before reading a field.
   Contract defaults are spelled in the header so both sides agree.
 - Backend and executable/plugins are rebuilt together for an ABI change. The DLL name and entry point are the
   stable loader contract; the application resolves the backend by name and never imports backend symbols.
-- The standard is written for ABI 53. A future ABI change must add a revision note here and update the affected
+- ABI 54 removes the incomplete query/swapchain factory slots and unused mesh extension from ABI 53; all
+  components must be rebuilt together. The standard is written for ABI 54. A future ABI change must add a revision note here and update the affected
   virtual clauses; the conformance checklist in section 6 must be rerun.
+
+### 5.1 Supported build compatibility
+
+This is a project-internal C++ module/plugin ABI for components built with a compatible, coordinated toolchain,
+not an arbitrary-compiler C SDK. A common `abi_version` is necessary but not sufficient for compatibility.
+The executable, backend and GUI/plugins MUST use compatible target architecture/data model, compiler C++ ABI,
+standard-library ABI, runtime-library configuration, packing/alignment and relevant ABI-affecting flags.
+Changing any of these requires rebuilding the coordinated component set, even if interface source is unchanged.
+A Debug/Release label alone neither proves nor disproves compatibility; the actual ABI-affecting configuration
+must match. The supported baseline is the project's configured build, not mixing MSVC and MinGW DLLs.
+
+The `extern "C"` entry point fixes its symbol/linkage; its parameters and return still lead into C++ types,
+virtual interfaces and shared ownership. It does not erase those compatibility requirements. The version
+handshake cannot detect every incompatible toolchain; callers must not load an arbitrary DLL to test this.
+
+When adding extensions, audit exported value-return helpers and span element layouts as well as vtables.
+For example, `all_extension_kinds()` returns a fixed-size array and `resource_group_entry` has no per-element
+size guard. Existing by-value layouts cannot be enlarged solely because the new feature is optional.
 
 ## 6. Conformance and verification
 
@@ -115,7 +274,8 @@ A backend is conformant when:
    relevant to its implemented features.
 4. It never leaks a failed recording: a validation/flush failure is returned and no partial submission is
    published.
-5. It releases native resources at last-reference destruction and keeps the core alive for retained work.
+5. It releases native resources at last-reference destruction under the caller's precondition that the core
+   and DLL outlive all handles and retained work.
 6. It reports capabilities/extensions truthfully and refuses unsupported operations by name.
 
 The concrete virtual-function clauses follow. The resource/command/core interfaces are in section 7 and the
@@ -123,15 +283,14 @@ optional extensions in section 8. The Lead's conformance checklist and the open 
 
 
 
-## 6.1 ABI 53 clarifications (normative)
+## 6.1 ABI 54 clarifications (normative)
 
-The contract headers carry the following ABI 53 clarifications; the corresponding virtual clauses in sections 7-8
+The contract headers carry the following ABI 54 clarifications; the corresponding virtual clauses in sections 7-8
 are read in their light (a clause that says "contract does not specify" is superseded where this list or the
 header block specifies it):
 
-- **Reserved/incomplete:** `query` and `frame_context::create_swapchain`/`resource_factory::create_query` MUST
-  return empty in ABI 53; `mesh_shader` is reserved and MUST NOT be announced. Use `frame_swapchain()` and the
-  tier-1 `draw_mesh_tasks` path instead.
+- **Removed in ABI 54:** incomplete query and independent swapchain factories are absent; the unused mesh
+  extension is retired. The frame swapchain and tier-1 mesh drawing remain available.
 - **Release/ownership:** one reference per release; last reference destroys; shared/content-keyed resources may
   outlive the handle internally; backend core outlives handles/groups/pending work.
 - **Recording:** a handle-taking verb answers `error`, a value-only verb answers `void` and latches failure;
@@ -145,7 +304,7 @@ header block specifies it):
   be null and is core-owned; frame views are valid only in their acquire/submit windows.
 - **Groups/radix:** `assign_texture_group` success yields one owner and `*result==ok`, failure yields empty and a
   named error; radix requirements/record are as stated in the header block (scratch bytes/alignment/flags,
-  range/foreign validation, overwritten recorder state).
+  range/foreign validation, preservation of logical recorder state across internal native binding changes).
 - **Extensions:** null extension means `unsupported`; a non-null extension implies its ability bit; ability
   default bodies are not capability claims; descriptor-heap writes require caller retention and stride-relative
   offsets; descriptor_space is heap-gated and sampled-only; host copy is color-only/tightly packed/GENERAL;
@@ -170,7 +329,7 @@ not add requirements beyond those clauses, but following it keeps lifetime reaso
 | `texture_group` / `resource_group` | the `*_ref` (`shared_object`) returned by the factory | always, while recorded/pending commands can use it | These are shared-by-design handles. `borrow()` members are rejected where a retaining owner is required; group members are owned by the group. |
 | `command_buffer` (from `create_command_buffer`) | `unique_object` for a one-shot recording | it must be shared with another owner before submission | A submitted buffer is retained by the backend until completion; do not keep a second independent owner to extend the GPU window. |
 | `command_buffer` (from `make_command_buffer`) / `mergeable_command_buffer` | `shared_object` / `*_ref` | while recorded batches are pending | Frame primaries are borrowed views, not factory products. |
-| `swapchain`, `query` | reserved/empty in ABI 53 | - | `create_swapchain`/`create_query` MUST return empty; use `frame_swapchain()`. |
+| `swapchain` | borrowed frame view | never own/release/delete | Use `frame_swapchain()` within the core/frame protocol. |
 | frame views (`begin_commands()`, `frame_image()`, `frame_readback_buffer()`, `frame_swapchain()`) | **borrow only** | never share or release | Valid only in the frame/acquire window; do not store them past submit/acquire. |
 | extensions (`query_extension<T>()`), `main_context()`, walkers/profilers/surface | **borrow only** | never own/release/delete | Borrowed from the core; keep the core alive. Re-query after a core change rather than caching across a backend rebuild. |
 | `submission_token` | copyable receipt | copy freely; it owns no resource | Dropping/copying a token does not cancel work; the core must outlive its use. |
@@ -182,25 +341,27 @@ not add requirements beyond those clauses, but following it keeps lifetime reaso
   factory products that have one clear owner. Do not copy it, do not call `release()` on the raw handle as well
   (that would double-drop the reference), and do not construct a second `unique_object` from the same pointer.
 - **`shared_object<T>`**: copyable, owns one reference through a shared control block. Create it only through the
-  contract (`share()`, `get_image()`, `make_command_buffer()`, `retain_image()`, `*_ref` factories), never by
-  wrapping a raw pointer in an independent control block. Use it when lifetime genuinely crosses the creating
+  contract (`share()`, `get_image()`, `make_command_buffer()`, `retain_image()`, `*_ref` factories), or by moving
+  a `unique_object` into it to transfer an owned reference. Never wrap another owner's `get()` or a borrowed
+  pointer in an independent owning control block. Use it when lifetime genuinely crosses the creating
   scope; a `unique_object` is the better default.
 - **`borrow()`**: a non-owning view. Use it only when the owner is provably alive for the whole use, and never
   where the contract requires retention (group membership, pending commands, frame resources). Borrowed
-  `release()` is a one-time log and releases nothing; that silence is not permission to rely on it. A borrowed
-  handle is allocation-free: it stores only the pointer (no control block), and copies stay non-owning.
+  wrapper destruction/reset drops no RHI reference. This does not authorize calling `release()` through the
+  underlying pointer; that is an ownership precondition violation and may terminate. A borrowed handle is
+  allocation-free: it stores only the pointer (no control block), and copies stay non-owning.
 
 ### 6.2.3 Recommended lifetimes
 
 - **Per-frame resources** (pass targets, staging/readback, one-shot command buffers): create as `unique_object`,
   record/use, then let the container drop after GPU completion. Do not extend a pass by sharing its target unless
-  a later pass genuinely reads it; retention from recorded work is the backend's job, not a reason to add an
-  owner.
+  a later pass genuinely reads it. Keep the creating owner alive through GPU completion for directly borrowed
+  operands; rely on backend retention only where the particular verb explicitly guarantees it.
 - **Cross-frame resources** (cached images, materials, persistent scene buffers, pipelines): store a
   `shared_object` (or the owning registry) for the whole cache lifetime. The core/backend must outlive every
   cached handle; release the cache before `api_core::release()`.
 - **Groups**: create once, keep the `*_ref` in shared state, load it before the first consuming draw/dispatch,
-  and let recorded/pending work retain it. Do not reload the group to work around a pipeline switch in ABI 53;
+  and let recorded/pending work retain it. Do not reload the group to work around a pipeline switch in ABI 54;
   the backend retains and republishes compatible logical state.
 - **Frame boundaries**: keep the frame's borrowed primary/image/readback inside the frame; submit before
   reacquiring. A `shared_object` obtained from `retain_image()` must be dropped or used before the next acquire.
@@ -213,9 +374,28 @@ not add requirements beyond those clauses, but following it keeps lifetime reaso
 - Calling `release()` on a handle held by `unique_object`/`shared_object`, or `delete` on any contract handle.
 - Storing `begin_commands()`/`frame_image()`/`retain_image()` past the frame/epoch window.
 - Using `borrow()` for group members or for anything that must survive into pending GPU work.
-- Keeping a `unique_object` alive only to keep a pipeline/resource alive; create a proper owner or use a
-  shared handle where the lifetime really is shared.
+- Releasing the sole `unique_object` owner of a directly bound pipeline or borrowed resource before GPU
+  completion. Keeping that owner alive is sufficient; use shared ownership only when multiple owners need it.
 - Releasing the backend core while a token, group, recorded buffer or shared image owner is alive.
+
+## 6.3 Resource and synchronization verification map
+
+This table locates evidence; passing one row does not prove every backend rule. Device-only probes MUST be
+run with `--with-device`; their headless skip result is not device conformance evidence.
+
+| Contract area | Headless checks | Device evidence |
+| --- | --- | --- |
+| Exact buffer initialization / allocation-only | Shared contract checks in `test_runtime_injection` | Same checks in `test_resource_group`, including upload-capable allocation-only paths |
+| Mapped memory selection | `test_vulkan_capabilities` compiles actual allocation-policy bodies | `test_submission_completion` mutates mappings after creation and reads back copied bytes after a token wait |
+| Engine buffer batches (not a new RHI guarantee) | `test_resource_cluster` ownership/capability refusal | `test_buffer_transfer --with-device` upload/readback, timeout and pending ownership |
+| Pending / timeout / reuse | ABI/value and basic state tests only | `test_submission_completion` blocks the queue, tests retryable timeout, pending reuse refusal and completion |
+| Token provenance and persistence within a core | Value-type/ABI checks only | Invalid/future/foreign/core-recreation receipts and repeated queries after collection in `test_submission_completion` |
+| Retained groups / copied push / native state restore | Ownership and render-operation tests | `test_resource_group` verifies GPU readback after a native push clobber and compatible pipeline switch |
+| Frame / presentation consumers | Render-graph/probe state tests | `test_render_graph_frame`, `test_gaussian_gpu_frame` |
+
+Allocation-policy checks prove requested requirements, not the behavior of every driver or memory topology.
+The device readback does not emulate a non-coherent device, exhaust memory types, test arbitrary CPU data
+races, or prove display completion. CPU probe backends are ABI/state doubles, not full native-state models.
 
 ## 7. Core interfaces
 
@@ -302,11 +482,11 @@ canonical `release()` note, and every other owned handle refers to it.
 
 - `virtual ~buffer() noexcept = default;` -- **Requirement:** destruction happens inside the backend at the last reference; no caller-side `delete` path exists. **Returns/errors:** none (`noexcept`). **Ownership/lifetime:** a buffer still used by recorded or pending GPU work must outlive that work; the caller's own pacing is the ordering. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference, inside the backend, whatever the compiler's `delete` would have done -- and it MAY FREE NOTHING, because the resource can be shared or reused. **Returns/errors:** none; a borrowed view (the frame's readback buffer) answers with a one-time log and releases nothing. **Ownership/lifetime:** the object dies only with its LAST reference; the caller MUST NOT touch the handle afterwards, and MUST NOT read the call as "the memory is free now". **Threading:** contract does not specify; a release racing GPU work that reads the buffer is not covered by any stated guarantee.
+- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference, inside the backend, whatever the compiler's `delete` would have done -- and it MAY FREE NOTHING, because the resource can be shared or reused. **Returns/errors:** none for an owned reference; calling `release()` on a borrowed frame readback view violates ownership preconditions and MAY terminate. **Ownership/lifetime:** the object dies only with its LAST reference; the caller MUST NOT touch the handle afterwards, and MUST NOT read the call as "the memory is free now". **Threading:** contract does not specify; a release racing GPU work that reads the buffer is not covered by any stated guarantee.
 
 - `[[nodiscard]] virtual std::uint64_t size() const noexcept = 0;` -- **Requirement:** answer the buffer's size in bytes. **Returns/errors:** a raw byte count, no error channel. **Ownership/lifetime:** a plain value. **Threading:** contract does not specify. NOTE: the contract does not say whether this is the requested size or the backend's allocated size; a caller must not assume the latter.
 
-- `[[nodiscard]] virtual std::span<std::byte> mapped() noexcept = 0;` -- **Requirement:** the bytes of a HOST-VISIBLE buffer as the caller may read them; EMPTY when the buffer cannot be mapped (a device-local one). **Returns/errors:** a span, empty for unmappable buffers -- not an error. **Ownership/lifetime:** the span is the backend's memory, not a copy; read only after the frame that wrote it has completed, and the contract carries NO fence here, so the caller's own pacing (`wait_idle`) is the ordering. **Threading:** contract does not specify; no host-write visibility rule is stated beyond "after the writing frame completed".
+- `[[nodiscard]] virtual std::span<std::byte> mapped() noexcept = 0;` -- **Requirement:** return direct host-visible bytes, or empty when unmappable. Host-mapped intents provide the cache-maintenance-free guarantee in section 4.1. The call neither waits nor inserts a barrier. **Returns/errors:** a span, no error channel. **Ownership/lifetime:** borrowed buffer storage, additionally restricted by a frame view's lifetime where applicable. **Threading:** callers synchronize CPU access and establish GPU completion before reusing a range or reading GPU writes; see sections 4.1-4.2.
 
 #### image
 
@@ -318,7 +498,7 @@ may leave the object alive for somebody else.
 
 - `virtual ~image() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference. **Returns/errors:** none (`noexcept`). **Ownership/lifetime:** an image a view retains, or recorded work names, must not die before that use ends. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop one reference inside the backend; the object MAY SURVIVE because a backend is allowed to serve identical content from one shared, content-keyed entry. **Returns/errors:** none; a borrowed frame image answers with a one-time log and releases nothing. **Ownership/lifetime:** do not touch the handle afterwards; the last reference is what destroys the content. **Threading:** contract does not specify.
+- `virtual void release() noexcept = 0;` -- **Requirement:** drop one reference inside the backend; the object MAY SURVIVE because a backend is allowed to serve identical content from one shared, content-keyed entry. **Returns/errors:** none for an owned reference; calling `release()` on a borrowed frame image violates ownership preconditions and MAY terminate. **Ownership/lifetime:** do not touch the handle afterwards; the last reference is what destroys the content. **Threading:** contract does not specify.
 
 - `[[nodiscard]] virtual image_extent extent() const noexcept = 0;` -- **Requirement:** answer the image's texel extent. **Returns/errors:** an `image_extent` by value; no error channel. **Ownership/lifetime:** a plain value. **Threading:** contract does not specify. NOTE: the contract does not state whether this is the DECLARED extent or the backend's RESOLVED one; for a format role the two can differ in the backend.
 
@@ -326,7 +506,7 @@ may leave the object alive for somebody else.
 
 - `[[nodiscard]] virtual unique_object<image_view> make_view(image_view_desc const& desc) = 0;` -- **Requirement:** the backend makes the native view; the caller only says WHICH RANGE it wants (base/count for layers and mips, plus a `view_role`). The view is a factory product released by its container; no native view crosses the contract. **Returns/errors:** one `image_view` reference, or an empty product on refusal; a descriptor asking for a range the image does not have (a layer past `array_layers`, a mip past `mip_levels`) MUST be refused with `error::invalid_argument` rather than clamped, and a role the image's format cannot serve (a depth role on a color image) is stated to be a refusal -- the contract does not name which code that role mismatch answers. **Ownership/lifetime:** the view retains a parent reference where the backend supports it (see `image_view`); the span-free descriptor is borrowed for the call. **Threading:** contract does not specify.
 
-- `[[nodiscard]] virtual std::expected<image_content, error> get_content(image_copy_region const& region = {}) const = 0;` -- **Requirement:** read the image's CONTENT back into host memory; the mechanism is the backend's (this one copies out with no staging buffer, no copy command and no submission in the caller's path). The contract fixes the LAYOUT of the answer -- row-major, tightly packed, top-left origin, channel order from the image's format, layers/mips in the order the region asked for -- and the INVARIANT `bytes.size() == width * height * depth * bytes_per_pixel`. The default argument means the whole mip 0, every layer. **Returns/errors:** the content, or a named error and never a partial buffer; `unsupported` for an image the backend cannot copy out of (not created for host transfer, a device without the mechanism), for a format the contract cannot describe, and for the FRAME image on a surface whose swapchain usage has no host-transfer bit (a property of the SURFACE, not of the backend). **Ownership/lifetime:** the answer owns its bytes -- nothing in it points into backend memory -- and they stay valid as long as the caller's value does; the contract does not specify whether the call synchronizes with prior GPU writes, so the caller's pacing (`wait_idle`) is the only stated ordering. **Threading:** contract does not specify; `const` makes no thread-safety claim.
+- `[[nodiscard]] virtual std::expected<image_content, error> get_content(image_copy_region const& region = {}) const = 0;` -- **Requirement:** read the image's CONTENT back into host memory; the mechanism is the backend's (this one copies out with no staging buffer, no copy command and no submission in the caller's path). The contract fixes the LAYOUT of the answer -- row-major, tightly packed, top-left origin, channel order from the image's format, layers/mips in the order the region asked for -- and the INVARIANT `bytes.size() == width * height * depth * bytes_per_pixel`. The default argument means the whole mip 0, every layer. **Returns/errors:** the content, or a named error and never a partial buffer; `unsupported` for an image the backend cannot copy out of (not created for host transfer, a device without the mechanism), for a format the contract cannot describe, and for the FRAME image on a surface whose swapchain usage has no host-transfer bit (a property of the SURFACE, not of the backend). **Ownership/lifetime:** the answer owns its bytes -- nothing in it points into backend memory -- and they stay valid as long as the caller's value does; callers establish completion and the required host-read visibility/layout before copying prior GPU writes; `wait_idle` is the coarse completion option. **Threading:** contract does not specify; `const` makes no thread-safety claim.
 
 - `[[nodiscard]] virtual shared_object<image> share() {` -- **Requirement:** copy an owning reference WITHOUT consuming the caller's factory reference; while shared references exist, repeated calls use the same control block. Use this instead of constructing an independent `shared_object` from a raw image. **Returns/errors:** a `shared_object<image>`; EMPTY for borrowed images and for backends without shared ownership -- the default body returns empty. **Ownership/lifetime:** the api_core and the backend library MUST outlive all strong and weak references; an empty answer means the caller may not treat the image as shared. **Threading:** contract does not specify, beyond "repeated calls use the same control block".
 
@@ -388,7 +568,7 @@ while `recreate()` and `present()` answer `unsupported`.
 
 - `virtual ~swapchain() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference; a swapchain handed out by `frame_swapchain()` is a BORROWED view and is never destroyed by a caller. **Returns/errors:** none. **Ownership/lifetime:** the frame's borrowed swapchain lives as long as the core. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference (see `buffer::release()`); for the frame's borrowed swapchain the call releases nothing (a one-time log). **Returns/errors:** none. **Ownership/lifetime:** do not use the handle afterwards; the contract does not say whether a rebuild generation invalidates a released handle. **Threading:** contract does not specify.
+- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference (see `buffer::release()`); the frame's borrowed swapchain carries no caller-owned reference and MUST NOT be released; callers MUST NOT rely on a no-op response. **Returns/errors:** none. **Ownership/lifetime:** do not use the handle afterwards; the contract does not say whether a rebuild generation invalidates a released handle. **Threading:** contract does not specify.
 
 - `[[nodiscard]] virtual error recreate() = 0;` -- **Requirement:** rebuild the chain and its images for the window's CURRENT size, in place. **Returns/errors:** `ok` = a new generation was built; `not_ready` = the window reports a zero extent (minimized or not yet sized), NOTHING was built and the caller retries later -- a deferred recreate is a STATE, not a failure; real build failures are the backend's named startup-style panics (the constructor's build path rule), not error codes; `unsupported` in a windowless core. **Ownership/lifetime:** the swapchain object survives; the images behind it change generation, so per-image state the caller derived (extent, views) must be re-derived. **Threading:** contract does not specify; it is a device-wide operation and no concurrent-use rule is stated.
 
@@ -401,26 +581,17 @@ while `recreate()` and `present()` answer `unsupported`.
 A stable ascending `uint32` key/value GPU sort, handed out by the optional
 `gpu_sorting` extension. The contract text on the type states: operands are
 borrowed until GPU completion; the CALLER publishes writes before `record()` and
-publishes output reads afterwards; and recording OVERWRITES pipeline, layout and
-push bindings, so consumers must rebind.
+publishes output reads afterwards. Sorting may overwrite native bindings internally, but preserves the
+recorder's logical pipeline/group/push state for later RHI consumers. Native applied state is restored through
+the same boundary protocol used by other native interop; no manual rebind is required solely because a sort ran.
 
 - `virtual ~radix_sorter() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference. **Returns/errors:** none. **Ownership/lifetime:** the interface says nothing else; a sorter must outlive a recorded sort until GPU completion. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference. **Returns/errors:** none. **Ownership/lifetime:** the contract text on THIS virtual is empty; the shared `buffer::release()` rule is the only available reading (last reference destroys, no use afterwards). **Threading:** contract does not specify. See the open list -- this virtual needs explicit text.
+- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference. **Returns/errors:** none. **Ownership/lifetime:** one owner is dropped; the last reference destroys the sorter. No use is permitted afterwards. **Threading:** caller-serialized unless documented otherwise.
 
-- `[[nodiscard]] virtual radix_sort_requirements requirements(std::uint32_t count) const noexcept = 0;` -- **Requirement:** answer the scratch bytes, the scratch buffer alignment and the required scratch flags for `count` elements; for a NONZERO count, `scratch_bytes == 0` means the backend cannot serve that count. **Returns/errors:** a value record; unsupported counts are expressed as zero scratch bytes, not as an error code. **Ownership/lifetime:** a plain value. **Threading:** contract does not specify. NOTE: the meaning of `buffer_alignment` (default 1) and of `scratch_flags` is not further specified.
+- `[[nodiscard]] virtual radix_sort_requirements requirements(std::uint32_t count) const noexcept = 0;` -- **Requirement:** answer the scratch bytes, the scratch buffer alignment and the required scratch flags for `count` elements; for a NONZERO count, `scratch_bytes == 0` means the backend cannot serve that count. **Returns/errors:** a value record; unsupported counts are expressed as zero scratch bytes, not as an error code. **Ownership/lifetime:** a plain value. **Threading:** contract does not specify. `buffer_alignment` is the required scratch-address alignment; the scratch buffer MUST provide `scratch_flags` and at least `scratch_bytes` at its chosen offset.
 
-- `[[nodiscard]] virtual error record(command_recorder&, radix_sort_info const&) = 0;` -- **Requirement:** record the sort into the given recorder, reading `keys` and writing `values` at the stated offsets. **Returns/errors:** `error`; the contract states NO error set for this verb. **Ownership/lifetime:** every buffer in `radix_sort_info` is borrowed until GPU completion; the recorder's pipeline/layout/push state is overwritten by the recording. **Threading:** contract does not specify; the recorder's own recording state applies.
-
-#### query
-
-A tier-1 query handle. Its descriptor is forward-declared, its factory currently
-answers an empty product, and the interface carries NO verbs beyond ownership --
-what a query measures is not specified by this contract today.
-
-- `virtual ~query() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference. **Returns/errors:** none. **Ownership/lifetime:** no other rule is stated. **Threading:** contract does not specify.
-
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference (see `buffer::release()`). **Returns/errors:** none. **Ownership/lifetime:** last reference destroys; do not touch the handle afterwards. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual error record(command_recorder&, radix_sort_info const&) = 0;` -- **Requirement:** record the sort into the given recorder, reading `keys` and writing `values` at the stated offsets. **Returns/errors:** `ok`; `invalid_argument` for null/foreign operands, out-of-range offsets/sizes or insufficient scratch bytes. Unsupported counts are discovered through `requirements`; recording-state and mechanism failures are reported as non-success. **Ownership/lifetime:** every buffer in `radix_sort_info` is borrowed until GPU completion; the native sorting mechanism may clobber bindings internally, but the recorder restores its logical state for subsequent RHI consumers. **Threading:** contract does not specify; the recorder's own recording state applies.
 
 #### texture_group
 
@@ -434,7 +605,7 @@ all references.
 
 - `virtual ~texture_group() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference of the shared handle. **Returns/errors:** none. **Ownership/lifetime:** the group retains its member images; a recorded or pending load keeps the group alive. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference. **Returns/errors:** none. **Ownership/lifetime:** the contract text on THIS virtual is empty; the shared release rule is the only reading, and `docs/resource_groups.md` adds that private descriptor slots return only after the group's last owner dies. **Threading:** contract does not specify. See the open list.
+- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference. **Returns/errors:** none. **Ownership/lifetime:** one owner is dropped; private descriptor slots return only after the group's last owner dies, including recorded/pending retention. **Threading:** caller-serialized unless documented otherwise.
 
 #### resource_group
 
@@ -452,7 +623,7 @@ and the core/backend must outlive every group.
 
 - `virtual ~resource_group() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference of the shared handle. **Returns/errors:** none. **Ownership/lifetime:** recorded and pending commands retain the group, so it dies only after their completion; member resources are held by the group. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference. **Returns/errors:** none. **Ownership/lifetime:** the contract text on THIS virtual is empty; the shared release rule plus `docs/resource_groups.md` (recorded/pending retention, descriptor slots returned after the last owner dies) are the only statements. **Threading:** contract does not specify. See the open list.
+- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference. **Returns/errors:** none. **Ownership/lifetime:** one owner is dropped; recorded/pending work retains the group and descriptor slots return after the last owner dies. **Threading:** caller-serialized unless documented otherwise.
 
 ---
 
@@ -467,7 +638,7 @@ carries NO individual submission permission and NO batch execution permission;
 those belong to the concrete owners. The recording lifecycle (`begin_recording`
 / `end_recording`), the recording session and the allocation behind it are the
 backend's, and no allocator, pool or reset verb appears in the contract. Since
-ABI 53 the recorder may also DEFER work: state setters, push parameters and group
+ABI 54 the recorder may also DEFER work: state setters, push parameters and group
 loads can be queued as an operation stream, `apply_operations()` (or
 `end_recording()`) applies them in order, and consumer errors surface there.
 
@@ -475,8 +646,7 @@ Two shared rules govern every verb below. The ANSWERING RULE: a verb that
 receives a contract handle answers `error` -- `invalid_argument` for a handle
 this backend did not hand out, `not_ready` when this list is not currently
 recording, `unsupported` for a mechanism the backend cannot serve; a verb that
-receives only VALUES generally answers `void`, and a wrong-state call on such a
-verb is the validation layer's catch, exactly as for a raw native call.
+receives only VALUES generally answers `void`, and an invalid call within an open recording latches failure for `apply_operations`/`end_recording`.
 `push_constants` is the exception on the value side because its byte range needs
 explicit validation. The FAILURE RULE: a latched or deferred application failure
 makes the recording NON-EXECUTABLE; `end_recording()` returns that error, cleans
@@ -484,11 +654,11 @@ up only what a safe reset needs, and never publishes the buffer for submission.
 
 - `virtual ~command_recorder() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference; the recording session and the allocation behind it die with it. **Returns/errors:** none (`noexcept`). **Ownership/lifetime:** no caller-side `delete` path exists; a borrowed owner (the frame's list) is never destroyed by a caller. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference: the recording session and the allocation behind it die with the LAST reference, inside the backend. **Returns/errors:** none; the frame's borrowed list answers with a one-time log and releases nothing. **Ownership/lifetime:** do not record into or submit through the handle afterwards; a pending recording that still names the buffer keeps it alive only if another reference exists. **Threading:** contract does not specify; no concurrent destruction or recording guarantee is added by the contract.
+- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference: the recording session and the allocation behind it die with the LAST reference, inside the backend. **Returns/errors:** none for an owned reference; calling `release()` on the frame's borrowed list violates ownership preconditions and MAY terminate. **Ownership/lifetime:** do not record into or submit through the handle afterwards; a pending recording that still names the buffer keeps it alive only if another reference exists. **Threading:** contract does not specify; no concurrent destruction or recording guarantee is added by the contract.
 
-- `[[nodiscard]] virtual error begin_recording(command_buffer_begin_info const& info) = 0;` -- **Requirement:** open this buffer's recording session, honouring the usage flags it can serve; a usage bit or a chain entry the backend cannot serve MUST be REFUSED BY NAME, never silently dropped. **Returns/errors:** `ok` = recording; `not_ready` = this handle holds no reference any more, the backend's recording context is not available, or the session is already open; `unsupported` = a usage bit or chain entry not servable; device-level failures (`device_lost`, `out_of_*_memory`) travel as themselves. **Ownership/lifetime:** `info.next` is borrowed only until the call returns; the session stays open until `end_recording()`. **Threading:** contract does not specify; `simultaneous_use` says the buffer may be RECORDED from more than one thread at once, which is a property of the buffer, not a grant that this call is thread-safe.
+- `[[nodiscard]] virtual error begin_recording(command_buffer_begin_info const& info) = 0;` -- **Requirement:** open this buffer's recording session, honouring the usage flags it can serve; a usage bit or a chain entry the backend cannot serve MUST be REFUSED BY NAME, never silently dropped. **Returns/errors:** `ok` = recording; `not_ready` = this handle holds no reference any more, the backend's recording context is not available, or the session is already open; `unsupported` = a usage bit or chain entry not servable; device-level failures (`device_lost`, `out_of_*_memory`) travel as themselves. **Ownership/lifetime:** `info.next` is borrowed only until the call returns; the session stays open until `end_recording()`. **Threading:** contract does not specify; `simultaneous_use` permits overlapping submissions/executions of the recorded buffer where supported. It does not permit concurrent recording, reset or begin/end calls; callers MUST serialize recording access.
 
-- `[[nodiscard]] virtual error end_recording() noexcept = 0;` -- **Requirement:** close the session; the buffer becomes executable by `command_context::submit()`, while a `mergeable_command_buffer` segment becomes executable through `execute(span)` instead. Pending operations are applied automatically before the native close. **Returns/errors:** `ok`; `not_ready` = no session is open; the latched or deferred application error otherwise, in which case the recording is discarded and NOT published for submission. **Ownership/lifetime:** retained group/pipeline/buffer references stay held while the recording is executable; final submission retirement releases them. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual error end_recording() noexcept = 0;` -- **Requirement:** close the session; the buffer becomes executable by `command_context::submit()`, while a `mergeable_command_buffer` segment becomes executable through `execute(span)` instead. Pending operations are applied automatically before the native close. **Returns/errors:** `ok`; `not_ready` = no session is open; the latched or deferred application error otherwise, in which case the recording is discarded and NOT published for submission. **Ownership/lifetime:** explicitly retained groups and merged segments stay held while recorded or pending work needs them. Directly bound pipelines and borrowed buffer/image operands remain caller-owned through GPU completion; ending recording does not transfer ownership. **Threading:** contract does not specify.
 
 - `[[nodiscard]] virtual error apply_operations() noexcept {` -- **Requirement:** apply the operations this recorder has buffered, IN ORDER, and preserve the resulting final state for later recording. `end_recording()` applies automatically, so callers that never call this keep the previous behaviour. **Returns/errors:** `ok`, including for an EMPTY application; the deferred validation/consumer error when one was queued, and that error makes the recording non-executable. The default body answers `unsupported`, meaning "this backend cannot defer and applies immediately". **Ownership/lifetime:** a borrowed pipeline or buffer named by a queued operation MUST live through pending recording AND GPU completion. **Threading:** contract does not specify; the operation stream is per-recorder state, so concurrent recording into one recorder is not covered.
 
@@ -500,31 +670,31 @@ up only what a safe reset needs, and never publishes the buffer for submission.
 
 - `[[nodiscard]] virtual error mark_gpu_timing(std::uint32_t mark_index, std::string_view stage_name) noexcept = 0;` -- **Requirement:** write one timing mark into the frame's range, named for the stage it OPENS (stage i runs from mark i to mark i + 1 and carries mark i's name). `mark_index` MUST be the marks this frame has already written: the marks are POSITIONAL, so an out-of-order index would mislabel every later interval. `stage_name` is the caller's STATIC text -- a literal outliving the frame, the same rule as a creation descriptor's window title -- stored as a view and reported verbatim. **Returns/errors:** `ok`; `invalid_argument` = an out-of-order index (refused, never accepted silently); `unsupported` = no timestamp mechanism; `not_ready` = no frame is being recorded. **Ownership/lifetime:** the backend stores the view, not a copy, so the text must live as long as the process (the backend is never unloaded). **Threading:** contract does not specify.
 
-- `[[nodiscard]] virtual error load_resource_group(resource_group_ref const&) {` -- **Requirement:** bind one immutable resource group immediately; EXACT binding-number/kind match with the current pipeline is required, and the group is validated BEFORE anything native is recorded. **Returns/errors:** `ok`; `not_ready` = no recording, or no compatible pipeline bound; `invalid_argument` = a binding/kind mismatch or an invalid group; `unsupported` = a backend without the mechanism (the default body) or an unsupported layout kind (ray-tracing pipeline layouts currently answer unsupported). **Ownership/lifetime:** success retains the group for recorded work, and pending submissions preserve it through GPU completion; loading a later group cannot release resources used by earlier recorded draws. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual error load_resource_group(resource_group_ref const&) {` -- **Requirement:** load one immutable resource group as logical recording state; a deferred backend MAY queue its native binding. EXACT binding-number/kind match with the current pipeline is required, and the group is validated BEFORE anything native is recorded. **Returns/errors:** `ok`; `not_ready` = no recording, or no compatible pipeline bound; `invalid_argument` = a binding/kind mismatch or an invalid group; `unsupported` = a backend without the mechanism (the default body) or an unsupported layout kind (ray-tracing pipeline layouts currently answer unsupported). **Ownership/lifetime:** success retains the group for recorded work, and pending submissions preserve it through GPU completion; loading a later group cannot release resources used by earlier recorded draws. **Threading:** contract does not specify.
 
-- `[[nodiscard]] virtual error begin_rendering(rendering_info const& info) = 0;` -- **Requirement:** open a rendering scope describing the attachments, their load/store operations, the render area, the layer count and whether secondaries record inside it. **Returns/errors:** `ok`; `not_ready` = not recording; `invalid_argument` = an attachment view the backend cannot resolve (this backend refuses a null/unresolvable view). **Ownership/lifetime:** the attachment `image_view*` handles are BORROWED and MUST stay alive through GPU completion; the descriptor's spans are borrowed for the call, and the structure grows by `struct_size`. **Threading:** contract does not specify; the contract states no nesting rule for scopes.
+- `[[nodiscard]] virtual error begin_rendering(rendering_info const& info) = 0;` -- **Requirement:** open a rendering scope describing the attachments, their load/store operations, the render area, the layer count and whether secondaries record inside it. **Returns/errors:** `ok`; `not_ready` = not recording or a rendering scope is already active; `invalid_argument` = an attachment view the backend cannot resolve (this backend refuses a null/unresolvable view). **Ownership/lifetime:** the attachment `image_view*` handles are BORROWED and MUST stay alive through GPU completion; the descriptor's spans are borrowed for the call, and the structure grows by `struct_size`. **Threading:** contract does not specify; rendering scopes MUST NOT nest; a rejected nested begin leaves the existing scope open.
 
-- `virtual void end_rendering() noexcept = 0;` -- **Requirement:** close the rendering scope opened by `begin_rendering`, applying pending operations first. **Returns/errors:** none (`void`); a scope left open is refused at `end_recording()` (this backend answers `invalid_argument` and does not publish the buffer), because a void verb has no error channel of its own. **Ownership/lifetime:** attachment views stop being needed for this scope, but the recorded commands still reference them until GPU completion. **Threading:** contract does not specify.
+- `virtual void end_rendering() noexcept = 0;` -- **Requirement:** close the rendering scope opened by `begin_rendering`, applying pending operations first. **Returns/errors:** none (`void`); a missing local scope (including an attempted close of an inherited scope) latches `invalid_argument`; an unclosed local scope fails `end_recording()`. Neither failure publishes the buffer. **Ownership/lifetime:** attachment views stop being needed for this scope, but the recorded commands still reference them until GPU completion. **Threading:** contract does not specify.
 
-- `[[nodiscard]] virtual error push_constants(std::uint32_t, std::span<std::byte const>) noexcept {` -- **Requirement:** record shader parameter bytes immediately (queued as logical state under ABI 53); the span is consumed BEFORE return. Require recording, nonempty four-byte units, and containment within the capacity reported by `device_capabilities::max_push_constants_size()`. Bytes MUST NOT overlap the reserved resource-group handle fields or the legacy texture-group token of the bound pipeline. A pipeline NEED NOT already be bound. **Returns/errors:** `ok`; `invalid_argument` = empty payload, a misaligned or overflowing range, or one that collides with a reserved field; `not_ready` = not recording; `unsupported` = a backend with no suitable mechanism (the default body) or zero reported capacity. **Ownership/lifetime:** the bytes are copied or recorded before return; no pointer or parameter storage is retained by the default operation. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual error push_constants(std::uint32_t, std::span<std::byte const>) noexcept {` -- **Requirement:** record shader parameter bytes immediately (queued as logical state under ABI 54); the span is consumed BEFORE return. Require recording, nonempty four-byte units, and containment within the capacity reported by `device_capabilities::max_push_constants_size()`. Bytes MUST NOT overlap the reserved resource-group handle fields or the legacy texture-group token of the bound pipeline. A pipeline NEED NOT already be bound. **Returns/errors:** `ok`; `invalid_argument` = empty payload, a misaligned or overflowing range, or one that collides with a reserved field; `not_ready` = not recording; `unsupported` = a backend with no suitable mechanism (the default body) or zero reported capacity. **Ownership/lifetime:** the bytes are copied or recorded before return; no pointer or parameter storage is retained by the default operation. **Threading:** contract does not specify.
 
 - `[[nodiscard]] virtual error bind_pipeline(pipeline const& handle) = 0;` -- **Requirement:** make `handle` the pipeline subsequent commands consume; a rebind of the SAME pipeline MUST preserve a loaded compatible group, and a pipeline SWITCH retains the logical group but validates it against the new pipeline at the next consumer. **Returns/errors:** `ok`; `not_ready` = not recording, or a previously latched recording error is re-reported; `invalid_argument` = a handle this backend did not hand out (or one outside its live registry); `unsupported` = a bind point or mechanism it cannot serve. **Ownership/lifetime:** the pipeline is BORROWED, not retained: the caller MUST keep it alive through pending recording AND GPU completion. **Threading:** contract does not specify.
 
-- `[[nodiscard]] virtual error bind_vertex_buffer(buffer const& handle, std::uint64_t offset) = 0;` -- **Requirement:** bind a vertex buffer at a byte offset; the binding is state that a later draw consumes. **Returns/errors:** `ok`; `not_ready` = not recording; `invalid_argument` = a handle this backend did not hand out (this backend also refuses an offset at or past the buffer's size). **Ownership/lifetime:** borrowed; the caller keeps the buffer alive through GPU completion. **Threading:** contract does not specify. NOTE: the contract states no validity rule for `offset` -- see the open list.
+- `[[nodiscard]] virtual error bind_vertex_buffer(buffer const& handle, std::uint64_t offset) = 0;` -- **Requirement:** bind a vertex buffer at a byte offset; the binding is state that a later draw consumes. **Returns/errors:** `ok`; `not_ready` = not recording; `invalid_argument` = a handle this backend did not hand out (this backend also refuses an offset at or past the buffer's size). **Ownership/lifetime:** borrowed; the caller keeps the buffer alive through GPU completion. **Threading:** caller-serialized; an out-of-range offset MUST be rejected.
 
-- `[[nodiscard]] virtual error bind_index_buffer(buffer const& handle, std::uint64_t offset, index_type type) = 0;` -- **Requirement:** bind an index buffer at a byte offset with the width of one index (`uint16` or `uint32`); indexed draws consume it. **Returns/errors:** `ok`; `not_ready` = not recording; `invalid_argument` = a handle this backend did not hand out. **Ownership/lifetime:** borrowed; alive through GPU completion. **Threading:** contract does not specify. NOTE: no stated rule for `offset` versus the buffer's size.
+- `[[nodiscard]] virtual error bind_index_buffer(buffer const& handle, std::uint64_t offset, index_type type) = 0;` -- **Requirement:** bind an index buffer at a byte offset with the width of one index (`uint16` or `uint32`); indexed draws consume it. **Returns/errors:** `ok`; `not_ready` = not recording; `invalid_argument` = a handle this backend did not hand out. **Ownership/lifetime:** borrowed; alive through GPU completion. **Threading:** caller-serialized; an out-of-range offset MUST be rejected with `invalid_argument`.
 
-- `virtual void draw(std::uint32_t vertex_count, std::uint32_t instance_count, std::uint32_t first_vertex, std::uint32_t first_instance) noexcept = 0;` -- **Requirement:** record one non-indexed draw of `instance_count` instances, consuming the currently bound pipeline, vertex binding, the visible dynamic state and any bound push/group state. **Returns/errors:** none (`void`); a wrong-state call is the validation layer's catch, and an application failure latched at this boundary stops further ordinary commands from being emitted. **Ownership/lifetime:** everything the draw consumes must stay alive through GPU completion (a borrowed owner, not a shared reference). **Threading:** contract does not specify.
+- `virtual void draw(std::uint32_t vertex_count, std::uint32_t instance_count, std::uint32_t first_vertex, std::uint32_t first_instance) noexcept = 0;` -- **Requirement:** record one non-indexed draw of `instance_count` instances, consuming the currently bound pipeline, vertex binding, the visible dynamic state and any bound push/group state. **Returns/errors:** none (`void`); invalid scope or consumer state within a recording latches failure, reported at application/end; no failed recording is published. **Ownership/lifetime:** everything the draw consumes must stay alive through GPU completion (a borrowed owner, not a shared reference). **Threading:** contract does not specify.
 
 - `virtual void draw_indexed(std::uint32_t index_count, std::uint32_t instance_count, std::uint32_t first_index, std::int32_t vertex_offset, std::uint32_t first_instance) noexcept = 0;` -- **Requirement:** record one indexed draw, consuming the index binding in addition to what `draw()` consumes; `vertex_offset` is signed and added to each index. **Returns/errors:** none (`void`); the same latched-failure rule as `draw()`. **Ownership/lifetime:** as `draw()`. **Threading:** contract does not specify.
 
 - `[[nodiscard]] virtual error draw_indirect(buffer const& arguments, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) = 0;` -- **Requirement:** record `count` draws read from records in `arguments`, `stride` bytes apart from `offset`; the record is the contract's own 16-byte `draw_indirect_command`, and the range rule the contract supplies is `validate_draw_indirect_range` (offset a multiple of 4, stride at least the record size and a multiple of 4, last record fully contained). **Returns/errors:** `ok`; `invalid_argument` = a range that cannot hold `count` records of that stride, or a handle this backend did not hand out; `not_ready` = not recording; `unsupported` = no indirect mechanism. **Ownership/lifetime:** the argument buffer is borrowed and must stay alive through GPU completion; the range is captured as recorded state. **Threading:** contract does not specify.
 
-- `virtual void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;` -- **Requirement:** record one compute dispatch of that workgroup count, consuming the bound compute pipeline and its group/push state. **Returns/errors:** none (`void`); the same latched-failure rule as `draw()`. **Ownership/lifetime:** as `draw()`; a compute pipeline must be bound for the dispatch to mean anything, and the contract does not state what a wrong-state dispatch does. **Threading:** contract does not specify.
+- `virtual void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;` -- **Requirement:** record one compute dispatch of that workgroup count, consuming the bound compute pipeline and its group/push state. **Returns/errors:** none (`void`); the same latched-failure rule as `draw()`. **Ownership/lifetime:** as `draw()`; a compute pipeline must be bound for the dispatch to mean anything, and an invalid recording scope or incompatible pipeline causes a latched failure under the shared recording rule. **Threading:** contract does not specify.
 
 - `[[nodiscard]] virtual error dispatch_indirect(buffer const&, std::uint64_t) {` -- **Requirement:** record ONE compute dispatch read from a 12-byte argument record (`dispatch_indirect_command`) at the given offset; the contract's range rule for it is `validate_dispatch_indirect_range`. **Returns/errors:** `ok`; `invalid_argument` = a misaligned or out-of-range offset, or a handle this backend did not hand out; `not_ready` = not recording; `unsupported` = a backend without the mechanism -- the DEFAULT BODY answers `unsupported`, and unavailable backends are required to refuse explicitly. **Ownership/lifetime:** the buffer is borrowed; alive through GPU completion. **Threading:** contract does not specify.
 
-- `virtual void draw_mesh_tasks(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;` -- **Requirement:** record one mesh-shader dispatch of that workgroup count, consuming a mesh pipeline. **Returns/errors:** none (`void`); the same latched-failure rule as `draw()`. **Ownership/lifetime:** as `draw()`. **Threading:** contract does not specify. NOTE: the contract does not state what happens when the device has no mesh-shader support (the capability gate is `device_capabilities::mesh_shader()`).
+- `virtual void draw_mesh_tasks(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;` -- **Requirement:** record one mesh-shader dispatch of that workgroup count, consuming a mesh pipeline. **Returns/errors:** none (`void`); the same latched-failure rule as `draw()`. **Ownership/lifetime:** as `draw()`. **Threading:** contract does not specify. NOTE: callers query `device_capabilities::mesh_shader()` before selecting this path; an unsupported invocation fails the recording rather than silently dropping work.
 
 - `[[nodiscard]] virtual error draw_mesh_tasks_indirect(buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) = 0;` -- **Requirement:** record `count` mesh-task dispatches read from records `stride` bytes apart; the record is the contract's 12-byte `mesh_task_command` (NOT the 16-byte draw record -- reusing one family's minimum for another was the measured defect the parameterized helper removes), and the contract's range rule for it is `validate_mesh_task_indirect_range`. **Returns/errors:** `ok`; `invalid_argument` = a range/stride that cannot hold `count` records, or a foreign handle; `not_ready` = not recording; `unsupported` = no indirect mesh mechanism. **Ownership/lifetime:** the argument buffer is borrowed; alive through GPU completion. **Threading:** contract does not specify.
 
@@ -552,9 +722,9 @@ up only what a safe reset needs, and never publishes the buffer for submission.
 
 - `[[nodiscard]] virtual error copy_image(image_copy const& copy) = 0;` -- **Requirement:** record one image-to-image copy, each side with its own region; both sides are read and written at their CURRENT layouts, so the descriptor carries no layout pair. **Returns/errors:** `ok`; `not_ready` = not recording; `invalid_argument` = a null source/destination or a handle this backend did not hand out; the contract states no texel/subresource range rule for this verb (this backend applies the copy region literally). **Ownership/lifetime:** both images are borrowed and must stay alive through GPU completion. **Threading:** contract does not specify.
 
-- `[[nodiscard]] virtual error copy_buffer(buffer& destination, buffer const& source, std::uint64_t size, std::uint64_t source_offset, std::uint64_t destination_offset) = 0;` -- **Requirement:** record a byte-range copy between two buffers. **Returns/errors:** `ok`; `not_ready` = not recording; `invalid_argument` = a handle this backend did not hand out. The contract states NO rule for `size`/offsets against the buffers' extents, so an overrun is the caller's error and is not required to be refused -- see the open list. **Ownership/lifetime:** both buffers are borrowed and must stay alive through GPU completion. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual error copy_buffer(buffer& destination, buffer const& source, std::uint64_t size, std::uint64_t source_offset, std::uint64_t destination_offset) = 0;` -- **Requirement:** record a byte-range copy between two buffers. **Returns/errors:** `ok`; `not_ready` = not recording; `invalid_argument` = a handle this backend did not hand out. Size 0 or a source/destination byte range extending beyond its buffer MUST be refused with `invalid_argument`; validation MUST avoid integer overflow. **Ownership/lifetime:** both buffers are borrowed and must stay alive through GPU completion. **Threading:** contract does not specify.
 
-- `[[nodiscard]] virtual error clear_color_image(image const& target, deren::utility::vessel::array<float, 4> const& color, subresource_range const& range) = 0;` -- **Requirement:** record a clear of the color image's subresource range to one RGBA value; an ALL-ZERO range means the whole image. **Returns/errors:** `ok`; `not_ready` = not recording; `invalid_argument` = a null or foreign image. **Ownership/lifetime:** the image is borrowed; it must stay alive through GPU completion, and the clear must be ordered by the caller against later reads. **Threading:** contract does not specify. NOTE: the component order for `color` is not restated for this verb (the attachment clear value states RGBA).
+- `[[nodiscard]] virtual error clear_color_image(image const& target, deren::utility::vessel::array<float, 4> const& color, subresource_range const& range) = 0;` -- **Requirement:** record a clear of the color image's subresource range to one RGBA value; an ALL-ZERO range means the whole image. **Returns/errors:** `ok`; `not_ready` = not recording; `invalid_argument` = a null or foreign image. **Ownership/lifetime:** the image is borrowed; it must stay alive through GPU completion, and the clear must be ordered by the caller against later reads. **Threading:** caller-serialized; `color` components are RGBA.
 
 - `[[nodiscard]] virtual error load_texture_group(texture_group_ref const& /*group*/) {` -- **Requirement:** bind one immutable sampled texture group for following work (ABI 31); a null group clears the binding. Success RETAINS the group for recorded work. **Returns/errors:** `ok`; `not_ready` = not recording, or the group is not owned by this core, or no pipeline is bound; `invalid_argument` = a group this backend did not hand out or a token mismatch; `unsupported` = a backend without the mechanism (the DEFAULT BODY) or a pipeline whose texture-group slot is not enabled. **Ownership/lifetime:** the group is retained through recorded work and pending GPU use; the device and backend must outlive every reference. **Threading:** contract does not specify.
 
@@ -637,7 +807,24 @@ deleted.
 
 - `virtual ~resource_factory() noexcept = default;` -- **Requirement:** the view is destroyed only with the core; it is not a resource and carries no allocation of its own. **Returns/errors:** none. **Ownership/lifetime:** borrowed from the core, which must outlive every product and every use of this interface. **Threading:** contract does not specify; no factory call is documented as safe to race with another.
 
-- `[[nodiscard]] virtual unique_object<buffer> create_buffer(buffer_desc const& desc) = 0;` -- **Requirement:** create a buffer from its memory intent, extra capabilities, size and optional initial bytes; the initial bytes being part of the DESCRIPTOR is deliberate, because a content-keyed backend can only recognise identical content if creation sees it, and empty initial bytes mean ALLOCATE ONLY (a backend that deduplicates MUST NOT match an allocate-only buffer against another). A descriptor the backend cannot honour (a capability it cannot serve, zero size, initial bytes that do not cover the size) is REFUSED rather than silently satisfied. **Returns/errors:** one reference, or an EMPTY product on refusal; no error code. **Ownership/lifetime:** the reference is the caller's, dropped through `release()`; `initial_bytes` is borrowed until the call returns. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual unique_object<buffer> create_buffer(buffer_desc const& desc) = 0;` -- **Requirement:** create a buffer from its memory intent, extra capabilities, size and optional initial bytes; the initial bytes being part of the DESCRIPTOR is deliberate, because a content-keyed backend can only recognise identical content if creation sees it, and empty initial bytes mean ALLOCATE ONLY (a backend that deduplicates MUST NOT match an allocate-only buffer against another). A descriptor the backend cannot honour (a capability it cannot serve, zero size, nonempty initial bytes whose length differs from the size) is REFUSED rather than silently satisfied. **Returns/errors:** one reference, or an EMPTY product on refusal; no error code. **Ownership/lifetime:** the reference is the caller's, dropped through `release()`; `initial_bytes` is borrowed until the call returns. **Threading:** contract does not specify.
+
+The buffer initialization rule is shared by the reference backend and the portable CPU probe through
+`validate_buffer_initialization(size, initial_size)`:
+
+| Description | Result |
+| --- | --- |
+| `size == 0` | Empty product; no allocation |
+| `size > 0`, initial bytes empty | Allocate only; contents are undefined, with no zero-fill guarantee |
+| Initial byte count equals `size` | Copy exactly that payload when the requested upload mechanism is supported |
+| Any other nonzero initial byte count | Empty product; no partial upload or silent truncation |
+
+The initial span is consumed/copied before the factory returns; the caller may immediately reuse its storage.
+The size rule does not promise every backend supports initial uploads for every usage: an unsupported mechanism
+returns an empty product without aborting on caller input. In the current Vulkan backend, storage-GPU-only,
+acceleration-structure storage and scratch buffers are allocation-only; vertex/index/uniform GPU buffers support
+both allocation-only and initialized creation. Later initialization is an explicit upload/copy with the required
+buffer flags and synchronization. Passing empty initial bytes MUST NOT cause a staging read from a null pointer.
 
 - `[[nodiscard]] virtual unique_object<image> create_image(image_desc const& desc) = 0;` -- **Requirement:** create an image from its shape, its format (a named byte layout, or the depth ROLE when the caller only needs "a depth attachment"), its required capabilities and its optional initial texels; the same content-at-creation and allocate-only rules as `create_buffer` apply. **Returns/errors:** one reference, or an empty product on refusal (a format/flag pair the backend cannot serve, a shape or initial-bytes mismatch). **Ownership/lifetime:** the caller's reference, dropped through `release()`; a view of the image is a separate owned object. **Threading:** contract does not specify.
 
@@ -650,8 +837,6 @@ deleted.
 - `[[nodiscard]] virtual unique_object<shader> create_shader(shader_desc const& desc) = 0;` -- **Requirement:** create a shader module from SPIR-V and a stage; the stage is mandatory because the ray-tracing stages must be nameable for a group table to be built. **Returns/errors:** one reference, or an empty product on refusal (invalid code, an unsupported stage, a code/stage mismatch). **Ownership/lifetime:** `desc.code` is borrowed only until the call returns; `debug_name` is log text and is not retained. **Threading:** contract does not specify.
 
 - `[[nodiscard]] virtual unique_object<pipeline> create_pipeline(pipeline_desc const& desc) = 0;` -- **Requirement:** create a graphics, compute or ray-tracing pipeline; the THREE spellings are selected by the descriptor, not by separate verbs -- `first_stage == compute` selects the compute spelling (attachment state is then ignored), and a NON-EMPTY `ray_tracing_stages` selects the ray-tracing spelling (the colour/depth/compute/blend fields are then ignored). The entry point is not a field, because every shader this renderer builds is entered at "main"; a descriptor with no entry-point spelling means "main". The shader binding table is deliberately NOT part of the descriptor: its handles are per-pipeline data read back after creation, and its regions are the caller's memory. **Returns/errors:** one reference, or an empty product on refusal (a stage/descriptor combination the backend cannot build, a group table that does not match the stages). **Ownership/lifetime:** every span in the descriptor (code, formats, blend modes, stages, groups, bindings) is borrowed only until the call returns; `debug_name` is not retained. **Threading:** contract does not specify. NOTE: pipeline creation may be a long device operation; the contract states no concurrency rule for it.
-
-- `[[nodiscard]] virtual unique_object<query> create_query(query_desc const& desc) = 0;` -- **Requirement:** create a query handle. **Returns/errors:** the contract cannot express a successful query today: `query_desc` is forward-declared, so an implementation compiled against this contract has no fields to read, and the shipped backend answers an empty product. **Ownership/lifetime:** as every factory product. **Threading:** contract does not specify. This is a coverage gap, not a behaviour -- see the open list.
 
 - `[[nodiscard]] virtual std::expected<resource_group_ref, error> create_resource_group(resource_group_desc const&) {` -- **Requirement:** create an immutable shared composition from its entries; the descriptor's spans are COPIED before the call returns, and creation is atomic (a failed product publishes no group and reclaims its temporary descriptor slots). Empty groups, duplicate bindings or parameter locations, null resources, a non-owning (borrowed) member, foreign resources, invalid ranges/usages and invalid layouts MUST be rejected. **Returns/errors:** the group, or a named error: `invalid_argument` for a rejected composition, `unsupported` for a backend without the mechanism (the DEFAULT BODY) -- never a half-built group. **Ownership/lifetime:** the group owns its member references (a member must carry lifetime ownership, and a lifetime alias is accepted only if its owner really keeps the target alive); the core/backend must outlive the group. **Threading:** contract does not specify.
 
@@ -670,13 +855,13 @@ not outlive its core.
 
 - `virtual ~command_context() noexcept = default;` -- **Requirement:** the view is destroyed only with the core. **Returns/errors:** none. **Ownership/lifetime:** borrowed; no allocation of its own. **Threading:** contract does not specify.
 
-- `[[nodiscard]] virtual unique_object<command_buffer> create_command_buffer(command_buffer_desc const& desc) = 0;` -- **Requirement:** allocate one individually submittable command buffer; PRIMARY is the only kind a caller can create (the secondary kind is retired -- the multithreaded paths use mergeable segments), and the retired value MUST be refused by name rather than silently promoted. **Returns/errors:** one reference, or an empty product on refusal (the retired kind, allocation failure). **Ownership/lifetime:** the caller's reference, dropped through `release()`; the buffer owns its allocation, and no pool or reset verb exists. **Threading:** contract does not specify; a buffer is not documented as usable from two recording threads at once unless its begin declared `simultaneous_use`.
+- `[[nodiscard]] virtual unique_object<command_buffer> create_command_buffer(command_buffer_desc const& desc) = 0;` -- **Requirement:** allocate one individually submittable command buffer; PRIMARY is the only kind a caller can create (the secondary kind is retired -- the multithreaded paths use mergeable segments), and the retired value MUST be refused by name rather than silently promoted. **Returns/errors:** one reference, or an empty product on refusal (the retired kind, allocation failure). **Ownership/lifetime:** the caller's reference, dropped through `release()`; the buffer owns its allocation, and no pool or reset verb exists. **Threading:** contract does not specify; calls on one recorder MUST be serialized, including when its begin declared `simultaneous_use`; that flag concerns overlapping execution, not recording threads.
 
 - `[[nodiscard]] virtual shared_object<command_buffer> make_command_buffer(command_buffer_desc const& desc) = 0;` -- **Requirement:** the same creation as `create_command_buffer`, handed out as the contract's SHARED handle: the ONE factory reference is the one the last shared copy drops through `release()`, so there is no second lifetime rule. **Returns/errors:** the handle, or an EMPTY one on refusal -- the same answer as an empty `unique_object`, with the reason named where it happened. **Ownership/lifetime:** the api_core and backend must outlive all strong and weak references. **Threading:** contract does not specify.
 
 - `[[nodiscard]] virtual mergeable_command_buffer_ref make_mergeable_command_buffer(command_buffer_desc const& desc) = 0;` -- **Requirement:** allocate one mergeable SEGMENT -- the batch-only recording handle, a sibling of `command_buffer` that cannot be submitted individually and cannot receive `execute()`. **Returns/errors:** the shared segment handle, or an empty one on refusal. **Ownership/lifetime:** segments are retained by the backend until the submission that merged them completes; the batch API takes them by shared reference for exactly that reason. **Threading:** contract does not specify, but these are the handles the engine's multithreaded recording paths use, one per worker.
 
-- `[[nodiscard]] virtual error submit(command_buffer& commands) = 0;` -- **Requirement:** submit ONE caller-owned buffer to the device. Provenance and recording state are validated BEFORE queuing, and the acquired frame's own primary is REJECTED (it has its own submit protocol). **Returns/errors:** `ok`; `invalid_argument` = the borrowed frame primary, a foreign buffer, or a non-primary kind; `not_ready` = not executable yet (still recording, or already pending), or no queue is available; device-level failures travel as themselves. The contract carries NO fence or completion token here, so the caller's own pacing is the only stated ordering. **Ownership/lifetime:** the backend retains the buffer and the resources its recording names until the submission completes; caller-owned buffers and images must outlive GPU use. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual error submit(command_buffer& commands) = 0;` -- **Requirement:** submit ONE caller-owned buffer to the device. Provenance and recording state are validated BEFORE queuing, and the acquired frame's own primary is REJECTED (it has its own submit protocol). **Returns/errors:** `ok`; `invalid_argument` = the borrowed frame primary, a foreign buffer, or a non-primary kind; `not_ready` = not executable yet (still recording, or already pending), or no queue is available; device-level failures travel as themselves. The contract carries NO fence or completion token here, so the caller's own pacing is the only stated ordering. **Ownership/lifetime:** the backend retains the submitted command buffer, merged segments and explicitly retained group owners until completion. Directly bound pipelines and borrowed buffer/image operands MUST be kept alive by the caller through GPU completion. **Threading:** contract does not specify.
 
 - `[[nodiscard]] virtual error submit(std::span<mergeable_command_buffer_ref const> batch) = 0;` -- **Requirement:** submit a BATCH of mergeable segments in SPAN ORDER, with the WHOLE batch validated before anything is queued (there is no rollback of what a previous call already queued), the segments self-contained (state and render scopes do not cross a boundary), and NO memory barrier inserted between them. The backend owns the merge: it may record the segments into a backend-owned primary, or hand them to its own queue as a list. **Returns/errors:** `ok`; `invalid_argument` = a foreign or individually-unsubmittable segment, or a batch whose rules are violated; `not_ready` = a segment is not executable; `unsupported` = a backend that only serves the recording-time merge (`command_buffer::execute`). **Ownership/lifetime:** the backend retains the handles until the submission completes. **Threading:** contract does not specify; the span order is the only ordering the contract fixes.
 
@@ -692,9 +877,7 @@ operations are deleted and it must not outlive its core.
 
 - `virtual ~frame_context() noexcept = default;` -- **Requirement:** the view is destroyed only with the core. **Returns/errors:** none. **Ownership/lifetime:** borrowed; the borrowed sub-views it answers die with the core. **Threading:** contract does not specify.
 
-- `[[nodiscard]] virtual unique_object<swapchain> create_swapchain(swapchain_desc const& desc) = 0;` -- **Requirement:** create a presentation surface's chain. **Returns/errors:** the contract cannot express a successful creation today: `swapchain_desc` is forward-declared, and the shipped backend answers an empty product -- the frame's own swapchain is obtained through `frame_swapchain()` instead. **Ownership/lifetime:** would be the caller's reference, dropped through `release()`. **Threading:** contract does not specify. See the open list.
-
-- `[[nodiscard]] virtual command_buffer* begin_commands() = 0;` -- **Requirement:** answer the CURRENT frame's primary, or null outside recording -- the call starts nothing, it hands out the list the frame's recording goes into. **Returns/errors:** a borrowed pointer, null when there is no frame in flight (the contract's way of saying "there is nothing to record into"). **Ownership/lifetime:** borrowed until frame submission; the caller MUST NOT release or delete it (its `release()` releases nothing, with a one-time log), and it must not be retained past the frame. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual command_buffer* begin_commands() = 0;` -- **Requirement:** answer the CURRENT frame's primary, or null outside recording -- the call starts nothing, it hands out the list the frame's recording goes into. **Returns/errors:** a borrowed pointer, null when there is no frame in flight (the contract's way of saying "there is nothing to record into"). **Ownership/lifetime:** borrowed until frame submission; the caller MUST NOT release or delete it; calling its underlying `release()` violates ownership preconditions and MAY terminate. The borrowed view must not be retained past the frame. **Threading:** contract does not specify.
 
 - `[[nodiscard]] virtual image* frame_image() noexcept = 0;` -- **Requirement:** answer the LAST ACQUIRED image. **Returns/errors:** a borrowed pointer, null before the first acquire; no error channel. **Ownership/lifetime:** valid through submit until the next acquire; borrowed, so the caller MUST NOT release it and must not use it past that window. **Threading:** contract does not specify.
 
@@ -710,7 +893,7 @@ operations are deleted and it must not outlive its core.
 
 - `[[nodiscard]] virtual swapchain* frame_swapchain() noexcept = 0;` -- **Requirement:** answer the frame's own swapchain view -- its `extent()` and `format()` are the presentation facts, including in a windowless core, where `recreate()` and `present()` answer `unsupported`. **Returns/errors:** a borrowed pointer, non-null for a live core. **Ownership/lifetime:** borrowed and stable; never released or deleted. **Threading:** contract does not specify.
 
-- `[[nodiscard]] virtual error submit() = 0;` -- **Requirement:** submit the CURRENT frame using the backend's own acquire/presentation state, with no buffer argument -- the protocol that preserves frame waits, resource retention and completion rules. An offscreen core closes the frame after submitting it. **Returns/errors:** `ok`; `not_ready` = no frame is in flight, or the frame's recording is not finished or is not executable; WSI and device failures (`out_of_date` to rebuild and skip, `surface_lost`, `device_lost`) travel as themselves. **Ownership/lifetime:** the backend retains the frame's recording, groups and resources until completion; the frame's borrowed views stop being valid for the caller at the next acquire. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual error submit() = 0;` -- **Requirement:** submit the CURRENT frame using the backend's own acquire/presentation state, with no buffer argument -- the protocol that preserves frame waits, resource retention and completion rules. An offscreen core closes the frame after submitting it. **Returns/errors:** `ok`; `not_ready` = no frame is in flight, or the frame's recording is not finished or is not executable; WSI and device failures (`out_of_date` to rebuild and skip, `surface_lost`, `device_lost`) travel as themselves. **Ownership/lifetime:** the backend retains the frame's recording and explicitly retained group/segment owners until completion; directly bound pipelines and borrowed resource operands remain caller-owned through GPU completion; the frame's borrowed views stop being valid for the caller at the next acquire. **Threading:** contract does not specify.
 
 #### api_core
 
@@ -734,7 +917,7 @@ no camera).
 
 - `[[nodiscard]] virtual extension* query_extension(extension_kind kind) noexcept = 0;` -- **Requirement:** answer the optional interface for that kind, or null. This is the ONLY way to reach an ability, which is what keeps this vtable stable as extensions arrive; the contract's `query_extension<T>(core)` helper checks the answered object's own `kind()` and returns null on a mismatch. **Returns/errors:** a borrowed pointer, null for a kind this backend does not serve. **Ownership/lifetime:** BORROWED and stable: no reference, no release, never deleted, lives as long as the core. **Threading:** contract does not specify; a backend resolves a target against its own live registries and a foreign target is `invalid_argument` at the verb that receives it.
 
-- `virtual void wait_idle() = 0;` -- **Requirement:** make the device idle -- the device-wide barrier a caller uses as its own pacing when the contract carries no fence (reading `buffer::mapped()`, re-reading an image, submitting a one-shot list). **Returns/errors:** none (`void`, and NOT `noexcept`); the contract states no failure channel and no error value, so a failure has no defined report. **Ownership/lifetime:** no resource; it does not release anything, and it does not end the frame by itself. **Threading:** contract does not specify. NOTE: validity from inside an open recording is not stated -- see the open list.
+- `virtual void wait_idle() = 0;` -- **Requirement:** make the device idle -- the device-wide barrier a caller uses as its own pacing when the contract carries no fence (reading `buffer::mapped()`, re-reading an image, submitting a one-shot list). **Returns/errors:** none (`void`, and NOT `noexcept`); the contract states no failure channel and no error value, so a failure has no defined report. **Ownership/lifetime:** no resource; it does not release anything, and it does not end the frame by itself. **Threading:** contract does not specify. It may be called outside recording and does not implicitly apply pending operations or close an open recording.
 
 - `[[nodiscard]] virtual std::uint32_t api_version() const noexcept = 0;` -- **Requirement:** answer the ABI number this backend implements; a host may be handed a core it did not create, so the object attests its own number and the runtime checks it after the handshake. **Returns/errors:** a number; a mismatch is refused at the entry point (`abi_mismatch`, with the backend's own number in the error information) before an object exists. **Ownership/lifetime:** a plain value. **Threading:** contract does not specify.
 
@@ -744,35 +927,51 @@ no camera).
 
 ### 7.4 Open/unverified
 
-The following virtuals carry contract text too thin to write a second backend
-against without guessing. Each is phrased as the question a reviewer should
-settle in the header.
+The earlier audit listed missing rules that section 6.1 and the contract headers have since resolved. Those
+items are no longer open requirements; the remaining contract choices are listed once in section 9.2, and
+removed interfaces are listed in section 9.3. In particular, buffer ranges, allocation-only initialization,
+rendering-scope pairing and borrowed ownership are requirements, not backend-defined behavior.
 
-1. `radix_sorter::release` -- no text at all; it is assumed to follow `buffer::release()` only by analogy.
-2. `radix_sorter::record` -- no error set, no validation rule for `radix_sort_info` (null operands, offsets, alignment), and no statement of what the recording does to the recorder's bound state beyond "consumers must rebind".
-3. `radix_sorter::requirements` -- the meaning of `buffer_alignment` (default 1) and of `scratch_flags` is unstated; only "scratch_bytes == 0 means cannot serve that count" is normative.
-4. `query` -- the interface has no verbs, `query_desc` is incomplete, and the factory answers an empty product; what a query measures and how it is read back is entirely unwritten.
-5. `texture_group::release` -- no text; the "descriptor slots return after the last owner dies" rule lives in docs/resource_groups.md, not in the header.
-6. `resource_group::release` -- same gap; member retention on release is documented outside the interface.
-7. `command_buffer::execute` -- the batch rules are by reference to `submit(span)`; the verb's own error set (foreign segment, already-recording target, segment recorded for another core) is unstated.
-8. `command_recorder::copy_buffer` -- no rule for `size`/`source_offset`/`destination_offset` against either buffer's extent; an overrun is not required to be refused (the shipped backend does not check).
-9. `command_recorder::bind_vertex_buffer` / `bind_index_buffer` -- no stated validity rule for `offset`; the shipped backend refuses `offset >= size`, which is a defensible rule the header does not carry.
-10. `command_recorder::use` -- documented for the FRAME image, and in practice only the frame image reaches it; whether an arbitrary owned image may be passed, and what a foreign-but-valid image answers, should be stated.
-11. `command_recorder::begin_rendering` / `end_rendering` -- no nesting rule, no pairing rule, and no statement of what an open scope does to `end_recording` (the shipped backend fails the recording).
-12. `command_recorder::dispatch` / `draw_mesh_tasks` -- a wrong-state call and a device without mesh-shader support have no specified answer; the capability gate lives in `device_capabilities`, not here.
-13. `command_recorder::clear_color_image` -- component order of the `color` value is not restated (the attachment clear states RGBA), and the range rule beyond "all-zero means the whole image" is unstated.
-14. `command_recorder::mark_gpu_timing` -- "static text outliving the frame" is stated, but who owns the text (caller's responsibility to keep it process-lifetime) deserves an explicit MUST.
-15. `api_core::wait_idle` -- no return channel, no stated failure report, and no statement whether it is legal (or a no-op) inside an open recording.
-16. `api_core::main_context` -- the default body returns null and the contract does not say when a backend must answer one, nor what a plugin may do with it beyond validating its tag.
-17. `frame_context::create_swapchain` and `resource_factory::create_query` -- both descriptors are forward-declared, so both factories are, by construction, unimplementable in this ABI; the header should say so normatively rather than leaving it to the shipped backend.
-18. `frame_context::begin_commands` / `frame_image` / `frame_readback_buffer` -- "borrowed until frame submission" is stated for the first and "valid through submit until the next acquire" for the second, but the readback buffer's window and the consequence of using any of them outside it are unstated.
-19. `resource_factory::assign_texture_group` -- only `unsupported` is normative; the `error*` protocol's success value, the `struct_size` rule, empty-slot semantics and whether identical input shares one group are all unstated.
+Implementation verification is separate from specification completeness. The portable CPU probe can verify
+factory shape rules and basic recording errors; it does not model Vulkan native-state restoration, descriptor
+publication or borrowed identity generations. Device tests are required for those mechanisms. A passing
+headless suite alone MUST NOT be reported as proving every native interop or submission path.
 
+### 7.5 Recording state and application boundaries
 
+One recorder is caller-serialized. The following states describe a session, not a new API or an exposed enum.
+An inherited rendering scope belongs to the primary: a secondary begun with `render_pass_continue` may record
+inside it but MUST NOT close it with `end_rendering()`.
+
+| State / call | Contract outcome |
+| --- | --- |
+| Not recording: `apply_operations` or `end_recording` | `not_ready` on the deferred backend; no recording is made executable |
+| Not recording, and no pending/retained use prevents reuse: `begin_recording` | Opens a fresh session and clears prior logical state and latched errors |
+| Recording: invalid error-returning enqueue | Returns its error and appends nothing; a correct later call can recover unless an application error is already latched |
+| Recording: invalid value-only operation | Latches failure; application/end reports it and the recording cannot be submitted |
+| Recording: `apply_operations` | Validates the retained batch before replay, preserves final logical state, and leaves the session open |
+| Recording: `end_rendering` without a locally opened scope (including an inherited scope) | Latches `invalid_argument`; emits no native end-rendering command |
+| Recording: `end_recording` with a locally opened rendering scope left unclosed | Fails the recording; an inherited scope does not require a secondary-local close |
+| Failed recording: `apply_operations` / `end_recording` | Reports the first latched error; end discards the failed session instead of publishing it |
+| Executable recording: submit / execute | Validates the whole target/batch and retains the explicitly owned recording dependencies |
+| GPU-pending or retained secondary recording: begin/reset attempt | Refused until legal reuse; `simultaneous_use` permits overlapping execution where supported, never concurrent recording/reset |
+
+`apply_operations` is an intermediate observability boundary: state setters at its end may be needed by later
+work or native recording. Final application at `end_recording` may discard trailing pure state with no consumer.
+Copies, barriers, timestamps, builds, draws and dispatches keep their order and occurrences. A failed later
+batch does not roll back native commands already emitted by an earlier application, but the failed recording
+as a whole MUST NOT be submitted.
+
+Native/plugin interop is a backend-specific protocol, not an extra portable RHI entry point. In the Vulkan
+bridge, call `prepare_native()` and check success before raw recording, then call `finish_native()` when that
+recording is complete. The native `get()` accessor does not flush by itself. The bridge conservatively
+invalidates native applied state; the next RHI application restores the saved logical state before its
+consumers. Raw calls MUST NOT reset/end the command buffer, change the RHI-owned rendering scope, or destroy
+borrowed operands. The explicit GUI descriptor-heap bind remains part of that native protocol.
 
 ## 8. Optional extension interfaces
 
-Status: **draft v1 for RHI ABI 53**. Section 8 of *The deren RHI API standard*. Sections 1-6 (scope and
+Status: **draft v1 for RHI ABI 55**. Section 8 of *The deren RHI API standard*. Sections 1-6 (scope and
 source of truth, the object/ownership model, errors and validation order, recording/frames/synchronization,
 ABI rules, conformance checklist) are normative as written and are NOT repeated here; where a clause below
 needs one of them it says so. Where this file and `source/promise/rhi/rhi.extension.cppm` disagree, the
@@ -802,8 +1001,8 @@ An ability object is a labelled subview the CORE owns: it is constructed with a 
 returned by `query_extension` is borrowed: it is valid for the core's lifetime and dies with the core, so
 holding one past `api_core::release()` is a contract violation of the same kind as holding any other handle.
 
-Bit values are ABI and never move: `to_bits(device_address) == 0x1`, `all_abilities() == 0x3FD7`, and
-`all_extension_kinds()` enumerates the twelve active kinds. `ray_tracing` (1<<3) and `vulkan_escape` (1<<5)
+Bit values are ABI and never move: `to_bits(device_address) == 0x1`, `all_abilities() == 0x3FD3`, and
+`all_extension_kinds()` enumerates eleven active kinds. `mesh_shader` (1<<2), `ray_tracing` (1<<3) and `vulkan_escape` (1<<5)
 are RETIRED values with no interface behind them; they MUST NOT be reused, renumbered or announced by any
 backend, and querying them answers null.
 
@@ -813,7 +1012,7 @@ backend, and querying them answers null.
 | --- | --- | --- | --- | --- |
 | `device_address` | 0x1 | `device_address` | it can report a buffer's device address | addresses are unavailable; use handle-based binds |
 | `descriptor_heap` | 0x2 | `descriptor_heap` | its heap is created and can serve writes and binds | no bindless write/bind path; refuse, do not emulate with per-draw sets |
-| `mesh_shader` | 0x4 | `mesh_shader` | it can record a mesh dispatch (see the interface; this tree answers null) | use the tier-1 `command_recorder::draw_mesh_tasks` |
+| `mesh_shader` | 0x4 | (none, RETIRED in ABI 54) | never | use tier-1 `command_recorder::draw_mesh_tasks` |
 | `ray_tracing` | 0x8 | (none, RETIRED) | never | not a queryable ability |
 | `host_image_copy` | 0x10 | `host_image_copy` | its API can copy an image to host memory directly | staging copies only; the caller must use its own staging path |
 | `vulkan_escape` | 0x20 | (none, RETIRED) | never | not a queryable ability |
@@ -845,7 +1044,7 @@ asks for that kind. The object is constructed by each derived interface with its
 no drop path and MUST NOT invent one (`delete` on an ability pointer is a contract violation and a panic on
 the backend side at teardown). Availability is the derived interface's, never this one's.
 
-- `virtual ~extension() noexcept = default;` -- **Requirement:** destruction has to be virtual (the derived **Returns/errors:** none (`noexcept`); the core owns the subview. **Ownership/lifetime:** borrowed from api_core; never delete/release. **Threading:** contract does not specify.
+- `virtual ~extension() noexcept = default;` -- **Requirement:** destruction has to be virtual (the derived
   interfaces are destroyed through the core's own teardown) and no caller may drive it, because the ability
   is a core subview rather than a handle with a reference count; a backend MUST NOT make an ability object
   outlive its core and MUST NOT destroy one before the core is released, because every pointer it handed out
@@ -853,7 +1052,7 @@ the backend side at teardown). Availability is the derived interface's, never th
   **Returns/errors:** none, `noexcept`;
   **Ownership/lifetime:** the core owns the object for its whole life; the pointer is borrowed, is never
   reference-counted by the contract, and dies with the core; **Threading:** contract does not specify.
-- `[[nodiscard]] virtual extension_kind kind() const noexcept = 0;` -- **Requirement:** answer exactly the **Returns/errors:** the exact extension kind; no error channel. **Ownership/lifetime:** plain value. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual extension_kind kind() const noexcept = 0;` -- **Requirement:** answer exactly the
   `extension_kind` this interface is (each derived interface fixes it with a `final` override and a
   `static constexpr extension_id`), never another kind's value: `query_extension<T>` compares the answer and
   turns a mismatch into null, which the caller reads as unsupported; the answer MUST be constant for the
@@ -871,7 +1070,7 @@ caller keeps the mutable `frame_image()` facade and the old acquire/submit/resiz
 snapshot, and nothing else substitutes for one. The backend's acquire/submit/resize protocol still owns
 native image lifetime: a snapshot pins the CORE, not the swapchain generation.
 
-- `[[nodiscard]] virtual shared_object<image> retain_image() noexcept = 0;` -- **Requirement:** hand back one **Returns/errors:** one strong owner; empty outside a frame. **Ownership/lifetime:** the returned owner keeps the core alive; valid only within the acquire epoch. **Threading:** contract does not specify; the frame protocol serializes it.
+- `[[nodiscard]] virtual shared_object<image> retain_image() noexcept = 0;` -- **Requirement:** hand back one
   owning reference to an immutable snapshot of the image the current frame draws into, capturing its native
   handle, extent, format and acquire epoch; the identity MUST be stable within one acquire (a backend MAY
   answer the same cached snapshot to repeated calls) and MUST be distinct from the mutable `frame_image()`
@@ -947,7 +1146,7 @@ core answers null, and that null means "present synchronously", never "present w
 caller's present is the blocking one from section 7 and nothing about frame pacing changes. Completion of the
 returned future means the HOST present call returned, not that the GPU or the display is done with the image.
 
-- `virtual std::shared_future<error> begin() = 0;` -- **Requirement:** snapshot the submitted frame's **Returns/errors:** a future; a second outstanding call yields a future holding `not_ready`. **Ownership/lifetime:** no additional ownership; the core must outlive the future. **Threading:** only one outstanding presentation call (section 8.2).
+- `virtual std::shared_future<error> begin() = 0;` -- **Requirement:** snapshot the submitted frame's
   presentation state (swapchain/generation, image index, queue, present-ready semaphore) BEFORE returning,
   then perform the host present call asynchronously; at most ONE presentation may be outstanding, a queued
   presentation MUST NOT authorize overwriting its image, and `wait_idle()` plus teardown MUST drain any
@@ -992,7 +1191,7 @@ acquired frame, which stays the frame context's job. A backend without it leaves
   section 3; **Ownership/lifetime:** the batch's segments are retained through GPU completion (the caller may
   drop its own references as soon as the call returns `ok`), the token is the same non-owning receipt;
   **Threading:** contract does not specify.
-- `[[nodiscard]] virtual error poll(submission_token token) noexcept = 0;` -- **Requirement:** answer whether **Returns/errors:** `ok`/`not_ready`/named device error. **Ownership/lifetime:** token is a copyable receipt; does not retain resources. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual error poll(submission_token token) noexcept = 0;` -- **Requirement:** answer whether
   that submission has completed, without blocking; a backend MUST be able to keep answering for old values
   after reclaiming its native per-submission records (the receipt is not a native handle);
   **Returns/errors:** `ok` = completed, `not_ready` = still pending, `invalid_argument` for an all-zero,
@@ -1016,7 +1215,7 @@ A stable ascending `uint32` key/value radix sort service. Announced by `extensio
 when the backend can create a sorter for its device; a backend whose sorter is unavailable (driver, missing
 support) answers null, and the caller sorts on the host or refuses rather than emulating silently.
 
-- `[[nodiscard]] virtual radix_sorter* create_radix_sorter() = 0;` -- **Requirement:** create a sorter bound **Returns/errors:** a sorter pointer; null when the ability is not announced/creation fails. **Ownership/lifetime:** caller releases the sorter; operands are borrowed only during record. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual radix_sorter* create_radix_sorter() = 0;` -- **Requirement:** create a sorter bound
   to THIS core's device and return it with exactly ONE owning reference (the raw-pointer return is the
   contract's spelling here, unlike the factories' `unique_object`), so the object's `release()` is the single
   drop; the backend MUST NOT share one sorter between cores; **Returns/errors:** the pointer, or NULL on
@@ -1073,20 +1272,20 @@ still chains a tag is refused `unsupported` under the tagged-structure rule of s
 the bit and implement the verbs as no-ops, and in this tree the bit, `ready()` and the `descriptor_space` bit
 are the same condition.
 
-- `[[nodiscard]] virtual bool ready() const noexcept = 0;` -- **Requirement:** answer whether the heap can **Returns/errors:** true when the heap/space can be used; false otherwise. **Ownership/lifetime:** plain value. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual bool ready() const noexcept = 0;` -- **Requirement:** answer whether the heap can
   serve writes and binds NOW; the backend MUST NOT announce `descriptor_heap` while this can answer false (a
   set bit is a promise about service), so the answer and the bit may differ only in the direction "the heap
   broke after construction", and a verb called in that state MUST answer `not_ready` rather than writing
   anywhere; **Returns/errors:** bool, no error channel; **Ownership/lifetime:** none; **Threading:** contract
   does not specify.
-- `[[nodiscard]] virtual descriptor_heap_properties properties() const noexcept = 0;` -- **Requirement:** **Returns/errors:** the heap's configured properties by value. **Ownership/lifetime:** plain value. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual descriptor_heap_properties properties() const noexcept = 0;` -- **Requirement:**
   report the DEVICE's heap numbers -- resource size, max resource/sampler size, the two alignments, the two
   reserved windows, the per-kind descriptor strides and the embedded-sampler limit -- as the values the
   backend itself sized and aligned against, not frozen constants; a caller derives its slot grid from them
   (the index space is `byteOffset / stride` for that kind, so a stride the backend reports and one it enforces
   MUST be the same number); **Returns/errors:** a POD by value; zeroed when there is no device; no error
   channel; **Ownership/lifetime:** none; **Threading:** contract does not specify.
-- `[[nodiscard]] virtual heap_bindings bindings() const noexcept = 0;` -- **Requirement:** report the two **Returns/errors:** the current two bind infos by value. **Ownership/lifetime:** plain value. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual heap_bindings bindings() const noexcept = 0;` -- **Requirement:** report the two
   heap ranges actually bound -- device address, size, reserved range offset and size, for resource and
   sampler -- and they MUST be the values the backend's own bind records (a caller computes its own addresses
   and push lanes from them, so a discrepancy is a wrong descriptor read, not an error the caller can detect);
@@ -1131,32 +1330,6 @@ are the same condition.
   bind affects only the recorded list, retains nothing, and the recorder MUST stay alive and recording through
   the call; **Threading:** the recorder has one owner thread (section 4).
 
-#### mesh_shader
-
-A mesh (and task) dispatch in contract vocabulary. Announced by `extension_kind::mesh_shader` (0x4).
-**This tree answers null for the kind**: mesh dispatch is served by the TIER-1
-`command_recorder::draw_mesh_tasks` / `draw_mesh_tasks_indirect`, so the bit is never set and the object is
-never handed out -- which is the absence rule working as intended (null means unsupported, and the caller
-uses the tier-1 verb), not a downgrade. A backend that announces this kind MUST be able to record the command
-on every recorder it hands out; a backend that only has the tier-1 path MUST return null here rather than
-answer an object that cannot serve.
-
-- `virtual void dispatch_mesh(command_recorder& commands, std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) = 0;` --
-  **Requirement:** record `groups_x` x `groups_y` x `groups_z` mesh WORKGROUPS (counts, not shader
-  invocations) into `commands`, using the mesh pipeline bound on that recorder and the argument shape the
-  backend's mesh mechanism takes; the three counts are the caller's whole input -- no native struct crosses
-  -- and a backend MUST record exactly the requested workgroup grid, never clamp or round it; **Returns/
-  errors:** the return type is `void`, so there is NO error channel: the contract does not specify what
-  happens for a recorder that is not recording, a foreign recorder, or no mesh pipeline bound. The recording
-  face has the same shape for `draw`/`draw_mesh_tasks` (`void`, with failures surfacing at
-  `apply_operations()`/`end_recording()`), but this verb is an EXTENSION verb and the contract never says
-  whether that deferral covers it -- so a backend MUST NOT announce this kind unless it can define and honour
-  those states without reporting, which is why this tree keeps the path on the tier-1 verb and answers null;
-  **Ownership/lifetime:** the work is
-  recorded into the caller's list only; nothing is retained beyond the recorder's own retention, and the
-  pipeline must be bound and alive; **Threading:** the recorder has one owner thread (section 4); the contract
-  does not specify anything further.
-
 #### host_image_copy
 
 A HOST-side copy of an image into memory the caller chose: no command is recorded, nothing is submitted, so
@@ -1192,12 +1365,12 @@ unserved ability -- and every method MUST be answerable at that point. A fact no
 the method set is the measured set, so a new need adds a method instead of a device dump. Every answer is a
 semantic fact ("this device can run X", "this is the number the backend sizes against"), not a native limit.
 
-- `[[nodiscard]] virtual bool mesh_shader() const noexcept = 0;` -- **Requirement:** answer whether this **Returns/errors:** true only when this device can run the mesh-shader path. **Ownership/lifetime:** plain value. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual bool mesh_shader() const noexcept = 0;` -- **Requirement:** answer whether this
   device can run a MESH pipeline, meaning the backend ENABLED the mechanism (the engine gates its mesh
   evaluation and dispatch path on it), not merely that the hardware might support it; it MUST agree with what
   the backend enabled at device creation; **Returns/errors:** bool, no error channel; `false` on a released
   core; **Ownership/lifetime:** none; **Threading:** contract does not specify.
-- `[[nodiscard]] virtual bool ray_query() const noexcept = 0;` -- **Requirement:** answer whether this device **Returns/errors:** true only when ray queries are supported. **Ownership/lifetime:** plain value. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual bool ray_query() const noexcept = 0;` -- **Requirement:** answer whether this device
   can run RAY QUERIES, the gate for the ray-traced lighting path and for deciding the acceleration-structure
   input usage on a buffer; false MUST mean "do not use the path", never "maybe"; **Returns/errors:** bool, no
   error channel; `false` on a released core; **Ownership/lifetime:** none; **Threading:** contract does not
@@ -1209,7 +1382,7 @@ semantic fact ("this device can run X", "this is the number the backend sizes ag
   (`validate_push_constants_range`) rather than a hard-coded constant, and MUST treat 0 as "no push path";
   **Returns/errors:** the byte capacity; 0 when unavailable or with no device; no error channel;
   **Ownership/lifetime:** none; **Threading:** contract does not specify.
-- `[[nodiscard]] virtual std::uint32_t graphics_queue_family() const noexcept = 0;` -- **Requirement:** answer **Returns/errors:** the queue family index; zero is a valid index. **Ownership/lifetime:** plain value. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual std::uint32_t graphics_queue_family() const noexcept = 0;` -- **Requirement:** answer
   the queue family the backend's GRAPHICS queue belongs to; anyone creating a command pool/allocator outside
   the contract MUST name this family, and only the backend knows it (a caller MUST NOT re-derive it by
   comparing the device's families against queue handles); the answer MUST be constant for the core's life;
@@ -1237,14 +1410,13 @@ semantic fact ("this device can run X", "this is the number the backend sizes ag
   fail); 0 means "no answer/no mechanism" and MUST NOT be read as a legal capacity of zero that silently
   accepts nothing; **Returns/errors:** the instance count, 0 with no device; no error channel;
   **Ownership/lifetime:** none; **Threading:** contract does not specify.
-- `[[nodiscard]] virtual bool compute_indirect() const noexcept {` -- **Requirement:** answer whether this **Returns/errors:** true when indirect compute dispatch is supported. **Ownership/lifetime:** plain value. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual bool compute_indirect() const noexcept {` -- **Requirement:** answer whether this
   backend serves INDIRECT compute dispatch (the engine's software-visibility pass gates its indirect dispatch
   on it); the declaration head above is the ABI contract's spelling and the body is the in-class default
   `return false;`, so a backend that serves indirect compute MUST override it and MUST NOT inherit the
-  conservative default; the contract text does not elaborate the meaning beyond the gate it feeds (the doc
-  comment attached to it describes int64 atomics -- see the open list); **Returns/errors:** bool, no error
+  conservative default; this capability is independent of `buffer_int64_atomics()`; **Returns/errors:** bool, no error
   channel; **Ownership/lifetime:** none; **Threading:** contract does not specify.
-- `[[nodiscard]] virtual bool buffer_int64_atomics() const noexcept {` -- **Requirement:** answer whether this **Returns/errors:** true when shader/SSBO int64 atomics are supported. **Ownership/lifetime:** plain value. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual bool buffer_int64_atomics() const noexcept {` -- **Requirement:** answer whether this
   device has shader int64 AND storage-buffer int64 atomics ENABLED (both halves: 64-bit shader integers and
   the buffer-atomics feature), which is what a shader using 64-bit buffer atomics needs; the in-class default
   body answers `return false;` -- the conservative default for a backend that did not check -- so a backend
@@ -1253,6 +1425,41 @@ semantic fact ("this device can run X", "this is the number the backend sizes ag
   **Threading:** contract does not specify.
 
 #### descriptor_space
+
+ABI 55 adds a fixed shader-binding profile alongside the existing dynamic texture-group positions.
+This is logical slot access, not a physical-offset alias or dynamic layout registration API. The profile
+preserves the current shader ABI. The legacy descriptor_heap interface remains a separate low-level service.
+
+- `fixed_slots() const noexcept -> descriptor_slot_range`: a core-lifetime interval `{base,count}` of
+  shader slots in space 0; empty means this optional profile is unsupported, even when group operations
+  and `ready()` work. Vulkan exposes [16384,18432), disjoint from dynamic group storage at 32768 and above.
+  Runtime MUST verify that the interval covers its shader profile, not infer this from ready() alone.
+- `write_image(descriptor_image_write const&)`: write a sampled/storage image at a fixed slot. Requires
+  an explicit valid view, compatible image usage, in-bounds mip/layer range and same-core live image.
+- `write_buffer(descriptor_buffer_write const&)`: write a uniform/storage buffer object with nonzero
+  resource-relative offset/size range. Validate same-core provenance, native address capability, declared
+  usage/flags, bounds without overflow, alignment and device range limits. Physical addresses and descriptor
+  offsets are resolved internally. This shader profile lowers uniforms through native storage descriptors;
+  uniform roles must satisfy both logical uniform and native storage alignment/range limits. Storage reads
+  may use storage allocations, explicitly storage-enabled buffers, and uniform allocations that support it.
+- `write_acceleration_structure(descriptor_acceleration_structure_write const&)`: publish a same-core
+  live AS object, resolving its address/range internally. Build ordering/completion remains the caller's job.
+- `bind(descriptor_bind_info const&)`: bind backend-owned descriptor storage to a same-core recorder in
+  recording state. This flushes prior lazy operations before binding, as the existing heap bind does.
+
+All four requests have tagged headers; wrong tags/short coverage return `invalid_argument`, non-null next
+chains return `unsupported`. Unknown spaces, slots outside the fixed interval, null/foreign objects and
+bad ranges return `invalid_argument`; unsupported descriptor types/usages/profile return `unsupported`.
+Unavailable bind storage or a non-recording target returns `not_ready`. Default implementations return
+`unsupported` and the default interval is empty; group-only backends need not implement the fixed profile.
+Encoding failure may return `operation_failed`. Validate requests before mutation: rejected validation MUST
+preserve the previous descriptor, without promising transactional recovery from a driver encoding failure.
+
+These are synchronous host writes with borrowed objects. Callers serialize updates, retain operands through
+GPU completion and wait for previous uses before replacing descriptors. There is no implicit GPU barrier,
+allocation/versioning, ownership retention or concurrency promise. Fixed slots need no generation because
+their reservation lasts for the core lifetime; dynamic group positions retain their existing generations.
+Adding these virtuals changes the descriptor_space vtable: ABI 54 and earlier binaries MUST be rejected.
 
 The backend's DESCRIPTOR SPACE, addressed by logical positions instead of byte offsets: where an immutable
 `texture_group` lives, and one portable sampled-descriptor write. Announced by
@@ -1263,7 +1470,7 @@ It exists BESIDE the heap, not instead of it: the heap answers the device's numb
 engine's vocabulary. A caller stores the frozen `descriptor_position` (16 bytes, by value) instead of leaking
 an absolute heap slot into material data.
 
-- `[[nodiscard]] virtual bool ready() const noexcept = 0;` -- **Requirement:** answer whether the space can **Returns/errors:** true when the heap/space can be used; false otherwise. **Ownership/lifetime:** plain value. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual bool ready() const noexcept = 0;` -- **Requirement:** answer whether the space can
   serve positions and writes now; as with the heap, the bit MUST NOT be announced while this can answer
   false, and a verb called in that state MUST answer `not_ready` rather than write anywhere;
   **Returns/errors:** bool, no error channel; **Ownership/lifetime:** none; **Threading:** contract does not
@@ -1304,64 +1511,23 @@ an absolute heap slot into material data.
 
 ### 8.2 Open/unverified
 
-Thin contracts a second backend would have to have clarified before it can conform. Each names what the
-source actually says today; none is a request to change behavior already measured in this tree.
+The historical extension audit is resolved by the ABI 54 header clarifications and section 6.1: sampled-only
+descriptor-space writes, host-copy color/packing, shader-group handle sizing, frame-image epochs, asynchronous
+presentation single-flight and the two-way ability-bit rule are normative. They must not be treated as
+unspecified merely because a per-method paragraph predates those clarifications. Remaining contract choices
+are centralized in section 9.2.
 
-1. `mesh_shader::dispatch_mesh` has a `void` return, so no error channel exists, and the contract states no
-   precondition for "not recording / foreign recorder / no mesh pipeline bound". The recording face's `draw`
-   and `draw_mesh_tasks` are `void` too, with failures deferred to `apply_operations()`/`end_recording()`,
-   but nothing says that deferral covers an extension verb that takes a `command_recorder` -- and no backend
-   in this tree announces the kind (tier-1 `draw_mesh_tasks` serves the path), so the verb has never been
-   exercised against a real implementation. What is missing is a stated precondition/deferral rule, not
-   necessarily a status return.
-2. `device_capabilities::compute_indirect`'s doc comment describes int64 atomics ("Enabled shader int64 and
-   storage-buffer int64 atomics; conservative default"), i.e. the sentence that belongs to
-   `buffer_int64_atomics`; the only evidence for its real meaning is its one gate site (the software
-   visibility pass's indirect dispatch). A second backend cannot tell from the contract which question it is
-   answering.
-3. Threading is "contract does not specify" for every ability verb (frame snapshots, heap writes and binds,
-   space writes, sorter creation, scoped describe/validate, submission calls). The reference backend
-   serializes each with its own mutex, but a second backend has no normative rule to meet -- and no caller
-   has one to rely on.
-4. `async_presentation::begin` is not stated to be single-threaded, nor which error a second concurrent call
-   gets (the reference resolves the future with `not_ready`). The retry/ordering contract for "collect before
-   the next submission" lives in prose (`docs/reviews/2026-10-12-async-present.md`) rather than in the
-   interface.
-5. `descriptor_heap::write_image`/`write_buffer` say nothing about RETENTION: whether the written image, view
-   or buffer must be kept alive by the caller is only implied by the general resource-lifetime rules. Group
-   writes hold leases; a raw heap write in this tree does not, and a second backend would have to decide
-   without a clause.
-6. The stride-alignment requirement for a heap write offset (an index is a byte offset divided by that kind's
-   descriptor stride) is documented in `docs/descriptor_heap_migration.md`, not in the contract. A backend
-   whose index space is not stride-relative has no clause to interpret.
-7. `descriptor_space::write`: the v1 restriction to sampled descriptors (and the exact error for other
-   types), the requirement that an explicit view match the group profile, and the split between
-   `unsupported` and `invalid_argument` are recorded in
-   `docs/superpowers/specs/2026-10-18-descriptor-space.md` and in
-   the reference implementation, while the contract comment states only the live-generation rule.
-8. `host_image_copy::copy_image_to_memory`: `image_copy_region` carries no aspect, so which plane a
-   depth/stencil source copies (the reference always copies colour) is unspecified; the tight-packing rule is
-   stated for `image_content`, not for the verb; and the required source state (GENERAL here) is a
-   backend convention, not a contract clause.
-9. `shader_group_access::read` states no relation between the record size it writes per group and
-   `shader_binding_table().handle_size` vs `.handle_alignment`: a backend whose handle stride differs from its
-   handle size has no clause saying which number sizes `out`.
-10. `frame_resources::retain_image` has no error channel and no stated identity rule: "stable within one
-    acquire", "cannot be used with an independently owned command buffer" and "invalid after the epoch ends"
-    live in `docs/render_graph.md` and the reference implementation, not in the interface.
-11. `scoped_synchronization` does not state which `rhi::error` a refused depth/stencil-independent range gets
-    (the reference answers `unsupported`), nor how the separate `synchronization::error` enum relates to
-    `rhi::error` -- the mapping is presently each backend's private choice.
-12. The one-way/two-way form of the bit rule: the contract text states it as "a set bit is a promise about
-    service", while the reverse direction ("non-null implies the bit is set") is only enforced by the
-    reference backend's startup gate and its probe test. A second backend needs the rule stated both ways.
+Conformance checks must distinguish discovery from execution: a bit and a non-null interface prove the backend
+announces a mechanism; they do not prove a particular resource, range, device limit or recording state is valid.
+Test capability refusal as well as the successful device path. The optional device-probe lane complements the
+headless contract tests; it does not remove the need to test backend-specific native boundaries.
 
-## 9. Closure: resolved, reserved, and still unspecified
+## 9. Closure: resolved, removed, and still unspecified
 
-### 9.1 Resolved by the ABI 53 clarifications
+### 9.1 Resolved by the ABI 54 clarifications
 
-The following previously open items now have normative text (headers section plus section 6.1): the four empty
-`release()` methods; `radix_sorter::requirements`/`record`/`release`; `copy_buffer` ranges; vertex/index offsets;
+The following previously open items now have normative text (headers section plus section 6.1): the ownership
+`release()` rules; `radix_sorter::requirements`/`record`/`release`; `copy_buffer` ranges; vertex/index offsets;
 rendering-scope pairing/nesting; `clear_color_image` component order; `mark_gpu_timing` text lifetime;
 `wait_idle`/`main_context`; frame-view windows; `assign_texture_group`'s `error*` protocol; `command_buffer::`
 execute batch rules by reference to `submit(span)`; descriptor-heap retention/stride; descriptor-space write
@@ -1378,15 +1544,17 @@ depth/stencil refusal and error mapping; `retain_image` identity/epoch; async-pr
 - Thread safety of extension ability verbs: the contract does not grant concurrent calls; callers serialize
   unless a backend documents otherwise.
 - Exact per-backend descriptor/limit numbers: always query `device_capabilities`/`properties()`; never infer them.
-- `query` semantics (reserved; see section 9.3).
 
-### 9.3 Reserved, and what would need ABI 54
+### 9.3 Removed interfaces and future additions
 
-`query`, `create_query`, `create_swapchain` and `mesh_shader::dispatch_mesh` are reserved/incomplete in ABI 53
-because their descriptors are forward declarations or their verb has no error channel. Completing them requires
-new value types/signatures and therefore the next ABI; the standard deliberately does not pretend they are
-implementable today. Any backend that wants them should participate in that ABI change rather than inventing a
-private contract.
+ABI 54 removes `query`, `query_desc`, `resource_factory::create_query`, `swapchain_desc`,
+`frame_context::create_swapchain`, and the unused `mesh_shader` extension interface. Its bit 0x4 remains
+retired and MUST NOT be announced or reused; querying it returns null. `frame_swapchain()`, GPU timing,
+`device_capabilities::mesh_shader()` and recorder mesh draw verbs remain supported under their own contracts.
+
+The resource_factory/frame_context vtables changed at ABI 54; pre-54 backends MUST be rejected before use. The active
+extension enumeration now contains eleven entries. A future query or multi-window API requires a new design,
+not resurrection of these incomplete placeholders. Apply section 5's actual layout/vtable rules to that design.
 
 ### 9.4 Second-backend conformance checklist
 
@@ -1395,7 +1563,8 @@ private contract.
    sets no ability bit it cannot serve.
 3. Satisfies every clause in section 8 for implemented extensions, including the section 6.1 clarifications.
 4. Passes the ownership/ABI tests and its relevant device probes; no failed recording is published.
-5. Releases native resources at last reference and keeps the core alive for retained work.
+5. Releases native resources at last reference; callers keep the core and DLL alive through all handles and
+   retained work.
 6. Reports capabilities/extensions truthfully, refuses unsupported operations by name, and documents any
    threading guarantee beyond the caller-serialized default.
 7. Runs the device-probe lane (`scripts/windows/check_device_probes.ps1`) or an equivalent on a device-capable

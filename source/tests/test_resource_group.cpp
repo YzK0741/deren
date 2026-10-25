@@ -11,7 +11,10 @@ import deren.utility.shared;
 import deren.promise.rhi;
 import deren.engine.backend_loader;
 import deren.vulkan.main_context;
+import deren.vulkan.command_buffer;
 namespace rhi = deren::promise::rhi;
+#include "buffer_creation_contract.hpp"
+#include "recording_scope_contract.hpp"
 
 struct queue_gate {
     VkDevice device;
@@ -98,6 +101,12 @@ int main(int argc, char** argv) {
     CHECK(core);
     if (!core)
         return deren::vk_test::finish("test_resource_group");
+    deren::vk_test::check_buffer_creation_contract(*core);
+    deren::vk_test::check_recording_scope_contract(*core);
+    std::array<std::byte, 16> unsupported_upload{};
+    for (auto usage : {rhi::buffer_usage::storage_gpu_only, rhi::buffer_usage::acceleration_structure_storage, rhi::buffer_usage::acceleration_structure_scratch})
+        CHECK(!core->resources->create_buffer({.size = unsupported_upload.size(), .usage = usage, .initial_bytes = unsupported_upload}));
+
     auto* completion = rhi::query_extension<rhi::command_submission>(*core);
     auto* push_capabilities = rhi::query_extension<rhi::device_capabilities>(*core);
     CHECK(completion && push_capabilities);
@@ -377,6 +386,10 @@ int main(int argc, char** argv) {
             CHECK(stale->end_recording() == rhi::error::invalid_argument);
             CHECK(stale->begin_recording({}) == rhi::error::ok);
             CHECK(stale->end_recording() == rhi::error::ok);
+            CHECK(stale->begin_recording({}) == rhi::error::ok);
+            stale->end_rendering();
+            CHECK(stale->apply_operations() == rhi::error::invalid_argument);
+            CHECK(stale->end_recording() == rhi::error::invalid_argument);
         }
     }
     {
@@ -422,7 +435,24 @@ int main(int argc, char** argv) {
     CHECK(commands.get()->push_constants(28, std::as_bytes(std::span(&index, 1))) == rhi::error::ok);
     CHECK(commands->apply_operations() == rhi::error::ok);
     CHECK(commands->bind_pipeline(*pipeline) == rhi::error::ok); // same pipeline preserves the loaded group.
-    index = 4;                                                   // push consumes the bytes before return; changing source storage cannot change output lane 0.
+    // Raw native interop deliberately overwrites the index. finish_native must restore the copied
+    // logical push/group state before the next RHI consumer, including across a compatible pipeline switch.
+    auto& interop = static_cast<deren::vulkan::command_buffer&>(*commands);
+    auto const& context = static_cast<deren::vulkan::main_context const&>(*core->main_context());
+    auto native_push = reinterpret_cast<PFN_vkCmdPushDataEXT>(vkGetDeviceProcAddr(context.device, "vkCmdPushDataEXT"));
+    CHECK(native_push != nullptr);
+    CHECK(interop.prepare_native() == rhi::error::ok);
+    std::uint32_t clobber = 4;
+    if (native_push) {
+        VkPushDataInfoEXT native_info{.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT, .pNext = nullptr, .offset = 28, .data = {&clobber, sizeof(clobber)}};
+        native_push(interop.get(), &native_info);
+    }
+    interop.finish_native();
+    auto compatible_pipeline = core->resources->create_pipeline(pipeline_desc);
+    CHECK(compatible_pipeline);
+    if (compatible_pipeline)
+        CHECK(commands->bind_pipeline(*compatible_pipeline) == rhi::error::ok);
+    index = 4; // push consumes the bytes before return; changing source storage cannot change output lane 0.
     commands->dispatch(1, 1, 1);
     rhi::buffer_barrier barrier{.resource = output.get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::host_read};
     CHECK(commands->barrier({.buffers = std::span(&barrier, 1)}) == rhi::error::ok);

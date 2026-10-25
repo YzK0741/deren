@@ -634,7 +634,7 @@ namespace {
 
         // the frame's command buffer.
 
-        CHECK(rhi::abi_version == 53u);
+        CHECK(rhi::abi_version == 55u);
 
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
 
@@ -670,6 +670,8 @@ namespace {
 
         rhi::error_info mismatch_error{};
 
+        CHECK(!make_core(53u, &creation, &mismatch_error)); // old vtables must never be used
+        CHECK(mismatch_error.code == rhi::error::abi_mismatch);
         CHECK(!make_core(rhi::abi_version + 1u, &creation, &mismatch_error));
 
         CHECK_MSG(mismatch_error.code == rhi::error::abi_mismatch, which_half);
@@ -761,6 +763,8 @@ namespace {
         // ability reachable through `query_extension()` with the kind it claims.
 
         rhi::ability_bits const abilities = core->abilities();
+        CHECK(!rhi::has_ability(abilities, rhi::extension_kind::mesh_shader));
+        CHECK(core->query_extension(rhi::extension_kind::mesh_shader) == nullptr);
 
         // ABI 43 removed the escape: the probe broadcasts `device_address` (the engine's injected-root path
 
@@ -1220,6 +1224,12 @@ namespace {
             CHECK(recorded->begin_recording({}) == rhi::error::ok);
             CHECK(recorded->apply_operations() == rhi::error::ok);
             CHECK(recorded->end_recording() == rhi::error::ok);
+            CHECK(recorded->begin_recording({}) == rhi::error::ok);
+            recorded->end_rendering(); // no scope was opened: void errors must latch.
+            CHECK(recorded->apply_operations() == rhi::error::invalid_argument);
+            CHECK(recorded->end_recording() == rhi::error::invalid_argument);
+            CHECK(recorded->begin_recording({}) == rhi::error::ok);
+            CHECK(recorded->end_recording() == rhi::error::ok);
 
             CHECK_MSG(recorded->begin_gpu_timing() == rhi::error::not_ready, which_half); // the frame's range is not this buffer's
 
@@ -1548,7 +1558,7 @@ namespace {
 
         {
 
-            auto const loaded = deren::utility::dynamic_link::load(copy.filename().string());
+            auto const loaded = deren::utility::dynamic_link::load(copy.string());
 
             CHECK(loaded.has_value());
 
@@ -1597,7 +1607,7 @@ namespace {
 
         {
 
-            auto loaded = deren::utility::dynamic_link::load(copy.filename().string());
+            auto loaded = deren::utility::dynamic_link::load(copy.string());
 
             CHECK(loaded.has_value());
 

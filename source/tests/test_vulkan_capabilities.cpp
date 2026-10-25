@@ -1,3 +1,4 @@
+#include "../third_party/vma/vk_mem_alloc.h"
 #include "vk_test.h"
 
 #include <algorithm>
@@ -179,6 +180,17 @@ extern "C" VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceProperties2(VkPhysicalD
 #include "vulkan_query_fixture.h"
 
 int main() {
+    // RHI exposes direct mapping without flush/invalidate: every mapped intent must
+    // select coherent host-visible memory, even when CPU_TO_GPU only prefers it.
+    using deren::vulkan::buffer_type;
+    for (auto type : {buffer_type::uniform_coherent, buffer_type::uniform_cached,
+                      buffer_type::storage_coherent, buffer_type::readback_coherent, buffer_type::staging_source}) {
+        auto const allocation = get_allocation_info_from_type(type);
+        CHECK((allocation.requiredFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0);
+        CHECK((allocation.requiredFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0);
+        CHECK((allocation.flags & VMA_ALLOCATION_CREATE_MAPPED_BIT) != 0);
+    }
+    CHECK((get_allocation_info_from_type(buffer_type::uniform_cached).preferredFlags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) != 0);
     // Unrelated optional extensions must not hide heap shaders or RT limits.
     for (auto const missing : {VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME, VK_EXT_MESH_SHADER_EXTENSION_NAME,
                                VK_EXT_HOST_IMAGE_COPY_EXTENSION_NAME, VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME,

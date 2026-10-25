@@ -36,9 +36,7 @@
 //     engine concepts: no scene, no pass, no camera, no toon (§4.1 item 2).
 //
 // The `*_desc` structs that have landed are defined here, and their widths are part of the ABI - the
-// `struct_size` guard is how an older caller is served this build's defaults. swapchain_desc and
-// query_desc are still forward-declared (their factories answer nullptr), and a reference to an
-// incomplete type is all their virtual declarations need.
+// `struct_size` guards let callers omit trailing descriptor fields safely.
 // ============================================================================
 module;
 
@@ -79,15 +77,14 @@ export namespace deren::promise::rhi {
     // that was previously only in the reference backend or in docs, without changing the ABI 53 vtable.
     //
     // OWNERSHIP. Every handle derives from `object`; `release()` drops the caller's ONE reference and the
-    // object dies with the last reference. A borrowed view answers a one-time log and releases nothing. A
-    // backend MAY keep the underlying resource alive for shared/content-keyed reuse, but MUST NOT expose a
-    // dead handle. The backend core MUST outlive every handle, group, command buffer and pending submission.
+    // object dies with the last reference. A borrowed view carries no caller-owned reference: callers MUST
+    // NOT invoke its underlying release(), and the backend MAY terminate on that ownership violation. A
+    // borrow() wrapper's destruction/reset drops no reference. A backend MAY keep the underlying resource
+    // alive for shared/content-keyed reuse, but MUST NOT expose a dead handle. Directly bound pipelines and
+    // borrowed buffer/image operands remain caller-owned through pending CPU recording and GPU completion;
+    // only verbs with explicit retention guarantees transfer that lifetime responsibility to the backend.
+    // The backend core MUST outlive every handle, group, command buffer and pending submission.
     //
-    // RESERVED IN ABI 53. `query` is reserved/incomplete: `query_desc` is a forward declaration, so
-    // `resource_factory::create_query` MUST return an empty product and callers MUST NOT rely on query
-    // behavior. `frame_context::create_swapchain` is likewise reserved because `swapchain_desc` is a forward
-    // declaration: it MUST return empty; the frame's swapchain is reached through `frame_swapchain()`. These
-    // are completeness markers, not capabilities a second backend can implement in ABI 53.
     //
     // RECORDING ERROR RULE. A handle-taking verb answers `error`; a value-only verb answers `void`. A void
     // verb latches its failure into the recording, and `end_recording()`/`apply_operations()` reports it and
@@ -123,8 +120,9 @@ export namespace deren::promise::rhi {
     // RADIX SORT. `requirements(count)` reports scratch bytes, scratch alignment and scratch buffer flags; a
     // nonzero count with scratch_bytes==0 means the backend cannot serve that count. `record` validates the
     // operands and returns `invalid_argument` for a null/foreign buffer, an offset/size out of range or a
-    // scratch size below the requirement; it overwrites the recorder's pipeline/layout/push state
-    // (consumers rebind). All operand buffers are borrowed through GPU completion.
+    // scratch size below the requirement. Internal native bindings may be overwritten, but the recorder's
+    // logical pipeline/group/push state is preserved and re-established for later RHI consumers. All operand
+    // buffers are borrowed through GPU completion.
     //
     // ==============================================================================================
 
@@ -143,7 +141,7 @@ export namespace deren::promise::rhi {
         index = 1,                          ///< index data; GPU-only, uploaded once at creation
         uniform_gpu_only = 2,               ///< uniforms the host updates rarely (or never)
         uniform_coherent = 3,               ///< per-frame uniforms: host-visible and coherent
-        uniform_cached = 4,                 ///< host-visible, cached: the host reads it back
+        uniform_cached = 4,                 ///< host-visible/coherent; cached memory is preferred for host reads
         storage_coherent = 5,               ///< a storage buffer the host also writes (e.g. a table the GPU reads)
         readback_coherent = 6,              ///< the destination of a GPU -> CPU copy; created WITHOUT contents
         acceleration_structure_storage = 7, ///< memory an acceleration structure lives in; allocate-only
@@ -151,7 +149,7 @@ export namespace deren::promise::rhi {
         storage_gpu_only = 9,               ///< a storage buffer only the GPU touches; allocate-only
         /// Host-visible STAGING: the SOURCE of a copy recorded into a device buffer inside a frame. Its twin is
         /// `readback_coherent` (the destination of a GPU -> CPU copy), and it exists because NO other intent carries
-        /// TRANSFER_SRC - so without it a staging buffer cannot be created through this vocabulary at all, and the
+        /// TRANSFER_SRC by default - so without it a staging buffer needs an explicit transfer_source flag, and the
         /// recording face's `copy_buffer` would be refused for its source. See the viewer's frame-ordered upload.
         staging_source = 10,
     };
@@ -211,8 +209,14 @@ export namespace deren::promise::rhi {
         std::uint64_t size = 0;                              ///< bytes
         buffer_usage usage = buffer_usage::storage_gpu_only; ///< what the caller does with it (see above)
         buffer_flags flags = no_buffer_flags;                ///< capabilities beyond the memory intent
-        std::span<std::byte const> initial_bytes = {};       ///< contents to upload at creation; empty = allocate only
+        std::span<std::byte const> initial_bytes = {};       ///< empty = allocate only (undefined contents); otherwise exactly size bytes
     };
+
+    /// Allocation-only is valid for every memory intent; nonempty initialization covers exactly the buffer.
+    /// Mechanism/capability refusal is separate from this shared shape validation.
+    [[nodiscard]] constexpr error validate_buffer_initialization(std::uint64_t size, std::uint64_t initial_size) noexcept {
+        return size != 0 && (initial_size == 0 || initial_size == size) ? error::ok : error::invalid_argument;
+    }
 
     /// A 3D extent in texels. POD, passed by value.
     struct image_extent {
@@ -678,8 +682,8 @@ export namespace deren::promise::rhi {
 
     // ---- OWNERSHIP: WHAT `release()` IS, AND WHAT IT IS NOT ---------------------------------------
     //
-    // EVERY handle a factory returns (`swapchain`, `buffer`, `image`, `sampler`, `shader`, `pipeline`,
-    // `query`) is handed out WITH ONE REFERENCE, and the caller releases that reference by calling
+    // EVERY handle a factory returns (`buffer`, `image`, `sampler`, `shader`, `pipeline`)
+    // is handed out WITH ONE REFERENCE, and the caller releases that reference by calling
     // `release()` EXACTLY ONCE. The call runs INSIDE the backend - that is the whole reason it is a
     // virtual instead of the caller reaching for `delete`: the allocator, the registry entry and the
     // reference count all stay on the side that created them, and the C ABI never has to hand out an
@@ -917,13 +921,18 @@ export namespace deren::promise::rhi {
         /// RELEASE THE CALLER'S ONE REFERENCE. Runs inside the backend, whatever the compiler's `delete`
         /// would have done, and **may free nothing**: the resource can be shared/reused, so the object
         /// dies only with its last reference (see the ownership note above). Do not touch the handle
-        /// afterwards. A borrowed view answers with a one-time log and releases nothing.
+        /// afterwards. A borrowed frame view carries no reference to drop: callers MUST NOT invoke
+        /// release() on it, and the backend MAY terminate on that ownership precondition violation.
         virtual void release() noexcept = 0;
 
         [[nodiscard]] virtual std::uint64_t size() const noexcept = 0;
-        /// The bytes of a HOST-VISIBLE buffer, as the caller may read them; EMPTY when this buffer cannot
-        /// be mapped (a device-local one). Read only after the frame that wrote it has completed: the
-        /// contract carries no fence here, so the caller's own pacing (wait_idle) is the ordering.
+        /// Direct bytes of a host-visible buffer; empty when it cannot be mapped. Successful host-mapped
+        /// intents require no explicit flush/invalidate calls. The span borrows the buffer's storage and
+        /// obeys its owner/frame lifetime. Calling mapped() neither waits nor inserts a barrier.
+        /// Finish CPU writes before submitting GPU readers, and do not overwrite a range still in use.
+        /// Before reading GPU writes, publish them for host_read and establish completion with a matching
+        /// submission token, the frame protocol or wait_idle. Coherence alone supplies neither ordering
+        /// nor completion. A backend unable to provide this mapping guarantee must refuse creation.
         [[nodiscard]] virtual std::span<std::byte> mapped() noexcept = 0;
     };
 
@@ -1323,8 +1332,6 @@ export namespace deren::promise::rhi {
     };
 
     /// The descriptors of the remaining factories. Opaque until S1 (see the banner).
-    struct swapchain_desc;
-    struct query_desc;
 
     /// The remaining tier-1 objects: samplers, shaders, pipelines, swapchains, queries
     /// and command lists.
@@ -1411,7 +1418,7 @@ export namespace deren::promise::rhi {
     };
     /// Stable ascending uint32 key/value sort. Operands are borrowed until GPU completion.
     /// Caller publishes writes before record and publishes output reads afterward.
-    /// Recording overwrites pipeline, layout and push bindings; consumers must rebind.
+    /// Internal native bindings may be overwritten; logical recorder state is preserved for later RHI consumers.
     struct radix_sorter : object {
         explicit radix_sorter(std::string_view name) noexcept
             : object(name) {
@@ -1420,17 +1427,6 @@ export namespace deren::promise::rhi {
         virtual void release() noexcept = 0;
         [[nodiscard]] virtual radix_sort_requirements requirements(std::uint32_t count) const noexcept = 0;
         [[nodiscard]] virtual error record(command_recorder&, radix_sort_info const&) = 0;
-    };
-
-    /// RESERVED in ABI 53: incomplete; create_query MUST return an empty product and callers MUST NOT rely on query behavior.
-    struct query : object {
-
-        explicit query(std::string_view const name) noexcept
-            : object(name) {
-        }
-        virtual ~query() noexcept = default;
-        /// see `buffer::release()`
-        virtual void release() noexcept = 0;
     };
 
     // ---- THE COMMAND BUFFER: THE OWNED RECORDING HANDLE (abi 15) ------------------------------------
@@ -1485,7 +1481,7 @@ export namespace deren::promise::rhi {
         none = 0,
         one_time_submit = 1u << 0,      ///< recorded once and submitted once: the backend may optimise
         render_pass_continue = 1u << 1, ///< recorded INSIDE a rendering instance (mergeable segments only)
-        simultaneous_use = 1u << 2,     ///< may be recorded from more than one thread at once
+        simultaneous_use = 1u << 2,     ///< the recorded buffer may have overlapping submissions/executions; recording stays caller-serialized
     };
 
     /// The flags of `command_buffer_usage`, spelled the way the buffer flag set is (`to_bits` + `has_flag`).
@@ -2025,8 +2021,6 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual unique_object<sampler> create_sampler(sampler_desc const& desc) = 0;
         [[nodiscard]] virtual unique_object<shader> create_shader(shader_desc const& desc) = 0;
         [[nodiscard]] virtual unique_object<pipeline> create_pipeline(pipeline_desc const& desc) = 0;
-        /// RESERVED in ABI 53: query_desc is a forward declaration, so this MUST return empty; query is not a usable ABI 53 product.
-        [[nodiscard]] virtual unique_object<query> create_query(query_desc const& desc) = 0;
         [[nodiscard]] virtual std::expected<resource_group_ref, error> create_resource_group(resource_group_desc const&) {
             return std::unexpected(error::unsupported);
         }
@@ -2061,8 +2055,6 @@ export namespace deren::promise::rhi {
         virtual ~frame_context() noexcept = default;
         frame_context(frame_context const&) = delete;
         frame_context& operator=(frame_context const&) = delete;
-        /// RESERVED in ABI 53: swapchain_desc is a forward declaration, so this MUST return empty; use frame_swapchain().
-        [[nodiscard]] virtual unique_object<swapchain> create_swapchain(swapchain_desc const& desc) = 0;
         /// Current frame's primary, or null outside recording. Borrowed until frame submission.
         [[nodiscard]] virtual command_buffer* begin_commands() = 0;
         /// Last acquired image; null before first acquire, valid through submit until the next acquire.

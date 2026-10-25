@@ -1,10 +1,10 @@
-# Optional device-probe lane for the ABI 53 deferred-recording contract.
+# Optional device-probe lane for the ABI 55 logical-binding and deferred-recording contract.
 #
 # CI is headless and cannot create a Vulkan device, so these probes are deliberately outside headless CTest
 # (see CMakeLists.txt "Device-only ... deliberately outside headless CTest"). Run this script on a machine with
 # a GPU before a release/checkpoint that touches the recorder, resource groups, submission lifetimes, the frame
-# path or the Gaussian GPU path. It records the check counts; a target whose count differs from the expected
-# number is reported (expected counts are the 2026-10-24 baseline, update them when a probe legitimately grows).
+# path or the Gaussian GPU path. It records check counts and refuses a target below its expected minimum
+# (minimum counts are the 2026-10-25 baseline, update them when a probe legitimately grows).
 param(
     [string]$BuildDir = "build-release-dyn-clang64",
     [string]$OutFile = ""
@@ -12,11 +12,13 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path $BuildDir
 $probes = @(
-    @{ name = "test_resource_group";          expected = 158 },
-    @{ name = "test_texture_group";           expected = 95 },
-    @{ name = "test_submission_completion";   expected = 63 },
+    @{ name = "test_resource_group";          expected = 221 },
+    @{ name = "test_texture_group";           expected = 116 },
+    @{ name = "test_submission_completion";   expected = 75 },
     @{ name = "test_render_graph_frame";      expected = 12 },
-    @{ name = "test_gaussian_gpu_frame";      expected = 65 }
+    @{ name = "test_gaussian_gpu_frame";      expected = 65 },
+    @{ name = "test_buffer_transfer";         expected = 65 },
+    @{ name = "test_subtilis_transfer";       expected = 56 }
 )
 $results = @()
 $failed = 0

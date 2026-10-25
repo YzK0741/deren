@@ -613,6 +613,11 @@ target_sources(resource_cluster_core PUBLIC FILE_SET CXX_MODULES FILES
     source/engine/resource_cluster/resource_cluster.cppm)
 target_link_libraries(resource_cluster_core PUBLIC shared_utility promise)
 
+add_library(buffer_transfer_core STATIC)
+target_sources(buffer_transfer_core PUBLIC FILE_SET CXX_MODULES FILES
+    source/engine/buffer_transfer/buffer_transfer.cppm)
+target_link_libraries(buffer_transfer_core PUBLIC resource_cluster_core shared_utility promise)
+
 # Shared offline wire/reference sources; no builder, loader or GPU dependency.
 add_library(asset_subtilis_core STATIC)
 target_sources(asset_subtilis_core PUBLIC FILE_SET CXX_MODULES FILES
@@ -922,6 +927,7 @@ target_link_libraries(deren_assets
 target_link_libraries(deren_engine
         PUBLIC
         resource_cluster_core
+        buffer_transfer_core
         gaussian_loader
         glfw
         static_utility
@@ -2397,3 +2403,12 @@ target_compile_definitions(test_texture_group PRIVATE VR_TEXTURE_GROUP_SHADER_PA
 message(STATUS "slangc: ${VR_SLANGC_EXECUTABLE} - every build compiles source/shaders/*.spv into ${VR_SHADER_OUT_DIR}")
 
 target_link_libraries(test_render_operations promise)
+
+# Buffer transfer service probe; the device lane passes --with-device explicitly.
+add_executable(test_buffer_transfer source/tests/test_buffer_transfer.cpp)
+target_link_libraries(test_buffer_transfer buffer_transfer_core backend_loader static_utility vstd_lib vulkan_main_context Vulkan::Vulkan)
+add_dependencies(test_buffer_transfer deren_vulkan)
+
+add_executable(test_subtilis_transfer source/tests/test_subtilis_transfer.cpp)
+target_link_libraries(test_subtilis_transfer deren_engine backend_loader static_utility vstd_lib)
+add_dependencies(test_subtilis_transfer deren_vulkan)

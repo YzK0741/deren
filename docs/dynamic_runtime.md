@@ -23,7 +23,7 @@ compilations from drifting.
 | `:core_desc` | `create_info`, the ONE creation structure - the program fills it and the backend builds its context from it |
 | `:extension` | the optional interfaces and the queries that hand them out |
 
-The contract is versioned by `rhi::abi_version` (53 today), and a change to it is one of three kinds:
+The contract is versioned by `rhi::abi_version` (55 today), and a change to it is one of three kinds:
 **appending a slot to an existing interface bumps the number**, and so does **adding a field to a
 by-value structure** - its layout is what both halves pass, even when a `struct_size` guard lets the
 backend keep the old default; abi 45 (the `command_buffer_begin_info::inherit_descriptor_heaps`
@@ -34,6 +34,12 @@ boundary changes shape. The GUI plugin boundary versions separately: `gui::gui_a
 and the two numbers do not imply each other.
 
 ## Core subviews (ABI 50)
+
+ABI 55 extends `descriptor_space` with fixed shader-slot writes for image, buffer and acceleration-structure
+objects plus logical binding. Runtime no longer computes physical descriptor offsets or constructs address
+ranges for these writes; Vulkan resolves and validates them internally. The fixed profile is optional and
+queried separately from texture-group support. Old ABI 54 DLLs must be rebuilt. See the
+[checkpoint](reviews/2026-10-25-logical-descriptor-writes.md) and the RHI standard for update/lifetime rules.
 
 The root owns the device and exposes three borrowed public members with ordinary names:
 
@@ -76,8 +82,16 @@ Pipelines declare logical numbered bindings and shader parameter locations; `loa
 validates a complete matching group and retains it for recorded/pending work. Backend descriptor
 allocations remain private. See [resource groups](resource_groups.md) for usage, ownership and limits.
 ABI 51 itself recorded immediately; deferred/lazy state recording arrived in ABI 53 (see the ABI 53
-section below). Resource groups originated in ABI 51; current binaries require ABI 53 after deferred
-recording application; the subview split originated in ABI 50.
+section below). Resource groups originated in ABI 51 and the subview split in ABI 50. Current binaries
+require ABI 54 after removal of the reserved factory slots.
+
+## Removal of incomplete interfaces (ABI 54)
+
+The incomplete `query`/`query_desc`/`create_query` and `swapchain_desc`/`create_swapchain` surfaces are removed.
+The unused `mesh_shader` extension is also removed; its bit 0x4 remains retired and answers null.
+The frame's `swapchain`, GPU timing, mesh capability query and tier-1 mesh draw verbs are unchanged.
+Resource/frame vtables changed: rebuild the executable, backend and plugins together; ABI 53 is rejected.
+The active extension list contains eleven entries and its mask is 0x3FD3.
 
 ## Deferred recording application (ABI 53)
 
@@ -367,9 +381,8 @@ executable locates it by walking up from its working directory.
 ## Writing a second backend
 
 The normative per-interface standard for every virtual function is [The deren RHI API standard](rhi_api_standard.md);
-this page is the architectural overview. The standard records ABI 53's reserved interfaces (`query`,
-`create_query`, `create_swapchain`, `mesh_shader`) and the genuinely unspecified behavior a second backend must not
-rely on.
+this page is the architectural overview. The standard records ABI 54's removal of incomplete query/swapchain factories and the unused mesh extension,
+and the genuinely unspecified behavior a second backend must not rely on.
 
 1. Implement `deren::promise::rhi::api_core` and its resource, command and frame interfaces. Bind
    those views in the derived constructor before returning the core to callers.
@@ -410,3 +423,9 @@ The namespaces split the way the module names do: the portable half reads `deren
 `deren::engine`, and only the native Vulkan implementation keeps `deren.vulkan.*` / `deren::vulkan`.
 The doxygen groups follow the same split (`engine_*` and `vulkan_*`; no group is spelled
 `vulkan_render_*` any more), so the rename that used to be the open item here has been made.
+
+## Independent buffer transfers
+
+The engine [buffer transfer service](buffer_transfers.md) composes resource leases, scoped synchronization
+and completion receipts for independent graphics upload/readback batches. It retains pending operands and
+staging through completion without changing the RHI ABI or frame screenshot path.

@@ -426,7 +426,10 @@ export namespace deren::promise::rhi {
     // ABI 51: immutable general resource groups, pipeline binding layout and recording/factory verbs.
     // ABI 52: unified recorder push_constants, retired heap push API/property.
     // ABI 53: deferred recording application and native interop lifecycle.
-    inline constexpr std::uint32_t abi_version = 53u;
+    // ABI 54: remove incomplete query/swapchain factories and the unused mesh_shader extension.
+    // Retired extension bits retain their numeric identity and are never reused.
+    // ABI 55: logical fixed-slot descriptor writes and binding on descriptor_space.
+    inline constexpr std::uint32_t abi_version = 55u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
@@ -1134,6 +1137,10 @@ export namespace deren::promise::rhi {
         /// `descriptor_position` (see `descriptor_write`). A value, not a vtable, so appending it moves
         /// no `abi_version` - the same rule the `vulkan_*` tags below follow.
         descriptor_write = 6,
+        descriptor_image_write = 7,
+        descriptor_buffer_write = 8,
+        descriptor_acceleration_structure_write = 9,
+        descriptor_bind = 10,
         /// RETIRED in abi 34: the heap image write carries no native view any more. The VALUE stays (a tag,
         /// like an ability bit, is never reused) and the request validation refuses it.
         vulkan_heap_image = 0x10000,

@@ -72,6 +72,10 @@ int main() {
     if (!original) {
         return deren::vk_test::finish("test_subtilis_upload");
     }
+    {
+        auto forced = sub::upload_geometry(device, original, rhi::no_buffer_flags, sub::geometry_upload_mode::batched);
+        CHECK(!forced && forced.error() == rhi::error::unsupported);
+    }
     CHECK(!sub::upload_geometry({}, original));
     CHECK(!sub::upload_geometry(device, {}));
     auto empty = sub::build({});

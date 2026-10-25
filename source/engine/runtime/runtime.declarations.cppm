@@ -310,13 +310,13 @@ namespace deren::engine {
     /// A Vulkan format the engine still holds (a slot table, a probe's choice) in the contract's
     /// spelling. `unknown` for anything the contract does not name - create_image refuses those.
     // 独立定义在 constructor 分区，避免调用点优化成具体 core 的 query_extension 符号。
-    [[nodiscard]] bool contract_heap_ready(rhi::api_core& face) noexcept;
-    [[nodiscard]] rhi::descriptor_heap_properties contract_heap_properties(rhi::api_core& face) noexcept;
-    [[nodiscard]] bool contract_write_heap_image(rhi::api_core& face, std::uint64_t offset, rhi::image const& resource,
-                                                 rhi::image_view_desc const& view, rhi::descriptor_type type) noexcept;
-    [[nodiscard]] bool contract_write_heap_buffer(rhi::api_core& face, std::uint64_t offset, std::uintptr_t address,
-                                                  std::uint64_t size, rhi::descriptor_type type) noexcept;
-    void contract_record_heap_bind(rhi::api_core& face, rhi::command_recorder& commands) noexcept;
+    [[nodiscard]] bool contract_descriptor_ready(rhi::api_core& face) noexcept;
+    [[nodiscard]] bool contract_write_descriptor_image(rhi::api_core& face, std::uint32_t slot, rhi::image const& resource,
+                                                       rhi::image_view_desc const& view, rhi::descriptor_type type) noexcept;
+    [[nodiscard]] bool contract_write_descriptor_buffer(rhi::api_core& face, std::uint32_t slot, rhi::buffer const& resource,
+                                                        std::uint64_t size, rhi::descriptor_type type) noexcept;
+    [[nodiscard]] bool contract_write_descriptor_structure(rhi::api_core& face, std::uint32_t slot, rhi::acceleration_structure const& resource) noexcept;
+    void contract_record_descriptor_bind(rhi::api_core& face, rhi::command_recorder& commands) noexcept;
 
     // (THE `contract_image_extent` HELPER IS GONE - plan X5 B3.2. It existed because the pass layer held
     //  `rhi::image_extent` while the engine spelled its own sizes differently, so it was "the ONE place the two
@@ -2483,9 +2483,8 @@ namespace deren::engine {
          */
         [[nodiscard]] std::uintptr_t buffer_address(rhi::buffer const& buffer) const noexcept;
         /**
-         * @brief write ONE converted buffer's address range into the descriptor heap's grid slot @p slot.
-         * @return whether the heap took the write; a false is the caller's to log or to panic on, exactly as
-         *         the per-site `descriptor_heaps.write_buffer` call it replaces was.
+         * @brief Publish a buffer object/range at the logical shader slot @p slot.
+         * @return Whether descriptor_space accepted the write; physical layout belongs to the backend.
          */
         [[nodiscard]] bool write_heap_buffer(rhi::buffer const& buffer, uint32_t slot, std::uint64_t size, rhi::descriptor_type type) const;
         // scene center handed to enable_shadows. The fit falls back to center +- scene_radius when a

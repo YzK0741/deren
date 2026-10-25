@@ -438,5 +438,13 @@ int32_t main() {
         }
     }
 
+    for (auto const* file : {"source/engine/runtime/runtime.cpp", "source/engine/runtime/runtime.constructor.cppm",
+                             "source/engine/runtime/runtime.frames.cppm", "source/engine/runtime/runtime.declarations.cppm",
+                             "source/engine/runtime/runtime.probes.cppm",
+                             "source/engine/pass/software_visibility.cpp"}) {
+        auto text = read_text((root / file).string());
+        for (auto const* physical : {"heap_slot_offset", "heap_slot_stride", "rhi::descriptor_heap", "heap_buffer_write_info", "heap_image_write_info"})
+            CHECK_MSG(text.find(physical) == text.npos, (deren::utility::vessel::string(file) + " retains physical descriptor access: " + physical).c_str());
+    }
     return deren::vk_test::finish("test_docs");
 }

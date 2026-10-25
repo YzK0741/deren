@@ -90,8 +90,10 @@ int main() {
         return deren::vk_test::finish("test_render_graph_bloom");
     (void)core->frames->frame_begin();
     auto commands = core->frames->begin_commands();
+    CHECK(commands->begin_recording({}) == rhi::error::ok);
     auto command_owner = rhi::shared_object<rhi::command_buffer>(core, commands);
     test_pipeline pipeline;
+    CHECK(commands->bind_pipeline(pipeline) == rhi::error::ok);
     std::array<rhi::pipeline*, 1> pipelines{&pipeline};
     unsigned calls = 0;
     auto result = prepared->record(*commands, [&](unsigned level, rg::execution::record_context const& context) noexcept {
@@ -117,6 +119,7 @@ int main() {
     });
     CHECK(result == rhi::error::ok && calls == 4);
     CHECK(deren::vk_test::probe_scoped_record_count(*core) == 5);
+    CHECK(commands->end_recording() == rhi::error::ok);
     pass::post_bloom_pass invalid_stage(0);
     CHECK(invalid_stage.record_content({}) == rhi::error::invalid_argument);
     return deren::vk_test::finish("test_render_graph_bloom");

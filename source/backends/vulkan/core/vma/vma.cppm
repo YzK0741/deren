@@ -464,6 +464,8 @@ namespace {
         }
         case deren::vulkan::buffer_type::uniform_cached: {
             info.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+            info.requiredFlags = deren::vulkan::coherent_host_visible_flags;
+            info.preferredFlags = VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
             info.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
                          VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
             break;
@@ -479,6 +481,7 @@ namespace {
             // written by the GPU (transfer), read by the host: host-visible local memory, mapped
             // for random access reads
             info.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+            info.requiredFlags = deren::vulkan::coherent_host_visible_flags;
             info.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
                          VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
             break;
@@ -487,6 +490,9 @@ namespace {
             // WRITTEN BY THE HOST, read by the GPU (transfer): the mirror of the read-back type, so the same
             // host-visible mapping, with sequential writes instead of random reads.
             info.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+            // Exposed mapped buffers have no public flush/invalidate verb. This
+            // differs from the internal upload cache, which explicitly flushes.
+            info.requiredFlags = deren::vulkan::coherent_host_visible_flags;
             info.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
                          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
             break;
@@ -1123,8 +1129,9 @@ namespace deren::vulkan {
         case buffer_type::vertex:
         case buffer_type::index:
         case buffer_type::uniform_gpu_only:
-            // Use a staging buffer
-            upload_success = staging_upload(buffer, data, size_byte);
+            // Empty initialization means allocate only, including these upload-capable usages.
+            // Never stage a null pointer or synthesize zero contents for an uninitialized buffer.
+            upload_success = data == nullptr || staging_upload(buffer, data, size_byte);
             break;
 
         case buffer_type::acceleration_structure_storage:

@@ -8,7 +8,7 @@
 //
 // THE GLFW CALLBACKS CAME WITH THE CONSTRUCTOR because the constructor is what registers them; the
 // window lookup they use is the same three-line helper runtime.cpp keeps. The heap-write helpers that
-// sit inside the init run (heap_slot_offset, write_heap_grid_image, write_heap_scene_buffer) came too,
+// sit inside the init run (logical descriptor helpers, write_heap_grid_image, write_heap_scene_buffer) came too,
 // and runtime.cpp keeps a copy of the ones its own frame path still calls. Duplication of small
 // file-local helpers across two anonymous namespaces is legal but it IS duplication: the follow-up is to
 // publish the heap three from deren.vulkan.core:descriptor_heap, where heap plumbing belongs.
@@ -129,44 +129,33 @@ namespace deren::engine {
         this->task_pool.wait_until_priority_done(pool_priority);
     }
 
-    bool contract_heap_ready(rhi::api_core& face) noexcept {
-        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
-        return heap != nullptr && heap->ready();
+    bool contract_descriptor_ready(rhi::api_core& face) noexcept {
+        auto* space = rhi::query_extension<rhi::descriptor_space>(face);
+        if (!space || !space->ready())
+            return false;
+        auto range = space->fixed_slots();
+        auto base = deren::engine::render_layout::heap_slot_base;
+        auto count = deren::engine::render_layout::heap_slot_count;
+        return range.base <= base && base - range.base <= range.count && count <= range.count - (base - range.base);
     }
-
-    rhi::descriptor_heap_properties contract_heap_properties(rhi::api_core& face) noexcept {
-        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
-        return heap != nullptr ? heap->properties() : rhi::descriptor_heap_properties{};
+    bool contract_write_descriptor_image(rhi::api_core& face, std::uint32_t slot, rhi::image const& resource,
+                                         rhi::image_view_desc const& view, rhi::descriptor_type type) noexcept {
+        auto* space = rhi::query_extension<rhi::descriptor_space>(face);
+        return space && space->write_image({.slot = slot, .resource = &resource, .view = &view, .type = type}) == rhi::error::ok;
     }
-
-    bool contract_write_heap_image(rhi::api_core& face, std::uint64_t const offset, rhi::image const& resource,
-                                   rhi::image_view_desc const& view, rhi::descriptor_type const type) noexcept {
-        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
-        rhi::heap_image_write_info info{};
-        info.offset = offset;
-        info.resource = &resource;
-        info.view = &view;
-        info.type = type;
-        return heap != nullptr && heap->write_image(info) == rhi::error::ok;
+    bool contract_write_descriptor_buffer(rhi::api_core& face, std::uint32_t slot, rhi::buffer const& resource,
+                                          std::uint64_t size, rhi::descriptor_type type) noexcept {
+        auto* space = rhi::query_extension<rhi::descriptor_space>(face);
+        return space && space->write_buffer({.slot = slot, .resource = &resource, .size = size, .type = type}) == rhi::error::ok;
     }
-
-    bool contract_write_heap_buffer(rhi::api_core& face, std::uint64_t const offset, std::uintptr_t const address,
-                                    std::uint64_t const size, rhi::descriptor_type const type) noexcept {
-        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
-        rhi::heap_buffer_write_info info{};
-        info.offset = offset;
-        info.address = address;
-        info.size = size;
-        info.type = type;
-        return heap != nullptr && heap->write_buffer(info) == rhi::error::ok;
+    bool contract_write_descriptor_structure(rhi::api_core& face, std::uint32_t slot, rhi::acceleration_structure const& resource) noexcept {
+        auto* space = rhi::query_extension<rhi::descriptor_space>(face);
+        return space && space->write_acceleration_structure({.slot = slot, .resource = &resource}) == rhi::error::ok;
     }
-
-    void contract_record_heap_bind(rhi::api_core& face, rhi::command_recorder& commands) noexcept {
-        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
-        if (heap != nullptr) {
-            rhi::heap_bind_info info{};
-            info.commands = &commands;
-            [[maybe_unused]] rhi::error const result = heap->bind(info);
+    void contract_record_descriptor_bind(rhi::api_core& face, rhi::command_recorder& commands) noexcept {
+        auto* space = rhi::query_extension<rhi::descriptor_space>(face);
+        if (space) {
+            [[maybe_unused]] auto result = space->bind({.commands = &commands});
         }
     }
 
@@ -720,17 +709,16 @@ namespace deren::engine {
         // diffuse term is multiplied away by (1 - metallic) anyway) looked untouched. The startup probe had
         // it in the log the whole time: "the heap-native probe sampled grid slot 16384 ... read back
         // 0x00000000", on the very slot this write fills, while the material table's white record read 0xffff.
-        // @note deren::engine::render_layout::heap_slot_offset() is defined below this constructor, so the arithmetic is spelled out: a slot
-        //       number is already absolute and the stride is the one every heap array agrees on.
-        if (contract_heap_ready(this->rhi_face())) {
+        // The shader slot is a logical identity; descriptor_space resolves its physical storage.
+        if (contract_descriptor_ready(this->rhi_face())) {
             // THE DESCRIPTOR IS THE CONTRACT'S (item d of the escape-shrink plan): the image AND its view are
             // the contract objects created six lines above (`owned_textures.back()` / `owned_texture_views.back()`),
             // so the descriptor is an `image_view_desc` - all remaining layers and mips, which is the view those
             // lines made. The hand-built `VkImageViewCreateInfo` and the `native_image` read that fed it are gone
             // with it: this was the last escape use in this function.
             rhi::image_view_desc const white_heap_view{};
-            std::uint64_t const white_offset = static_cast<std::uint64_t>(deren::engine::render_layout::heap_slots::textures + this->white_texture_index) * deren::engine::render_layout::heap_slot_stride;
-            if (!contract_write_heap_image(this->rhi_face(), white_offset, *this->owned_textures.back(), white_heap_view, rhi::descriptor_type::sampled_image)) {
+            std::uint32_t const white_slot = deren::engine::render_layout::heap_slots::textures + this->white_texture_index;
+            if (!contract_write_descriptor_image(this->rhi_face(), white_slot, *this->owned_textures.back(), white_heap_view, rhi::descriptor_type::sampled_image)) {
                 deren::utility::log("descriptor heap: the white fallback texture did not reach grid slot {}", deren::engine::render_layout::heap_slots::textures + this->white_texture_index);
             }
         }
@@ -753,17 +741,15 @@ namespace deren::engine {
         // per-frame write. It goes at its OWN GRID SLOT (deren::engine::render_layout::heap_slots::materials), which is the same number a
         // heap-native shader bakes as `heap_slots_materials` (source/shaders/heap_slots.glsl): the write and the read are
         // the same number by construction rather than by review.
-        if (contract_heap_ready(this->rhi_face())) {
-            std::uintptr_t const address = this->buffer_address(*this->material_buffer);
+        if (contract_descriptor_ready(this->rhi_face())) {
             bool const written = this->write_heap_buffer(*this->material_buffer,
                                                          deren::engine::render_layout::heap_slots::materials,
                                                          static_cast<std::uint64_t>(deren::engine::material_capacity) * sizeof(material_record),
                                                          rhi::descriptor_type::storage_buffer);
-            deren::utility::log("descriptor heap: material table {} (address 0x{:x}, {} records, offset {})",
+            deren::utility::log("descriptor heap: material table {} ({} records, slot {})",
                                 written ? "written" : "NOT written",
-                                address,
                                 deren::engine::material_capacity,
-                                static_cast<std::uint64_t>(deren::engine::render_layout::heap_slots::materials) * deren::engine::render_layout::heap_slot_stride);
+                                deren::engine::render_layout::heap_slots::materials);
         }
 
         // ---- THE MATERIAL COLOURS: ONE `vec4` PER LANE PER MATERIAL, WHITE to begin with ----
@@ -951,18 +937,16 @@ namespace deren::engine {
                     glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
             }
             std::memcpy(this->toon_colour_mapped, neutral_colours.data(), std::as_bytes(std::span(neutral_colours)).size());
-            if (contract_heap_ready(this->rhi_face())) {
-                std::uintptr_t const address = this->buffer_address(*this->toon_colour_buffer);
+            if (contract_descriptor_ready(this->rhi_face())) {
                 bool const written = this->write_heap_buffer(*this->toon_colour_buffer,
                                                              deren::engine::render_layout::heap_slots::toon_colours,
                                                              std::as_bytes(std::span(neutral_colours)).size(),
                                                              rhi::descriptor_type::storage_buffer);
-                deren::utility::log("descriptor heap: toon colour table {} (address 0x{:x}, {} lanes x {} materials, offset {})",
+                deren::utility::log("descriptor heap: toon colour table {} ({} lanes x {} materials, slot {})",
                                     written ? "written" : "NOT written",
-                                    address,
                                     static_cast<uint32_t>(deren::engine::toon_colour_lane::count),
                                     deren::engine::material_capacity,
-                                    static_cast<std::uint64_t>(deren::engine::render_layout::heap_slots::toon_colours) * deren::engine::render_layout::heap_slot_stride);
+                                    deren::engine::render_layout::heap_slots::toon_colours);
             }
         }
 
@@ -983,17 +967,15 @@ namespace deren::engine {
         //      rewritten, which is why it is one descriptor and not a per-frame pair.
 
         // Allocation and zero initialization are provided by scene_tables_pass.
-        if (contract_heap_ready(this->rhi_face())) {
-            std::uintptr_t const address = this->buffer_address(*this->toon_lane_buffer);
+        if (contract_descriptor_ready(this->rhi_face())) {
             bool const written = this->write_heap_buffer(*this->toon_lane_buffer,
                                                          deren::engine::render_layout::heap_slots::toon_lanes,
                                                          static_cast<std::uint64_t>(deren::engine::material_capacity) * deren::engine::toon_lane_blocks * sizeof(glm::uvec4),
                                                          rhi::descriptor_type::storage_buffer);
-            deren::utility::log("descriptor heap: toon lane table {} (address 0x{:x}, {} lanes, offset {})",
+            deren::utility::log("descriptor heap: toon lane table {} ({} lanes, slot {})",
                                 written ? "written" : "NOT written",
-                                address,
                                 deren::engine::material_capacity,
-                                static_cast<std::uint64_t>(deren::engine::render_layout::heap_slots::toon_lanes) * deren::engine::render_layout::heap_slot_stride);
+                                deren::engine::render_layout::heap_slots::toon_lanes);
         }
 
         // ---- THE TOON LIGHT RIG: ONE BLOCK FOR THE RUN, and it is not a per-frame pair for the reason the two
@@ -1003,17 +985,15 @@ namespace deren::engine {
         {
 
             // Allocation and zero initialization are provided by scene_tables_pass.
-            if (contract_heap_ready(this->rhi_face())) {
-                std::uintptr_t const address = this->buffer_address(*this->toon_rig_buffer);
+            if (contract_descriptor_ready(this->rhi_face())) {
                 bool const written = this->write_heap_buffer(*this->toon_rig_buffer,
                                                              deren::engine::render_layout::heap_slots::toon_rig,
                                                              static_cast<std::uint64_t>(sizeof(deren::engine::toon_rig)),
                                                              rhi::descriptor_type::storage_buffer);
-                deren::utility::log("descriptor heap: toon light rig {} (address 0x{:x}, {} B, offset {})",
+                deren::utility::log("descriptor heap: toon light rig {} ({} B, slot {})",
                                     written ? "written" : "NOT written",
-                                    address,
                                     sizeof(deren::engine::toon_rig),
-                                    static_cast<std::uint64_t>(deren::engine::render_layout::heap_slots::toon_rig) * deren::engine::render_layout::heap_slot_stride);
+                                    deren::engine::render_layout::heap_slots::toon_rig);
             }
         }
 
@@ -1026,18 +1006,16 @@ namespace deren::engine {
         {
 
             // Allocation and zero initialization are provided by scene_tables_pass.
-            if (contract_heap_ready(this->rhi_face())) {
-                std::uintptr_t const address = this->buffer_address(*this->meshlet_buffer);
+            if (contract_descriptor_ready(this->rhi_face())) {
                 bool const written = this->write_heap_buffer(*this->meshlet_buffer,
                                                              deren::engine::render_layout::heap_slots::meshlets,
                                                              static_cast<std::uint64_t>(deren::engine::meshlet_capacity) * sizeof(deren::engine::meshlet),
                                                              rhi::descriptor_type::storage_buffer);
-                deren::utility::log("descriptor heap: meshlet table {} (address 0x{:x}, {} records of {} B, offset {})",
+                deren::utility::log("descriptor heap: meshlet table {} ({} records of {} B, slot {})",
                                     written ? "written" : "NOT written",
-                                    address,
                                     deren::engine::meshlet_capacity,
                                     sizeof(deren::engine::meshlet),
-                                    static_cast<std::uint64_t>(deren::engine::render_layout::heap_slots::meshlets) * deren::engine::render_layout::heap_slot_stride);
+                                    deren::engine::render_layout::heap_slots::meshlets);
             }
         }
 
@@ -1071,7 +1049,7 @@ namespace deren::engine {
 
             // Allocation and zero initialization are provided by scene_tables_pass - THE ALLOCATION SIZE IS THAT
             // PASS'S `descriptions()`, which is where the OTHER copy of this 16 lives; both have to move together.
-            if (contract_heap_ready(this->rhi_face())) {
+            if (contract_descriptor_ready(this->rhi_face())) {
                 bool const written = this->write_heap_buffer(*this->meshlet_stats_buffer,
                                                              deren::engine::render_layout::heap_slots::meshlet_stats,
                                                              static_cast<std::uint64_t>(this->frame_ring().slot_count()) * 16u * sizeof(uint32_t),
@@ -1089,7 +1067,7 @@ namespace deren::engine {
         {
 
             // Allocation and zero initialization are provided by scene_tables_pass.
-            if (contract_heap_ready(this->rhi_face())) {
+            if (contract_descriptor_ready(this->rhi_face())) {
                 bool const written = this->write_heap_buffer(*this->meshlet_culled_buffer,
                                                              deren::engine::render_layout::heap_slots::meshlet_culled,
                                                              static_cast<std::uint64_t>(this->frame_ring().slot_count()) * deren::engine::meshlet_capacity * sizeof(deren::engine::meshlet),
@@ -1107,7 +1085,7 @@ namespace deren::engine {
         {
 
             // Allocation and zero initialization are provided by scene_tables_pass.
-            if (contract_heap_ready(this->rhi_face())) {
+            if (contract_descriptor_ready(this->rhi_face())) {
                 bool const written = this->write_heap_buffer(*this->visibility_items_buffer,
                                                              deren::engine::render_layout::heap_slots::visibility_items,
                                                              static_cast<std::uint64_t>(this->frame_ring().slot_count()) *
@@ -1696,17 +1674,17 @@ namespace deren::engine {
                 for (uint32_t i = 0; i < generation->objects.size(); ++i) {
                     images[i] = {generation->objects[i].image.get()};
                     views[i] = {generation->objects[i].array_view.get()};
-                    if (contract_heap_ready(this->rhi_face()) &&
-                        !contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(pass::output_targets_pass::heap_slots[family] + i),
-                                                   *images[i], rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image)) {
+                    if (contract_descriptor_ready(this->rhi_face()) &&
+                        !contract_write_descriptor_image(this->rhi_face(), pass::output_targets_pass::heap_slots[family] + i,
+                                                         *images[i], rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image)) {
                         deren::utility::log("descriptor heap: managed output target publication failed");
                     }
                     uint32_t const storage_slot = pass::output_targets_pass::storage_slots[family];
-                    if (storage_slot != 0 && contract_heap_ready(this->rhi_face())) {
+                    if (storage_slot != 0 && contract_descriptor_ready(this->rhi_face())) {
                         rhi::image_view_desc range{};
                         range.role = rhi::view_role::storage;
-                        if (!contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(storage_slot + i),
-                                                       *images[i], range, rhi::descriptor_type::storage_image)) {
+                        if (!contract_write_descriptor_image(this->rhi_face(), storage_slot + i,
+                                                             *images[i], range, rhi::descriptor_type::storage_image)) {
                             deren::utility::log("descriptor heap: managed storage target publication failed");
                         }
                     }
@@ -1752,7 +1730,7 @@ namespace deren::engine {
             if (!this->software_tiles_buffer || this->software_tiles_mapped == nullptr) {
                 return rhi::error::invalid_argument;
             }
-            if (contract_heap_ready(this->rhi_face()) &&
+            if (contract_descriptor_ready(this->rhi_face()) &&
                 !this->write_heap_buffer(*this->software_tiles_buffer, deren::engine::render_layout::heap_slots::software_tiles,
                                          this->software_tiles_buffer->size(), rhi::descriptor_type::storage_buffer)) {
                 deren::utility::log("software raster: CSR tile buffer descriptor publication failed");
@@ -1866,35 +1844,33 @@ namespace deren::engine {
         /// rather than a view, and the driver makes the view inside it. That is why this is called where the image
         /// and its view are created - only that site knows the format, the view type and the range.
         bool write_heap_grid_image(rhi::api_core& vk, uint32_t const slot, rhi::image const* const image) {
-            if (!contract_heap_ready(vk) || image == nullptr) {
+            if (!contract_descriptor_ready(vk) || image == nullptr) {
                 return false;
             }
-            return contract_write_heap_image(vk, deren::engine::render_layout::heap_slot_offset(slot),
-                                             *image, rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image);
+            return contract_write_descriptor_image(vk, slot,
+                                                   *image, rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image);
         }
 
         /**
          * @brief write ONE per-slot binding of the scene block into the GRID - one slot per frame in flight
          *
-         * THE HEAP'S BUFFER PATTERN, in one place: a heap descriptor for a buffer IS its address range, and a
-         * per-slot binding's entry must name THAT slot's buffer - so this walks the per-slot vector, takes each
-         * buffer's device address and writes it at `deren::engine::render_layout::heap_slot_offset(slot_base + slot)`: one GRID slot per frame in
+         * Publish each frame's buffer object at `slot_base + slot`: one logical slot per frame in
          * flight, which is exactly where the shaders read it (`heap_slots_scene_camera + heap_frame_slot` and its
          * neighbours). The heap is the only path now, so "the heap is not in use" is a startup
          * failure rather than a quiet fall back to a descriptor set.
          */
         template <typename Buffer>
         void write_heap_scene_buffer(rhi::api_core& vk, deren::utility::vessel::vector<Buffer> const& buffers, uint32_t const slot_base, std::uint64_t const size, rhi::descriptor_type const type) {
-            if (!contract_heap_ready(vk)) {
+            if (!contract_descriptor_ready(vk)) {
                 return;
             }
             uint32_t written = 0;
             for (uint32_t slot = 0; slot < buffers.size(); ++slot) {
-                std::uint64_t const offset = deren::engine::render_layout::heap_slot_offset(slot_base + slot);
-                if (contract_write_heap_buffer(vk, offset, buffer_address(vk, *buffers[slot]), size, type)) {
+                std::uint32_t const descriptor_slot = slot_base + slot;
+                if (contract_write_descriptor_buffer(vk, descriptor_slot, *buffers[slot], size, type)) {
                     ++written;
                 } else {
-                    deren::utility::log("descriptor heap: the per-frame buffer for grid slot {} (frame slot {}) did not fit at offset {}", slot_base, slot, offset);
+                    deren::utility::log("descriptor heap: the per-frame buffer for grid slot {} (frame slot {}) did not reach logical slot {}", slot_base, slot, descriptor_slot);
                 }
             }
             // SUCCESS IS LOGGED TOO, and that is not noise: a heap write has no picture to show for itself until
@@ -1922,7 +1898,7 @@ namespace deren::engine {
                                                                                          this->meshlet_buffer, this->mesh_indirect_buffer, this->meshlet_stats_buffer, this->meshlet_culled_buffer,
                                                                                          this->visibility_items_buffer};
         auto const required = pass::scene_tables_pass::descriptions(render_resource::instances::resource_context{.frame_slots = this->frame_ring().slot_count()});
-        if (!contract_heap_ready(this->rhi_face())) {
+        if (!contract_descriptor_ready(this->rhi_face())) {
             return;
         }
         for (size_t i = 0; i < handles.size(); ++i) {
@@ -1934,7 +1910,7 @@ namespace deren::engine {
     }
 
     void runtime::publish_hzb_bindings() {
-        if (!contract_heap_ready(this->rhi_face()) || !this->hzb_levels_buffer || !this->hzb_header_buffer) {
+        if (!contract_descriptor_ready(this->rhi_face()) || !this->hzb_levels_buffer || !this->hzb_header_buffer) {
             return;
         }
         // THE SAME SPELLING EVERY PUBLISH PATH USES: an address and a length, one storage-class descriptor per
@@ -1984,7 +1960,7 @@ namespace deren::engine {
         if (!this->hzb_build_enabled || this->hzb_build_failed) {
             return;
         }
-        if (!contract_heap_ready(this->rhi_face())) {
+        if (!contract_descriptor_ready(this->rhi_face())) {
             return; // the descriptor heap is what the tables are published through: the next frame retries
         }
         // ---- THE PASSES, LAZILY ----
@@ -2127,7 +2103,7 @@ namespace deren::engine {
     }
 
     void runtime::ensure_software_raster_passes() {
-        if (this->software_raster_pipeline_failed || !contract_heap_ready(this->rhi_face())) {
+        if (this->software_raster_pipeline_failed || !contract_descriptor_ready(this->rhi_face())) {
             return;
         }
         if (this->registered_shader("software_visibility.comp.spv").empty() ||
@@ -2250,7 +2226,7 @@ namespace deren::engine {
         // THE INSTANCE TRANSFORM TABLE (set 0 binding 6) is the odd one: a SINGLE buffer rather than one per frame
         // slot (see runtime.cppm's member), so it takes ONE grid slot instead of a two-slot array - which is what
         // heap_slots::instance_transforms reserved. Written from the same size the scene block gives it.
-        if (contract_heap_ready(this->rhi_face())) {
+        if (contract_descriptor_ready(this->rhi_face())) {
             if (!this->write_heap_buffer(*this->instance_buffer, deren::engine::render_layout::heap_slots::instance_transforms, static_cast<std::uint64_t>(deren::engine::instance_capacity) * sizeof(glm::mat4), rhi::descriptor_type::storage_buffer)) {
                 deren::utility::log("descriptor heap: the instance transform table did not reach grid slot {}", deren::engine::render_layout::heap_slots::instance_transforms);
             }
@@ -2295,10 +2271,10 @@ namespace deren::engine {
             // nothing else changes. What does NOT work this way is an IMAGE binding: a heap image descriptor
             // carries a VkImageViewCreateInfo while a VkDescriptorImageInfo carries a view, not the image and range
             // that create info is made of - which is why the shadow map above is written where its image is known.
-            if (contract_heap_ready(this->rhi_face())) {
-                std::uint64_t const heap_offset = deren::engine::render_layout::heap_slot_offset(deren::engine::render_layout::heap_slots::scene_light + slot);
+            if (contract_descriptor_ready(this->rhi_face())) {
+                std::uint32_t const descriptor_slot = deren::engine::render_layout::heap_slots::scene_light + slot;
                 if (!this->write_heap_buffer(*this->light_buffers[static_cast<std::size_t>(slot)], deren::engine::render_layout::heap_slots::scene_light + slot, sizeof(light_ubo), rhi::descriptor_type::storage_buffer)) {
-                    deren::utility::log("descriptor heap: the light UBO did not fit slot {}'s block at offset {}", slot, heap_offset);
+                    deren::utility::log("descriptor heap: the light UBO did not fit slot {}'s block at logical slot {}", slot, descriptor_slot);
                 }
             }
 
@@ -2308,10 +2284,10 @@ namespace deren::engine {
             // than of the scene's lighting - see `deren::engine::render_layout::heap_slots::scene_head`. Written here beside the light
             // because it is per-frame-slot for the same reason: on a model whose head turns it changes every
             // frame, so each slot needs its own copy.
-            if (contract_heap_ready(this->rhi_face())) {
-                std::uint64_t const head_offset = deren::engine::render_layout::heap_slot_offset(deren::engine::render_layout::heap_slots::scene_head + slot);
+            if (contract_descriptor_ready(this->rhi_face())) {
+                std::uint32_t const head_slot = deren::engine::render_layout::heap_slots::scene_head + slot;
                 if (!this->write_heap_buffer(*this->head_buffers[static_cast<std::size_t>(slot)], deren::engine::render_layout::heap_slots::scene_head + slot, sizeof(head_ubo), rhi::descriptor_type::storage_buffer)) {
-                    deren::utility::log("descriptor heap: the head frame did not fit slot {}'s block at offset {}", slot, head_offset);
+                    deren::utility::log("descriptor heap: the head frame did not fit slot {}'s block at logical slot {}", slot, head_slot);
                 }
             }
         }
@@ -2357,8 +2333,8 @@ namespace deren::engine {
         deren::utility::vessel::array<uint32_t, 3> const slots{deren::engine::render_layout::heap_slots::env_cube,
                                                                deren::engine::render_layout::heap_slots::irradiance_cube, deren::engine::render_layout::heap_slots::brdf_lut};
         auto const write = [&](size_t index, rhi::image const& image) {
-            return contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(slots[index]), image,
-                                             rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image);
+            return contract_write_descriptor_image(this->rhi_face(), slots[index], image,
+                                                   rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image);
         };
         size_t written = 0;
         for (; written < slots.size(); ++written) {
@@ -2641,13 +2617,13 @@ namespace deren::engine {
             //
             // Nothing READS the heap yet, so a failure here is a log line and not a wrong frame - but it is the
             // write path that has to work first.
-            if (contract_heap_ready(this->rhi_face())) {
+            if (contract_descriptor_ready(this->rhi_face())) {
                 {
-                    std::uint64_t const heap_offset = deren::engine::render_layout::heap_slot_offset(deren::engine::render_layout::heap_slots::textures + index);
-                    if (contract_write_heap_image(this->rhi_face(), heap_offset, *this->owned_textures.back(), tex_range, rhi::descriptor_type::sampled_image)) {
+                    std::uint32_t const descriptor_slot = deren::engine::render_layout::heap_slots::textures + index;
+                    if (contract_write_descriptor_image(this->rhi_face(), descriptor_slot, *this->owned_textures.back(), tex_range, rhi::descriptor_type::sampled_image)) {
                         ++heap_texture_descriptors;
                     } else {
-                        deren::utility::log("descriptor heap: texture {} did not fit the resource heap at offset {}", index, heap_offset);
+                        deren::utility::log("descriptor heap: texture {} did not fit the resource heap at logical slot {}", index, descriptor_slot);
                     }
                 }
             }
@@ -2662,7 +2638,7 @@ namespace deren::engine {
         // ... and its GRAPHICS half, twice: once with the material table's REAL grid slot (which must come back
         // white, the default material's base colour) and once with a deliberately WRONG one (which must not). The
         // pair is the negative proof the mechanism needs - the same draw, the same shader, one different number.
-        if (contract_heap_ready(this->rhi_face())) {
+        if (contract_descriptor_ready(this->rhi_face())) {
             this->run_heap_graphics_probe(static_cast<uint32_t>(deren::engine::render_layout::heap_slots::materials));
             this->run_heap_graphics_probe(static_cast<uint32_t>(deren::engine::render_layout::heap_slots::materials) + 1u);
             // ... AND THE MESH HALF OF THE SAME QUESTION (docs/mesh_shaders.md step 0): a MESH pipeline created
@@ -2677,10 +2653,7 @@ namespace deren::engine {
         // reader checks to know the texture array really is on the heap; the mapping that points a shader stage at
         // it is the step after this one.
         if (heap_texture_descriptors > 0) {
-            deren::utility::log("descriptor heap: {} texture descriptors written ({} B each, {} KiB resource heap)",
-                                heap_texture_descriptors,
-                                contract_heap_properties(this->rhi_face()).image_descriptor_size,
-                                contract_heap_properties(this->rhi_face()).resource_size / 1024);
+            deren::utility::log("descriptor space: {} texture descriptors written", heap_texture_descriptors);
         }
 
         // ---- 2. Append one material record: texture indices + presence flags; factors keep

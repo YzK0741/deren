@@ -347,3 +347,11 @@ are repository-relative.
 - asset pipeline - automatic import-time build + on-disk cache: **not implemented** (explicit legacy builder and offline payload import are available).
 - offline glTF cluster-DAG converter (`tools/subtilis`, `DEREN_subtilis` extension): **implemented and
   accepted as an independent CPU tool** 2026-10-21; runtime consumption added 2026-10-22.
+
+## Geometry upload update (2026-10-25)
+
+Immutable vertex/index uploads now use one buffer-transfer batch on capable owning cores, while keeping
+the public ready-on-return contract. Synchronous creation remains available for older/test backends and
+explicit comparisons. This affects asset upload latency, not per-frame raster performance. See the
+[transfer guide](buffer_transfers.md) for modes, ownership and cache limits, and the
+[consumer measurements](reviews/2026-10-25-subtilis-transfer-consumer.md) for the local comparison.

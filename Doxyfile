@@ -1095,6 +1095,7 @@ INPUT                  = ./docs/managed_resources.md \
 				./docs/dynamic_runtime.md \
 				./docs/rhi_api_standard.md \
 				./docs/resource_groups.md \
+				./docs/buffer_transfers.md \
 				./docs/shaders.md \
 				./docs/pass_io_design.md \
 				./docs/runtime_split.md \

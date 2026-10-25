@@ -1210,6 +1210,11 @@ namespace deren::vulkan {
             [[nodiscard]] deren::promise::rhi::descriptor_space_properties properties() const noexcept override;
             [[nodiscard]] deren::promise::rhi::descriptor_position position(deren::promise::rhi::texture_group const& group) const noexcept override;
             [[nodiscard]] deren::promise::rhi::error write(deren::promise::rhi::descriptor_write const& info) noexcept override;
+            [[nodiscard]] deren::promise::rhi::descriptor_slot_range fixed_slots() const noexcept override;
+            [[nodiscard]] deren::promise::rhi::error write_image(deren::promise::rhi::descriptor_image_write const&) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error write_buffer(deren::promise::rhi::descriptor_buffer_write const&) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error write_acceleration_structure(deren::promise::rhi::descriptor_acceleration_structure_write const&) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error bind(deren::promise::rhi::descriptor_bind_info const&) noexcept override;
         };
 
         // ---- WHAT THE RECORDING SURFACE OWNS --------------------------------------------------------
@@ -1244,6 +1249,8 @@ namespace deren::vulkan {
         frame_heap heap_view;
         frame_descriptor_space descriptor_space_view;
         std::mutex contract_images_mutex;
+        std::mutex contract_structures_mutex;
+        deren::utility::vessel::unordered_set<deren::promise::rhi::acceleration_structure const*> contract_structures;
         deren::utility::vessel::unordered_set<deren::promise::rhi::image const*> contract_images;
         struct owned_texture_group; // the position map below holds it by pointer; defined after the record
         struct texture_group_state {
@@ -1600,7 +1607,6 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::ability_bits abilities() const noexcept override;
         [[nodiscard]] deren::promise::rhi::extension* query_extension(deren::promise::rhi::extension_kind kind) noexcept override;
 
-        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::swapchain> create_swapchain(deren::promise::rhi::swapchain_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::buffer> create_buffer(deren::promise::rhi::buffer_desc const& desc) override;
         /// THE BACKEND'S OWN SPELLING of `create_buffer`: the factories hand CALLERS an unique_object, but the
         /// backend's storage fields keep the raw handle and release it in their own teardown (it is the owner
@@ -1609,7 +1615,7 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::image> create_image(deren::promise::rhi::image_desc const& desc) override;
         /// TIER-1 SINCE ABI 26 AND REFUSED BY NAME BY THIS BACKEND UNTIL PLAN S1's P1b: the shape exists (see
         /// the definition's note for what landing it takes), so a caller gets a logged `nullptr` - the same
-        /// answer `create_swapchain` gives - rather than a silent absence.
+        /// named refusal for an unsupported resource.
         [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::acceleration_structure> create_acceleration_structure(deren::promise::rhi::acceleration_structure_desc const& desc) override;
         /// TIER-1 SINCE ABI 27 (plan S1's P4), refused by name on a device without VK_EXT_opacity_micromap
         [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::micromap> create_micromap(deren::promise::rhi::micromap_desc const& desc) override;
@@ -1630,12 +1636,11 @@ namespace deren::vulkan {
          * `bind_point` it sets - the ray-tracing one, which is what makes `bind_pipeline` work for it.
          */
         [[nodiscard]] deren::promise::rhi::pipeline* create_ray_tracing_pipeline(deren::promise::rhi::pipeline_desc const& desc, char const* what);
-        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::query> create_query(deren::promise::rhi::query_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::command_buffer* begin_commands() override;
         // ---- S2 batch 2: the recording surface's frame-domain views --------------------------------
         // `begin_commands()` now hands out a REAL list (the frame's primary command buffer, which this
         // class owns - see command_buffers below), so the tier-2 verbs that take a `command_buffer&`
-        // (push_data / dispatch_mesh / build_acceleration_structure) become reachable, and the
+        // (push_constants / draw_mesh_tasks / build_acceleration_structure) become reachable, and the
         // read-back's copy can be recorded into the frame it belongs to.
         [[nodiscard]] deren::promise::rhi::image* frame_image() noexcept override;
         [[nodiscard]] deren::promise::rhi::buffer* frame_readback_buffer() noexcept override;

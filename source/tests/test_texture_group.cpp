@@ -139,6 +139,89 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
     // released group is stale (invalid_argument) - the generation is what tells the two states apart.
     auto* const space = rhi::query_extension<rhi::descriptor_space>(core);
     CHECK(space != nullptr);
+    if (space && output) {
+        auto fixed = space->fixed_slots();
+        CHECK(fixed.base == 16384u && fixed.count == 2048u);
+        rhi::descriptor_buffer_write write{.slot = fixed.base, .resource = output.get(), .size = 60};
+        CHECK(space->write_buffer(write) == rhi::error::ok);
+        write.slot = fixed.base - 1u;
+        CHECK(space->write_buffer(write) == rhi::error::invalid_argument);
+        struct foreign_buffer : rhi::buffer {
+            foreign_buffer()
+                : buffer("deren_buffer_vulkan") {
+            }
+            void release() noexcept override {
+            }
+            std::uint64_t size() const noexcept override {
+                return 60;
+            }
+            std::span<std::byte> mapped() noexcept override {
+                return {};
+            }
+        } foreign;
+        write.slot = fixed.base;
+        write.resource = &foreign;
+        CHECK(space->write_buffer(write) == rhi::error::invalid_argument);
+        write.resource = output.get();
+        write.slot = fixed.base;
+        write.size = 32;
+        CHECK(space->write_buffer(write) == rhi::error::ok);
+        write.offset = 1;
+        CHECK(space->write_buffer(write) == rhi::error::invalid_argument);
+        write.offset = UINT64_MAX;
+        CHECK(space->write_buffer(write) == rhi::error::invalid_argument);
+        write.offset = 0;
+        rhi::structure_header extra{};
+        write.header.next = &extra;
+        CHECK(space->write_buffer(write) == rhi::error::unsupported);
+        write.header.next = nullptr;
+        write.header.struct_size = sizeof(rhi::structure_header);
+        CHECK(space->write_buffer(write) == rhi::error::invalid_argument);
+        write.header.struct_size = sizeof(write);
+        write.type = rhi::descriptor_type::uniform_buffer_dynamic;
+        CHECK(space->write_buffer(write) == rhi::error::unsupported);
+        CHECK(space->write_acceleration_structure({.slot = fixed.base}) == rhi::error::invalid_argument);
+        struct foreign_structure : rhi::acceleration_structure {
+            foreign_structure()
+                : acceleration_structure("deren_acceleration_structure_vulkan") {
+            }
+            void release() noexcept override {
+            }
+            std::uint64_t device_address() const noexcept override {
+                return 4096;
+            }
+            std::uint64_t size_bytes() const noexcept override {
+                return 256;
+            }
+            rhi::error write_instances(std::span<rhi::acceleration_structure_instance const>) override {
+                return rhi::error::unsupported;
+            }
+        } foreign_as;
+        CHECK(space->write_acceleration_structure({.slot = fixed.base, .resource = &foreign_as}) == rhi::error::invalid_argument);
+        CHECK(space->bind({}) == rhi::error::invalid_argument);
+        rhi::image_view_desc view{};
+        CHECK(space->write_image({.slot = fixed.base + 1, .resource = red_image, .view = &view}) == rhi::error::ok);
+        CHECK(space->write_image({.slot = fixed.base + 1, .resource = red_image}) == rhi::error::invalid_argument);
+        view.role = rhi::view_role::storage;
+        CHECK(space->write_image({.slot = fixed.base + 1, .resource = red_image, .view = &view, .type = rhi::descriptor_type::storage_image}) == rhi::error::unsupported);
+        rhi::image_desc storage_desc{};
+        storage_desc.extent = {1, 1, 1};
+        storage_desc.format = rhi::image_format::rgba8_unorm;
+        storage_desc.flags = rhi::to_bits(rhi::image_flag::storage);
+        auto storage = core.resources->create_image(storage_desc);
+        CHECK(storage);
+        if (storage)
+            CHECK(space->write_image({.slot = fixed.base + 2, .resource = storage.get(), .view = &view, .type = rhi::descriptor_type::storage_image}) == rhi::error::ok);
+        write.type = rhi::descriptor_type::storage_buffer;
+        write.slot = fixed.base + fixed.count;
+        CHECK(space->write_buffer(write) == rhi::error::invalid_argument);
+        write.slot = fixed.base;
+        write.size = 61;
+        CHECK(space->write_buffer(write) == rhi::error::invalid_argument);
+        write.size = 60;
+        write.resource = nullptr;
+        CHECK(space->write_buffer(write) == rhi::error::invalid_argument);
+    }
     // abi 34 retired the native-vocabulary transition: a heap image write that still chains a structure is
     // refused (`unsupported`) instead of having the chain walked.
     if (heap != nullptr) {
@@ -191,7 +274,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
         rhi::command_recorder& recorder = *segment;
         CHECK(recorder.begin_recording({}) == rhi::error::ok);
         CHECK(recorder.bind_pipeline(*pipeline) == rhi::error::ok);
-        CHECK(heap->bind({.commands = &recorder}) == rhi::error::ok);
+        CHECK(space->bind({.commands = &recorder}) == rhi::error::ok);
         CHECK(recorder.push_constants(8, std::as_bytes(std::span(&data.token, 1))) == rhi::error::invalid_argument);
         CHECK(recorder.push_constants(12, std::as_bytes(std::span(&data.index, 1))) == rhi::error::ok);
         CHECK(recorder.end_recording() == rhi::error::ok);

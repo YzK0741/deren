@@ -17,7 +17,7 @@ def extract(text: str, token: str) -> str:
     while depth:
         depth += (text[end] == "{") - (text[end] == "}")
         end += 1
-    if token.startswith("export struct"):
+    if token.startswith(("export struct", "export enum")):
         end = text.index(";", end) + 1
     return text[start:end].removeprefix("export ")
 
@@ -41,6 +41,13 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text("\n\n".join(extract(source, t) for t in tokens) + "\n", encoding="utf-8")
     vma = args.vma_source.read_text(encoding="utf-8")
+    # Exercise allocation requirements without linking VMA's device implementation.
+    with args.output.open("a", encoding="utf-8") as output:
+        output.write("namespace deren::vulkan {\n")
+        output.write(extract(vma, "export enum class buffer_type {") + "\n")
+        constant = vma.index("export constexpr VkMemoryPropertyFlags coherent_host_visible_flags")
+        output.write(vma[constant:vma.index(";", constant) + 1].removeprefix("export ") + "\n}\n")
+        output.write(extract(vma, "constexpr VmaAllocationCreateInfo get_allocation_info_from_type(") + "\n")
     host_upload = extract(vma, "bool vma_allocator::host_image_upload(")
     start = host_upload.index("deren::utility::vessel::vector<VkMemoryToImageCopyEXT> regions;")
     end = host_upload.index("if (memory_offset > size)", start)

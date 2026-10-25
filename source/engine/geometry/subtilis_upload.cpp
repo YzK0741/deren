@@ -15,6 +15,7 @@ module deren.engine.subtilis.upload;
 import deren.engine.pass.chain;
 import deren.engine.pass.buffer_storage;
 import deren.engine.render_resource;
+import deren.engine.buffer_transfer;
 
 namespace deren::engine::subtilis {
     double maximum_triangle_edge(meshlet const& record, std::span<std::uint8_t const> vertices,
@@ -57,10 +58,17 @@ namespace deren::engine::subtilis {
 
     std::expected<std::shared_ptr<uploaded_geometry const>, upload_rhi::error>
     upload_geometry(upload_rhi::shared_object<upload_rhi::api_core> const& device,
-                    std::shared_ptr<built_geometry const> source, upload_rhi::buffer_flags flags) {
+                    std::shared_ptr<built_geometry const> source, upload_rhi::buffer_flags flags, geometry_upload_mode mode) {
+        if (mode != geometry_upload_mode::automatic && mode != geometry_upload_mode::synchronous && mode != geometry_upload_mode::batched)
+            return std::unexpected(upload_rhi::error::invalid_argument);
         if (!device || !source || source->vertices().empty() || source->indices().empty() || !source->lod0_index_count()) {
             return std::unexpected(upload_rhi::error::invalid_argument);
         }
+        auto* scopes = upload_rhi::query_extension<upload_rhi::scoped_synchronization>(*device);
+        bool const available = device.owns_lifetime() && scopes && upload_rhi::query_extension<upload_rhi::command_submission>(*device);
+        if (mode == geometry_upload_mode::batched && !available)
+            return std::unexpected(upload_rhi::error::unsupported);
+        bool const batch_upload = mode != geometry_upload_mode::synchronous && available;
         namespace managed = render_resource::instances;
         auto resources = std::allocate_shared<pass::pass_chain>(deren::utility::memory::allocator<pass::pass_chain>{});
         auto& provider = resources->emplace<pass::resource_storage_pass>();
@@ -72,9 +80,11 @@ namespace deren::engine::subtilis {
             request.type = managed::kind::buffer;
             request.life = managed::lifetime::scene;
             request.buffer = {.size = bytes[i].size(), .usage = i == 0 ? upload_rhi::buffer_usage::vertex : upload_rhi::buffer_usage::index, .flags = flags};
-            request.initial_data = std::shared_ptr<std::byte const>{source, bytes[i].data()};
-            request.initial_data_size = bytes[i].size();
-            request.initialization_key = source;
+            if (!batch_upload) {
+                request.initial_data = std::shared_ptr<std::byte const>{source, bytes[i].data()};
+                request.initial_data_size = bytes[i].size();
+                request.initialization_key = source;
+            }
             request.dependencies.push_back(source);
         }
         provider.configure(requests);
@@ -95,6 +105,29 @@ namespace deren::engine::subtilis {
         auto snapshot = resources->resources().snapshot();
         auto vertices = snapshot.find(requests[0].id);
         auto indices = snapshot.find(requests[1].id);
+        if (batch_upload) {
+            namespace sync = upload_rhi::synchronization;
+            // Immutable geometry is read by vertex input and the available shader stages.
+            // The AS build verb separately owns its transfer-write -> build-read pre-barrier.
+            auto const readers = sync::stage::vertex_input | sync::stage::vertex_shader | sync::stage::fragment_shader |
+                                 sync::stage::compute_shader | sync::stage::task_shader | sync::stage::mesh_shader | sync::stage::ray_tracing;
+            auto const supported = static_cast<std::uint32_t>(scopes->supported_stages());
+            sync::scope const published{static_cast<sync::stage>(supported & static_cast<std::uint32_t>(readers)), sync::access::read};
+            buffer_transfer_service transfers(device);
+            auto batch = transfers.make_batch();
+            for (std::size_t i = 0; i < bytes.size(); ++i) {
+                auto generation = i == 0 ? vertices : indices;
+                auto* buffer = generation->objects[0].buffer.get();
+                auto lease = resource_lease<upload_rhi::buffer>::from_shared(device, upload_rhi::shared_object<upload_rhi::buffer>{generation, buffer});
+                if (auto result = batch.upload(std::move(lease), 0, bytes[i], {}, published); result != upload_rhi::error::ok)
+                    return std::unexpected(result);
+            }
+            auto submitted = transfers.submit(std::move(batch));
+            if (!submitted)
+                return std::unexpected(submitted.error());
+            if (auto result = submitted->wait(UINT64_MAX); result != upload_rhi::error::ok)
+                return std::unexpected(result);
+        }
         for (auto& request : requests) {
             request.initial_data.reset();
         }

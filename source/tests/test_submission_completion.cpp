@@ -13,55 +13,7 @@ import deren.engine.backend_loader;
 import deren.vulkan.main_context;
 namespace rhi = deren::promise::rhi;
 
-// Block the graphics queue deterministically; host signaling releases it without device-wide idle.
-struct queue_gate {
-    VkDevice device;
-    VkSemaphore semaphore = VK_NULL_HANDLE;
-    bool armed = false;
-    queue_gate(VkDevice dev, VkQueue queue)
-        : device(dev) {
-        VkSemaphoreTypeCreateInfo type{};
-        type.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
-        type.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-        VkSemaphoreCreateInfo create{};
-        create.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-        create.pNext = &type;
-        CHECK(vkCreateSemaphore(device, &create, nullptr, &semaphore) == VK_SUCCESS);
-        if (!semaphore)
-            return;
-        std::uint64_t const value = 1;
-        VkTimelineSemaphoreSubmitInfo timeline{};
-        timeline.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-        timeline.waitSemaphoreValueCount = 1;
-        timeline.pWaitSemaphoreValues = &value;
-        VkPipelineStageFlags const stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.pNext = &timeline;
-        submit.waitSemaphoreCount = 1;
-        submit.pWaitSemaphores = &semaphore;
-        submit.pWaitDstStageMask = &stage;
-        armed = vkQueueSubmit(queue, 1, &submit, VK_NULL_HANDLE) == VK_SUCCESS;
-        CHECK(armed);
-    }
-    void release() {
-        if (!armed)
-            return;
-        VkSemaphoreSignalInfo signal{};
-        signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
-        signal.semaphore = semaphore;
-        signal.value = 1;
-        CHECK(vkSignalSemaphore(device, &signal) == VK_SUCCESS);
-        armed = false;
-    }
-    ~queue_gate() {
-        release();
-        if (semaphore) {
-            // The test caller drains submitted work before this scope ends.
-            vkDestroySemaphore(device, semaphore, nullptr);
-        }
-    }
-};
+#include "queue_gate.hpp"
 
 int main(int argc, char** argv) {
     bool with_device = false;
@@ -97,15 +49,37 @@ int main(int argc, char** argv) {
     CHECK(!unrecorded && unrecorded.error() == rhi::error::not_ready);
     std::uint32_t const value = 0x1234abcdu;
     rhi::unique_object<rhi::buffer> source{core->resources->create_buffer({.size = 4, .usage = rhi::buffer_usage::storage_coherent, .flags = rhi::to_bits(rhi::buffer_flag::transfer_source), .initial_bytes = std::as_bytes(std::span(&value, 1))})};
-    rhi::unique_object<rhi::buffer> destination{core->resources->create_buffer({.size = 4, .usage = rhi::buffer_usage::readback_coherent})};
+    rhi::unique_object<rhi::buffer> destination{core->resources->create_buffer({.size = 12, .usage = rhi::buffer_usage::readback_coherent})};
     CHECK(source && destination);
     if (!source || !destination)
         return deren::vk_test::finish("test_submission_completion");
+    auto staging = core->resources->create_buffer({.size = 4, .usage = rhi::buffer_usage::staging_source});
+    auto uniform = core->resources->create_buffer({.size = 4, .usage = rhi::buffer_usage::uniform_coherent, .flags = rhi::to_bits(rhi::buffer_flag::transfer_source)});
+    auto cached = core->resources->create_buffer({.size = 4, .usage = rhi::buffer_usage::uniform_cached, .flags = rhi::to_bits(rhi::buffer_flag::transfer_destination)});
+    CHECK(staging && uniform && cached);
+    if (!staging || !uniform || !cached)
+        return deren::vk_test::finish("test_submission_completion");
+    // Mutate after factory return, with no explicit flush. Initial upload behavior
+    // cannot mask missing coherence on the exposed persistent mapping.
+    std::uint32_t const mapped_values[] = {0xabcddcbau, 0x98765432u, 0x13572468u};
+    rhi::buffer* uploads[] = {source.get(), staging.get(), uniform.get()};
+    for (std::size_t i = 0; i < std::size(uploads); ++i) {
+        auto bytes = uploads[i]->mapped();
+        CHECK(bytes.size() == 4);
+        if (bytes.size() != 4)
+            return deren::vk_test::finish("test_submission_completion");
+        std::memcpy(bytes.data(), &mapped_values[i], 4);
+    }
     CHECK(commands->begin_recording({}) == rhi::error::ok);
     CHECK(commands->copy_buffer(*destination, *source, 4, 0, 0) == rhi::error::ok);
+    CHECK(commands->copy_buffer(*destination, *staging, 4, 0, 4) == rhi::error::ok);
+    CHECK(commands->copy_buffer(*destination, *uniform, 4, 0, 8) == rhi::error::ok);
+    CHECK(commands->copy_buffer(*cached, *staging, 4, 0, 0) == rhi::error::ok);
     rhi::buffer_barrier const host_barrier{.resource = destination.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read};
     rhi::barrier_group const barriers{.buffers = std::span(&host_barrier, 1)};
     CHECK(commands->barrier(barriers) == rhi::error::ok);
+    rhi::buffer_barrier const cached_barrier{.resource = cached.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read};
+    CHECK(commands->barrier(rhi::barrier_group{.buffers = std::span(&cached_barrier, 1)}) == rhi::error::ok);
     CHECK(commands->end_recording() == rhi::error::ok);
     rhi::submission_token saved{};
     {
@@ -144,7 +118,16 @@ int main(int argc, char** argv) {
             CHECK(submission->poll(saved) == rhi::error::ok);
             std::uint32_t observed = 0;
             std::memcpy(&observed, destination->mapped().data(), 4);
-            CHECK(observed == value);
+            CHECK(observed == mapped_values[0]);
+            for (std::size_t i = 1; i < std::size(mapped_values); ++i) {
+                std::memcpy(&observed, destination->mapped().data() + i * 4, 4);
+                CHECK(observed == mapped_values[i]);
+            }
+            CHECK(cached->mapped().size() == 4);
+            if (cached->mapped().size() == 4) {
+                std::memcpy(&observed, cached->mapped().data(), 4);
+                CHECK(observed == mapped_values[1]);
+            }
         }
         gate.release();
         core->wait_idle();

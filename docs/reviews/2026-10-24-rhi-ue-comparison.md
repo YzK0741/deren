@@ -1,5 +1,7 @@
 # deren RHI 与本地 UE RHI 对照
 
+> 历史评估：本文中的 recorder、子视图、token 与绑定建议已有后续实现。当前状态请参阅 [RHI 复审与扩展方向](2026-10-24-rhi-ue-followup.md)。
+
 2026-10-24。比较对象为当前工作区与 `D:/UnrealEngine-5.8.2-release/Engine/Source/Runtime/` 的本地源码。本文是架构评估与建议，不是已批准的接口改造计划；未修改 RHI 实现，也未进行性能基准。
 
 ## 判断

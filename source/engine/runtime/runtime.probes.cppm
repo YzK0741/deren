@@ -96,7 +96,7 @@ namespace deren::engine {
         // per-sampler constant because it keeps them as a list).
         uint32_t const sampler_slot = static_cast<uint32_t>(deren::engine::render_layout::heap_sampler_base);
         std::span<uint8_t const> const spirv = this->registered_shader("heap_probe.comp.spv");
-        if (!contract_heap_ready(vk) || spirv.empty()) {
+        if (!contract_descriptor_ready(vk) || spirv.empty()) {
             return; // no heap, no grid or no shader: nothing to probe with, and no heap path to protect
         }
         auto const built = pipelines::build_heap_probe(vk, spirv);
@@ -131,12 +131,12 @@ namespace deren::engine {
         if (commands == nullptr) {
             return;
         }
-        rhi::descriptor_heap* const heap = rhi::query_extension<rhi::descriptor_heap>(vk);
+        rhi::descriptor_space* const heap = rhi::query_extension<rhi::descriptor_space>(vk);
         if (heap == nullptr) {
-            deren::utility::log("descriptor heap: the heap-native probe has no descriptor_heap ability to bind");
+            deren::utility::log("descriptor space: the heap-native probe has no logical binding service");
             return;
         }
-        rhi::heap_bind_info const heap_bind{.commands = commands.get()};
+        rhi::descriptor_bind_info const heap_bind{.commands = commands.get()};
         if (heap->bind(heap_bind) != rhi::error::ok) {
             deren::utility::log("descriptor heap: the heap-native probe could not bind the heaps on its own command buffer");
             return;
@@ -198,7 +198,7 @@ namespace deren::engine {
         rhi::api_core& vk = this->vulkan_core;
         std::span<uint8_t const> const vertex_code = this->registered_shader(mesh_shader ? "heap_probe.mesh.spv" : "heap_probe.vert.spv");
         std::span<uint8_t const> const fragment_code = this->registered_shader("heap_probe.frag.spv");
-        if (!contract_heap_ready(vk) || vertex_code.empty() || fragment_code.empty()) {
+        if (!contract_descriptor_ready(vk) || vertex_code.empty() || fragment_code.empty()) {
             return;
         }
         constexpr rhi::image_format probe_format = rhi::image_format::rgba8_unorm;
@@ -247,12 +247,12 @@ namespace deren::engine {
         if (commands == nullptr) {
             return;
         }
-        rhi::descriptor_heap* const heap = rhi::query_extension<rhi::descriptor_heap>(vk);
+        rhi::descriptor_space* const heap = rhi::query_extension<rhi::descriptor_space>(vk);
         if (heap == nullptr) {
-            deren::utility::log("descriptor heap: the heap-native graphics probe has no descriptor_heap ability to bind");
+            deren::utility::log("descriptor space: the heap-native graphics probe has no logical binding service");
             return;
         }
-        rhi::heap_bind_info const heap_bind{.commands = commands.get()};
+        rhi::descriptor_bind_info const heap_bind{.commands = commands.get()};
         if (heap->bind(heap_bind) != rhi::error::ok) {
             deren::utility::log("descriptor heap: the heap-native graphics probe could not bind the heaps on its own command buffer");
             return;

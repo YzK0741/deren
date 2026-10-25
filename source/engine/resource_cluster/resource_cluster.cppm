@@ -51,7 +51,7 @@ export namespace deren::engine {
         /// The caller supplies the owning core; consumers still validate resource provenance.
         [[nodiscard]] static resource_lease from_shared(
             deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core, deren::promise::rhi::shared_object<T> owned) {
-            if (!core || !owned) {
+            if (!core || !owned || !owned.owns_lifetime()) {
                 return {};
             }
             resource_lease result;

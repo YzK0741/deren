@@ -333,9 +333,7 @@ struct upload_probe : rhi::api_core, rhi::resource_factory, rhi::command_context
     [[nodiscard]] rhi::error submit(std::span<rhi::mergeable_command_buffer_ref const>) override {
         return rhi::error::unsupported;
     }
-    rhi::unique_object<rhi::swapchain> create_swapchain(rhi::swapchain_desc const&) override {
-        return nullptr;
-    }
+
     rhi::unique_object<rhi::image> create_image(rhi::image_desc const&) override {
         return nullptr;
     }
@@ -354,9 +352,7 @@ struct upload_probe : rhi::api_core, rhi::resource_factory, rhi::command_context
     rhi::unique_object<rhi::pipeline> create_pipeline(rhi::pipeline_desc const&) override {
         return nullptr;
     }
-    rhi::unique_object<rhi::query> create_query(rhi::query_desc const&) override {
-        return nullptr;
-    }
+
     rhi::command_buffer* begin_commands() override {
         return nullptr;
     }

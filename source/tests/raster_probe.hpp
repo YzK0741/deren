@@ -51,7 +51,8 @@ namespace raster_test {
     };
 
     struct raster_probe_core : rhi::api_core, rhi::resource_factory, rhi::command_context, rhi::frame_context {
-    void release() noexcept override {}
+        void release() noexcept override {
+        }
         bool supported = true;
         bool pipeline_fail = false;
         int pipeline_releases = 0;
@@ -102,9 +103,7 @@ namespace raster_test {
         [[nodiscard]] rhi::error submit(std::span<rhi::mergeable_command_buffer_ref const>) override {
             return rhi::error::unsupported;
         }
-        rhi::unique_object<rhi::swapchain> create_swapchain(rhi::swapchain_desc const&) override {
-            return nullptr;
-        }
+
         rhi::unique_object<rhi::image> create_image(rhi::image_desc const&) override {
             return nullptr;
         }
@@ -129,9 +128,7 @@ namespace raster_test {
             depth_test = desc.depth_test;
             return rhi::unique_object<rhi::pipeline>{pipeline_fail ? nullptr : new raster_probe_pipeline(pipeline_releases)};
         }
-        rhi::unique_object<rhi::query> create_query(rhi::query_desc const&) override {
-            return nullptr;
-        }
+
         rhi::command_buffer* begin_commands() override {
             return nullptr;
         }
@@ -159,7 +156,9 @@ namespace raster_test {
         rhi::swapchain* frame_swapchain() noexcept override {
             return nullptr;
         }
-    rhi::error submit() override { return rhi::error::unsupported; }
+        rhi::error submit() override {
+            return rhi::error::unsupported;
+        }
         rhi::error submit(rhi::command_buffer&) override {
             return rhi::error::unsupported;
         }
@@ -276,7 +275,9 @@ namespace raster_test {
             (void)groups_y;
             (void)groups_z;
         }
-        rhi::error draw_indirect(buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override { return rhi::error::unsupported; }
+        rhi::error draw_indirect(buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override {
+            return rhi::error::unsupported;
+        }
         rhi::error draw_mesh_tasks_indirect(buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) override {
             (void)argument_buffer;
             (void)offset;

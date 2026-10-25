@@ -25,6 +25,15 @@ concept heap_push_limit = requires { &T::max_push_data; };
 static_assert(!heap_push_limit<rhi::descriptor_heap_properties>);
 static_assert(rhi::validate_push_constants_range(0, 4, 4) == rhi::error::ok);
 static_assert(rhi::validate_push_constants_range(4, UINT64_MAX, 8) == rhi::error::invalid_argument);
+template <class T>
+concept reserved_query_factory = requires { &T::create_query; };
+template <class T>
+concept reserved_swapchain_factory = requires { &T::create_swapchain; };
+static_assert(!reserved_query_factory<rhi::resource_factory>);
+static_assert(!reserved_swapchain_factory<rhi::frame_context>);
+static_assert(rhi::abi_version == 55u);
+static_assert(!rhi::has_ability(rhi::all_abilities(), rhi::extension_kind::mesh_shader));
+static_assert(rhi::all_extension_kinds().size() == 11);
 namespace {
     static_assert(std::is_trivially_copyable_v<rhi::submission_token>);
     static_assert(sizeof(rhi::submission_token) == 2 * sizeof(std::uint64_t));
@@ -89,9 +98,6 @@ namespace {
         rhi::unique_object<rhi::pipeline> create_pipeline(rhi::pipeline_desc const&) override {
             return {};
         }
-        rhi::unique_object<rhi::query> create_query(rhi::query_desc const&) override {
-            return {};
-        }
         rhi::unique_object<rhi::acceleration_structure> create_acceleration_structure(rhi::acceleration_structure_desc const&) override {
             return {};
         }
@@ -118,9 +124,6 @@ namespace {
     };
     struct frame_probe final : rhi::frame_context {
         unsigned calls = 0;
-        rhi::unique_object<rhi::swapchain> create_swapchain(rhi::swapchain_desc const&) override {
-            return {};
-        }
         rhi::command_buffer* begin_commands() override {
             return nullptr;
         }

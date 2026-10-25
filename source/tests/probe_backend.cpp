@@ -366,6 +366,8 @@ namespace {
         // visible" shape the members below follow); nothing is faked and nothing is dropped, because
         // a silent verb is exactly what the answering rule exists to refuse.
         [[nodiscard]] rhi::error begin_rendering(rhi::rendering_info const& info) noexcept override {
+            if (!recording || rendering_active)
+                return rhi::error::not_ready;
             if (recording && !replaying) {
                 auto result = apply_operations();
                 if (result != rhi::error::ok)
@@ -379,6 +381,12 @@ namespace {
         }
 
         void end_rendering() noexcept override {
+            if (!recording || recording_error != rhi::error::ok)
+                return;
+            if (!rendering_active || rendering_inherited) {
+                recording_error = rhi::error::invalid_argument;
+                return;
+            }
             if (recording && !replaying)
                 static_cast<void>(apply_operations());
             this->rendering_active = false;
@@ -1116,6 +1124,36 @@ namespace {
         cpu_descriptor_space() noexcept
             : rhi::descriptor_space("deren_descriptor_space_cpu_probe") {
         }
+        cpu_heap* fixed_heap = nullptr;
+        [[nodiscard]] rhi::descriptor_slot_range fixed_slots() const noexcept override {
+            return fixed_heap ? rhi::descriptor_slot_range{16384, 2048} : rhi::descriptor_slot_range{};
+        }
+        bool valid_slot(std::uint32_t space, std::uint32_t slot) const noexcept {
+            auto range = fixed_slots();
+            return space == 0 && slot >= range.base && slot - range.base < range.count;
+        }
+        rhi::error write_image(rhi::descriptor_image_write const& info) noexcept override {
+            auto status = rhi::validate_structure(info.header, rhi::structure_type::descriptor_image_write, sizeof(info), false);
+            if (status != rhi::error::ok)
+                return status;
+            if (!valid_slot(info.space, info.slot))
+                return rhi::error::invalid_argument;
+            return fixed_heap->write_image({.offset = std::uint64_t(info.slot) * 64, .resource = info.resource, .view = info.view, .type = info.type});
+        }
+        rhi::error write_buffer(rhi::descriptor_buffer_write const& info) noexcept override {
+            auto status = rhi::validate_structure(info.header, rhi::structure_type::descriptor_buffer_write, sizeof(info), false);
+            if (status != rhi::error::ok)
+                return status;
+            if (!valid_slot(info.space, info.slot) || !info.resource || !info.size || info.offset >= info.resource->size() || info.size > info.resource->size() - info.offset)
+                return rhi::error::invalid_argument;
+            return fixed_heap->write_buffer({.offset = std::uint64_t(info.slot) * 64, .address = reinterpret_cast<std::uintptr_t>(info.resource) + info.offset, .size = info.size, .type = info.type});
+        }
+        rhi::error bind(rhi::descriptor_bind_info const& info) noexcept override {
+            auto status = rhi::validate_structure(info.header, rhi::structure_type::descriptor_bind, sizeof(info), false);
+            if (status != rhi::error::ok)
+                return status;
+            return fixed_heap ? fixed_heap->bind({.commands = info.commands}) : rhi::error::unsupported;
+        }
         struct entry {
             rhi::texture_group const* group = nullptr;
             rhi::descriptor_position position{};
@@ -1372,16 +1410,12 @@ namespace {
             }
         }
 
-        [[nodiscard]] rhi::unique_object<rhi::swapchain> create_swapchain(rhi::swapchain_desc const&) override {
-            return nullptr;
-        }
-
         [[nodiscard]] rhi::unique_object<rhi::buffer> create_buffer(rhi::buffer_desc const& desc) override {
             if (!accept_resource_creation())
                 return nullptr;
+            if (rhi::validate_buffer_initialization(desc.size, desc.initial_bytes.size()) != rhi::error::ok)
+                return nullptr;
             if (portable_mode) {
-                if (desc.initial_bytes.size() > desc.size)
-                    return nullptr;
                 auto* result = new cpu_buffer(desc, resource_registry);
                 if (desc.initial_bytes.empty())
                     std::fill(result->content.begin(), result->content.end(), std::byte{buffer_allocation_fill});
@@ -1509,10 +1543,6 @@ namespace {
             }
             this->mergeable_batches += 1;
             return rhi::error::ok;
-        }
-
-        [[nodiscard]] rhi::unique_object<rhi::query> create_query(rhi::query_desc const&) override {
-            return nullptr;
         }
 
         [[nodiscard]] rhi::command_buffer* begin_commands() override {
@@ -1684,6 +1714,7 @@ namespace {
 
         impl() noexcept
             : rhi::api_core("deren_api_core_probe") {
+            descriptor_space.fixed_heap = &heap;
             bind_views(*this, *this, *this);
             // THE OWNER IS SET IN THE CONSTRUCTOR - the same lesson the real backend's constructor
             // states: a view handed out with a null owner dereferences null on its first call.

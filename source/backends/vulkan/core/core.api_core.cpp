@@ -1129,10 +1129,6 @@ namespace deren::vulkan {
         return nullptr;
     }
 
-    rhi::unique_object<rhi::swapchain> core::create_swapchain(rhi::swapchain_desc const& /*desc*/) {
-        return nullptr;
-    }
-
     rhi::buffer* core::create_buffer_raw(rhi::buffer_desc const& desc) {
         return this->create_buffer(desc).release();
     }
@@ -1145,13 +1141,17 @@ namespace deren::vulkan {
         // caller whose appended tail this build has never heard of - either way only the prefix is read.
         rhi::buffer_desc const desc = sanitize_buffer_desc(declared_desc);
 
-        if (desc.size == 0) {
-            // A ZERO-BYTE BUFFER IS NOT A BUFFER, and the descriptor asked for nothing. Answering
-            // nullptr is the contract's "this descriptor cannot be honoured" (§4.2: no throwing path).
+        if (rhi::validate_buffer_initialization(desc.size, desc.initial_bytes.size()) != rhi::error::ok) {
+            deren::utility::log("rhi: create_buffer refused: size {} requires either no initial data or exactly {} bytes (got {})",
+                                desc.size, desc.size, desc.initial_bytes.size());
             return nullptr;
         }
-        if (!desc.initial_bytes.empty() && desc.initial_bytes.size() < desc.size) {
-            deren::utility::log("rhi: create_buffer refused: {} initial bytes do not cover {} bytes", desc.initial_bytes.size(), desc.size);
+        if (!desc.initial_bytes.empty() &&
+            (desc.usage == rhi::buffer_usage::storage_gpu_only || desc.usage == rhi::buffer_usage::acceleration_structure_storage ||
+             desc.usage == rhi::buffer_usage::acceleration_structure_scratch)) {
+            // These native allocation paths have no upload mechanism. Refuse caller input before
+            // allocating, rather than reaching the allocator's fatal upload-failure path.
+            deren::utility::log("rhi: create_buffer refused: initial data upload is unsupported for usage {}", static_cast<std::uint32_t>(desc.usage));
             return nullptr;
         }
 
@@ -2001,10 +2001,6 @@ namespace deren::vulkan {
         answer->bind_point = VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR;
         answer->group_count = info.groupCount;
         return answer;
-    }
-
-    rhi::unique_object<rhi::query> core::create_query(rhi::query_desc const& /*desc*/) {
-        return nullptr;
     }
 
     rhi::command_buffer* core::begin_commands() {
@@ -3421,6 +3417,12 @@ namespace deren::vulkan {
     void core::frame_commands::end_rendering() noexcept {
         if (owner)
             ++owner->operation_requests[6]; // end_rendering
+        if (!recording || recording_error != rhi::error::ok)
+            return;
+        if (!rendering_active || rendering_inherited) {
+            recording_error = rhi::error::invalid_argument;
+            return;
+        }
         auto const applied = apply_operations();
         if (applied != rhi::error::ok) {
             recording_error = applied;
@@ -4038,6 +4040,10 @@ namespace deren::vulkan {
             std::lock_guard lock(group_members_mutex);
             group_members.insert(structure);
         }
+        {
+            std::lock_guard lock(contract_structures_mutex);
+            contract_structures.insert(structure);
+        }
         return rhi::unique_object<rhi::acceleration_structure>{structure};
     }
 
@@ -4291,6 +4297,10 @@ namespace deren::vulkan {
     }
 
     core::owned_acceleration_structure::~owned_acceleration_structure() noexcept {
+        if (owner) {
+            std::lock_guard lock(owner->contract_structures_mutex);
+            owner->contract_structures.erase(this);
+        }
         // THE ORDER IS THE POINT (see the type's note): the structure first, then the memory it lives in.
         if (this->native != VK_NULL_HANDLE && this->owner != nullptr && this->owner->acceleration_structure_destroy != nullptr) {
             this->owner->acceleration_structure_destroy(this->owner->logical_device, this->native, nullptr);

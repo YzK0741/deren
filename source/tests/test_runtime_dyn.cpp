@@ -178,7 +178,7 @@ int main(int const argc, char** const argv) {
 
     // handshake number moved with it.
 
-    CHECK(rhi::abi_version == 53u);
+    CHECK(rhi::abi_version == 55u);
 
     if (!wants_device(argc, argv)) {
 
@@ -717,7 +717,8 @@ int main(int const argc, char** const argv) {
 
                 CHECK(recording->end_recording() == rhi::error::ok);
 
-                CHECK(face.commands->submit(*recording) == rhi::error::ok);
+                CHECK(face.commands->submit(*recording) == rhi::error::invalid_argument);
+                CHECK(face.frames->submit() == rhi::error::ok);
             }
 
             CHECK(face.frames->present() == rhi::error::unsupported);

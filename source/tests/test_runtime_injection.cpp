@@ -71,7 +71,9 @@ import deren.engine.render_resource;
 import deren.engine.render_layout;
 
 // The injection source: the probe backend's test-only factory (see the header's own note).
+#include "buffer_creation_contract.hpp"
 #include "probe_backend.hpp"
+#include "recording_scope_contract.hpp"
 
 namespace {
     namespace rhi = deren::promise::rhi;
@@ -299,6 +301,14 @@ namespace {
 
 int main(int const argc, char** const argv) {
     rhi::create_info const creation{};
+    if (argc == 1) {
+        auto fixture = deren::vk_test::probe_make_core(creation, rhi::abi_version, true);
+        CHECK(fixture);
+        if (fixture) {
+            deren::vk_test::check_buffer_creation_contract(*fixture);
+            deren::vk_test::check_recording_scope_contract(*fixture);
+        }
+    }
 
     if (has_flag(argc, argv, do_concrete_panic_mode)) {
         // THE PANIC BRANCH OF THE CONTRACT'S VALIDATE-AND-CAST PAIR: the name is the backend's, the operation

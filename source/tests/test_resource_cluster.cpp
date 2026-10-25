@@ -1,10 +1,13 @@
 #include "vk_test.h"
 
+#include <cstdint>
 #include <memory>
+#include <span>
 #include <type_traits>
 import deren.utility.shared;
 import deren.promise.rhi;
 import deren.engine.resource_cluster;
+import deren.engine.buffer_transfer;
 import deren.engine.runtime;
 import deren.engine.scene_tree;
 #include "probe_backend.hpp"
@@ -12,6 +15,22 @@ import deren.engine.scene_tree;
 namespace rhi = deren::promise::rhi;
 using deren::engine::resource_cluster;
 int main() {
+    {
+        auto owner = deren::vk_test::probe_make_core({}, rhi::abi_version, true);
+        auto raw = owner->resources->create_buffer({.size = 4});
+        CHECK(raw);
+        CHECK(!deren::engine::resource_lease<rhi::buffer>::from_shared(owner, rhi::shared_object<rhi::buffer>::borrow(*raw)));
+        auto owned = deren::engine::resource_lease<rhi::buffer>::from_shared(owner, rhi::shared_object<rhi::buffer>(std::move(raw)));
+        CHECK(owned);
+        deren::engine::buffer_transfer_service transfers(owner);
+        auto batch = transfers.make_batch();
+        std::uint32_t payload = 17;
+        rhi::synchronization::scope after{rhi::synchronization::stage::transfer, rhi::synchronization::access::read};
+        CHECK(batch.upload(owned, 0, std::as_bytes(std::span(&payload, 1)), {}, after) == rhi::error::unsupported);
+        CHECK(transfers.pending_count() == 0);
+        CHECK(transfers.collect() == rhi::error::ok);
+        CHECK(transfers.drain(0) == rhi::error::ok);
+    }
     static_assert(!std::is_copy_constructible_v<resource_cluster>);
     CHECK(!resource_cluster::create(nullptr, "invalid"));
     auto device = deren::vk_test::probe_make_core({}, rhi::abi_version, true);

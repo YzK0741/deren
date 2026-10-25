@@ -78,11 +78,6 @@ export namespace deren::promise::rhi {
     // default to `unsupported`, some value/boolean abilities default to false; a backend that announces an
     // ability MUST override every method of it.
     //
-    // MESH SHADER. `mesh_shader` is RESERVED in ABI 53: no backend in this tree announces the kind, and its
-    // `dispatch_mesh` verb has no error channel. Callers MUST use the tier-1
-    // `command_recorder::draw_mesh_tasks`/`draw_mesh_tasks_indirect` path instead. A future backend that
-    // announces the kind must define the preconditions/error behavior and bump the ABI.
-    //
     // DESCRIPTOR HEAP. A backend that announces `descriptor_heap` MUST provide a ready heap; otherwise the
     // extension is absent. `write_image`/`write_buffer` write host-owned descriptors: the caller MUST keep the
     // written image/view/buffer alive until GPU work using the descriptor completes; the heap does not retain
@@ -167,7 +162,7 @@ export namespace deren::promise::rhi {
     enum class extension_kind : std::uint32_t {
         device_address = 1u << 0,  ///< buffer/acceleration-structure addresses (plan §5: 35 mentions, 9 files)
         descriptor_heap = 1u << 1, ///< VK_EXT_descriptor_heap: push data, write descriptors, bind heaps
-        mesh_shader = 1u << 2,     ///< vkCmdDrawMeshTasksEXT and its indirect form
+        mesh_shader = 1u << 2,     ///< RETIRED in ABI 54: use command_recorder::draw_mesh_tasks; bit never reused
         ray_tracing = 1u << 3,     ///< RETIRED in abi 26: the acceleration-structure half became TIER-1 (`acceleration_structure` + the recording verbs), and "can this device trace rays" is answered by `device_capabilities`. The BIT stays (never reused).
         host_image_copy = 1u << 4, ///< vkCopyImageToMemoryEXT
         /// RETIRED in abi 43: the escape interface is gone - the GUI overlay receives the backend's opaque
@@ -222,7 +217,6 @@ export namespace deren::promise::rhi {
         // bit of the retired kind is defined. The ENUMERATOR stays (bits are never reused), which is why this
         // set is no longer "every enumerator" - the note on that enumerator says so.
         return to_bits(extension_kind::device_address) | to_bits(extension_kind::descriptor_heap) |
-               to_bits(extension_kind::mesh_shader) |
                to_bits(extension_kind::host_image_copy) |
                to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access) | to_bits(extension_kind::gpu_sorting) | to_bits(extension_kind::async_presentation) | to_bits(extension_kind::scoped_synchronization) | to_bits(extension_kind::frame_resources) | to_bits(extension_kind::descriptor_space) | to_bits(extension_kind::command_submission);
     }
@@ -232,11 +226,10 @@ export namespace deren::promise::rhi {
     /// `all_abilities()` is the set as a bitmask; this is the enumeration the consistency gates and
     /// the tests iterate (`abilities()` set => `query_extension()` non-null, and the reverse), so the
     /// list is spelled in ONE place instead of per caller.
-    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> deren::utility::vessel::array<extension_kind, 12> {
+    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> deren::utility::vessel::array<extension_kind, 11> {
         return {
             extension_kind::device_address,
             extension_kind::descriptor_heap,
-            extension_kind::mesh_shader,
             extension_kind::host_image_copy,
             extension_kind::device_capabilities,
             extension_kind::shader_group_access,
@@ -250,7 +243,7 @@ export namespace deren::promise::rhi {
     }
 
     static_assert(to_bits(extension_kind::device_address) == 0x1u, "the ability bits are ABI: they do not move");
-    static_assert(all_abilities() == 0x3FD7u, "twelve active abilities; retired bits are never reused");
+    static_assert(all_abilities() == 0x3FD3u, "eleven active abilities; retired bits are never reused");
 
     /// The common root of the tier-2 abilities.
     ///
@@ -348,6 +341,7 @@ export namespace deren::promise::rhi {
 
     /// Copyable, non-owning receipt for one successful submission. Not persistent across processes.
     /// Keep the originating core alive while using it; dropping a token does not cancel GPU work.
+    /// Treat its fields as an opaque issued pair: do not synthesize values or use it across cores.
     struct submission_token {
         std::uint64_t device_id = 0;
         std::uint64_t sequence = 0;
@@ -363,11 +357,13 @@ export namespace deren::promise::rhi {
         extension_kind kind() const noexcept final {
             return extension_id;
         }
-        /// Failed submissions produce no token. Resource/recording lifetime rules match command_context::submit.
+        /// Failed submissions produce no token. Success means accepted, not GPU-complete or presented.
+        /// Resource/recording lifetime rules match command_context::submit; no implicit resource barriers.
         [[nodiscard]] virtual std::expected<submission_token, error> submit(command_buffer&) = 0;
         [[nodiscard]] virtual std::expected<submission_token, error> submit(std::span<shared_object<mergeable_command_buffer> const>) = 0;
         /// ok = completed, not_ready = pending. Invalid/foreign/future values are invalid_argument.
         /// Device errors stay errors; native completion storage may be reclaimed without invalidating tokens.
+        /// Completion permits reuse only for work covered by this token, not unrelated later submissions.
         [[nodiscard]] virtual error poll(submission_token token) noexcept = 0;
         /// timeout_ns=0 checks without waiting (pending returns timeout). UINT64_MAX waits indefinitely.
         /// Waits only for this submission; does not hold queue locks while waiting.
@@ -480,22 +476,6 @@ export namespace deren::promise::rhi {
         std::uint32_t handle_size = 0;      ///< bytes per shader-group handle
         std::uint32_t handle_alignment = 0; ///< bytes between consecutive handles in the table
         std::uint32_t base_alignment = 0;   ///< the table's own alignment
-    };
-
-    /// tier-2 ability: mesh and task shaders.
-    /// RESERVED in ABI 53: no backend announces this kind; callers use the tier-1 draw_mesh_tasks path.
-    struct mesh_shader : extension {
-
-        static constexpr extension_kind extension_id = extension_kind::mesh_shader;
-        explicit mesh_shader(std::string_view const name) noexcept
-            : extension(name) {
-        }
-        [[nodiscard]] extension_kind kind() const noexcept final {
-            return extension_id;
-        }
-        /// Record `groups_x` x `groups_y` x `groups_z` mesh workgroups into `commands`
-        /// (plan §5: 19 `vkCmdDrawMeshTasksEXT` calls plus 4 indirect ones).
-        virtual void dispatch_mesh(command_recorder& commands, std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) = 0;
     };
 
     // ---- `struct ray_tracing : extension` STOOD HERE, AND IT IS RETIRED (abi 26) ---------------------
@@ -708,6 +688,38 @@ export namespace deren::promise::rhi {
         image_view_desc const* view = nullptr;
     };
 
+    struct descriptor_slot_range {
+        std::uint32_t base = 0;
+        std::uint32_t count = 0;
+    };
+    struct acceleration_structure;
+    /// Fixed shader-profile writes, not physical heap locations. Space 0 is the main space.
+    /// Host updates borrow resources; callers synchronize replacement and retain GPU operands.
+    /// Fixed slots last for the core lifetime and cannot address dynamic texture-group positions.
+    struct descriptor_image_write {
+        structure_header header{structure_type::descriptor_image_write, sizeof(descriptor_image_write), nullptr};
+        std::uint32_t space = 0, slot = 0;
+        image const* resource = nullptr;
+        image_view_desc const* view = nullptr; ///< explicit valid view required
+        descriptor_type type = descriptor_type::sampled_image;
+    };
+    struct descriptor_buffer_write {
+        structure_header header{structure_type::descriptor_buffer_write, sizeof(descriptor_buffer_write), nullptr};
+        std::uint32_t space = 0, slot = 0;
+        buffer const* resource = nullptr;
+        std::uint64_t offset = 0, size = 0; ///< resource-relative bytes, not descriptor bytes
+        descriptor_type type = descriptor_type::storage_buffer;
+    };
+    struct descriptor_acceleration_structure_write {
+        structure_header header{structure_type::descriptor_acceleration_structure_write, sizeof(descriptor_acceleration_structure_write), nullptr};
+        std::uint32_t space = 0, slot = 0;
+        acceleration_structure const* resource = nullptr;
+    };
+    struct descriptor_bind_info {
+        structure_header header{structure_type::descriptor_bind, sizeof(descriptor_bind_info), nullptr};
+        command_recorder* commands = nullptr;
+    };
+
     /// tier-2 ability: the backend's DESCRIPTOR SPACE, addressed by positions instead of byte offsets.
     ///
     /// IT EXISTS BESIDE `descriptor_heap`, not instead of it: the heap interface answers the DEVICE's
@@ -735,6 +747,22 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual descriptor_position position(texture_group const& group) const noexcept = 0;
         /// Write one sampled descriptor into a live position. See `descriptor_write` for the rules.
         [[nodiscard]] virtual error write(descriptor_write const& info) noexcept = 0;
+        /// ABI 55 fixed shader profile. Empty means unavailable, independently of group support.
+        [[nodiscard]] virtual descriptor_slot_range fixed_slots() const noexcept {
+            return {};
+        }
+        [[nodiscard]] virtual error write_image(descriptor_image_write const&) noexcept {
+            return error::unsupported;
+        }
+        [[nodiscard]] virtual error write_buffer(descriptor_buffer_write const&) noexcept {
+            return error::unsupported;
+        }
+        [[nodiscard]] virtual error write_acceleration_structure(descriptor_acceleration_structure_write const&) noexcept {
+            return error::unsupported;
+        }
+        [[nodiscard]] virtual error bind(descriptor_bind_info const&) noexcept {
+            return error::unsupported;
+        }
     };
 
     // `vulkan_command_buffer_inheritance_info` STOOD HERE AND IS DELETED in abi 42: it was the native

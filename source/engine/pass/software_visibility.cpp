@@ -82,9 +82,8 @@ namespace deren::engine::pass {
         std::uint64_t const pixels = static_cast<std::uint64_t>(width) * height;
         if (pixels > UINT32_MAX)
             return false;
-        auto* heap = rhi::query_extension<rhi::descriptor_heap>(*this->device);
-        auto* addresses = rhi::query_extension<rhi::device_address>(*this->device);
-        if (!heap || !addresses)
+        auto* heap = rhi::query_extension<rhi::descriptor_space>(*this->device);
+        if (!heap || !heap->ready() || !heap->fixed_slots().count)
             return false;
         auto& scratch = this->triangle_scratch[slot];
         if (!scratch || scratch->size() != pixels * sizeof(std::uint64_t)) {
@@ -95,11 +94,10 @@ namespace deren::engine::pass {
                 return false;
             scratch = std::move(replacement);
         }
-        auto const address = addresses->buffer_address(*scratch, 0u);
-        if (!address || heap->write_buffer({.offset = render_layout::heap_slot_offset(render_layout::heap_slots::software_atomic + slot),
-                                            .address = address,
-                                            .size = scratch->size(),
-                                            .type = rhi::descriptor_type::storage_buffer}) != rhi::error::ok)
+        if (heap->write_buffer({.slot = render_layout::heap_slots::software_atomic + slot,
+                                .resource = scratch.get(),
+                                .size = scratch->size(),
+                                .type = rhi::descriptor_type::storage_buffer}) != rhi::error::ok)
             return false;
         this->triangle_slot = slot;
         this->triangle_frame = true;
@@ -123,9 +121,8 @@ namespace deren::engine::pass {
         auto const* caps = rhi::query_extension<rhi::device_capabilities>(*this->device);
         if (!caps || !caps->compute_indirect() || !this->prepare_triangles(slot, width, height) || !this->triangle_frame)
             return false;
-        auto* heap = rhi::query_extension<rhi::descriptor_heap>(*this->device);
-        auto* addresses = rhi::query_extension<rhi::device_address>(*this->device);
-        if (!heap || !addresses)
+        auto* heap = rhi::query_extension<rhi::descriptor_space>(*this->device);
+        if (!heap || !heap->ready() || !heap->fixed_slots().count)
             return false;
         constexpr std::uint64_t metadata_bytes = (8u + visibility::software::software_entry_budget) * 4ull;
         auto prepare = [&](rhi::shared_object<rhi::buffer>& buffer, std::uint64_t bytes, std::uint32_t heap_slot, bool indirect) {
@@ -139,8 +136,7 @@ namespace deren::engine::pass {
                 buffer = rhi::shared_object<rhi::buffer>{std::move(created)};
             }
             auto mapped = buffer->mapped();
-            auto address = addresses->buffer_address(*buffer, 0u);
-            return mapped.size() >= bytes && address && heap->write_buffer({.offset = render_layout::heap_slot_offset(heap_slot + slot), .address = address, .size = bytes, .type = rhi::descriptor_type::storage_buffer}) == rhi::error::ok;
+            return mapped.size() >= bytes && heap->write_buffer({.slot = heap_slot + slot, .resource = buffer.get(), .size = bytes, .type = rhi::descriptor_type::storage_buffer}) == rhi::error::ok;
         };
         if (!prepare(this->route_metadata[slot], metadata_bytes, render_layout::heap_slots::software_route_metadata, false) ||
             !prepare(this->route_arguments[slot], 16u, render_layout::heap_slots::software_route_arguments, true))
