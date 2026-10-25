@@ -24,7 +24,7 @@ using namespace subtilis_document_fixture;
 namespace {
     // Forward declarations keep the Task 6 directory-package block self-contained.
     void fault_injection_tests(tool::path const& root);
-    void cross_volume_tests(tool::path const& root, tool::path const& rich_source);
+    void cross_volume_tests(tool::path const& root, tool::path const& rich_source, tool::path const& cooked_source);
     std::string relative_generic(tool::path const& file, tool::path const& root);
 
     // ------------------------------------------------------------------ Task 6 helpers
@@ -923,7 +923,7 @@ namespace {
         //    publication failures must never publish a partial package.
         fault_injection_tests(root);
         // K. Cross-volume destination: staging must happen on the destination volume.
-        cross_volume_tests(root, rich_source);
+        cross_volume_tests(root, rich_source, tool::package_detail::package_json_path(rich_out));
     }
 
     std::string relative_generic(tool::path const& file, tool::path const& root) {
@@ -1079,22 +1079,25 @@ namespace {
         return std::nullopt;
     }
 
-    void cross_volume_tests(tool::path const& root, tool::path const& rich_source) {
+    void cross_volume_tests(tool::path const& root, tool::path const& rich_source, tool::path const& cooked_source) {
         std::string probe_error;
         auto other = other_writable_volume(root, probe_error);
         if (!other) {
-            deren::vk_test::write_line("[subtilis_converter] NOTE: cross-volume glTF package check SKIPPED (no second writable volume available to this process; last probe error: '{}') - same-volume staging/publish semantics are covered by the fault-injection tests", probe_error);
-            CHECK(true);
-            return;
+            deren::vk_test::write_line("[subtilis_converter] NOTE: cross-volume glTF package check SKIPPED (no second writable volume; last probe error: '{}'); exercising the same relocation path on this volume", probe_error);
         }
-        auto source = tool::read_document(rich_source / "rich.gltf", {});
+        // Packaging preserves existing payloads; it does not build a hierarchy from raw geometry.
+        auto source = tool::read_document(cooked_source, {});
         CHECK(source);
         if (!source) {
-            deren::vk_test::write_line("[subtilis_converter] NOTE: cross-volume glTF package check SKIPPED (source unreadable)");
+            deren::vk_test::write_line("[subtilis_converter] ERROR: prepared relocation source is unreadable");
             return;
         }
+        auto source_payload = tool::payload_bytes(*source, {0, 0});
+        CHECK(source_payload);
+        if (!source_payload)
+            return;
         auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-        auto base = *other / tool::path(deren::utility::vessel::format("deren-subtilis-cross-{}", stamp).c_str());
+        auto base = other.value_or(root) / tool::path(deren::utility::vessel::format("deren-subtilis-cross-{}", stamp).c_str());
         std::error_code ec;
         std::filesystem::create_directories(base, ec);
         CHECK(!ec);
@@ -1128,10 +1131,18 @@ namespace {
         CHECK(staged_on_destination == plan.opened.size());
         auto json = tool::package_detail::package_json_path(target).generic_string();
         CHECK(run_cli({"validate", json, "--full"}) == 0);
+        auto relocated = tool::read_document(json, {});
+        CHECK(relocated);
+        if (relocated) {
+            auto payload = tool::payload_bytes(*relocated, {0, 0});
+            CHECK(payload && same_bytes(*payload, *source_payload));
+        }
         // Destination bytes hash back to the source resources even across volumes.
         CHECK(hash_bytes(read_bytes(target / "buffer0.bin")) == hash_bytes(read_bytes(rich_source / "geometry data.bin")));
-        if (written)
+        if (written && other)
             deren::vk_test::write_line("[subtilis_converter] NOTE: cross-volume glTF package check PERFORMED (source on {}, destination/staging on {})", std::filesystem::absolute(rich_source, ec).root_name().string(), destination_root.string());
+        else if (written)
+            deren::vk_test::write_line("[subtilis_converter] NOTE: same-volume package relocation check PERFORMED");
         std::filesystem::remove_all(base, ec);
         CHECK(!ec);
     }
