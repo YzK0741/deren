@@ -22,10 +22,10 @@ $process = [System.Diagnostics.Process]::Start($start)
 if (-not $process.WaitForExit(45000)) {
     $process.Kill($true)
     $process.WaitForExit(1000) | Out-Null
-    throw "Gaussian probe timed out; inspect $workPath/debug.log"
+    throw "Gaussian probe timed out; inspect $workPath/deren-debug.log"
 }
-if ($process.ExitCode -ne 0) { throw "Renderer exited with $($process.ExitCode); inspect $workPath/debug.log" }
-$logPath = Join-Path $workPath "debug.log"
+if ($process.ExitCode -ne 0) { throw "Renderer exited with $($process.ExitCode); inspect $workPath/deren-debug.log" }
+$logPath = Join-Path $workPath "deren-debug.log"
 $result = Select-String -LiteralPath $logPath -Pattern "Gaussian raster probe: (PASS|FAIL)"
 if (-not $result -or $result[-1].Line -notmatch "Gaussian raster probe: PASS") { throw "Gaussian probe failed; inspect $logPath" }
 if (Select-String -LiteralPath $logPath -Pattern "Validation Error|VUID-") { throw "Vulkan validation reported an error; inspect $logPath" }

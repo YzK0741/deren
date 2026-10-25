@@ -215,9 +215,9 @@ include(cmake/deren_asset_dependencies.cmake)
 # WHY TWO, and it is a measured hazard rather than tidiness: the toolkit is STATIC and BOTH halves
 # of the RHI boundary link it, so one process holds one copy of everything - the log sink included.
 # THE FLIP BREAKS THAT: `deren_vulkan` becomes SHARED, the DLL carries its own copy of every
-# library it links, and the process then holds TWO sinks - two `ofstream`s on the same debug.log,
+# library it links, and the process then holds TWO sinks - two `ofstream`s on the same deren-debug.log,
 # two startup rotations, and `rotate_previous_log()` TRUNCATES the file the other copy still has
-# open and appends to (interleaved lines, holes, two sessions in one debug.log.old). The boundary
+# open and appends to (interleaved lines, holes, two sessions in one deren-debug.log.old). The boundary
 # gate is blind to it by construction: it measures deren_vulkan ∩ deren_engine, and this is a
 # third library that defines no backend symbol.
 #
@@ -245,8 +245,8 @@ include(cmake/deren_asset_dependencies.cmake)
 #
 # DEPENDENCY DIRECTION: static_utility MAY depend on shared_utility (it formats text and calls the
 # sink); the reverse is FORBIDDEN - the shared module writes its own stdout/stderr fallback instead
-# of calling this module's `println`. The contract `rhi` depends on NEITHER, and `shared_utility`
-# does not import it at all (the verdict/result templates that carry rhi::error_info are static).
+# of calling this module's `println`. Neither utility target imports or links the RHI contract;
+# the contract depends on shared_utility. RHI outcome policy belongs to engine_outcome_core.
 #
 # `dynamic_link` STAYS ON THE STATIC SIDE FOR A LOAD-BEARING REASON: it is the key that loads the
 # backend, so putting it in the process-wide library would build a bootstrap chain ("the executable
@@ -265,9 +265,9 @@ include(cmake/deren_asset_dependencies.cmake)
 #      C++-runtime check in scripts/check_backend_boundary.py (dll imports enumerated, no static
 #      libc++ in any image).
 #   3. THE REASON THE SPLIT EXISTS IS STATE, NOT MEMORY. One log sink per process: two copies mean two
-#      `ofstream`s on one debug.log and two startup rotations, and `rotate_previous_log()` TRUNCATES
+#      `ofstream`s on one deren-debug.log and two startup rotations, and `rotate_previous_log()` TRUNCATES
 #      the file the other copy still has open (interleaved lines, holes, two sessions in one
-#      debug.log.old). The heap/STL question is NOT the reason for this split and is deliberately not
+#      deren-debug.log.old). The heap/STL question is NOT the reason for this split and is deliberately not
 #      argued here - that is the `shared_object` line of work (abi 18).
 # WHERE THIS BATCH STILL PASSES A VIEW (`log_text(std::string_view)`), the reason is a design choice
 # rather than a prohibition: the sink copies what it queues on its own side, and the formatting stays
@@ -280,7 +280,7 @@ include(cmake/deren_asset_dependencies.cmake)
 # SHARED, IN THE SAME BATCH AS deren_vulkan, AND THIS IS THE MOMENT THE SPLIT WAS FOR: until now both
 # halves of the toolkit were STATIC, so the process happened to hold one sink even with two copies of
 # the code. A DLL carries its own copy of what it links, so with deren_vulkan SHARED the sink WOULD be
-# duplicated - two `ofstream`s on one debug.log, two startup rotations, and
+# duplicated - two `ofstream`s on one deren-debug.log, two startup rotations, and
 # `rotate_previous_log()` TRUNCATING the file the other copy still has open. `shared_utility` being a
 # DLL is what prevents it: the executable and deren_vulkan.dll both import THIS image, so the OS loads
 # one copy of the sink for the whole process. The rotation claim
@@ -608,6 +608,11 @@ set(VR_APP_EXE deren)
 set(VR_FULL_API_MODULES source/engine/render_start_demo/render_start_demo.cppm)
 set(VR_FULL_API_SOURCES source/engine/render_start_demo/render_start_demo.cpp)
 
+add_library(engine_outcome_core STATIC)
+target_sources(engine_outcome_core PUBLIC FILE_SET CXX_MODULES FILES
+    source/engine/outcome/outcome.cppm)
+target_link_libraries(engine_outcome_core PUBLIC static_utility promise)
+
 add_library(resource_cluster_core STATIC)
 target_sources(resource_cluster_core PUBLIC FILE_SET CXX_MODULES FILES
     source/engine/resource_cluster/resource_cluster.cppm)
@@ -926,6 +931,7 @@ target_link_libraries(deren_assets
 # parsed deren::gltf::scenes down to the runtime at the call site.
 target_link_libraries(deren_engine
         PUBLIC
+        engine_outcome_core
         resource_cluster_core
         buffer_transfer_core
         gaussian_loader
@@ -998,11 +1004,6 @@ set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE $<$<CONFIG:Rel
 # consumers (deren_engine / deren_assets / deren) at link time, so the executable does not need to
 # link xxhash itself. The platform_* TUs live here too - they are per-half by nature (no state).
 target_link_libraries(static_utility
-        # The verdict family (pass_failure / fatal) carries the contract's error_info as a value, so
-        # the contract's module is a dependency of THIS target. The direction stays one-way: the
-        # contract imports nothing back (source/promise/rhi/*.cppm), and nothing in utility crosses a
-        # process boundary carrying one - these are same-binary types.
-        promise
         vstd_lib
         xxhash
         # PUBLIC because this module re-exports deren.utility.shared: every consumer that imports
@@ -1150,7 +1151,7 @@ if(MSVC)
             # initialiser, so the MSVC spelling of the MinGW behaviour is to name the other CRT
             # entry - mainCRTStartup calls main() and keeps /SUBSYSTEM:WINDOWS, so Release still
             # runs with no console window. Debug's default entry already is mainCRTStartup, which is
-            # why this is Release-only. (The exe logs to debug.log, so no console is needed to see
+            # why this is Release-only. (The exe logs to deren-debug.log, so no console is needed to see
             # its output - README.md, "Release builds are Windows GUI-subsystem executables".)
             $<$<CONFIG:Release>:/ENTRY:mainCRTStartup>
     )
@@ -1172,7 +1173,7 @@ endif()
 # Headless unit tests (no GPU, no external test framework - see source/tests/vk_test.h): each test is
 # an ordinary module consumer that imports the module under test and links its library, so the
 # tests compile with the exact interfaces the rest of the code uses. CTest runs them in a
-# per-build scratch directory (module logging writes debug.log there, not into the source
+# per-build scratch directory (module logging writes deren-debug.log there, not into the source
 # tree); tests that open fixtures/models receive the source root via VR_TEST_SOURCE_DIR.
 # ---------------------------------------------------------------------------------------------
 option(VR_BUILD_TESTS "Build the headless unit tests" ON)
@@ -1251,7 +1252,8 @@ target_link_libraries(deren_engine PUBLIC render_graph_bloom render_graph_post r
 
 if(VR_BUILD_TESTS)
     enable_testing()
-    target_compile_definitions(shared_utility PRIVATE DEREN_MEMORY_TESTING)
+    target_compile_definitions(shared_utility PRIVATE DEREN_MEMORY_TESTING DEREN_LOG_TESTING)
+    target_sources(shared_utility PRIVATE source/utility/shared/log_test_hooks.cpp)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     add_test(NAME test_clang_tidy_driver
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source/tests/test_clang_tidy_driver.py")
@@ -1301,7 +1303,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb test_visibility_software test_visibility_software_pass test_visibility_merge_pass test_render_operations)
+    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_engine_outcome test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb test_visibility_software test_visibility_software_pass test_visibility_merge_pass test_render_operations)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1375,6 +1377,8 @@ if(VR_BUILD_TESTS)
             app_config
             vstd_lib
     )
+    target_link_libraries(test_engine_outcome engine_outcome_core)
+
     target_link_libraries(test_utility
             static_utility
             glm::glm
@@ -1474,6 +1478,7 @@ if(VR_BUILD_TESTS)
         target_link_options(vessel_probe PRIVATE -fno-sanitize=all)
     endif()
     target_link_libraries(test_vessel static_utility shared_utility vstd_lib)
+    target_sources(test_utility PRIVATE source/tests/vessel_child.cpp)
     target_sources(test_vessel PRIVATE source/tests/vessel_child.cpp)
     target_link_libraries(test_boost_graph boost_graph_headers render_graph_rhi)
     target_link_libraries(test_render_graph render_graph_core)
@@ -1992,7 +1997,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     # root-level module source feeding both the format stamp and a target that depends on other
     # format-listed targets makes ninja see a cycle; format source/app/chores.cppm manually with
     # 'clang-format -i source/app/chores.cppm' - same style, just not automatic)
-    foreach(_tgt shared_utility static_utility backend_loader promise rhi_sync_contract app_config deren_vulkan vulkan_constant_init vulkan_synchronization renderer_layout vulkan_error_tables deren_engine deren_assets resource_cluster_core render_graph_core render_graph_rhi render_graph_execute render_graph_compose render_graph_bloom render_graph_post render_graph_lighting render_graph_geometry ${VR_APP_EXE})
+    foreach(_tgt shared_utility static_utility engine_outcome_core backend_loader promise rhi_sync_contract app_config deren_vulkan vulkan_constant_init vulkan_synchronization renderer_layout vulkan_error_tables deren_engine deren_assets resource_cluster_core render_graph_core render_graph_rhi render_graph_execute render_graph_compose render_graph_bloom render_graph_post render_graph_lighting render_graph_geometry ${VR_APP_EXE})
         add_dependencies(${_tgt} clang-format)
     endforeach()
 

@@ -32,11 +32,11 @@ $probeText | Set-Content -LiteralPath (Join-Path $work 'traversal.log') -Encodin
 if ($probeProcess.ExitCode -ne 0 -or $probeText -notmatch 'rt_traversal: GPU results 1,0,0 / 1,0,0 .*mapped heap') {
     throw 'GPU traversal probe did not verify both TLAS slots, hits, misses and mask discard; see traversal.log'
 }
-$probeLog = Join-Path $work 'debug.log'
+$probeLog = Join-Path $work 'deren-debug.log'
 if (Test-Path -LiteralPath $probeLog) {
-    Copy-Item -LiteralPath $probeLog -Destination (Join-Path $work 'traversal-debug.log') -Force
+    Copy-Item -LiteralPath $probeLog -Destination (Join-Path $work 'traversal-deren-debug.log') -Force
     if (Select-String -LiteralPath $probeLog -Pattern 'VUID-|Validation Error|\[ERROR\]|\[WARNING\]|panic') {
-        throw 'GPU traversal probe has validation/log findings; see traversal-debug.log'
+        throw 'GPU traversal probe has validation/log findings; see traversal-deren-debug.log'
     }
 }
 @"
@@ -72,7 +72,7 @@ foreach ($argument in @('--config', $config, '--capture-frames', "$Frames", "--c
 $process = [Diagnostics.Process]::Start($start)
 if (-not $process.WaitForExit(180000)) { $process.Kill(); throw 'RT smoke timed out' }
 if ($process.ExitCode -ne 0) { throw "RT smoke exited $($process.ExitCode)" }
-$log = Join-Path $work 'debug.log'
+$log = Join-Path $work 'deren-debug.log'
 $bad = @(Select-String -LiteralPath $log -Pattern 'VUID-|Validation Error|\[ERROR\]|\[WARNING\]|panic|frame submit was refused')
 if ($bad.Count -gt 0) {
     $bad | Select-Object -First 2 | ForEach-Object { Write-Host $_.Line }

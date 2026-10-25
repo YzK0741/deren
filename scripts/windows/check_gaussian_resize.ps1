@@ -73,7 +73,7 @@ $timer = [System.Diagnostics.Stopwatch]::StartNew()
 $previousDpiContext = [GaussianResizeCheck.Windows]::SetThreadDpiAwarenessContext([IntPtr](-4))
 try {
     while (-not $process.HasExited -and $timer.Elapsed.TotalSeconds -lt 55) {
-        $logPath = Join-Path $workPath 'debug.log'
+        $logPath = Join-Path $workPath 'deren-debug.log'
         $logFile = Get-Item -LiteralPath $logPath -ErrorAction SilentlyContinue
         # Repeated runs must wait for this process's log rather than count frames from the previous run.
         if ($logFile -and $logFile.LastWriteTime -ge $startedAt) {
@@ -123,7 +123,7 @@ try {
         }
         Start-Sleep -Milliseconds 100
     }
-    if (-not $process.HasExited) { throw 'Resize check timed out; inspect debug.log' }
+    if (-not $process.HasExited) { throw 'Resize check timed out; inspect deren-debug.log' }
 } finally {
     if (-not $process.HasExited) { $process.Kill($true) }
     $process.WaitForExit()
@@ -131,12 +131,12 @@ try {
     Set-Content -LiteralPath (Join-Path $workPath 'stdout.log') -Value $standardOutput.GetAwaiter().GetResult()
     Set-Content -LiteralPath (Join-Path $workPath 'stderr.log') -Value $standardError.GetAwaiter().GetResult()
 }
-if ($process.ExitCode -ne 0) { throw "Renderer exited with $($process.ExitCode); inspect debug.log" }
+if ($process.ExitCode -ne 0) { throw "Renderer exited with $($process.ExitCode); inspect deren-debug.log" }
 if ($resizeCount -ne $expectedResizes) { throw "Only $resizeCount of $expectedResizes resizes ran" }
-$log = Get-Content -LiteralPath (Join-Path $workPath 'debug.log') -Raw
+$log = Get-Content -LiteralPath (Join-Path $workPath 'deren-debug.log') -Raw
 if ($log -notmatch 'validation layers enabled') { throw 'The config must enable validation_layers' }
 if ($log -notmatch 'recreat') { throw 'No swapchain rebuild was recorded' }
-if ($log -match '(?m)^\[ERROR\]|Validation Error|VUID-|SYNC-HAZARD|gaussian recording: FAIL|initialization: FAIL|numeric errors') { throw 'Validation or rendering reported an error; inspect debug.log' }
+if ($log -match '(?m)^\[ERROR\]|Validation Error|VUID-|SYNC-HAZARD|gaussian recording: FAIL|initialization: FAIL|numeric errors') { throw 'Validation or rendering reported an error; inspect deren-debug.log' }
 $screenshot = Get-ChildItem -LiteralPath $workPath -Filter 'screenshot_*.png' -File |
     Where-Object { $_.LastWriteTime -ge $startedAt } | Sort-Object LastWriteTime | Select-Object -Last 1
 if (-not $screenshot) { throw 'No new screenshot was produced' }

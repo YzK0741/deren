@@ -639,7 +639,7 @@ TWO ROUTES EXIST FOR THOSE STAGES, and neither needs the gate's references to be
   two `descriptor heap: the heap-native GRAPHICS probe rendered grid slot ...` lines (including the
   deliberately WRONG slot) are the acceptance, and they come out byte-identical to the GLSL build's. **The
   COMPUTE half does not offer that**: `run_heap_probe` writes its answer into a buffer the host reads back and
-  this build logs NO comparable line for it - grepping `debug.log` for every `descriptor heap:` line finds the
+  this build logs NO comparable line for it - grepping `deren-debug.log` for every `descriptor heap:` line finds the
   graphics probe's two and nothing from the compute probe. `heap_probe.comp` also uses
   `GL_EXT_buffer_reference` (a raw device address pushed as two 32-bit halves) rather than a heap handle,
   which is a DIFFERENT mechanism from the heap handles - and THE MECHANISM IS NOW PROVEN PORTABLE, which the

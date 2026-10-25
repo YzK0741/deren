@@ -3,7 +3,7 @@
 Usage: python visibility_ab.py <off_dir> <on_dir>
 
 Both directories hold the capture gate's per-scenario artefacts:
-`<scenario>.last.png` (the frame the run kept) and `<scenario>.debug.log`. Produce them with two -Full rounds
+`<scenario>.last.png` (the frame the run kept) and `<scenario>.deren-debug.log`. Produce them with two -Full rounds
 of scripts/windows/check_render.ps1, one plain (OFF) and one with `-ExtraConfig 'visibility_buffer = true'`
 (ON); this instrument is what turns those two rounds into the numbers the review records.
 
@@ -101,8 +101,8 @@ def main(argv):
         if not os.path.exists(on_png):
             rows.append((name, "MISSING ON CAPTURE", "?", None))
             continue
-        admitted, detail = admission(os.path.join(on_dir, f"{name}.debug.log"))
-        findings = validation_findings(os.path.join(on_dir, f"{name}.debug.log"))
+        admitted, detail = admission(os.path.join(on_dir, f"{name}.deren-debug.log"))
+        findings = validation_findings(os.path.join(on_dir, f"{name}.deren-debug.log"))
         stats = diff_stats(off_png, on_png)
         rows.append((name, admitted, detail, findings, stats))
 

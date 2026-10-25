@@ -3,6 +3,7 @@
 #include "vk_test.h"
 
 #include <array>
+#include <cstdio>
 #include <memory>
 #include <optional>
 #include <span>
@@ -180,9 +181,10 @@ int main(int argc, char** argv) {
     mode_tests<rg::content_access::read_write>();
     mode_tests<rg::content_access::invalidate>();
     rejection_lifetime_tests();
+    std::remove("deren-crash.log");
     auto oom = vessel_run_child(argv[0], "--oom", "render-graph-parameters-oom.log");
     CHECK(oom.started && oom.code != 0 && oom.code != 99);
-    auto* log = std::fopen("render-graph-parameters-oom.log", "rb");
+    auto* log = std::fopen("deren-crash.log", "rb");
     CHECK(log);
     if (log) {
         char text[1024]{};
@@ -190,6 +192,14 @@ int main(int argc, char** argv) {
         std::fclose(log);
         CHECK(std::string_view(text, count).find("allocation failure: out_of_memory") != std::string_view::npos);
         CHECK(std::string_view(text, count).find("stacktrace") == std::string_view::npos);
+    }
+    auto* console = std::fopen("render-graph-parameters-oom.log", "rb");
+    CHECK(console);
+    if (console) {
+        char text[1024]{};
+        auto count = std::fread(text, 1, sizeof(text), console);
+        std::fclose(console);
+        CHECK(std::string_view(text, count).find("deren ") == std::string_view::npos);
     }
     return deren::vk_test::finish("test_render_graph_parameters");
 }

@@ -448,7 +448,7 @@ refuses to accept a run whose log carries validation errors.
 
 The Dear ImGui debug overlay is on **by default** — disable it with `[gui] show = false` in the config.
 
-> Release builds are Windows GUI-subsystem executables: no console window appears when running, and the log output goes to `debug.log` in the working directory (the previous session's content is rotated to `debug.log.old` with a session timestamp on startup). Debug builds keep the terminal.
+> Release builds are Windows GUI-subsystem executables: no console window appears when running, and the log output goes to `deren-debug.log` in the working directory (the previous session's content is rotated to `deren-debug.log.old` with a session timestamp on startup). Debug builds keep the terminal, but logging also writes to files. Panic and crash evidence goes to `deren-crash.log`; log and panic routes do not write to stdout/stderr.
 
 ### Recompile shaders
 

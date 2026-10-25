@@ -47,7 +47,7 @@ lut_size = 256
     $process = [Diagnostics.Process]::Start($start)
     if (-not $process.WaitForExit(180000)) { $process.Kill(); throw "GUI $name capture timed out" }
     if ($process.ExitCode -ne 0) { throw "GUI $name capture exited $($process.ExitCode)" }
-    $log = Join-Path $run 'debug.log'
+    $log = Join-Path $run 'deren-debug.log'
     $bad = Select-String -LiteralPath $log -Pattern 'VUID-|Validation Error|\[ERROR\]|\[WARNING\]|panic'
     if ($bad) { $bad | ForEach-Object { Write-Host $_.Line }; throw "GUI $name validation/log failure" }
     if ($Show) {

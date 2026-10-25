@@ -138,15 +138,20 @@ namespace {
     }
     void test_fatal(char const* executable, char const* mode, char const* expected) {
         deren::utility::vessel::string file = deren::utility::vessel::string(mode + 2) + ".log";
+        std::error_code error;
+        std::filesystem::remove("deren-crash.log", error);
         auto outcome = vessel_run_child(executable, mode, file.c_str());
         CHECK(outcome.started && outcome.aborted);
         std::ifstream log(file.c_str());
         deren::utility::vessel::string text((std::istreambuf_iterator<char>(log)), std::istreambuf_iterator<char>());
         CHECK(text.find("allocation child started") != deren::utility::vessel::string::npos);
+        CHECK(text.find("deren allocation failure:") == deren::utility::vessel::string::npos);
+        std::ifstream report("deren-crash.log");
+        text.assign(std::istreambuf_iterator<char>(report), std::istreambuf_iterator<char>());
         CHECK(text.find("deren allocation failure:") != deren::utility::vessel::string::npos);
         CHECK(text.find(expected) != deren::utility::vessel::string::npos);
         CHECK(text.find(" alignment=") != deren::utility::vessel::string::npos);
-        CHECK(text.find("abort signal received") != deren::utility::vessel::string::npos);
+        CHECK(outcome.aborted);
         CHECK(text.find("frame pc=0x") == deren::utility::vessel::string::npos);
         CHECK(text.find("origin ") == deren::utility::vessel::string::npos);
     }

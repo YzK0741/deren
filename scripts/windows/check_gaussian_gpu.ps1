@@ -72,7 +72,7 @@ lut_size = 256
         Set-Content -LiteralPath (Join-Path $runPath 'stderr.log') -Value $stderr.GetAwaiter().GetResult()
     }
     if ($process.ExitCode -ne 0) { throw "$mode renderer exited with $($process.ExitCode)" }
-    $logPath = Join-Path $runPath 'debug.log'
+    $logPath = Join-Path $runPath 'deren-debug.log'
     if ((Get-Item -LiteralPath $logPath).LastWriteTime -lt $startedAt) { throw "No new $mode log" }
     $log = Get-Content -LiteralPath $logPath -Raw
     if ($Validation -and $log -notmatch 'validation layers enabled') { throw 'Validation was not enabled' }

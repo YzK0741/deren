@@ -10,10 +10,10 @@
  * The module side therefore only sees the C entry point declared here, and the definition includes
  * this same header so a signature change cannot drift.
  *
- * WHY THE CLAIM EXISTS AT ALL. `rotate_previous_log()` reads debug.log, moves it aside to
- * debug.log.old, and then TRUNCATES debug.log. If two copies of the sink's code ever live in one
+ * WHY THE CLAIM EXISTS AT ALL. `rotate_previous_log()` reads deren-debug.log, moves it aside to
+ * deren-debug.log.old, and then TRUNCATES deren-debug.log. If two copies of the sink's code ever live in one
  * process, the second rotation truncates the file the first copy still has open and is appending
- * to: interleaved lines, holes, and two "sessions" in one debug.log.old. Today that cannot happen
+ * to: interleaved lines, holes, and two "sessions" in one deren-debug.log.old. Today that cannot happen
  * because the toolkit is STATIC and the linker keeps one copy - but the day `deren_vulkan` becomes
  * SHARED, the DLL carries its own copy unless `shared_utility` is the shared image both halves
  * import, and THAT is precisely the invariant this claim watches.

@@ -96,7 +96,7 @@ namespace {
     /// This exists because the first version of this spike had none: its stdout went to a redirected
     /// file, `fwrite` to a redirected stream is BLOCK-buffered, and the process was terminated before
     /// any of it was flushed - so a run that had got all the way to a live device left an EMPTY file and
-    /// no evidence at all (the backend's own `debug.log` is what eventually showed how far it got).
+    /// no evidence at all (the backend's own `deren-debug.log` is what eventually showed how far it got).
     /// stderr is unbuffered by default and the `fflush` makes that explicit, so every mark that printed
     /// is a mark that happened.
     void mark(char const* what) {

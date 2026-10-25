@@ -1,6 +1,8 @@
 // Headless unit tests: utility module (pure CPU) ===============================
 // Covers xxh3 content hashing (drives image dedup), data_block key semantics,
 // the thread pool, and the BVH frustum culling used by the main pass.
+#include "../utility/shared/log_test_hooks.hpp"
+#include "vessel_child.hpp"
 #include "vk_test.h"
 
 #include <algorithm>
@@ -10,18 +12,18 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <future>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <iterator>
+#include <memory>
+#include <semaphore>
 #include <span>
 #include <thread>
 #include <vector>
 
 import deren.utility.shared;
 import deren.utility;
-// The verdict family carries the contract's error_info, so the contract's names have to be visible
-// here, not merely reachable through deren.utility (module visibility, not headers).
-import deren.promise.rhi;
 
 namespace {
     // Compile-time self-checks: data_block is fully constexpr (zero-init default + FNV-1a).
@@ -319,9 +321,12 @@ namespace {
     // no further wake). Would hang this test under the old implementation.
     void test_thread_pool_two_concurrent_waiters() {
         deren::utility::thread_pool pool(2);
-        std::function<void()> const slow_tick = [] { std::this_thread::sleep_for(std::chrono::milliseconds(4)); };
-        deren::utility::vessel::vector<std::function<void()>> batch(6, slow_tick);
+        std::counting_semaphore<2> started(0), finish(0);
+        std::function<void()> const slow_tick = [&] { started.release(); finish.acquire(); };
+        deren::utility::vessel::vector<std::function<void()>> batch(2, slow_tick);
         CHECK(pool.post_batch(batch, 11));
+        started.acquire();
+        started.acquire();
 
         std::atomic<bool> waiter_a_done = false;
         std::atomic<bool> waiter_b_done = false;
@@ -338,12 +343,198 @@ namespace {
             pool.wait_until_free();
             free_waiter_done.store(true);
         });
+        finish.release(2);
         waiter_a.join();
         waiter_b.join();
         free_waiter.join();
         CHECK(waiter_a_done.load());
         CHECK(waiter_b_done.load());
         CHECK(free_waiter_done.load());
+    }
+
+    // Completion includes releasing the pool's last capture. The deleter queries the pool,
+    // proving that capture release is not performed while holding access_mutex.
+    void test_thread_pool_releases_completed_capture() {
+        std::binary_semaphore started(0), finish(0);
+        std::atomic<bool> released = false;
+        deren::utility::thread_pool pool(1);
+        auto owner = std::shared_ptr<int>(new int(1), [&pool, &released](int* value) {
+            static_cast<void>(pool.is_free());
+            delete value;
+            released.store(true);
+        });
+        std::weak_ptr<int> weak = owner;
+        CHECK(pool.post([owned = std::move(owner), &started, &finish] {
+            started.release();
+            finish.acquire();
+        },
+                        7));
+        started.acquire();
+        finish.release();
+        pool.wait_until_priority_done(7);
+        CHECK(released.load());
+        CHECK(weak.expired());
+        pool.wait_until_free();
+        CHECK(weak.expired());
+    }
+
+    void test_thread_pool_callable_destructor_can_query() {
+        deren::utility::thread_pool pool(1);
+        struct query_on_destruction {
+            deren::utility::thread_pool* target;
+            explicit query_on_destruction(deren::utility::thread_pool* pool)
+                : target(pool) {
+            }
+            query_on_destruction(query_on_destruction const& other) noexcept
+                : target(other.target) {
+                static_cast<void>(target->is_free());
+            }
+            ~query_on_destruction() {
+                static_cast<void>(target->is_free());
+            }
+        };
+        // Unlike shared_ptr's pointee deleter, this runs on EVERY callable copy's destruction.
+        CHECK(pool.post([probe = query_on_destruction{&pool}] {}));
+        pool.wait_until_free();
+        deren::utility::vessel::vector<std::function<void()>> batch;
+        batch.emplace_back([probe = query_on_destruction{&pool}] {});
+        CHECK(pool.post_batch(batch)); // user copy constructors must also run outside the lock
+        pool.wait_until_free();
+        CHECK(pool.is_free());
+    }
+
+    void test_thread_pool_rejects_empty_tasks() {
+        using pool_type = deren::utility::thread_pool;
+        pool_type pool(1, pool_type::shutdown_policy::discard);
+        std::binary_semaphore started(0), finish(0);
+        CHECK(pool.post([&] { started.release(); finish.acquire(); }));
+        started.acquire(); // keep invalid work queued in the old implementation, never invoke it
+        CHECK(!pool.post({}));
+        std::atomic<int> ran = 0;
+        deren::utility::vessel::vector<std::function<void()>> batch;
+        batch.emplace_back([&ran] { ++ran; });
+        batch.emplace_back();
+        bool const accepted = pool.post_batch(batch, 3);
+        CHECK(!accepted);
+        if (accepted)
+            pool.shutdown(); // old invalid batch must be discarded, never invoke its empty entry
+        finish.release();
+        pool.wait_until_free(); // if rejected, no valid prefix may have been queued either
+        pool.shutdown();
+        CHECK(ran.load() == 0);
+        CHECK(!pool.post([] {}));
+        CHECK(!pool.post_batch(std::span<std::function<void()>>(batch.data(), 1)));
+        CHECK(pool.post_batch({})); // preserve successful empty-batch no-op
+    }
+
+    void test_thread_pool_priority_drain_and_isolation() {
+        deren::utility::thread_pool pool(2);
+        std::binary_semaphore first_started(0), first_finish(0), later_started(0), later_finish(0);
+        CHECK(pool.post([&] { first_started.release(); first_finish.acquire(); }, 5));
+        first_started.acquire();
+        std::promise<void> waiting;
+        auto waiter = std::async(std::launch::async, [&] {
+            waiting.set_value();
+            pool.wait_until_priority_done(5);
+        });
+        waiting.get_future().wait();
+        CHECK(pool.post([&] { later_started.release(); later_finish.acquire(); }, 5));
+        later_started.acquire();
+        first_finish.release();
+        // This wait only checks non-completion while later same-priority work is held by a gate.
+        CHECK(waiter.wait_for(std::chrono::milliseconds(20)) == std::future_status::timeout);
+        std::binary_semaphore unrelated_started(0), unrelated_finish(0);
+        CHECK(pool.post([&] { unrelated_started.release(); unrelated_finish.acquire(); }, 9));
+        unrelated_started.acquire();
+        later_finish.release();
+        bool const drained = waiter.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+        CHECK(drained);             // priority 9 is still running and must not prevent priority 5 from draining
+        unrelated_finish.release(); // always unblock before joining, including on regression
+        waiter.get();
+        pool.wait_until_priority_done(123); // never posted: returns immediately
+        pool.wait_until_free();
+    }
+
+    void test_thread_pool_shutdown_policies() {
+        using pool_type = deren::utility::thread_pool;
+        for (auto policy : {pool_type::shutdown_policy::wait, pool_type::shutdown_policy::discard}) {
+            std::atomic<int> ran = 0;
+            std::atomic<bool> capture_released = false;
+            std::binary_semaphore started(0), finish(0);
+            {
+                pool_type pool(1, policy);
+                CHECK(pool.post([&] { started.release(); finish.acquire(); ++ran; }, 4));
+                started.acquire();
+                auto owner = std::shared_ptr<int>(new int(1), [&pool, &capture_released](int* value) {
+                    static_cast<void>(pool.is_free());
+                    delete value;
+                    capture_released.store(true);
+                });
+                CHECK(pool.post([owned = std::move(owner), &ran] { ++ran; }, 6));
+                pool.shutdown();
+                pool.shutdown(); // idempotent, neither call joins the blocked worker
+                CHECK(!pool.post([] {}));
+                finish.release();
+                pool.wait_until_priority_done(6);
+                CHECK(capture_released.load());
+                pool.wait_until_free();
+                CHECK(pool.is_free());
+            }
+            CHECK(ran.load() == (policy == pool_type::shutdown_policy::wait ? 2 : 1));
+        }
+        std::atomic<int> drained_at_destruction = 0;
+        {
+            pool_type pool(2);
+            for (int i = 0; i < 12; ++i)
+                CHECK(pool.post([&] { ++drained_at_destruction; }));
+        }
+        CHECK(drained_at_destruction.load() == 12);
+    }
+
+    void test_thread_pool_invalid_counts(char const* executable) {
+        for (auto mode : {"--zero-workers", "--negative-workers"}) {
+            auto child = vessel_run_child(executable, mode, "invalid-workers.log");
+            CHECK(child.started && child.aborted);
+            std::ifstream log("invalid-workers.log");
+            deren::utility::vessel::string text((std::istreambuf_iterator<char>(log)), std::istreambuf_iterator<char>());
+            // Fatal diagnostics always use the emergency report, independent of build type.
+            std::ifstream diagnostic(std::filesystem::path(mode) / "deren-crash.log");
+            text.append(std::istreambuf_iterator<char>(diagnostic), std::istreambuf_iterator<char>());
+            CHECK(text.find("thread_pool: worker count must be positive") != decltype(text)::npos);
+        }
+    }
+
+    bool await_log_counter(std::uint64_t (*counter)() noexcept, std::uint64_t target) {
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (counter() < target && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::yield();
+        return counter() >= target;
+    }
+    void test_log_wait_is_a_flushed_prefix() {
+        deren::utility::wait_log_all();
+        auto const pause = utility_log_test_pause_count();
+        auto const snapshot = utility_log_test_snapshot_count();
+        utility_log_test_pause_after(0);
+        deren::utility::log_text("prefix before wait");
+        bool const paused = await_log_counter(utility_log_test_pause_count, pause + 1);
+        CHECK(paused);
+        if (!paused) {
+            utility_log_test_pause_after(-1);
+            return;
+        }
+        auto waiter = std::async(std::launch::async, [] { deren::utility::wait_log_all(); });
+        CHECK(await_log_counter(utility_log_test_snapshot_count, snapshot + 1));
+        deren::utility::log_text("prefix after wait");
+        utility_log_test_pause_after(1); // permit first write/flush, hold the later message
+        CHECK(await_log_counter(utility_log_test_pause_count, pause + 2));
+        CHECK(waiter.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+        std::ifstream log("deren-debug.log");
+        deren::utility::vessel::string text{std::istreambuf_iterator<char>(log), std::istreambuf_iterator<char>()};
+        CHECK(text.find("prefix before wait") != decltype(text)::npos);
+        CHECK(text.find("prefix after wait") == decltype(text)::npos);
+        utility_log_test_pause_after(-1); // always release before joining, even if the assertion fails
+        waiter.get();
+        deren::utility::wait_log_all();
     }
 
     // The async log sink + wait_log_all() (what panic() flushes with before std::terminate). Two
@@ -533,82 +724,29 @@ namespace {
         tree->rebuild();
         CHECK(visible_count() == grown);
     }
-    // The verdict family (hopper's shape, deren's error type): propagate carries, enforce decides.
-    // The two lying-classifier guards and the fatal execution inside enforce terminate BY DESIGN
-    // (panic -> std::terminate), so this test exercises exactly the verdicts that keep the process
-    // alive; the terminating paths are witnessed by the code, not by a test that would have to
-    // survive them.
-    void test_verdict_enforce_and_propagate() {
-        using deren::utility::enforce;
-        using deren::utility::fatal;
-        using deren::utility::pass_failure;
-        using deren::utility::pass_success;
-        using deren::utility::propagate;
-        using deren::utility::result;
-        using deren::utility::verdict;
-        namespace rhi = deren::promise::rhi;
-
-        // ensure(true) is a no-op that must not reach the panic machinery. ensure(false) cannot be
-        // called here for the same terminate-shaped reason as above.
+    void test_ensure() {
         deren::utility::ensure(true);
         deren::utility::ensure(true, "trivially true");
-
-        rhi::error_info const raw{
-            .code = rhi::error::out_of_date, .api = rhi::graphics_api::vulkan, .native_code = -1000001004, .message = "swapchain expired"};
-        rhi::error_info const dead_device{.code = rhi::error::device_lost, .api = rhi::graphics_api::vulkan, .message = "device gone"};
-        result<int> const good = 42;
-        result<int> const bad = std::unexpected(raw);
-
-        // propagate: success stays success; failure carries the error_info it was handed, untouched.
-        verdict const carried_good = propagate(good);
-        verdict const carried_bad = propagate(bad);
-        CHECK(std::holds_alternative<pass_success>(carried_good));
-        auto const* const carried = std::get_if<pass_failure>(&carried_bad);
-        CHECK_MSG(carried != nullptr, "propagate answers pass_failure for a failed outcome");
-        if (carried != nullptr) {
-            CHECK(carried->failure.code == rhi::error::out_of_date);
-            CHECK(carried->failure.native_code == -1000001004);
-            CHECK(carried->failure.message == "swapchain expired");
-        }
-
-        // propagate as an honest classifier: the outcome passes through unchanged.
-        result<int> const untouched = enforce(good, propagate);
-        CHECK(untouched.has_value());
-        CHECK(untouched.value() == 42);
-        result<int> const kept = enforce(bad, propagate);
-        CHECK(!kept.has_value());
-        CHECK(kept.error().code == rhi::error::out_of_date);
-
-        // A classifier that KNOWS what the failure means rewrites the error: the caller sees the
-        // story (rebuild), the raw native code rides along.
-        auto const classify_acquire = [](result<int> const& outcome) -> verdict {
-            if (outcome) {
-                return pass_success{};
-            }
-            if (outcome.error().code == rhi::error::out_of_date) {
-                return pass_failure{rhi::error_info{
-                    .code = rhi::error::out_of_date, .api = rhi::graphics_api::vulkan, .native_code = outcome.error().native_code, .message = "rebuild the swapchain and skip this frame"}};
-            }
-            return fatal{outcome.error()};
-        };
-        result<int> const rewritten = enforce(bad, classify_acquire);
-        CHECK(!rewritten.has_value());
-        CHECK(rewritten.error().code == rhi::error::out_of_date);
-        CHECK(rewritten.error().message == "rebuild the swapchain and skip this frame");
-        CHECK(rewritten.error().native_code == -1000001004);
-
-        // A failure outside the classifier's rewrite table classifies as fatal: the verdict carries
-        // the reason (executing it is the engine's panic, which a live test cannot survive).
-        verdict const decided_fatal = classify_acquire(std::unexpected(dead_device));
-        auto const* const fatal_case = std::get_if<fatal>(&decided_fatal);
-        CHECK_MSG(fatal_case != nullptr, "a failure the classifier cannot pass answers fatal");
-        if (fatal_case != nullptr) {
-            CHECK(fatal_case->reason.code == rhi::error::device_lost);
-        }
     }
 } // namespace
 
-int32_t main() {
+int32_t main(int argc, char** argv) {
+    if (argc == 2) {
+        vessel_prepare_child();
+        std::error_code error;
+        std::filesystem::create_directories(argv[1], error);
+        if (error)
+            return 2;
+        std::filesystem::current_path(argv[1], error);
+        if (error)
+            return 2;
+        if (std::string_view(argv[1]) == "--zero-workers") {
+            deren::utility::thread_pool pool(0);
+        } else if (std::string_view(argv[1]) == "--negative-workers") {
+            deren::utility::thread_pool pool(-1);
+        }
+        return 0;
+    }
     test_xxh3_content_hash();
     test_write_png();
     test_write_binary_scalar_byte_order();
@@ -620,11 +758,18 @@ int32_t main() {
     test_thread_pool_runs_every_posted_task();
     test_thread_pool_priority_group_wait();
     test_thread_pool_two_concurrent_waiters();
+    test_thread_pool_releases_completed_capture();
+    test_thread_pool_callable_destructor_can_query();
+    test_thread_pool_priority_drain_and_isolation();
+    test_thread_pool_invalid_counts(argv[0]);
+    test_thread_pool_rejects_empty_tasks();
+    test_thread_pool_shutdown_policies();
+    test_log_wait_is_a_flushed_prefix();
     test_log_sink_wait_all_under_concurrent_writers();
     test_bvh_non_finite_aabb_is_sanitized();
     test_bvh_degenerate_inputs_do_not_crash();
     test_bvh_frustum_cull_keeps_visible_boxes();
     test_bvh_add_rebuild_contract();
-    test_verdict_enforce_and_propagate();
+    test_ensure();
     return deren::vk_test::finish("test_utility");
 }

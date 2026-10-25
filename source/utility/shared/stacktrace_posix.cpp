@@ -55,7 +55,7 @@ namespace deren::utility::detail::trace_native {
                 number(reinterpret_cast<std::uintptr_t>(info->si_addr), 16);
             }
             text(" (unwind skipped: signal context)\n");
-            [[maybe_unused]] auto const written = ::write(STDERR_FILENO, line, used);
+            write_preopened_text(line, used);
             // SA_RESETHAND already restored the default action. Preserve signal/core semantics.
             sigset_t unblocked;
             sigemptyset(&unblocked);
@@ -86,6 +86,7 @@ namespace deren::utility::detail::trace_native {
         return sigaltstack(&stack, nullptr) == 0;
     }
     bool install_handler() noexcept {
+        static_cast<void>(prepare_output());
         if (!prepare_thread())
             return false;
         constexpr int signals[]{SIGSEGV, SIGBUS, SIGILL, SIGFPE};

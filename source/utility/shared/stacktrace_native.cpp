@@ -13,6 +13,7 @@
 #else
 #include <chrono>
 #include <dlfcn.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <unwind.h>
 #if defined(__linux__)
@@ -32,37 +33,15 @@
 namespace deren::utility::detail::trace_native {
     namespace {
 #if defined(_WIN32)
-        // The crash log the process falls back to when it has no stderr. Startup preopens it
-        // (install_handler); a fatal call that arrives BEFORE startup installed anything opens it
-        // itself - ONCE per process, with the same name and flags - because a console-less launch
-        // whose first allocation fails during static initialization would otherwise drop its only
-        // evidence with no trace at all. One CreateFileW on a relative path is a bounded syscall:
-        // it is the "no file on the fatal path" rule's one deliberate exception, and it costs
-        // nothing once startup has preopened the handle.
+        // Process-lifetime emergency file. Fatal calls before startup may attempt one lazy open.
         std::atomic<HANDLE> emergency_output{nullptr};
-        std::atomic<bool> emergency_open_attempted{false};
         static_assert(std::atomic<HANDLE>::is_always_lock_free);
-
-        HANDLE open_crash_log() noexcept {
-            return CreateFileW(L"deren-crash.log", FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                               nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        }
-
-        /// The lazy fallback. Returns the handle when this call opened it, nullptr when another
-        /// call already tried (the flag is monotonic, so a failure is not retried forever).
-        HANDLE try_open_emergency_output() noexcept {
-            bool expected = false;
-            if (!emergency_open_attempted.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-                return nullptr;
-            }
-            HANDLE const file = open_crash_log();
-            if (file == INVALID_HANDLE_VALUE) {
-                return nullptr;
-            }
-            emergency_output.store(file, std::memory_order_release);
-            return file;
-        }
+#else
+        std::atomic<int> emergency_output{-1};
+        static_assert(std::atomic<int>::is_always_lock_free);
 #endif
+        std::atomic<bool> emergency_open_attempted{false};
+        static_assert(std::atomic<bool>::is_always_lock_free);
         struct line_buffer {
             char bytes[512];
             std::size_t used = 0;
@@ -165,26 +144,74 @@ namespace deren::utility::detail::trace_native {
 #endif
     } // namespace
 
-    void write_text(char const* value, std::size_t size) noexcept {
-        if (!value) {
-            return;
-        }
+    bool prepare_output() noexcept {
 #if defined(_WIN32)
-        DWORD written = 0;
-        // Small direct writes only; no FILE lock or logger queue.
-        HANDLE output = GetStdHandle(STD_ERROR_HANDLE);
-        if (!output || output == INVALID_HANDLE_VALUE) {
-            output = emergency_output.load(std::memory_order_relaxed);
-            if (!output || output == INVALID_HANDLE_VALUE) {
-                output = try_open_emergency_output();
-            }
+        if (emergency_output.load(std::memory_order_acquire))
+            return true;
+#else
+        if (emergency_output.load(std::memory_order_acquire) >= 0)
+            return true;
+#endif
+        bool expected = false;
+        if (!emergency_open_attempted.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+            return false; // never wait for another fatal reporter or retry forever
+#if defined(_WIN32)
+        HANDLE file = CreateFileW(L"deren-crash.log", FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                  nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE)
+            return false;
+#else
+        int file = ::open("deren-crash.log", O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+        if (file < 0)
+            return false;
+        if (file < 3) {
+            int const duplicate = fcntl(file, F_DUPFD_CLOEXEC, 3);
+            close(file);
+            file = duplicate;
+            if (file < 0)
+                return false;
         }
-        if (output && output != INVALID_HANDLE_VALUE) {
+#endif
+        emergency_output.store(file, std::memory_order_release);
+        return true;
+    }
+
+    void write_preopened_text(char const* value, std::size_t size) noexcept {
+        if (!value || !size)
+            return;
+#if defined(_WIN32)
+        HANDLE const output = emergency_output.load(std::memory_order_acquire);
+        if (output) {
+            DWORD written = 0;
             static_cast<void>(WriteFile(output, value, static_cast<DWORD>(size), &written, nullptr));
         }
 #else
-        [[maybe_unused]] auto const written = ::write(STDERR_FILENO, value, size);
+        int const output = emergency_output.load(std::memory_order_acquire);
+        if (output >= 0) {
+            [[maybe_unused]] auto const written = ::write(output, value, size);
+        }
 #endif
+    }
+    void write_text(char const* value, std::size_t size) noexcept {
+        static_cast<void>(prepare_output());
+        write_preopened_text(value, size);
+    }
+    void write_panic_header(char const* message, std::size_t size, char const* file,
+                            char const* function, std::uint32_t line) noexcept {
+        write_text("deren panic: ", 13);
+        write_text(message, std::min(size, std::size_t{4096}));
+        write_text("\n", 1);
+        line_buffer location;
+        location.text("source: ");
+        location.text(file);
+        location.text(":");
+        location.number(line, 10);
+        location.text(" in ");
+        location.send();
+        line_buffer name;
+        name.text(function);
+        name.text("\n");
+        name.send();
     }
 
     TRACE_NOINLINE trace capture(std::uint32_t skip, std::uint32_t depth) noexcept {
@@ -409,16 +436,7 @@ namespace deren::utility::detail::trace_native {
         return SetThreadStackGuarantee(&guarantee) != FALSE;
     }
     bool install_handler() noexcept {
-        HANDLE stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
-        if ((!stderr_handle || stderr_handle == INVALID_HANDLE_VALUE) && !emergency_output.load(std::memory_order_relaxed)) {
-            HANDLE const file = open_crash_log();
-            if (file != INVALID_HANDLE_VALUE) {
-                HANDLE empty = nullptr;
-                if (!emergency_output.compare_exchange_strong(empty, file, std::memory_order_relaxed)) {
-                    CloseHandle(file);
-                }
-            }
-        }
+        static_cast<void>(prepare_output());
         static_cast<void>(prepare_thread());
         SetUnhandledExceptionFilter(crash_filter);
         return true;

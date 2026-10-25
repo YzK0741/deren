@@ -7,14 +7,14 @@
 // WHY A MODULE OF ITS OWN: this toolkit is STATIC and BOTH halves of the RHI boundary link it, so
 // today one process holds one copy of everything - the log sink included. TURNING `deren_vulkan`
 // INTO A SHARED LIBRARY BREAKS THAT: a DLL carries its own copy of whatever it links, so the
-// process would hold TWO sinks - two `ofstream`s on the same debug.log and two startup rotations,
+// process would hold TWO sinks - two `ofstream`s on the same deren-debug.log and two startup rotations,
 // and `rotate_previous_log()` TRUNCATES the file the other copy is still writing. The boundary gate
 // cannot see it either: that gate measures deren_vulkan ∩ deren_engine, and this is a third
 // library defining no backend symbol. Hence a target of its own, which the flip makes SHARED.
 //
 // WHAT BELONGS HERE is exactly the state that must exist once per PROCESS:
 //   - the log sink: the queue, its worker thread, and the file handle;
-//   - the startup rotation of the previous session's debug.log (and its once-per-process claim);
+//   - the startup rotation of the previous session's deren-debug.log (and its once-per-process claim);
 //   - panic convergence: one `panic` for the whole process, flushing that one sink;
 //   - the mimalloc allocation/free service and allocation-failure convergence.
 // What stays in `deren.utility` (static_utility) is everything per-object or pure, plus the loader:
@@ -41,13 +41,13 @@
 // needs to be an exported symbol. Nothing above forbids the alternatives.
 //
 // THE REASON THIS MODULE EXISTS IS ONE PIECE OF STATE PER PROCESS, which is the whole point of the
-// split: the sink. Two copies of it would mean two `ofstream`s on one debug.log and two startup
+// split: the sink. Two copies of it would mean two `ofstream`s on one deren-debug.log and two startup
 // rotations, and `rotate_previous_log()` truncates the file the other copy still has open. That - not
 // the heap, and not STL - is what the seam is for.
 //
 // The dependency direction is one-way and enforced by this file's contents: `deren.utility` may
 // depend on this module, and this module depends on NOTHING of it - it does not even import
-// `deren.promise.rhi` (the verdict/result templates that carry `rhi::error_info` are static-side).
+// `deren.promise.rhi`; RHI outcome policy lives in `deren.engine.outcome`.
 // ============================================================================
 module;
 
@@ -78,19 +78,18 @@ namespace deren::utility {
 
     /**
      * @ingroup utility
-     * @brief the error route: Debug prints straight to stderr in red, Release queues `[ERROR] ...`
+     * @brief queue `[ERROR] ...` to deren-debug.log in every build
      * @param text the pre-formatted error text
-     * @note NOT queued in Debug on purpose (error is usually followed by terminate, and the direct
-     *       write is the one that survives it); in Release it joins the same queue as everything
-     *       else, so there is still exactly ONE writer to debug.log
+     * @note one asynchronous writer owns the ordinary log; failure falls back to deren-crash.log,
+     *       never to stdout/stderr. Fatal reports use the independent emergency writer.
      */
     export void error_text(std::string_view text) noexcept;
 
     /**
      * @ingroup utility
-     * @brief block until every line queued so far has been written by the log worker
-     * @note this is what `panic()` flushes with before `std::terminate()`, which skips static
-     *       destructors and would otherwise lose the panic's own lines
+     * @brief wait until the prefix queued at entry has been processed and write/flush attempted
+     * @note newer submissions do not extend the wait. This normal-context operation can block;
+     *       panic writes its own report directly and uses only a bounded existing-sink wait.
      */
     export void wait_log_all() noexcept;
 
@@ -100,10 +99,12 @@ namespace deren::utility {
      * @param msg error message
      * @param source_location just use the default argument; it captures the caller's position
      * @note
-     *     - thread safe, and TERMINATING: this is the process's one panic, so the report always
-     *       goes through the single sink
+     *     - TERMINATING: writes a bounded message/location, raw stack and best-effort symbols
+     *       directly to deren-crash.log, then briefly waits for an existing ordinary log prefix.
+     *       File writes are best effort; no console fallback, async logger initialization or lock
+     *       acquisition occurs here. Kernel I/O and symbolization have separate limits.
      *     - `fatal` from a classified outcome is EXECUTED by the engine, not by the backend (see
-     *       `deren::utility::enforce`): the backend reports, the engine panics here
+     *       `deren::engine::outcome::enforce`): the backend reports, the engine panics here
      */
     export [[noreturn]] void panic(std::string_view msg = "",
                                    std::source_location source_location = std::source_location::current()) noexcept;
@@ -246,6 +247,7 @@ export namespace deren::utility::diagnostics {
     };
     // skip=0 starts at the caller; excessive skip returns an empty trace.
     [[nodiscard]] stack_trace capture_stack(std::uint32_t skip = 0, std::uint32_t depth = max_stack_depth) noexcept;
+    // Append raw records to deren-crash.log; never writes stdout/stderr.
     void write_stack(stack_trace const& trace) noexcept;
     // Call at each external worker entry; the reserved overflow stack is per-thread.
     [[nodiscard]] bool prepare_crash_thread() noexcept;

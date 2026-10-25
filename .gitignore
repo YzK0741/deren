@@ -22,6 +22,9 @@ docs/latex/
 debug.log
 !docs/reviews/**/debug.log
 debug.log.old
+deren-debug.log
+deren-debug.log.old
+deren-crash.log
 imgui_layout.ini
 # MSVC writes a compiler PDB next to the target when the link line leaves /Fd implied (vc140.pdb in
 # the repository root, in practice) - generated output, never a source file

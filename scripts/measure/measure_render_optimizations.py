@@ -197,7 +197,7 @@ def run_one(exe: Path, asset: Path, work: Path, case: str, camera: str, round_id
                                stderr=subprocess.STDOUT, timeout=600, check=False,
                                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     elapsed = time.perf_counter() - started
-    log_path = run_dir / "debug.log"
+    log_path = run_dir / "deren-debug.log"
     text = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
     images = list(run_dir.glob("screenshot_*.png"))
     if completed.returncode != 0 or len(images) != 1:

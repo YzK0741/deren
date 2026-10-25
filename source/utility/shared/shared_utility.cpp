@@ -1,7 +1,11 @@
 module;
 
+#include "stacktrace_native.hpp"
+
 #include <cstdint>
-#include <cstdio>  // stderr/stdout below need the macros (they cannot cross a module boundary - see deren.utility::standard_output)
+#if defined(DEREN_LOG_TESTING)
+#include "log_test_hooks.hpp"
+#endif
 #include <cstdlib> // std::atexit, for the sink's drain at exit (see instance())
 // The process-wide rotation claim is declared in a header rather than here: a global module fragment
 // may only carry preprocessing directives, and MSVC enforces that (C5202 at /W4, fatal under /WX).
@@ -29,9 +33,9 @@ namespace deren::utility {
     }
 
     namespace {
-        // Startup rotation for the Release log file: move the previous session's debug.log content
-        // aside to debug.log.old (with a session-end timestamp when the content carries none), then
-        // truncate debug.log so the new session starts fresh. Only called in Release builds (NDEBUG).
+        // Startup rotation for the Release log file: move the previous session's deren-debug.log content
+        // aside to deren-debug.log.old (with a session-end timestamp when the content carries none), then
+        // truncate deren-debug.log so the new session starts fresh. Only called in Release builds (NDEBUG).
         //
         // ONCE PER PROCESS, AND THAT IS A GUARD RATHER THAN A COMMENT: the claim below is an
         // OS-named object keyed by the process id (log_rotation_claim.cpp), so if two copies of this
@@ -39,14 +43,14 @@ namespace deren::utility {
         // the executable AND a backend DLL would do the day deren_vulkan becomes SHARED - the second
         // copy does NOT rotate. Without the guard that second rotation TRUNCATES the file the first
         // copy still has open and appends to: interleaved lines, holes, and two sessions in one
-        // debug.log.old. The claim costs one already-created handle per process and nothing per run.
+        // deren-debug.log.old. The claim costs one already-created handle per process and nothing per run.
         [[maybe_unused]] void rotate_previous_log() {
             if (utility_shared_claim_log_rotation() == 0) {
                 return; // another copy of the sink in this process already rotated
             }
             // Text mode on both sides: the read translates CRLF to LF, the text-mode write
-            // translates LF back to CRLF, so line endings stay consistent with debug.log
-            std::ifstream current_log("debug.log");
+            // translates LF back to CRLF, so line endings stay consistent with deren-debug.log
+            std::ifstream current_log("deren-debug.log");
             if (!current_log) {
                 return; // no previous log yet
             }
@@ -59,26 +63,26 @@ namespace deren::utility {
             deren::utility::vessel::string const content((std::istreambuf_iterator<char>(current_log)), std::istreambuf_iterator<char>());
             current_log.close();
 
-            // Cap debug.log.old: once it exceeds the cap, start it fresh (truncate) instead of
+            // Cap deren-debug.log.old: once it exceeds the cap, start it fresh (truncate) instead of
             // appending forever, so the archive stays bounded across many sessions.
             constexpr uintmax_t old_log_cap = 8ull * 1024ull * 1024ull; // 8 MiB
             std::ios::openmode const old_mode = [&] {
                 std::error_code ec;
-                uintmax_t const size = std::filesystem::file_size("debug.log.old", ec);
+                uintmax_t const size = std::filesystem::file_size("deren-debug.log.old", ec);
                 return (!ec && size >= old_log_cap) ? (std::ios::out | std::ios::trunc) : (std::ios::out | std::ios::app);
             }();
-            std::ofstream old_log("debug.log.old", old_mode);
+            std::ofstream old_log("deren-debug.log.old", old_mode);
             if (!old_log) {
                 return;
             }
 
-            // Timestamp the rotated block so sessions are distinguishable in debug.log.old
+            // Timestamp the rotated block so sessions are distinguishable in deren-debug.log.old
             if (!content.contains("===== session")) {
                 old_log << deren::utility::vessel::format("===== session ended at {:%Y-%m-%d %H:%M:%S} =====\n",
                                                           std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
             }
 
-            // Normalize to one blank line after every log line, matching the worker's debug.log
+            // Normalize to one blank line after every log line, matching the worker's deren-debug.log
             // format (idempotent: already double-spaced content stays unchanged)
             deren::utility::vessel::istringstream lines(content);
             deren::utility::vessel::string line;
@@ -90,8 +94,8 @@ namespace deren::utility {
             }
             old_log.close();
 
-            // Start the new session with an empty debug.log
-            std::ofstream fresh_log("debug.log", std::ios::out | std::ios::trunc);
+            // Start the new session with an empty deren-debug.log
+            std::ofstream fresh_log("deren-debug.log", std::ios::out | std::ios::trunc);
             fresh_log.close();
         }
     } // namespace
@@ -121,7 +125,8 @@ namespace deren::utility {
         std::condition_variable queue_cv = {};
         std::condition_variable drained_cv = {}; // notifies when the queue has been drained
         deren::utility::vessel::queue<deren::utility::vessel::string> messages = {};
-        std::size_t pending = 0; // messages pending write (queued + currently being written)
+        std::atomic<std::uint64_t> submitted{0}, completed{0};
+        static_assert(std::atomic<std::uint64_t>::is_always_lock_free);
         std::thread worker = {};
         std::atomic<bool> running = true;
         // Whether write() still enqueues. Cleared by the destructor BEFORE it signals the worker
@@ -131,7 +136,7 @@ namespace deren::utility {
         // ever decrement, and panic() calls wait_all() - i.e. the one path that must not hang is
         // the one that would.
         bool accepting = true;
-        std::ofstream file = {}; // Release builds write to debug.log
+        std::ofstream file = {}; // Release builds write to deren-debug.log
 
     public:
         log_sink();
@@ -147,6 +152,7 @@ namespace deren::utility {
         /// may carry STL: see shared_utility.cppm), and it is the shape the three doors settled on.
         void write(std::string_view text);
         void wait_all();
+        void wait_prefix_for(std::chrono::milliseconds budget) noexcept;
         /// Drain the queue, stop the worker and close the file. Idempotent; called from the
         /// atexit handler instance() registers, because the sink itself is never destroyed.
         void shutdown() noexcept;
@@ -159,6 +165,7 @@ namespace deren::utility {
     };
 
     namespace {
+        std::atomic<log_sink*> active_sink{nullptr};
         log_sink& instance() noexcept {
             // NEVER DESTROYED, ON PURPOSE. This is the process's one sink and panic() reaches it -
             // the path that must not hang. A function-local static IS destroyed at exit, and a
@@ -169,7 +176,11 @@ namespace deren::utility {
             // process instead, and shutdown() is registered here: atexit runs in the same reverse
             // order a static destructor would, so the queue is still drained before the process
             // ends, and every write after it is dropped by the accepting gate.
-            static log_sink* const sink = new log_sink;
+            static log_sink* const sink = [] {
+                auto* value = new log_sink;
+                active_sink.store(value, std::memory_order_release);
+                return value;
+            }();
             // The comma operator registers the drain and keeps the result as a plain bool; the
             // registration is deliberately the LAST thing done, so nothing here can re-enter
             // instance() while its own guard is still being initialised.
@@ -177,21 +188,11 @@ namespace deren::utility {
             return *sink;
         }
 
-        /// one write and no flush: the stream's own buffering decides, which is what `std::print`
-        /// does too (and `stderr` is unbuffered, which is why the error path needs nothing more)
-        void write_text(std::FILE* const stream, std::string_view const text) {
-            if (!text.empty()) {
-                static_cast<void>(std::fwrite(text.data(), 1, text.size(), stream));
-            }
-        }
     } // namespace
 
     log_sink::log_sink() {
-#ifdef NDEBUG
-        // Release builds: rotate the previous session's log aside, then append the new session
         rotate_previous_log();
-        this->file.open("debug.log", std::ios::out | std::ios::app);
-#endif
+        this->file.open("deren-debug.log", std::ios::out | std::ios::app);
         this->worker = std::thread([this] { this->worker_loop(); });
     }
 
@@ -208,17 +209,15 @@ namespace deren::utility {
             // would then block the shutdown it is supposed to complete.
             std::lock_guard lock(this->queue_mutex);
             this->accepting = false;
+            this->running = false;
         }
-        this->running = false;
         this->queue_cv.notify_all();
         if (this->worker.joinable()) {
             this->worker.join(); // wait for the worker to drain the queue before exiting
         }
-#ifdef NDEBUG
         if (this->file.is_open()) {
             this->file.close();
         }
-#endif
     }
 
     void log_sink::worker_loop() noexcept {
@@ -239,31 +238,23 @@ namespace deren::utility {
                 message = std::move(this->messages.front());
                 this->messages.pop();
             }
-            // Write outside the lock to avoid blocking producers (a blank line follows every
-            // message for readability; messages carry no \n)
-#ifdef NDEBUG
-            if (this->file.is_open()) {
+            // Write/flush outside the queue lock. Failure falls back only to the emergency file.
+#if defined(DEREN_LOG_TESTING)
+            utility_log_test_before_write();
+#endif
+            if (this->file) {
                 this->file << message << '\n'
                            << '\n'
                            << std::flush;
-            } else {
-                // the file could not be opened: fall back to the terminal. This is written HERE
-                // rather than through deren.utility's println(), because the dependency direction is
-                // one-way - the shared half cannot call into the static one.
-                deren::utility::vessel::string const line = message + '\n';
-                write_text(stdout, line);
             }
-#else
-            deren::utility::vessel::string const line = message + '\n';
-            write_text(stdout, line);
-#endif
-            // Decrement pending only after the write finishes so wait_log_all also covers the message being written
+            if (!this->file) {
+                detail::trace_native::write_text(message.data(), message.size());
+                detail::trace_native::write_text("\n", 1);
+            }
             {
                 std::lock_guard lock(this->queue_mutex);
-                --this->pending;
-                if (this->pending == 0) {
-                    this->drained_cv.notify_all();
-                }
+                this->completed.fetch_add(1, std::memory_order_release);
+                this->drained_cv.notify_all(); // prefix waiters may finish while newer work remains
             }
         }
     }
@@ -278,8 +269,11 @@ namespace deren::utility {
                 // error - static destructors ordered after this singleton still call log()/error().
                 return;
             }
-            ++this->pending;
+            if (this->submitted.load(std::memory_order_relaxed) == UINT64_MAX) {
+                fast_panic("log sequence space exhausted");
+            }
             this->messages.push(std::move(message));
+            this->submitted.fetch_add(1, std::memory_order_release);
         }
         this->queue_cv.notify_one();
     }
@@ -293,9 +287,23 @@ namespace deren::utility {
             return;
         }
         std::unique_lock lock(this->queue_mutex);
-        // Return as soon as the sink stopped accepting: any message still counted in `pending` at that
-        // point belongs to a worker that is on its way out, and waiting for it would hang forever.
-        this->drained_cv.wait(lock, [this] { return this->pending == 0 || !this->accepting; });
+        auto const target = this->submitted.load(std::memory_order_acquire);
+#if defined(DEREN_LOG_TESTING)
+        utility_log_test_did_snapshot();
+#endif
+        this->drained_cv.wait(lock, [this, target] {
+            return this->completed.load(std::memory_order_acquire) >= target;
+        });
+    }
+    void log_sink::wait_prefix_for(std::chrono::milliseconds budget) noexcept {
+        if (this->worker_id.load(std::memory_order_relaxed) == std::this_thread::get_id())
+            return;
+        auto const target = this->submitted.load(std::memory_order_acquire);
+        auto const deadline = std::chrono::steady_clock::now() + budget;
+        while (this->completed.load(std::memory_order_acquire) < target &&
+               std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::yield(); // no logger mutex, condition variable or lazy initialization
+        }
     }
 
     void log_text(std::string_view const text) noexcept {
@@ -303,14 +311,7 @@ namespace deren::utility {
     }
 
     void error_text(std::string_view const text) noexcept {
-#ifdef NDEBUG
-        // Release: hand to the log thread (writes to debug.log)
         instance().write(deren::utility::vessel::format("[ERROR] {}", text));
-#else
-        // Debug: print directly to stderr in red, no queueing (error is usually followed by terminate)
-        deren::utility::vessel::string const line = deren::utility::vessel::format("\x1b[31m[ERROR] {}\x1b[0m\n", text);
-        write_text(stderr, line);
-#endif
     }
 
     void wait_log_all() noexcept {
@@ -318,40 +319,24 @@ namespace deren::utility {
     }
 
     [[noreturn]] void panic(std::string_view const msg, std::source_location const source_location) noexcept {
-        // Raw evidence survives even if the log queue or formatting cannot complete, and it is what
-        // the offline decoder reads. Captured ONCE: the readable pass below decodes the same frames.
+        static thread_local bool reporting = false;
+        if (reporting)
+            fast_panic("recursive panic");
+        reporting = true;
+        detail::trace_native::write_panic_header(msg.data(), msg.size(), source_location.file_name(),
+                                                 source_location.function_name(), source_location.line());
         auto const trace = diagnostics::capture_stack();
         diagnostics::write_stack(trace);
-        // Every line goes through the ONE sink (or, in Debug, straight to stderr). The formatting is
-        // done here because this side owns the sink; a caller's `panic(fmt, args...)` has already
-        // formatted its own text and lands on the non-template overload below.
-        error_text("program panic!");
-
-        if (!msg.empty()) {
-            error_text(deren::utility::vessel::format("error info: {}", msg));
-        }
-
-        error_text(deren::utility::vessel::format("occurred at function [{}] line {}", source_location.function_name(), source_location.line()));
-        error_text(deren::utility::vessel::format("time point: {:%Y-%m-%d %H:%M:%S}", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now())));
-
-        // A PANIC IS READ BY A HUMAN, so it prints the stack as symbols too - the raw frames above
-        // are for the offline decoder, not for whoever is staring at debug.log. Best effort by
-        // construction: symbolization runs the same bounded child process as any healthy-context
-        // call (deadline, output cap, no tool = raw records only), the records above are already
-        // written, and a missing tool, missing symbols or a timeout simply leaves this out. The
-        // text it produces is itself a raw record plus `symbols frames=` blocks, so it stays
-        // decodable offline as well. An OOM or a broken heap does NOT come through here - that path
-        // is `fast_panic`, which writes bounded raw text and never symbolizes.
         auto const readable = diagnostics::symbolize(trace);
         if (!readable.text.empty()) {
-            // "call stack", not "symbolized stack": the block always carries the raw frames, and the
-            // symbols are the part that may be missing (no tool, no debug data, a lean build).
-            error_text(deren::utility::vessel::format("call stack:\n{}", readable.text));
+            detail::trace_native::write_text("call stack:\n", 12);
+            detail::trace_native::write_text(readable.text.data(), readable.text.size());
         }
-
-        // Release writes logs through the async log thread; flush before terminating,
-        // otherwise the panic messages above may be lost (std::terminate skips static destructors).
-        wait_log_all();
+        // The emergency report is already written. Give only an EXISTING sink a bounded chance
+        // to flush its prefix, without acquiring its locks or initializing a logger on this path.
+        if (auto* sink = active_sink.load(std::memory_order_acquire)) {
+            sink->wait_prefix_for(std::chrono::milliseconds(250));
+        }
 
         std::terminate();
     }

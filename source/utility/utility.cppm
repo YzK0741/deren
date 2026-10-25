@@ -1,6 +1,6 @@
 // ============================================================================
 // module: utility
-// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 2.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Pure-CPU toolkit: data_block, BVH, thread_pool, frame_clock / frame_stats,
 // content hashing, the platform entry points, and the loader. Standalone - no Vulkan
@@ -11,7 +11,7 @@
 // rotation and file handle, panic convergence, the allocator hook) lives in deren.utility.shared,
 // which this module RE-EXPORTS. TWO THINGS WORTH KNOWING WHILE READING IT:
 //   - THE SPLIT IS ABOUT STATE, NOT MEMORY. Its one reason is that the log sink must exist once per
-//     process: two copies mean two `ofstream`s on one debug.log and two startup rotations, and
+//     process: two copies mean two `ofstream`s on one deren-debug.log and two startup rotations, and
 //     `rotate_previous_log()` truncates the file the other copy is still writing. STL and the heap
 //     are NOT the reason and are not restricted here - the user's batch-④ ruling allows containers /
 //     std::function and format templates across the seam, on the measured
@@ -21,6 +21,7 @@
 //     caller's instantiation and the result is handed over as a std::string_view to the shared sink,
 //     so no template needs exporting. `panic` itself, `log_text` / `error_text` / `wait_log_all` and
 //     the memory allocation service come from deren.utility.shared - one per process.
+// 2.0.0: RHI outcome policy moved to deren.engine.outcome.
 // 1.0.0: project containers use utility::vessel and PMR startup hooks are removed.
 // All vessel allocation/deallocation goes through the same shared_utility DLL.
 //
@@ -33,7 +34,6 @@ module;
 
 export module deren.utility;
 export import deren.vstd;
-import deren.promise.rhi;
 // The process-wide half (sink + rotation + panic + allocator hook) is re-exported, so a consumer
 // that imports this module names them exactly as before the split and does not have to know where
 // the seam is. The direction is one-way: deren.utility.shared never imports this module.
@@ -168,89 +168,11 @@ namespace deren::utility {
      *       silent corruption
      *     - this is the engine-side sibling of the backend's named-panic startup rule: a violated
      *       invariant is a BUG in the code holding it, and terminating with the location is the
-     *       honest report; a failure the code EXPECTS travels as a value (rhi::error_info) instead
+     *       honest report; a failure the code EXPECTS travels as a value instead
      *     - thread safe (panic is)
      */
     export void ensure(bool condition, std::string_view description = "",
                        std::source_location source_location = std::source_location::current()) noexcept;
-
-    /// the outcome of a classification: keep, rewrite, or die. (hopper's shape, deren's error type.)
-    ///
-    /// `pass_failure` carries a REWRITTEN error, not the raw one: the classifier is the one place
-    /// that knows what this failure MEANS for its caller ("acquire said out_of_date -> skip and
-    /// rebuild"), and the verdict it hands back is the caller's whole story, raw VkResult gone.
-    export struct pass_success {};
-    export struct pass_failure {
-        deren::promise::rhi::error_info failure;
-    };
-    export struct fatal {
-        deren::promise::rhi::error_info reason;
-    };
-    export using verdict = std::variant<pass_success, pass_failure, fatal>;
-
-    /**
-     * @ingroup utility
-     * @brief the engine-side failure type: a value or a fully described failure
-     * @note the CONTRACT does not grow an `expected` - its two failure styles (factories answering
-     *       nullptr, `command_buffer::use` answering rhi::error) stay what they are; this alias is the
-     *       SAME BINARY's richer channel, where deren::utility::vessel::string and a location are free because nothing
-     *       crosses a boundary carrying it
-     */
-    export template <typename value_type>
-    using result = std::expected<value_type, deren::promise::rhi::error_info>;
-
-    /**
-     * @ingroup utility
-     * @brief turn an expected-style outcome into a verdict: success stays success, failure keeps its
-     *        error_info - the classifier decides, this only carries
-     * @param outcome anything with `operator bool` and `.error()` answering the failure
-     *        (std::expected<T, rhi::error_info> is the shape it is for; `result<T>` above)
-     */
-    export inline constexpr auto propagate = [](auto const& outcome) -> verdict {
-        if (outcome) {
-            return pass_success{};
-        }
-        return pass_failure{outcome.error()};
-    };
-
-    /**
-     * @ingroup utility
-     * @brief run an outcome through a classifier and make the verdict STICK
-     * @param outcome the engine-side outcome being decided
-     * @param classify the one place that knows what failures mean here; answers a verdict
-     * @return the outcome, its error REWRITTEN when the classifier said pass_failure
-     * @note
-     *     - a LYING classifier terminates: judging a failed outcome pass_success, or a successful
-     *       one pass_failure, is not a wrong answer - it is a contradiction of the outcome the
-     *       classifier was handed, and every decision after it would be made on fiction
-     *     - `fatal` is EXECUTED here, in the engine: the backend only reports (device_lost,
-     *       out_of_host_memory); the panic that ends the process is the engine's act, at the engine's
-     *       one convergence point - which is why the backend's own panic sites are exceptions to
-     *       migrate, not a pattern to copy
-     *     - the frame path's classifiers land with the frame face (classify_acquire /
-     *       classify_present over the frame statuses); today's hand-written if-ladders are the
-     *       content this exists to replace
-     */
-    export template <typename value_type, typename classify_type>
-    auto enforce(result<value_type> outcome, classify_type&& classify) -> result<value_type> {
-        verdict const decided = classify(outcome);
-        if (std::holds_alternative<pass_success>(decided)) {
-            if (!outcome) {
-                panic("enforce: the classifier judged a FAILED outcome as success", std::source_location::current());
-            }
-            return outcome;
-        }
-        if (auto const* const failure = std::get_if<pass_failure>(&decided)) {
-            if (outcome) {
-                panic("enforce: the classifier judged a SUCCESSFUL outcome as failure", std::source_location::current());
-            }
-            return std::unexpected(failure->failure); // the rewritten error replaces the raw one
-        }
-        auto const& reason = std::get<fatal>(decided).reason;
-        panic(deren::utility::vessel::format("enforce: fatal outcome {} - {}",
-                                             std::to_underlying(reason.code), reason.message),
-              reason.where);
-    }
 
     namespace detail {
         /// one write and no flush: the stream's own buffering decides, which is what `std::print` does too (and
@@ -654,7 +576,7 @@ namespace deren::utility {
      * @tparam Args argument types
      * @param fmt the format string (compile-time checked)
      * @param args arguments to format
-     * @note output goes to the terminal in Debug builds, to a debug.log file in Release builds
+     * @note output goes to the terminal in Debug builds, to a deren-debug.log file in Release builds
      * @note THE FORMATTING HAPPENS HERE, IN THE CALLER'S INSTANTIATION: the formatted line is a
      *       temporary deren::utility::vessel::string on this side and crosses to the sink as a std::string_view, which
      *       the sink copies. A design choice rather than a restriction (STL is allowed across the

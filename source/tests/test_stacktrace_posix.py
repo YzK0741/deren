@@ -14,14 +14,19 @@ resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
 
 def run(*args, env=None):
-    return subprocess.run([PROBE, *args], capture_output=True, text=True, timeout=4, env=env)
+    with tempfile.TemporaryDirectory() as directory:
+        result = subprocess.run([PROBE, *args], capture_output=True, text=True, timeout=4, env=env, cwd=directory)
+        report = Path(directory) / "deren-crash.log"
+        result.report = report.read_text() if report.is_file() else ""
+        return result
 
 
 class PosixStacktraceTests(unittest.TestCase):
     def test_capture(self):
         result = run("--capture")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("frame pc=0x", result.stderr)
+        self.assertIn("frame pc=0x", result.report)
+        self.assertEqual(result.stderr, "")
 
     @unittest.skipUnless(Path(SYMBOLIZER).is_file(), "llvm-symbolizer unavailable")
     def test_symbolize_and_environment(self):
@@ -39,7 +44,7 @@ class PosixStacktraceTests(unittest.TestCase):
     def test_offline_capture(self):
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / "trace.log"
-            log.write_text(run("--capture").stderr)
+            log.write_text(run("--capture").report)
             decoder = Path(__file__).resolve().parents[2] / "scripts" / "symbolize_stacktrace.py"
             result = subprocess.run([sys.executable, str(decoder), str(log), "--symbolizer", SYMBOLIZER],
                                     capture_output=True, text=True, timeout=5)
@@ -64,16 +69,18 @@ class PosixStacktraceTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 result = run(mode)
                 self.assertEqual(result.returncode, -signal.SIGSEGV, result.stderr)
-                self.assertIn("deren crash signal=", result.stderr)
-                self.assertRegex(result.stderr, r"fault_pc=0x[1-9a-f][0-9a-f]*")
-                self.assertIn("unwind skipped", result.stderr)
+                self.assertIn("deren crash signal=", result.report)
+                self.assertEqual(result.stderr, "")
+                self.assertRegex(result.report, r"fault_pc=0x[1-9a-f][0-9a-f]*")
+                self.assertIn("unwind skipped", result.report)
 
     def test_fast_path_does_not_capture(self):
         result = run("--fast")
         self.assertEqual(result.returncode, -signal.SIGABRT)
-        self.assertIn("minimal POSIX fatal", result.stderr)
-        self.assertNotIn("deren crash", result.stderr)
-        self.assertNotIn("frame pc=", result.stderr)
+        self.assertIn("minimal POSIX fatal", result.report)
+        self.assertEqual(result.stderr, "")
+        self.assertNotIn("deren crash", result.report)
+        self.assertNotIn("frame pc=", result.report)
 
 
 if __name__ == "__main__":

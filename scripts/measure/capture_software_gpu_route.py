@@ -182,7 +182,7 @@ def run(args: argparse.Namespace) -> dict:
                                stderr=subprocess.STDOUT, timeout=900, check=False,
                                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
     elapsed = time.perf_counter() - started
-    log_path = run_dir / 'debug.log'
+    log_path = run_dir / 'deren-debug.log'
     text = log_path.read_text(encoding='utf-8', errors='replace') if log_path.exists() else ''
     route_path = Path(str(prefix) + '-route.json')
     route = json.loads(route_path.read_text(encoding='utf-8')) if route_path.exists() else None

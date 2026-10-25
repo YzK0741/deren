@@ -67,7 +67,7 @@ try {
     Set-Content -LiteralPath (Join-Path $workPath 'stderr.log') -Value $standardError.GetAwaiter().GetResult()
 }
 if ($process.ExitCode -ne 0) { throw "Renderer exited with $($process.ExitCode)" }
-$logPath = Join-Path $workPath 'debug.log'
+$logPath = Join-Path $workPath 'deren-debug.log'
 if ((Get-Item -LiteralPath $logPath).LastWriteTime -lt $startedAt) { throw 'No new renderer log' }
 $log = Get-Content -LiteralPath $logPath -Raw
 if ($log -notmatch 'validation layers enabled') { throw 'Validation was not enabled' }

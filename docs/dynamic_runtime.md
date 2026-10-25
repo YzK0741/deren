@@ -9,6 +9,36 @@ graphics API, the engine's object files carry **no** unresolved `vk*` symbol, an
 names the graphics API. A backend *module* is not importable by the engine either - the loader is the
 only door, and `scripts/check_backend_boundary.py` is the gate that keeps it that way.
 
+## Log and fatal-report files
+
+All build types write normal logs and `[ERROR]` messages asynchronously to `deren-debug.log` in the
+working directory; startup rotation uses `deren-debug.log.old`. No logging route falls back to a
+console. If the ordinary file fails, the worker attempts the emergency file instead.
+
+`panic` first writes its bounded message and source location directly to `deren-crash.log`, then raw
+stack records and best-effort readable symbols. It never initializes or locks the async sink; an
+existing sink gets up to 250ms of atomic-prefix polling before termination. This limits log waiting,
+not kernel file I/O or the symbolizer's separate budget. `fast_panic` remains bounded plain text only,
+without formatting, stack capture, symbols or waiting for logs. Both files are best effort if storage
+is unavailable. The native emergency handle lives until process exit; paths follow the working
+directory at first open. POSIX signal reports only use output preopened during handler installation.
+
+`wait_log_all()` captures the submitted sequence under the queue lock and waits for that prefix's
+write/flush attempts to finish. Later messages do not extend the wait; a worker cannot wait for itself.
+Explicit generic printing APIs and command-line diagnostic tools retain their normal stream behavior.
+
+## Utility and engine error policy
+
+`deren.utility` (module interface 2.0.0) and `deren.utility.shared` have no RHI dependency.
+Generic assertions, logging, allocation and panic remain in utility. RHI-specific outcome policy
+belongs to `deren.engine.outcome`, provided by `engine_outcome_core`.
+
+Consumers of the former `deren::utility::{result, verdict, pass_success, pass_failure, fatal,
+propagate, enforce}` must import `deren.engine.outcome` and use `deren::engine::outcome::` instead.
+Code naming RHI types also imports `deren.promise.rhi` explicitly. No compatibility re-export is
+provided, so a utility-only consumer does not need the renderer contract. Classification, error
+rewriting and fatal behavior are unchanged; this source interface change does not alter RHI ABI 55.
+
 ## The contract: `deren.promise.rhi`
 
 `source/promise/rhi/` is the contract, and BOTH sides of the boundary compile it: the engine's targets and

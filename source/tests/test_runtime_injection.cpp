@@ -168,10 +168,7 @@ namespace {
         deren::utility::vessel::string const command = "\"" + deren::utility::vessel::string{self} + "\" " + flag;
         deren::utility::vessel::wstring const wide(command.begin(), command.end());
 
-        // THE CHILD'S OWN OUTPUT IS CAPTURED, because in a Debug build that is the only place its
-        // diagnostics go (see last_panic): the sink writes to stdout/stderr there, and to debug.log with
-        // NDEBUG. The handle has to be inheritable and the process created with bInheritHandles = TRUE
-        // for the redirection to apply.
+        // Capture third-party/runtime diagnostics; deren's own reports go to files in both builds.
         SECURITY_ATTRIBUTES inherited{};
         inherited.nLength = sizeof(inherited);
         inherited.bInheritHandle = TRUE;
@@ -227,21 +224,10 @@ namespace {
         return text;
     }
 
-    /// The LAST panic message the child that just ran produced - searched across BOTH places this
-    /// build's sink can have put it.
-    ///
-    /// WHERE A PANIC LANDS IS A BUILD-TYPE DECISION and the test has to follow it instead of assuming
-    /// one. With `NDEBUG` the process-wide sink rotates and appends to `debug.log` (and error_text goes
-    /// to the log thread); WITHOUT it - which is what the CI sanitizer job builds, Debug - there is no
-    /// log file at all: `log()` writes to stdout and `error_text` writes to stderr. So the child's own
-    /// output is captured to `child_output.txt` (see run_child) and both are read; exactly one of them
-    /// is fresh per spawn, so the last marker in either is that child's message. Reading only
-    /// `debug.log` made these three checks pass in Release and fail in a Debug tree for a reason that
-    /// has nothing to do with the handshake they are about (measured: the sanitizer job's ctest).
+    /// Fatal diagnostics are build-independent and written directly to the emergency report.
     [[nodiscard]] deren::utility::vessel::string last_panic() {
-        deren::utility::vessel::string text = read_file(L"debug.log");
-        text += read_file(L"child_output.txt");
-        deren::utility::vessel::string const marker = "[ERROR] error info: ";
+        auto text = read_file(L"deren-crash.log");
+        deren::utility::vessel::string const marker = "deren panic: ";
         std::size_t const at = text.rfind(marker);
         return at == deren::utility::vessel::string::npos ? deren::utility::vessel::string{} : text.substr(at + marker.size());
     }

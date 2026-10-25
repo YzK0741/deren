@@ -29,7 +29,7 @@ extern "C" int32_t utility_shared_claim_log_rotation() {
     // rotate a second time - which is the one thing this function is here to prevent.
     static int32_t const claimed = [] {
         // `Local\` is per SESSION; the process id is what makes it per process (two runs of the
-        // executable must each rotate their own debug.log; two images of one process must not).
+        // executable must each rotate their own deren-debug.log; two images of one process must not).
         wchar_t name[64] = {};
         int32_t const written = std::swprintf(name, 64, L"Local\\deren.debug.log.rotation.%lu",
                                               static_cast<unsigned long>(GetCurrentProcessId()));

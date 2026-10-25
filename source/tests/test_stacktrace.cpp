@@ -1,3 +1,4 @@
+#include "../utility/shared/log_test_hooks.hpp"
 #include "../utility/shared/memory_test_hooks.hpp"
 #include "vessel_child.hpp"
 #include "vk_test.h"
@@ -94,6 +95,17 @@ vessel::string read_log(char const* file) {
     std::ifstream log(file);
     return {std::istreambuf_iterator<char>(log), std::istreambuf_iterator<char>()};
 }
+// Keep each child's file report separate from its captured stdout/stderr.
+vessel_child_result run_report_child(char const* executable, char const* mode, char const* capture) {
+    std::error_code error;
+    std::filesystem::remove("deren-crash.log", error);
+    auto result = vessel_run_child(executable, mode, capture);
+    auto report = vessel::string(capture) + ".report";
+    std::ofstream saved(report.c_str(), std::ios::binary | std::ios::trunc);
+    saved << read_log("deren-crash.log");
+    CHECK(read_log(capture).find("deren ") == vessel::string::npos);
+    return result;
+}
 std::uintptr_t field(vessel::string const& text, std::string_view name) {
     auto at = text.find(name);
     if (at == vessel::string::npos)
@@ -181,6 +193,17 @@ int main(int argc, char** argv) {
             worker.join();
             return 1;
         }
+        if (std::string_view(argv[1]) == "--panic-blocked-log") {
+            auto const count = utility_log_test_pause_count();
+            utility_log_test_pause_after(0);
+            deren::utility::log_text("held log worker");
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+            while (utility_log_test_pause_count() == count && std::chrono::steady_clock::now() < deadline)
+                std::this_thread::yield();
+            if (utility_log_test_pause_count() == count)
+                return 2;
+            deren::utility::panic("blocked log panic marker");
+        }
         if (std::string_view(argv[1]) == "--panic")
             deren::utility::panic("ordinary panic diagnostics");
         if (std::string_view(argv[1]) == "--long-fast") {
@@ -205,17 +228,17 @@ int main(int argc, char** argv) {
     auto raw = diag::symbolize(trace, options);
     CHECK(raw.status == diag::symbolizer_status::unavailable);
     CHECK(raw.text.find("rva=0x") != vessel::string::npos);
-    auto child = vessel_run_child(argv[0], "--fast", "fast.log");
+    auto child = run_report_child(argv[0], "--fast", "fast.log");
     CHECK(child.started && child.aborted);
-    std::ifstream log("fast.log");
+    std::ifstream log("fast.log.report");
     vessel::string text{std::istreambuf_iterator<char>(log), std::istreambuf_iterator<char>()};
     CHECK(text.find("fast failure under injected OOM") != vessel::string::npos);
     CHECK(text.find("origin ") == vessel::string::npos);
     CHECK(text.find("frame pc=0x") == vessel::string::npos);
-    CHECK(text.find("abort signal received") != vessel::string::npos);
-    auto long_child = vessel_run_child(argv[0], "--long-fast", "long-fast.log");
+    CHECK(read_log("fast.log").find("abort signal received") != vessel::string::npos);
+    auto long_child = run_report_child(argv[0], "--long-fast", "long-fast.log");
     CHECK(long_child.started && long_child.aborted);
-    auto long_text = read_log("long-fast.log");
+    auto long_text = read_log("long-fast.log.report");
     CHECK(std::count(long_text.begin(), long_text.end(), 'x') == 4096);
 #if defined(_WIN32)
     options.executable = "C:/deren-no-such-symbolizer.exe";
@@ -290,9 +313,9 @@ int main(int argc, char** argv) {
 #endif
     // ASAN owns native fault handling; exercise our OS filter in the Release suite.
 #if !TRACE_ASAN
-    auto crashed = vessel_run_child(argv[0], "--crash", "crash.log");
+    auto crashed = run_report_child(argv[0], "--crash", "crash.log");
     CHECK(crashed.started && crashed.code == 0xc0000005u);
-    auto crash_text = read_log("crash.log");
+    auto crash_text = read_log("crash.log.report");
     CHECK(crash_text.find("deren crash code=0xc0000005") != vessel::string::npos);
     CHECK(field(crash_text, "fault_pc=0x") != 0);
     CHECK(field(crash_text, "fault_pc=0x") == field(crash_text, "frame pc=0x"));
@@ -329,7 +352,7 @@ int main(int argc, char** argv) {
     {
         auto const exe_directory = std::filesystem::path(argv[0]).parent_path();
         auto const module_dir = exe_directory.empty() ? std::string{"."} : exe_directory.string();
-        vessel::string const inner = vessel::format("\"{}\" \"{}\" \"crash.log\" --module-dir \"{}\"",
+        vessel::string const inner = vessel::format("\"{}\" \"{}\" \"crash.log.report\" --module-dir \"{}\"",
                                                     STACKTRACE_PYTHON, STACKTRACE_DECODER, module_dir);
         // cmd.exe strips the FIRST and LAST quote of a `cmd /c <command>` that begins with a quote,
         // and this command both begins and ends with one - so it needs a second pair around the
@@ -354,9 +377,9 @@ int main(int argc, char** argv) {
     // terminate: a filter that asks the loader for a module waits on a lock the blocked thread
     // never releases, so the harness ends up killing the child and `started` comes back false.
     // It does not need the symbolizer - the record is raw text - so it stays outside that guard.
-    auto loader_lock = vessel_run_child(argv[0], "--loader-lock-crash", "loader-lock.log");
+    auto loader_lock = run_report_child(argv[0], "--loader-lock-crash", "loader-lock.log");
     CHECK(loader_lock.started);
-    auto const loader_lock_text = read_log("loader-lock.log");
+    auto const loader_lock_text = read_log("loader-lock.log.report");
     CHECK(loader_lock_text.find("deren crash code=0xc0000005") != vessel::string::npos);
     CHECK(loader_lock_text.find("frame pc=0x") != vessel::string::npos);
     // And the same-thread half: the fault is raised inside the fixture's DllMain, so if it reached
@@ -365,53 +388,51 @@ int main(int argc, char** argv) {
     // an unhandled exception - so there is nothing to record. That is why this half cannot hang the
     // filter: it does not get there. The blocked-holder case above is the one that does, and it
     // completes, so the fatal path's module lookup is empirically NOT hostage to the loader lock.
-    auto loader_lock_fault = vessel_run_child(argv[0], "--loader-lock-fault", "loader-lock-fault.log");
+    auto loader_lock_fault = run_report_child(argv[0], "--loader-lock-fault", "loader-lock-fault.log");
     CHECK(loader_lock_fault.started);
-    CHECK(read_log("loader-lock-fault.log").find("deren crash") == vessel::string::npos);
-    auto overflow = vessel_run_child(argv[0], "--overflow", "overflow.log");
+    CHECK(read_log("loader-lock-fault.log.report").find("deren crash") == vessel::string::npos);
+    auto overflow = run_report_child(argv[0], "--overflow", "overflow.log");
     CHECK(overflow.started && overflow.code == 0xc00000fdu);
-    CHECK(read_log("overflow.log").find("unwind skipped") != vessel::string::npos);
-    auto worker_overflow = vessel_run_child(argv[0], "--worker-overflow", "worker-overflow.log");
+    CHECK(read_log("overflow.log.report").find("unwind skipped") != vessel::string::npos);
+    auto worker_overflow = run_report_child(argv[0], "--worker-overflow", "worker-overflow.log");
     CHECK(worker_overflow.started && worker_overflow.code == 0xc00000fdu);
-    CHECK(read_log("worker-overflow.log").find("unwind skipped") != vessel::string::npos);
+    CHECK(read_log("worker-overflow.log.report").find("unwind skipped") != vessel::string::npos);
 #endif
     static_cast<void>(std::filesystem::remove("deren-crash.log"));
-    auto no_stderr = vessel_run_child(argv[0], "--no-stderr", "no-stderr.log");
+    auto no_stderr = run_report_child(argv[0], "--no-stderr", "no-stderr.log");
     CHECK(no_stderr.started && no_stderr.aborted);
     CHECK(read_log("deren-crash.log").find("preopened fallback output") != vessel::string::npos);
     // The install-order window: no handler ran, so nothing preopened the fallback - and the fatal
     // path still has to leave evidence instead of dropping its only message.
     static_cast<void>(std::filesystem::remove("deren-crash.log"));
-    auto lazy_fallback = vessel_run_child(argv[0], "--no-stderr-no-install", "lazy-fallback.log");
+    auto lazy_fallback = run_report_child(argv[0], "--no-stderr-no-install", "lazy-fallback.log");
     CHECK(lazy_fallback.started && lazy_fallback.aborted);
     CHECK(read_log("deren-crash.log").find("lazy fallback output") != vessel::string::npos);
     // The late-write window: a static destructor ordered AFTER the sink's shutdown still calls
     // log() + wait_log_all(). It must return (exit 0) rather than lock a destroyed mutex; a hang
     // would show up here as the harness killing the child instead of an exit code.
-    auto late = vessel_run_child(argv[0], "--late-log", "late.log");
+    auto late = run_report_child(argv[0], "--late-log", "late.log");
     CHECK(late.started && late.code == 0);
     // The drain at exit still has to happen even though the sink is never destroyed: the child
-    // queues one line and returns WITHOUT waiting. Release writes debug.log in the working
-    // directory, Debug writes stdout, which the harness captures - either one proves the line was
-    // not lost when the process ended.
-    auto exit_drain = vessel_run_child(argv[0], "--exit-log", "exit-drain.log");
+    // queues one line and returns WITHOUT waiting. Both builds must persist it in deren-debug.log.
+    auto exit_drain = run_report_child(argv[0], "--exit-log", "exit-drain.log");
     CHECK(exit_drain.started && exit_drain.code == 0);
-    CHECK(read_log("debug.log").find("exit drain marker") != vessel::string::npos ||
-          read_log("exit-drain.log").find("exit drain marker") != vessel::string::npos);
+    CHECK(read_log("deren-debug.log").find("exit drain marker") != vessel::string::npos);
+    CHECK(read_log("exit-drain.log").empty());
 #endif
-    auto panic = vessel_run_child(argv[0], "--panic", "panic.log");
+    auto panic = run_report_child(argv[0], "--panic", "panic.log");
     CHECK(panic.started && panic.aborted);
-    // The raw records still go to stderr first - that is what the offline decoder reads.
-    CHECK(read_log("panic.log").find("frame pc=0x") != vessel::string::npos);
-    // And the SAME panic prints a readable stack through its log path: Release queues it to
-    // debug.log in the working directory, Debug writes it straight to stderr, so either file proves
-    // it. The header alone is asserted here because it is present even when no symbols could be
-    // produced; the guarded check requires the symbols themselves.
-    CHECK(read_log("debug.log").find("call stack:") != vessel::string::npos ||
-          read_log("panic.log").find("call stack:") != vessel::string::npos);
+    auto const panic_report = read_log("panic.log.report");
+    CHECK(panic_report.find("ordinary panic diagnostics") != vessel::string::npos);
+    CHECK(panic_report.find("test_stacktrace.cpp") != vessel::string::npos);
+    CHECK(panic_report.find("ordinary panic diagnostics") < panic_report.find("frame pc=0x"));
+    CHECK(panic_report.find("frame pc=0x") != vessel::string::npos);
+    CHECK(panic_report.find("call stack:") != vessel::string::npos);
 #if STACKTRACE_DIAGNOSTICS && STACKTRACE_HAVE_SYMBOLIZER
-    CHECK(read_log("debug.log").find("symbols frames=") != vessel::string::npos ||
-          read_log("panic.log").find("symbols frames=") != vessel::string::npos);
+    CHECK(panic_report.find("symbols frames=") != vessel::string::npos);
 #endif
+    auto blocked = run_report_child(argv[0], "--panic-blocked-log", "blocked-panic.log");
+    CHECK(blocked.started && blocked.aborted);
+    CHECK(read_log("blocked-panic.log.report").find("blocked log panic marker") != vessel::string::npos);
     return deren::vk_test::finish("test_stacktrace");
 }

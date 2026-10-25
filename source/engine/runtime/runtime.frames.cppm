@@ -27,6 +27,7 @@ import deren.utility.shared;
 
 import :declarations;
 
+import deren.engine.outcome;
 import deren.engine.profiling;
 import deren.engine.pipelines;
 import deren.engine.render_resource;
@@ -153,10 +154,10 @@ namespace deren::engine {
     // and the dispatch below decides skipped-vs-failed. A classifier that contradicts its outcome is
     // a panic (the lying-classifier rule) - which is why this routes through a verdict instead of a
     // bare if-chain on the code.
-    [[nodiscard]] inline deren::utility::verdict classify_acquire(deren::promise::rhi::frame_open_info const& open) noexcept {
-        using deren::utility::fatal;
-        using deren::utility::pass_failure;
-        using deren::utility::pass_success;
+    [[nodiscard]] inline deren::engine::outcome::verdict classify_acquire(deren::promise::rhi::frame_open_info const& open) noexcept {
+        using deren::engine::outcome::fatal;
+        using deren::engine::outcome::pass_failure;
+        using deren::engine::outcome::pass_success;
         if (open.result.code == rhi::error::ok) {
             return pass_success{};
         }
@@ -244,13 +245,13 @@ namespace deren::engine {
         // out_of_host_memory) - so a lost device ends the loop here instead of spinning acquire
         // failures; out_of_date rebuilds and skips; everything else is the acquire_failed the caller
         // already handles. This replaces the hand-written VkResult if-ladder.
-        deren::utility::verdict const decided = classify_acquire(open);
-        if (auto const* const fatal_case = std::get_if<deren::utility::fatal>(&decided)) {
+        deren::engine::outcome::verdict const decided = classify_acquire(open);
+        if (auto const* const fatal_case = std::get_if<deren::engine::outcome::fatal>(&decided)) {
             deren::utility::panic(deren::utility::vessel::format("frame open is fatal ({}): {}", std::to_underlying(fatal_case->reason.code),
                                                                  fatal_case->reason.message.empty() ? std::string_view{"no message"} : fatal_case->reason.message),
                                   fatal_case->reason.where);
         }
-        if (auto const* const failure = std::get_if<deren::utility::pass_failure>(&decided)) {
+        if (auto const* const failure = std::get_if<deren::engine::outcome::pass_failure>(&decided)) {
             if (failure->failure.code == rhi::error::out_of_date) {
                 // e.g. the window was resized: rebuild the swapchain and let the caller retry on the
                 // next iteration - the same skip the zero-extent guard above returns.

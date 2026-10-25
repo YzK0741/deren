@@ -204,7 +204,7 @@ def capture(exe: Path, asset: Path, work: Path, tag: str, camera: str, camera_po
                 raise SystemExit(f"{tag}: timed out")
             time.sleep(0.05)
     elapsed = time.perf_counter() - started
-    log = run / "debug.log"
+    log = run / "deren-debug.log"
     text = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
     images = list(run.glob("screenshot_*.png"))
     metrics = parse_log(text)
@@ -590,7 +590,7 @@ def _synthetic_matrix(work: Path) -> dict:
                 probe = validate_fixture(camera)
                 workload = run_dir / "workload.json"
                 workload.write_text(json.dumps(probe) + "\n", encoding="utf-8")
-                log = run_dir / "debug.log"
+                log = run_dir / "deren-debug.log"
                 raster = 20.11 if camera == "far" else 18.58
                 holes = arm == "holes"
                 raster_time = raster - 1.0 if holes else raster

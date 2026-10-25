@@ -151,7 +151,7 @@ foreach ($k in $applied.Keys) {
 }
 
 Get-ChildItem $WorkDir -Filter "screenshot_*.png" -ErrorAction SilentlyContinue | Remove-Item -Force
-$log = Join-Path $WorkDir "debug.log"
+$log = Join-Path $WorkDir "deren-debug.log"
 Remove-Item $log -Force -ErrorAction SilentlyContinue
 
 $launch = @("--config", $cfg, "--capture-frames", "$Frames")
@@ -166,7 +166,7 @@ $sw = [System.Diagnostics.Stopwatch]::StartNew()
 # program") check on - so every capture raised a security prompt for an unsigned binary that is built locally on
 # the machine it runs on. `UseShellExecute = $false` uses CreateProcess, which has no such check. The two things
 # the shell was doing for us are done explicitly instead: the working directory, and a hidden window (STARTUPINFO
-# rather than a shell verb). Standard output is NOT redirected, deliberately: this app's own `debug.log` is how a
+# rather than a shell verb). Standard output is NOT redirected, deliberately: this app's own `deren-debug.log` is how a
 # capture is read, and a redirected pipe would need a concurrent reader or a 60-frame run could deadlock on a full
 # buffer.
 $start = [System.Diagnostics.ProcessStartInfo]::new()

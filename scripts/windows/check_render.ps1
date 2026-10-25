@@ -402,7 +402,7 @@ function Invoke-Scenario {
     $cfg = Join-Path $workDir "$($Scenario.name).toml"
     Write-ScenarioConfig -Scenario $Scenario -Path $cfg
     Get-ChildItem $workDir -Filter "screenshot_*.png" -ErrorAction SilentlyContinue | Remove-Item -Force
-    $log = Join-Path $workDir "debug.log"
+    $log = Join-Path $workDir "deren-debug.log"
     Remove-Item $log -Force -ErrorAction SilentlyContinue
 
     # NOT $args: that is PowerShell's automatic argument array, and assigning to it is the kind of
@@ -446,7 +446,7 @@ function Invoke-Scenario {
     # KEEP THIS RUN'S LOG next to its screenshot, before any early return: a round reads its graph/fallback
     # inventory from the "main graph:" lines in it, a validation finding is only in it, and the next
     # scenario deletes it. A failed run keeps it too - that is when it is wanted most.
-    if (Test-Path $log) { Copy-Item $log (Join-Path $workDir "$($Scenario.name).debug.log") -Force }
+    if (Test-Path $log) { Copy-Item $log (Join-Path $workDir "$($Scenario.name).deren-debug.log") -Force }
     if ($p.ExitCode -ne 0) { return @{ ok = $false; why = "exit code $($p.ExitCode)" } }
 
     $shot = Get-ChildItem $workDir -Filter "screenshot_*.png" | Select-Object -First 1

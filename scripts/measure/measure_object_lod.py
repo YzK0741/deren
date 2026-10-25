@@ -96,7 +96,7 @@ lut_size = 128
             memory = peak_memory(process)
             if memory is not None:
                 peak = max(peak or 0, memory)
-            log = run / 'debug.log'
+            log = run / 'deren-debug.log'
             if ready is None and log.exists():
                 text = log.read_text(encoding='utf-8', errors='replace')
                 if re.search(r'imported \d+ primitives', text):
@@ -107,7 +107,7 @@ lut_size = 128
                 raise TimeoutError(tag)
             time.sleep(.05)
     elapsed = time.perf_counter() - started
-    log = run / 'debug.log'
+    log = run / 'deren-debug.log'
     text = log.read_text(encoding='utf-8', errors='replace') if log.exists() else ''
     images = list(run.glob('screenshot_*.png'))
     result = {'tag': tag, 'camera': camera, 'validation': validation, 'on': on, 'frames': frames,

@@ -187,9 +187,10 @@ int main(int argc, char** argv) {
     }
     CHECK(ordinary_new.load() == baseline);
     std::printf("Boost %s probe: %d checks, %d failures, ordinary new delta=%zu\n", BOOST_LIB_VERSION, checks, failures, ordinary_new.load() - baseline);
+    std::remove("deren-crash.log");
     auto oom = vessel_run_child(argv[0], "--oom", "boost-graph-oom.log");
     CHECK(oom.started && oom.code != 0 && oom.code != 99);
-    auto* log = std::fopen("boost-graph-oom.log", "rb");
+    auto* log = std::fopen("deren-crash.log", "rb");
     CHECK(log != nullptr);
     if (log) {
         char text[1024]{};
@@ -197,6 +198,14 @@ int main(int argc, char** argv) {
         std::fclose(log);
         CHECK(std::string_view(text, count).find("allocation failure: out_of_memory") != std::string_view::npos);
         CHECK(std::string_view(text, count).find("stacktrace") == std::string_view::npos);
+    }
+    auto* console = std::fopen("boost-graph-oom.log", "rb");
+    CHECK(console != nullptr);
+    if (console) {
+        char text[1024]{};
+        auto count = std::fread(text, 1, sizeof(text), console);
+        std::fclose(console);
+        CHECK(std::string_view(text, count).find("deren ") == std::string_view::npos);
     }
     std::printf("[test_boost_graph] %d checks, %d failed\n", checks, failures);
     return failures ? 1 : 0;

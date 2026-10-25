@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <type_traits>
 import deren.engine.render_graph;
 namespace rg = deren::engine::render_graph;
@@ -261,9 +262,12 @@ int main(int argc, char** argv) {
     content_tests();
     hazard_tests();
     lifetime_tests();
+    std::remove("deren-crash.log");
     auto child = vessel_run_child(argv[0], "--oom", "render-graph-oom.log");
     CHECK(child.started && child.code != 0 && child.code != 99 && child.code != 98);
-    auto* file = std::fopen("render-graph-oom.log", "rb");
+    // The fatal evidence is the emergency file; the redirected console capture must not carry library
+    // diagnostics (only the child harness's abort marker may be there).
+    auto* file = std::fopen("deren-crash.log", "rb");
     CHECK(file != nullptr);
     if (file) {
         char text[1024]{};
@@ -271,6 +275,14 @@ int main(int argc, char** argv) {
         std::fclose(file);
         CHECK(std::string_view(text, count).find("allocation failure: out_of_memory") != std::string_view::npos);
         CHECK(std::string_view(text, count).find("stacktrace") == std::string_view::npos);
+    }
+    auto* console = std::fopen("render-graph-oom.log", "rb");
+    CHECK(console != nullptr);
+    if (console) {
+        char text[1024]{};
+        auto count = std::fread(text, 1, sizeof(text), console);
+        std::fclose(console);
+        CHECK(std::string_view(text, count).find("deren ") == std::string_view::npos);
     }
     return deren::vk_test::finish("test_render_graph");
 }
