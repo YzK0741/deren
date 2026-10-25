@@ -3,6 +3,10 @@ export module deren.engine.outcome;
 import deren.utility;
 import deren.promise.rhi;
 
+/**
+ * @defgroup engine_outcome Engine outcome classification
+ * @brief engine-side RHI result classification, verdict propagation and enforced failure policy
+ */
 namespace deren::engine::outcome {
     /// the outcome of a classification: keep, rewrite, or die. (hopper's shape, deren's error type.)
     ///
@@ -19,7 +23,7 @@ namespace deren::engine::outcome {
     export using verdict = std::variant<pass_success, pass_failure, fatal>;
 
     /**
-     * @ingroup engine
+     * @ingroup engine_outcome
      * @brief the engine-side failure type: a value or a fully described failure
      * @note the CONTRACT does not grow an `expected` - its two failure styles (factories answering
      *       nullptr, `command_buffer::use` answering rhi::error) stay what they are; this alias is the
@@ -30,7 +34,7 @@ namespace deren::engine::outcome {
     using result = std::expected<value_type, deren::promise::rhi::error_info>;
 
     /**
-     * @ingroup engine
+     * @ingroup engine_outcome
      * @brief turn an expected-style outcome into a verdict: success stays success, failure keeps its
      *        error_info - the classifier decides, this only carries
      * @param outcome anything with `operator bool` and `.error()` answering the failure
@@ -44,7 +48,7 @@ namespace deren::engine::outcome {
     };
 
     /**
-     * @ingroup engine
+     * @ingroup engine_outcome
      * @brief run an outcome through a classifier and make the verdict STICK
      * @param outcome the engine-side outcome being decided
      * @param classify the one place that knows what failures mean here; answers a verdict

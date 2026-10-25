@@ -496,10 +496,11 @@ namespace {
             auto child = vessel_run_child(executable, mode, "invalid-workers.log");
             CHECK(child.started && child.aborted);
             std::ifstream log("invalid-workers.log");
-            deren::utility::vessel::string text((std::istreambuf_iterator<char>(log)), std::istreambuf_iterator<char>());
+            deren::utility::vessel::string console((std::istreambuf_iterator<char>(log)), std::istreambuf_iterator<char>());
+            CHECK(console.find("deren ") == decltype(console)::npos); // no library diagnostics on console
             // Fatal diagnostics always use the emergency report, independent of build type.
             std::ifstream diagnostic(std::filesystem::path(mode) / "deren-crash.log");
-            text.append(std::istreambuf_iterator<char>(diagnostic), std::istreambuf_iterator<char>());
+            deren::utility::vessel::string text((std::istreambuf_iterator<char>(diagnostic)), std::istreambuf_iterator<char>());
             CHECK(text.find("thread_pool: worker count must be positive") != decltype(text)::npos);
         }
     }
@@ -728,6 +729,33 @@ namespace {
         deren::utility::ensure(true);
         deren::utility::ensure(true, "trivially true");
     }
+    void test_log_rotation(char const* executable) {
+        std::error_code error;
+        std::filesystem::remove_all("rotate-log", error);
+        std::filesystem::create_directories("rotate-log", error);
+        CHECK(!error);
+        if (error)
+            return;
+        {
+            std::ofstream previous("rotate-log/deren-debug.log", std::ios::out | std::ios::trunc);
+            previous << "previous session marker\n";
+        }
+        auto child = vessel_run_child(executable, "rotate-log", "rotate-log/console.log");
+        CHECK(child.started && child.code == 0);
+        auto read_text = [](char const* path) {
+            std::ifstream stream(path);
+            return deren::utility::vessel::string((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+        };
+        auto const current = read_text("rotate-log/deren-debug.log");
+        auto const old = read_text("rotate-log/deren-debug.log.old");
+        auto const console = read_text("rotate-log/console.log");
+        CHECK(current.find("rotate child marker") != decltype(current)::npos);
+        CHECK(current.find("previous session marker") == decltype(current)::npos);
+        CHECK(old.find("previous session marker") != decltype(old)::npos);
+        CHECK(old.find("===== session ended at") != decltype(old)::npos);
+        CHECK(console.find("deren ") == decltype(console)::npos); // no library diagnostics on console
+    }
+
 } // namespace
 
 int32_t main(int argc, char** argv) {
@@ -744,6 +772,9 @@ int32_t main(int argc, char** argv) {
             deren::utility::thread_pool pool(0);
         } else if (std::string_view(argv[1]) == "--negative-workers") {
             deren::utility::thread_pool pool(-1);
+        } else if (std::string_view(argv[1]) == "rotate-log") {
+            deren::utility::log_text("rotate child marker");
+            deren::utility::wait_log_all();
         }
         return 0;
     }
@@ -765,6 +796,7 @@ int32_t main(int argc, char** argv) {
     test_thread_pool_rejects_empty_tasks();
     test_thread_pool_shutdown_policies();
     test_log_wait_is_a_flushed_prefix();
+    test_log_rotation(argv[0]);
     test_log_sink_wait_all_under_concurrent_writers();
     test_bvh_non_finite_aabb_is_sanitized();
     test_bvh_degenerate_inputs_do_not_crash();

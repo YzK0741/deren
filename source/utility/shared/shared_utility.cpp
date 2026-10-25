@@ -33,9 +33,9 @@ namespace deren::utility {
     }
 
     namespace {
-        // Startup rotation for the Release log file: move the previous session's deren-debug.log content
-        // aside to deren-debug.log.old (with a session-end timestamp when the content carries none), then
-        // truncate deren-debug.log so the new session starts fresh. Only called in Release builds (NDEBUG).
+        // Startup rotation for the log file: move the previous session's deren-debug.log content aside to
+        // deren-debug.log.old (with a session-end timestamp when the content carries none), then truncate
+        // deren-debug.log so the new session starts fresh. Runs for every build type.
         //
         // ONCE PER PROCESS, AND THAT IS A GUARD RATHER THAN A COMMENT: the claim below is an
         // OS-named object keyed by the process id (log_rotation_claim.cpp), so if two copies of this
@@ -116,9 +116,9 @@ namespace deren::utility {
      * @brief the process's one log sink: a queue, its worker, and the file handle
      *
      * ASYNCHRONOUS BY CONSTRUCTION, and the two condition variables are load-bearing:
-     * `queue_cv` wakes the worker, `drained_cv` wakes `wait_all()` - which `panic()` calls
-     * before `std::terminate()`, so the message that must never be lost is the one that is
-     * flushed here rather than at static-destruction time.
+     * `queue_cv` wakes the worker, `drained_cv` wakes `wait_all()`. `panic()` does NOT call
+     * wait_all(): it writes the emergency report first and polls the lock-free prefix for at most
+     * 250 ms, so a busy ordinary sink cannot hang the fatal path.
      */
     class log_sink { // NOLINT
         std::mutex queue_mutex = {};
@@ -133,10 +133,10 @@ namespace deren::utility {
         // to drain and exit, and read under queue_mutex - so a write that arrives during (or
         // after) teardown is dropped rather than queued for a worker that is already gone. That
         // matters because wait_all() would then block forever on a pending count nothing will
-        // ever decrement, and panic() calls wait_all() - i.e. the one path that must not hang is
-        // the one that would.
+        // ever decrement. panic() does not wait on that count - it uses the bounded lock-free prefix
+        // poll - so teardown cannot hang the fatal path.
         bool accepting = true;
-        std::ofstream file = {}; // Release builds write to deren-debug.log
+        std::ofstream file = {}; // every build writes to deren-debug.log
 
     public:
         log_sink();

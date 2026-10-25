@@ -244,8 +244,8 @@ include(cmake/deren_asset_dependencies.cmake)
 # sites keep working unchanged: a call site does not know which half a name came from.
 #
 # DEPENDENCY DIRECTION: static_utility MAY depend on shared_utility (it formats text and calls the
-# sink); the reverse is FORBIDDEN - the shared module writes its own stdout/stderr fallback instead
-# of calling this module's `println`. Neither utility target imports or links the RHI contract;
+# sink); the reverse is FORBIDDEN - the shared module writes its own file routes instead of calling this
+# module's `println`; logging/fatal routes have no console fallback. Neither utility target imports or links the RHI contract;
 # the contract depends on shared_utility. RHI outcome policy belongs to engine_outcome_core.
 #
 # `dynamic_link` STAYS ON THE STATIC SIDE FOR A LOAD-BEARING REASON: it is the key that loads the
@@ -995,7 +995,8 @@ if(WIN32)
 endif()
 # Release builds link as a Windows GUI-subsystem executable: no console window appears when
 # running. On the MSYS2 clang64 / MinGW-w64 toolchain WIN32_EXECUTABLE maps to -mwindows; the CRT
-# still calls main(), only the subsystem changes. Debug keeps the console for terminal log output.
+# still calls main(), only the subsystem changes. Debug keeps the console, but logging still writes
+# deren-debug.log in every build (no console log route).
 set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE $<$<CONFIG:Release>:ON>)
 
 # static_utility: the per-half toolkit. utility.cpp implements the xxHash-based hash functions
@@ -1252,6 +1253,9 @@ target_link_libraries(deren_engine PUBLIC render_graph_bloom render_graph_post r
 
 if(VR_BUILD_TESTS)
     enable_testing()
+    # Test-only hooks: compiled when VR_BUILD_TESTS=ON (which is also the Release package config),
+    # inert without a caller and absent from the module interface. This follows the existing
+    # DEREN_MEMORY_TESTING precedent; a dedicated test-support option is a possible future split.
     target_compile_definitions(shared_utility PRIVATE DEREN_MEMORY_TESTING DEREN_LOG_TESTING)
     target_sources(shared_utility PRIVATE source/utility/shared/log_test_hooks.cpp)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)

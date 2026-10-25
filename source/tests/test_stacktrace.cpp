@@ -427,6 +427,8 @@ int main(int argc, char** argv) {
     CHECK(panic_report.find("test_stacktrace.cpp") != vessel::string::npos);
     CHECK(panic_report.find("ordinary panic diagnostics") < panic_report.find("frame pc=0x"));
     CHECK(panic_report.find("frame pc=0x") != vessel::string::npos);
+    CHECK(panic_report.find("source:") != vessel::string::npos);
+    CHECK(panic_report.find("source:") < panic_report.find("frame pc=0x"));
     CHECK(panic_report.find("call stack:") != vessel::string::npos);
 #if STACKTRACE_DIAGNOSTICS && STACKTRACE_HAVE_SYMBOLIZER
     CHECK(panic_report.find("symbols frames=") != vessel::string::npos);

@@ -2,7 +2,8 @@
 
 Records the user's 2026-10-25 approval, amended explicitly to avoid stdout/stderr because ordinary
 renderer launches have no console. Existing explicit utility print/stream APIs and command-line tools
-are not logging routes and are outside this change.
+are not logging routes and are outside this change. Status (2026-10-25): implemented and accepted with
+follow-ups; see docs/reviews/2026-10-25-file-logging-panic.md.
 
 All builds write ordinary asynchronous logs/errors to deren-debug.log, using the existing rotation policy.
 Use existing deren-crash.log for direct panic/fast_panic/raw crash diagnostics on Windows and Linux.

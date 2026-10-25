@@ -1,4 +1,7 @@
 #pragma once
+// Compiled only when VR_BUILD_TESTS=ON (the default, including the Release package). These hooks are
+// inert without a caller and are not part of the module interface; they follow the existing
+// DEREN_MEMORY_TESTING precedent for test-only observation inside the process-wide utility DLL.
 #include <cstdint>
 #if defined(_MSC_VER) && defined(DEREN_LOG_TESTING)
 #define LOG_TEST_API __declspec(dllexport)

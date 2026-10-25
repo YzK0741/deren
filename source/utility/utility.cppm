@@ -576,7 +576,7 @@ namespace deren::utility {
      * @tparam Args argument types
      * @param fmt the format string (compile-time checked)
      * @param args arguments to format
-     * @note output goes to the terminal in Debug builds, to a deren-debug.log file in Release builds
+     * @note output goes to the asynchronous deren-debug.log file in every build; there is no console fallback
      * @note THE FORMATTING HAPPENS HERE, IN THE CALLER'S INSTANTIATION: the formatted line is a
      *       temporary deren::utility::vessel::string on this side and crosses to the sink as a std::string_view, which
      *       the sink copies. A design choice rather than a restriction (STL is allowed across the
@@ -602,8 +602,7 @@ namespace deren::utility {
 
     /**
      * @ingroup utility
-     * @brief error log: in Debug builds prints directly to stderr in red (not queued);
-     *        in Release builds hands the message to the log singleton with an [ERROR] prefix
+     * @brief error log: queues the message with an [ERROR] prefix to deren-debug.log in every build
      * @tparam Args argument types
      * @param fmt the format string (compile-time checked)
      * @param args arguments to format
@@ -616,8 +615,7 @@ namespace deren::utility {
 
     /**
      * @ingroup utility
-     * @brief error log: in Debug builds prints directly to stderr in red (not queued);
-     *        in Release builds hands the message to the log singleton with an [ERROR] prefix
+     * @brief error log: queues the message with an [ERROR] prefix to deren-debug.log in every build
      * @param message the message (string literal, const char*, deren::utility::vessel::string or std::string_view)
      */
     export void error(std::string_view message) {

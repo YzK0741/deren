@@ -486,7 +486,7 @@ debug_callback(
     VkDebugUtilsMessengerCallbackDataEXT const* callback_data,
     [[maybe_unused]] void* user_data) noexcept {
     if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
-        // Errors go through error(): Debug prints red to stderr, Release writes to the log file
+        // Errors go through error(): the shared sink queues [ERROR] to deren-debug.log in every build
         deren::utility::error(callback_data->pMessage);
     } else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
         deren::utility::log("[WARNING] {}", callback_data->pMessage);
