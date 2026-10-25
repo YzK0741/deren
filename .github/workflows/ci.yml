@@ -202,7 +202,7 @@ jobs:
               exit 1
             fi
           done
-          clang-tidy -p build --warnings-as-errors='*' $TIDY_FILES
+          python scripts/run_clang_tidy.py --build-dir build $TIDY_FILES
 
       # THE ARTIFACT IS THE RUN-TIME PACKAGE, NOT JUST THE EXECUTABLE, AND THAT IS THE FIX IN THIS STEP:
       # since the dynamic-backend flip the product is no longer one file. deren.exe loads deren_assets.dll

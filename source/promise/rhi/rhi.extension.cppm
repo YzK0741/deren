@@ -751,16 +751,16 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual descriptor_slot_range fixed_slots() const noexcept {
             return {};
         }
-        [[nodiscard]] virtual error write_image(descriptor_image_write const&) noexcept {
+        [[nodiscard]] virtual error write_image(descriptor_image_write const& /*unused*/) noexcept {
             return error::unsupported;
         }
-        [[nodiscard]] virtual error write_buffer(descriptor_buffer_write const&) noexcept {
+        [[nodiscard]] virtual error write_buffer(descriptor_buffer_write const& /*unused*/) noexcept {
             return error::unsupported;
         }
-        [[nodiscard]] virtual error write_acceleration_structure(descriptor_acceleration_structure_write const&) noexcept {
+        [[nodiscard]] virtual error write_acceleration_structure(descriptor_acceleration_structure_write const& /*unused*/) noexcept {
             return error::unsupported;
         }
-        [[nodiscard]] virtual error bind(descriptor_bind_info const&) noexcept {
+        [[nodiscard]] virtual error bind(descriptor_bind_info const& /*unused*/) noexcept {
             return error::unsupported;
         }
     };

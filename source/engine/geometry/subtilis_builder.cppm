@@ -94,32 +94,39 @@ export namespace deren::engine::subtilis {
             return lod0_count_;
         }
         [[nodiscard]] std::span<meshlet const> lod0_clusters() const noexcept {
-            if (imported_)
+            if (imported_) {
                 return imported_->lod0_clusters();
+            }
             return hierarchy_.clusters().first(hierarchy_.lod0_count());
         }
         [[nodiscard]] dag_asset const* hierarchy_dag() const noexcept {
-            return imported_ ? &imported_->hierarchy() : dag_ ? &*dag_
-                                                              : nullptr;
+            if (imported_) {
+                return &imported_->hierarchy();
+            }
+            return dag_ ? &*dag_ : nullptr;
         }
         [[nodiscard]] bool imported_payload() const noexcept {
             return bool(imported_);
         }
         static std::expected<built_geometry, build_error> adopt_imported(std::shared_ptr<imported_asset const> source) {
-            if (!source || source->vertices().empty() || source->indices().empty())
+            if (!source || source->vertices().empty() || source->indices().empty()) {
                 return std::unexpected(build_error::invalid_input);
+            }
             auto empty = asset::make({});
-            if (!empty)
+            if (!empty) {
                 return std::unexpected(build_error::invalid_geometry);
+            }
             build_statistics stats;
             stats.nodes = static_cast<uint32_t>(source->hierarchy().groups().size());
             stats.roots = static_cast<uint32_t>(source->hierarchy().roots().size());
             stats.clusters = source->hierarchy().cluster_count();
             stats.lod0_triangles = source->lod0_index_count() / 3;
-            for (auto id : source->hierarchy().roots())
+            for (auto id : source->hierarchy().roots()) {
                 stats.coarse_triangles += source->hierarchy().clusters()[id].record.index_count / 3;
+            }
             stats.payload_bytes = source->vertices().size() + source->indices().size_bytes();
-            built_geometry out({}, {}, std::move(*empty), {}, std::move(stats), source->vertex_stride(), source->vertex_count(), source->lod0_index_count());
+            // clang-tidy 23 misidentifies the separator after an empty braced argument as a trailing comma.
+            built_geometry out({}, {}, std::move(*empty), {}, std::move(stats), source->vertex_stride(), source->vertex_count(), source->lod0_index_count()); // NOLINT(readability-trailing-comma)
             out.imported_ = std::move(source);
             return out;
         }

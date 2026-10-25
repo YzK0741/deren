@@ -78,8 +78,9 @@ export namespace deren::engine::subtilis {
             if (record.first_index != cursor || record.base_vertex != 0 || !meshlet_record_sound(record, source.lod0_index_count())) {
                 return false;
             }
-            if (!(dag_cluster{record} == dag_cluster{source.lod0_clusters()[id++]}))
+            if (!(dag_cluster{record} == dag_cluster{source.lod0_clusters()[id++]})) {
                 return false;
+            }
             cursor += record.index_count;
         }
         return cursor == source.lod0_index_count();
@@ -113,14 +114,17 @@ export namespace deren::engine::subtilis {
         view.force_finest = view.force_finest || !coarse_allowed(leaf, policy);
         if (auto const* dag = leaf.subtilis_geometry->source().hierarchy_dag(); leaf.subtilis_geometry->source().imported_payload() && dag) {
             scratch.clear();
-            if (auto reason = check_reservation(space, static_cast<uint32_t>(dag->lod0_clusters().size()), published); reason != fallback_reason::none)
+            if (auto reason = check_reservation(space, static_cast<uint32_t>(dag->lod0_clusters().size()), published); reason != fallback_reason::none) {
                 return shared_run(space, reason);
+            }
             auto cut = select_cut(*dag, view, space.count, scratch, history, epoch);
-            if (!cut)
+            if (!cut) {
                 return shared_run(space, fallback_reason::capacity);
+            }
             if (!scratch.empty() && !publish(space.base, std::span<meshlet const>(scratch))) {
-                if (history)
+                if (history) {
                     history->reset();
+                }
                 return shared_run(space, fallback_reason::publication_failed);
             }
             return {space.base, static_cast<uint32_t>(scratch.size()), run_source::visible, fallback_reason::none};

@@ -23,7 +23,8 @@ export namespace deren::engine::subtilis {
     };
     enum class geometry_upload_mode { automatic,
                                       synchronous,
-                                      batched };
+                                      batched,
+    };
     class uploaded_geometry;
     /// The source must remain immutable through every alias after publication;
     /// do not move-assign or modify it through a separately retained mutable owner.

@@ -18,14 +18,18 @@ namespace deren::engine::subtilis {
         std::expected<dag_asset, dag_error> wrap_forest(asset const& forest, std::uint32_t lod0, std::uint32_t total) {
             bd::vector<dag_cluster> clusters;
             bd::vector<dag_group> groups;
-            bd::vector<std::uint32_t> refs, leaves, roots;
-            for (auto const& record : forest.clusters())
+            bd::vector<std::uint32_t> refs;
+            bd::vector<std::uint32_t> leaves;
+            bd::vector<std::uint32_t> roots;
+            for (auto const& record : forest.clusters()) {
                 clusters.push_back({record});
+            }
             for (auto const& node : forest.groups()) {
                 auto const& old = node.record;
                 if (!old.children.count) {
-                    for (std::uint32_t j = 0; j < old.coarse.count; ++j)
+                    for (std::uint32_t j = 0; j < old.coarse.count; ++j) {
                         leaves.push_back(old.coarse.first + j);
+                    }
                     continue;
                 }
                 auto id = static_cast<std::uint32_t>(groups.size());
@@ -47,26 +51,33 @@ namespace deren::engine::subtilis {
                 group.error = old.error;
                 auto const& b = node.bounds;
                 group.lod = {float(b.center[0]), float(b.center[1]), float(b.center[2]), 0};
-                double dx = b.center[0] - group.lod.x, dy = b.center[1] - group.lod.y, dz = b.center[2] - group.lod.z;
+                double dx = b.center[0] - group.lod.x;
+                double dy = b.center[1] - group.lod.y;
+                double dz = b.center[2] - group.lod.z;
                 double radius = b.radius + std::sqrt(dx * dx + dy * dy + dz * dz);
                 // Round the envelope outward, including previously rounded dependency spheres.
                 for (std::uint32_t j = 0; j < group.fine.count; ++j) {
                     auto producer = clusters[refs[group.fine.first + j]].producer;
-                    if (producer == dag_none)
+                    if (producer == dag_none) {
                         continue;
+                    }
                     auto const& child = groups[producer].lod;
-                    double x = double(child.x) - group.lod.x, y = double(child.y) - group.lod.y, z = double(child.z) - group.lod.z;
+                    double x = double(child.x) - group.lod.x;
+                    double y = double(child.y) - group.lod.y;
+                    double z = double(child.z) - group.lod.z;
                     radius = std::max(radius, std::sqrt(x * x + y * y + z * z) + child.radius);
                 }
                 group.lod.radius = float(radius);
-                if (group.lod.radius < radius)
+                if (group.lod.radius < radius) {
                     group.lod.radius = std::nextafter(group.lod.radius, std::numeric_limits<float>::infinity());
+                }
                 groups.push_back(group);
             }
             for (auto root : forest.roots()) {
                 auto range = forest.groups()[root].record.coarse;
-                for (std::uint32_t j = 0; j < range.count; ++j)
+                for (std::uint32_t j = 0; j < range.count; ++j) {
                     roots.push_back(range.first + j);
+                }
             }
             return dag_asset::make(clusters, groups, refs, leaves, roots, lod0, total);
         }
@@ -327,11 +338,13 @@ namespace deren::engine::subtilis {
                               source.positions.empty() ? 0 : input.geometry.vertex_stride, static_cast<std::uint32_t>(source.positions.size()), static_cast<std::uint32_t>(source.indices.size()));
         if (!result.hierarchy_.clusters().empty()) {
             auto dag = wrap_forest(result.hierarchy_, result.lod0_count_, static_cast<std::uint32_t>(result.indices_.size()));
-            if (!dag)
+            if (!dag) {
                 return std::unexpected(build_error::invalid_geometry);
+            }
             auto extra = dag->clusters().size_bytes() + dag->groups().size_bytes() + dag->references().size_bytes() + dag->leaves().size_bytes() + dag->roots().size_bytes() + dag->lod0_clusters().size_bytes();
-            if (extra > options.max_output_bytes - result.statistics_.payload_bytes)
+            if (extra > options.max_output_bytes - result.statistics_.payload_bytes) {
                 return std::unexpected(build_error::capacity);
+            }
             result.statistics_.payload_bytes += extra;
             result.dag_ = std::move(*dag);
         }

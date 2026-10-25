@@ -24,7 +24,8 @@ export namespace deren::promise::rhi::synchronization {
                                   /// names the ray-tracing pipeline stages only.
                                   ray_tracing = 1024 };
     constexpr stage operator|(stage a, stage b) noexcept {
-        return static_cast<stage>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+        // Fixed-underlying enum is a bitmask: combinations need not have individual enumerators.
+        return static_cast<stage>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b)); // NOLINT(clang-analyzer-optin.core.EnumCastOutOfRange)
     }
     enum class access : uint32_t { none = 0,
                                    read = 1,

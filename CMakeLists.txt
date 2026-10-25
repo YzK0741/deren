@@ -1253,6 +1253,8 @@ if(VR_BUILD_TESTS)
     enable_testing()
     target_compile_definitions(shared_utility PRIVATE DEREN_MEMORY_TESTING)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME test_clang_tidy_driver
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source/tests/test_clang_tidy_driver.py")
     add_test(NAME test_software_raster_probe_verifier
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/measure/verify_software_raster.py" --self-test)
     add_test(NAME test_software_raster_image_verifier

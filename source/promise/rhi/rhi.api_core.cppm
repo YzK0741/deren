@@ -1244,7 +1244,7 @@ export namespace deren::promise::rhi {
         uniform_buffer,
         storage_buffer,
         sampler,
-        acceleration_structure
+        acceleration_structure,
     };
     /// One shader-visible uint32 handle field. Its byte offset is a shader parameter location,
     /// never an offset in descriptor storage. Stage bits: vertex=1, fragment=2, compute=4, mesh=8.
@@ -1256,16 +1256,20 @@ export namespace deren::promise::rhi {
     };
     inline constexpr std::uint32_t resource_group_capacity = 32;
     [[nodiscard]] constexpr error validate_resource_group_layout(std::span<resource_group_binding const> layout) noexcept {
-        if (layout.size() > resource_group_capacity)
+        if (layout.size() > resource_group_capacity) {
             return error::invalid_argument;
+        }
         for (std::size_t i = 0; i < layout.size(); ++i) {
             auto const& a = layout[i];
             if (a.kind > resource_kind::acceleration_structure || a.shader_stage_bits == 0 ||
-                (a.shader_stage_bits & ~15u) || (a.push_byte_offset & 3u) || a.push_byte_offset > UINT32_MAX - 4u)
+                (a.shader_stage_bits & ~15u) || (a.push_byte_offset & 3u) || a.push_byte_offset > UINT32_MAX - 4u) {
                 return error::invalid_argument;
-            for (std::size_t j = 0; j < i; ++j)
-                if (a.binding == layout[j].binding || a.push_byte_offset == layout[j].push_byte_offset)
+            }
+            for (std::size_t j = 0; j < i; ++j) {
+                if (a.binding == layout[j].binding || a.push_byte_offset == layout[j].push_byte_offset) {
                     return error::invalid_argument;
+                }
+            }
         }
         return error::ok;
     }
@@ -1756,7 +1760,7 @@ export namespace deren::promise::rhi {
 
         /// Immediate binding; exact binding-number/kind match with the current pipeline is required.
         /// Validates before native recording; retains group through recorded and pending GPU use.
-        [[nodiscard]] virtual error load_resource_group(resource_group_ref const&) {
+        [[nodiscard]] virtual error load_resource_group(resource_group_ref const& /*unused*/) {
             return error::unsupported;
         }
 
@@ -1769,7 +1773,7 @@ export namespace deren::promise::rhi {
         /// device_capabilities::max_push_constants_size(). Reject overlap with bound pipeline resource
         /// group/texture token fields. A pipeline need not already be bound. Unsupported implementations
         /// refuse explicitly; no pointer or parameter storage is retained by the default operation.
-        [[nodiscard]] virtual error push_constants(std::uint32_t, std::span<std::byte const>) noexcept {
+        [[nodiscard]] virtual error push_constants(std::uint32_t /*unused*/, std::span<std::byte const> /*unused*/) noexcept {
             return error::unsupported;
         }
 
@@ -1787,7 +1791,7 @@ export namespace deren::promise::rhi {
         // compute + geometry
         virtual void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;
         /// ABI48: one compute dispatch from a 12-byte argument record; unavailable backends refuse explicitly.
-        [[nodiscard]] virtual error dispatch_indirect(buffer const&, std::uint64_t) {
+        [[nodiscard]] virtual error dispatch_indirect(buffer const& /*unused*/, std::uint64_t /*unused*/) {
             return error::unsupported;
         }
         virtual void draw_mesh_tasks(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;
@@ -2021,7 +2025,7 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual unique_object<sampler> create_sampler(sampler_desc const& desc) = 0;
         [[nodiscard]] virtual unique_object<shader> create_shader(shader_desc const& desc) = 0;
         [[nodiscard]] virtual unique_object<pipeline> create_pipeline(pipeline_desc const& desc) = 0;
-        [[nodiscard]] virtual std::expected<resource_group_ref, error> create_resource_group(resource_group_desc const&) {
+        [[nodiscard]] virtual std::expected<resource_group_ref, error> create_resource_group(resource_group_desc const& /*unused*/) {
             return std::unexpected(error::unsupported);
         }
         [[nodiscard]] virtual texture_group_ref assign_texture_group(texture_group_info const& /*info*/, error* result = nullptr) {
