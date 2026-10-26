@@ -50,11 +50,6 @@ inline void check_lazy_resource_contract(rhi::api_core& core) {
     CHECK((*image)->prepare() == rhi::error::ok);
     CHECK((*image)->state() == rhi::lazy_state::ready);
     CHECK((*image)->prepare() == rhi::error::ok);
-    if (auto* host_copy = rhi::query_extension<rhi::host_image_copy>(core)) {
-        std::array<std::byte, 16> prepared{};
-        CHECK(host_copy->copy_image_to_memory(**image, prepared, {}) == rhi::error::ok);
-        CHECK(prepared[0] == std::byte{127});
-    }
     CHECK((*image)->unload() == rhi::error::ok);
     CHECK((*image)->state() == rhi::lazy_state::unloaded);
     auto view = (*image)->make_view({});

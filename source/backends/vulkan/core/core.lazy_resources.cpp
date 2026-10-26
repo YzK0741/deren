@@ -214,6 +214,9 @@ namespace deren::vulkan {
             }
             value.owned = std::move(concrete.owned);
             value.native_handle = concrete.native_handle;
+            // The physical image now carries HOST_TRANSFER (the materializer creates it that way), so
+            // the contract's own flags must reflect it: host_image_copy's read-back checks this field.
+            value.declared_flags |= rhi::to_bits(rhi::image_flag::host_transfer);
             return rhi::error::ok;
         });
     }
