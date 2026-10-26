@@ -2052,23 +2052,11 @@ export namespace deren::promise::rhi {
         /// Nonblocking: not_ready while loading or retained by a view/binding/recording.
         /// Source and metadata survive; the next native demand reloads the initial bytes.
         [[nodiscard]] virtual error unload() noexcept = 0;
-        /// Bring the native resource up from its retained source. Returns `ok` when the resource is
-        /// ready (idempotent); serializes with a concurrent prepare on the same object. Backends
-        /// without a prepared stage answer `unsupported`.
-        [[nodiscard]] virtual error prepare() noexcept {
-            return error::unsupported;
-        }
     };
     struct lazy_image : image {
         using image::image;
         [[nodiscard]] virtual lazy_state state() const noexcept = 0;
         [[nodiscard]] virtual error unload() noexcept = 0;
-        /// Bring the native image up from its retained source. Returns `ok` when ready (idempotent);
-        /// serializes with a concurrent prepare on the same object. Backends without a prepared stage
-        /// answer `unsupported`.
-        [[nodiscard]] virtual error prepare() noexcept {
-            return error::unsupported;
-        }
     };
 
     struct resource_factory {

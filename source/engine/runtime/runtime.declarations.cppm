@@ -27,16 +27,11 @@
 module;
 
 #include <chrono>
-#include <condition_variable>
 #include <fstream>
 #include <future>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <memory> // std::shared_ptr: the engine's OWN owners (generations, caches); RHI handles use rhi::unique_object/shared_object
-#include <mutex>
-#include <thread>
-#include <unordered_set>
-#include <vector>
 
 // THE GUI PLUGIN'S BOUNDARY (plan X2): the runtime holds a deren::gui::overlay, which lives in a
 // deren_gui_<api>.dll the loader resolves by name. In the GLOBAL MODULE FRAGMENT because the header
@@ -501,54 +496,17 @@ namespace deren::engine {
         struct streamed_texture {
             rhi::shared_object<rhi::lazy_image> image;
             std::uint64_t bytes = 0;
-            std::uint64_t last_demand_frame = 0;
             bool pinned = false, published = false;
         };
         deren::utility::vessel::vector<streamed_texture> streamed_textures;
-        // Background lazy-texture upload: prepare_texture_demand() fills the queue; the worker calls
-        // lazy_image::prepare() while the GPU executes the previous frame. update_texture_residency()
-        // still synchronously waits for an unfinished upload before recording, so a missing texture can
-        // never reach shading.
-        std::mutex upload_queue_mutex;
-        std::condition_variable upload_queue_cv;
-        std::vector<rhi::shared_object<rhi::lazy_image>> upload_queue;
-        std::unordered_set<rhi::lazy_image*> upload_inflight;
-        std::vector<std::jthread> upload_workers;
-        bool upload_worker_stopping = false;
-        std::atomic<std::uint64_t> texture_upload_prefetched{0};
-        std::atomic<std::uint64_t> texture_upload_waited{0};
-        void start_texture_upload_worker();
-        void stop_texture_upload_worker();
-        void schedule_texture_prefetch();
         texture_residency::material_textures material_texture_edges;
         texture_residency::control texture_streaming;
         std::uint64_t texture_residency_updates = 0;
         rhi::unique_object<rhi::pipeline> visibility_feedback_pipeline;
         rhi::shared_object<rhi::buffer> visibility_feedback_buffer;
         rhi::unique_object<rhi::buffer> visibility_feedback_readback;
-        texture_residency::feedback cpu_texture_feedback;
-        texture_residency::feedback prefetch_cpu_feedback;
-        bool cpu_texture_feedback_ready = false;
-        bool texture_prefetch_ready = false;
-        bool cpu_frame_prep_enabled = false;
-        bool prepared_selection_ready = false;
-        float prepared_selection_aspect = 0.0f;
-        deren::utility::vessel::vector<primitive const*> prepared_visible;
-        // Animation prep ring: while active, animation::controller writes skin/morph into these CPU
-        // buffers; commit_animation_prep() copies them into the slot paced by pace_and_acquire().
-        bool animation_prep_active = false;
-        bool animation_skin_prep_dirty = false;
-        bool animation_morph_prep_dirty = false;
-        deren::utility::vessel::vector<glm::mat4> skin_prep;
-        deren::utility::vessel::vector<float> morph_prep;
         [[nodiscard]] rhi::error prepare_texture_feedback();
         [[nodiscard]] rhi::error record_texture_feedback(rhi::command_buffer&);
-        /// Collect the material demand from one CPU visible leaf list.
-        void collect_cpu_texture_feedback_from(std::span<primitive const* const> visible) noexcept;
-        /// Gather (without touching the runtime's demand) the material bitset of a leaf list.
-        [[nodiscard]] texture_residency::feedback gather_cpu_texture_feedback(std::span<primitive const* const> visible) const noexcept;
-        /// Collect the material demand from the CPU visible lists built by begin_recording().
-        void collect_cpu_texture_feedback() noexcept;
         [[nodiscard]] rhi::error update_texture_residency(bool all);
 
         uint32_t white_texture_index = 0;
@@ -3722,23 +3680,6 @@ namespace deren::engine {
         void set_visibility_texture_streaming(bool enabled) noexcept {
             texture_streaming.set(enabled);
         }
-        /// Animation prep ring: call before animation.update(), then commit_animation_prep() after
-        /// pace_and_acquire(). While active, skin/morph writes go to CPU prep buffers, not a frame slot.
-        void begin_animation_prep() noexcept {
-            animation_prep_active = true;
-        }
-        void end_animation_prep() noexcept {
-            animation_prep_active = false;
-        }
-        void commit_animation_prep();
-        /// Enable the CPU frame prep path (static scenes only for now): cull/visible lists are
-        /// computed before pace_and_acquire() and consumed by begin_recording().
-        void set_cpu_frame_prep(bool enabled) noexcept {
-            cpu_frame_prep_enabled = enabled;
-        }
-        /// Compute the next frame's texture demand and (when enabled) draw-list selection from the
-        /// cached scene/BVH and a CPU camera preview, before pace_and_acquire().
-        void prepare_texture_demand();
         /// Select static LOD0 runs on admitted visibility frames; takes effect next frame.
         void set_subtilis(bool enabled) noexcept;
         void set_subtilis_error_px(float value) noexcept;

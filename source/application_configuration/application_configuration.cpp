@@ -272,10 +272,9 @@ namespace deren::app_config {
                     settings.render.visibility_buffer = *value;
                 }
             }
-            if (toml::node const* node = render->get("visibility_texture_streaming")) {
-                if (std::optional<bool> const value = node->value<bool>()) {
+            if (auto* node = render->get("visibility_texture_streaming")) {
+                if (auto value = node->value<bool>())
                     settings.render.visibility_texture_streaming = *value;
-                }
             }
             if (toml::node const* node = render->get("subtilis")) {
                 if (auto const value = node->value<bool>()) {

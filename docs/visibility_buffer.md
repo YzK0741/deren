@@ -122,22 +122,16 @@ depth. The compute resolve does not re-run the cut-out test; a pixel with a vali
 
 `[render] visibility_texture_streaming = true` opts in alongside `visibility_buffer = true`. Geometry
 remains resident. Scene registration keeps whole decoded images in shared CPU storage and initially
-publishes ordinary placeholders for unneeded textures. Texture demand is derived on the CPU from the
-existing BVH frustum-culled visible leaves and each leaf's material list (static draws contribute every
-chunk material); there is no GPU visibility-feedback compute pass or frame checkpoint on this path.
-The material-demand bitset and the visible draw list are computed before `pace_and_acquire()` from a
-CPU camera preview. Static scenes reuse the cached scene/BVH; animated or dirty scenes rebuild a private
-leaf/BVH snapshot for the preview (the animation controller now samples pose/skin/morph before pace and
-commits the prepared skin/morph buffers after acquire). The prepared path requires an aspect match, a
-non-empty visible list, and at most 1500 leaves for exact small-scene shadow casters; larger or
-not-yet-ready scenes fall back to the post-acquire cull for that frame.
+publishes ordinary placeholders for unneeded textures. A full-resolution compute scan identifies this
+frame's visible materials, including the shared hardware/software winner rule and HZB recovery output.
+Feedback is512 words plus status (2052 bytes); the coherent mapped buffer is published for host reads
+and read only after a graphics frame checkpoint completes.
 
-Unneeded descriptor slots return to placeholders and unload is attempted with a one-frame reuse
-horizon: an image that was requested at N-1 but is not requested at N stays resident through N, so a
-request at N+1 reuses it instead of unloading and re-uploading. A remaining command/group lease still
-defers physical reclamation. Newly visible required textures must load before shading; upload refusal
-fails the frame explicitly. CPU demand is a conservative superset of GPU visibility: it may keep/load
-textures for geometry the GPU later culls, but it cannot miss a demanded texture.
+The graph's compiled schedule is partitioned before resolve, preserving compiled resource barriers
+and ownership. After the prefix completes, required textures load synchronously, unneeded descriptor
+slots return to placeholders and unload is attempted; a remaining command/group lease defers physical
+reclamation. The suffix shades the same frame with the same camera/items. Newly visible required
+textures must load before shading; upload refusal fails the frame explicitly.
 
 MASK alpha-source, toon/overlay/transparent material textures and renderer defaults stay pinned.
 Shared textures inherit pinning. An ineligible opaque lane or active ray-traced shadow uses full
@@ -147,13 +141,8 @@ Configuration/scene changes follow the existing serialized frame boundary.
 
 This is whole-image GPU residency, not mip/page streaming. CPU decoded sources remain allocated.
 Logged payload counts distinguish total/pinned/physically ready bytes and deferred unloads; they do
-not measure VMA block release or process VRAM. Uploads now run on background workers using the
-`non_blocking_write` concept (`vkCopyMemoryToImageEXT` with barrier-only submissions). The CPU queues the
-current demand before `pace_and_acquire()` and, after the frame's residency update, widens the preview
-projection by 25% per axis to queue speculative next-frame candidates while the GPU renders. A descriptor
-is still gated on readiness, so a first-use miss falls back to a synchronous upload rather than sampling
-an unloaded image; the streaming smoke currently reports `prefetched 5, waited 0`. The option is
-default-off and not an FPS optimization. See the approved
+not measure VMA block release or process VRAM. Frame checkpoint and synchronous upload can cause
+substantial stalls. The option is default-off and not an FPS optimization. See the approved
 [design](superpowers/specs/2026-10-26-vbuffer-residency-design.md) and execution record beside it.
 
 ## See also

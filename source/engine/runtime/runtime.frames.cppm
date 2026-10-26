@@ -659,20 +659,7 @@ namespace deren::engine {
                 }
             }
         };
-        bool used_prepared_selection = false;
-        if (this->cpu_frame_prep_enabled && this->prepared_selection_ready &&
-            this->frame_leaves_buffer.size() <= 1500u &&
-            std::abs(this->current_aspect - this->prepared_selection_aspect) < 1.0e-6f) {
-            // Static scene: the visible list was culled before pace_and_acquire() from the cached
-            // BVH and a CPU camera preview. Keep the exact-path shadow casters for small scenes.
-            this->cull_visible = std::move(this->prepared_visible);
-            this->prepared_visible.clear();
-            this->prepared_selection_ready = false;
-            visible_leaves = this->cull_visible;
-            fill_shadow_casters(this->frame_leaves_buffer);
-            used_prepared_selection = true;
-        }
-        if (!used_prepared_selection && this->frustum_culling) {
+        if (this->frustum_culling) {
             // camera identity: the orbit state that shapes the frustum
             bool const scene_changed_this_frame = this->bvh_dirty;
             deren::utility::vessel::array<float, 7> const key = {
@@ -782,7 +769,7 @@ namespace deren::engine {
                 }
             }
             visible_leaves = this->cull_visible;
-        } else if (!used_prepared_selection) {
+        } else {
             // culling disabled: the shadow pass draws every scene leaf (see shadow_casters)
             fill_shadow_casters(this->frame_leaves_buffer);
         }
@@ -829,22 +816,6 @@ namespace deren::engine {
                               [&distance_to](primitive const* const a, primitive const* const b) {
                                   return distance_to(a) > distance_to(b); // far first
                               });
-        }
-        // CPU material demand replaces the GPU feedback readback/checkpoint for texture streaming:
-        // the visible lists are already known here, before the main graph records. The next step
-        // moves this cull/demand calculation before pace_and_acquire so it overlaps the GPU.
-        if (this->texture_streaming.enabled || this->texture_streaming.restore_pending) {
-            if (this->texture_streaming.restore_pending) {
-                if (auto result = this->update_texture_residency(true); result != rhi::error::ok)
-                    return frame_status::begin_recording_failed;
-                this->texture_streaming.restore_pending = false;
-            } else {
-                if (!this->cpu_texture_feedback_ready)
-                    this->collect_cpu_texture_feedback();
-                this->cpu_texture_feedback_ready = false;
-                if (auto result = this->update_texture_residency(false); result != rhi::error::ok)
-                    return frame_status::begin_recording_failed;
-            }
         }
         return frame_status::proceed;
     }

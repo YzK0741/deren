@@ -193,12 +193,6 @@ export namespace deren::promise::rhi {
         descriptor_space = 1u << 12,
         frame_checkpoint = 1u << 14,   ///< synchronous frame prefix completion and continuation
         command_submission = 1u << 13, ///< independent graphics submission completion tokens
-        /// APPENDED (a new BIT; the previous bits do not move): a CPU-side write into a backend-owned
-        /// image that does NOT record a command or submit to a queue. Vulkan serves it with
-        /// `vkCopyMemoryToImageEXT`; the copy is performed by the implementation against the image's
-        /// current GENERAL layout. A caller must establish the later host-write -> shader-read
-        /// visibility dependency before the GPU samples the result.
-        non_blocking_write = 1u << 15,
     };
 
     /// What `api_core::abilities()` returns: a set of `extension_kind` bits.
@@ -225,7 +219,7 @@ export namespace deren::promise::rhi {
         // set is no longer "every enumerator" - the note on that enumerator says so.
         return to_bits(extension_kind::device_address) | to_bits(extension_kind::descriptor_heap) |
                to_bits(extension_kind::host_image_copy) |
-               to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access) | to_bits(extension_kind::gpu_sorting) | to_bits(extension_kind::async_presentation) | to_bits(extension_kind::scoped_synchronization) | to_bits(extension_kind::frame_resources) | to_bits(extension_kind::descriptor_space) | to_bits(extension_kind::command_submission) | to_bits(extension_kind::frame_checkpoint) | to_bits(extension_kind::non_blocking_write);
+               to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access) | to_bits(extension_kind::gpu_sorting) | to_bits(extension_kind::async_presentation) | to_bits(extension_kind::scoped_synchronization) | to_bits(extension_kind::frame_resources) | to_bits(extension_kind::descriptor_space) | to_bits(extension_kind::command_submission) | to_bits(extension_kind::frame_checkpoint);
     }
 
     /// The active abilities, as a LIST: what a gate walks to check one bit at a time.
@@ -233,7 +227,7 @@ export namespace deren::promise::rhi {
     /// `all_abilities()` is the set as a bitmask; this is the enumeration the consistency gates and
     /// the tests iterate (`abilities()` set => `query_extension()` non-null, and the reverse), so the
     /// list is spelled in ONE place instead of per caller.
-    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> deren::utility::vessel::array<extension_kind, 13> {
+    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> deren::utility::vessel::array<extension_kind, 12> {
         return {
             extension_kind::device_address,
             extension_kind::descriptor_heap,
@@ -247,12 +241,11 @@ export namespace deren::promise::rhi {
             extension_kind::descriptor_space,
             extension_kind::command_submission,
             extension_kind::frame_checkpoint,
-            extension_kind::non_blocking_write,
         };
     }
 
     static_assert(to_bits(extension_kind::device_address) == 0x1u, "the ability bits are ABI: they do not move");
-    static_assert(all_abilities() == 0xFFD3u, "thirteen active abilities; retired bits are never reused");
+    static_assert(all_abilities() == 0x7FD3u, "twelve active abilities; retired bits are never reused");
 
     /// The common root of the tier-2 abilities.
     ///
@@ -539,28 +532,6 @@ export namespace deren::promise::rhi {
         /// large as the region the backend resolves.
         [[nodiscard]] virtual error copy_image_to_memory(image const& source, std::span<std::byte> destination,
                                                          image_copy_region const& region) noexcept = 0;
-    };
-
-    /// tier-2 ability: a CPU-side write into a backend-owned image without a command buffer or a queue
-    /// submission. Vulkan serves it through `VK_EXT_host_image_copy`'s `vkCopyMemoryToImageEXT`.
-    ///
-    /// THE SOURCE IS TIGHTLY PACKED for the region: row-major,
-    /// `extent.width * extent.height * extent.depth * array_layer_count * bytes_per_pixel` bytes.
-    /// The destination must be a backend-created, colour, `image_flag::host_transfer` image in GENERAL
-    /// layout; the frame image is refused. The call returns once the implementation has performed the
-    /// copy; it does NOT establish the host-write -> shader-read visibility dependency, which the
-    /// caller records before the image is sampled.
-    struct non_blocking_write : extension {
-
-        static constexpr extension_kind extension_id = extension_kind::non_blocking_write;
-        explicit non_blocking_write(std::string_view const name) noexcept
-            : extension(name) {
-        }
-        [[nodiscard]] extension_kind kind() const noexcept final {
-            return extension_id;
-        }
-        [[nodiscard]] virtual error write_image(image& destination, std::span<std::byte const> source,
-                                                image_copy_region const& region) noexcept = 0;
     };
 
     /// tier-2 ability: WHAT THE DEVICE CAN DO, in the contract's own vocabulary.

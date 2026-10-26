@@ -45,7 +45,7 @@ class PosixStacktraceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / "trace.log"
             log.write_text(run("--capture").report)
-            decoder = Path(__file__).resolve().parents[2] / "scripts" / "diagnostics" / "symbolize_stacktrace.py"
+            decoder = Path(__file__).resolve().parents[2] / "scripts" / "symbolize_stacktrace.py"
             result = subprocess.run([sys.executable, str(decoder), str(log), "--symbolizer", SYMBOLIZER],
                                     capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -55,13 +55,11 @@ class PosixStacktraceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             tool = Path(directory) / "tool with spaces"
             marker = Path(directory) / "escaped"
-            # The descendant writes well after the probe's timeout, so a slow CI runner cannot
-            # race the assertion by delaying the kill until after the write.
-            tool.write_text(f"#!/bin/sh\n(sleep 3; echo escaped > '{marker}') &\nsleep 10\n")
+            tool.write_text(f"#!/bin/sh\n(sleep 1; echo escaped > '{marker}') &\nsleep 10\n")
             tool.chmod(0o700)
             self.assertIn("status=2", run("--timeout", str(tool)).stdout)
             import time
-            time.sleep(4.2)
+            time.sleep(1.2)
             self.assertFalse(marker.exists())
             tool.write_text("#!/bin/sh\nyes x\n")
             self.assertIn("status=3", run("--limit", str(tool)).stdout)

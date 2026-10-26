@@ -316,7 +316,6 @@ namespace deren::vulkan {
         this->checkpoint_view.owner = this;
         this->async_presentation_view.owner = this;
         this->host_copy_view.owner = this;
-        this->non_blocking_write_view.owner = this;
         // THE DEVICE-CAPABILITY VIEW READS THIS CORE'S CACHED FACTS, so it needs the owner exactly as the views
         // above do - and the omission is not silent: with no owner every method answers its zero/false default,
         // which gated the MESH path off (measured: 'pipeline pbr has no mesh stage to build from' - the vertex
@@ -735,7 +734,6 @@ namespace deren::vulkan {
         //      (host -> image, the texture upload path), because "the extension is enabled" has to mean both
         //      are callable. See docs/host_image_copy.md.
         this->host_image_copy_available = capabilities.host_image_copy_available;
-        this->host_image_copy_upload_available = capabilities.host_image_copy_upload_available;
         this->copy_image_to_memory = reinterpret_cast<PFN_vkCopyImageToMemoryEXT>(vkGetDeviceProcAddr(device, "vkCopyImageToMemoryEXT"));
         this->copy_memory_to_image = reinterpret_cast<PFN_vkCopyMemoryToImageEXT>(vkGetDeviceProcAddr(device, "vkCopyMemoryToImageEXT"));
         if (this->copy_image_to_memory == nullptr) {
