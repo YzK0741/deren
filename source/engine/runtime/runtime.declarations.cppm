@@ -507,8 +507,11 @@ namespace deren::engine {
         rhi::shared_object<rhi::buffer> visibility_feedback_buffer;
         rhi::unique_object<rhi::buffer> visibility_feedback_readback;
         texture_residency::feedback cpu_texture_feedback;
+        bool cpu_texture_feedback_ready = false;
         [[nodiscard]] rhi::error prepare_texture_feedback();
         [[nodiscard]] rhi::error record_texture_feedback(rhi::command_buffer&);
+        /// Collect the material demand from one CPU visible leaf list.
+        void collect_cpu_texture_feedback_from(std::span<primitive const* const> visible) noexcept;
         /// Collect the material demand from the CPU visible lists built by begin_recording().
         void collect_cpu_texture_feedback() noexcept;
         [[nodiscard]] rhi::error update_texture_residency(bool all);
@@ -3684,6 +3687,9 @@ namespace deren::engine {
         void set_visibility_texture_streaming(bool enabled) noexcept {
             texture_streaming.set(enabled);
         }
+        /// Compute the next frame's texture demand from the cached scene/BVH and a CPU camera
+        /// preview, called before pace_and_acquire() so it overlaps the GPU's current frame.
+        void prepare_texture_demand();
         /// Select static LOD0 runs on admitted visibility frames; takes effect next frame.
         void set_subtilis(bool enabled) noexcept;
         void set_subtilis_error_px(float value) noexcept;

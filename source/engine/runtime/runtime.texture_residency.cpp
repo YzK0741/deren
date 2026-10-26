@@ -59,12 +59,12 @@ namespace deren::engine {
         return commands.barrier({.buffers = std::span(&host, 1)});
     }
 
-    void runtime::collect_cpu_texture_feedback() noexcept {
+    void runtime::collect_cpu_texture_feedback_from(std::span<primitive const* const> visible) noexcept {
         cpu_texture_feedback = {};
         utility::vessel::vector<std::uint32_t> materials;
-        auto mark_leaf = [this, &materials](primitive const* const leaf) noexcept {
+        for (primitive const* const leaf : visible) {
             if (leaf == nullptr)
-                return;
+                continue;
             materials.clear();
             leaf->append_material_indices(materials);
             for (std::uint32_t const material : materials) {
@@ -74,15 +74,42 @@ namespace deren::engine {
                 }
                 cpu_texture_feedback.materials[material / 32u] |= 1u << (material % 32u);
             }
-        };
-        for (primitive const* const leaf : frame_visible)
-            mark_leaf(leaf);
-        for (primitive const* const leaf : frame_transparent)
-            mark_leaf(leaf);
-        for (primitive const* const leaf : frame_overlay)
-            mark_leaf(leaf);
-        for (primitive const* const leaf : frame_character)
-            mark_leaf(leaf);
+        }
+    }
+
+    void runtime::collect_cpu_texture_feedback() noexcept {
+        utility::vessel::vector<primitive const*> visible;
+        visible.reserve(frame_visible.size() + frame_transparent.size() + frame_overlay.size() + frame_character.size());
+        visible.insert(visible.end(), frame_visible.begin(), frame_visible.end());
+        visible.insert(visible.end(), frame_transparent.begin(), frame_transparent.end());
+        visible.insert(visible.end(), frame_overlay.begin(), frame_overlay.end());
+        visible.insert(visible.end(), frame_character.begin(), frame_character.end());
+        collect_cpu_texture_feedback_from(visible);
+    }
+
+    void runtime::prepare_texture_demand() {
+        cpu_texture_feedback_ready = false;
+        if (!texture_streaming.enabled || !frustum_culling || bound_scene == nullptr || frame_leaves_buffer.empty())
+            return;
+        // A dirty scene/BVH or no previous cull cache cannot provide a stable pre-pace snapshot.
+        if (bvh_dirty || !cull_bvh.has_value())
+            return;
+        auto const extent = presentation_extent();
+        if (extent.width == 0 || extent.height == 0)
+            return;
+        float const aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
+        camera_ubo const preview = make_orbit_camera_ubo(camera.yaw, camera.pitch, camera.distance, camera.target,
+                                                         scene_extent_radius, aspect);
+        utility::vessel::vector<primitive const*> visible;
+        visible.reserve(frame_leaves_buffer.size());
+        for (primitive const* const leaf : frame_leaves_buffer)
+            if (!leaf->has_bounds)
+                visible.push_back(leaf);
+        deren::utility::frustum const view_frustum = deren::utility::make_frustum(preview.view_proj_unjittered);
+        for (auto const* node : cull_bvh->frustum_cull(view_frustum))
+            visible.push_back(node->extra_data);
+        collect_cpu_texture_feedback_from(visible);
+        cpu_texture_feedback_ready = true;
     }
 
     rhi::error runtime::update_texture_residency(bool all) {

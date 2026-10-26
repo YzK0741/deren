@@ -2687,6 +2687,11 @@ int main(int argc, char** argv) {
             runtime.camera.yaw = sweep_base_yaw + glm::radians(capture.sweep_yaw_deg_per_frame) * static_cast<float>(captured_frames);
         }
 
+        // Compute the next frame's texture demand while the GPU is still executing the previous
+        // frame. The draw-list cull still runs after acquire; this slice only overlaps the demand
+        // calculation with the GPU, which is the prerequisite for precaching before the frame.
+        runtime.prepare_texture_demand();
+
         // Phase 2: pace + acquire the next frame slot. After pace_and_acquire() returns
         // proceed, this slot's previous submission has completed, so the per-frame host writes
         // below (scene node locals -> culling, skin matrices, morph weights) cannot race an

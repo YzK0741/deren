@@ -826,7 +826,9 @@ namespace deren::engine {
                     return frame_status::begin_recording_failed;
                 this->texture_streaming.restore_pending = false;
             } else {
-                this->collect_cpu_texture_feedback();
+                if (!this->cpu_texture_feedback_ready)
+                    this->collect_cpu_texture_feedback();
+                this->cpu_texture_feedback_ready = false;
                 if (auto result = this->update_texture_residency(false); result != rhi::error::ok)
                     return frame_status::begin_recording_failed;
             }
