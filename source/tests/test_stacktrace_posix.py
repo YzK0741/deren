@@ -45,7 +45,7 @@ class PosixStacktraceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / "trace.log"
             log.write_text(run("--capture").report)
-            decoder = Path(__file__).resolve().parents[2] / "scripts" / "symbolize_stacktrace.py"
+            decoder = Path(__file__).resolve().parents[2] / "scripts" / "diagnostics" / "symbolize_stacktrace.py"
             result = subprocess.run([sys.executable, str(decoder), str(log), "--symbolizer", SYMBOLIZER],
                                     capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)

@@ -66,8 +66,10 @@ int main(int argc, char** argv) {
     char output[4096];
     std::size_t written = 0;
     bool const limited = std::strcmp(argv[1], "--limit") == 0;
+    // The standalone gate runs on shared CI runners; a cold llvm-symbolizer has been measured
+    // above the old 300 ms budget there. The timeout path itself is covered separately.
     auto status = native::symbolize_group(argv[2], frame.module, &frame.offset, 1, limited,
-                                          output, limited ? 128 : sizeof(output), written, 300);
+                                          output, limited ? 128 : sizeof(output), written, 1500);
     std::printf("status=%u bytes=%zu\n", static_cast<unsigned>(status), written);
     std::fwrite(output, 1, written, stdout);
     return 0;
