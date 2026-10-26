@@ -2687,9 +2687,10 @@ int main(int argc, char** argv) {
             runtime.camera.yaw = sweep_base_yaw + glm::radians(capture.sweep_yaw_deg_per_frame) * static_cast<float>(captured_frames);
         }
 
-        // Compute the next frame's texture demand while the GPU is still executing the previous
-        // frame. The draw-list cull still runs after acquire; this slice only overlaps the demand
-        // calculation with the GPU, which is the prerequisite for precaching before the frame.
+        // Compute the next frame's selection/demand while the GPU is still executing the previous
+        // frame. Static scenes use the prepared draw-list path; animated/deforming scenes keep the
+        // post-acquire cull until the animation prep ring lands.
+        runtime.set_cpu_frame_prep(!animation.is_playing());
         runtime.prepare_texture_demand();
 
         // Phase 2: pace + acquire the next frame slot. After pace_and_acquire() returns

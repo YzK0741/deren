@@ -89,6 +89,8 @@ namespace deren::engine {
 
     void runtime::prepare_texture_demand() {
         cpu_texture_feedback_ready = false;
+        prepared_selection_ready = false;
+        prepared_visible.clear();
         if (!texture_streaming.enabled || !frustum_culling || bound_scene == nullptr || frame_leaves_buffer.empty())
             return;
         // A dirty scene/BVH or no previous cull cache cannot provide a stable pre-pace snapshot.
@@ -110,6 +112,9 @@ namespace deren::engine {
             visible.push_back(node->extra_data);
         collect_cpu_texture_feedback_from(visible);
         cpu_texture_feedback_ready = true;
+        prepared_visible = std::move(visible);
+        prepared_selection_aspect = aspect;
+        prepared_selection_ready = cpu_frame_prep_enabled;
     }
 
     rhi::error runtime::update_texture_residency(bool all) {

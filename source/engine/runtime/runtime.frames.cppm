@@ -659,7 +659,20 @@ namespace deren::engine {
                 }
             }
         };
-        if (this->frustum_culling) {
+        bool used_prepared_selection = false;
+        if (this->cpu_frame_prep_enabled && this->prepared_selection_ready && !this->bvh_dirty &&
+            this->frame_leaves_buffer.size() <= 1500u &&
+            std::abs(this->current_aspect - this->prepared_selection_aspect) < 1.0e-6f) {
+            // Static scene: the visible list was culled before pace_and_acquire() from the cached
+            // BVH and a CPU camera preview. Keep the exact-path shadow casters for small scenes.
+            this->cull_visible = std::move(this->prepared_visible);
+            this->prepared_visible.clear();
+            this->prepared_selection_ready = false;
+            visible_leaves = this->cull_visible;
+            fill_shadow_casters(this->frame_leaves_buffer);
+            used_prepared_selection = true;
+        }
+        if (!used_prepared_selection && this->frustum_culling) {
             // camera identity: the orbit state that shapes the frustum
             bool const scene_changed_this_frame = this->bvh_dirty;
             deren::utility::vessel::array<float, 7> const key = {
@@ -769,7 +782,7 @@ namespace deren::engine {
                 }
             }
             visible_leaves = this->cull_visible;
-        } else {
+        } else if (!used_prepared_selection) {
             // culling disabled: the shadow pass draws every scene leaf (see shadow_casters)
             fill_shadow_casters(this->frame_leaves_buffer);
         }
