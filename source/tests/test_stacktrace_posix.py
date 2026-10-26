@@ -55,11 +55,13 @@ class PosixStacktraceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             tool = Path(directory) / "tool with spaces"
             marker = Path(directory) / "escaped"
-            tool.write_text(f"#!/bin/sh\n(sleep 1; echo escaped > '{marker}') &\nsleep 10\n")
+            # The descendant writes well after the probe's timeout, so a slow CI runner cannot
+            # race the assertion by delaying the kill until after the write.
+            tool.write_text(f"#!/bin/sh\n(sleep 3; echo escaped > '{marker}') &\nsleep 10\n")
             tool.chmod(0o700)
             self.assertIn("status=2", run("--timeout", str(tool)).stdout)
             import time
-            time.sleep(1.2)
+            time.sleep(4.2)
             self.assertFalse(marker.exists())
             tool.write_text("#!/bin/sh\nyes x\n")
             self.assertIn("status=3", run("--limit", str(tool)).stdout)
