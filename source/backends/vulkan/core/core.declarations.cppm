@@ -311,6 +311,7 @@ namespace deren::vulkan {
         inline constexpr std::string_view pipeline = "deren_pipeline_vulkan";
         inline constexpr std::string_view device_address = "deren_device_address_vulkan";
         inline constexpr std::string_view host_image_copy = "deren_host_image_copy_vulkan";
+        inline constexpr std::string_view non_blocking_write = "deren_non_blocking_write_vulkan";
         inline constexpr std::string_view device_capabilities = "deren_device_capabilities_vulkan";
         inline constexpr std::string_view shader_group_access = "deren_shader_group_access_vulkan";
         inline constexpr std::string_view descriptor_heap = "deren_descriptor_heap_vulkan";
@@ -1175,6 +1176,19 @@ namespace deren::vulkan {
                                                                           deren::promise::rhi::image_copy_region const& region) noexcept override;
         };
 
+        /// tier-2 `non_blocking_write`: a CPU-side write into a backend-owned image through
+        /// `vkCopyMemoryToImageEXT`, with no command buffer and no queue submission.
+        struct frame_non_blocking_write final : deren::promise::rhi::non_blocking_write {
+            frame_non_blocking_write() noexcept
+                : deren::promise::rhi::non_blocking_write(concrete::non_blocking_write) {
+            }
+            core* owner = nullptr;
+
+            [[nodiscard]] deren::promise::rhi::error write_image(deren::promise::rhi::image& destination,
+                                                                 std::span<std::byte const> source,
+                                                                 deren::promise::rhi::image_copy_region const& region) noexcept override;
+        };
+
         /// tier-2 `device_capabilities`: WHAT THIS DEVICE CAN DO, answered from the values the constructor
         /// already QUERIED to decide what to enable (`ray_query_available`, `mesh_shader_available`,
         /// `device_properties`, `acceleration_structure_properties`, `ray_tracing_pipeline_properties`,
@@ -1496,6 +1510,7 @@ namespace deren::vulkan {
         /// the tier-2 host-copy object `query_extension(host_image_copy)` answers with (③-D/E step 2) -
         /// the first thing that serves that ability, which the contract had announced from the start
         frame_host_copy host_copy_view;
+        frame_non_blocking_write non_blocking_write_view;
         /// the tier-2 `device_capabilities` object `query_extension(device_capabilities)` answers with, and it
         /// is announced UNCONDITIONALLY because every method of it is answerable once the device exists
         frame_device_capabilities capabilities_view;
@@ -1618,6 +1633,7 @@ namespace deren::vulkan {
         /// process this member is therefore true: it exists so the paths that use the extension can state
         /// their precondition, not to choose between implementations.
         bool host_image_copy_available = false;
+        bool host_image_copy_upload_available = false;
         /// one line for the tier-1 acceleration-structure refusal (see that definition): a caller that reads a
         /// `nullptr` has to be able to tell "not served yet" from "this device cannot"
         bool acceleration_structure_refusal_logged = false;

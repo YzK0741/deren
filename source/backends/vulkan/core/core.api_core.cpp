@@ -834,6 +834,7 @@ namespace deren::vulkan {
                // promise about service, not a separate device fact.
                (this->heap_view.ready() ? rhi::to_bits(rhi::extension_kind::descriptor_space) : 0u) |
                (this->host_image_copy_available ? rhi::to_bits(rhi::extension_kind::host_image_copy) : 0u) |
+               (this->host_image_copy_upload_available ? rhi::to_bits(rhi::extension_kind::non_blocking_write) : 0u) |
                // AND THE DEVICE'S OWN FACTS, SERVABLE THE MOMENT THE DEVICE EXISTS (a device with no mesh shader
                // ANSWERS false - that is an answer, not an unserved ability), which is why this bit carries no
                // device condition while the two above it do.
@@ -1127,6 +1128,9 @@ namespace deren::vulkan {
         }
         if (kind == rhi::extension_kind::host_image_copy && this->host_image_copy_available) {
             return &this->host_copy_view;
+        }
+        if (kind == rhi::extension_kind::non_blocking_write && this->host_image_copy_upload_available) {
+            return &this->non_blocking_write_view;
         }
         if (kind == rhi::extension_kind::device_capabilities) {
             // UNCONDITIONAL, and that is the difference from host_image_copy just above: every method of this
@@ -4831,6 +4835,55 @@ namespace deren::vulkan {
             return rhi::error::invalid_argument;
         }
         return host_copy_image_out(*self, owned->native_handle, destination, region);
+    }
+
+    rhi::error core::frame_non_blocking_write::write_image(rhi::image& destination,
+                                                           std::span<std::byte const> const source,
+                                                           rhi::image_copy_region const& region) noexcept {
+        core* const self = this->owner;
+        if (self == nullptr || !self->host_image_copy_upload_available)
+            return rhi::error::unsupported;
+        if (static_cast<void const*>(&destination) == static_cast<void const*>(&self->frame_image_view))
+            return rhi::error::invalid_argument;
+        auto* const owned = static_cast<owned_image*>(&destination);
+        if (owned->native_handle == VK_NULL_HANDLE || !rhi::has_flag(owned->declared_flags, rhi::image_flag::host_transfer))
+            return rhi::error::unsupported;
+        std::uint32_t const bpp = rhi::bytes_per_pixel(owned->declared_format);
+        if (bpp == 0u || region.extent.width == 0u || region.extent.height == 0u ||
+            region.extent.depth == 0u || region.array_layer_count == 0u)
+            return rhi::error::invalid_argument;
+        if (region.mip_level >= owned->mip_levels || region.base_array_layer >= owned->array_layers ||
+            region.array_layer_count > owned->array_layers - region.base_array_layer ||
+            region.offset_x > owned->width || region.offset_y > owned->height ||
+            region.offset_x + region.extent.width > owned->width ||
+            region.offset_y + region.extent.height > owned->height)
+            return rhi::error::invalid_argument;
+        std::uint64_t const expected = static_cast<std::uint64_t>(region.extent.width) * region.extent.height *
+                                       region.extent.depth * region.array_layer_count * bpp;
+        if (source.size() != expected)
+            return rhi::error::invalid_argument;
+        VkMemoryToImageCopyEXT copy = {};
+        copy.sType = VK_STRUCTURE_TYPE_MEMORY_TO_IMAGE_COPY_EXT;
+        copy.pNext = nullptr;
+        copy.pHostPointer = source.data();
+        copy.memoryRowLength = 0;
+        copy.memoryImageHeight = 0;
+        copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        copy.imageSubresource.mipLevel = static_cast<std::int32_t>(region.mip_level);
+        copy.imageSubresource.baseArrayLayer = region.base_array_layer;
+        copy.imageSubresource.layerCount = region.array_layer_count;
+        copy.imageOffset = {static_cast<std::int32_t>(region.offset_x), static_cast<std::int32_t>(region.offset_y),
+                            static_cast<std::int32_t>(region.offset_z)};
+        copy.imageExtent = {region.extent.width, region.extent.height, region.extent.depth};
+        VkCopyMemoryToImageInfoEXT info = {};
+        info.sType = VK_STRUCTURE_TYPE_COPY_MEMORY_TO_IMAGE_INFO_EXT;
+        info.pNext = nullptr;
+        info.flags = 0;
+        info.dstImage = owned->native_handle;
+        info.dstImageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        info.regionCount = 1;
+        info.pRegions = &copy;
+        return generic_error(self->copy_memory_to_image(self->logical_device, &info));
     }
 
     // ---- image::get_content (abi 25): THE CONTENT, NOT A HANDLE --------------------------------------
