@@ -184,6 +184,7 @@ def write_toml(path: str, cfg: dict) -> None:
         f"taa_blend_static = {cfg['taa_blend_static']}",
         f"taa_blend_min = {cfg['taa_blend_min']}",
         f"visibility_buffer = {str(cfg['visibility_buffer']).lower()}",
+        f"visibility_texture_streaming = {str(cfg.get('visibility_texture_streaming', False)).lower()}",
         f"subtilis = {str(cfg['subtilis']).lower()}",
         f"fxaa = {str(cfg['fxaa']).lower()}",
         f"render_scale = {cfg['render_scale']}",

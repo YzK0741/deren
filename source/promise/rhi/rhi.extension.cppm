@@ -191,6 +191,7 @@ export namespace deren::promise::rhi {
         /// backend can serve a texture group - the object the position is about - the same rule the other
         /// bits live by.
         descriptor_space = 1u << 12,
+        frame_checkpoint = 1u << 14,   ///< synchronous frame prefix completion and continuation
         command_submission = 1u << 13, ///< independent graphics submission completion tokens
     };
 
@@ -218,7 +219,7 @@ export namespace deren::promise::rhi {
         // set is no longer "every enumerator" - the note on that enumerator says so.
         return to_bits(extension_kind::device_address) | to_bits(extension_kind::descriptor_heap) |
                to_bits(extension_kind::host_image_copy) |
-               to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access) | to_bits(extension_kind::gpu_sorting) | to_bits(extension_kind::async_presentation) | to_bits(extension_kind::scoped_synchronization) | to_bits(extension_kind::frame_resources) | to_bits(extension_kind::descriptor_space) | to_bits(extension_kind::command_submission);
+               to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access) | to_bits(extension_kind::gpu_sorting) | to_bits(extension_kind::async_presentation) | to_bits(extension_kind::scoped_synchronization) | to_bits(extension_kind::frame_resources) | to_bits(extension_kind::descriptor_space) | to_bits(extension_kind::command_submission) | to_bits(extension_kind::frame_checkpoint);
     }
 
     /// The active abilities, as a LIST: what a gate walks to check one bit at a time.
@@ -226,7 +227,7 @@ export namespace deren::promise::rhi {
     /// `all_abilities()` is the set as a bitmask; this is the enumeration the consistency gates and
     /// the tests iterate (`abilities()` set => `query_extension()` non-null, and the reverse), so the
     /// list is spelled in ONE place instead of per caller.
-    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> deren::utility::vessel::array<extension_kind, 11> {
+    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> deren::utility::vessel::array<extension_kind, 12> {
         return {
             extension_kind::device_address,
             extension_kind::descriptor_heap,
@@ -239,11 +240,12 @@ export namespace deren::promise::rhi {
             extension_kind::frame_resources,
             extension_kind::descriptor_space,
             extension_kind::command_submission,
+            extension_kind::frame_checkpoint,
         };
     }
 
     static_assert(to_bits(extension_kind::device_address) == 0x1u, "the ability bits are ABI: they do not move");
-    static_assert(all_abilities() == 0x3FD3u, "eleven active abilities; retired bits are never reused");
+    static_assert(all_abilities() == 0x7FD3u, "twelve active abilities; retired bits are never reused");
 
     /// The common root of the tier-2 abilities.
     ///
@@ -346,6 +348,21 @@ export namespace deren::promise::rhi {
         std::uint64_t device_id = 0;
         std::uint64_t sequence = 0;
         friend constexpr bool operator==(submission_token const&, submission_token const&) = default;
+    };
+
+    /// Complete a recording prefix of the acquired frame without presenting it.
+    struct frame_checkpoint : extension {
+        static constexpr extension_kind extension_id = extension_kind::frame_checkpoint;
+        explicit frame_checkpoint(std::string_view name) noexcept
+            : extension(name) {
+        }
+        extension_kind kind() const noexcept final {
+            return extension_id;
+        }
+        /// Submit/wait the active prefix and reopen this frame's recorder, outside rendering.
+        /// Success completes prior graphics work; continuation must rebind logical state.
+        /// No present, acquire epoch or ring advancement. Host publication is externally serialized.
+        [[nodiscard]] virtual error checkpoint_and_wait() = 0;
     };
 
     /// Independent graphics work only; does not submit/present an acquired frame.

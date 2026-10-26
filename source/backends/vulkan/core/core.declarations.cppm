@@ -1408,6 +1408,14 @@ namespace deren::vulkan {
             [[nodiscard]] deren::promise::rhi::error poll(deren::promise::rhi::submission_token) noexcept override;
             [[nodiscard]] deren::promise::rhi::error wait(deren::promise::rhi::submission_token, std::uint64_t) noexcept override;
         } completion_view;
+        struct frame_checkpoint_view final : deren::promise::rhi::frame_checkpoint {
+            frame_checkpoint_view() noexcept
+                : deren::promise::rhi::frame_checkpoint("deren.vulkan.frame_checkpoint") {
+            }
+            core* owner = nullptr;
+            [[nodiscard]] deren::promise::rhi::error checkpoint_and_wait() override;
+        } checkpoint_view;
+        bool frame_acquire_consumed = false;
         std::uint64_t const completion_device_id = deren::utility::allocate_identity();
         VkSemaphore completion_timeline = VK_NULL_HANDLE;
         std::uint64_t completion_sequence = 0;

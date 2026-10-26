@@ -3026,6 +3026,7 @@ namespace deren::engine {
                                 input_count, selected_count, input_triangles, selected_triangles, fallback_count);
         }
         recorded = count;
+        visibility_recorded_item_count = count;
         return count > 0u;
     }
 

@@ -34,9 +34,9 @@ template <class T>
 concept reserved_swapchain_factory = requires { &T::create_swapchain; };
 static_assert(!reserved_query_factory<rhi::resource_factory>);
 static_assert(!reserved_swapchain_factory<rhi::frame_context>);
-static_assert(rhi::abi_version == 57u);
+static_assert(rhi::abi_version == 58u);
 static_assert(!rhi::has_ability(rhi::all_abilities(), rhi::extension_kind::mesh_shader));
-static_assert(rhi::all_extension_kinds().size() == 11);
+static_assert(rhi::all_extension_kinds().size() == 12);
 namespace {
     static_assert(std::is_trivially_copyable_v<rhi::submission_token>);
     static_assert(sizeof(rhi::submission_token) == 2 * sizeof(std::uint64_t));

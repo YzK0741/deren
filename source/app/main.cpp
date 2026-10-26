@@ -632,6 +632,7 @@ int main(int argc, char** argv) {
     // about - a config that asks for the new path while its pipelines failed logs the refusal once and the frame
     // keeps the geometry lane.
     runtime.set_visibility_buffer(settings.render.visibility_buffer);
+    runtime.set_visibility_texture_streaming(settings.render.visibility_texture_streaming);
     runtime.set_subtilis(settings.render.subtilis);
     runtime.set_subtilis_error_px(settings.render.subtilis_error_px);
     runtime.set_subtilis_hysteresis(settings.render.subtilis_hysteresis);
@@ -2655,6 +2656,14 @@ int main(int argc, char** argv) {
     // demanding a pinned pose it would have to be told twice.
     float const sweep_base_yaw = runtime.camera.yaw;
     int32_t captured_frames = 0; // presented frames so far (scripted capture; see --capture-frames)
+    // Opt-in benchmark trace: retain timestamps in memory and write only after rendering ends.
+    char const* const frame_trace_path = std::getenv("DEREN_BENCH_FRAME_TRACE");
+    deren::utility::vessel::vector<std::pair<double, double>> frame_trace;
+    auto trace_previous = std::chrono::steady_clock::now();
+    auto const trace_origin = trace_previous;
+    double const trace_unix_ms = std::chrono::duration<double, std::milli>(std::chrono::system_clock::now().time_since_epoch()).count();
+    if (frame_trace_path)
+        frame_trace.reserve(4096);
     while (true) {
         // Phase 1: poll window events (ESC / native close -> closed, minimized -> skipped)
         deren::engine::frame_status const polled = runtime.poll_events();
@@ -2786,6 +2795,12 @@ int main(int argc, char** argv) {
         }
 
         // A frame was presented: publish its stamp for cheap readers (frame_clock)
+        if (frame_trace_path) {
+            auto const boundary = std::chrono::steady_clock::now();
+            frame_trace.emplace_back(std::chrono::duration<double, std::milli>(boundary - trace_origin).count(),
+                                     std::chrono::duration<double, std::milli>(boundary - trace_previous).count());
+            trace_previous = boundary;
+        }
         splash.close();
         frame_clock.stamp();
 
@@ -2945,6 +2960,14 @@ int main(int argc, char** argv) {
     log_camera_pose("exit");
     // 15. Wait for the GPU to finish; primitives and pipelines are released by the runtime destructor
     runtime->wait_idle();
+    if (frame_trace_path) {
+        std::ofstream trace(frame_trace_path, std::ios::binary | std::ios::out);
+        trace << "frame,unix_ms,interval_ms\n";
+        for (std::size_t i = 0; i < frame_trace.size(); ++i)
+            trace << deren::utility::vessel::format("{},{:.6f},{:.6f}\n", i + 1, trace_unix_ms + frame_trace[i].first, frame_trace[i].second);
+        if (!trace)
+            deren::utility::error("benchmark frame trace could not be written");
+    }
     deren::utility::log("render loop finished");
     return 0;
 }

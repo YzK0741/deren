@@ -1,6 +1,6 @@
 # The deren RHI API standard
 
-Status: **draft v1 for RHI ABI 57 (2026-10-26)**. This document is normative for every backend DLL that
+Status: **draft v1 for RHI ABI 58 (2026-10-26)**. This document is normative for every backend DLL that
 implements `deren::promise::rhi` and for every engine/application consumer of the contract. When this
 document and the contract source disagree, the source is authoritative and this document is the defect;
 updates to the contract require an update here in the same change.
@@ -17,7 +17,7 @@ RFC 2119 sense.
 - Every interface method listed in sections 7-8 is a virtual function that a backend implements. Default
   implementations return `error::unsupported` (or perform the documented trivial operation); a backend MUST NOT
   claim an ability it does not implement.
-- The current ABI is `rhi::abi_version == 57`. A backend is loaded by the application as a DLL through
+- The current ABI is `rhi::abi_version == 58`. A backend is loaded by the application as a DLL through
   `deren_make_api_core(abi_version, create_info, error_info)`; the first argument is the caller's ABI and a
   mismatch is refused by name.
 - The contract carries no Vulkan/API-specific types except through optional escape extensions. Backend modules
@@ -1001,8 +1001,8 @@ An ability object is a labelled subview the CORE owns: it is constructed with a 
 returned by `query_extension` is borrowed: it is valid for the core's lifetime and dies with the core, so
 holding one past `api_core::release()` is a contract violation of the same kind as holding any other handle.
 
-Bit values are ABI and never move: `to_bits(device_address) == 0x1`, `all_abilities() == 0x3FD3`, and
-`all_extension_kinds()` enumerates eleven active kinds. `mesh_shader` (1<<2), `ray_tracing` (1<<3) and `vulkan_escape` (1<<5)
+Bit values are ABI and never move: `to_bits(device_address) == 0x1`, `all_abilities() == 0x7FD3`, and
+`all_extension_kinds()` enumerates twelve active kinds. `mesh_shader` (1<<2), `ray_tracing` (1<<3) and `vulkan_escape` (1<<5)
 are RETIRED values with no interface behind them; they MUST NOT be reused, renumbered or announced by any
 backend, and querying them answers null.
 
@@ -1553,7 +1553,7 @@ retired and MUST NOT be announced or reused; querying it returns null. `frame_sw
 `device_capabilities::mesh_shader()` and recorder mesh draw verbs remain supported under their own contracts.
 
 The resource_factory/frame_context vtables changed at ABI 54; pre-54 backends MUST be rejected before use. The active
-extension enumeration now contains eleven entries. A future query or multi-window API requires a new design,
+extension enumeration now contains twelve entries. A future query or multi-window API requires a new design,
 not resurrection of these incomplete placeholders. Apply section 5's actual layout/vtable rules to that design.
 
 ### 9.4 Second-backend conformance checklist
@@ -1652,3 +1652,24 @@ reading native handles. Its recorded and pending uses obey the same unload restr
 
 The uint8_t shared source remains retained even after successful unload. No background residency manager,
 automatic eviction, source mutation tracking, GPU readback or whole-device wait_idle is added.
+
+## 11. Frame checkpoint (ABI 58)
+
+`frame_checkpoint` is an optional extension (bit14). Its synchronous `checkpoint_and_wait()` operates
+only on the current recording frame outside rendering. It flushes/closes the prefix, submits it to
+graphics, waits for prefix completion, releases prefix recording leases and reopens the same borrowed
+recorder. Pipeline, push and binding state must be rebound by subsequent passes. Acquired-image
+identity, timing-query data, frame-ring position and final-frame completion remain unchanged.
+
+A successful return also completes previously submitted graphics work. Publication of shared scene
+descriptors requires externally serialized recording/submission and no consumers on other queues.
+An acquired window semaphore is consumed once by the first checkpoint (or final submit if absent);
+only the final submission signals frame-slot completion and presentation. A checkpoint does not present.
+
+Outside an active recording or inside rendering, return not_ready before ending/submitting. Recording
+errors propagate. Fence allocation failure preserves the recording. Submit/reset/reopen failures return
+errors and must not be treated as a usable continuation. A final prefix wait failure uses fast_panic:
+the backend cannot reset/free the prefix with uncertain GPU completion. This increment does not add
+a recoverable frame-abort protocol. Device teardown/recreation remains the recovery for failed frames.
+Timestamp intervals spanning a checkpoint include GPU idle during the CPU feedback/upload phase;
+they are elapsed frame intervals, not isolated shader execution times.

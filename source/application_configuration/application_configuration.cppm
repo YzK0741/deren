@@ -282,6 +282,7 @@ namespace deren::app_config {
          * ONCE. A partially captured frame would be a G-buffer with two authors, which is worse than either path.
          */
         bool visibility_buffer = false;
+        bool visibility_texture_streaming = false;
         bool subtilis = false; // CPU-selected LOD0 runs; requires an admitted visibility frame
         float subtilis_error_px = 1.f;
         bool subtilis_hysteresis = false;

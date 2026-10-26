@@ -39,6 +39,7 @@ taa = true
 taa_blend_static = 0.8
 taa_blend_min = 0.2
 visibility_buffer = true
+visibility_texture_streaming = true
 software_raster = true
 software_raster_threshold_px = 2.0
 subtilis = true

@@ -214,6 +214,9 @@ namespace deren::chores {
             deren::utility::vessel::vector<uint8_t> visibility_resolve_code;
             load_shader(shaders_dir, "visibility_resolve.comp.spv", visibility_resolve_code);
             runtime.register_shader("visibility_resolve.comp.spv", visibility_resolve_code);
+            deren::utility::vessel::vector<uint8_t> visibility_feedback_code;
+            load_shader(shaders_dir, "visibility_feedback.comp.spv", visibility_feedback_code);
+            runtime.register_shader("visibility_feedback.comp.spv", visibility_feedback_code);
         }
 
         // ---- THE SOFTWARE RASTER'S MODULES (M4 Task 2, docs/superpowers/specs/2026-10-22-software-raster-

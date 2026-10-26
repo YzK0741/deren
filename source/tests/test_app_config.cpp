@@ -59,7 +59,8 @@ namespace {
         CHECK(settings.render.subtilis);
         CHECK(settings.render.subtilis_error_px == 2.f && settings.render.subtilis_hysteresis);
         CHECK(settings.render.visibility_buffer); // fixture: the GPU-driven opaque path on (the switch's non-default read-back)
-        CHECK(settings.render.software_raster);   // fixture: the M4 hybrid path on
+        CHECK(settings.render.visibility_texture_streaming);
+        CHECK(settings.render.software_raster); // fixture: the M4 hybrid path on
         CHECK(settings.render.software_raster_threshold_px == 2.f);
         // the frame's static surround (`[render] background_glb`): a STRING key, so unlike the boolean
         // switches above this CHECK cannot pass by accident - an empty compiled default would read back as
@@ -98,6 +99,7 @@ namespace {
         CHECK(!settings.render.subtilis);
         CHECK(settings.render.subtilis_error_px == 1.f && !settings.render.subtilis_hysteresis);
         CHECK(!settings.render.visibility_buffer);
+        CHECK(!settings.render.visibility_texture_streaming);
         CHECK(!settings.render.software_raster);
         CHECK(settings.render.software_raster_threshold_px == 1.f);
         // default: NO background model - the frame is the one import it always was (see the key's note)

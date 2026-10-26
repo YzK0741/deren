@@ -313,6 +313,7 @@ namespace deren::vulkan {
         this->address_view.owner = this;
         this->sorting_view.owner = this;
         this->completion_view.owner = this;
+        this->checkpoint_view.owner = this;
         this->async_presentation_view.owner = this;
         this->host_copy_view.owner = this;
         // THE DEVICE-CAPABILITY VIEW READS THIS CORE'S CACHED FACTS, so it needs the owner exactly as the views

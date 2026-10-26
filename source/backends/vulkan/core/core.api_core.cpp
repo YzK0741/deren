@@ -826,7 +826,7 @@ namespace deren::vulkan {
         // construction). Until this batch nobody served the ability and the bit was therefore not set -
         // and the engine's heap probes called the device entry point off `core` instead; that is the
         // consumer this bit was waiting for.
-        return rhi::to_bits(rhi::extension_kind::command_submission) | rhi::to_bits(rhi::extension_kind::frame_resources) | rhi::to_bits(rhi::extension_kind::scoped_synchronization) | (this->create_options.native_window != nullptr ? rhi::to_bits(rhi::extension_kind::async_presentation) : 0u) | (this->gpu_sorting_available ? rhi::to_bits(rhi::extension_kind::gpu_sorting) : 0u) | rhi::to_bits(rhi::extension_kind::device_address) |
+        return rhi::to_bits(rhi::extension_kind::frame_checkpoint) | rhi::to_bits(rhi::extension_kind::command_submission) | rhi::to_bits(rhi::extension_kind::frame_resources) | rhi::to_bits(rhi::extension_kind::scoped_synchronization) | (this->create_options.native_window != nullptr ? rhi::to_bits(rhi::extension_kind::async_presentation) : 0u) | (this->gpu_sorting_available ? rhi::to_bits(rhi::extension_kind::gpu_sorting) : 0u) | rhi::to_bits(rhi::extension_kind::device_address) |
                (this->heap_view.ready() ? rhi::to_bits(rhi::extension_kind::descriptor_heap) : 0u) |
                // THE DESCRIPTOR SPACE IS SERVABLE EXACTLY WHEN THE HEAP IS: it is the same backend state
                // (the heap's slot pool + the texture-group table), just addressed by positions instead of
@@ -1094,6 +1094,9 @@ namespace deren::vulkan {
     }
 
     rhi::extension* core::query_extension(rhi::extension_kind const kind) noexcept {
+        if (kind == rhi::extension_kind::frame_checkpoint) {
+            return &checkpoint_view;
+        }
         if (kind == rhi::extension_kind::command_submission) {
             return &completion_view;
         }
@@ -4891,6 +4894,7 @@ namespace deren::vulkan {
     }
 
     VkResult core::acquire_next_image(uint32_t& image_index) {
+        frame_acquire_consumed = false;
         if (this->create_options.native_window == nullptr) {
             image_index = static_cast<uint32_t>(current_frame);
             acquired_image_index = image_index;

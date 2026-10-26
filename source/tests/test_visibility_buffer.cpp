@@ -12,6 +12,7 @@
 #include <vector>
 
 import deren.engine.visibility;
+import deren.engine.texture_residency;
 import deren.engine.subtilis;
 
 namespace {
@@ -513,6 +514,30 @@ namespace {
     }
 } // namespace
 int main() {
+    {
+        namespace tr = deren::engine::texture_residency;
+        tr::feedback bits;
+        tr::control mode;
+        mode.set(true);
+        mode.set(false);
+        CHECK(!mode.enabled && mode.restore_pending); // disabling schedules full publication
+        mode.set(false);
+        CHECK(mode.restore_pending);                            // repeated disable cannot drop restoration
+        CHECK(tr::pin_material_texture(0, false, false, 0, 1)); // overlay family may be zero
+        CHECK(tr::pin_material_texture(0, true, false, 0, 0));
+        CHECK(!tr::pin_material_texture(1, true, false, 0, 0));
+        CHECK(!tr::pin_material_texture(0, false, false, 0, 0));
+        std::array<deren::engine::visibility::draw_item, 1> items{};
+        items[0].material_index = 2;
+        CHECK(tr::mark(bits, deren::engine::visibility::pack_id(0, 0, 0)->value, items));
+        tr::material_textures edges(3);
+        edges[2] = {1, 2, 1};
+        std::array<std::uint8_t, 4> pinned{1, 0, 0, 0};
+        auto demand = tr::demand(bits, edges, pinned);
+        CHECK(demand && (*demand)[0] && (*demand)[1] && (*demand)[2] && !(*demand)[3]);
+        CHECK(!tr::mark(bits, deren::engine::visibility::pack_id(1, 0, 0)->value, items));
+        CHECK(!tr::demand(bits, edges, pinned));
+    }
     test_hzb_run_publication();
     test_id_layout();
     test_id_round_trip();

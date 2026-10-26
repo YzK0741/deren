@@ -118,6 +118,35 @@ depth. The compute resolve does not re-run the cut-out test; a pixel with a vali
 
 ## See also
 
+## Same-frame texture residency (experimental)
+
+`[render] visibility_texture_streaming = true` opts in alongside `visibility_buffer = true`. Geometry
+remains resident. Scene registration keeps whole decoded images in shared CPU storage and initially
+publishes ordinary placeholders for unneeded textures. A full-resolution compute scan identifies this
+frame's visible materials, including the shared hardware/software winner rule and HZB recovery output.
+Feedback is512 words plus status (2052 bytes); the coherent mapped buffer is published for host reads
+and read only after a graphics frame checkpoint completes.
+
+The graph's compiled schedule is partitioned before resolve, preserving compiled resource barriers
+and ownership. After the prefix completes, required textures load synchronously, unneeded descriptor
+slots return to placeholders and unload is attempted; a remaining command/group lease defers physical
+reclamation. The suffix shades the same frame with the same camera/items. Newly visible required
+textures must load before shading; upload refusal fails the frame explicitly.
+
+MASK alpha-source, toon/overlay/transparent material textures and renderer defaults stay pinned.
+Shared textures inherit pinning. An ineligible opaque lane or active ray-traced shadow uses full
+residency. Disabling streaming requests one safe full-residency restore before ordinary graph drawing.
+Enable at startup before importing materials; already eager images are not retroactively converted.
+Configuration/scene changes follow the existing serialized frame boundary.
+
+This is whole-image GPU residency, not mip/page streaming. CPU decoded sources remain allocated.
+Logged payload counts distinguish total/pinned/physically ready bytes and deferred unloads; they do
+not measure VMA block release or process VRAM. Frame checkpoint and synchronous upload can cause
+substantial stalls. The option is default-off and not an FPS optimization. See the approved
+[design](superpowers/specs/2026-10-26-vbuffer-residency-design.md) and execution record beside it.
+
+## See also
+
 - `docs/mesh_shaders.md` - the mesh-shader path the raster lane runs on.
 - `docs/render_graph.md` - the frame's lanes and their ordering.
 - `docs/shaders.md` - the shared shader bodies and slot conventions both producers use.

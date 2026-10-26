@@ -105,6 +105,7 @@ export namespace deren::engine::render_graph::execution {
     class prepared_graph {
         friend struct detail::composition_access;
         std::shared_ptr<detail::state> state_;
+        std::size_t first_ = 0, last_ = static_cast<std::size_t>(-1);
 
     public:
         prepared_graph() noexcept = default;
@@ -280,7 +281,8 @@ export namespace deren::engine::render_graph::execution {
             if (state->graph.execution_order.empty()) {
                 return state->extension->record(commands, {}, {});
             }
-            for (auto pass : state->graph.execution_order) {
+            for (std::size_t position = first_; position < state->graph.execution_order.size() && position < last_; ++position) {
+                auto pass = state->graph.execution_order[position];
                 for (auto const& access : state->graph.passes[pass].accesses) {
                     auto identity = std::visit([](auto const& lease) { return identify(lease); }, state->bindings[access.resource]);
                     if (identity != state->graph.resources[access.resource].identity) {
@@ -301,6 +303,22 @@ export namespace deren::engine::render_graph::execution {
         }
 
     public:
+        /// Partition one compiled schedule at a named pass, retaining its compiled barriers and owners.
+        /// Record prefix then suffix in order; intervening submission must preserve resource contents.
+        rhi::error partition_before(std::uint32_t pass, prepared_graph& prefix, prepared_graph& suffix) const noexcept {
+            if (!state_ || &prefix == &suffix || &prefix == this || &suffix == this)
+                return rhi::error::invalid_argument;
+            for (std::size_t i = first_; i < state_->graph.execution_order.size() && i < last_; ++i) {
+                if (state_->graph.execution_order[i] != pass)
+                    continue;
+                prefix = *this;
+                suffix = *this;
+                prefix.last_ = i;
+                suffix.first_ = i;
+                return rhi::error::ok;
+            }
+            return rhi::error::invalid_argument;
+        }
         template <typename F>
             requires std::is_nothrow_invocable_r_v<rhi::error, F const&, record_context const&>
         rhi::error record(rhi::command_buffer& commands, F const& callback) const noexcept {

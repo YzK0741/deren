@@ -261,6 +261,8 @@ namespace deren::vulkan {
             timeline_info.waitSemaphoreValueCount = submit_info.waitSemaphoreCount = 0;
             timeline_info.signalSemaphoreValueCount = submit_info.signalSemaphoreCount = 1;
         }
+        if (frame_acquire_consumed)
+            timeline_info.waitSemaphoreValueCount = submit_info.waitSemaphoreCount = 0;
         auto submission = std::make_unique<pending_submission>();
         submission->owner = this;
         submission->timeline = frame_done_semaphores[slot];

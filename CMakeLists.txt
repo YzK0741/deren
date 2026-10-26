@@ -529,6 +529,7 @@ target_sources(deren_vulkan
         source/backends/vulkan/core/core.api_core.cpp
         source/backends/vulkan/core/core.scoped_synchronization.cpp
         source/backends/vulkan/core/core.frame_resources.cpp
+        source/backends/vulkan/core/core.frame_checkpoint.cpp
         source/backends/vulkan/core/radix_sort.cpp
         source/backends/vulkan/core/core.resource_groups.cpp
         source/backends/vulkan/core/core.texture_groups.cpp
@@ -702,6 +703,7 @@ target_sources(deren_engine
         source/engine/geometry/subtilis_selection.cppm
         source/engine/geometry/subtilis.cppm
         source/engine/visibility/visibility.cppm
+        source/engine/visibility/texture_residency.cppm
         source/engine/visibility/visibility_software.cppm
         source/engine/visibility/hzb.cppm
         source/engine/primitive/primitive.cppm
@@ -735,6 +737,7 @@ target_sources(deren_engine
         source/engine/pass/cluster.cpp
         source/engine/pass/deferred.cpp
         source/engine/runtime/runtime.post_graph.cpp
+        source/engine/runtime/runtime.texture_residency.cpp
         source/engine/pass/post.cpp
         source/engine/pass/fxaa.cpp
         source/engine/pass/upscale.cpp
@@ -1493,6 +1496,8 @@ if(VR_BUILD_TESTS)
     target_link_libraries(test_render_graph_sync render_graph_core)
     target_link_libraries(test_render_graph_execute render_graph_execute probe_backend_static)
     target_link_libraries(test_render_graph_frame render_graph_execute probe_backend_static backend_loader)
+    target_link_libraries(test_render_graph_frame deren_engine)
+
     target_link_libraries(test_render_graph_compose render_graph_compose probe_backend_static)
     target_link_libraries(test_render_graph_lighting render_graph_lighting render_graph_cluster render_graph_shadow render_graph_post deren_engine)
     target_link_libraries(test_render_graph_post render_graph_post deren_engine probe_backend_static)
@@ -2247,6 +2252,7 @@ set(VR_SLANG_SOURCES
     # targets through the shared body. It has no pipeline yet (v0.4c wires the pass), so no frame can move; the entry
     # is here so the build compiles it and the naming-contract test above covers it from the start.
     scene/visibility_resolve.slang:main:compute:visibility_resolve.comp.spv
+    scene/visibility_feedback.slang:main:compute:visibility_feedback.comp.spv
     # software_visibility.slang / software_merge.slang are THE SOFTWARE RASTER'S TWO PASSES (M4 Task 2,
     # docs/superpowers/specs/2026-10-22-software-raster-design.md): the tiled compute stage that writes the private
     # R32_UINT depth/id pair (one 8x8 workgroup per 16x16 CSR tile), and the depth-only fullscreen merge that folds it
@@ -2407,6 +2413,7 @@ if(TARGET test_runtime_dyn)
     add_dependencies(test_runtime_dyn shaders)
 endif()
 add_dependencies(test_resource_group shaders)
+target_compile_definitions(test_render_graph_frame PRIVATE VR_FEEDBACK_SHADER_PATH="${VR_SHADER_OUT_DIR}/visibility_feedback.comp.spv")
 target_compile_definitions(test_resource_group PRIVATE VR_RESOURCE_GROUP_SHADER_PATH="${VR_SHADER_OUT_DIR}/resource_group_probe.comp.spv"
     VR_RESOURCE_GROUP_VERTEX_PATH="${VR_SHADER_OUT_DIR}/resource_group_probe.vert.spv"
     VR_RESOURCE_GROUP_FRAGMENT_PATH="${VR_SHADER_OUT_DIR}/resource_group_probe.frag.spv"

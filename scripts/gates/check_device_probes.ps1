@@ -1,4 +1,4 @@
-# Optional device-probe lane for the ABI 57 lazy-resource and deferred-recording contract.
+# Optional device-probe lane for the ABI 58 lazy-resource and deferred-recording contract.
 #
 # CI is headless and cannot create a Vulkan device, so these probes are deliberately outside headless CTest
 # (see CMakeLists.txt "Device-only ... deliberately outside headless CTest"). Run this script on a machine with
@@ -16,7 +16,7 @@ $probes = @(
     @{ name = "test_resource_group_lazy"; exe = "test_resource_group"; arguments = @("--with-device", "--lazy"); expected = 320 },
     @{ name = "test_texture_group";           expected = 116 },
     @{ name = "test_submission_completion";   expected = 75 },
-    @{ name = "test_render_graph_frame";      expected = 12 },
+    @{ name = "test_render_graph_frame";      expected = 153 },
     @{ name = "test_gaussian_gpu_frame";      expected = 65 },
     @{ name = "test_buffer_transfer";         expected = 65 },
     @{ name = "test_subtilis_transfer";       expected = 56 }

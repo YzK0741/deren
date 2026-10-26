@@ -71,6 +71,7 @@ import deren.engine.subtilis.dag_import;
 import deren.engine.subtilis.upload;
 import deren.engine.subtilis.dag_lod;
 import deren.engine.visibility; // the visibility buffer's packed id and draw-item record
+import deren.engine.texture_residency;
 import deren.engine.pass.scene_constants;
 import deren.engine.pass.scene_deformation;
 import deren.engine.pass.scene_tables;
@@ -492,6 +493,22 @@ namespace deren::engine {
         // native cache nobody needed; the contract views beside it are what every consumer takes.
         deren::utility::vessel::vector<rhi::shared_object<rhi::image_view>> owned_texture_views = {};
         deren::utility::vessel::vector<rhi::shared_object<rhi::image>> owned_textures = {};
+        struct streamed_texture {
+            rhi::shared_object<rhi::lazy_image> image;
+            std::uint64_t bytes = 0;
+            bool pinned = false, published = false;
+        };
+        deren::utility::vessel::vector<streamed_texture> streamed_textures;
+        texture_residency::material_textures material_texture_edges;
+        texture_residency::control texture_streaming;
+        std::uint64_t texture_residency_updates = 0;
+        rhi::unique_object<rhi::pipeline> visibility_feedback_pipeline;
+        rhi::shared_object<rhi::buffer> visibility_feedback_buffer;
+        rhi::unique_object<rhi::buffer> visibility_feedback_readback;
+        [[nodiscard]] rhi::error prepare_texture_feedback();
+        [[nodiscard]] rhi::error record_texture_feedback(rhi::command_buffer&);
+        [[nodiscard]] rhi::error update_texture_residency(bool all);
+
         uint32_t white_texture_index = 0;
         deren::utility::vessel::map<std::tuple<deren::utility::xxh3_digest, rhi::image_format, std::uint32_t, std::uint32_t, std::uint32_t>, uint32_t> texture_slot_cache = {}; // digest (data_block<16>), format, width, height, mip_levels
         // scene-wide IBL (bindings 2-4): prefiltered env / irradiance / BRDF LUT, uploaded once
@@ -2270,6 +2287,7 @@ namespace deren::engine {
         static constexpr uint32_t visibility_item_capacity = deren::engine::visibility::id_item_capacity;
         render_resource::instances::borrowed<rhi::buffer> visibility_items_buffer = {};
         void* visibility_items_mapped = nullptr;
+        std::uint32_t visibility_recorded_item_count = 0;
         render_resource::instances::borrowed<rhi::buffer> software_tiles_buffer = {};
         void* software_tiles_mapped = nullptr;
         render_resource::instances::resource_snapshot software_tiles_resource_view;
@@ -3659,6 +3677,9 @@ namespace deren::engine {
          *       exist), and read per frame, so a later flip takes effect on the next frame
          */
         void set_visibility_buffer(bool enabled) noexcept;
+        void set_visibility_texture_streaming(bool enabled) noexcept {
+            texture_streaming.set(enabled);
+        }
         /// Select static LOD0 runs on admitted visibility frames; takes effect next frame.
         void set_subtilis(bool enabled) noexcept;
         void set_subtilis_error_px(float value) noexcept;

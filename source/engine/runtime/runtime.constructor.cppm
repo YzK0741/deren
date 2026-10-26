@@ -2589,7 +2589,24 @@ namespace deren::engine {
             image_info.flags = rhi::to_bits(rhi::image_flag::sampled);
             image_info.initial_bytes = std::as_bytes(tex.data);
             image_info.debug_name = "material texture";
-            auto created = create_shared_image(render_resource::resource_id::scene_textures, image_info);
+            std::pair<rhi::shared_object<rhi::image>, rhi::shared_object<rhi::image_view>> created;
+            if (texture_streaming.enabled && rhi::query_extension<rhi::frame_checkpoint>(rhi_face())) {
+                auto source = std::make_shared<deren::utility::vessel::vector<uint8_t> const>(tex.data.begin(), tex.data.end());
+                image_info.initial_bytes = {};
+                auto lazy = rhi_face().resources->create_lazy_image({.resource = image_info, .data = source});
+                if (!lazy)
+                    deren::utility::panic("failed to create streamed material texture");
+                if (streamed_textures.size() < owned_textures.size())
+                    streamed_textures.resize(owned_textures.size());
+                rhi::shared_object<rhi::lazy_image> object(std::move(*lazy));
+                created.first = object;
+                // Only slot0's view is consumed by legacy runtime bindings; no physical view for streamed images.
+                created.second = owned_texture_views[white_texture_index];
+                streamed_textures.push_back({object, tex.data.size_bytes(), false, false});
+            } else {
+                created = create_shared_image(render_resource::resource_id::scene_textures, image_info);
+                streamed_textures.resize(owned_textures.size() + 1);
+            }
             this->owned_textures.push_back(std::move(created.first));
             this->owned_texture_views.push_back(std::move(created.second));
             rhi::image_view_desc tex_range{};
@@ -2620,7 +2637,8 @@ namespace deren::engine {
             if (contract_descriptor_ready(this->rhi_face())) {
                 {
                     std::uint32_t const descriptor_slot = deren::engine::render_layout::heap_slots::textures + index;
-                    if (contract_write_descriptor_image(this->rhi_face(), descriptor_slot, *this->owned_textures.back(), tex_range, rhi::descriptor_type::sampled_image)) {
+                    auto& descriptor_image = streamed_textures[index].image ? *owned_textures[white_texture_index] : *owned_textures.back();
+                    if (contract_write_descriptor_image(this->rhi_face(), descriptor_slot, descriptor_image, tex_range, rhi::descriptor_type::sampled_image)) {
                         ++heap_texture_descriptors;
                     } else {
                         deren::utility::log("descriptor heap: texture {} did not fit the resource heap at logical slot {}", index, descriptor_slot);
@@ -2629,6 +2647,21 @@ namespace deren::engine {
             }
         }
 
+        for (std::size_t i = 0; i < texture_indices.size(); ++i) {
+            auto id = texture_indices[i];
+            if (id >= streamed_textures.size() || !streamed_textures[id].image)
+                continue;
+            bool const pin = texture_residency::pin_material_texture(i, info.factors.alpha_mask, info.factors.alpha_blend, info.toon_family, info.overlay_kind);
+            if (pin && !streamed_textures[id].pinned) {
+                streamed_textures[id].pinned = true;
+                rhi::image_view_desc range{};
+                range.mip_count = 0;
+                range.layer_count = 0;
+                if (!contract_write_descriptor_image(rhi_face(), render_layout::heap_slots::textures + id, *streamed_textures[id].image, range, rhi::descriptor_type::sampled_image))
+                    deren::utility::panic("failed to publish pinned scene texture");
+                streamed_textures[id].published = true;
+            }
+        }
         // THE HEAP-NATIVE PROBE, ONCE, now that the bindless array is actually in the heap: it is the first thing
         // in this renderer to read the heap instead of a descriptor set, and its answer goes to the log (see
         // run_heap_probe). Texture slot 0 is the white placeholder, which is registered first and always exists.
@@ -2827,6 +2860,9 @@ namespace deren::engine {
             return {};
         }
         uint32_t const material_index = this->material_count++;
+        if (material_texture_edges.size() <= material_index)
+            material_texture_edges.resize(material_index + 1);
+        material_texture_edges[material_index].assign(texture_indices.begin(), texture_indices.end());
         std::memcpy(static_cast<uint8_t*>(this->material_mapped) + static_cast<size_t>(material_index) * sizeof(material_record), &record, sizeof(record));
         // THE LANES BESIDE THE RECORD, written here rather than into it, and this is the one place that knows both
         // the material's index and its lanes (see deren::engine::render_layout::heap_slots::toon_lanes for why the record cannot carry

@@ -129,6 +129,16 @@ export namespace deren::engine::render_graph::visibility {
         }
     };
 
+    struct feedback_parameters {
+        texture_read vis_id, depth;
+        buffer_read items;
+        buffer_read_write result;
+        std::optional<texture_read> software_depth = {}, software_id = {};
+        void visit_resources(parameter_visitor& visit) const noexcept {
+            visit(vis_id, depth, items, result, software_depth, software_id);
+        }
+    };
+
     std::expected<pass_ref, graph_error> append_hzb_build(builder& description, buffer_ref levels, buffer_ref header,
                                                           texture_ref depth, buffer_ref camera) noexcept {
         constexpr access_scope storage{resource_usage::storage, pipeline_stage::compute_shader};

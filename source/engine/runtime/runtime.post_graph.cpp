@@ -146,6 +146,22 @@ namespace deren::engine {
         if (!commands || !this->cluster_retention_open) {
             return rhi::error::not_ready;
         }
+        bool const residency = texture_streaming.enabled && visibility_lane_frame == visibility::opaque_lane::visibility && !active_features().rt_shadow;
+        std::optional<std::uint32_t> residency_resolve_index;
+        if (texture_streaming.enabled || texture_streaming.restore_pending) {
+            if (auto result = prepare_texture_feedback(); result != rhi::error::ok)
+                return result;
+            if (!residency) {
+                auto* checkpoint = rhi::query_extension<rhi::frame_checkpoint>(rhi_face());
+                if (!checkpoint)
+                    return rhi::error::unsupported;
+                if (auto result = checkpoint->checkpoint_and_wait(); result != rhi::error::ok)
+                    return result;
+                if (auto result = update_texture_residency(true); result != rhi::error::ok)
+                    return result;
+                texture_streaming.restore_pending = false;
+            }
+        }
         auto index = this->current_image_index;
         if (index >= rhi::max_swapchain_images) {
             return rhi::error::invalid_argument;
@@ -1114,6 +1130,33 @@ namespace deren::engine {
                 if (!resolve_added) {
                     return post_build_error(resolve_added.error());
                 }
+                if (residency) {
+                    constexpr graph::access_scope storage{graph::resource_usage::storage, graph::pipeline_stage::compute_shader};
+                    constexpr graph::access_scope sampled{graph::resource_usage::sampled, graph::pipeline_stage::compute_shader};
+                    auto result_lease = resource_lease<rhi::buffer>::from_shared(core_owner, visibility_feedback_buffer);
+                    auto feedback_ref = build.import_buffer(result_lease, {graph::initial_contents::defined, {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read | graph::memory_access::write}}, "material feedback");
+                    if (!feedback_ref)
+                        return post_build_error(feedback_ref.error());
+                    graph::visibility::feedback_parameters parameters{{*visibility_ref, {}, sampled}, {*depth_ref, {}, sampled}, {shared_refs[12], {}, storage}, {*feedback_ref, {}, storage}};
+                    if (software_raster_active_frame) {
+                        parameters.software_depth = graph::texture_read{*software_depth_ref, {}, sampled};
+                        parameters.software_id = graph::texture_read{*software_id_ref, {}, sampled};
+                    }
+                    auto feedback = build.append([&](graph::builder& description) noexcept {
+                        return description.add_pass("visibility material feedback", parameters, graph::pass_options{.side_effect = true});
+                    });
+                    if (!feedback)
+                        return post_build_error(feedback.error());
+                    auto bound = build.bind_pass<graph::visibility::feedback_parameters>(*feedback,
+                                                                                         [this](graph::visibility::feedback_parameters const&, rhi::command_buffer& buffer, graph::execution::record_context const&) noexcept {
+                                                                                             return record_texture_feedback(buffer);
+                                                                                         });
+                    if (!bound)
+                        return post_build_error(bound.error());
+                    if (auto order = build.order_after(resolve_added->pass, *feedback); !order)
+                        return post_build_error(order.error());
+                    residency_resolve_index = resolve_added->pass.index();
+                }
                 pass::stage resolve_stage{.name = "visibility resolve", .passes = this->visibility_resolve_stage};
                 this->prepare_stage(resolve_stage);
                 passes[20] = this->visibility_resolve_stage[0];
@@ -1552,7 +1595,21 @@ namespace deren::engine {
             return post_build_error(prepared.error());
         }
         retained.push_back(prepared->retention());
-        auto error = prepared->record(*commands);
+        rhi::error error;
+        if (residency_resolve_index) {
+            graph::execution::prepared_graph prefix, suffix;
+            error = prepared->partition_before(*residency_resolve_index, prefix, suffix);
+            if (error == rhi::error::ok)
+                error = prefix.record(*commands);
+            if (error == rhi::error::ok)
+                error = rhi::query_extension<rhi::frame_checkpoint>(rhi_face())->checkpoint_and_wait();
+            if (error == rhi::error::ok)
+                error = update_texture_residency(false);
+            if (error == rhi::error::ok)
+                error = suffix.record(*commands);
+        } else {
+            error = prepared->record(*commands);
+        }
         if (error != rhi::error::ok) {
             return error;
         }
