@@ -253,6 +253,10 @@ namespace deren::engine {
                     continue;
                 if (!this->upload_inflight.insert(entry.image.get()).second)
                     continue;
+                // Speculative candidates are not demand: give the upload a one-frame retention grace
+                // so a candidate that becomes visible on the next frame is not unloaded between the
+                // worker finishing and the frame that asks for it.
+                entry.last_demand_frame = std::max(entry.last_demand_frame, this->texture_residency_updates);
                 this->upload_queue.push_back(entry.image);
                 queued = true;
             }
