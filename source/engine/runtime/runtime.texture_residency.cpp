@@ -159,8 +159,13 @@ namespace deren::engine {
                     this->upload_queue_cv.wait(lock, [this]() {
                         return this->upload_worker_stopping || !this->upload_queue.empty();
                     });
-                    if (this->upload_worker_stopping && this->upload_queue.empty())
+                    if (this->upload_worker_stopping) {
+                        // Shutdown discards pending work instead of draining it: the shared objects
+                        // release with the queue, and the caller is tearing the device down anyway.
+                        this->upload_queue.clear();
+                        this->upload_inflight.clear();
                         return;
+                    }
                     image = std::move(this->upload_queue.back());
                     this->upload_queue.pop_back();
                 }
