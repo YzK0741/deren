@@ -2018,7 +2018,8 @@ export namespace deren::promise::rhi {
     enum class lazy_state : std::uint32_t { unloaded,
                                             loading,
                                             ready,
-                                            failed };
+                                            failed,
+    };
     struct lazy_buffer_desc {
         std::uint32_t struct_size = sizeof(lazy_buffer_desc);
         buffer_desc resource;
@@ -2032,8 +2033,9 @@ export namespace deren::promise::rhi {
     [[nodiscard]] inline error validate_lazy_buffer(lazy_buffer_desc const& desc) noexcept {
         if (desc.struct_size < sizeof(desc) || desc.resource.struct_size < sizeof(buffer_desc) ||
             !desc.data || desc.data->empty() || !desc.resource.initial_bytes.empty() ||
-            desc.data->size() != desc.resource.size)
+            desc.data->size() != desc.resource.size) {
             return error::invalid_argument;
+        }
         switch (desc.resource.usage) {
         case buffer_usage::vertex:
         case buffer_usage::index:
@@ -2062,10 +2064,10 @@ export namespace deren::promise::rhi {
         virtual ~resource_factory() noexcept = default;
         resource_factory(resource_factory const&) = delete;
         resource_factory& operator=(resource_factory const&) = delete;
-        [[nodiscard]] virtual std::expected<unique_object<lazy_buffer>, error> create_lazy_buffer(lazy_buffer_desc const&) {
+        [[nodiscard]] virtual std::expected<unique_object<lazy_buffer>, error> create_lazy_buffer(lazy_buffer_desc const& /*desc*/) {
             return std::unexpected(error::unsupported);
         }
-        [[nodiscard]] virtual std::expected<unique_object<lazy_image>, error> create_lazy_image(lazy_image_desc const&) {
+        [[nodiscard]] virtual std::expected<unique_object<lazy_image>, error> create_lazy_image(lazy_image_desc const& /*desc*/) {
             return std::unexpected(error::unsupported);
         }
         [[nodiscard]] virtual unique_object<buffer> create_buffer(buffer_desc const& desc) = 0;
