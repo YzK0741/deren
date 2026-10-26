@@ -1,0 +1,38 @@
+{
+  "far": {
+    "rgb_identical": true,
+    "mean_rgb_difference": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "resident_payload_bytes": 889541720,
+    "total_payload_bytes": 2338695096,
+    "pinned_payload_bytes": 141907236,
+    "reduction_percent": 61.96418586067792
+  },
+  "near": {
+    "rgb_identical": true,
+    "mean_rgb_difference": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "resident_payload_bytes": 668292248,
+    "total_payload_bytes": 2338695096,
+    "pinned_payload_bytes": 141907236,
+    "reduction_percent": 71.42456709542782
+  },
+  "sweep": {
+    "rgb_identical": true,
+    "mean_rgb_difference": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "resident_payload_bytes": 808801372,
+    "total_payload_bytes": 2338695096,
+    "pinned_payload_bytes": 141907236,
+    "reduction_percent": 65.41655330002881
+  }
+}

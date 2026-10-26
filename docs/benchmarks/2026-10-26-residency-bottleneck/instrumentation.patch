@@ -1,0 +1,185 @@
+--- a/source/engine/runtime/runtime.declarations.cppm
++++ b/source/engine/runtime/runtime.declarations.cppm
+@@ -698,6 +698,9 @@
+             hzb_recovery_end,
+             visibility_recovery_end,
+             software_raster_end, // after the optional per-tile software visibility producer
++            residency_feedback_begin,
++            residency_feedback_end,
++            residency_resume,   // timestamp after the checkpoint/host update; preceding interval includes idle/upload
+             scene_end,          // after the geometry instance: forward main (opaque + transparent), or
+                                 // the background + G-buffer pass in the deferred path
+             rt_shadow_end,      // after the ray-traced sun shadow pass (~0 when it does not run). Its own
+@@ -748,6 +751,9 @@
+             {"hzb recovery", false},
+             {"visibility recovery", false},
+             {"software visibility", false},
++            {"pre feedback", false},
++            {"residency feedback", false},
++            {"residency gap", false},
+             {"scene", false},
+             {"rt shadow", false},
+             {"software merge", false},
+--- a/source/engine/runtime/runtime.post_graph.cpp
++++ b/source/engine/runtime/runtime.post_graph.cpp
+@@ -1,6 +1,7 @@
+ module;
+ #include <array>
+ #include <charconv>
++#include <chrono>
+ #include <cmath>
+ #include <cstdint>
+ #include <cstdlib>
+@@ -1166,7 +1167,7 @@
+                 }
+                 auto resolve_bound = build.bind_pass<graph::visibility::resolve_parameters>(
+                     resolve_added->pass, [this, payload](graph::visibility::resolve_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+-                        this->gpu_mark_through(gpu_mark_id::software_raster_end);
++                        this->gpu_mark_through(gpu_mark_id::residency_resume);
+                         auto error = payload->record(20);
+                         if (error != rhi::error::ok) {
+                             return error;
+@@ -1251,7 +1252,7 @@
+                                                                                        // THE SPLIT MARK, before the pass: the geometry lane keeps the interval it
+                                                                                        // always had ("scene" = this mark -> scene_end); the visibility slot reads ~0
+                                                                                        this->gpu_mark(gpu_mark_id::visibility_raster_end);
+-                                                                                       this->gpu_mark_through(gpu_mark_id::software_raster_end);
++                                                                                       this->gpu_mark_through(gpu_mark_id::residency_resume);
+                                                                                        auto error = payload->record(7);
+                                                                                        if (error != rhi::error::ok) {
+                                                                                            return error;
+@@ -1597,16 +1598,30 @@
+         retained.push_back(prepared->retention());
+         rhi::error error;
+         if (residency_resolve_index) {
++            auto const profile_start = std::chrono::steady_clock::now();
+             graph::execution::prepared_graph prefix, suffix;
+             error = prepared->partition_before(*residency_resolve_index, prefix, suffix);
++            auto const profile_partitioned = std::chrono::steady_clock::now();
+             if (error == rhi::error::ok)
+                 error = prefix.record(*commands);
++            auto const profile_recorded = std::chrono::steady_clock::now();
+             if (error == rhi::error::ok)
+                 error = rhi::query_extension<rhi::frame_checkpoint>(rhi_face())->checkpoint_and_wait();
++            auto const profile_completed = std::chrono::steady_clock::now();
+             if (error == rhi::error::ok)
+                 error = update_texture_residency(false);
++            auto const profile_updated = std::chrono::steady_clock::now();
++            if (error == rhi::error::ok)
++                gpu_mark(gpu_mark_id::residency_resume);
+             if (error == rhi::error::ok)
+                 error = suffix.record(*commands);
++            if (std::getenv("DEREN_PROFILE_RESIDENCY")) {
++                auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
++                utility::log("profile graph {} partition {} prefix {} checkpoint {} update {} suffix {}", texture_residency_updates,
++                             ms(profile_start, profile_partitioned), ms(profile_partitioned, profile_recorded),
++                             ms(profile_recorded, profile_completed), ms(profile_completed, profile_updated),
++                             ms(profile_updated, std::chrono::steady_clock::now()));
++            }
+         } else {
+             error = prepared->record(*commands);
+         }
+--- a/source/engine/runtime/runtime.texture_residency.cpp
++++ b/source/engine/runtime/runtime.texture_residency.cpp
+@@ -1,6 +1,7 @@
+ module;
+ #include <array>
+ #include <chrono>
++#include <cstdlib>
+ #include <cstring>
+ #include <span>
+ module deren.engine.runtime;
+@@ -41,6 +42,8 @@
+     }
+
+     rhi::error runtime::record_texture_feedback(rhi::command_buffer& commands) {
++        gpu_mark_through(gpu_mark_id::software_raster_end);
++        gpu_mark(gpu_mark_id::residency_feedback_begin);
+         auto result = commands.bind_pipeline(*visibility_feedback_pipeline);
+         if (result != rhi::error::ok)
+             return result;
+@@ -56,7 +59,10 @@
+         commands.dispatch((extent.width + 7) / 8, (extent.height + 7) / 8, 1);
+         // Host publication is this pass's epilogue. The checkpoint establishes execution completion.
+         rhi::buffer_barrier host{.resource = visibility_feedback_buffer.get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::host_read};
+-        return commands.barrier({.buffers = std::span(&host, 1)});
++        result = commands.barrier({.buffers = std::span(&host, 1)});
++        if (result == rhi::error::ok)
++            gpu_mark(gpu_mark_id::residency_feedback_end);
++        return result;
+     }
+
+     rhi::error runtime::update_texture_residency(bool all) {
+@@ -74,6 +80,7 @@
+         auto* descriptors = rhi::query_extension<rhi::descriptor_space>(rhi_face());
+         if (!descriptors)
+             return rhi::error::unsupported;
++        auto const demand_done = std::chrono::steady_clock::now();
+         std::uint64_t resident_bytes = 0, uploaded_bytes = 0, deferred = 0, total_bytes = 0, pinned_bytes = 0;
+         rhi::image_view_desc view{};
+         view.mip_count = 0;
+@@ -102,13 +109,21 @@
+             } else if (entry.image->state() == rhi::lazy_state::unloaded)
+                 uploaded_bytes += entry.bytes;
+         }
++        auto const scan_done = std::chrono::steady_clock::now();
+         auto result = descriptors->bind({.commands = frame_command_buffer().get()});
++        auto const bind_done = std::chrono::steady_clock::now();
+         if (result != rhi::error::ok)
+             return result;
+         for (auto const& entry : streamed_textures)
+             if (entry.image && entry.image->state() == rhi::lazy_state::ready)
+                 resident_bytes += entry.bytes;
+         auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
++        if (std::getenv("DEREN_PROFILE_RESIDENCY")) {
++            auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
++            utility::log("profile residency update {} demand {} scan {} bind {} account {} upload {} deferred {}", texture_residency_updates + 1,
++                         ms(started, demand_done), ms(demand_done, scan_done), ms(scan_done, bind_done),
++                         ms(bind_done, std::chrono::steady_clock::now()), uploaded_bytes, deferred);
++        }
+         if (++texture_residency_updates <= 2 || uploaded_bytes || texture_residency_updates % 60 == 0)
+             utility::log("texture residency: resident payload {} / {} bytes, pinned {} bytes, new demand {} bytes, deferred unload {}, update {} ms", resident_bytes, total_bytes, pinned_bytes, uploaded_bytes, deferred, elapsed);
+         return rhi::error::ok;
+--- a/source/backends/vulkan/core/core.frame_checkpoint.cpp
++++ b/source/backends/vulkan/core/core.frame_checkpoint.cpp
+@@ -1,4 +1,6 @@
+ module;
++#include <chrono>
++#include <cstdlib>
+ #include <memory>
+ #include <mutex>
+ #include <vulkan/vulkan.h>
+@@ -12,6 +14,7 @@
+     namespace rhi = deren::promise::rhi;
+
+     rhi::error core::frame_checkpoint_view::checkpoint_and_wait() {
++        auto const profile_start = std::chrono::steady_clock::now();
+         if (!owner || !owner->frame_in_flight || !owner->commands_view.recording)
+             return rhi::error::not_ready;
+         auto& commands = owner->commands_view;
+@@ -62,7 +65,9 @@
+             return commands.recording_error;
+         }
+         // Never hold the queue lock during the host wait. A failed final wait cannot safely free/reset.
++        auto const profile_submitted = std::chrono::steady_clock::now();
+         status = vkWaitForFences(owner->logical_device, 1, &submission->fence, VK_TRUE, UINT64_MAX);
++        auto const profile_waited = std::chrono::steady_clock::now();
+         if (status != VK_SUCCESS)
+             deren::utility::fast_panic("frame checkpoint completion wait failed");
+         owner->poll_submissions();
+@@ -73,6 +78,14 @@
+             commands.executable = false;
+             return commands.recording_error;
+         }
+-        return commands.begin_recording({});
++        auto result = commands.begin_recording({});
++        if (std::getenv("DEREN_PROFILE_RESIDENCY")) {
++            static std::uint64_t sequence = 0;
++            auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
++            deren::utility::log("profile checkpoint {} submit {} wait {} recycle {}", ++sequence,
++                                ms(profile_start, profile_submitted), ms(profile_submitted, profile_waited),
++                                ms(profile_waited, std::chrono::steady_clock::now()));
++        }
++        return result;
+     }
+ } // namespace deren::vulkan
