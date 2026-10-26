@@ -1,0 +1,129 @@
+required instance extension (0):
+
+validation layers disabled (config [render] validation_layers = false)
+
+instance init succeeded
+
+instance handler is 0x1afa3d69850
+
+================================================
+
+ Vulkan device capabilities
+
+================================================
+
+ driver        : NVIDIA 617.42
+
+ api version   : 1.4.351
+
+ device        : NVIDIA GeForce RTX 4060 Laptop GPU (discrete gpu)
+
+------------------------------------------------
+
+ vulkan 1.1 features (10)
+
+   storageBuffer16BitAccess, uniformAndStorageBuffer16BitAccess, storagePushConstant16, multiview
+
+   multiviewGeometryShader, multiviewTessellationShader, variablePointersStorageBuffer
+
+   variablePointers, samplerYcbcrConversion, shaderDrawParameters
+
+ vulkan 1.2 features (47)
+
+   samplerMirrorClampToEdge, drawIndirectCount, storageBuffer8BitAccess
+
+   uniformAndStorageBuffer8BitAccess, storagePushConstant8, shaderBufferInt64Atomics
+
+   shaderSharedInt64Atomics, shaderFloat16, shaderInt8, descriptorIndexing
+
+   shaderInputAttachmentArrayDynamicIndexing, shaderUniformTexelBufferArrayDynamicIndexing
+
+   shaderStorageTexelBufferArrayDynamicIndexing, shaderUniformBufferArrayNonUniformIndexing
+
+   shaderSampledImageArrayNonUniformIndexing, shaderStorageBufferArrayNonUniformIndexing
+
+   shaderStorageImageArrayNonUniformIndexing, shaderInputAttachmentArrayNonUniformIndexing
+
+   shaderUniformTexelBufferArrayNonUniformIndexing, shaderStorageTexelBufferArrayNonUniformIndexing
+
+   descriptorBindingUniformBufferUpdateAfterBind, descriptorBindingSampledImageUpdateAfterBind
+
+   descriptorBindingStorageImageUpdateAfterBind, descriptorBindingStorageBufferUpdateAfterBind
+
+   descriptorBindingUniformTexelBufferUpdateAfterBind
+
+   descriptorBindingStorageTexelBufferUpdateAfterBind, descriptorBindingUpdateUnusedWhilePending
+
+   descriptorBindingPartiallyBound, descriptorBindingVariableDescriptorCount, runtimeDescriptorArray
+
+   samplerFilterMinmax, scalarBlockLayout, imagelessFramebuffer, uniformBufferStandardLayout
+
+   shaderSubgroupExtendedTypes, separateDepthStencilLayouts, hostQueryReset, timelineSemaphore
+
+   bufferDeviceAddress, bufferDeviceAddressCaptureReplay, bufferDeviceAddressMultiDevice
+
+   vulkanMemoryModel, vulkanMemoryModelDeviceScope, vulkanMemoryModelAvailabilityVisibilityChains
+
+   shaderOutputViewportIndex, shaderOutputLayer, subgroupBroadcastDynamicId
+
+ vulkan 1.3 features (14)
+
+   robustImageAccess, inlineUniformBlock, descriptorBindingInlineUniformBlockUpdateAfterBind
+
+   pipelineCreationCacheControl, privateData, shaderDemoteToHelperInvocation
+
+   shaderTerminateInvocation, subgroupSizeControl, computeFullSubgroups, synchronization2
+
+   shaderZeroInitializeWorkgroupMemory, dynamicRendering, shaderIntegerDotProduct, maintenance4
+
+ ray tracing   : ray query available (VK_KHR_acceleration_structure + VK_KHR_ray_query)
+
+   sbt         : handle 32 B, base alignment 64, handle alignment 32, max recursion 31
+
+                 ray pipeline available (VK_KHR_ray_tracing_pipeline + maintenance1) / opacity micromap available (VK_EXT_opacity_micromap, max subdivision level 12 2-state / 12 4-state)
+
+   limits      : 16777215 instances, 16777215 geometries, scratch alignment 128
+
+ descriptor heap: available (VK_EXT_descriptor_heap, revision 1)
+
+   descriptors : buffer 16 B (align 8), image 32 B (align 32), sampler 32 B (align 32)
+
+   heaps       : resource max 32 MiB (alignment 64), sampler max 128 KiB (alignment 32)
+
+   reserved    : 94 KiB resource, 64 KiB sampler with embedded samplers, 2032 embedded samplers max, push data 256 B
+
+ mesh shaders  : available (VK_EXT_mesh_shader, task shaders available)
+
+   output      : 256 vertices / 256 primitives / 128 components / 32768 B per workgroup, 128 invocations max
+
+   workgroup   : mesh 128x128x128, task 128x128x128
+
+ unified layout: available (VK_KHR_unified_image_layouts, every image stays in GENERAL)
+
+ host image copy: REQUIRED - GENERAL in the copy-source layouts: true, in the copy-destination layouts: true (VK_EXT_host_image_copy; the swapchain read-back still uses the copy command, because a swapchain image's usage is bounded by the surface's supportedUsageFlags)
+
+================================================
+
+device and queue init succeeded
+
+offscreen: 2 owned images, no window, surface or swapchain
+
+gpu timing: 32 marks/frame available (1 ns/tick, 64 valid bits)
+
+SUCCESS: descriptor heap created (resource 4096 KiB at 0x8650000, sampler 128 KiB at 0x8a50000; strides buffer 16 B, image 32 B, sampler 32 B)
+
+descriptor heap: the reserved window ends at 96768 B, so the grid's 1 MiB base is 1048576 B away
+
+descriptor heap: slot grid at 1048576 (2048 slots x 64 B; textures 0 materials 1024 tlas 1215 camera 1026 light 1028 clusters 1030/1032 gbuffer 1063 env 1044 lut 1046)
+
+descriptor heap: layout reserved (texture array at 2228288, material table at 2261056)
+
+descriptor heap: 6 shared samplers written to the sampler grid at 65536
+
+vma: 0 allocations in 1 blocks | requested 0.0 MB | blocks 32.0 MB
+
+vma:   memory type 4: 0 allocations, requested 0.0 MB, blocks 32.0 MB
+
+vma:   heap 0: usage 32.0 MB of budget 6364.8 MB (32.0 MB of blocks)
+
+vma:   heap 1: usage 0.0 MB of budget 6216.2 MB (0.0 MB of blocks)

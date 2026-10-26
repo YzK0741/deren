@@ -192,7 +192,7 @@ jobs:
             source/engine/pass/gaussian_splatting.cpp \
             source/application_configuration/application_configuration.cppm \
             source/application_configuration/application_configuration.cpp \
-            source/utility/data_block.cppm source/utility/utility.cppm source/utility/utility.cpp \
+            source/utility/data_block.cppm source/utility/utility.cppm source/utility/utility.cpp source/utility/file_io.cpp \
             source/utility/thread_pool/thread_pool.cppm \
             source/utility/BVH/bvh.cppm \
             source/utility/frame_clock/frame_clock.cppm \

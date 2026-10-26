@@ -1,11 +1,14 @@
+#include "../backends/vulkan/core/lazy_loading.h"
 #include "vk_test.h"
 
 #include <atomic>
 #include <barrier>
 #include <concepts>
+#include <latch>
 #include <thread>
 import deren.promise.rhi;
 namespace rhi = deren::promise::rhi;
+#include "lazy_loading_contract.hpp"
 static_assert(requires(rhi::resource_factory& resources, rhi::resource_group_desc const& desc) {
     resources.create_resource_group(desc);
 });
@@ -31,7 +34,7 @@ template <class T>
 concept reserved_swapchain_factory = requires { &T::create_swapchain; };
 static_assert(!reserved_query_factory<rhi::resource_factory>);
 static_assert(!reserved_swapchain_factory<rhi::frame_context>);
-static_assert(rhi::abi_version == 55u);
+static_assert(rhi::abi_version == 57u);
 static_assert(!rhi::has_ability(rhi::all_abilities(), rhi::extension_kind::mesh_shader));
 static_assert(rhi::all_extension_kinds().size() == 11);
 namespace {
@@ -177,6 +180,7 @@ namespace {
     };
 } // namespace
 int main() {
+    check_lazy_loading_contract();
     {
         member_probe first, second;
         CHECK(first.resources && first.commands && first.frames);

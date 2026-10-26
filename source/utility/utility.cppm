@@ -1,6 +1,6 @@
 // ============================================================================
 // module: utility
-// module version: 2.0.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 3.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Pure-CPU toolkit: data_block, BVH, thread_pool, frame_clock / frame_stats,
 // content hashing, the platform entry points, and the loader. Standalone - no Vulkan
@@ -21,6 +21,7 @@
 //     caller's instantiation and the result is handed over as a std::string_view to the shared sink,
 //     so no template needs exporting. `panic` itself, `log_text` / `error_text` / `wait_log_all` and
 //     the memory allocation service come from deren.utility.shared - one per process.
+// 3.0.0: binary file reads require explicit bounds and return expected/file_error.
 // 2.0.0: RHI outcome policy moved to deren.engine.outcome.
 // 1.0.0: project containers use utility::vessel and PMR startup hooks are removed.
 // All vessel allocation/deallocation goes through the same shared_utility DLL.
@@ -549,21 +550,46 @@ namespace deren::utility {
      */
     export double timestamp_delta_milliseconds(uint64_t begin_ticks, uint64_t end_ticks, uint32_t valid_bits, float nanoseconds_per_tick) noexcept;
 
-    /**
-     * @ingroup utility
-     * @brief read the whole file in binary mode into a byte vector
-     * @param path the file path
-     * @return the file contents, or std::nullopt if the file cannot be read
-     */
-    export std::optional<deren::utility::vessel::vector<uint8_t>> read_binary_to_vector(std::filesystem::path const& path);
+    /// The failing stage of a bounded binary read; independent of renderer contracts.
+    export enum class file_error_code : uint8_t {
+        status_failed,
+        not_regular_file,
+        open_failed,
+        size_unavailable,
+        too_large,
+        read_failed,
+        file_changed,
+    };
+    export struct file_error {
+        file_error_code code;
+        // Metadata errors retain their system cause. Stream errors may expose only io_errc::stream.
+        // Logical rejections (type, capacity or observed length change) leave cause empty.
+        std::error_code cause{};
+    };
+    export [[nodiscard]] std::string_view file_error_name(file_error_code code) noexcept;
 
     /**
      * @ingroup utility
-     * @brief read the whole file in binary mode into a string
-     * @param path the file path
-     * @return the file contents, or std::nullopt if the file cannot be read
+     * @brief read a regular file into a byte vector with an explicit allocation bound
+     * @param path the file path; symlinks resolving to regular files are accepted
+     * @param max_bytes largest accepted payload, checked before allocation and narrowing
+     * @return complete contents or the failing stage/cause; never partial data
+     * @note zero bound accepts only empty files. Observed short EOF or extra data is file_changed.
+     *       This does not lock the file or detect same-size edits; concurrent path replacement is
+     *       outside the contract. Ordinary I/O errors are values; allocation failure remains fatal.
      */
-    export std::optional<deren::utility::vessel::string> read_binary_to_string(std::filesystem::path const& path);
+    export [[nodiscard]] std::expected<deren::utility::vessel::vector<uint8_t>, file_error>
+    read_binary_to_vector(std::filesystem::path const& path, std::uintmax_t max_bytes);
+
+    /**
+     * @ingroup utility
+     * @brief read binary bytes into a string, preserving embedded NUL/high bytes without text decoding
+     * @param path the regular file path
+     * @param max_bytes largest accepted payload; zero accepts only empty files
+     * @return complete contents or file_error, with the same contract as read_binary_to_vector
+     */
+    export [[nodiscard]] std::expected<deren::utility::vessel::string, file_error>
+    read_binary_to_string(std::filesystem::path const& path, std::uintmax_t max_bytes);
 
     // class log_sink is NOT declared here any more: the sink (queue, worker thread, file handle) is
     // deren.utility.shared's, so that ONE of it exists per process - the whole point of the split.

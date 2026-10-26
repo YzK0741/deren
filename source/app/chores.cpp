@@ -85,11 +85,14 @@ namespace deren::chores {
     // Read a single shader SPIR-V file and print info; panic on failure
     void load_shader(std::filesystem::path const& dir, std::string_view const file_name, deren::utility::vessel::vector<uint8_t>& out) {
         std::filesystem::path const path = dir / file_name;
-        std::optional<deren::utility::vessel::vector<uint8_t>> const data = deren::utility::read_binary_to_vector(path);
+        constexpr std::uintmax_t max_shader_bytes = 64ull * 1024 * 1024;
+        auto data = deren::utility::read_binary_to_vector(path, max_shader_bytes);
         if (!data) {
-            deren::utility::panic(std::source_location::current(), "cannot open shader file '{}'", path.string());
+            deren::utility::panic(std::source_location::current(), "cannot read shader file '{}' ({}; cause {}: {})", path.string(),
+                                  deren::utility::file_error_name(data.error().code), data.error().cause.category().name(),
+                                  data.error().cause.value());
         }
-        out = *data;
+        out = std::move(*data);
         deren::utility::log("loaded shader: {} ({} bytes)", path.string(), out.size());
     }
 

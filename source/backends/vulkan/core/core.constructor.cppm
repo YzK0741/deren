@@ -371,6 +371,8 @@ namespace deren::vulkan {
         }
         commands_view.group_refs.clear();
         commands_view.resource_refs.clear();
+        commands_view.lazy_refs.clear();
+        lazy_descriptors.clear();
         commands_view.secondary_refs.clear();
         texture_groups.cache.clear();
         texture_groups.dummy_view.reset();

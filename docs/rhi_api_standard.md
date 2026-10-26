@@ -1,6 +1,6 @@
 # The deren RHI API standard
 
-Status: **draft v1 for RHI ABI 55 (2026-10-25)**. This document is normative for every backend DLL that
+Status: **draft v1 for RHI ABI 57 (2026-10-26)**. This document is normative for every backend DLL that
 implements `deren::promise::rhi` and for every engine/application consumer of the contract. When this
 document and the contract source disagree, the source is authoritative and this document is the defect;
 updates to the contract require an update here in the same change.
@@ -17,7 +17,7 @@ RFC 2119 sense.
 - Every interface method listed in sections 7-8 is a virtual function that a backend implements. Default
   implementations return `error::unsupported` (or perform the documented trivial operation); a backend MUST NOT
   claim an ability it does not implement.
-- The current ABI is `rhi::abi_version == 55`. A backend is loaded by the application as a DLL through
+- The current ABI is `rhi::abi_version == 57`. A backend is loaded by the application as a DLL through
   `deren_make_api_core(abi_version, create_info, error_info)`; the first argument is the caller's ABI and a
   mismatch is refused by name.
 - The contract carries no Vulkan/API-specific types except through optional escape extensions. Backend modules
@@ -1569,3 +1569,86 @@ not resurrection of these incomplete placeholders. Apply section 5's actual layo
    threading guarantee beyond the caller-serialized default.
 7. Runs the device-probe lane (`scripts/windows/check_device_probes.ps1`) or an equivalent on a device-capable
    machine before claiming conformance.
+
+
+## 9. Lazy resources (ABI 56)
+
+`lazy_data` is `std::shared_ptr<const utility::vessel::vector<std::uint8_t>>`. A backend MUST retain this
+shared owner without copying the payload. Other aliases MUST NOT mutate it until the resource's last
+reference is released. Source bytes remain retained after upload. This is a deliberate shared-data
+exception to ordinary borrowed creation descriptors; source and backend use the matched toolchain ABI.
+
+`lazy_buffer_desc` and `lazy_image_desc` hold `struct_size`, an ordinary resource description and `data`.
+Both outer and nested descriptions MUST cover their current structure. `data` MUST be non-null/nonempty;
+`resource.initial_bytes` MUST be empty. Buffer bytes MUST equal size; image bytes MUST equal its packed
+normalized mip/layer payload. Invalid descriptions return `invalid_argument` before GPU allocation.
+
+- `resource_factory::create_lazy_buffer(lazy_buffer_desc const&)` returns
+  `expected<unique_object<lazy_buffer>, error>`; its default is `unsupported`.
+- `resource_factory::create_lazy_image(lazy_image_desc const&)` returns
+  `expected<unique_object<lazy_image>, error>`; its default is `unsupported`.
+- `lazy_buffer::state() const noexcept` and `lazy_image::state() const noexcept` report `lazy_state`
+  (`unloaded`, `loading`, `ready`, `failed`) without loading. Queries and logical image-view creation
+  MUST NOT upload. These types derive from buffer/image and use ordinary supported bindings.
+
+Vulkan initially supports device-only vertex/index/uniform/storage buffers (device_address/storage
+allocation flags), and sampled color images (optional cube compatibility). Mapped buffers, externally
+extracted device addresses, storage/attachment images and direct copy/clear/indirect/build/native uses
+of lazy resources are unsupported. Internal descriptor buffer addresses remain valid after loading;
+public device_address returns zero for lazy buffers. Unsupported uses MUST NOT record invalid handles.
+
+Logical bind setters, resource/texture-group construction and logical descriptor-space writes MUST NOT
+materialize lazy resources. First surviving native binding, explicit resource barrier or descriptor-space
+bind synchronously prepares its resources before recording native use. This includes scoped barriers;
+a barrier-only recording can load. Group/fixed-profile binding conservatively demands all members;
+there is no shader-index discovery or visibility-based streaming implicit in this API.
+
+Concurrent first users MUST serialize physical materialization and observe ready only after initial
+upload completes. Failure latches `failed` with no implicit retry; the recording reports the error and
+cannot be submitted. Successful independent resources can remain ready after a later failure. Backend
+helpers currently collapse physical allocation/upload refusal into `operation_failed`; factory validation
+and host-object allocation errors are returned separately. No whole-device wait_idle is introduced.
+If an upload was submitted but its wait fails without device loss, completion is unknown: the Vulkan
+backend uses fast_panic rather than freeing/recycling potentially pending resources. This follows the
+existing fatal policy for resources whose final safe wait fails; no recoverable quarantine is added.
+
+Lazy resources MUST survive their recorded and pending GPU uses, including retained secondary commands
+and reusable executable recordings. Source retention is transitive through lazy views and groups. Logical
+fixed slots retain lazy objects until replaced; invalid writes leave the prior binding unchanged. Slot
+replacement follows the existing caller synchronization contract. Ordinary borrowed-resource behavior
+is unchanged. Objects MUST NOT outlive their core. There is no automatic eviction, asynchronous loading,
+retry, file I/O or decoder in this increment.
+
+
+## 10. Explicit lazy unload (ABI 57)
+
+`lazy_buffer::unload() noexcept` and `lazy_image::unload() noexcept` return `error`. They MUST preserve
+shared source data, immutable resource metadata and logical object identity. Success releases this
+object's physical allocation reference and publishes unloaded; the next supported native demand
+reloads the original initial bytes. GPU modifications are not saved back to the source.
+
+- `ok`: an unloaded resource (idempotent), or a ready resource released safely.
+- `not_ready`: materialization/dependency registration currently owns its mutex, or a ready resource
+  has live dependency leases. The call MUST NOT wait for uploads, recordings or GPU completion.
+- A failed resource returns its stored failure and remains failed. This method is not a retry API.
+- Calling the implementation on an ordinary eager resource returns unsupported; normal buffer/image
+  interfaces do not themselves expose unload.
+
+The initial Vulkan policy is conservative. Live logical image views, resource/texture groups, fixed
+logical descriptor slots, recorded commands and pending submissions prevent ready-resource unload.
+Callers must release/reset/replace those dependencies first, including reusable executable recordings
+whose GPU submissions have already finished. Ordinary shared ownership of the logical object does not
+by itself prevent unloading. There is no transparent descriptor-generation invalidation or group rebuild.
+
+The backend MUST acquire dependency leases under the same mutex as materialization/unload, and retain
+logical object lifetime until each lease is released. Unload MUST NOT free native resources still named
+by recordings or binding caches. Raw legacy descriptor_heap image writes reject lazy images; tracked
+logical bindings use a backend native writer with retained dependencies. Fixed-slot replacement still
+requires the existing caller synchronization. Physical allocation/reference release is not a guarantee
+that VMA backing blocks or process VRAM usage shrink immediately; image allocations can also be shared.
+
+The GPU radix-sort extension MUST demand lazy buffer operands and retain their allocation leases before
+reading native handles. Its recorded and pending uses obey the same unload restrictions as core commands.
+
+The uint8_t shared source remains retained even after successful unload. No background residency manager,
+automatic eviction, source mutation tracking, GPU readback or whole-device wait_idle is added.

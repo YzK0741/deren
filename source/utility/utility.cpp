@@ -82,46 +82,6 @@ double deren::utility::timestamp_delta_milliseconds(uint64_t const begin_ticks, 
     return static_cast<double>(delta) * static_cast<double>(nanoseconds_per_tick) * 1.0e-6;
 }
 
-std::optional<deren::utility::vessel::vector<uint8_t>> deren::utility::read_binary_to_vector(std::filesystem::path const& path) {
-    std::error_code error;
-    uintmax_t const file_size = std::filesystem::file_size(path, error);
-    if (error) {
-        return std::nullopt;
-    }
-    std::ifstream file(path, std::ios::binary);
-    if (!file) {
-        return std::nullopt;
-    }
-    // Preallocate based on file size to avoid repeated reallocation while reading
-    deren::utility::vessel::vector<uint8_t> data;
-    data.reserve(static_cast<size_t>(file_size));
-    data.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-    if (file.bad()) {
-        return std::nullopt;
-    }
-    return data;
-}
-
-std::optional<deren::utility::vessel::string> deren::utility::read_binary_to_string(std::filesystem::path const& path) {
-    std::error_code error;
-    uintmax_t const file_size = std::filesystem::file_size(path, error);
-    if (error) {
-        return std::nullopt;
-    }
-    std::ifstream file(path, std::ios::binary);
-    if (!file) {
-        return std::nullopt;
-    }
-    // Preallocate based on file size to avoid repeated reallocation while reading
-    deren::utility::vessel::string data;
-    data.reserve(static_cast<size_t>(file_size));
-    data.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-    if (file.bad()) {
-        return std::nullopt;
-    }
-    return data;
-}
-
 // ---- Async logging: MOVED TO deren.utility.shared (batch ④) ----
 //
 // The sink, its worker thread, its file handle and the startup rotation are the process-wide state

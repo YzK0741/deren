@@ -26,6 +26,7 @@
 //         PATCH on internal fixes - independently of the rest of the project.
 // ============================================================================
 module;
+#include "lazy_loading.h"
 
 #include <GLFW/glfw3.h>
 #include <array>
@@ -332,6 +333,8 @@ namespace deren::vulkan {
      * old `enable_shared_from_this`/shared_ptr spelling is gone with that batch.
      */
     export struct core : deren::promise::rhi::api_core, deren::promise::rhi::resource_factory, deren::promise::rhi::command_context, deren::promise::rhi::frame_context, deren::utility::enable_stack_destruct {
+        struct owned_buffer;
+        struct owned_image;
         // creation options this core was built with (window size, vsync); the window and the
         // swap chain honor them
         deren::promise::rhi::create_info create_options = {};
@@ -409,6 +412,11 @@ namespace deren::vulkan {
             }
             void reset_operations() noexcept;
 
+            deren::utility::vessel::vector<std::shared_ptr<void>> lazy_refs;
+            [[nodiscard]] deren::promise::rhi::error demand(deren::promise::rhi::buffer const&);
+            [[nodiscard]] deren::promise::rhi::error demand(deren::promise::rhi::image const&);
+            void retain_lazy(owned_buffer const&);
+            void retain_lazy(owned_image const&);
             deren::utility::vessel::vector<deren::promise::rhi::resource_group_ref> resource_refs;
             [[nodiscard]] deren::promise::rhi::error load_resource_group(deren::promise::rhi::resource_group_ref const&) override;
             deren::utility::vessel::vector<deren::promise::rhi::texture_group_ref> group_refs;
@@ -851,9 +859,18 @@ namespace deren::vulkan {
         /// UNLOCKED BORROW of its internal map (source/backends/vulkan/core/vma/vma.cppm's `get_buffer_detail`): the
         /// pointer into that map must not be kept, the VALUES read out of it may be. That is the rule
         /// the ownership analysis says every contract query has to follow.
-        struct owned_buffer final : deren::promise::rhi::buffer {
+        struct owned_buffer final : deren::promise::rhi::lazy_buffer {
             owned_buffer() noexcept
-                : deren::promise::rhi::buffer(concrete::buffer) {
+                : deren::promise::rhi::lazy_buffer(concrete::buffer) {
+            }
+            std::atomic<std::uint32_t> references{1};
+            deren::promise::rhi::lazy_data source;
+            detail::lazy_loading<deren::promise::rhi::lazy_state, deren::promise::rhi::error> loading;
+            deren::promise::rhi::buffer_desc description;
+            deren::utility::vessel::string debug_name;
+            [[nodiscard]] deren::promise::rhi::error unload() noexcept override;
+            [[nodiscard]] deren::promise::rhi::lazy_state state() const noexcept override {
+                return loading.state();
             }
             deren::vulkan::vk_buffer owned = {};
             /// the Vulkan handle, cached at creation: `vk_buffer::handle()` is the ALLOCATOR's registry
@@ -976,9 +993,9 @@ namespace deren::vulkan {
         /// is the allocator's reference-count decrement, so a content-deduplicated image survives while
         /// any view or handle still refers to it. The escape's `native_image()` (deleted in abi 42) was the
         /// last external reader of the allocation's registry key; the backend reads its members directly.
-        struct owned_image final : deren::promise::rhi::image {
+        struct owned_image final : deren::promise::rhi::lazy_image {
             owned_image() noexcept
-                : deren::promise::rhi::image(concrete::image) {
+                : deren::promise::rhi::lazy_image(concrete::image) {
             }
             std::atomic<std::uint32_t> references{1}; // factory ownership + shared control blocks
             std::mutex shared_owner_mutex;
@@ -987,6 +1004,14 @@ namespace deren::vulkan {
             /// object that calls back into the backend carries its owner (the shape `buffer_address_view`
             /// uses)
             core* owner = nullptr;
+            deren::promise::rhi::lazy_data source;
+            detail::lazy_loading<deren::promise::rhi::lazy_state, deren::promise::rhi::error> loading;
+            deren::promise::rhi::image_desc description;
+            deren::utility::vessel::string debug_name;
+            [[nodiscard]] deren::promise::rhi::error unload() noexcept override;
+            [[nodiscard]] deren::promise::rhi::lazy_state state() const noexcept override {
+                return loading.state();
+            }
             deren::vulkan::vk_image owned = {};
             /// the `VkImage`, copied out of the allocator's detail map AT CREATION (an unlocked borrow:
             /// the pointer into the map must not be kept, the values read out of it may - the rule
@@ -1032,6 +1057,9 @@ namespace deren::vulkan {
             }
             deren::promise::rhi::shared_object<deren::promise::rhi::image> parent_image;
             VkImageView native_view = VK_NULL_HANDLE;
+            std::shared_ptr<void> lazy_reference;
+            deren::promise::rhi::image_view_desc description;
+            std::mutex loading_mutex;
             /// the device the view was created on; the destructor needs it and the object must not
             /// outlive the core it came from (the core's own cleanup order guarantees that)
             VkDevice device = VK_NULL_HANDLE;
@@ -1192,6 +1220,7 @@ namespace deren::vulkan {
             [[nodiscard]] deren::promise::rhi::descriptor_heap_properties properties() const noexcept override;
             [[nodiscard]] deren::promise::rhi::heap_bindings bindings() const noexcept override;
             [[nodiscard]] deren::promise::rhi::error write_image(deren::promise::rhi::heap_image_write_info const&) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error write_image_native(deren::promise::rhi::heap_image_write_info const&, bool tracked) noexcept;
             [[nodiscard]] deren::promise::rhi::error write_buffer(deren::promise::rhi::heap_buffer_write_info const&) noexcept override;
             [[nodiscard]] deren::promise::rhi::error bind(deren::promise::rhi::heap_bind_info const&) const noexcept override;
         };
@@ -1248,6 +1277,17 @@ namespace deren::vulkan {
         deren::vulkan::main_context main_context_view;
         frame_heap heap_view;
         frame_descriptor_space descriptor_space_view;
+        struct lazy_descriptor {
+            bool image = false;
+            bool published = false;
+            deren::promise::rhi::descriptor_image_write image_write;
+            deren::promise::rhi::image_view_desc view;
+            deren::promise::rhi::descriptor_buffer_write buffer_write;
+            std::shared_ptr<void> reference;
+        };
+        std::mutex lazy_descriptors_mutex;
+        deren::utility::vessel::map<std::uint32_t, lazy_descriptor> lazy_descriptors;
+        [[nodiscard]] deren::promise::rhi::error prepare_lazy_descriptors(frame_commands&) noexcept;
         std::mutex contract_images_mutex;
         std::mutex contract_structures_mutex;
         deren::utility::vessel::unordered_set<deren::promise::rhi::acceleration_structure const*> contract_structures;
@@ -1302,6 +1342,10 @@ namespace deren::vulkan {
                 : deren::promise::rhi::resource_group(concrete::resource_group) {
             }
             core* owner = nullptr;
+            std::mutex loading_mutex;
+            bool deferred = false;
+            deren::promise::rhi::resource_group_ref physical;
+            deren::utility::vessel::vector<std::shared_ptr<void>> lazy_references;
             deren::utility::vessel::vector<deren::promise::rhi::resource_group_entry> entries;
             deren::utility::vessel::vector<std::uint32_t> values;
             struct allocation {
@@ -1330,6 +1374,9 @@ namespace deren::vulkan {
             }
             core* owner = nullptr;
             deren::utility::vessel::array<std::shared_ptr<texture_group_state::sampled_view_lease>, 16> views{};
+            detail::lazy_loading<deren::promise::rhi::lazy_state, deren::promise::rhi::error> loading;
+            deren::utility::vessel::array<deren::promise::rhi::shared_object<deren::promise::rhi::image>, 16> deferred_images{};
+            deren::utility::vessel::array<std::shared_ptr<void>, 16> lazy_references{};
             texture_group_record record{};
             std::uint32_t allocation = 1024;
             /// the position's generation (see `texture_group_state::next_generation`): 0 means this group
@@ -1376,6 +1423,7 @@ namespace deren::vulkan {
             std::shared_ptr<owned_command_buffer> primary;
             deren::utility::vessel::vector<deren::promise::rhi::texture_group_ref> groups;
             deren::utility::vessel::vector<deren::promise::rhi::resource_group_ref> resources;
+            deren::utility::vessel::vector<std::shared_ptr<void>> lazy_refs;
             deren::utility::vessel::vector<std::shared_ptr<owned_command_buffer>> secondaries;
             bool submitted = false;
             ~pending_submission() noexcept;
@@ -1607,6 +1655,17 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::ability_bits abilities() const noexcept override;
         [[nodiscard]] deren::promise::rhi::extension* query_extension(deren::promise::rhi::extension_kind kind) noexcept override;
 
+        [[nodiscard]] std::expected<deren::promise::rhi::unique_object<deren::promise::rhi::lazy_buffer>, deren::promise::rhi::error> create_lazy_buffer(deren::promise::rhi::lazy_buffer_desc const&) override;
+        [[nodiscard]] std::expected<deren::promise::rhi::unique_object<deren::promise::rhi::lazy_image>, deren::promise::rhi::error> create_lazy_image(deren::promise::rhi::lazy_image_desc const&) override;
+        [[nodiscard]] deren::promise::rhi::error materialize(owned_buffer&) noexcept;
+        [[nodiscard]] deren::promise::rhi::error materialize(owned_image&) noexcept;
+        [[nodiscard]] deren::promise::rhi::error materialize(owned_image_view&) noexcept;
+        [[nodiscard]] deren::promise::rhi::error materialize(owned_resource_group&) noexcept;
+        [[nodiscard]] deren::promise::rhi::error materialize(owned_texture_group&) noexcept;
+        [[nodiscard]] std::shared_ptr<void> depend_on(owned_buffer const&);
+        [[nodiscard]] std::shared_ptr<void> depend_on(owned_image const&);
+        [[nodiscard]] VkFormat resolve_format(deren::promise::rhi::image_format) const noexcept;
+        [[nodiscard]] std::uint64_t internal_address(owned_buffer const&, std::uint64_t offset = 0) const noexcept;
         [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::buffer> create_buffer(deren::promise::rhi::buffer_desc const& desc) override;
         /// THE BACKEND'S OWN SPELLING of `create_buffer`: the factories hand CALLERS an unique_object, but the
         /// backend's storage fields keep the raw handle and release it in their own teardown (it is the owner

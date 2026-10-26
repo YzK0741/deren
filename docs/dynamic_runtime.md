@@ -29,7 +29,7 @@ Explicit generic printing APIs and command-line diagnostic tools retain their no
 
 ## Utility and engine error policy
 
-`deren.utility` (module interface 2.0.0) and `deren.utility.shared` have no RHI dependency.
+`deren.utility` (module interface 3.0.0) and `deren.utility.shared` have no RHI dependency.
 Generic assertions, logging, allocation and panic remain in utility. RHI-specific outcome policy
 belongs to `deren.engine.outcome`, provided by `engine_outcome_core`.
 
@@ -38,6 +38,12 @@ propagate, enforce}` must import `deren.engine.outcome` and use `deren::engine::
 Code naming RHI types also imports `deren.promise.rhi` explicitly. No compatibility re-export is
 provided, so a utility-only consumer does not need the renderer contract. Classification, error
 rewriting and fatal behavior are unchanged; this source interface change does not alter RHI ABI 55.
+
+Utility source interface 3.0.0 also replaces optional/unbounded binary reads with
+`read_binary_to_vector(path, max_bytes)` and `read_binary_to_string(path, max_bytes)`, both returning
+`std::expected<the original vessel container, deren::utility::file_error>`. The required limit bounds
+the accepted payload, not allocator bookkeeping or string capacity overhead. Use `file_error_name`
+and `.cause` for diagnostics; callers decide whether an I/O failure is fatal. No RHI types are involved.
 
 ## The contract: `deren.promise.rhi`
 
@@ -53,7 +59,7 @@ compilations from drifting.
 | `:core_desc` | `create_info`, the ONE creation structure - the program fills it and the backend builds its context from it |
 | `:extension` | the optional interfaces and the queries that hand them out |
 
-The contract is versioned by `rhi::abi_version` (55 today), and a change to it is one of three kinds:
+The contract is versioned by `rhi::abi_version` (57 today), and a change to it is one of three kinds:
 **appending a slot to an existing interface bumps the number**, and so does **adding a field to a
 by-value structure** - its layout is what both halves pass, even when a `struct_size` guard lets the
 backend keep the old default; abi 45 (the `command_buffer_begin_info::inherit_descriptor_heaps`
@@ -62,6 +68,24 @@ is a new query, and a backend that does not implement it says so - and neither d
 helper function (a `constexpr`/`inline`/template declaration), because nothing already crossing the
 boundary changes shape. The GUI plugin boundary versions separately: `gui::gui_abi_version` is 5 today,
 and the two numbers do not imply each other.
+
+## Explicit lazy unload (ABI 57)
+
+`lazy_buffer::unload()` / `lazy_image::unload()` preserve the shared source and resource description,
+release the physical allocation reference, and return the object to unloaded for later reload. They
+return not_ready while loading or while views, groups, fixed descriptor slots or recorded/pending
+commands retain dependencies. Reset/release those dependents first; this first version does not
+invalidate their native caches transparently. Failed resources remain failed. ABI 56 backends must be
+rebuilt with the host. See RHI standard section 10 for nonblocking and ownership rules.
+
+## Lazy resources (ABI 56)
+
+`core.resources->create_lazy_buffer` and `create_lazy_image` accept descriptions with
+`shared_ptr<const utility::vessel::vector<uint8_t>>` payloads. They retain the shared source without
+copying it, defer GPU allocation/upload until actual native-command demand (including barriers), and
+report unloaded/loading/ready/failed state. Logical views, groups and descriptor writes remain lazy;
+container binding conservatively demands every member. No scene migration or automatic eviction is
+included. ABI 55 and older backends must be rebuilt with the host. See the RHI standard section 9.
 
 ## Core subviews (ABI 50)
 

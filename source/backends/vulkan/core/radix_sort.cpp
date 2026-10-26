@@ -90,6 +90,12 @@ namespace deren::vulkan {
                 dependency.pMemoryBarriers = &memory;
                 if (auto applied = list->prepare_native(); applied != rhi::error::ok)
                     return applied;
+                // Acquire recording leases before reading native handles. Lazy operands may
+                // materialize here, and cannot be unloaded while this recording can execute.
+                for (auto* resource : {keys, values, scratch}) {
+                    if (auto ready = list->demand(*resource); ready != rhi::error::ok)
+                        return ready;
+                }
                 vkCmdPipelineBarrier2(list->native(), &dependency);
                 VrdxSortInfo native{};
                 native.elementCount = info.element_count;

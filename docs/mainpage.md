@@ -243,6 +243,10 @@ you are free to recombine or rewire them.
   merge, source/shaders/model location), pipeline setup, instancing stress grid, shader loading
 - `deren.utility` - log/panic, handle distribution, thread pool (deren.utility:thread_pool), BVH, data
   blocks, frame_clock, and the `vessel` containers' mimalloc-backed allocator (`memory::allocator`)
+  Binary file readers require an explicit `max_bytes` payload limit and return
+  `std::expected<container, file_error>` with the failing stage and available system/stream cause.
+  Empty files are valid, reads are binary and complete, and observed length changes are rejected;
+  they do not provide a concurrent-edit snapshot. Shader bootstrap uses a 64 MiB limit.
 - `deren.app_config` - TOML startup configuration merged with argv
 
 Modular composition is the point, not a side effect:

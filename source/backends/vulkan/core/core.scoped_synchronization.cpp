@@ -116,7 +116,7 @@ namespace deren::vulkan {
             return rhi::error::invalid_argument;
         }
         auto const& image = static_cast<owned_image const&>(resource);
-        if (image.owner != owner || image.native_handle == VK_NULL_HANDLE) {
+        if (image.owner != owner || (!image.source && image.native_handle == VK_NULL_HANDLE)) {
             return rhi::error::invalid_argument;
         }
         uint32_t usage = 0;
@@ -129,6 +129,10 @@ namespace deren::vulkan {
         add(rhi::image_flag::depth_attachment, scopes::usage::depth_stencil_read);
         add(rhi::image_flag::transfer_source, scopes::usage::transfer_source);
         add(rhi::image_flag::transfer_destination, scopes::usage::transfer_destination);
+        if (image.source) {
+            output = {image.mip_levels, image.array_layers, format_aspects(image.resolved_format), usage, reinterpret_cast<std::uintptr_t>(&image)};
+            return rhi::error::ok;
+        }
         auto const* detail = owner->vma.get_image_detail(image.owned.handle());
         if (!detail) {
             return rhi::error::invalid_argument;
@@ -146,7 +150,7 @@ namespace deren::vulkan {
             return rhi::error::invalid_argument;
         }
         auto const& buffer = static_cast<owned_buffer const&>(resource);
-        if (buffer.owner != owner || buffer.native == VK_NULL_HANDLE) {
+        if (buffer.owner != owner || (!buffer.source && buffer.native == VK_NULL_HANDLE)) {
             return rhi::error::invalid_argument;
         }
         uint32_t usage = 0;
@@ -184,6 +188,10 @@ namespace deren::vulkan {
         add(rhi::buffer_flag::indirect, scopes::usage::indirect_buffer);
         add(rhi::buffer_flag::transfer_source, scopes::usage::transfer_source);
         add(rhi::buffer_flag::transfer_destination, scopes::usage::transfer_destination);
+        if (buffer.source) {
+            output = {buffer.size_bytes, usage, reinterpret_cast<std::uintptr_t>(&buffer)};
+            return rhi::error::ok;
+        }
         auto const* detail = owner->vma.get_buffer_detail(buffer.owned.handle());
         if (!detail) {
             return rhi::error::invalid_argument;
@@ -280,6 +288,23 @@ namespace deren::vulkan {
         }
         if (images.empty() && buffers.empty()) {
             return rhi::error::ok;
+        }
+        for (auto const& one : images) {
+            bool registered;
+            {
+                std::lock_guard lock(owner->contract_images_mutex);
+                registered = owner->contract_images.contains(one.resource);
+            }
+            if (registered) {
+                auto loaded = list->demand(*one.resource);
+                if (loaded != rhi::error::ok)
+                    return loaded;
+            }
+        }
+        for (auto const& one : buffers) {
+            auto loaded = list->demand(*one.resource);
+            if (loaded != rhi::error::ok)
+                return loaded;
         }
         deren::utility::vessel::vector<VkImageMemoryBarrier2> native_images;
         deren::utility::vessel::vector<VkBufferMemoryBarrier2> native_buffers;

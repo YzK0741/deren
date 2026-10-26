@@ -311,6 +311,7 @@ target_sources(static_utility
         source/utility/dynamic_link.cppm
         PRIVATE
         source/utility/utility.cpp
+        source/utility/file_io.cpp
 )
 
 # The RHI boundary's contract (m03159): a module of virtual base classes,
@@ -523,6 +524,7 @@ target_sources(deren_vulkan
         source/backends/vulkan/core/core.cpp
         # The RHI contract's virtuals for this backend (plan §11.4, S1-C): `core` derives from
         # `deren::promise::rhi::api_core`, so this is where abilities() and the frame calls live.
+        source/backends/vulkan/core/core.lazy_resources.cpp
         source/backends/vulkan/core/core.render_operations.cpp
         source/backends/vulkan/core/core.api_core.cpp
         source/backends/vulkan/core/core.scoped_synchronization.cpp
@@ -2423,3 +2425,16 @@ add_dependencies(test_buffer_transfer deren_vulkan)
 add_executable(test_subtilis_transfer source/tests/test_subtilis_transfer.cpp)
 target_link_libraries(test_subtilis_transfer deren_engine backend_loader static_utility vstd_lib)
 add_dependencies(test_subtilis_transfer deren_vulkan)
+
+# Opt-in device benchmark, not a headless test or part of the default build.
+if(VR_BUILD_TESTS)
+    add_executable(bench_image_upload EXCLUDE_FROM_ALL source/tests/bench_image_upload.cpp source/tests/image_upload_bench_vma.cpp)
+    target_include_directories(bench_image_upload PRIVATE source/third_party source/backends/vulkan/core/vma)
+    target_link_libraries(bench_image_upload PRIVATE backend_loader promise static_utility vstd_lib vulkan_main_context Vulkan::Vulkan)
+    add_dependencies(bench_image_upload deren_vulkan)
+    if(MSVC)
+        set_source_files_properties(source/tests/image_upload_bench_vma.cpp PROPERTIES COMPILE_OPTIONS "/w")
+    else()
+        set_source_files_properties(source/tests/image_upload_bench_vma.cpp PROPERTIES COMPILE_OPTIONS "-w")
+    endif()
+endif()

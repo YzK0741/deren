@@ -1,4 +1,4 @@
-# Optional device-probe lane for the ABI 55 logical-binding and deferred-recording contract.
+# Optional device-probe lane for the ABI 57 lazy-resource and deferred-recording contract.
 #
 # CI is headless and cannot create a Vulkan device, so these probes are deliberately outside headless CTest
 # (see CMakeLists.txt "Device-only ... deliberately outside headless CTest"). Run this script on a machine with
@@ -13,6 +13,7 @@ $ErrorActionPreference = "Stop"
 $root = Resolve-Path $BuildDir
 $probes = @(
     @{ name = "test_resource_group";          expected = 221 },
+    @{ name = "test_resource_group_lazy"; exe = "test_resource_group"; arguments = @("--with-device", "--lazy"); expected = 320 },
     @{ name = "test_texture_group";           expected = 116 },
     @{ name = "test_submission_completion";   expected = 75 },
     @{ name = "test_render_graph_frame";      expected = 12 },
@@ -23,14 +24,16 @@ $probes = @(
 $results = @()
 $failed = 0
 foreach ($probe in $probes) {
-    $exe = Join-Path $root "$($probe.name).exe"
+    $exeName = if ($probe.exe) { $probe.exe } else { $probe.name }
+    $exe = Join-Path $root "$exeName.exe"
     if (-not (Test-Path $exe)) {
         Write-Host "[missing] $($probe.name)" -ForegroundColor Red
         $results += [pscustomobject]@{ name = $probe.name; exit = "missing"; checks = 0; expected = $probe.expected; status = "MISSING" }
         $failed++
         continue
     }
-    $output = & $exe --with-device 2>&1 | ForEach-Object { "$_" }
+    [string[]]$probeArgs = if ($probe.arguments) { $probe.arguments } else { @("--with-device") }
+    $output = & $exe @probeArgs 2>&1 | ForEach-Object { "$_" }
     $code = $LASTEXITCODE
     $line = ($output | Select-Object -Last 1)
     $checks = 0; $bad = 0

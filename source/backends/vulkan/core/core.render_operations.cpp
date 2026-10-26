@@ -156,6 +156,18 @@ namespace deren::vulkan {
             }
         }
 
+        // All operation metadata has been validated before any lazy allocation occurs.
+        for (auto const* op : selected) {
+            auto status = rhi::error::ok;
+            if (op->kind() == kind::vertex || op->kind() == kind::index)
+                status = demand(*reinterpret_cast<owned_buffer const*>(op->data[0]));
+            else if (op->kind() == kind::resource_group && op->resources)
+                status = owner->materialize(*static_cast<owned_resource_group*>(op->resources.get()));
+            else if (op->kind() == kind::texture_group && op->textures)
+                status = owner->materialize(*static_cast<owned_texture_group*>(op->textures.get()));
+            if (status != rhi::error::ok)
+                return fail(status);
+        }
         auto const command = native();
         auto push = [&](std::uint32_t offset, std::span<std::byte const> bytes) {
             ++owner->emitted_setters;

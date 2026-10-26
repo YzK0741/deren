@@ -267,6 +267,7 @@ namespace deren::vulkan {
         submission->value = signal_value;
         submission->groups = commands_view.group_refs;
         submission->resources = commands_view.resource_refs;
+        submission->lazy_refs = commands_view.lazy_refs;
         submission->secondaries = commands_view.secondary_refs;
         std::lock_guard lock(submissions_mutex);
         for (auto const& secondary : submission->secondaries) {

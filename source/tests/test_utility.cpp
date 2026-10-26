@@ -2,6 +2,7 @@
 // Covers xxh3 content hashing (drives image dedup), data_block key semantics,
 // the thread pool, and the BVH frustum culling used by the main pass.
 #include "../utility/shared/log_test_hooks.hpp"
+#include "../utility/shared/memory_test_hooks.hpp"
 #include "vessel_child.hpp"
 #include "vk_test.h"
 
@@ -9,6 +10,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <expected>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -216,7 +218,7 @@ namespace {
         deren::utility::vessel::vector<uint8_t> const payload = {0, 1, 2, 250, 251, 252};
         auto const written = deren::utility::write_binary_file(path, deren::utility::be(uint32_t{0x01020304}), payload, std::string_view{"END"});
         CHECK(written.has_value());
-        auto const read_back = deren::utility::read_binary_to_vector(path);
+        auto const read_back = deren::utility::read_binary_to_vector(path, 64);
         CHECK(read_back.has_value());
         if (read_back.has_value()) {
             deren::utility::vessel::string const expected = deren::utility::vessel::string("\x01\x02\x03\x04", 4) + deren::utility::vessel::string(payload.begin(), payload.end()) + "END";
@@ -226,6 +228,83 @@ namespace {
 
         // a path that cannot be opened is an error, not a crash
         CHECK(!deren::utility::write_binary_file(std::filesystem::path{"no_such_dir/x.bin"}, uint32_t{1}).has_value());
+    }
+
+    void test_bounded_file_reads() {
+        namespace utility = deren::utility;
+        namespace vessel = utility::vessel;
+        using code = utility::file_error_code;
+        std::filesystem::path const path = "bounded-read.bin";
+        static_assert(std::same_as<decltype(utility::read_binary_to_vector(path, 8)),
+                                   std::expected<vessel::vector<uint8_t>, utility::file_error>>);
+        static_assert(std::same_as<decltype(utility::read_binary_to_string(path, 8)),
+                                   std::expected<vessel::string, utility::file_error>>);
+        vessel::vector<uint8_t> const bytes{0, 0x7f, 0x80, 0xff, 0, 13, 10, 42};
+        CHECK(utility::write_binary_file(path, bytes).has_value());
+        auto const binary = utility::read_binary_to_vector(path, bytes.size());
+        auto const text = utility::read_binary_to_string(path, bytes.size());
+        CHECK(binary.has_value());
+        CHECK(text.has_value());
+        if (binary)
+            CHECK(*binary == bytes);
+        if (text) {
+            CHECK(text->size() == bytes.size());
+            for (std::size_t i = 0; i < text->size(); ++i)
+                CHECK(static_cast<uint8_t>((*text)[i]) == bytes[i]);
+        }
+        // A rejected oversize read must not allocate any payload through the vessel allocator.
+        utility_memory_test_fail_after(0);
+        auto const limited = utility::read_binary_to_vector(path, bytes.size() - 1);
+        auto const limited_text = utility::read_binary_to_string(path, 0);
+        utility_memory_test_fail_after(-1);
+        CHECK(!limited);
+        CHECK(!limited_text);
+        if (!limited)
+            CHECK(limited.error().code == code::too_large);
+        if (!limited_text)
+            CHECK(limited_text.error().code == code::too_large);
+        CHECK(utility::file_error_name(code::too_large) == "too_large");
+        CHECK(utility::write_binary_file(path, std::string_view{}).has_value());
+        auto const empty_binary = utility::read_binary_to_vector(path, 0);
+        auto const empty_text = utility::read_binary_to_string(path, 0);
+        CHECK(empty_binary && empty_binary->empty());
+        CHECK(empty_text && empty_text->empty());
+        std::filesystem::remove(path);
+        auto const missing = utility::read_binary_to_vector(path, 16);
+        CHECK(!missing);
+        if (!missing) {
+            CHECK(missing.error().code == code::status_failed);
+            CHECK(static_cast<bool>(missing.error().cause));
+        }
+        auto const directory = utility::read_binary_to_string(std::filesystem::current_path(), 16);
+        CHECK(!directory);
+        if (!directory)
+            CHECK(directory.error().code == code::not_regular_file);
+        // Cross the chunk boundary; every byte matters, including zeros and signed-char values.
+        vessel::vector<uint8_t> large(1024 * 1024 + 37);
+        for (std::size_t i = 0; i < large.size(); ++i)
+            large[i] = static_cast<uint8_t>(i % 251);
+        CHECK(utility::write_binary_file(path, large).has_value());
+        // This exceeds string inline storage too, so both readers must reject before allocation.
+        utility_memory_test_fail_after(0);
+        auto const large_limited = utility::read_binary_to_vector(path, large.size() - 1);
+        auto const large_limited_text = utility::read_binary_to_string(path, large.size() - 1);
+        utility_memory_test_fail_after(-1);
+        CHECK(!large_limited);
+        CHECK(!large_limited_text);
+        if (!large_limited)
+            CHECK(large_limited.error().code == code::too_large);
+        if (!large_limited_text)
+            CHECK(large_limited_text.error().code == code::too_large);
+        auto const large_binary = utility::read_binary_to_vector(path, large.size());
+        auto const large_text = utility::read_binary_to_string(path, large.size());
+        CHECK(large_binary && *large_binary == large);
+        CHECK(large_text && large_text->size() == large.size());
+        if (large_text && large_text->size() == large.size()) {
+            CHECK(std::equal(large_text->begin(), large_text->end(), large.begin(),
+                             [](char actual, uint8_t expected) { return static_cast<uint8_t>(actual) == expected; }));
+        }
+        std::filesystem::remove(path);
     }
 
     // Compile-time contract of the accepted types: the set is closed on purpose (see binary_writable).
@@ -784,6 +863,7 @@ int32_t main(int argc, char** argv) {
     test_write_binary_ranges_and_pod();
     test_write_binary_failure_stops_the_fold();
     test_write_binary_file_round_trip();
+    test_bounded_file_reads();
     test_data_block_key_semantics();
     test_gpu_timestamp_delta();
     test_thread_pool_runs_every_posted_task();

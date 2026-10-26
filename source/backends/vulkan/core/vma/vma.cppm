@@ -1,6 +1,7 @@
 module;
 
 #include "texture_upload_layout.h"
+#include "upload_sequence.h"
 
 #include <vulkan/vulkan.h>
 #define VMA_IMPLEMENTATION
@@ -762,7 +763,8 @@ namespace deren::vulkan {
         VkFence fence = VK_NULL_HANDLE;
 
         VkFenceCreateInfo fence_create_info = make_fence_info();
-        vkCreateFence(this->logical_device, &fence_create_info, nullptr, &fence);
+        if (vkCreateFence(this->logical_device, &fence_create_info, nullptr, &fence) != VK_SUCCESS)
+            return VK_NULL_HANDLE;
 
         return fence;
     }
@@ -847,7 +849,8 @@ namespace deren::vulkan {
         if (staging_info.pMappedData) {
             memcpy(staging_info.pMappedData, data, size);
             if (!this->is_host_coherent(staging_info.memoryType)) {
-                vmaFlushAllocation(this->allocator, staging_allocation, 0, size);
+                if (vmaFlushAllocation(this->allocator, staging_allocation, 0, size) != VK_SUCCESS)
+                    return false;
             }
         } else {
             return false;
@@ -874,28 +877,32 @@ namespace deren::vulkan {
 
         VkCommandBuffer command_buffer = command_pair.second;
 
-        VkCommandBufferBeginInfo begin_info = make_command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-        vkBeginCommandBuffer(command_buffer, &begin_info);
-
-        VkBufferCopy copy_region = {};
-        copy_region.size = size;
-        vkCmdCopyBuffer(command_buffer, staging_buffer, dst_buffer, 1, &copy_region);
-
-        vkEndCommandBuffer(command_buffer);
-
-        VkSubmitInfo submit_info = make_submit_info(&command_buffer);
-
-        {
-            // VkQueue is externally synchronized; submits must be serialized
-            std::lock_guard guard(this->queue_mutex);
-            vkQueueSubmit(this->upload_queue, 1, &submit_info, fence);
+        auto discard = [&]() {
+            if (fence)
+                vkDestroyFence(this->logical_device, fence, nullptr);
+            if (command_pair.first)
+                vkDestroyCommandPool(this->logical_device, command_pair.first, nullptr);
+        };
+        if (!command_pair.first || !command_buffer || !fence) {
+            discard();
+            return false;
         }
-
-        vkWaitForFences(this->logical_device, 1, &fence, VK_TRUE, UINT64_MAX);
-
-        // Cleanup
-        vkResetFences(this->logical_device, 1, &fence);
-        vkResetCommandBuffer(command_buffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
+        VkCommandBufferBeginInfo begin_info = make_command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
+        VkSubmitInfo submit_info = make_submit_info(&command_buffer);
+        auto result = detail::upload_sequence(
+            [&] { return vkBeginCommandBuffer(command_buffer, &begin_info); },
+            [&] { VkBufferCopy copy_region{}; copy_region.size = size; vkCmdCopyBuffer(command_buffer, staging_buffer, dst_buffer, 1, &copy_region); },
+            [&] { return vkEndCommandBuffer(command_buffer); },
+            [&] { std::lock_guard guard(this->queue_mutex); return vkQueueSubmit(this->upload_queue, 1, &submit_info, fence); },
+            [&] { return vkWaitForFences(this->logical_device, 1, &fence, VK_TRUE, UINT64_MAX); },
+            [&] { auto reset = vkResetFences(this->logical_device, 1, &fence); return reset == VK_SUCCESS ? vkResetCommandBuffer(command_buffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT) : reset; });
+        if (result.may_be_pending)
+            deren::utility::fast_panic("upload wait failed with GPU completion unknown");
+        if (result.status != VK_SUCCESS) {
+            deren::utility::error("buffer upload failed: {}", static_cast<int32_t>(result.status));
+            discard();
+            return false;
+        }
         {
             std::lock_guard guard(this->cache_mutex);
             this->fence_cache.push_back(fence);
@@ -967,11 +974,25 @@ namespace deren::vulkan {
         }
         VkCommandBuffer const command_buffer = command_pair.second;
 
+        bool reusable = true;
         auto const release_pair = [&]() {
+            if (!reusable) {
+                if (fence)
+                    vkDestroyFence(this->logical_device, fence, nullptr);
+                if (command_pair.first)
+                    vkDestroyCommandPool(this->logical_device, command_pair.first, nullptr);
+                return;
+            }
             std::lock_guard guard(this->cache_mutex);
             this->fence_cache.push_back(fence);
             this->command_cache.push_back(command_pair);
         };
+
+        if (!command_pair.first || !command_buffer || !fence) {
+            reusable = false;
+            release_pair();
+            return false;
+        }
 
         // ONE barrier, recorded into the shared command buffer, submitted and waited for. The host copy
         // between the two calls is NOT a queue operation, so the ordering around it has to be spelled as
@@ -980,7 +1001,6 @@ namespace deren::vulkan {
         auto const submit_barrier = [&](VkImageLayout const old_layout, VkImageLayout const new_layout, VkAccessFlags const src_access, VkAccessFlags const dst_access,
                                         VkPipelineStageFlags const src_stage, VkPipelineStageFlags const dst_stage) {
             VkCommandBufferBeginInfo const begin_info = make_command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-            vkBeginCommandBuffer(command_buffer, &begin_info);
 
             VkImageMemoryBarrier barrier = {};
             barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -995,24 +1015,31 @@ namespace deren::vulkan {
             barrier.srcAccessMask = src_access;
             barrier.dstAccessMask = dst_access;
 
-            vkCmdPipelineBarrier(command_buffer, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-            vkEndCommandBuffer(command_buffer);
-
             VkSubmitInfo const submit_info = make_submit_info(&command_buffer);
-            {
-                // VkQueue is externally synchronized; submits must be serialized
-                std::lock_guard guard(this->queue_mutex);
-                vkQueueSubmit(this->upload_queue, 1, &submit_info, fence);
+            auto result = detail::upload_sequence(
+                [&] { return vkBeginCommandBuffer(command_buffer, &begin_info); },
+                [&] { vkCmdPipelineBarrier(command_buffer, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier); },
+                [&] { return vkEndCommandBuffer(command_buffer); },
+                [&] { std::lock_guard guard(this->queue_mutex); return vkQueueSubmit(this->upload_queue, 1, &submit_info, fence); },
+                [&] { return vkWaitForFences(this->logical_device, 1, &fence, VK_TRUE, UINT64_MAX); },
+                [&] { auto reset = vkResetFences(this->logical_device, 1, &fence); return reset == VK_SUCCESS ? vkResetCommandBuffer(command_buffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT) : reset; });
+            if (result.may_be_pending)
+                deren::utility::fast_panic("image upload wait failed with GPU completion unknown");
+            if (result.status != VK_SUCCESS) {
+                reusable = false;
+                deren::utility::error("image upload barrier failed: {}", static_cast<int32_t>(result.status));
+                return false;
             }
-            vkWaitForFences(this->logical_device, 1, &fence, VK_TRUE, UINT64_MAX);
-            vkResetFences(this->logical_device, 1, &fence);
-            vkResetCommandBuffer(command_buffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
+            return true;
         };
 
         // Step 1: UNDEFINED -> GENERAL, and the transition's target stage is the HOST: the image is not
         // being written by a transfer command any more, it is about to be written BY THE CPU through the
         // extension, so HOST_WRITE (not TRANSFER_WRITE) is the access that has to be made available.
-        submit_barrier(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_ACCESS_HOST_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_HOST_BIT);
+        if (!submit_barrier(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_ACCESS_HOST_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_HOST_BIT)) {
+            release_pair();
+            return false;
+        }
 
         // Step 2: the copy itself, one region per mip. The data is laid out in mip-major order (all layers
         // of mip 0, then all layers of mip 1, ...) exactly as the staging path's VkBufferImageCopy
@@ -1064,7 +1091,10 @@ namespace deren::vulkan {
 
         // Step 3: publish it to the fragment stage (GENERAL -> GENERAL; the barrier is the dependency). The
         // source side is the HOST stage, because that is where the writes came from.
-        submit_barrier(VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_HOST_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        if (!submit_barrier(VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_HOST_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)) {
+            release_pair();
+            return false;
+        }
 
         release_pair();
         return true;
@@ -1147,7 +1177,8 @@ namespace deren::vulkan {
         if (!upload_success) {
             vmaDestroyBuffer(this->allocator, buffer, allocation);
             this->recycle(handle);
-            deren::utility::panic("Failed to upload buffer");
+            deren::utility::error("Failed to upload buffer");
+            return vk_buffer{};
         }
 
         {
@@ -1393,15 +1424,16 @@ namespace deren::vulkan {
     std::pair<VkCommandPool, VkCommandBuffer> vma_allocator::create_command_pair() const {
         VkCommandPoolCreateInfo command_pool_create_info = make_command_pool_info(this->upload_queue_family_index);
 
-        VkCommandPool command_pool;
+        VkCommandPool command_pool = VK_NULL_HANDLE;
         if (vkCreateCommandPool(this->logical_device, &command_pool_create_info, nullptr, &command_pool) != VK_SUCCESS) {
-            deren::utility::panic("Failed to create command pool");
+            return {};
         }
 
-        VkCommandBuffer command_buffer;
+        VkCommandBuffer command_buffer = VK_NULL_HANDLE;
         VkCommandBufferAllocateInfo buffer_allocate_info = make_command_buffer_allocate_info(command_pool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
         if (vkAllocateCommandBuffers(this->logical_device, &buffer_allocate_info, &command_buffer) != VK_SUCCESS) {
-            deren::utility::panic("Failed to create command buffer");
+            vkDestroyCommandPool(this->logical_device, command_pool, nullptr);
+            return {};
         }
         return {command_pool, command_buffer};
     }

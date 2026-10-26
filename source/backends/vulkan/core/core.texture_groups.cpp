@@ -151,6 +151,13 @@ namespace deren::vulkan {
         // The lease cache is keyed by the image alone because the group profile's view is fixed (all mips,
         // one layer, sampled role) - two groups sharing an image therefore share one descriptor slot, which
         // is exactly the sharing the pre-descriptor-space code did.
+        auto const& lazy = static_cast<owned_image const&>(texture);
+        group.lazy_references[index] = depend_on(lazy);
+        if (lazy.source && lazy.state() != rhi::lazy_state::ready) {
+            group.deferred_images[index] = texture.share();
+            group.loading.value.store(rhi::lazy_state::unloaded, std::memory_order_release);
+            return rhi::error::ok;
+        }
         auto& cached = texture_groups.cache[&texture];
         auto lease = cached.lock();
         if (!lease) {
@@ -187,6 +194,7 @@ namespace deren::vulkan {
         group.record.indices[index] = lease->slot;
         group.record.present_mask |= 1u << index;
         group.views[index] = std::move(lease);
+        group.deferred_images[index] = {};
         // THE RECORD IS THE SHADER-FACING HALF of the write: the group table descriptor (slot 32768) points at
         // this buffer, and the pushed token selects the record. Publishing here keeps "one slot written" and
         // "the record that names it" from ever being observed apart.

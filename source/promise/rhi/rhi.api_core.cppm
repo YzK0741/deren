@@ -2013,11 +2013,61 @@ export namespace deren::promise::rhi {
 
     /// Borrowed resource creation interface. Empty products mean creation was refused/failed.
     /// Descriptors are borrowed until return; products retain their existing ownership rules.
+    /// Shared immutable payload. Other aliases must not mutate bytes during the resource lifetime.
+    using lazy_data = std::shared_ptr<deren::utility::vessel::vector<std::uint8_t> const>;
+    enum class lazy_state : std::uint32_t { unloaded,
+                                            loading,
+                                            ready,
+                                            failed };
+    struct lazy_buffer_desc {
+        std::uint32_t struct_size = sizeof(lazy_buffer_desc);
+        buffer_desc resource;
+        lazy_data data;
+    };
+    struct lazy_image_desc {
+        std::uint32_t struct_size = sizeof(lazy_image_desc);
+        image_desc resource;
+        lazy_data data;
+    };
+    [[nodiscard]] inline error validate_lazy_buffer(lazy_buffer_desc const& desc) noexcept {
+        if (desc.struct_size < sizeof(desc) || desc.resource.struct_size < sizeof(buffer_desc) ||
+            !desc.data || desc.data->empty() || !desc.resource.initial_bytes.empty() ||
+            desc.data->size() != desc.resource.size)
+            return error::invalid_argument;
+        switch (desc.resource.usage) {
+        case buffer_usage::vertex:
+        case buffer_usage::index:
+        case buffer_usage::uniform_gpu_only:
+        case buffer_usage::storage_gpu_only:
+            return error::ok;
+        default:
+            return error::unsupported;
+        }
+    }
+    struct lazy_buffer : buffer {
+        using buffer::buffer;
+        [[nodiscard]] virtual lazy_state state() const noexcept = 0;
+        /// Nonblocking: not_ready while loading or retained by a view/binding/recording.
+        /// Source and metadata survive; the next native demand reloads the initial bytes.
+        [[nodiscard]] virtual error unload() noexcept = 0;
+    };
+    struct lazy_image : image {
+        using image::image;
+        [[nodiscard]] virtual lazy_state state() const noexcept = 0;
+        [[nodiscard]] virtual error unload() noexcept = 0;
+    };
+
     struct resource_factory {
         resource_factory() noexcept = default;
         virtual ~resource_factory() noexcept = default;
         resource_factory(resource_factory const&) = delete;
         resource_factory& operator=(resource_factory const&) = delete;
+        [[nodiscard]] virtual std::expected<unique_object<lazy_buffer>, error> create_lazy_buffer(lazy_buffer_desc const&) {
+            return std::unexpected(error::unsupported);
+        }
+        [[nodiscard]] virtual std::expected<unique_object<lazy_image>, error> create_lazy_image(lazy_image_desc const&) {
+            return std::unexpected(error::unsupported);
+        }
         [[nodiscard]] virtual unique_object<buffer> create_buffer(buffer_desc const& desc) = 0;
         [[nodiscard]] virtual unique_object<image> create_image(image_desc const& desc) = 0;
         [[nodiscard]] virtual unique_object<acceleration_structure> create_acceleration_structure(acceleration_structure_desc const& desc) = 0;

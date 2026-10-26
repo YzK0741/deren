@@ -1,4 +1,5 @@
 #include "texture_upload_layout.h"
+#include "upload_sequence.h"
 #include "vk_test.h"
 
 #include <array>
@@ -9,6 +10,22 @@ import deren.utility.shared;
 #include "texture_regions_fixture.h"
 
 int main() {
+    for (int failure = -1; failure <= 5; ++failure) {
+        std::array<unsigned, 6> calls{};
+        auto call = [&](int stage) { ++calls[stage]; return stage == failure ? VK_ERROR_DEVICE_LOST : VK_SUCCESS; };
+        auto result = deren::vulkan::detail::upload_sequence(
+            [&] { return call(0); }, [&] { ++calls[1]; }, [&] { return call(2); },
+            [&] { return call(3); }, [&] { return call(4); }, [&] { return call(5); });
+        CHECK(result.status == ((failure < 0 || failure == 1) ? VK_SUCCESS : VK_ERROR_DEVICE_LOST));
+        CHECK(!result.may_be_pending);
+        if (failure == 3)
+            CHECK(calls[4] == 0 && calls[5] == 0);
+    }
+    auto uncertain = deren::vulkan::detail::upload_sequence(
+        [] { return VK_SUCCESS; }, [] {}, [] { return VK_SUCCESS; }, [] { return VK_SUCCESS; },
+        [] { return VK_ERROR_OUT_OF_HOST_MEMORY; }, [] { return VK_SUCCESS; });
+    CHECK(uncertain.may_be_pending);
+
     using deren::vulkan::detail::packed_image_size;
     struct test_case {
         VkFormat format;

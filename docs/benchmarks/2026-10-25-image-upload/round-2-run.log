@@ -1,0 +1,25 @@
+rgba8 16 layers=1 mips=1 bytes=1024 done
+rgba8 32 layers=1 mips=1 bytes=4096 done
+rgba8 64 layers=1 mips=1 bytes=16384 done
+rgba8 128 layers=1 mips=1 bytes=65536 done
+rgba8 256 layers=1 mips=1 bytes=262144 done
+rgba8 512 layers=1 mips=1 bytes=1048576 done
+rgba8 1024 layers=1 mips=1 bytes=4194304 done
+rgba8 2048 layers=1 mips=1 bytes=16777216 done
+rgba8 4096 layers=1 mips=1 bytes=67108864 done
+rgba8_mips 64 layers=1 mips=7 bytes=21844 done
+rgba8_mips 257 layers=1 mips=9 bytes=351576 done
+rgba8_mips 1024 layers=1 mips=11 bytes=5592404 done
+rgba8_mips 2048 layers=1 mips=12 bytes=22369620 done
+bc7_mips 64 layers=1 mips=7 bytes=5488 done
+bc7_mips 256 layers=1 mips=9 bytes=87408 done
+bc7_mips 1024 layers=1 mips=11 bytes=1398128 done
+bc7_mips 4096 layers=1 mips=13 bytes=22369648 done
+rgba16f 64 layers=1 mips=1 bytes=32768 done
+rgba16f 256 layers=1 mips=1 bytes=524288 done
+rgba16f 1024 layers=1 mips=1 bytes=8388608 done
+rgba16f 2048 layers=1 mips=1 bytes=33554432 done
+rgba8_cube_mips 64 layers=6 mips=7 bytes=131064 done
+rgba8_cube_mips 256 layers=6 mips=9 bytes=2097144 done
+rgba8_cube_mips 1024 layers=6 mips=11 bytes=33554424 done
+verified=384 skipped_iterations=0 cases=24

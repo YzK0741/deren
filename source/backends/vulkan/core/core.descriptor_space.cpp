@@ -31,10 +31,45 @@ namespace deren::vulkan {
             return rhi::error::unsupported;
         if (!fixed_slot(fixed_slots(), info.space, info.slot))
             return rhi::error::invalid_argument;
-        return owner->heap_view.write_image({.offset = static_cast<std::uint64_t>(info.slot) * heap_slot_stride,
-                                             .resource = info.resource,
-                                             .view = info.view,
-                                             .type = info.type});
+        if (!info.resource || !info.view || info.view->struct_size < sizeof(rhi::image_view_desc))
+            return rhi::error::invalid_argument;
+        {
+            std::lock_guard lock(owner->contract_images_mutex);
+            if (!owner->contract_images.contains(info.resource))
+                return rhi::error::invalid_argument;
+        }
+        auto& value = const_cast<owned_image&>(static_cast<owned_image const&>(*info.resource));
+        auto const& view = *info.view;
+        if (view.base_mip >= value.mip_levels || view.base_layer >= value.array_layers ||
+            (view.mip_count && view.mip_count > value.mip_levels - view.base_mip) ||
+            (view.layer_count && view.layer_count > value.array_layers - view.base_layer))
+            return rhi::error::invalid_argument;
+        bool sampled = info.type == rhi::descriptor_type::sampled_image;
+        if (!sampled && info.type != rhi::descriptor_type::storage_image)
+            return rhi::error::unsupported;
+        if (view.role != (sampled ? rhi::view_role::sampled : rhi::view_role::storage) ||
+            !rhi::has_flag(value.declared_flags, sampled ? rhi::image_flag::sampled : rhi::image_flag::storage))
+            return rhi::error::unsupported;
+        if (value.source) {
+            lazy_descriptor saved;
+            saved.image = true;
+            saved.image_write = info;
+            saved.image_write.view = nullptr;
+            saved.view = view;
+            saved.reference = owner->depend_on(value);
+            std::lock_guard lock(owner->lazy_descriptors_mutex);
+            owner->lazy_descriptors[info.slot] = std::move(saved);
+            return rhi::error::ok;
+        }
+        auto status = owner->heap_view.write_image({.offset = static_cast<std::uint64_t>(info.slot) * heap_slot_stride,
+                                                    .resource = info.resource,
+                                                    .view = info.view,
+                                                    .type = info.type});
+        if (status == rhi::error::ok) {
+            std::lock_guard lock(owner->lazy_descriptors_mutex);
+            owner->lazy_descriptors.erase(info.slot);
+        }
+        return status;
     }
     rhi::error core::frame_descriptor_space::write_buffer(rhi::descriptor_buffer_write const& info) noexcept {
         auto checked = rhi::validate_structure(info.header, rhi::structure_type::descriptor_buffer_write, sizeof(info), false);
@@ -47,7 +82,7 @@ namespace deren::vulkan {
         bool const uniform = info.type == rhi::descriptor_type::uniform_buffer;
         if (!uniform && info.type != rhi::descriptor_type::storage_buffer)
             return rhi::error::unsupported;
-        std::lock_guard lock(owner->contract_buffers_mutex);
+        std::unique_lock lock(owner->contract_buffers_mutex);
         if (!owner->contract_buffers.contains(info.resource))
             return rhi::error::invalid_argument;
         auto const& buffer = *static_cast<owned_buffer const*>(info.resource);
@@ -66,14 +101,29 @@ namespace deren::vulkan {
         if ((alignment && info.offset % alignment) || info.size > limit)
             return rhi::error::invalid_argument;
         // This shader profile lowers uniform pointers through StorageBuffer too.
-        auto address = owner->address_view.buffer_address(*info.resource, info.offset);
+        if (buffer.source) {
+            lazy_descriptor saved;
+            saved.buffer_write = info;
+            lock.unlock();
+            saved.reference = owner->depend_on(buffer);
+            std::lock_guard descriptors_lock(owner->lazy_descriptors_mutex);
+            owner->lazy_descriptors[info.slot] = std::move(saved);
+            return rhi::error::ok;
+        }
+        auto address = owner->internal_address(buffer, info.offset);
         if (!address || (properties.limits.minStorageBufferOffsetAlignment && address % properties.limits.minStorageBufferOffsetAlignment) ||
             info.size > properties.limits.maxStorageBufferRange || info.size > UINT64_MAX - address)
             return rhi::error::invalid_argument;
-        return owner->heap_view.write_buffer({.offset = static_cast<std::uint64_t>(info.slot) * heap_slot_stride,
-                                              .address = address,
-                                              .size = info.size,
-                                              .type = rhi::descriptor_type::storage_buffer});
+        auto status = owner->heap_view.write_buffer({.offset = static_cast<std::uint64_t>(info.slot) * heap_slot_stride,
+                                                     .address = address,
+                                                     .size = info.size,
+                                                     .type = rhi::descriptor_type::storage_buffer});
+        lock.unlock();
+        if (status == rhi::error::ok) {
+            std::lock_guard descriptors_lock(owner->lazy_descriptors_mutex);
+            owner->lazy_descriptors.erase(info.slot);
+        }
+        return status;
     }
     rhi::error core::frame_descriptor_space::write_acceleration_structure(rhi::descriptor_acceleration_structure_write const& info) noexcept {
         auto checked = rhi::validate_structure(info.header, rhi::structure_type::descriptor_acceleration_structure_write, sizeof(info), false);
@@ -89,10 +139,15 @@ namespace deren::vulkan {
         auto const& structure = *static_cast<owned_acceleration_structure const*>(info.resource);
         if (structure.owner != owner || !structure.native)
             return rhi::error::invalid_argument;
-        return owner->heap_view.write_buffer({.offset = static_cast<std::uint64_t>(info.slot) * heap_slot_stride,
-                                              .address = structure.device_address(),
-                                              .size = structure.size_bytes(),
-                                              .type = rhi::descriptor_type::acceleration_structure});
+        auto status = owner->heap_view.write_buffer({.offset = static_cast<std::uint64_t>(info.slot) * heap_slot_stride,
+                                                     .address = structure.device_address(),
+                                                     .size = structure.size_bytes(),
+                                                     .type = rhi::descriptor_type::acceleration_structure});
+        if (status == rhi::error::ok) {
+            std::lock_guard descriptors_lock(owner->lazy_descriptors_mutex);
+            owner->lazy_descriptors.erase(info.slot);
+        }
+        return status;
     }
     rhi::error core::frame_descriptor_space::bind(rhi::descriptor_bind_info const& info) noexcept {
         auto checked = rhi::validate_structure(info.header, rhi::structure_type::descriptor_bind, sizeof(info), false);

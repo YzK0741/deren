@@ -634,7 +634,7 @@ namespace {
 
         // the frame's command buffer.
 
-        CHECK(rhi::abi_version == 55u);
+        CHECK(rhi::abi_version == 57u);
 
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
 

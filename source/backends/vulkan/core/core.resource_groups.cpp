@@ -89,6 +89,39 @@ namespace deren::vulkan {
         std::sort(group->entries.begin(), group->entries.end(), [](auto const& a, auto const& b) { return a.binding < b.binding; });
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties(physical_device, &properties);
+        for (auto const& entry : group->entries) {
+            if (!entry.resource.owns_lifetime())
+                return fail(rhi::error::invalid_argument);
+            if (entry.kind == rhi::resource_kind::uniform_buffer || entry.kind == rhi::resource_kind::storage_buffer) {
+                std::unique_lock lock(contract_buffers_mutex);
+                auto found = std::find_if(contract_buffers.begin(), contract_buffers.end(), [&](auto* p) { return static_cast<rhi::object const*>(p) == entry.resource.get(); });
+                if (found == contract_buffers.end())
+                    return fail(rhi::error::invalid_argument);
+                auto const& value = *static_cast<owned_buffer const*>(*found);
+                if (value.source) {
+                    lock.unlock();
+                    group->lazy_references.push_back(depend_on(value));
+                    group->deferred |= value.state() != rhi::lazy_state::ready;
+                }
+            } else if (entry.kind == rhi::resource_kind::sampled_image || entry.kind == rhi::resource_kind::storage_image) {
+                std::unique_lock lock(contract_images_mutex);
+                auto found = std::find_if(contract_images.begin(), contract_images.end(), [&](auto* p) { return static_cast<rhi::object const*>(p) == entry.resource.get(); });
+                if (found == contract_images.end())
+                    return fail(rhi::error::invalid_argument);
+                auto const& value = *static_cast<owned_image const*>(*found);
+                if (value.source) {
+                    lock.unlock();
+                    group->lazy_references.push_back(depend_on(value));
+                    group->deferred |= value.state() != rhi::lazy_state::ready;
+                }
+            } else if (entry.kind == rhi::resource_kind::texture_group) {
+                std::lock_guard lock(texture_groups.mutex);
+                if (!texture_groups.tokens_by_group.contains(static_cast<rhi::texture_group const*>(entry.resource.get())))
+                    return fail(rhi::error::invalid_argument);
+                auto const& value = *static_cast<owned_texture_group const*>(entry.resource.get());
+                group->deferred |= std::any_of(value.deferred_images.begin(), value.deferred_images.end(), [](auto const& p) { return bool(p); });
+            }
+        }
         for (std::size_t index = 0; index < group->entries.size(); ++index) {
             auto const& entry = group->entries[index];
             if (!entry.resource.owns_lifetime() || entry.kind > rhi::resource_kind::acceleration_structure ||
@@ -129,10 +162,10 @@ namespace deren::vulkan {
                 auto limit = uniform ? properties.limits.maxUniformBufferRange : properties.limits.maxStorageBufferRange;
                 if (size > owned.size_bytes - entry.offset || size > limit || (alignment && entry.offset % alignment))
                     return fail(rhi::error::invalid_argument);
-                address = address_view.buffer_address(*buffer, entry.offset);
+                address = internal_address(owned, entry.offset);
                 // Uniforms lower to native storage descriptors; satisfy both sets of constraints.
-                if (!address || address % properties.limits.minStorageBufferOffsetAlignment ||
-                    size > properties.limits.maxStorageBufferRange || size > UINT64_MAX - address)
+                if ((!group->deferred && !address) || (address && address % properties.limits.minStorageBufferOffsetAlignment) ||
+                    size > properties.limits.maxStorageBufferRange || (address && size > UINT64_MAX - address))
                     return fail(rhi::error::invalid_argument);
                 // Heap ConstantBuffer is an OpBufferPointerEXT StorageBuffer in the current shader ABI.
                 type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -144,6 +177,16 @@ namespace deren::vulkan {
                 if (std::none_of(contract_images.begin(), contract_images.end(),
                                  [resource](auto* item) { return static_cast<rhi::object const*>(item) == resource; }))
                     return fail(rhi::error::invalid_argument);
+                auto const& image = *static_cast<owned_image const*>(resource);
+                auto const& view = entry.view;
+                bool sampled = entry.kind == rhi::resource_kind::sampled_image;
+                if (view.struct_size < sizeof(view) || view.base_mip >= image.mip_levels || view.base_layer >= image.array_layers ||
+                    (view.mip_count && view.mip_count > image.mip_levels - view.base_mip) ||
+                    (view.layer_count && view.layer_count > image.array_layers - view.base_layer))
+                    return fail(rhi::error::invalid_argument);
+                if (view.role != (sampled ? rhi::view_role::sampled : rhi::view_role::storage) ||
+                    !rhi::has_flag(image.declared_flags, sampled ? rhi::image_flag::sampled : rhi::image_flag::storage))
+                    return fail(rhi::error::unsupported);
                 break;
             }
             case rhi::resource_kind::sampler:
@@ -168,6 +211,10 @@ namespace deren::vulkan {
             }
             default:
                 return fail(rhi::error::invalid_argument);
+            }
+            if (group->deferred) {
+                group->values.push_back(0);
+                continue;
             }
             bool sampler = entry.kind == rhi::resource_kind::sampler;
             VkDeviceSize offset;
@@ -198,7 +245,7 @@ namespace deren::vulkan {
             } else if (entry.kind == rhi::resource_kind::sampled_image || entry.kind == rhi::resource_kind::storage_image) {
                 auto type = entry.kind == rhi::resource_kind::sampled_image ? rhi::descriptor_type::sampled_image : rhi::descriptor_type::storage_image;
                 rhi::heap_image_write_info info{.offset = offset, .resource = static_cast<rhi::image const*>(resource), .view = &entry.view, .type = type};
-                auto status = heap_view.write_image(info);
+                auto status = heap_view.write_image_native(info, true);
                 if (status != rhi::error::ok)
                     return fail(status);
             } else if (!address || !descriptor_heaps.write_buffer(offset, address, size, type))

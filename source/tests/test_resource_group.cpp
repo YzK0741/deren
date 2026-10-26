@@ -1,10 +1,14 @@
+#include "../backends/vulkan/core/lazy_loading.h"
 #include "vk_test.h"
 
 #include <array>
+#include <atomic>
 #include <cstring>
 #include <fstream>
+#include <latch>
 #include <span>
 #include <string_view>
+#include <thread>
 #include <vector>
 #include <vulkan/vulkan.h>
 import deren.utility.shared;
@@ -14,6 +18,8 @@ import deren.vulkan.main_context;
 import deren.vulkan.command_buffer;
 namespace rhi = deren::promise::rhi;
 #include "buffer_creation_contract.hpp"
+#include "lazy_loading_contract.hpp"
+#include "lazy_resource_contract.hpp"
 #include "recording_scope_contract.hpp"
 
 struct queue_gate {
@@ -66,6 +72,28 @@ struct queue_gate {
 };
 
 int main(int argc, char** argv) {
+    check_lazy_loading_contract();
+
+    using bytes = deren::utility::vessel::vector<std::uint8_t>;
+    auto lazy_source = std::make_shared<bytes const>(16, std::uint8_t{7});
+    rhi::lazy_buffer_desc lazy_desc{.resource = {.size = 16, .usage = rhi::buffer_usage::vertex}, .data = lazy_source};
+    CHECK(rhi::validate_lazy_buffer(lazy_desc) == rhi::error::ok);
+    lazy_desc.resource.size = 15;
+    CHECK(rhi::validate_lazy_buffer(lazy_desc) == rhi::error::invalid_argument);
+    lazy_desc.resource.size = 16;
+    lazy_desc.data.reset();
+    CHECK(rhi::validate_lazy_buffer(lazy_desc) == rhi::error::invalid_argument);
+    lazy_desc.data = lazy_source;
+    lazy_desc.resource.usage = rhi::buffer_usage::uniform_coherent;
+    CHECK(rhi::validate_lazy_buffer(lazy_desc) == rhi::error::unsupported);
+    lazy_desc.resource.usage = rhi::buffer_usage::vertex;
+    lazy_desc.resource.initial_bytes = std::as_bytes(std::span(*lazy_source));
+    CHECK(rhi::validate_lazy_buffer(lazy_desc) == rhi::error::invalid_argument);
+    lazy_desc.resource.initial_bytes = {};
+    lazy_desc.resource.struct_size = 0;
+    CHECK(rhi::validate_lazy_buffer(lazy_desc) == rhi::error::invalid_argument);
+    static_assert(std::is_base_of_v<rhi::buffer, rhi::lazy_buffer>);
+    static_assert(std::is_base_of_v<rhi::image, rhi::lazy_image>);
     using kind = rhi::resource_kind;
     std::array layout{
         rhi::resource_group_binding{10, kind::storage_buffer, 0, 4},
@@ -102,6 +130,7 @@ int main(int argc, char** argv) {
     if (!core)
         return deren::vk_test::finish("test_resource_group");
     deren::vk_test::check_buffer_creation_contract(*core);
+    check_lazy_resource_contract(*core);
     deren::vk_test::check_recording_scope_contract(*core);
     std::array<std::byte, 16> unsupported_upload{};
     for (auto usage : {rhi::buffer_usage::storage_gpu_only, rhi::buffer_usage::acceleration_structure_storage, rhi::buffer_usage::acceleration_structure_scratch})
@@ -112,6 +141,46 @@ int main(int argc, char** argv) {
     CHECK(completion && push_capabilities);
     if (!completion || !push_capabilities)
         return deren::vk_test::finish("test_resource_group");
+    {
+        auto source = std::make_shared<bytes const>(16, std::uint8_t{19});
+        auto value = core->resources->create_lazy_buffer({.resource = {.size = 16, .usage = rhi::buffer_usage::vertex}, .data = source});
+        CHECK(value);
+        if (value) {
+            auto retained = core->commands->create_command_buffer({});
+            CHECK(retained->begin_recording({}) == rhi::error::ok);
+            rhi::buffer_barrier barrier{.resource = value->get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::shader_read};
+            CHECK(retained->barrier({.buffers = std::span(&barrier, 1)}) == rhi::error::ok);
+            CHECK(retained->end_recording() == rhi::error::ok);
+            auto& context = static_cast<deren::vulkan::main_context&>(*core->main_context());
+            queue_gate gate(context.device, context.graphics_queue);
+            auto token = completion->submit(*retained);
+            CHECK(token);
+            if (token && gate.armed) {
+                CHECK(completion->poll(*token) == rhi::error::not_ready);
+                CHECK((*value)->unload() == rhi::error::not_ready);
+            }
+            gate.release();
+            if (token)
+                CHECK(completion->wait(*token, UINT64_MAX) == rhi::error::ok);
+            CHECK((*value)->unload() == rhi::error::not_ready); // reusable recording still owns the allocation
+            CHECK(retained->begin_recording({}) == rhi::error::ok);
+            CHECK((*value)->unload() == rhi::error::ok);
+            CHECK(retained->barrier({.buffers = std::span(&barrier, 1)}) == rhi::error::ok);
+            CHECK(retained->end_recording() == rhi::error::ok);
+            queue_gate pending_gate(context.device, context.graphics_queue);
+            auto pending_token = completion->submit(*retained);
+            CHECK(pending_token);
+            retained.reset(); // pending submission alone must retain the physical allocation
+            if (pending_token && pending_gate.armed) {
+                CHECK(completion->poll(*pending_token) == rhi::error::not_ready);
+                CHECK((*value)->unload() == rhi::error::not_ready);
+            }
+            pending_gate.release();
+            if (pending_token)
+                CHECK(completion->wait(*pending_token, UINT64_MAX) == rhi::error::ok);
+            CHECK((*value)->unload() == rhi::error::ok);
+        }
+    }
     auto const push_capacity = push_capabilities->max_push_constants_size();
     CHECK(push_capacity >= 4 && (push_capacity & 3u) == 0);
     if (push_capacity < 4)
@@ -183,16 +252,26 @@ int main(int argc, char** argv) {
     auto make_buffer = [&](rhi::buffer_usage usage, std::uint64_t size) {
         return rhi::shared_object<rhi::buffer>(core->resources->create_buffer({.size = size, .usage = usage, .flags = rhi::to_bits(rhi::buffer_flag::device_address)}));
     };
-    auto input = make_buffer(rhi::buffer_usage::storage_coherent, 256);
+    bool lazy_mode = argc > 2 && std::string_view(argv[2]) == "--lazy";
+    auto make_lazy_buffer = [&](rhi::buffer_usage usage, std::uint8_t first) {
+        auto mutable_source = std::make_shared<bytes>(256, std::uint8_t{0});
+        (*mutable_source)[0] = first;
+        auto made = core->resources->create_lazy_buffer({.resource = {.size = 256, .usage = usage, .flags = rhi::to_bits(rhi::buffer_flag::device_address)}, .data = mutable_source});
+        CHECK(made);
+        return made ? rhi::shared_object<rhi::buffer>(std::move(*made)) : rhi::shared_object<rhi::buffer>{};
+    };
+    auto input = lazy_mode ? make_lazy_buffer(rhi::buffer_usage::storage_gpu_only, 73) : make_buffer(rhi::buffer_usage::storage_coherent, 256);
     auto output = make_buffer(rhi::buffer_usage::storage_coherent, 256);
-    auto uniform = make_buffer(rhi::buffer_usage::uniform_coherent, 256);
+    auto uniform = lazy_mode ? make_lazy_buffer(rhi::buffer_usage::uniform_gpu_only, 41) : make_buffer(rhi::buffer_usage::uniform_coherent, 256);
     CHECK(input && output && uniform);
     if (!input || !output || !uniform)
         return deren::vk_test::finish("test_resource_group");
     std::uint32_t value = 73;
-    std::memcpy(input->mapped().data(), &value, 4);
+    if (!lazy_mode)
+        std::memcpy(input->mapped().data(), &value, 4);
     value = 41;
-    std::memcpy(uniform->mapped().data(), &value, 4);
+    if (!lazy_mode)
+        std::memcpy(uniform->mapped().data(), &value, 4);
     std::memset(output->mapped().data(), 0, 256);
     std::uint32_t pixel = 0xff0000ff;
     rhi::image_desc image_desc{};
@@ -200,7 +279,17 @@ int main(int argc, char** argv) {
     image_desc.format = rhi::image_format::rgba8_unorm;
     image_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
     image_desc.initial_bytes = std::as_bytes(std::span(&pixel, 1));
-    rhi::shared_object<rhi::image> image(core->resources->create_image(image_desc));
+    rhi::shared_object<rhi::image> image;
+    if (lazy_mode) {
+        image_desc.initial_bytes = {};
+        auto pixels = std::make_shared<bytes>(4, std::uint8_t{0});
+        std::memcpy(pixels->data(), &pixel, 4);
+        auto made = core->resources->create_lazy_image({.resource = image_desc, .data = pixels});
+        CHECK(made);
+        if (made)
+            image = rhi::shared_object<rhi::image>(std::move(*made));
+    } else
+        image = rhi::shared_object<rhi::image>(core->resources->create_image(image_desc));
     image_desc.initial_bytes = {};
     bool const storage_readback_available = rhi::query_extension<rhi::host_image_copy>(*core) != nullptr;
     image_desc.flags = rhi::to_bits(rhi::image_flag::storage) | (storage_readback_available ? rhi::to_bits(rhi::image_flag::host_transfer) : 0u);
@@ -210,10 +299,26 @@ int main(int argc, char** argv) {
     CHECK(image && storage && sampler);
     if (!image || !storage || !sampler)
         return deren::vk_test::finish("test_resource_group");
+    if (lazy_mode) {
+        auto warmup = core->commands->create_command_buffer({});
+        CHECK(warmup->begin_recording({}) == rhi::error::ok);
+        std::array initial_buffers{
+            rhi::buffer_barrier{.resource = input.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::shader_read},
+            rhi::buffer_barrier{.resource = uniform.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::shader_read}};
+        CHECK(warmup->barrier({.buffers = initial_buffers}) == rhi::error::ok);
+        CHECK(warmup->barrier(rhi::image_barrier{.resource = image.get(), .from = rhi::image_use::shader_write, .to = rhi::image_use::shader_read}) == rhi::error::ok);
+        CHECK(warmup->end_recording() == rhi::error::ok);
+        warmup.reset();
+        CHECK(static_cast<rhi::lazy_buffer*>(input.get())->unload() == rhi::error::ok);
+        CHECK(static_cast<rhi::lazy_buffer*>(uniform.get())->unload() == rhi::error::ok);
+        CHECK(static_cast<rhi::lazy_image*>(image.get())->unload() == rhi::error::ok);
+    }
     rhi::texture_group_info textures{};
     textures.textures[0] = image.get();
     rhi::error status = rhi::error::operation_failed;
     auto texture_group = core->resources->assign_texture_group(textures, &status);
+    if (lazy_mode)
+        CHECK(static_cast<rhi::lazy_image*>(image.get())->state() == rhi::lazy_state::unloaded);
     CHECK(texture_group && status == rhi::error::ok);
     if (!texture_group)
         return deren::vk_test::finish("test_resource_group");

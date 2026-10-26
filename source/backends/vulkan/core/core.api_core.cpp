@@ -937,6 +937,10 @@ namespace deren::vulkan {
     }
 
     rhi::error core::frame_heap::write_image(rhi::heap_image_write_info const& info) noexcept {
+        return write_image_native(info, false);
+    }
+
+    rhi::error core::frame_heap::write_image_native(rhi::heap_image_write_info const& info, bool tracked) noexcept {
         rhi::error const checked = rhi::validate_structure(info.header, rhi::structure_type::heap_image_write, sizeof(info), false);
         if (checked != rhi::error::ok) {
             return checked;
@@ -964,6 +968,8 @@ namespace deren::vulkan {
             }
         }
         auto const& image = *rhi::do_concrete<owned_image>(*info.resource, concrete::image);
+        if (image.source && (!tracked || image.state() != rhi::lazy_state::ready))
+            return rhi::error::unsupported;
         auto const& range = *info.view;
         if (range.base_layer >= image.array_layers || range.base_mip >= image.mip_levels) {
             return rhi::error::invalid_argument;
@@ -1031,6 +1037,8 @@ namespace deren::vulkan {
         }
         if (auto result = recorded->apply_operations(); result != rhi::error::ok)
             return result;
+        if (auto prepared = this->owner->prepare_lazy_descriptors(*recorded); prepared != rhi::error::ok)
+            return prepared;
         this->owner->descriptor_heaps.record_bind(recorded->native());
         return rhi::error::ok;
     }
@@ -1127,6 +1135,10 @@ namespace deren::vulkan {
             return &this->shader_groups_view;
         }
         return nullptr;
+    }
+
+    VkFormat core::resolve_format(rhi::image_format format) const noexcept {
+        return native_image_format(format, depth_attachment_format);
     }
 
     rhi::buffer* core::create_buffer_raw(rhi::buffer_desc const& desc) {
@@ -1305,6 +1317,8 @@ namespace deren::vulkan {
     }
 
     void core::owned_buffer::release() noexcept {
+        if (references.fetch_sub(1, std::memory_order_acq_rel) != 1)
+            return;
         if (this->owner != nullptr) {
             std::lock_guard const lock(this->owner->contract_buffers_mutex);
             this->owner->contract_buffers.erase(this);
@@ -1465,6 +1479,10 @@ namespace deren::vulkan {
         // image does not have is refused, not clamped - a clamped view would sample the wrong mip and
         // say nothing.
         rhi::image_view_desc const desc = sanitize_image_view_desc(declared_desc);
+        if (source && (desc.base_layer >= array_layers || desc.base_mip >= mip_levels ||
+                       (desc.layer_count && desc.layer_count > array_layers - desc.base_layer) ||
+                       (desc.mip_count && desc.mip_count > mip_levels - desc.base_mip)))
+            return nullptr;
         uint32_t const layers = desc.layer_count == 0 ? this->array_layers - desc.base_layer : desc.layer_count;
         uint32_t const mips = desc.mip_count == 0 ? this->mip_levels - desc.base_mip : desc.mip_count;
         if (desc.base_layer >= this->array_layers || layers == 0 || desc.base_layer + layers > this->array_layers) {
@@ -1494,7 +1512,7 @@ namespace deren::vulkan {
         if (whole_cube) {
             view_type = VK_IMAGE_VIEW_TYPE_CUBE;
         }
-        VkImageViewCreateInfo const base_info = make_image_view_info(this->native_handle,
+        VkImageViewCreateInfo const base_info = make_image_view_info(this->source ? VK_NULL_HANDLE : this->native_handle,
                                                                      this->resolved_format,
                                                                      view_type, aspect, mips, layers);
         // make_image_view_info always bases at 0; the contract's desc carries the base explicitly.
@@ -1505,8 +1523,15 @@ namespace deren::vulkan {
         view_info.subresourceRange.layerCount = layers;
 
         auto answer = std::make_unique<owned_image_view>();
+        answer->description = desc;
         answer->parent_image = this->share();
         answer->device = this->owner->logical_device;
+        if (this->source) {
+            answer->lazy_reference = owner->depend_on(*this);
+            if (desc.role != rhi::view_role::sampled)
+                return nullptr;
+            return rhi::unique_object<rhi::image_view>{answer.release()};
+        }
         VkImageView handle = VK_NULL_HANDLE;
         if (vkCreateImageView(this->owner->logical_device, &view_info, nullptr, &handle) != VK_SUCCESS || handle == VK_NULL_HANDLE) {
             deren::utility::log("rhi: make_view refused: vkCreateImageView failed");
@@ -2341,6 +2366,7 @@ namespace deren::vulkan {
             secondary_refs.clear();
             group_refs.clear();
             resource_refs.clear();
+            lazy_refs.clear();
             executable = false;
             reset_operations();
             rendering_active = (flags & VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT) != 0;
@@ -2436,6 +2462,7 @@ namespace deren::vulkan {
             secondary_refs.clear();
             group_refs.clear();
             resource_refs.clear();
+            lazy_refs.clear();
             executable = false;
             reset_operations();
             rendering_active = (flags & VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT) != 0;
@@ -3140,7 +3167,8 @@ namespace deren::vulkan {
                 format = self->swap_chain_image_format;
                 return rhi::error::ok;
             }
-            std::lock_guard const lock(self->contract_images_mutex);
+
+            std::unique_lock registry_lock(self->contract_images_mutex);
             if (self->frame_snapshots.contains(resource)) {
                 auto const& snapshot = *static_cast<frame_snapshot const*>(resource);
                 // Like scoped synchronization, frame targets belong only to the acquired primary.
@@ -3151,11 +3179,11 @@ namespace deren::vulkan {
                 format = self->swap_chain_image_format;
                 return rhi::error::ok;
             }
-            if (!self->contract_images.contains(resource)) {
+            if (!self->contract_images.contains(resource))
                 return rhi::error::invalid_argument;
-            }
+            registry_lock.unlock();
             auto const* const owned = rhi::do_concrete<owned_image>(*resource, concrete::image);
-            native = owned->native_handle;
+            native = owned->source ? VK_NULL_HANDLE : owned->native_handle;
             format = owned->resolved_format;
             return rhi::error::ok;
         };
@@ -3185,6 +3213,18 @@ namespace deren::vulkan {
             if (rhi::error const checked = resolve_image(one.resource, native, format); checked != rhi::error::ok) {
                 return checked;
             }
+            bool registered;
+            {
+                std::lock_guard lock(self->contract_images_mutex);
+                registered = self->contract_images.contains(one.resource);
+            }
+            if (registered) {
+                auto const& image = *static_cast<owned_image const*>(one.resource);
+                if (image.source && (one.range.base_mip >= image.mip_levels || one.range.base_layer >= image.array_layers ||
+                                     (one.range.mip_count && one.range.mip_count > image.mip_levels - one.range.base_mip) ||
+                                     (one.range.layer_count && one.range.layer_count > image.array_layers - one.range.base_layer)))
+                    return rhi::error::invalid_argument;
+            }
             VkImageMemoryBarrier2 barrier = barrier_for(one.from, one.to);
             if (barrier.srcStageMask == 0 && barrier.srcAccessMask == 0 && barrier.dstStageMask == 0 && barrier.dstAccessMask == 0) {
                 return rhi::error::unsupported; // a pair nobody has defined - the same honest answer `use()` gives
@@ -3206,7 +3246,14 @@ namespace deren::vulkan {
             if (one.resource == nullptr || !rhi::is_concrete(*one.resource, concrete::buffer)) {
                 return rhi::error::invalid_argument;
             }
+            {
+                std::lock_guard lock(owner->contract_buffers_mutex);
+                if (!owner->contract_buffers.contains(one.resource))
+                    return rhi::error::invalid_argument;
+            }
             auto const* const owned = static_cast<owned_buffer const*>(one.resource);
+            if (one.offset >= owned->size_bytes || (one.size && one.size > owned->size_bytes - one.offset))
+                return rhi::error::invalid_argument;
             VkPipelineStageFlags2 source_stage = 0;
             VkAccessFlags2 source_access = 0;
             VkPipelineStageFlags2 destination_stage = 0;
@@ -3223,7 +3270,7 @@ namespace deren::vulkan {
                 .dstAccessMask = destination_access,
                 .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .buffer = owned->native,
+                .buffer = owned->source ? VK_NULL_HANDLE : owned->native,
                 .offset = one.offset,
                 .size = one.size == 0 ? (owned->size_bytes - one.offset) : one.size,
             };
@@ -3288,6 +3335,27 @@ namespace deren::vulkan {
                 .dstStageMask = memory_destination_stage,
                 .dstAccessMask = memory_destination_access,
             };
+        }
+        // Validation is complete; only now may native-resource demand allocate or upload.
+        for (std::size_t i = 0; i < group.images.size(); ++i) {
+            auto* resource = group.images[i].resource;
+            bool registered;
+            {
+                std::lock_guard lock(owner->contract_images_mutex);
+                registered = owner->contract_images.contains(resource);
+            }
+            if (!registered)
+                continue; // borrowed frame target
+            auto ready = demand(*resource);
+            if (ready != rhi::error::ok)
+                return ready;
+            image_barriers[i].image = static_cast<owned_image const*>(resource)->native_handle;
+        }
+        for (std::size_t i = 0; i < group.buffers.size(); ++i) {
+            auto ready = demand(*group.buffers[i].resource);
+            if (ready != rhi::error::ok)
+                return ready;
+            buffer_barriers[i].buffer = static_cast<owned_buffer const*>(group.buffers[i].resource)->native;
         }
         VkDependencyInfo const dependency = {
             .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
@@ -3487,6 +3555,7 @@ namespace deren::vulkan {
         auto const* const owned = static_cast<owned_buffer const*>(&handle);
         if (owned->owner != owner || offset >= owned->size_bytes)
             return rhi::error::invalid_argument;
+        retain_lazy(*owned);
         operations.append<rec::operation_kind::vertex>({reinterpret_cast<std::uintptr_t>(owned), owned->identity, offset});
         ++owner->deferred_requested;
         return rhi::error::ok;
@@ -3517,6 +3586,7 @@ namespace deren::vulkan {
         if ((type != rhi::index_type::uint16 && type != rhi::index_type::uint32) ||
             offset % (type == rhi::index_type::uint32 ? 4 : 2))
             return rhi::error::invalid_argument;
+        retain_lazy(*owned);
         operations.append<rec::operation_kind::index>({reinterpret_cast<std::uintptr_t>(owned), owned->identity, offset, static_cast<std::uint64_t>(type)});
         ++owner->deferred_requested;
         return rhi::error::ok;
@@ -4461,6 +4531,8 @@ namespace deren::vulkan {
             }
             auto const* const source_owned = rhi::do_concrete<owned_image>(*copy.source, concrete::image);
             auto const* const destination_owned = rhi::do_concrete<owned_image>(*copy.destination, concrete::image);
+            if (source_owned->source || destination_owned->source)
+                return rhi::error::unsupported;
             source_native = source_owned->native_handle;
             source_format = source_owned->resolved_format;
             destination_native = destination_owned->native_handle;
@@ -4512,6 +4584,8 @@ namespace deren::vulkan {
         }
         auto const* const destination_owned = static_cast<owned_buffer const*>(&destination);
         auto const* const source_owned = static_cast<owned_buffer const*>(&source);
+        if (destination_owned->source || source_owned->source)
+            return rhi::error::unsupported;
         // ABI 53: reject an empty copy or an overrun instead of handing it to vkCmdCopyBuffer2.
         if (size == 0u || source_offset > source_owned->size_bytes || size > source_owned->size_bytes - source_offset ||
             destination_offset > destination_owned->size_bytes || size > destination_owned->size_bytes - destination_offset) {
@@ -4554,6 +4628,8 @@ namespace deren::vulkan {
             return rhi::error::invalid_argument;
         }
         auto const* const owned = static_cast<owned_image const*>(&target);
+        if (owned->source)
+            return rhi::error::unsupported;
         VkClearColorValue const clear = {.float32 = {color[0], color[1], color[2], color[3]}};
         VkImageSubresourceRange const native_range = subresource_of(VK_IMAGE_ASPECT_COLOR_BIT, range);
         vkCmdClearColorImage(command_buffer, owned->native_handle, VK_IMAGE_LAYOUT_GENERAL, &clear, 1, &native_range);
@@ -4572,7 +4648,7 @@ namespace deren::vulkan {
         // for a buffer this device created in the first place. So: a `static_cast` on a documented
         // precondition, not a hopeful assumption.
         auto const* const owned = static_cast<owned_buffer const*>(&resource);
-        if (this->owner == nullptr || !owned->addressable) {
+        if (this->owner == nullptr || !owned->addressable || owned->source) {
             // ASKED FOR NOTHING, GET NOTHING: a buffer created without `buffer_flag::device_address` has
             // no address to report (Vulkan only allows the call for a buffer created with that usage),
             // and 0 is the contract's spelling of "none" - the module's own guard, not a failure.
@@ -4746,6 +4822,8 @@ namespace deren::vulkan {
             return rhi::error::invalid_argument;
         }
         auto const* const owned = static_cast<owned_image const*>(&source);
+        if (owned->source)
+            return rhi::error::unsupported;
         if (owned->native_handle == VK_NULL_HANDLE) {
             return rhi::error::invalid_argument;
         }
@@ -4754,6 +4832,8 @@ namespace deren::vulkan {
 
     // ---- image::get_content (abi 25): THE CONTENT, NOT A HANDLE --------------------------------------
     std::expected<rhi::image_content, rhi::error> core::owned_image::get_content(rhi::image_copy_region const& region) const {
+        if (source)
+            return std::unexpected(rhi::error::unsupported);
         core* const self = this->owner;
         if (self == nullptr || this->native_handle == VK_NULL_HANDLE) {
             return std::unexpected(rhi::error::invalid_argument);
@@ -4960,6 +5040,7 @@ namespace deren::vulkan {
             submission->primary = retain_command(owned, false);
             submission->groups = owned.group_refs;
             submission->resources = owned.resource_refs;
+            submission->lazy_refs = owned.lazy_refs;
             submission->secondaries = owned.secondary_refs;
             std::lock_guard lock(submissions_mutex);
             if (token) {

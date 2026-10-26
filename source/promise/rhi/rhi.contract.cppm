@@ -429,7 +429,9 @@ export namespace deren::promise::rhi {
     // ABI 54: remove incomplete query/swapchain factories and the unused mesh_shader extension.
     // Retired extension bits retain their numeric identity and are never reused.
     // ABI 55: logical fixed-slot descriptor writes and binding on descriptor_space.
-    inline constexpr std::uint32_t abi_version = 55u;
+    // ABI 56: shared uint8_t sources, lazy resources and resource_factory lazy creation verbs.
+    // ABI 57: explicit nonblocking lazy buffer/image unload.
+    inline constexpr std::uint32_t abi_version = 57u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
