@@ -452,6 +452,7 @@ namespace deren::engine {
         // after this constructor returns - creating them here would freeze the count at its default.
         // Setup can leave these empty. The first frame prepares them before updating light
         // buffers or publishing resources, even when no geometry was imported.
+        this->start_texture_upload_worker();
     }
 
     // The destructor body runs before member destruction, so vulkan_core (and the VkDevice it
@@ -461,6 +462,8 @@ namespace deren::engine {
     // destroys it before this runtime goes away (its leaves release GPU buffers through the vma
     // allocator while it is still alive), so no tree teardown happens here.
     runtime::~runtime() {
+        // The upload worker may be inside a backend host copy; stop it before any device teardown.
+        this->stop_texture_upload_worker();
         // (no vma statistics log here: the accounting moved to the backend's own lifecycle point -
         // the allocator's teardown logs what the session held, which is where that decision belongs)
         // Wait for the GPU to finish BEFORE releasing anything below: the last submitted frame

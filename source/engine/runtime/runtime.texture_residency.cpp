@@ -145,6 +145,70 @@ namespace deren::engine {
         prepared_visible = std::move(visible);
         prepared_selection_aspect = aspect;
         prepared_selection_ready = cpu_frame_prep_enabled;
+        schedule_texture_prefetch();
+    }
+
+    void runtime::start_texture_upload_worker() {
+        if (this->upload_worker.joinable())
+            return;
+        this->upload_worker = std::jthread([this]() {
+            for (;;) {
+                rhi::shared_object<rhi::lazy_image> image;
+                {
+                    std::unique_lock lock(this->upload_queue_mutex);
+                    this->upload_queue_cv.wait(lock, [this]() {
+                        return this->upload_worker_stopping || !this->upload_queue.empty();
+                    });
+                    if (this->upload_worker_stopping && this->upload_queue.empty())
+                        return;
+                    image = std::move(this->upload_queue.back());
+                    this->upload_queue.pop_back();
+                }
+                if (image) {
+                    if (image->state() == rhi::lazy_state::unloaded)
+                        static_cast<void>(image->prepare());
+                    std::lock_guard lock(this->upload_queue_mutex);
+                    this->upload_inflight.erase(image.get());
+                }
+            }
+        });
+    }
+
+    void runtime::stop_texture_upload_worker() {
+        {
+            std::lock_guard lock(this->upload_queue_mutex);
+            this->upload_worker_stopping = true;
+        }
+        this->upload_queue_cv.notify_all();
+        if (this->upload_worker.joinable())
+            this->upload_worker.join();
+    }
+
+    void runtime::schedule_texture_prefetch() {
+        if (!this->texture_streaming.enabled || !this->cpu_texture_feedback_ready || this->streamed_textures.empty())
+            return;
+        utility::vessel::vector<std::uint8_t> pinned(this->streamed_textures.size(), 0);
+        for (std::size_t i = 0; i < pinned.size(); ++i)
+            if (this->streamed_textures[i].pinned)
+                pinned[i] = 1;
+        auto required = texture_residency::demand(this->cpu_texture_feedback, this->material_texture_edges, pinned);
+        if (!required)
+            return;
+        bool queued = false;
+        {
+            std::lock_guard lock(this->upload_queue_mutex);
+            for (std::size_t i = 0; i < this->streamed_textures.size(); ++i) {
+                auto& entry = this->streamed_textures[i];
+                if (!entry.image || (*required)[i] == 0 || entry.image->state() != rhi::lazy_state::unloaded)
+                    continue;
+                if (!this->upload_inflight.insert(entry.image.get()).second)
+                    continue;
+                this->upload_queue.push_back(entry.image);
+                queued = true;
+            }
+        }
+        if (queued)
+            this->upload_queue_cv.notify_one();
     }
 
     rhi::error runtime::update_texture_residency(bool all) {
@@ -193,6 +257,18 @@ namespace deren::engine {
                 else if (result != rhi::error::ok)
                     return result;
                 continue;
+            }
+            if (wanted) {
+                // The prefetch worker overlaps the upload with the previous GPU frame. If it has not
+                // finished by the time this frame must publish the texture, wait for it here rather
+                // than ever sampling an unloaded image.
+                auto state = entry.image->state();
+                if (state == rhi::lazy_state::unloaded || state == rhi::lazy_state::loading) {
+                    if (auto prepared = entry.image->prepare(); prepared != rhi::error::ok)
+                        return prepared;
+                } else if (state == rhi::lazy_state::failed) {
+                    return entry.image->prepare();
+                }
             }
             if (entry.published != wanted) {
                 auto* image = wanted ? entry.image.get() : owned_textures[white_texture_index].get();

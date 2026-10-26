@@ -27,11 +27,16 @@
 module;
 
 #include <chrono>
+#include <condition_variable>
 #include <fstream>
 #include <future>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <memory> // std::shared_ptr: the engine's OWN owners (generations, caches); RHI handles use rhi::unique_object/shared_object
+#include <mutex>
+#include <thread>
+#include <unordered_set>
+#include <vector>
 
 // THE GUI PLUGIN'S BOUNDARY (plan X2): the runtime holds a deren::gui::overlay, which lives in a
 // deren_gui_<api>.dll the loader resolves by name. In the GLOBAL MODULE FRAGMENT because the header
@@ -500,6 +505,19 @@ namespace deren::engine {
             bool pinned = false, published = false;
         };
         deren::utility::vessel::vector<streamed_texture> streamed_textures;
+        // Background lazy-texture upload: prepare_texture_demand() fills the queue; the worker calls
+        // lazy_image::prepare() while the GPU executes the previous frame. update_texture_residency()
+        // still synchronously waits for an unfinished upload before recording, so a missing texture can
+        // never reach shading.
+        std::mutex upload_queue_mutex;
+        std::condition_variable upload_queue_cv;
+        std::vector<rhi::shared_object<rhi::lazy_image>> upload_queue;
+        std::unordered_set<rhi::lazy_image*> upload_inflight;
+        std::jthread upload_worker;
+        bool upload_worker_stopping = false;
+        void start_texture_upload_worker();
+        void stop_texture_upload_worker();
+        void schedule_texture_prefetch();
         texture_residency::material_textures material_texture_edges;
         texture_residency::control texture_streaming;
         std::uint64_t texture_residency_updates = 0;

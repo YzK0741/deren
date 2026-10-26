@@ -245,12 +245,21 @@ namespace deren::vulkan {
         /// so - nothing is staged any more.
         bool host_image_upload(VkImage dst_image, void const* data, VkDeviceSize size, image_create_info const& info);
         [[nodiscard]] std::pair<VkCommandPool, VkCommandBuffer> create_command_pair() const;
+        bool host_image_barrier(VkImage image, uint32_t mip_levels, uint32_t array_layers,
+                                VkImageLayout old_layout, VkImageLayout new_layout, VkAccessFlags src_access,
+                                VkAccessFlags dst_access, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage);
 
     public:
         /// Serialize host access to the upload/graphics queue, including external presentation calls.
         [[nodiscard]] std::mutex& queue_access() const noexcept {
             return this->queue_mutex;
         }
+        /// Barrier-only companions for a host image copy performed by someone else (the RHI
+        /// `non_blocking_write` view / lazy upload): make the image available to the host, then publish
+        /// the host's writes to the fragment stage. The copy between the two calls is NOT a queue
+        /// operation; these two submissions carry only the dependencies around it.
+        bool host_image_begin_write(VkImage image, uint32_t mip_levels, uint32_t array_layers);
+        bool host_image_publish(VkImage image, uint32_t mip_levels, uint32_t array_layers);
         /**
          * @ingroup vulkan_vma
          * @brief initialize the VMA allocator with the given vulkan objects
@@ -1099,6 +1108,59 @@ namespace deren::vulkan {
         release_pair();
         return true;
     }
+    bool vma_allocator::host_image_barrier(VkImage image, uint32_t const mip_levels, uint32_t const array_layers,
+                                           VkImageLayout const old_layout, VkImageLayout const new_layout,
+                                           VkAccessFlags const src_access, VkAccessFlags const dst_access,
+                                           VkPipelineStageFlags const src_stage, VkPipelineStageFlags const dst_stage) {
+        auto const [pool, command_buffer] = this->create_command_pair();
+        VkFence const fence = this->create_fence();
+        if (!pool || !command_buffer || !fence) {
+            if (pool)
+                vkDestroyCommandPool(this->logical_device, pool, nullptr);
+            if (fence)
+                vkDestroyFence(this->logical_device, fence, nullptr);
+            return false;
+        }
+        VkCommandBufferBeginInfo const begin_info = make_command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
+        VkImageMemoryBarrier barrier = {};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = old_layout;
+        barrier.newLayout = new_layout;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = image;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.levelCount = mip_levels;
+        barrier.subresourceRange.layerCount = array_layers;
+        barrier.srcAccessMask = src_access;
+        barrier.dstAccessMask = dst_access;
+        VkSubmitInfo const submit_info = make_submit_info(&command_buffer);
+        auto const result = deren::vulkan::detail::upload_sequence(
+            [&] { return vkBeginCommandBuffer(command_buffer, &begin_info); },
+            [&] { vkCmdPipelineBarrier(command_buffer, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier); },
+            [&] { return vkEndCommandBuffer(command_buffer); },
+            [&] { std::lock_guard guard(this->queue_mutex); return vkQueueSubmit(this->upload_queue, 1, &submit_info, fence); },
+            [&] { return vkWaitForFences(this->logical_device, 1, &fence, VK_TRUE, UINT64_MAX); },
+            [&] { return vkResetFences(this->logical_device, 1, &fence); });
+        if (result.status != VK_SUCCESS) {
+            deren::utility::error("host image barrier failed: {}", static_cast<int32_t>(result.status));
+        }
+        vkDestroyFence(this->logical_device, fence, nullptr);
+        vkDestroyCommandPool(this->logical_device, pool, nullptr);
+        return result.status == VK_SUCCESS;
+    }
+
+    bool vma_allocator::host_image_begin_write(VkImage const image, uint32_t const mip_levels, uint32_t const array_layers) {
+        return host_image_barrier(image, mip_levels, array_layers, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                                  0, VK_ACCESS_HOST_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_HOST_BIT);
+    }
+
+    bool vma_allocator::host_image_publish(VkImage const image, uint32_t const mip_levels, uint32_t const array_layers) {
+        return host_image_barrier(image, mip_levels, array_layers, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
+                                  VK_ACCESS_HOST_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_HOST_BIT,
+                                  VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    }
+
     vk_buffer vma_allocator::create_buffer(uint8_t const* data, uint64_t const size_byte, buffer_type const type, VkBufferUsageFlags const extra_usage) {
         // the returned owner carries lambdas that call back into this allocator; they are
         // created here (a member function), so they may call the private free/retain below

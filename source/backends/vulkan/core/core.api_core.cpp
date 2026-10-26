@@ -4837,6 +4837,14 @@ namespace deren::vulkan {
         return host_copy_image_out(*self, owned->native_handle, destination, region);
     }
 
+    rhi::error core::owned_buffer::prepare() noexcept {
+        return this->owner != nullptr ? this->owner->materialize(*this) : rhi::error::invalid_argument;
+    }
+
+    rhi::error core::owned_image::prepare() noexcept {
+        return this->owner != nullptr ? this->owner->materialize(*this) : rhi::error::invalid_argument;
+    }
+
     rhi::error core::frame_non_blocking_write::write_image(rhi::image& destination,
                                                            std::span<std::byte const> const source,
                                                            rhi::image_copy_region const& region) noexcept {

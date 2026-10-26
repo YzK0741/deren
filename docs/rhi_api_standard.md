@@ -1,6 +1,6 @@
 # The deren RHI API standard
 
-Status: **draft v1 for RHI ABI 59 (2026-10-26)**. This document is normative for every backend DLL that
+Status: **draft v1 for RHI ABI 60 (2026-10-26)**. This document is normative for every backend DLL that
 implements `deren::promise::rhi` and for every engine/application consumer of the contract. When this
 document and the contract source disagree, the source is authoritative and this document is the defect;
 updates to the contract require an update here in the same change.
@@ -17,7 +17,7 @@ RFC 2119 sense.
 - Every interface method listed in sections 7-8 is a virtual function that a backend implements. Default
   implementations return `error::unsupported` (or perform the documented trivial operation); a backend MUST NOT
   claim an ability it does not implement.
-- The current ABI is `rhi::abi_version == 59`. A backend is loaded by the application as a DLL through
+- The current ABI is `rhi::abi_version == 60`. A backend is loaded by the application as a DLL through
   `deren_make_api_core(abi_version, create_info, error_info)`; the first argument is the caller's ABI and a
   mismatch is refused by name.
 - The contract carries no Vulkan/API-specific types except through optional escape extensions. Backend modules
@@ -1598,6 +1598,10 @@ normalized mip/layer payload. Invalid descriptions return `invalid_argument` bef
   `expected<unique_object<lazy_buffer>, error>`; its default is `unsupported`.
 - `resource_factory::create_lazy_image(lazy_image_desc const&)` returns
   `expected<unique_object<lazy_image>, error>`; its default is `unsupported`.
+- `lazy_buffer::prepare() noexcept` and `lazy_image::prepare() noexcept` bring the native resource up from
+  the retained source; they answer `ok` when ready (idempotent), serialize with a concurrent prepare on the
+  same object, and default to `unsupported`. `prepare()` is the explicit prefetch entry point the engine's
+  upload worker uses before a frame needs the resource.
 - `lazy_buffer::state() const noexcept` and `lazy_image::state() const noexcept` report `lazy_state`
   (`unloaded`, `loading`, `ready`, `failed`) without loading. Queries and logical image-view creation
   MUST NOT upload. These types derive from buffer/image and use ordinary supported bindings.

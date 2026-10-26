@@ -870,6 +870,7 @@ namespace deren::vulkan {
             deren::promise::rhi::buffer_desc description;
             deren::utility::vessel::string debug_name;
             [[nodiscard]] deren::promise::rhi::error unload() noexcept override;
+            [[nodiscard]] deren::promise::rhi::error prepare() noexcept override;
             [[nodiscard]] deren::promise::rhi::lazy_state state() const noexcept override {
                 return loading.state();
             }
@@ -1010,6 +1011,7 @@ namespace deren::vulkan {
             deren::promise::rhi::image_desc description;
             deren::utility::vessel::string debug_name;
             [[nodiscard]] deren::promise::rhi::error unload() noexcept override;
+            [[nodiscard]] deren::promise::rhi::error prepare() noexcept override;
             [[nodiscard]] deren::promise::rhi::lazy_state state() const noexcept override {
                 return loading.state();
             }

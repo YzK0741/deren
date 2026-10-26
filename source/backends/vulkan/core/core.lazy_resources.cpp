@@ -51,7 +51,8 @@ namespace deren::vulkan {
             return std::unexpected(rhi::error::invalid_argument);
         auto desc = request.resource;
         auto const format = resolve_format(desc.format);
-        auto const allowed = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::cube_compatible);
+        auto const allowed = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::cube_compatible) |
+                             rhi::to_bits(rhi::image_flag::host_transfer);
         if (!rhi::has_flag(desc.flags, rhi::image_flag::sampled) || (desc.flags & ~allowed) ||
             desc.format == rhi::image_format::depth || format == VK_FORMAT_UNDEFINED)
             return std::unexpected(rhi::error::unsupported);
@@ -171,12 +172,46 @@ namespace deren::vulkan {
             return rhi::error::ok;
         return value.loading.run([&]() noexcept {
             auto desc = value.description;
-            desc.initial_bytes = std::as_bytes(std::span(*value.source));
+            // Allocate empty, then perform the CPU -> image copy through the non_blocking_write
+            // concept (vkCopyMemoryToImageEXT); the two barrier-only submissions around it carry the
+            // host-write dependency without a copy command.
+            desc.initial_bytes = {};
+            desc.flags |= rhi::to_bits(rhi::image_flag::host_transfer);
             auto physical = create_image(desc);
             if (!physical) {
                 return rhi::error::operation_failed;
             }
             auto& concrete = *static_cast<owned_image*>(physical.get());
+            if (concrete.native_handle == VK_NULL_HANDLE) {
+                return rhi::error::operation_failed;
+            }
+            if (!this->vma.host_image_begin_write(concrete.native_handle, concrete.mip_levels, concrete.array_layers)) {
+                return rhi::error::operation_failed;
+            }
+            std::size_t offset = 0;
+            for (std::uint32_t mip = 0; mip < concrete.mip_levels; ++mip) {
+                std::uint32_t const mip_width = std::max(1u, concrete.width >> mip);
+                std::uint32_t const mip_height = std::max(1u, concrete.height >> mip);
+                auto const mip_bytes = detail::packed_mip_size(concrete.resolved_format, mip_width, mip_height,
+                                                               concrete.array_layers);
+                if (!mip_bytes || offset + *mip_bytes > value.source->size()) {
+                    return rhi::error::invalid_argument;
+                }
+                rhi::image_copy_region const region{
+                    .extent = {.width = mip_width, .height = mip_height, .depth = 1},
+                    .mip_level = mip,
+                    .base_array_layer = 0,
+                    .array_layer_count = concrete.array_layers,
+                };
+                auto const source = std::as_bytes(std::span(value.source->data() + offset, *mip_bytes));
+                if (this->non_blocking_write_view.write_image(concrete, source, region) != rhi::error::ok) {
+                    return rhi::error::operation_failed;
+                }
+                offset += *mip_bytes;
+            }
+            if (!this->vma.host_image_publish(concrete.native_handle, concrete.mip_levels, concrete.array_layers)) {
+                return rhi::error::operation_failed;
+            }
             value.owned = std::move(concrete.owned);
             value.native_handle = concrete.native_handle;
             return rhi::error::ok;
