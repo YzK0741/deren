@@ -1,39 +1,20 @@
-# Run deren (Windows). Usage:
+# Run deren (Windows). Forwarding shim: the unified entry point is
+# scripts/unified/run.py, which also works on POSIX.
+#
+# Usage:
 #     powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1
 #     powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1 -Model path/to/model.glb
-#     powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1 -Model ... -Grid 8
-#     powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1 -Config my.toml -Type Debug
-#
-# Runs from the repo root so source/shaders/ and gltf_model/ are located by the
-# auto-discovery (or read config.toml). Extra positional args after -- are
-# forwarded to the executable as-is (model, grid side).
-
-param(
-    [string]$Model = '',
-    [int]$Grid = 0,
-    [ValidateSet('Debug', 'Release')]
-    [string]$Type = 'Release',
-    [string]$Config = '',
-    [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]]$Forward
-)
-
+#     powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1 -Type Debug -- --version
 $ErrorActionPreference = 'Stop'
-$root = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
-$exe = Join-Path $root "build-$($Type.ToLowerInvariant())-clang64\deren.exe"
-if (-not (Test-Path $exe)) {
-    Write-Error "not built: $exe`nRun scripts/windows/build.ps1 first."
+$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$script = Join-Path $root 'scripts\unified\run.py'
+$python = Get-Command python -ErrorAction SilentlyContinue
+if (-not $python) {
+    $python = Get-Command python3 -ErrorAction SilentlyContinue
 }
-
-$args = [System.Collections.Generic.List[string]]::new()
-if ($Config) { $args.Add("--config"); $args.Add($Config) }
-if ($Model)  { $args.Add($Model) }
-if ($Grid -gt 0) { $args.Add([string]$Grid) }
-foreach ($a in $Forward) { $args.Add($a) }
-
-Write-Host "== $exe $($args -join ' ') =="
-Push-Location $root
-& $exe @args
-$code = $LASTEXITCODE
-Pop-Location
-exit $code
+if (-not $python) {
+    Write-Error 'Python 3.8+ was not found. Install Python or run scripts/unified/run.py with an explicit interpreter.'
+    exit 1
+}
+& $python.Source $script @args
+exit $LASTEXITCODE

@@ -33,52 +33,52 @@ the title bar and the taskbar were cropped away. See [`docs/screenshots/README.m
 
 ## Build helpers
 
-The repo ships setup / build / run scripts under `scripts/` for the two
-main platforms — **Windows** (MSYS2 clang64; the environment check + package
-install is a POSIX `sh` script run inside MSYS2, configure/build/run are
-PowerShell) and **POSIX** (Linux / WSL / macOS; everything is `sh`).
-Python is used for the config generators (cross-platform, no shell needed):
+The repo ships platform **setup** scripts plus unified Python **build / run / documentation** entry
+points under `scripts/unified/` (Python 3.8+). Setup stays shell because it installs the toolchain that
+provides Python; the build/run/docs commands are identical on **Windows** (MSYS2 clang64) and **POSIX**
+(Linux / WSL / macOS).
+
+**Setup**
 
 ```bash
-# config.toml helpers (any platform, Python 3.8+):
+# Windows (run in an MSYS2 shell): check clang64, install missing pacman packages,
+# find the Vulkan SDK, create config.toml from the example
+sh scripts/windows/setup.sh
+
+# POSIX: detect distro, install glfw/glm/toml++/Vulkan via apt/dnf/pacman/brew
+sh scripts/posix/setup.sh
+```
+
+**Build / run / docs (both platforms)**
+
+```bash
+# configure + build Debug and Release
+python scripts/unified/build.py
+# one configuration / clean rebuild
+python scripts/unified/build.py --type Release --clean
+python scripts/unified/build.py --build-dir build-local Release
+
+# run (extra arguments after -- are forwarded to the executable)
+python scripts/unified/run.py
+python scripts/unified/run.py --type Debug -- --version
+python scripts/unified/run.py --model path/to/model.glb -- --demo gui
+
+# Doxygen HTML + LaTeX manual
+python scripts/unified/build_docs.py
+```
+
+Build directories remain `build-<config>-clang64/` on Windows and `build-<config>/` on POSIX.
+`scripts/windows/build.ps1`, `scripts/windows/run.ps1`, `scripts/windows/build_docs.ps1` and the
+`scripts/posix/*.sh` counterparts are forwarding shims to these unified entry points, so existing
+commands keep working.
+
+Python also drives the config generators (cross-platform, no shell needed):
+
+```bash
 python scripts/make_default_config.py     # copy config.example.toml as-is (asks where to put it)
 python scripts/make_config.py             # interactive: asks every setting (types + defaults shown)
 python scripts/make_config.py path/to/dir # write config.toml into an explicit directory
 ```
-
-**Windows (MSYS2)**
-
-```bash
-# 1. in an MSYS2 shell: check clang64, install missing pacman packages,
-#    find the Vulkan SDK, create config.toml from the example
-sh scripts/windows/setup.sh
-
-# 2. build Debug + Release (PowerShell; clang64 bin must be reachable)
-powershell -ExecutionPolicy Bypass -File scripts/windows/build.ps1
-#    or one config / clean:
-powershell -ExecutionPolicy Bypass -File scripts/windows/build.ps1 -Type Release -Clean
-
-# 3. run (PowerShell; forwards extra args to the executable)
-powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1
-powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1 -Model path/to/model.glb -Demo gui
-```
-
-Builds land in `build-debug-clang64/` and `build-release-clang64/`.
-
-**POSIX (Linux / WSL / macOS)**
-
-```sh
-sh scripts/posix/setup.sh     # detect distro, install glfw/glm/toml++/Vulkan via apt/dnf/pacman/brew
-sh scripts/posix/build.sh     # Debug + Release
-sh scripts/posix/run.sh       # run; extra args (model / grid side) are forwarded
-sh scripts/posix/run.sh path/to/model.glb
-```
-
-Builds land in `build-debug/` and `build-release/`.
-
-The Doxygen HTML + LaTeX manual build with `scripts/windows/build_docs.ps1`
-(Windows / PowerShell) or `scripts/posix/build_docs.sh` (POSIX sh) — see the
-[Documentation](#documentation) section.
 
 ## Source layout
 
@@ -211,14 +211,10 @@ Measured on the screenshot above (RTX 4060 Laptop, 1280x720): **562,974 splats**
 
 ## Documentation
 
-The project uses **Doxygen** for API documentation; every module, class, interface **and shader** is annotated in-source with `@defgroup` / `@brief`. The shader sources are part of the generated reference too: `Doxyfile` maps `*.slang` (and the retired `*.vert` / `*.frag` / `*.comp` extensions, plus the `*.glsl` includes) to the C++ parser (`EXTENSION_MAPPING` + `FILE_PATTERNS`), so each shader gets a file page with its documented functions, all collected under the `shaders` group (see [docs/shaders.md](docs/shaders.md) for the pass chain, the shared scene-set binding table and the push-constant contract, and [docs/conventions.md](docs/conventions.md) for the module-name, verb-prefix and partition rules). The generated HTML and the LaTeX manual are **not** committed to the repo (they would drown the source tree in generated files) — build them whenever you need them with the platform wrapper script: `scripts/windows/build_docs.ps1` (PowerShell / Windows) or `scripts/posix/build_docs.sh` (POSIX sh — WSL / Linux / macOS / an MSYS2 shell). They run `doxygen Doxyfile`, then compile the LaTeX manual into `docs/latex/refman.pdf`:
+The project uses **Doxygen** for API documentation; every module, class, interface **and shader** is annotated in-source with `@defgroup` / `@brief`. The shader sources are part of the generated reference too: `Doxyfile` maps `*.slang` (and the retired `*.vert` / `*.frag` / `*.comp` extensions, plus the `*.glsl` includes) to the C++ parser (`EXTENSION_MAPPING` + `FILE_PATTERNS`), so each shader gets a file page with its documented functions, all collected under the `shaders` group (see [docs/shaders.md](docs/shaders.md) for the pass chain, the shared scene-set binding table and the push-constant contract, and [docs/conventions.md](docs/conventions.md) for the module-name, verb-prefix and partition rules). The generated HTML and the LaTeX manual are **not** committed to the repo (they would drown the source tree in generated files) — build them whenever you need them with the unified Python entry point (the old `scripts/windows/build_docs.ps1` and `scripts/posix/build_docs.sh` are forwarding shims). It runs `doxygen Doxyfile`, then compiles the LaTeX manual into `docs/latex/refman.pdf`:
 
 ```bash
-# Windows (PowerShell)
-powershell -ExecutionPolicy Bypass -File scripts/windows/build_docs.ps1
-
-# POSIX (Linux / WSL / macOS)
-sh scripts/posix/build_docs.sh
+python scripts/unified/build_docs.py
 ```
 
 Raw equivalent: `doxygen Doxyfile` (HTML only). `Doxyfile` names the project `deren` (kept in step with `project()` in `CMakeLists.txt`), uses `docs/mainpage.md` as the manual's front page, and lists the `docs/*.md` pages one at a time rather than pointing at the whole directory - `docs/` also holds doxygen's own output and the two reference sets that are not this project's prose, so a new page has to be added to its `INPUT`, and the order of those lines is the manual's chapter order.
@@ -298,7 +294,7 @@ Related source docs (tracked in the repo):
 - [Vulkan SDK](https://vulkan.lunarg.com/sdk/home): what `find_package(Vulkan REQUIRED)` resolves against, and one of the places `slangc` can come from (`Bin/slangc.exe`; MSYS2 ships no Slang package). VMA is **not** taken from its `Include/`: `deren.vulkan.core:vma` includes the vendored `source/third_party/vma/vk_mem_alloc.h`, preferred because distro Vulkan packages do not ship that header
 - System packages: `glfw3`, `glm`, `tomlplusplus` (header-only; MSYS2 `mingw-w64-clang-x86_64-{glfw,glm,tomlplusplus}`)
 - Everything else is vendored under `source/third_party/`: `spirv-reflect`, Dear ImGui (GLFW/Vulkan backends), xxHash, **fastgltf + simdjson** (the glTF parser and its JSON backend, compiled from source into a `fastgltf_vendored` target), **stb_image** (texture decode), **mimalloc** (the allocator behind `deren::utility::memory` and therefore every `vessel` container, compiled into a `mimalloc_vendored` static target), **Boost.Graph** (the render-graph core's adjacency backend, vendored as headers) and **VRDX** (the GPU radix sort the Gaussian path uses, vendored as a single-header library). No system fastgltf/simdjson/mimalloc package and no network fetch is needed — the build is self-contained on both Windows/MSYS2 and Linux. `glfw3`, `mimalloc`, `xxHash` and the other vendored libraries are still linked statically, but the **Windows Release** executable is a dynamic-C++-runtime build: it imports `libc++.dll` and needs four first-party images beside it — `deren_assets.dll` (the asset-loading stack, linked through its import library so the loader brings it in before `main`), `deren_vulkan.dll` and `deren_gui_vulkan.dll` (the two graphics plugins, each exporting one `deren_*` entry and each resolved BY NAME at run time) and `shared_utility.dll` (the process-wide log sink) — plus the build's compiled `source/shaders/` directory. `build-release-dyn-clang64/deren.exe` is therefore no longer a single portable file, and the CI artifact uploads exactly this package. Debug builds are dynamic for the same reason.
-- **Toolchains**: the build files carry an **MSVC** branch beside the clang64 one, and it is not what the scripts or CI drive (`scripts/windows/build.ps1` requires `clang++` and pins its directories to `build-<config>-clang64`; `.github/workflows/ci.yml` installs MSYS2 clang64). cl.exe cannot use the clang64 packages' include roots, so three cache variables point the build at unpacked copies instead: `VR_GLM_INCLUDE_DIR` (a directory containing the `glm/` subtree), `VR_GLFW_ROOT` (an unpacked GLFW release: `include/` + `lib-vc2022/`) and `VR_TOMLPP_INCLUDE_DIR` (the `toml++/` subtree). MSVC also builds `source/vstd/vstd_msvc.cppm` instead of `source/vstd/vstd.cppm`: the latter re-exports `std` partition by partition, which crashes cl.exe's front end (`C1001`) on `std::span` / `std::array` / `std::tuple` instantiation, so under MSVC `deren.vstd` re-exports the toolchain's own `std` module and the STL semantics are MSVC's rather than libc++'s. Some clang flags have no MSVC equivalent and are dropped instead of approximated - the comment above the MSVC branch in `CMakeLists.txt` lists them (`-fno-exceptions`, `-fno-rtti`, `-flto`, `-march=native`, `-static`, ...) - so the two toolchains do not produce the same binary shape (and neither Release build ships as a single file any more; see the bullet above).
+- **Toolchains**: the build files carry an **MSVC** branch beside the clang64 one, and it is not what the scripts or CI drive (`scripts/unified/build.py`, or the legacy `scripts/windows/build.ps1` shim, requires `clang++` and pins its directories to `build-<config>-clang64`; `.github/workflows/ci.yml` installs MSYS2 clang64). cl.exe cannot use the clang64 packages' include roots, so three cache variables point the build at unpacked copies instead: `VR_GLM_INCLUDE_DIR` (a directory containing the `glm/` subtree), `VR_GLFW_ROOT` (an unpacked GLFW release: `include/` + `lib-vc2022/`) and `VR_TOMLPP_INCLUDE_DIR` (the `toml++/` subtree). MSVC also builds `source/vstd/vstd_msvc.cppm` instead of `source/vstd/vstd.cppm`: the latter re-exports `std` partition by partition, which crashes cl.exe's front end (`C1001`) on `std::span` / `std::array` / `std::tuple` instantiation, so under MSVC `deren.vstd` re-exports the toolchain's own `std` module and the STL semantics are MSVC's rather than libc++'s. Some clang flags have no MSVC equivalent and are dropped instead of approximated - the comment above the MSVC branch in `CMakeLists.txt` lists them (`-fno-exceptions`, `-fno-rtti`, `-flto`, `-march=native`, `-static`, ...) - so the two toolchains do not produce the same binary shape (and neither Release build ships as a single file any more; see the bullet above).
 
 #### Platform
 

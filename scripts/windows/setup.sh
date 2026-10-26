@@ -99,5 +99,5 @@ fi
 
 echo ""
 echo "environment ready. Next:"
-echo "  powershell -ExecutionPolicy Bypass -File scripts/windows/build.ps1   # Debug+Release"
-echo "  powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1     # run the demo"
+echo "  python scripts/unified/build.py   # Debug+Release"
+echo "  python scripts/unified/run.py     # run the demo"

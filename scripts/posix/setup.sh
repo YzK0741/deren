@@ -130,5 +130,5 @@ fi
 
 echo ""
 echo "environment ready. Next:"
-echo "  sh scripts/posix/build.sh      # Debug + Release"
-echo "  sh scripts/posix/run.sh        # run the demo"
+echo "  python3 scripts/unified/build.py   # Debug + Release"
+echo "  python3 scripts/unified/run.py     # run the demo"
