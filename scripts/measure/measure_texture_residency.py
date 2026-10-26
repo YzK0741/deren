@@ -41,10 +41,10 @@ def main():
             if process.returncode or not list(run.glob('screenshot_*.png')) or re.search(r'VUID-|Validation Error|post graph: recording refused|panic', log):
                 raise RuntimeError(f'{run}: renderer/capture failure')
             row = dict(camera=camera, selective=enabled, process_wall_seconds=time.perf_counter() - started, **parse_log(log))
-            values = re.findall(r'texture residency: resident payload (\d+) / (\d+) bytes, pinned (\d+) bytes, new demand (\d+) bytes, deferred unload (\d+), update ([0-9.eE+-]+) ms', log)
+            values = re.findall(r'texture residency: resident payload (\d+) / (\d+) bytes, pinned (\d+) bytes, new demand (\d+) bytes, deferred unload (\d+), prefetched (\d+), waited (\d+), update ([0-9.eE+-]+) ms', log)
             if enabled and not values: raise RuntimeError(f'{run}: no residency evidence')
-            row['residency_samples'] = [dict(zip(('resident_bytes','total_bytes','pinned_bytes','upload_bytes','deferred_unloads','update_ms'),
-                [int(v) for v in sample[:5]] + [float(sample[5])], strict=True)) for sample in values]
+            row['residency_samples'] = [dict(zip(('resident_bytes','total_bytes','pinned_bytes','upload_bytes','deferred_unloads','prefetched','waited','update_ms'),
+                [int(v) for v in sample[:7]] + [float(sample[7])], strict=True)) for sample in values]
             rows.append(row)
             (work / 'results.json').write_text(json.dumps(rows, indent=2), encoding='utf-8')
             print(json.dumps(row), flush=True)
