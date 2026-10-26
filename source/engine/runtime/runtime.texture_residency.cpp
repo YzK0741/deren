@@ -149,35 +149,40 @@ namespace deren::engine {
     }
 
     void runtime::start_texture_upload_worker() {
-        if (this->upload_worker.joinable())
+        if (!this->upload_workers.empty())
             return;
-        this->upload_worker = std::jthread([this]() {
-            for (;;) {
-                rhi::shared_object<rhi::lazy_image> image;
-                {
-                    std::unique_lock lock(this->upload_queue_mutex);
-                    this->upload_queue_cv.wait(lock, [this]() {
-                        return this->upload_worker_stopping || !this->upload_queue.empty();
-                    });
-                    if (this->upload_worker_stopping) {
-                        // Shutdown discards pending work instead of draining it: the shared objects
-                        // release with the queue, and the caller is tearing the device down anyway.
-                        this->upload_queue.clear();
-                        this->upload_inflight.clear();
-                        return;
+        std::size_t const hardware = std::max(1u, std::thread::hardware_concurrency());
+        std::size_t const count = std::min<std::size_t>(4u, hardware);
+        this->upload_workers.reserve(count);
+        for (std::size_t i = 0; i < count; ++i) {
+            this->upload_workers.emplace_back([this]() {
+                for (;;) {
+                    rhi::shared_object<rhi::lazy_image> image;
+                    {
+                        std::unique_lock lock(this->upload_queue_mutex);
+                        this->upload_queue_cv.wait(lock, [this]() {
+                            return this->upload_worker_stopping || !this->upload_queue.empty();
+                        });
+                        if (this->upload_worker_stopping) {
+                            // Shutdown discards pending work instead of draining it: the shared objects
+                            // release with the queue, and the caller is tearing the device down anyway.
+                            this->upload_queue.clear();
+                            this->upload_inflight.clear();
+                            return;
+                        }
+                        image = std::move(this->upload_queue.back());
+                        this->upload_queue.pop_back();
                     }
-                    image = std::move(this->upload_queue.back());
-                    this->upload_queue.pop_back();
+                    if (image) {
+                        if (image->state() == rhi::lazy_state::unloaded &&
+                            image->prepare() == rhi::error::ok)
+                            this->texture_upload_prefetched.fetch_add(1, std::memory_order_relaxed);
+                        std::lock_guard lock(this->upload_queue_mutex);
+                        this->upload_inflight.erase(image.get());
+                    }
                 }
-                if (image) {
-                    if (image->state() == rhi::lazy_state::unloaded &&
-                        image->prepare() == rhi::error::ok)
-                        this->texture_upload_prefetched.fetch_add(1, std::memory_order_relaxed);
-                    std::lock_guard lock(this->upload_queue_mutex);
-                    this->upload_inflight.erase(image.get());
-                }
-            }
-        });
+            });
+        }
     }
 
     void runtime::stop_texture_upload_worker() {
@@ -186,8 +191,10 @@ namespace deren::engine {
             this->upload_worker_stopping = true;
         }
         this->upload_queue_cv.notify_all();
-        if (this->upload_worker.joinable())
-            this->upload_worker.join();
+        for (auto& worker : this->upload_workers)
+            if (worker.joinable())
+                worker.join();
+        this->upload_workers.clear();
     }
 
     void runtime::schedule_texture_prefetch() {
@@ -214,7 +221,7 @@ namespace deren::engine {
             }
         }
         if (queued)
-            this->upload_queue_cv.notify_one();
+            this->upload_queue_cv.notify_all();
     }
 
     rhi::error runtime::update_texture_residency(bool all) {

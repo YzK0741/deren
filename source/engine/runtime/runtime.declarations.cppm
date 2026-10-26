@@ -513,7 +513,7 @@ namespace deren::engine {
         std::condition_variable upload_queue_cv;
         std::vector<rhi::shared_object<rhi::lazy_image>> upload_queue;
         std::unordered_set<rhi::lazy_image*> upload_inflight;
-        std::jthread upload_worker;
+        std::vector<std::jthread> upload_workers;
         bool upload_worker_stopping = false;
         std::atomic<std::uint64_t> texture_upload_prefetched{0};
         std::atomic<std::uint64_t> texture_upload_waited{0};
