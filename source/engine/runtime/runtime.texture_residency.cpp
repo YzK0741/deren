@@ -179,6 +179,11 @@ namespace deren::engine {
             }
         }
         texture_prefetch_ready = true;
+        static bool logged_prep_cull = false;
+        if (!logged_prep_cull && texture_streaming.enabled) {
+            logged_prep_cull = true;
+            utility::log("prep cull: visible leaves {} / {}", visible.size(), frame_leaves_buffer.size());
+        }
         prepared_visible = std::move(visible);
         prepared_selection_aspect = aspect;
         prepared_selection_ready = cpu_frame_prep_enabled;
@@ -339,15 +344,20 @@ namespace deren::engine {
         if (result != rhi::error::ok)
             return result;
         schedule_texture_prefetch();
+        std::uint64_t required_count = 0;
+        for (std::size_t i = 0; i < streamed_textures.size(); ++i)
+            if ((*required)[i] != 0)
+                ++required_count;
         for (auto const& entry : streamed_textures)
             if (entry.image && entry.image->state() == rhi::lazy_state::ready)
                 resident_bytes += entry.bytes;
         auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         if (epoch <= 2 || uploaded_bytes || epoch % 60 == 0)
-            utility::log("texture residency: resident payload {} / {} bytes, pinned {} bytes, new demand {} bytes, deferred unload {}, prefetched {}, waited {}, update {} ms",
+            utility::log("texture residency: resident payload {} / {} bytes, pinned {} bytes, new demand {} bytes, deferred unload {}, prefetched {}, waited {}, required {}/{}, update {} ms",
                          resident_bytes, total_bytes, pinned_bytes, uploaded_bytes, deferred,
                          this->texture_upload_prefetched.load(std::memory_order_relaxed),
-                         this->texture_upload_waited.load(std::memory_order_relaxed), elapsed);
+                         this->texture_upload_waited.load(std::memory_order_relaxed), required_count,
+                         streamed_textures.size(), elapsed);
         return rhi::error::ok;
     }
 } // namespace deren::engine

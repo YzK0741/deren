@@ -89,7 +89,7 @@ def run_one(args, camera, enabled, round_id):
         stats[key+'_process_peak'] = max(r[key] for r in memory if r[key] is not None)
     stats['memory_samples'] = len(steady)
     stats['observed_frames'] = observed_frames
-    residency = re.findall(r'texture residency: resident payload (\d+) / (\d+) bytes, pinned (\d+) bytes, new demand (\d+) bytes, deferred unload (\d+), prefetched (\d+), waited (\d+), update ([0-9.eE+-]+) ms',log)
+    residency = re.findall(r'texture residency: resident payload (\d+) / (\d+) bytes, pinned (\d+) bytes, new demand (\d+) bytes, deferred unload (\d+), prefetched (\d+), waited (\d+), required (\d+)/(\d+), update ([0-9.eE+-]+) ms',log)
     stats['residency_samples'] = residency
     stats.update(tag=tag,camera=camera,selective=enabled,round=round_id,
         process_wall_seconds=time.perf_counter()-started,gpu_before=before,gpu_after=after,
