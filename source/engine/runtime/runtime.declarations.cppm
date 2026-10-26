@@ -496,6 +496,7 @@ namespace deren::engine {
         struct streamed_texture {
             rhi::shared_object<rhi::lazy_image> image;
             std::uint64_t bytes = 0;
+            std::uint64_t last_demand_frame = 0;
             bool pinned = false, published = false;
         };
         deren::utility::vessel::vector<streamed_texture> streamed_textures;

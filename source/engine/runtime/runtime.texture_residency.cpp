@@ -101,6 +101,7 @@ namespace deren::engine {
         if (!descriptors)
             return rhi::error::unsupported;
         std::uint64_t resident_bytes = 0, uploaded_bytes = 0, deferred = 0, total_bytes = 0, pinned_bytes = 0;
+        std::uint64_t const epoch = ++texture_residency_updates;
         rhi::image_view_desc view{};
         view.mip_count = 0;
         view.layer_count = 0;
@@ -112,6 +113,25 @@ namespace deren::engine {
             if (entry.pinned)
                 pinned_bytes += entry.bytes;
             bool const wanted = (*required)[i] != 0;
+            if (wanted) {
+                entry.last_demand_frame = epoch;
+            } else if (epoch > entry.last_demand_frame + 1u) {
+                // Not demanded now and not demanded in the immediately preceding frame: this frame is
+                // N and the image last mattered at N-1 or earlier. Retire it only now, so an image
+                // loaded for N-1 remains available for N+1's demand (one-frame reuse horizon).
+                if (entry.published) {
+                    auto result = descriptors->write_image({.slot = render_layout::heap_slots::textures + static_cast<std::uint32_t>(i), .resource = owned_textures[white_texture_index].get(), .view = &view});
+                    if (result != rhi::error::ok)
+                        return result;
+                    entry.published = false;
+                }
+                auto result = entry.image->unload();
+                if (result == rhi::error::not_ready)
+                    ++deferred;
+                else if (result != rhi::error::ok)
+                    return result;
+                continue;
+            }
             if (entry.published != wanted) {
                 auto* image = wanted ? entry.image.get() : owned_textures[white_texture_index].get();
                 auto result = descriptors->write_image({.slot = render_layout::heap_slots::textures + static_cast<std::uint32_t>(i), .resource = image, .view = &view});
@@ -119,13 +139,7 @@ namespace deren::engine {
                     return result;
                 entry.published = wanted;
             }
-            if (!wanted) {
-                auto result = entry.image->unload();
-                if (result == rhi::error::not_ready)
-                    ++deferred;
-                else if (result != rhi::error::ok)
-                    return result;
-            } else if (entry.image->state() == rhi::lazy_state::unloaded)
+            if (wanted && entry.image->state() == rhi::lazy_state::unloaded)
                 uploaded_bytes += entry.bytes;
         }
         auto result = descriptors->bind({.commands = frame_command_buffer().get()});
@@ -135,7 +149,7 @@ namespace deren::engine {
             if (entry.image && entry.image->state() == rhi::lazy_state::ready)
                 resident_bytes += entry.bytes;
         auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-        if (++texture_residency_updates <= 2 || uploaded_bytes || texture_residency_updates % 60 == 0)
+        if (epoch <= 2 || uploaded_bytes || epoch % 60 == 0)
             utility::log("texture residency: resident payload {} / {} bytes, pinned {} bytes, new demand {} bytes, deferred unload {}, update {} ms", resident_bytes, total_bytes, pinned_bytes, uploaded_bytes, deferred, elapsed);
         return rhi::error::ok;
     }

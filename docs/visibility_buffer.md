@@ -128,10 +128,12 @@ chunk material); there is no GPU visibility-feedback compute pass or frame check
 The material-demand bitset is applied before the main graph records, so required textures are resident
 when shading starts.
 
-Unneeded descriptor slots return to placeholders and unload is attempted; a remaining command/group
-lease defers physical reclamation. Newly visible required textures must load before shading; upload
-refusal fails the frame explicitly. CPU demand is a conservative superset of GPU visibility: it may
-keep/load textures for geometry the GPU later culls, but it cannot miss a demanded texture.
+Unneeded descriptor slots return to placeholders and unload is attempted with a one-frame reuse
+horizon: an image that was requested at N-1 but is not requested at N stays resident through N, so a
+request at N+1 reuses it instead of unloading and re-uploading. A remaining command/group lease still
+defers physical reclamation. Newly visible required textures must load before shading; upload refusal
+fails the frame explicitly. CPU demand is a conservative superset of GPU visibility: it may keep/load
+textures for geometry the GPU later culls, but it cannot miss a demanded texture.
 
 MASK alpha-source, toon/overlay/transparent material textures and renderer defaults stay pinned.
 Shared textures inherit pinning. An ineligible opaque lane or active ray-traced shadow uses full
