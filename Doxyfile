@@ -2325,7 +2325,7 @@ LATEX_FOOTER           =
 # quotes model part names), and a pdflatex run aborts with "Unicode character ... not set
 # up for use with LaTeX" on such a character. source/tests/test_docs.cpp only forces the
 # markdown pages under docs/ to be ASCII, so the stylesheet is what keeps the PDF half of
-# `scripts/windows/build_docs.ps1` buildable. The file documents which characters it
+# `scripts/build_helpers/build_docs.py` buildable. The file documents which characters it
 # declares and how to extend it.
 
 LATEX_EXTRA_STYLESHEET = docs/latex_unicode.sty
@@ -2371,7 +2371,7 @@ USE_PDFLATEX           = YES
 # This tag requires that the tag GENERATE_LATEX is set to YES.
 
 # NOTE: ON. This file is generated to be built unattended, and \batchmode is what makes that safe for
-# every invocation except the one that already handles it: scripts/windows/build_docs.ps1 passes
+# every invocation except the one that already handles it: scripts/build_helpers/build_docs.py passes
 # -halt-on-error, so it reports a LaTeX error and stops; a bare `pdflatex refman.tex`, an IDE recipe or a
 # CI step that does not would otherwise sit at an interactive prompt, which reads as a hang rather than
 # as the error that caused it.

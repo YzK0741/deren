@@ -7,11 +7,11 @@ import sys
 import time
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+SCRIPTS = Path(__file__).resolve().parents[2] / "scripts" / "diagnostics"
+sys.path.insert(0, str(SCRIPTS))
 import symbolize_stacktrace
 from stacktrace_process import run_bounded
 
-SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 DECODER = SCRIPTS / "symbolize_stacktrace.py"
 
 # A crash record with the two shapes that matter: the first frame IS the fault PC (0x2340 in

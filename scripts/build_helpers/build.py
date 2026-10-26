@@ -2,16 +2,16 @@
 """Configure and build deren with CMake, on Windows or POSIX.
 
 Usage:
-    python scripts/unified/build.py
-    python scripts/unified/build.py Debug
-    python scripts/unified/build.py --type Release --clean
-    python scripts/unified/build.py --dry-run Debug
-    python scripts/unified/build.py --build-dir build-local Release
+    python scripts/build_helpers/build.py
+    python scripts/build_helpers/build.py Debug
+    python scripts/build_helpers/build.py --type Release --clean
+    python scripts/build_helpers/build.py --dry-run Debug
+    python scripts/build_helpers/build.py --build-dir build-local Release
 
 The default builds Debug and Release in the historical directories
-(build-<config>-clang64 on Windows, build-<config> elsewhere).  The old
-scripts/windows/build.ps1 and scripts/posix/build.sh are forwarding shims;
-their arguments such as -Type and -Clean are accepted here too.
+(build-<config>-clang64 on Windows, build-<config> elsewhere).  The legacy
+-Type/-Clean spellings are still accepted for callers migrating from the old
+platform wrappers.
 """
 
 from __future__ import annotations
@@ -76,9 +76,9 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  python scripts/unified/build.py\n"
-            "  python scripts/unified/build.py --type Release --clean\n"
-            "  python scripts/unified/build.py --build-dir build-local Release\n"
+            "  python scripts/build_helpers/build.py\n"
+            "  python scripts/build_helpers/build.py --type Release --clean\n"
+            "  python scripts/build_helpers/build.py --build-dir build-local Release\n"
         ),
     )
     parser.add_argument(
@@ -145,7 +145,7 @@ def main(argv: Sequence[str]) -> int:
         executable = build_dir_for(config, args.build_dir) / ("deren.exe" if IS_WINDOWS else "deren")
         print("  {}  ({})".format(executable, config))
     if not args.dry_run:
-        print("run with: python scripts/unified/run.py")
+        print("run with: python scripts/build_helpers/run.py")
     return 0
 
 

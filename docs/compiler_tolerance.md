@@ -12,7 +12,7 @@ Ninja, shaders compiled by `slangc`. `-Werror` is on for first-party code in eve
 this compiler emits but CI's does not is a build failure here rather than a curiosity.
 
 MSVC is a second configuration the BUILD FILES support but the scripts and CI do not drive:
-`scripts/unified/build.py` (the `scripts/windows/build.ps1` shim forwards to it) requires `clang++` and `.github/workflows/ci.yml` installs MSYS2 clang64. The three
+`scripts/build_helpers/build.py` requires `clang++` and `.github/workflows/ci.yml` installs MSYS2 clang64. The three
 cache variables an MSVC build needs are documented in the README rather than here.
 
 Everything below about GCC is a MEASUREMENT, not a promise. The audit ran GCC 16.2 (MinGW, ucrt64) against the

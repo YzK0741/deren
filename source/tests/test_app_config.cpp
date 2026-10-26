@@ -183,7 +183,7 @@ namespace {
         CHECK(settings.lighting.area_light_softness == 0.0f);
     }
 
-    // scripts/make_config.py WRITES config.toml, so every value it can emit has to be a value
+    // scripts/config/make_config.py WRITES config.toml, so every value it can emit has to be a value
     // app_config can read back - including the ones whose bounds the loader clamps. This fixture is
     // that generator's full default output (one entry per key it writes); it exists because the two
     // drifted apart once already: the generator silently omitted eleven [render] keys the parser

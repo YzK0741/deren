@@ -4,7 +4,7 @@ from pathlib import Path
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-spec = importlib.util.spec_from_file_location("tidy_driver", ROOT / "scripts/run_clang_tidy.py")
+spec = importlib.util.spec_from_file_location("tidy_driver", ROOT / "scripts/tools/run_clang_tidy.py")
 driver = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(driver)
 

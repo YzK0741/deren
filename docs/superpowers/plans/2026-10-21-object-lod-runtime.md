@@ -169,7 +169,7 @@
 
 **目标**：把运行时策略与测量接口补齐：对象级 AABB 剔除先于 item 发布（断言/日志）、item/表容量预检与汇总、`subtilis_error_px`/迟滞配置、OFF 字节一致门禁、HZB 在 LOD 之后与阴影/BLAS LOD0 的测试钉死。
 
-**Files**：`runtime.cpp`（summary 计数/日志、hysteresis 状态、config 接线）、`runtime.frames.cppm`（次序/日志）、`application_configuration`（`subtilis_error_px`/`subtilis_hysteresis` 键 + 文档）、`app/main.cpp`、`test_subtilis_frame.cpp`/`test_subtilis_selection.cpp` 扩展、`scripts/windows/check_render.ps1` 调用（不改脚本，用现有 gate）、`docs/subtilis.md` 配置节。
+**Files**：`runtime.cpp`（summary 计数/日志、hysteresis 状态、config 接线）、`runtime.frames.cppm`（次序/日志）、`application_configuration`（`subtilis_error_px`/`subtilis_hysteresis` 键 + 文档）、`app/main.cpp`、`test_subtilis_frame.cpp`/`test_subtilis_selection.cpp` 扩展、`scripts/gates/check_render.ps1` 调用（不改脚本，用现有 gate）、`docs/subtilis.md` 配置节。
 
 **Interfaces**：`set_subtilis_error_px(float)`/`set_subtilis_hysteresis(bool)`；每场景一次汇总日志（adopted/fallback 原因/item 峰值/表占用/最大 run）；迟滞 history key `(import_instance, primitive*, generation)` + view epoch。
 
@@ -181,8 +181,8 @@
 
 **Acceptance**：
 - [x] `ctest -R '^test_subtilis|test_visibility_buffer|test_hzb'` 绿；
-- [x] OFF 门禁：`pwsh scripts/windows/check_render.ps1 -Full -BuildDir build-release-dyn-clang64` 与
-  `pwsh scripts/windows/check_render.ps1 -Visibility -Compare docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt -BuildDir build-release-dyn-clang64`
+- [x] OFF 门禁：`pwsh scripts/gates/check_render.ps1 -Full -BuildDir build-release-dyn-clang64` 与
+  `pwsh scripts/gates/check_render.ps1 -Visibility -Compare docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt -BuildDir build-release-dyn-clang64`
   不变（记录输出）；
 - [x] 带 payload 资产 OFF 启动 vs 无 payload 资产：同相机 capture 像素一致（脚本 + 保存日志）；
 - [x] root Release 全量 CTest 绿；ASan 绿。
@@ -241,9 +241,9 @@ cmake --build build-release-dyn-clang64 -j12
 ctest --test-dir build-release-dyn-clang64 --output-on-failure
 ctest -R '^test_subtilis|test_gltf_loader' --test-dir build-release-dyn-clang64 --output-on-failure
 ctest --test-dir build-subtilis --output-on-failure                 # converter 独立工程
-pwsh scripts/windows/check_render.ps1 -Full -BuildDir build-release-dyn-clang64
-pwsh scripts/windows/check_render.ps1 -Visibility -Compare docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt -BuildDir build-release-dyn-clang64
-pwsh -File scripts/windows/capture.ps1 -Base <object-lod base toml> -Tag object-lod-on -Frames 130 -Camera <far/near>
+pwsh scripts/gates/check_render.ps1 -Full -BuildDir build-release-dyn-clang64
+pwsh scripts/gates/check_render.ps1 -Visibility -Compare docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt -BuildDir build-release-dyn-clang64
+pwsh -File scripts/gates/capture.ps1 -Base <object-lod base toml> -Tag object-lod-on -Frames 130 -Camera <far/near>
 python scripts/measure/make_object_lod_fixtures.py --out source/tests/fixtures/subtilis
 python scripts/measure/prepare_object_lod_scene.py --out D:/deren-assets/2026-10-21-object-lod
 ```

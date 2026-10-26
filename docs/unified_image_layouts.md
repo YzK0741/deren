@@ -93,7 +93,7 @@ error message is evidence and must not be edited to match the current code.
 
 * `cmake --build build-release-clang64 -j 12`: exit 0.
 * `ctest --test-dir build-release-clang64`: 43/43.
-* `scripts/windows/check_render.ps1 -Full`: all 14 scene hashes IDENTICAL to the run made immediately
+* `scripts/gates/check_render.ps1 -Full`: all 14 scene hashes IDENTICAL to the run made immediately
   before this step. The scene hash is the first 16 hex digits of the PNG file's SHA-256, so identical
   hashes mean byte-identical frames.
 * The run is Release, on this machine's GPU, with the Khronos validation layer active; no VUID or error

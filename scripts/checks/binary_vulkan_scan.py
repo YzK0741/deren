@@ -2,7 +2,7 @@
 """Does deren.exe still contain Vulkan? Layer 3: the binary's own bytes.
 
 The import table (layer 1) and the unresolved symbols (layer 2) are checked by
-`scripts/check_native_boundary.py`; this looks INSIDE the image for names and message text that came from
+`scripts/checks/check_native_boundary.py`; this looks INSIDE the image for names and message text that came from
 Vulkan - a log line that says "vulkan", a type name in an error string, a resolved entry point name handed to
 `GetProcAddress`, a shader file name. Anything found here is VOCABULARY, not a dependency: it cannot link
 Vulkan by itself, but it is exactly what P-Census (engine SOURCE vocabulary) is driving to zero.

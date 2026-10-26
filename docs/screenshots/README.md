@@ -12,9 +12,9 @@ They were produced with the instruments in `scripts/`, from a base config that i
 output with `[gui] show = false` (a debug overlay in a README image is noise) and `taa = true` (a still
 frame that has accumulated its history, which is what the engine looks like in use):
 
-    pwsh -File scripts/windows/capture.ps1 -Base snapshot_base.toml -Tag rc_helmet \
+    pwsh -File scripts/gates/capture.ps1 -Base snapshot_base.toml -Tag rc_helmet \
          -Model <repo>/gltf_model/DamagedHelmet.gltf -Camera "" -Frames 120
-    pwsh -File scripts/windows/capture.ps1 -Base snapshot_base.toml -Tag rc_flight \
+    pwsh -File scripts/gates/capture.ps1 -Base snapshot_base.toml -Tag rc_flight \
          -Model <assets>/FlightHelmet/glTF/FlightHelmet.gltf -Camera "" -Frames 120
 
 `-Camera ""` is deliberate: it leaves the pose to the scene's own `camera_fit`, which for a static scene is

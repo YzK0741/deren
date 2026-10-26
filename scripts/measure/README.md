@@ -9,7 +9,7 @@ The render instruments need Python 3 with Pillow (`python -c "import PIL"` must 
 The Subtilis converter acceptance instruments additionally need NumPy (the same requirement as
 `prepare_bistro_geometry.py`); the Bistro asset and the official Khronos validator they use are
 Task 8 acceptance inputs outside the repository, not engine build dependencies. The captures they
-read come from `scripts/windows/capture.ps1`, which lands PNGs in `<BuildDir>/capture/`.
+read come from `scripts/gates/capture.ps1`, which lands PNGs in `<BuildDir>/capture/`.
 
 ## The instruments
 

@@ -699,9 +699,8 @@ TWO ROUTES EXIST FOR THOSE STAGES, and neither needs the gate's references to be
 6. **Then the migration's own endgame**, none of it started: move the GLSL sources to `glsl.old/`, make
    `slangc` a required tool instead of a two-phase fallback, drop the `glslc` rules from `CMakeLists.txt`,
    and sync `Doxyfile` (`EXTENSION_MAPPING` for `.slang`), `docs/shaders.md`, the README's shader section
-   and `scripts/windows/compile_shaders.ps1` / `compile_shaders.sh`. CI cannot get `slangc` from MSYS2
-   (`pacman -Ss slang` has no package), so the release job needs the LunarG SDK's `Bin` on PATH or a Slang
-   build step.
+   and the shader compilation route used by the build and CI (`.github/workflows/ci.yml` installs the
+   pinned `slangc` release; MSYS2 has no Slang package, so the job supplies it explicitly).
 
    `Doxyfile` IS DONE (`.slang` maps to C++ exactly as `.glsl`/`.vert`/`.frag` do, and `*.slang` is in
    FILE_PATTERNS - without that Doxygen does not read the files at all). It was verified by RUNNING doxygen:

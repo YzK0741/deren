@@ -1234,7 +1234,7 @@ int main(int argc, char** argv) {
     // spec's §3.4 names, and the slot is `core::heap_slots::goo_fgd_lut` (754).
     //
     // THE PATH IS RESOLVED FROM THE EXECUTABLE'S OWN DIRECTORY, not from the process's working directory: a
-    // capture runs with `WorkingDirectory` set to its `-WorkDir` (see `scripts/windows/capture.ps1`), so a
+    // capture runs with `WorkingDirectory` set to its `-WorkDir` (see `scripts/gates/capture.ps1`), so a
     // CWD-relative path would miss. Nothing here is a new path *convention*: this file is a data file that ships
     // beside the build's own `source/shaders/` and `chars/` directories, and `deren-ab/` is where the reference's assets
     // live in this repository.
@@ -1247,7 +1247,7 @@ int main(int argc, char** argv) {
         deren::utility::vessel::vector<uint8_t> fgd_file = {};
         // `deren::utility::executable_directory()` AND NOT `current_path()`, which is the fix for a measured failure
         // rather than a preference: a capture runs with its working directory set to the harness's `-WorkDir`
-        // (see `scripts/windows/capture.ps1`'s launch), so `current_path()` resolved to
+        // (see `scripts/gates/capture.ps1`'s launch), so `current_path()` resolved to
         // `...\deren-ab\laevat\deren-ab\gooblender\images\...` and EVERY step-5 frame was rendered with no LUT
         // uploaded at all - the log said so (`goo FGD LUT: NOT uploaded`) and the three FGD terms read zero.
         // The executable's own directory is `build-release-clang64/`, which is where `deren-ab/` and the

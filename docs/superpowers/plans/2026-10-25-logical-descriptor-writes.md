@@ -43,7 +43,7 @@ to shader slot/resource. AS gets its dedicated helper. No descriptor_heap refere
 
 ### Task 3: Verification and standard
 
-Files: docs/rhi_api_standard.md, docs/dynamic_runtime.md, docs/mainpage.md, scripts/windows/check_device_probes.ps1,
+Files: docs/rhi_api_standard.md, docs/dynamic_runtime.md, docs/mainpage.md, scripts/gates/check_device_probes.ps1,
 docs/reviews/2026-10-25-logical-descriptor-writes.md.
 
 - [x] Full Release build -j14; CTest; device lane; changed-source formatting and diff checks.

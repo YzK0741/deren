@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-SCRIPT = Path(__file__).resolve().parents[2] / "scripts/check_native_boundary.py"
+SCRIPT = Path(__file__).resolve().parents[2] / "scripts/checks/check_native_boundary.py"
 spec = importlib.util.spec_from_file_location("native_boundary", SCRIPT)
 gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)

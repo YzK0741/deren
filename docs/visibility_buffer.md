@@ -94,7 +94,7 @@ depth. The compute resolve does not re-run the cut-out test; a pixel with a vali
 - `[render] visibility_buffer = false` - off by default; when off, the lane does not record and the frozen
   off-path references are byte-for-byte unchanged.
 - A/B capture: run the capture harness with the switch appended, e.g.
-  `pwsh scripts/windows/check_render.ps1 -Only deferred -ExtraConfig 'visibility_buffer = true'`.
+  `pwsh scripts/gates/check_render.ps1 -Only deferred -ExtraConfig 'visibility_buffer = true'`.
 - Frozen reference for the on path: `docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt` (the
   `deferred_visibility` scenario), checked with `-Visibility -Compare <file>`. The legacy frozen round remains
   `docs/reviews/2026-10-17-render-graph-gate/legacy-hashes.txt` (15/15) and does not include the visibility

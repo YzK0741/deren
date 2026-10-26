@@ -909,7 +909,7 @@ prepare/record 拆分在关闭时行为不变（RED 证明：拆分后先不接 
 | 第二个 raster pass（LOAD 而非 CLEAR；`pad` lane 当 pass 标记） | `source/engine/pass/visibility_raster.cppm/.cpp`（新增一个"load 模式"的实例或构造参数）、`runtime.post_graph.cpp` lane 23/24 |
 | mesh stage 偏移（`pass1_count`） | `visibility.slang` |
 | 门控放宽 + 日志 | `runtime.frames.cppm`、`runtime.cpp` |
-| 运动 capture 脚本/矩阵 | `scripts/windows/capture.ps1`（如无现成推轨相机，加一个固定相机序列） |
+| 运动 capture 脚本/矩阵 | `scripts/gates/capture.ps1`（如无现成推轨相机，加一个固定相机序列） |
 
 **验收 gate C**：C1 + 回归 B1–B4。**回滚**：`hzb_recovery=false`（配置）退回阶段 B 的门控语义。
 

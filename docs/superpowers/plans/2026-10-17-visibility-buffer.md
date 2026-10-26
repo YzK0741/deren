@@ -115,7 +115,7 @@ model[16]                                           // row-major，与 push bloc
 - `source/application_configuration/application_configuration.cppm`（及其 `.cpp` 解析器）：配置项（**2026-10-18 核对：原文写作 `source/app/application_configuration.cppm`，该路径不存在**——配置结构体在 source/application_configuration/；`visibility_buffer` 现位于 application_configuration.cppm:284，默认 `false`，`config.example.toml:406` 同步一致。）
 - `CMakeLists.txt`（仓库根；`source/tests/CMakeLists.txt` 不存在，测试目标都在根文件的 `VR_TEST_TARGETS` 与 `add_test` 里）、`test_render_graph_post`/`test_runtime_injection`/`test_app_config`：覆盖新 lane/回退（**2026-10-18 核对**：`test_visibility_buffer`、`test_render_graph_visibility`、`test_visibility_raster_pass`、`test_visibility_resolve_pass` 均已登记，CMakeLists.txt:1321）
 - `docs/render_resource_inventory.md`、`docs/render_graph.md`、`docs/mesh_shaders.md`、`docs/slang_migration.md`（shader 清单）
-- `scripts/windows/check_render.ps1`、`docs/reviews/2026-10-17-render-graph-gate/`：新参考场景
+- `scripts/gates/check_render.ps1`、`docs/reviews/2026-10-17-render-graph-gate/`：新参考场景
 
 ## 分步任务
 

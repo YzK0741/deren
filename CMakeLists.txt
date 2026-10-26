@@ -262,7 +262,7 @@ include(cmake/deren_asset_dependencies.cmake)
 #      the executable imports libc++.dll and uses the UCRT heap, so both images share ONE C++ runtime
 #      and ONE heap - which is what makes an allocation on one side and a free on the other safe in
 #      this configuration. That premise is now MACHINE-CHECKED rather than assumed: see the
-#      C++-runtime check in scripts/check_backend_boundary.py (dll imports enumerated, no static
+#      C++-runtime check in scripts/checks/check_backend_boundary.py (dll imports enumerated, no static
 #      libc++ in any image).
 #   3. THE REASON THE SPLIT EXISTS IS STATE, NOT MEMORY. One log sink per process: two copies mean two
 #      `ofstream`s on one deren-debug.log and two startup rotations, and `rotate_previous_log()` TRUNCATES
@@ -788,7 +788,7 @@ target_sources(deren_engine
 # sources, the flags (the "compile options" foreach below still names this target, by its new name),
 # and the types passed across the seam (`deren::gltf::scenes`). Both images compile `deren.vstd`
 # from the same interface unit and both import libc++.dll - the premise the utility split already
-# rests on, and the one scripts/check_backend_boundary.py checks on the artifacts.
+# rests on, and the one scripts/checks/check_backend_boundary.py checks on the artifacts.
 #
 # NO SANITIZER SUPPRESSION, AND THAT IS MEASURED RATHER THAN ASSUMED. The CI sanitizers job builds
 # these tests with -fsanitize=address,undefined and then RUNS them, which is the shape that made
@@ -1275,7 +1275,7 @@ if(VR_BUILD_TESTS)
     add_test(NAME test_software_gpu_capture_harness
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/measure/capture_software_gpu_route.py" --self-test)
     add_test(NAME test_boost_graph_vendor
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/vendor_boost_graph.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tools/vendor_boost_graph.py"
                 --output "${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/boost" --verify)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         find_package(Threads REQUIRED)
@@ -1291,7 +1291,7 @@ if(VR_BUILD_TESTS)
     add_test(NAME test_stacktrace_offline
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source/tests/test_stacktrace_offline.py")
     add_test(NAME test_native_boundary_zero
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_native_boundary.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/checks/check_native_boundary.py"
                 --build-dir "${CMAKE_CURRENT_BINARY_DIR}" --require-zero)
 
     add_test(NAME test_backend_boundary
@@ -1302,7 +1302,7 @@ if(VR_BUILD_TESTS)
         ENVIRONMENT "TMP=${CMAKE_CURRENT_BINARY_DIR}/test-run;TEMP=${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # 完整产品先构建，再量 main/chores/引擎归档，避免半构建产生假性下降。
     add_custom_target(check-backend-boundary
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_backend_boundary.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/checks/check_backend_boundary.py"
                 --build-dir "${CMAKE_CURRENT_BINARY_DIR}"
                 --report "${CMAKE_CURRENT_BINARY_DIR}/backend_boundary_report.json"
                 --require-zero
@@ -1527,7 +1527,7 @@ if(VR_BUILD_TESTS)
         STACKTRACE_HAVE_SYMBOLIZER=$<BOOL:${VR_STACKTRACE_SYMBOLIZER}>
         # The CROSS-CHECK against the offline decoder: the same raw record has to decode to the same
         # fault line in both decoders, and nothing else ties the two rules together (see the review).
-        STACKTRACE_DECODER="${CMAKE_CURRENT_SOURCE_DIR}/scripts/symbolize_stacktrace.py"
+        STACKTRACE_DECODER="${CMAKE_CURRENT_SOURCE_DIR}/scripts/diagnostics/symbolize_stacktrace.py"
         STACKTRACE_PYTHON="${Python3_EXECUTABLE}")
     add_dependencies(test_stacktrace stacktrace_symbolizer_fixture vessel_probe loader_lock_fixture)
     target_compile_definitions(test_vessel PRIVATE VESSEL_PROBE_FILENAME="$<TARGET_FILE_NAME:vessel_probe>")

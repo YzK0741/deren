@@ -258,7 +258,7 @@ visibility raster/resolve 都在同一张图里
 `test_render_graph_{bloom,compose,dump,execute,frame,lighting,lowering,parameters,post,ranges,sync,visibility}.cpp`
 （`source/tests/`）。
 
-新增 `source/tests/test_render_graph.cpp` 并接入 CMake/CI。B 扩展 probe/runtime 注入测试，C 复用 `scripts/windows/check_render.ps1` 等截图和验证工具。
+新增 `source/tests/test_render_graph.cpp` 并接入 CMake/CI。B 扩展 probe/runtime 注入测试，C 复用 `scripts/gates/check_render.ps1` 等截图和验证工具。
 
 - 内容/裁剪：未定义读、discard 死写、preserve/read-write、LOAD/CLEAR/DONT_CARE、禁用 producer、显式输出和副作用。
 - 身份/范围：错图 ref、重复 import、跨簇同对象、多 view、不同对象同名、重叠/越界/溢出。

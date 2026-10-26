@@ -3,7 +3,7 @@
 #
 # Run this from an MSYS2 shell (any of mingw64/clang64/msys terminals work -
 # the script switches to the clang64 toolchain itself):
-#     sh scripts/windows/setup.sh
+#     sh scripts/setup/windows.sh
 #
 # What it does:
 #   1. Locates the MSYS2 clang64 toolchain (clang / cmake / ninja must be
@@ -15,7 +15,7 @@
 #   4. Copies config.example.toml to config.toml when missing.
 #
 # Afterwards build with the PowerShell script (or cmake directly):
-#     powershell -ExecutionPolicy Bypass -File scripts/windows/build.ps1
+#     python scripts/build_helpers/build.py
 
 set -eu
 
@@ -99,5 +99,5 @@ fi
 
 echo ""
 echo "environment ready. Next:"
-echo "  python scripts/unified/build.py   # Debug+Release"
-echo "  python scripts/unified/run.py     # run the demo"
+echo "  python scripts/build_helpers/build.py   # Debug+Release"
+echo "  python scripts/build_helpers/run.py     # run the demo"

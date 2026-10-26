@@ -22,7 +22,7 @@ are not listed here.
 - license: Boost Software License 1.0 (`boost/LICENSE_1_0.txt`)
 - build: private `boost_graph_headers` INTERFACE target, no Boost binary library
 - provenance, extraction and allocation constraints: [boost/README.md](boost/README.md)
-- reproducible manifest verification: `python scripts/vendor_boost_graph.py --output source/third_party/boost --verify`
+- reproducible manifest verification: `python scripts/tools/vendor_boost_graph.py --output source/third_party/boost --verify`
 
 ## VRDX (Vulkan Radix Sort)
 

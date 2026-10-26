@@ -2,12 +2,10 @@
 """Build the documentation: Doxygen HTML plus the LaTeX manual PDF.
 
 Usage:
-    python scripts/unified/build_docs.py
-    python scripts/unified/build_docs.py --dry-run
+    python scripts/build_helpers/build_docs.py
+    python scripts/build_helpers/build_docs.py --dry-run
 
-Replaces the duplicated scripts/windows/build_docs.ps1 and
-scripts/posix/build_docs.sh.  The generated output stays in docs/html and
-docs/latex.  The old wrappers are forwarding shims.
+The generated output stays in docs/html and docs/latex.
 
 Behavior preserved from the old scripts:
 - clear generated docs/html and docs/latex/*.pdf before Doxygen (derived state);

@@ -307,7 +307,7 @@ namespace deren::app_config {
             // half comes from - see `deren::vulkan::runtime::goo_toon_pipeline_name`. It rides `[render]` rather than the
             // `[toon]` rig table below because it is a frame's render setting rather than a piece of the
             // character's art direction, and because the capture instrument can only override `[render]` keys
-            // (`scripts/windows/capture.ps1`), which is what makes the A/B runnable.
+            // (`scripts/gates/capture.ps1`), which is what makes the A/B runnable.
             if (toml::node const* node = render->get("goo_toon")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
                     settings.render.goo_toon = *value;

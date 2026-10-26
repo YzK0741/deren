@@ -1567,7 +1567,7 @@ not resurrection of these incomplete placeholders. Apply section 5's actual layo
    retained work.
 6. Reports capabilities/extensions truthfully, refuses unsupported operations by name, and documents any
    threading guarantee beyond the caller-serialized default.
-7. Runs the device-probe lane (`scripts/windows/check_device_probes.ps1`) or an equivalent on a device-capable
+7. Runs the device-probe lane (`scripts/gates/check_device_probes.ps1`) or an equivalent on a device-capable
    machine before claiming conformance.
 
 

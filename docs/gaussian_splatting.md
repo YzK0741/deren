@@ -17,7 +17,7 @@ taa = false
 sun_direction = [0.0, 0.25, 1.0]
 ```
 
-NVIDIA's Bouquet of Flowers is the acceptance asset: 562,974 particles, SH degree 3, CC BY-SA 4.0, credited to Jean-Eudes Marvie. Fetch it with `scripts/fetch_gaussian_viewer_asset.ps1`; the large asset is not committed. A missing or malformed file is reported at startup rather than presented as a successful blank scene.
+NVIDIA's Bouquet of Flowers is the acceptance asset: 562,974 particles, SH degree 3, CC BY-SA 4.0, credited to Jean-Eudes Marvie. Fetch it with `scripts/assets/fetch_gaussian_viewer_asset.ps1`; the large asset is not committed. A missing or malformed file is reported at startup rather than presented as a successful blank scene.
 
 The camera is fitted to the cloud's conservative bounds. `--capture-camera` overrides the fit for reproducible images. The bouquet viewer aligns its local -Y flower face toward the configured sky sun while rotating about the bounds center. This is a placement convention for the bouquet, not automatic front-face detection for arbitrary assets. SH appearance includes captured lighting; changing the sky sun does not physically relight the cloud.
 

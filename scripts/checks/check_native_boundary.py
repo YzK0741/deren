@@ -12,9 +12,9 @@ excluded according to their actual CMake target ownership. Every portable module
 including the shared render layout, is checked without source exemptions.
 
 USAGE
-  python scripts/check_native_boundary.py                       # report (exit 0)
-  python scripts/check_native_boundary.py --require-zero        # fail while anything is left
-  python scripts/check_native_boundary.py --build-dir build-release-dyn-clang64
+  python scripts/checks/check_native_boundary.py                       # report (exit 0)
+  python scripts/checks/check_native_boundary.py --require-zero        # fail while anything is left
+  python scripts/checks/check_native_boundary.py --build-dir build-release-dyn-clang64
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ import re
 import subprocess
 import sys
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = pathlib.Path(__file__).resolve().parents[2]
 
 # The steps that DO NOT COUNT against the engine, with the reason (see the module docstring).
 ALLOWED = ()

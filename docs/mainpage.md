@@ -201,8 +201,8 @@ One contract, and every graphics backend is an implementation of it.
   answering with the abi number the contract declares. The executable is not rebuilt.
 
 Three instruments keep that true, and all three measure artifacts rather than prose:
-`scripts/check_native_boundary.py` (the executable's import table, the engine objects' unresolved
-symbols and the engine sources' vocabulary), `scripts/check_backend_boundary.py` (the symbol ratchet
+`scripts/checks/check_native_boundary.py` (the executable's import table, the engine objects' unresolved
+symbols and the engine sources' vocabulary), `scripts/checks/check_backend_boundary.py` (the symbol ratchet
 plus the whitelist) and the per-image checks in CI. Measured at this version: **0** graphics-API
 imports in `deren.exe`, **0** unresolved `vk*` symbols in the engine's objects, **0** engine sources
 naming the graphics API.

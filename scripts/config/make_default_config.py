@@ -6,8 +6,8 @@ location (renamed config.toml). For a fully interactive setup with per-key
 prompts (types + defaults), use make_config.py instead.
 
 Usage:
-    python scripts/make_default_config.py
-    python scripts/make_default_config.py [output_dir]
+    python scripts/config/make_default_config.py
+    python scripts/config/make_default_config.py [output_dir]
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import os
 import shutil
 import sys
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 EXAMPLE = os.path.join(REPO_ROOT, "config.example.toml")
 
 

@@ -29,7 +29,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $PSScriptRoot
+$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $target = Join-Path $root $BuildDir
 $work = Join-Path $target "gaussian-viewer"
 $zip = Join-Path $work "flowers_1.zip"

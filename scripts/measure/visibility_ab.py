@@ -4,7 +4,7 @@ Usage: python visibility_ab.py <off_dir> <on_dir>
 
 Both directories hold the capture gate's per-scenario artefacts:
 `<scenario>.last.png` (the frame the run kept) and `<scenario>.deren-debug.log`. Produce them with two -Full rounds
-of scripts/windows/check_render.ps1, one plain (OFF) and one with `-ExtraConfig 'visibility_buffer = true'`
+of scripts/gates/check_render.ps1, one plain (OFF) and one with `-ExtraConfig 'visibility_buffer = true'`
 (ON); this instrument is what turns those two rounds into the numbers the review records.
 
 Per scenario it prints: ADMITTED (with the item count the raster lane recorded) or the fallback reason the

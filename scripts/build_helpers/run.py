@@ -2,15 +2,15 @@
 """Run the deren renderer from a built configuration.
 
 Usage:
-    python scripts/unified/run.py
-    python scripts/unified/run.py --type Debug
-    python scripts/unified/run.py --model path/to/model.glb --demo gui
-    python scripts/unified/run.py --build-dir build-local -- --version
+    python scripts/build_helpers/run.py
+    python scripts/build_helpers/run.py --type Debug
+    python scripts/build_helpers/run.py --model path/to/model.glb --demo gui
+    python scripts/build_helpers/run.py --build-dir build-local -- --version
 
-Runs from the repository root, matching the old PowerShell/POSIX run
-scripts.  Arguments after ``--`` (and unknown options) are forwarded to the
-executable.  The old -Type/-Model/-Grid/-Config/-BuildDir spellings are
-accepted for the forwarding shims.
+Runs from the repository root.  Arguments after ``--`` (and unknown options)
+are forwarded to the executable.  The legacy -Type/-Model/-Grid/-Config/
+-BuildDir spellings are still accepted for callers migrating from the old
+platform wrappers.
 """
 
 from __future__ import annotations
@@ -94,7 +94,7 @@ def main(argv: Sequence[str]) -> int:
         return 0
     if not executable.exists():
         print(
-            "not built: {}\nrun: python scripts/unified/build.py --type {}".format(
+            "not built: {}\nrun: python scripts/build_helpers/build.py --type {}".format(
                 executable, args.type
             ),
             file=sys.stderr,

@@ -7,7 +7,7 @@ rem raised by ShellExecuteEx, which is what a DOUBLE-CLICK on an .exe (and Power
 rem .exe carries no signature here - it is built on this machine, for this machine - so Windows asks about the
 rem "unknown publisher" on every launch, and a capture batch launches it dozens of times. A .cmd is not an image:
 rem the shell runs the Microsoft-signed `cmd.exe`, and the line below starts the renderer with CreateProcess, which
-rem has no such check. `scripts\windows\capture.ps1` and `check_render.ps1` were changed the same way (they now use
+rem has no such check. `scripts\gates\capture.ps1` and `check_render.ps1` were changed the same way (they now use
 rem `UseShellExecute = $false`), so the automated runs no longer prompt either.
 rem
 rem ARGUMENTS ARE FORWARDED, so this is also the way to run a capture by hand:

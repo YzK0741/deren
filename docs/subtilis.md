@@ -244,7 +244,7 @@ the original geometry-scene image differences above remain LOD edge differences.
   `tools/subtilis/CMakeLists.txt` (`ctest --test-dir build-subtilis`), separately from the engine CTest set;
   measurement scripts live in `scripts/measure/` and the Task 8 acceptance record is
   `docs/reviews/2026-10-21-subtilis-converter.md`.
-- Real-scene captures: `scripts/windows/capture.ps1 -Base <toml> -Camera ... -Frames ...` with
+- Real-scene captures: `scripts/gates/capture.ps1 -Base <toml> -Camera ... -Frames ...` with
   `subtilis = true`; the full OFF/ON matrix and raw logs are in the Bistro performance report
   (`docs/reviews/2026-10-20-bistro-performance/`). The textured asset preparation/verification scripts are
   `scripts/measure/prepare_bistro_textures.py`, `convert_bistro_metalrough.py`, `verify_bistro_textured.py`.

@@ -8,7 +8,7 @@ expected to move when the backend changes, and its output is what gets pasted in
 
 Run from the repository root:
 
-    python scripts/check_rhi_validation_audit.py
+    python scripts/checks/check_rhi_validation_audit.py
 
 It answers, in order:
   1. the concrete implementation names (the single source the producers and the checks share),
@@ -25,7 +25,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 BACKEND = ROOT / "source" / "backends" / "vulkan"
 CORE = BACKEND / "core"
 

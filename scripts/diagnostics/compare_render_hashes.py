@@ -2,7 +2,7 @@
 """compare_render_hashes.py - THE RENDER GATE'S REAL INSTRUMENT: the fourteen ACTUAL hashes.
 
 WHY THIS EXISTS, AND WHY IT IS NOT `check_render.ps1`'s EXIT CODE
-    `scripts/windows/check_render.ps1` renders a fixed set of scenarios and compares each one against a
+    `scripts/gates/check_render.ps1` renders a fixed set of scenarios and compares each one against a
     reference captured earlier ON THIS MACHINE. Its own verdict is therefore about those references -
     and this repository's local reference set is a 2026-10-01 set, so `CHANGED` is the NORMAL answer and
     the script exits 1 on a perfectly correct tree. The instrument that means something is the actual
@@ -19,14 +19,14 @@ WHY THIS EXISTS, AND WHY IT IS NOT `check_render.ps1`'s EXIT CODE
 
 USAGE
     # both trees still exist (the two-tree phase): compare two gate outputs
-    python scripts/compare_render_hashes.py build-release-clang64/render-legacy.txt \\
+    python scripts/diagnostics/compare_render_hashes.py build-release-clang64/render-legacy.txt \\
                                               --against build-release-clang64/render-dyn.txt
 
     # one configuration (S5 onwards): compare one gate output against the frozen list
-    python scripts/compare_render_hashes.py build-release-dyn-clang64/render-check/gate-output.txt --frozen
+    python scripts/diagnostics/compare_render_hashes.py build-release-dyn-clang64/render-check/gate-output.txt --frozen
 
     # a standard gate run can ask check_render.ps1 to do this itself:
-    pwsh -File scripts/windows/check_render.ps1 -Full -BuildDir build-release-dyn-clang64 -Compare-frozen
+    pwsh -File scripts/gates/check_render.ps1 -Full -BuildDir build-release-dyn-clang64 -Compare-frozen
 
     EXIT: 0 when all fourteen matched, 1 otherwise (a missing scenario counts as a mismatch: a scenario
     that did not run must never read as "unchanged").

@@ -86,15 +86,15 @@ ONE CONFIGURATION, ONE PAIR (S5, the flip)
     deliberately not part of the quiet-able report.
 
 USAGE
-    python scripts/check_backend_boundary.py                       # gate against the baseline
-    python scripts/check_backend_boundary.py --update              # ratchet down to today
-    python scripts/check_backend_boundary.py --list                # the worklist, demangled, + the imports
-    python scripts/check_backend_boundary.py --warn                # ordinary checks report failures; mutations/flip stay strict
-    python scripts/check_backend_boundary.py --require-zero        # the flip gate: whitelist-aware + import graph
-    python scripts/check_backend_boundary.py --config dynamic      # explicit spelling of the only value
-    python scripts/check_backend_boundary.py --build-dir DIR
-    python scripts/check_backend_boundary.py --whitelist PATH      # alternate whitelist (tests)
-    python scripts/check_backend_boundary.py --repo-root DIR       # alternate tree for the import scan (tests)
+    python scripts/checks/check_backend_boundary.py                       # gate against the baseline
+    python scripts/checks/check_backend_boundary.py --update              # ratchet down to today
+    python scripts/checks/check_backend_boundary.py --list                # the worklist, demangled, + the imports
+    python scripts/checks/check_backend_boundary.py --warn                # ordinary checks report failures; mutations/flip stay strict
+    python scripts/checks/check_backend_boundary.py --require-zero        # the flip gate: whitelist-aware + import graph
+    python scripts/checks/check_backend_boundary.py --config dynamic      # explicit spelling of the only value
+    python scripts/checks/check_backend_boundary.py --build-dir DIR
+    python scripts/checks/check_backend_boundary.py --whitelist PATH      # alternate whitelist (tests)
+    python scripts/checks/check_backend_boundary.py --repo-root DIR       # alternate tree for the import scan (tests)
 """
 from __future__ import annotations
 
@@ -615,7 +615,7 @@ def write_json(path: str, data: dict) -> None:
 
 
 def main() -> int:
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     scripts_dir = os.path.dirname(os.path.abspath(__file__))
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)

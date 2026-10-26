@@ -27,8 +27,8 @@ otherwise it can also collect system headers. Build BCP from the pinned tag,
 then run from the deren repository root, using a fresh staging directory:
 
 ```text
-python scripts/vendor_boost_graph.py --boost-root <source-root> --bcp <bcp-executable> --output <empty-staging-directory>
-python scripts/vendor_boost_graph.py --output source/third_party/boost --verify
+python scripts/tools/vendor_boost_graph.py --boost-root <source-root> --bcp <bcp-executable> --output <empty-staging-directory>
+python scripts/tools/vendor_boost_graph.py --output source/third_party/boost --verify
 ```
 
 The script fixes the six entry headers in headers.json, validates the version,

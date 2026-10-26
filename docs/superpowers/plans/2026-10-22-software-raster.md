@@ -243,9 +243,9 @@ test_native_boundary_zero` **63/63**；converter standalone **6/6**；默认 OFF
 cmake --build build-release-dyn-clang64 -j12
 ctest --test-dir build-release-dyn-clang64 --output-on-failure
 ctest -R 'test_visibility|test_software|test_subtilis|test_app_config|test_docs' --test-dir build-release-dyn-clang64 --output-on-failure
-pwsh scripts/windows/check_render.ps1 -Full -BuildDir build-release-dyn-clang64
-pwsh scripts/windows/check_render.ps1 -Visibility -Compare docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt -BuildDir build-release-dyn-clang64
-pwsh -File scripts/windows/capture.ps1 -Base <object-lod base toml> -Overrides "software_raster=true" -Tag software-on -Frames 130 -Camera "35,18,140,0,-83.07,0"
+pwsh scripts/gates/check_render.ps1 -Full -BuildDir build-release-dyn-clang64
+pwsh scripts/gates/check_render.ps1 -Visibility -Compare docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt -BuildDir build-release-dyn-clang64
+pwsh -File scripts/gates/capture.ps1 -Base <object-lod base toml> -Overrides "software_raster=true" -Tag software-on -Frames 130 -Camera "35,18,140,0,-83.07,0"
 python scripts/measure/software_raster_roi.py --self-test
 python scripts/measure/verify_software_raster.py --self-test
 ctest --test-dir build-subtilis --output-on-failure        # converter standalone, 6/6

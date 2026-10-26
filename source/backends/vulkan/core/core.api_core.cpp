@@ -162,7 +162,7 @@ namespace deren::vulkan {
         // measurement says 21 (`transfer_source -> shader_read` was missing, i.e.
         // `transfer_src_to_sampling_transition`, which `source/engine/pass/megalights_temporal.cpp` uses). A green
         // assertion was certifying a WRONG NUMBER, which is worse than no assertion: it made the gap look
-        // covered. The numbers below are the histogram output of `scripts/recording_face_census.py`, quoted
+        // covered. The numbers below are the histogram output of `scripts/tools/recording_face_census.py`, quoted
         // so a reader can re-run it:
         //
         //     measured pairs: 22   role values: 11   combinations: 121   unsupported: 99
@@ -176,7 +176,7 @@ namespace deren::vulkan {
         inline constexpr std::uint32_t image_use_value_count = 11;            // the enum's values, contiguous 0..10
         static_assert(image_use_pairs.size() == image_use_pair_count_from_census,
                       "the declaration table must be exactly the pairs the CENSUS measured "
-                      "(scripts/recording_face_census.py: 'measured pairs: 22'); a hand count is not evidence");
+                      "(scripts/tools/recording_face_census.py: 'measured pairs: 22'); a hand count is not evidence");
         static_assert(image_use_pair_count_from_census + unsupported_pair_count_from_census ==
                           static_cast<std::size_t>(image_use_value_count) * image_use_value_count,
                       "22 measured pairs + 99 unsupported must be exactly the 121 role combinations the census "
@@ -252,7 +252,7 @@ namespace deren::vulkan {
         //     * THE GATE MUST BE ABLE TO FAIL, and that is proven by MUTATION, not by reading the code.
         // ============================================================================================
 
-        /// THE PAIRS THE CENSUS MEASURED - transcribed from `scripts/recording_face_census.py`'s output
+        /// THE PAIRS THE CENSUS MEASURED - transcribed from `scripts/tools/recording_face_census.py`'s output
         /// (the `measured pairs` line, printed as role pairs). This is the INDEPENDENT side of the set
         /// equality below: the table is checked against the measurement, never against itself.
         struct role_pair_expected {
@@ -361,7 +361,7 @@ namespace deren::vulkan {
         }
         static_assert(unsupported_combination_count() == unsupported_pair_count_from_census,
                       "the rules must leave exactly the census's 79 combinations unsupported "
-                      "(scripts/recording_face_census.py: 'unsupported by this measurement: 79')");
+                      "(scripts/tools/recording_face_census.py: 'unsupported by this measurement: 79')");
 
         [[nodiscard]] consteval bool table_rows_are_unique() noexcept {
             for (std::size_t a = 0; a < image_use_pairs.size(); ++a) {

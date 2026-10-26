@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 
-SCRIPT = Path(__file__).resolve().parents[2] / "scripts/check_backend_boundary.py"
+SCRIPT = Path(__file__).resolve().parents[2] / "scripts/checks/check_backend_boundary.py"
 
 
 class BoundaryTests(unittest.TestCase):
@@ -378,7 +378,7 @@ class BoundaryTests(unittest.TestCase):
                          "the legacy whitelist was deleted with source/backends/vulkan/runtime (S5)")
         self.assertFalse((scripts / "backend_boundary_baseline.mingw.json").exists(),
                          "the legacy baseline was deleted with source/backends/vulkan/runtime (S5)")
-        dynamic_whitelist = scripts / "backend_boundary_whitelist_dynamic.json"
+        dynamic_whitelist = scripts / "checks" / "backend_boundary_whitelist_dynamic.json"
         self.assertTrue(dynamic_whitelist.is_file())
         payload = json.loads(dynamic_whitelist.read_text(encoding="utf-8"))
         self.assertEqual(payload["count"], len(payload["entries"]))

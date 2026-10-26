@@ -16,9 +16,9 @@
 # means the run you are about to read is the run you already have.
 #
 # Usage:
-#   pwsh -File scripts/windows/capture.ps1 -Base my.toml -Tag exp1 -Overrides "ssao_radius=2.0"
-#   pwsh -File scripts/windows/capture.ps1 -Base my.toml -Tag wide -Camera "90,0,6.41,0,-18.548,0" -Frames 120
-#   pwsh -File scripts/windows/capture.ps1 -Base my.toml -Tag asan -BuildDir build-asan
+#   pwsh -File scripts/gates/capture.ps1 -Base my.toml -Tag exp1 -Overrides "ssao_radius=2.0"
+#   pwsh -File scripts/gates/capture.ps1 -Base my.toml -Tag wide -Camera "90,0,6.41,0,-18.548,0" -Frames 120
+#   pwsh -File scripts/gates/capture.ps1 -Base my.toml -Tag asan -BuildDir build-asan
 #
 # -Base is resolved relative to the WORK directory (see -WorkDir), which is where the configs and the
 # captures live; -Camera "" leaves the pose to the scene's own `camera_fit`, which is deterministic for

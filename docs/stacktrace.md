@@ -128,7 +128,7 @@ Archive the exact EXE, DLL and debug data with each crash log. An offline tool
 can decode the raw records:
 
 ```text
-python scripts/symbolize_stacktrace.py crash.log --module-dir archived-build
+python scripts/diagnostics/symbolize_stacktrace.py crash.log --module-dir archived-build
 ```
 
 The script applies the same rule this service does - the first frame after each

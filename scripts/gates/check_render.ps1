@@ -58,12 +58,12 @@
 #     old set first, because it is the only record of what the previous driver looked like.
 #
 # Usage:
-#   pwsh -File scripts/windows/check_render.ps1                 # the CORE set (5 scenarios x 2 runs)
-#   pwsh -File scripts/windows/check_render.ps1 -Full           # all FIFTEEN legacy-path scenarios
-#   pwsh -File scripts/windows/check_render.ps1 -Visibility     # the VISIBILITY-path reference scenario(s)
-#   pwsh -File scripts/windows/check_render.ps1 -Update         # accept the current output as reference
-#   pwsh -File scripts/windows/check_render.ps1 -Only deferred_taa_fxaa
-#   pwsh -File scripts/windows/check_render.ps1 -List
+#   pwsh -File scripts/gates/check_render.ps1                 # the CORE set (5 scenarios x 2 runs)
+#   pwsh -File scripts/gates/check_render.ps1 -Full           # all FIFTEEN legacy-path scenarios
+#   pwsh -File scripts/gates/check_render.ps1 -Visibility     # the VISIBILITY-path reference scenario(s)
+#   pwsh -File scripts/gates/check_render.ps1 -Update         # accept the current output as reference
+#   pwsh -File scripts/gates/check_render.ps1 -Only deferred_taa_fxaa
+#   pwsh -File scripts/gates/check_render.ps1 -List
 #
 # -Visibility is the ONE selection that runs a scenario whose frozen reference describes the VISIBILITY
 # buffer's lanes instead of the geometry lane (visibility-buffer plan v0.7). -Full deliberately does not run
@@ -488,7 +488,7 @@ $onlyNames = @()
 if ($Only) { $onlyNames = @($Only -split '[,;\s]+' | Where-Object { $_ }) }
 $pass = 0; $fail = 0; $missing = 0; $flaky = 0; $skipped = 0
 # THE ACTUAL HASHES, KEPT (G2): `render_hashes.txt` is this round's machine-readable result - the file
-# `scripts/compare_render_hashes.py` reads (and the file a second tree's round is compared against while
+# `scripts/diagnostics/compare_render_hashes.py` reads (and the file a second tree's round is compared against while
 # two trees existed). It is written whether or not `-Compare` was asked for, so a round's evidence does
 # not depend on remembering a flag.
 $hashesFile = Join-Path $workDir "render_hashes.txt"
@@ -663,7 +663,7 @@ if (-not $Full -and -not $Visibility -and $onlyNames.Count -eq 0 -and $skipped -
 # THIS machine, so a stale reference set makes `changed` (and this script's exit 1) the NORMAL answer on a
 # perfectly correct tree. The statement that means something is "the fourteen ACTUAL hashes are the ones
 # the migration's frozen list names" (or, while two trees existed, "the dynamic tree's are the control
-# tree's"). `scripts/compare_render_hashes.py` is that instrument, and `-Compare` runs it against the file
+# tree's"). `scripts/diagnostics/compare_render_hashes.py` is that instrument, and `-Compare` runs it against the file
 # just written - so a gate round has ONE verdict that cannot be confused with "the references are old".
 if ($Compare) {
     $compareArgs = @($hashesFile)
@@ -672,7 +672,7 @@ if ($Compare) {
     # dropped one cannot compare equal (see the script's own note).
     $compareArgs += @("--expect", "$ran")
     Write-Host ""
-    & python (Join-Path $PSScriptRoot "..\compare_render_hashes.py") @compareArgs
+    & python (Join-Path $PSScriptRoot "..\diagnostics\compare_render_hashes.py") @compareArgs
     $compareExit = $LASTEXITCODE
     if ($compareExit -ne 0) {
         Write-Host "  ERROR: the ACTUAL hashes did not match their reference - this is the REAL failure (the reference-vs-frame comparison above is stale by design)" -ForegroundColor Red

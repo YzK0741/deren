@@ -108,7 +108,7 @@
 
 ## Task 5: 独立计时、画质与性能验收
 
-**Files:** 修改 runtime 计时 enum/labels/report、backend timestamp 容量、`profiling.cppm`、GPU frame CPU 计时、旧逐帧 Gaussian 日志；新增 `scripts/windows/check_gaussian_gpu.ps1`（2026-10-18 核对：脚本在仓库根的 `scripts/windows/`，原文写作 `source/scripts/windows/`，而 `source/scripts/` 不存在），更新 Gaussian 文档和本轮 review report。
+**Files:** 修改 runtime 计时 enum/labels/report、backend timestamp 容量、`profiling.cppm`、GPU frame CPU 计时、旧逐帧 Gaussian 日志；新增 `scripts/gates/check_gaussian_gpu.ps1`（2026-10-18 核对：脚本在仓库根的 `scripts/windows/`，原文写作 `source/scripts/windows/`，而 `source/scripts/` 不存在），更新 Gaussian 文档和本轮 review report。
 
 **Interfaces:** 扩展现有 mark，不另开 VRDX 内部 15 mark 查询；Gaussian intervals 为 prepare、sort、finalize、raster。runtime 与 backend 的 mark capacity 同时由 16 扩到 32，所有数组和 query pool 容量使用该值。
 
