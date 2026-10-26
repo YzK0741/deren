@@ -1,4 +1,10 @@
-# deren
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/branding/deren-logo-dark-720.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/images/branding/deren-logo-light-720.png">
+    <img src="docs/images/branding/deren-logo-light-720.png" alt="deren logo" width="600">
+  </picture>
+</p>
 
 **deren** is a real-time renderer written in modern C++23 modules. Its portable engine uses RHI and GUI contracts to load graphics implementations as DLLs.
 

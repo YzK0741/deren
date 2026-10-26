@@ -6,6 +6,10 @@ Approved direction: a lowercase d shaped by a doorway and its projected light, p
 
 - `deren-logo-light.png`: red horizontal wordmark on a light background.
 - `deren-logo-dark.png`: white horizontal wordmark on a dark background.
+- `deren-logo-light-720.png` / `deren-logo-dark-720.png`: 720 px wide README derivatives
+  (Lanczos downscale of the full assets). The top-level README selects them with
+  `<picture>` and `prefers-color-scheme`, so the light and dark themes each load one
+  ~110–125 KB image instead of the ~1 MB masters.
 - `deren-mark.png`: compact red d symbol on a light background, with a shortened projection.
 - `deren-mark-dark.png`: compact white d on a dark background, selected for the Windows executable icon.
 
