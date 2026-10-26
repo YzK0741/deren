@@ -1983,6 +1983,11 @@ namespace deren::engine {
         std::string_view pipeline_name = {};
         // the material push constants (material_index + model)
         material_push_constants push = {};
+        /// Append every material this leaf draws with. Static draws have one material per chunk,
+        /// so CPU-side residency demand cannot read only `push.material_index`.
+        virtual void append_material_indices(deren::utility::vessel::vector<std::uint32_t>& out) const {
+            out.push_back(this->push.material_index.value);
+        }
         // This leaf's slot in the runtime's previous-transform buffer (scene block slot 13), which
         // is where the matrix it had one frame ago lives - the vertex shader reads it through
         // push.motion_base and the fragment stage turns the difference into TAA's motion vector.
@@ -2261,6 +2266,11 @@ namespace deren::engine {
         };
         deren::utility::vessel::vector<chunk_record> chunks = {};
 
+        void append_material_indices(deren::utility::vessel::vector<std::uint32_t>& out) const override {
+            out.reserve(out.size() + this->chunks.size());
+            for (auto const& chunk : this->chunks)
+                out.push_back(chunk.material_index.value);
+        }
         void draw(render_environment& env) const override;
         void destroy() noexcept override;
         [[nodiscard]] bool is_valid() const noexcept override;

@@ -146,22 +146,10 @@ namespace deren::engine {
         if (!commands || !this->cluster_retention_open) {
             return rhi::error::not_ready;
         }
-        bool const residency = texture_streaming.enabled && visibility_lane_frame == visibility::opaque_lane::visibility && !active_features().rt_shadow;
+        // Texture residency demand is computed by the CPU from begin_recording()'s visible lists and
+        // applied before the graph records; there is no GPU feedback pass/checkpoint on this path.
+        bool const residency = false;
         std::optional<std::uint32_t> residency_resolve_index;
-        if (texture_streaming.enabled || texture_streaming.restore_pending) {
-            if (auto result = prepare_texture_feedback(); result != rhi::error::ok)
-                return result;
-            if (!residency) {
-                auto* checkpoint = rhi::query_extension<rhi::frame_checkpoint>(rhi_face());
-                if (!checkpoint)
-                    return rhi::error::unsupported;
-                if (auto result = checkpoint->checkpoint_and_wait(); result != rhi::error::ok)
-                    return result;
-                if (auto result = update_texture_residency(true); result != rhi::error::ok)
-                    return result;
-                texture_streaming.restore_pending = false;
-            }
-        }
         auto index = this->current_image_index;
         if (index >= rhi::max_swapchain_images) {
             return rhi::error::invalid_argument;

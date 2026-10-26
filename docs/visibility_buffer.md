@@ -122,16 +122,16 @@ depth. The compute resolve does not re-run the cut-out test; a pixel with a vali
 
 `[render] visibility_texture_streaming = true` opts in alongside `visibility_buffer = true`. Geometry
 remains resident. Scene registration keeps whole decoded images in shared CPU storage and initially
-publishes ordinary placeholders for unneeded textures. A full-resolution compute scan identifies this
-frame's visible materials, including the shared hardware/software winner rule and HZB recovery output.
-Feedback is512 words plus status (2052 bytes); the coherent mapped buffer is published for host reads
-and read only after a graphics frame checkpoint completes.
+publishes ordinary placeholders for unneeded textures. Texture demand is derived on the CPU from the
+existing BVH frustum-culled visible leaves and each leaf's material list (static draws contribute every
+chunk material); there is no GPU visibility-feedback compute pass or frame checkpoint on this path.
+The material-demand bitset is applied before the main graph records, so required textures are resident
+when shading starts.
 
-The graph's compiled schedule is partitioned before resolve, preserving compiled resource barriers
-and ownership. After the prefix completes, required textures load synchronously, unneeded descriptor
-slots return to placeholders and unload is attempted; a remaining command/group lease defers physical
-reclamation. The suffix shades the same frame with the same camera/items. Newly visible required
-textures must load before shading; upload refusal fails the frame explicitly.
+Unneeded descriptor slots return to placeholders and unload is attempted; a remaining command/group
+lease defers physical reclamation. Newly visible required textures must load before shading; upload
+refusal fails the frame explicitly. CPU demand is a conservative superset of GPU visibility: it may
+keep/load textures for geometry the GPU later culls, but it cannot miss a demanded texture.
 
 MASK alpha-source, toon/overlay/transparent material textures and renderer defaults stay pinned.
 Shared textures inherit pinning. An ineligible opaque lane or active ray-traced shadow uses full
@@ -141,8 +141,9 @@ Configuration/scene changes follow the existing serialized frame boundary.
 
 This is whole-image GPU residency, not mip/page streaming. CPU decoded sources remain allocated.
 Logged payload counts distinguish total/pinned/physically ready bytes and deferred unloads; they do
-not measure VMA block release or process VRAM. Frame checkpoint and synchronous upload can cause
-substantial stalls. The option is default-off and not an FPS optimization. See the approved
+not measure VMA block release or process VRAM. Upload is still synchronous inside the frame and can
+cause stalls; CPU demand/retire overlap is the next planned step. The option is default-off and not an
+FPS optimization. See the approved
 [design](superpowers/specs/2026-10-26-vbuffer-residency-design.md) and execution record beside it.
 
 ## See also

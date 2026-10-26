@@ -59,6 +59,32 @@ namespace deren::engine {
         return commands.barrier({.buffers = std::span(&host, 1)});
     }
 
+    void runtime::collect_cpu_texture_feedback() noexcept {
+        cpu_texture_feedback = {};
+        utility::vessel::vector<std::uint32_t> materials;
+        auto mark_leaf = [this, &materials](primitive const* const leaf) noexcept {
+            if (leaf == nullptr)
+                return;
+            materials.clear();
+            leaf->append_material_indices(materials);
+            for (std::uint32_t const material : materials) {
+                if (material >= texture_residency::material_capacity) {
+                    cpu_texture_feedback.invalid = 1;
+                    return;
+                }
+                cpu_texture_feedback.materials[material / 32u] |= 1u << (material % 32u);
+            }
+        };
+        for (primitive const* const leaf : frame_visible)
+            mark_leaf(leaf);
+        for (primitive const* const leaf : frame_transparent)
+            mark_leaf(leaf);
+        for (primitive const* const leaf : frame_overlay)
+            mark_leaf(leaf);
+        for (primitive const* const leaf : frame_character)
+            mark_leaf(leaf);
+    }
+
     rhi::error runtime::update_texture_residency(bool all) {
         auto started = std::chrono::steady_clock::now();
         utility::vessel::vector<std::uint8_t> pinned(streamed_textures.size(), all ? 1 : 0);
@@ -67,7 +93,7 @@ namespace deren::engine {
                 pinned[i] = 1;
         texture_residency::feedback bits{};
         if (!all)
-            std::memcpy(&bits, visibility_feedback_buffer->mapped().data(), sizeof(bits));
+            bits = cpu_texture_feedback;
         auto required = texture_residency::demand(bits, material_texture_edges, pinned);
         if (!required)
             return rhi::error::invalid_argument;

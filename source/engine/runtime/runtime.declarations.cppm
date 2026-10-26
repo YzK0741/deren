@@ -505,8 +505,11 @@ namespace deren::engine {
         rhi::unique_object<rhi::pipeline> visibility_feedback_pipeline;
         rhi::shared_object<rhi::buffer> visibility_feedback_buffer;
         rhi::unique_object<rhi::buffer> visibility_feedback_readback;
+        texture_residency::feedback cpu_texture_feedback;
         [[nodiscard]] rhi::error prepare_texture_feedback();
         [[nodiscard]] rhi::error record_texture_feedback(rhi::command_buffer&);
+        /// Collect the material demand from the CPU visible lists built by begin_recording().
+        void collect_cpu_texture_feedback() noexcept;
         [[nodiscard]] rhi::error update_texture_residency(bool all);
 
         uint32_t white_texture_index = 0;

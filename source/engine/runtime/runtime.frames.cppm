@@ -817,6 +817,20 @@ namespace deren::engine {
                                   return distance_to(a) > distance_to(b); // far first
                               });
         }
+        // CPU material demand replaces the GPU feedback readback/checkpoint for texture streaming:
+        // the visible lists are already known here, before the main graph records. The next step
+        // moves this cull/demand calculation before pace_and_acquire so it overlaps the GPU.
+        if (this->texture_streaming.enabled || this->texture_streaming.restore_pending) {
+            if (this->texture_streaming.restore_pending) {
+                if (auto result = this->update_texture_residency(true); result != rhi::error::ok)
+                    return frame_status::begin_recording_failed;
+                this->texture_streaming.restore_pending = false;
+            } else {
+                this->collect_cpu_texture_feedback();
+                if (auto result = this->update_texture_residency(false); result != rhi::error::ok)
+                    return frame_status::begin_recording_failed;
+            }
+        }
         return frame_status::proceed;
     }
 
