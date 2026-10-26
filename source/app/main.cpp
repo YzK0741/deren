@@ -2700,7 +2700,7 @@ int main(int argc, char** argv) {
         // Compute the next frame's selection/demand while the GPU is still executing the previous
         // frame. Static scenes use the prepared draw-list path; animated/deforming scenes keep the
         // post-acquire cull until the animation prep ring's world/cull part lands.
-        runtime.set_cpu_frame_prep(!animation.is_playing());
+        runtime.set_cpu_frame_prep(true);
         runtime.prepare_texture_demand();
 
         // Phase 2: pace + acquire the next frame slot. After pace_and_acquire() returns

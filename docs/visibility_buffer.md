@@ -125,11 +125,12 @@ remains resident. Scene registration keeps whole decoded images in shared CPU st
 publishes ordinary placeholders for unneeded textures. Texture demand is derived on the CPU from the
 existing BVH frustum-culled visible leaves and each leaf's material list (static draws contribute every
 chunk material); there is no GPU visibility-feedback compute pass or frame checkpoint on this path.
-The material-demand bitset and, for static scenes, the visible draw list are computed before
-`pace_and_acquire()` from the cached scene/BVH and a CPU camera preview, overlapping the GPU's current
-frame. Animated/deforming scenes, dirty scenes and scenes above the small-shadow-caster limit keep the
-existing post-acquire cull until the animation prep ring lands. The prepared path also requires the
-aspect to match the preview; a resize falls back for that frame.
+The material-demand bitset and the visible draw list are computed before `pace_and_acquire()` from a
+CPU camera preview. Static scenes reuse the cached scene/BVH; animated or dirty scenes rebuild a private
+leaf/BVH snapshot for the preview (the animation controller now samples pose/skin/morph before pace and
+commits the prepared skin/morph buffers after acquire). The prepared path requires an aspect match, a
+non-empty visible list, and at most 1500 leaves for exact small-scene shadow casters; larger or
+not-yet-ready scenes fall back to the post-acquire cull for that frame.
 
 Unneeded descriptor slots return to placeholders and unload is attempted with a one-frame reuse
 horizon: an image that was requested at N-1 but is not requested at N stays resident through N, so a

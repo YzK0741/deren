@@ -660,7 +660,7 @@ namespace deren::engine {
             }
         };
         bool used_prepared_selection = false;
-        if (this->cpu_frame_prep_enabled && this->prepared_selection_ready && !this->bvh_dirty &&
+        if (this->cpu_frame_prep_enabled && this->prepared_selection_ready &&
             this->frame_leaves_buffer.size() <= 1500u &&
             std::abs(this->current_aspect - this->prepared_selection_aspect) < 1.0e-6f) {
             // Static scene: the visible list was culled before pace_and_acquire() from the cached

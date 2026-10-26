@@ -91,10 +91,7 @@ namespace deren::engine {
         cpu_texture_feedback_ready = false;
         prepared_selection_ready = false;
         prepared_visible.clear();
-        if (!texture_streaming.enabled || !frustum_culling || bound_scene == nullptr || frame_leaves_buffer.empty())
-            return;
-        // A dirty scene/BVH or no previous cull cache cannot provide a stable pre-pace snapshot.
-        if (bvh_dirty || !cull_bvh.has_value())
+        if (!texture_streaming.enabled || !frustum_culling || bound_scene == nullptr)
             return;
         auto const extent = presentation_extent();
         if (extent.width == 0 || extent.height == 0)
@@ -102,14 +99,47 @@ namespace deren::engine {
         float const aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
         camera_ubo const preview = make_orbit_camera_ubo(camera.yaw, camera.pitch, camera.distance, camera.target,
                                                          scene_extent_radius, aspect);
-        utility::vessel::vector<primitive const*> visible;
-        visible.reserve(frame_leaves_buffer.size());
-        for (primitive const* const leaf : frame_leaves_buffer)
-            if (!leaf->has_bounds)
-                visible.push_back(leaf);
         deren::utility::frustum const view_frustum = deren::utility::make_frustum(preview.view_proj_unjittered);
-        for (auto const* node : cull_bvh->frustum_cull(view_frustum))
-            visible.push_back(node->extra_data);
+
+        utility::vessel::vector<primitive const*> visible;
+        if (!bvh_dirty && cull_bvh.has_value() && !frame_leaves_buffer.empty()) {
+            // Static/common path: the cached BVH and leaf snapshot are still valid.
+            visible.reserve(frame_leaves_buffer.size());
+            for (primitive const* const leaf : frame_leaves_buffer)
+                if (!leaf->has_bounds)
+                    visible.push_back(leaf);
+            for (auto const* node : cull_bvh->frustum_cull(view_frustum))
+                visible.push_back(node->extra_data);
+        } else {
+            // Animation or scene change: world matrices changed after the last recorded frame. Build
+            // a private leaf list/BVH for this preview rather than mutating the render caches, which
+            // begin_recording() rebuilds after acquire.
+            for (scene_tree::scene_node& root : bound_scene->roots)
+                scene_tree::update_world(root, scene_transform);
+            utility::vessel::vector<primitive const*> leaves;
+            for (scene_tree::scene_node const& root : bound_scene->roots)
+                collect_leaf_primitives(root, leaves);
+            std::erase_if(leaves, [](primitive const* const leaf) { return leaf->overlay_kind != 0u; });
+            utility::vessel::vector<deren::utility::aabb_box<primitive>> boxes;
+            boxes.reserve(leaves.size());
+            for (primitive const* const leaf : leaves) {
+                if (!leaf->has_bounds)
+                    visible.push_back(leaf);
+                else {
+                    auto const [wmin, wmax] = leaf->world_aabb();
+                    boxes.push_back(deren::utility::aabb_box<primitive>{
+                        .min = wmin, .max = wmax, .extra_data = const_cast<primitive*>(leaf)});
+                }
+            }
+            if (!boxes.empty()) {
+                if (auto made = deren::utility::bvh<primitive>::make(boxes)) {
+                    for (auto const* node : made->frustum_cull(view_frustum))
+                        visible.push_back(node->extra_data);
+                }
+            }
+        }
+        if (visible.empty())
+            return; // scene not ready yet (or nothing visible): let begin_recording() collect the live lists
         collect_cpu_texture_feedback_from(visible);
         cpu_texture_feedback_ready = true;
         prepared_visible = std::move(visible);
