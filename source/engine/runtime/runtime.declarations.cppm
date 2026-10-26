@@ -527,7 +527,9 @@ namespace deren::engine {
         rhi::shared_object<rhi::buffer> visibility_feedback_buffer;
         rhi::unique_object<rhi::buffer> visibility_feedback_readback;
         texture_residency::feedback cpu_texture_feedback;
+        texture_residency::feedback prefetch_cpu_feedback;
         bool cpu_texture_feedback_ready = false;
+        bool texture_prefetch_ready = false;
         bool cpu_frame_prep_enabled = false;
         bool prepared_selection_ready = false;
         float prepared_selection_aspect = 0.0f;
@@ -543,6 +545,8 @@ namespace deren::engine {
         [[nodiscard]] rhi::error record_texture_feedback(rhi::command_buffer&);
         /// Collect the material demand from one CPU visible leaf list.
         void collect_cpu_texture_feedback_from(std::span<primitive const* const> visible) noexcept;
+        /// Gather (without touching the runtime's demand) the material bitset of a leaf list.
+        [[nodiscard]] texture_residency::feedback gather_cpu_texture_feedback(std::span<primitive const* const> visible) const noexcept;
         /// Collect the material demand from the CPU visible lists built by begin_recording().
         void collect_cpu_texture_feedback() noexcept;
         [[nodiscard]] rhi::error update_texture_residency(bool all);

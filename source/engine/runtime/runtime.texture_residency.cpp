@@ -1,7 +1,9 @@
 module;
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstring>
+#include <glm/glm.hpp>
 #include <span>
 module deren.engine.runtime;
 import deren.engine.texture_residency;
@@ -59,8 +61,8 @@ namespace deren::engine {
         return commands.barrier({.buffers = std::span(&host, 1)});
     }
 
-    void runtime::collect_cpu_texture_feedback_from(std::span<primitive const* const> visible) noexcept {
-        cpu_texture_feedback = {};
+    texture_residency::feedback runtime::gather_cpu_texture_feedback(std::span<primitive const* const> visible) const noexcept {
+        texture_residency::feedback result{};
         utility::vessel::vector<std::uint32_t> materials;
         for (primitive const* const leaf : visible) {
             if (leaf == nullptr)
@@ -69,12 +71,17 @@ namespace deren::engine {
             leaf->append_material_indices(materials);
             for (std::uint32_t const material : materials) {
                 if (material >= texture_residency::material_capacity) {
-                    cpu_texture_feedback.invalid = 1;
-                    return;
+                    result.invalid = 1;
+                    return result;
                 }
-                cpu_texture_feedback.materials[material / 32u] |= 1u << (material % 32u);
+                result.materials[material / 32u] |= 1u << (material % 32u);
             }
         }
+        return result;
+    }
+
+    void runtime::collect_cpu_texture_feedback_from(std::span<primitive const* const> visible) noexcept {
+        cpu_texture_feedback = gather_cpu_texture_feedback(visible);
     }
 
     void runtime::collect_cpu_texture_feedback() noexcept {
@@ -89,6 +96,8 @@ namespace deren::engine {
 
     void runtime::prepare_texture_demand() {
         cpu_texture_feedback_ready = false;
+        texture_prefetch_ready = false;
+        prefetch_cpu_feedback = {};
         prepared_selection_ready = false;
         prepared_visible.clear();
         if (!texture_streaming.enabled || !frustum_culling || bound_scene == nullptr)
@@ -97,11 +106,13 @@ namespace deren::engine {
         if (extent.width == 0 || extent.height == 0)
             return;
         float const aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
-        camera_ubo const preview = make_orbit_camera_ubo(camera.yaw, camera.pitch, camera.distance, camera.target,
-                                                         scene_extent_radius, aspect);
+        camera_ubo preview = make_orbit_camera_ubo(camera.yaw, camera.pitch, camera.distance, camera.target,
+                                                   scene_extent_radius, aspect);
+        preview.view_proj_unjittered = preview.proj * preview.view;
         deren::utility::frustum const view_frustum = deren::utility::make_frustum(preview.view_proj_unjittered);
 
         utility::vessel::vector<primitive const*> visible;
+        std::optional<deren::utility::bvh<primitive>> local_bvh;
         if (!bvh_dirty && cull_bvh.has_value() && !frame_leaves_buffer.empty()) {
             // Static/common path: the cached BVH and leaf snapshot are still valid.
             visible.reserve(frame_leaves_buffer.size());
@@ -133,7 +144,8 @@ namespace deren::engine {
             }
             if (!boxes.empty()) {
                 if (auto made = deren::utility::bvh<primitive>::make(boxes)) {
-                    for (auto const* node : made->frustum_cull(view_frustum))
+                    local_bvh = std::move(*made);
+                    for (auto const* node : local_bvh->frustum_cull(view_frustum))
                         visible.push_back(node->extra_data);
                 }
             }
@@ -142,6 +154,31 @@ namespace deren::engine {
             return; // scene not ready yet (or nothing visible): let begin_recording() collect the live lists
         collect_cpu_texture_feedback_from(visible);
         cpu_texture_feedback_ready = true;
+        prefetch_cpu_feedback = cpu_texture_feedback;
+        // Speculative next-frame candidates: widen the same preview's projection by 25% per axis and
+        // queue the extra materials for upload. The worker runs after this frame's update, i.e. while
+        // the GPU renders this frame, so a texture that enters the actual view next frame is likely
+        // already resident. Demand itself stays the unwidened list.
+        if (auto const* tree = cull_bvh.has_value() ? &*cull_bvh : (local_bvh.has_value() ? &*local_bvh : nullptr)) {
+            auto widened = preview.proj;
+            widened[0][0] *= 0.75f;
+            widened[1][1] *= 0.75f;
+            deren::utility::frustum const wide_frustum = deren::utility::make_frustum(widened * preview.view);
+            utility::vessel::vector<primitive const*> extra;
+            for (auto const* node : tree->frustum_cull(wide_frustum)) {
+                bool const already = std::find(visible.begin(), visible.end(), node->extra_data) != visible.end();
+                if (!already)
+                    extra.push_back(node->extra_data);
+            }
+            auto const extra_feedback = gather_cpu_texture_feedback(extra);
+            if (extra_feedback.invalid) {
+                prefetch_cpu_feedback.invalid = 1;
+            } else {
+                for (std::size_t word = 0; word < texture_residency::feedback_words; ++word)
+                    prefetch_cpu_feedback.materials[word] |= extra_feedback.materials[word];
+            }
+        }
+        texture_prefetch_ready = true;
         prepared_visible = std::move(visible);
         prepared_selection_aspect = aspect;
         prepared_selection_ready = cpu_frame_prep_enabled;
@@ -198,13 +235,13 @@ namespace deren::engine {
     }
 
     void runtime::schedule_texture_prefetch() {
-        if (!this->texture_streaming.enabled || !this->cpu_texture_feedback_ready || this->streamed_textures.empty())
+        if (!this->texture_streaming.enabled || !this->texture_prefetch_ready || this->streamed_textures.empty())
             return;
         utility::vessel::vector<std::uint8_t> pinned(this->streamed_textures.size(), 0);
         for (std::size_t i = 0; i < pinned.size(); ++i)
             if (this->streamed_textures[i].pinned)
                 pinned[i] = 1;
-        auto required = texture_residency::demand(this->cpu_texture_feedback, this->material_texture_edges, pinned);
+        auto required = texture_residency::demand(this->prefetch_cpu_feedback, this->material_texture_edges, pinned);
         if (!required)
             return;
         bool queued = false;
@@ -297,6 +334,7 @@ namespace deren::engine {
         auto result = descriptors->bind({.commands = frame_command_buffer().get()});
         if (result != rhi::error::ok)
             return result;
+        schedule_texture_prefetch();
         for (auto const& entry : streamed_textures)
             if (entry.image && entry.image->state() == rhi::lazy_state::ready)
                 resident_bytes += entry.bytes;
