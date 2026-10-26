@@ -515,6 +515,8 @@ namespace deren::engine {
         std::unordered_set<rhi::lazy_image*> upload_inflight;
         std::jthread upload_worker;
         bool upload_worker_stopping = false;
+        std::atomic<std::uint64_t> texture_upload_prefetched{0};
+        std::atomic<std::uint64_t> texture_upload_waited{0};
         void start_texture_upload_worker();
         void stop_texture_upload_worker();
         void schedule_texture_prefetch();

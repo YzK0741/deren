@@ -170,8 +170,9 @@ namespace deren::engine {
                     this->upload_queue.pop_back();
                 }
                 if (image) {
-                    if (image->state() == rhi::lazy_state::unloaded)
-                        static_cast<void>(image->prepare());
+                    if (image->state() == rhi::lazy_state::unloaded &&
+                        image->prepare() == rhi::error::ok)
+                        this->texture_upload_prefetched.fetch_add(1, std::memory_order_relaxed);
                     std::lock_guard lock(this->upload_queue_mutex);
                     this->upload_inflight.erase(image.get());
                 }
@@ -269,6 +270,7 @@ namespace deren::engine {
                 // than ever sampling an unloaded image.
                 auto state = entry.image->state();
                 if (state == rhi::lazy_state::unloaded || state == rhi::lazy_state::loading) {
+                    this->texture_upload_waited.fetch_add(1, std::memory_order_relaxed);
                     if (auto prepared = entry.image->prepare(); prepared != rhi::error::ok)
                         return prepared;
                 } else if (state == rhi::lazy_state::failed) {
@@ -293,7 +295,10 @@ namespace deren::engine {
                 resident_bytes += entry.bytes;
         auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         if (epoch <= 2 || uploaded_bytes || epoch % 60 == 0)
-            utility::log("texture residency: resident payload {} / {} bytes, pinned {} bytes, new demand {} bytes, deferred unload {}, update {} ms", resident_bytes, total_bytes, pinned_bytes, uploaded_bytes, deferred, elapsed);
+            utility::log("texture residency: resident payload {} / {} bytes, pinned {} bytes, new demand {} bytes, deferred unload {}, prefetched {}, waited {}, update {} ms",
+                         resident_bytes, total_bytes, pinned_bytes, uploaded_bytes, deferred,
+                         this->texture_upload_prefetched.load(std::memory_order_relaxed),
+                         this->texture_upload_waited.load(std::memory_order_relaxed), elapsed);
         return rhi::error::ok;
     }
 } // namespace deren::engine

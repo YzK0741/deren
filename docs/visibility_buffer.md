@@ -147,9 +147,11 @@ Configuration/scene changes follow the existing serialized frame boundary.
 
 This is whole-image GPU residency, not mip/page streaming. CPU decoded sources remain allocated.
 Logged payload counts distinguish total/pinned/physically ready bytes and deferred unloads; they do
-not measure VMA block release or process VRAM. Upload is still synchronous inside the frame and can
-cause stalls; CPU demand/retire overlap is the next planned step. The option is default-off and not an
-FPS optimization. See the approved
+not measure VMA block release or process VRAM. Uploads now run on a background worker using the
+`non_blocking_write` concept (`vkCopyMemoryToImageEXT` with barrier-only submissions); the worker is
+queued before `pace_and_acquire()` and the frame still waits before publishing a descriptor, so a
+first-use upload retains a synchronous fallback while previously queued work can overlap the GPU. The
+option is default-off and not an FPS optimization. See the approved
 [design](superpowers/specs/2026-10-26-vbuffer-residency-design.md) and execution record beside it.
 
 ## See also
