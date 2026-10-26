@@ -3712,6 +3712,17 @@ namespace deren::engine {
     }
 
     void runtime::set_skin_matrices(std::span<glm::mat4 const> const matrices, uint32_t const slot) {
+        if (this->animation_prep_active) {
+            std::size_t const bytes = std::min(matrices.size_bytes(), static_cast<std::size_t>(deren::engine::scene_skin_capacity) * sizeof(glm::mat4));
+            std::size_t const count = bytes / sizeof(glm::mat4);
+            if (this->skin_prep.size() < count)
+                this->skin_prep.resize(count, glm::mat4(0.0f));
+            if (bytes != 0)
+                std::memcpy(this->skin_prep.data(), matrices.data(), bytes);
+            this->skin_matrix_hash = deren::utility::xxh3_64bits({reinterpret_cast<uint8_t const*>(matrices.data()), bytes});
+            this->animation_skin_prep_dirty = true;
+            return;
+        }
         if (slot >= this->skin_mapped.size() || slot >= this->skin_current.size() || this->skin_mapped[slot] == nullptr) {
             return;
         }
@@ -3732,7 +3743,36 @@ namespace deren::engine {
     }
 
     void* runtime::morph_scratch() noexcept {
+        if (this->animation_prep_active) {
+            if (this->morph_prep.size() != deren::engine::scene_morph_capacity)
+                this->morph_prep.resize(deren::engine::scene_morph_capacity, 0.0f);
+            this->morph_revision.fetch_add(1, std::memory_order_relaxed);
+            this->animation_morph_prep_dirty = true;
+            return this->morph_prep.data();
+        }
         return this->morph_scratch(this->active_slot);
+    }
+
+    void runtime::commit_animation_prep() {
+        uint32_t const slot = this->active_slot;
+        if (this->animation_skin_prep_dirty) {
+            this->animation_skin_prep_dirty = false;
+            if (slot < this->skin_mapped.size() && this->skin_mapped[slot] != nullptr && !this->skin_prep.empty()) {
+                std::size_t const bytes = this->skin_prep.size() * sizeof(glm::mat4);
+                this->skin_current[slot] = this->skin_prep;
+                std::memcpy(this->skin_mapped[slot], this->skin_prep.data(), bytes);
+                this->skin_matrix_hash = deren::utility::xxh3_64bits(
+                    {reinterpret_cast<uint8_t const*>(this->skin_prep.data()), bytes});
+            }
+        }
+        if (this->animation_morph_prep_dirty) {
+            this->animation_morph_prep_dirty = false;
+            if (slot < this->morph_mapped.size() && this->morph_mapped[slot] != nullptr &&
+                this->morph_prep.size() == deren::engine::scene_morph_capacity) {
+                std::memcpy(this->morph_mapped[slot], this->morph_prep.data(),
+                            static_cast<std::size_t>(deren::engine::scene_morph_capacity) * sizeof(float));
+            }
+        }
     }
 
     void* runtime::morph_scratch(uint32_t const slot) noexcept {

@@ -512,6 +512,13 @@ namespace deren::engine {
         bool prepared_selection_ready = false;
         float prepared_selection_aspect = 0.0f;
         deren::utility::vessel::vector<primitive const*> prepared_visible;
+        // Animation prep ring: while active, animation::controller writes skin/morph into these CPU
+        // buffers; commit_animation_prep() copies them into the slot paced by pace_and_acquire().
+        bool animation_prep_active = false;
+        bool animation_skin_prep_dirty = false;
+        bool animation_morph_prep_dirty = false;
+        deren::utility::vessel::vector<glm::mat4> skin_prep;
+        deren::utility::vessel::vector<float> morph_prep;
         [[nodiscard]] rhi::error prepare_texture_feedback();
         [[nodiscard]] rhi::error record_texture_feedback(rhi::command_buffer&);
         /// Collect the material demand from one CPU visible leaf list.
@@ -3691,6 +3698,15 @@ namespace deren::engine {
         void set_visibility_texture_streaming(bool enabled) noexcept {
             texture_streaming.set(enabled);
         }
+        /// Animation prep ring: call before animation.update(), then commit_animation_prep() after
+        /// pace_and_acquire(). While active, skin/morph writes go to CPU prep buffers, not a frame slot.
+        void begin_animation_prep() noexcept {
+            animation_prep_active = true;
+        }
+        void end_animation_prep() noexcept {
+            animation_prep_active = false;
+        }
+        void commit_animation_prep();
         /// Enable the CPU frame prep path (static scenes only for now): cull/visible lists are
         /// computed before pace_and_acquire() and consumed by begin_recording().
         void set_cpu_frame_prep(bool enabled) noexcept {

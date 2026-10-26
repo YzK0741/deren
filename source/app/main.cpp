@@ -2687,9 +2687,19 @@ int main(int argc, char** argv) {
             runtime.camera.yaw = sweep_base_yaw + glm::radians(capture.sweep_yaw_deg_per_frame) * static_cast<float>(captured_frames);
         }
 
+        // Drive the animation controller BEFORE pace_and_acquire(): its skin/morph writes go into
+        // the CPU prep buffers, and commit_animation_prep() copies them into the slot acquired
+        // below. This overlaps animation sampling/skinning with the GPU's previous frame.
+        float const dt = capture.animation_seconds_per_frame != 0.0f
+                             ? capture.animation_seconds_per_frame
+                             : static_cast<float>(std::min(frame_clock.delta_seconds(), 0.25));
+        runtime.begin_animation_prep();
+        animation.update(dt);
+        runtime.end_animation_prep();
+
         // Compute the next frame's selection/demand while the GPU is still executing the previous
         // frame. Static scenes use the prepared draw-list path; animated/deforming scenes keep the
-        // post-acquire cull until the animation prep ring lands.
+        // post-acquire cull until the animation prep ring's world/cull part lands.
         runtime.set_cpu_frame_prep(!animation.is_playing());
         runtime.prepare_texture_demand();
 
@@ -2713,17 +2723,8 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        // drive the animation controller: sample the active animation into node locals (T/R/S +
-        // morph weights) and rebuild the skin matrices, into the frame slot pace_and_acquire()
-        // just paced. dt is the WALL CLOCK - clamped, so a pause (minimized / swapchain-recreate
-        // gaps that never stamped) does not fast-forward the animation by the whole gap, and
-        // playback resumes where it paused - UNLESS --capture-animation-sweep asked for a
-        // frame-indexed clock instead, which is the only form a capture of a deforming mesh can
-        // be gated on (see capture_options::animation_seconds_per_frame).
-        float const dt = capture.animation_seconds_per_frame != 0.0f
-                             ? capture.animation_seconds_per_frame
-                             : static_cast<float>(std::min(frame_clock.delta_seconds(), 0.25));
-        animation.update(dt);
+        // Apply the animation prep written before pace_and_acquire() into this frame's slot.
+        runtime.commit_animation_prep();
         // ---- THE HEAD FRAME FOLLOWS THE BONE, published here because this is where the pose exists ----
         //
         // IT LANDS ONE FRAME LATE, and that is a consequence of the per-frame-slot arrangement rather than an
