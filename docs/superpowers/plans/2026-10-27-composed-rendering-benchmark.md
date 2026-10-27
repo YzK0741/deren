@@ -27,7 +27,9 @@ Completed 2026-10-27: [composed rendering report](../../benchmarks/2026-10-27-co
 [resource CSV](../../benchmarks/2026-10-27-composed-resources.csv) and compressed evidence. The matrix
 did not establish a composed speedup: DAG+HZB added 3.5–6.8 ms over amnis in the captured views and
 the software profile was not consistently separated from DAG+HZB. Activation gates passed and all
-runs used one binary/shader identity.
+runs used one binary/shader identity. A follow-up matrix with only Subtilis enabled (no HZB, no
+software) measured 45.90/44.24/46.28 FPS near/far/sweep versus amnis 44.43/40.66/44.84, with GPU local
+steady allocation 3–6% lower; the HZB addition is what makes the composed `dag_hzb` timing regress.
 
 Files: docs/{subtilis,amnis,managed_resources,resource_memory_statistics,visibility_buffer}.md;
 scripts/measure/measure_progressive_textures.py; source/tests/test_progressive_measure.py;

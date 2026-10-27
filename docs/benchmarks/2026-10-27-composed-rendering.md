@@ -64,6 +64,56 @@ sweep is 0.8 ms more expensive); this matrix does not establish a software-raste
 also uses different geometry work than the ordinary lane, so the delta is not an isolated attribution
 to one pass.
 
+## Subtilis-only follow-up
+
+This follow-up disables HZB and software raster and leaves only the Subtilis DAG enabled, with the same
+progressive mip texture path and the same asset/binary/settings. Six timing runs (two rounds) and three
+separate resource captures were added. Activation is logged as `adopted 1,873`, `cluster_dag_active
+true`, `hzb_cull_active false`, `software_raster_active false`; all runs exit zero with no validation
+errors.
+
+### Timing
+
+Unit: ms, `mean / p95`, median over two rounds; FPS is `1000 / mean`.
+
+| profile | near | far | sweep |
+|---|---:|---:|---:|
+| `amnis` | 22.506 / 26.833 (44.43 FPS) | 24.592 / 28.404 (40.66 FPS) | 22.303 / 26.353 (44.84 FPS) |
+| `subtilis` | **21.784 / 24.957 (45.90 FPS)** | **22.604 / 26.145 (44.24 FPS)** | **21.607 / 25.422 (46.28 FPS)** |
+| delta | -0.72 ms / +3.3% FPS | -1.99 ms / +8.8% FPS | -0.70 ms / +3.2% FPS |
+
+Subtilis alone is faster than `amnis` in these three views. This is a different result from
+`dag_hzb`: adding HZB build/cull/recovery to the same DAG reverses the frame-time delta in the matrix
+above. The DAG cut changes geometry work, so this is a whole-frame comparison, not a pass attribution.
+
+### GPU resource allocation
+
+Unit: MiB steady median / peak; CPU is the project allocator steady median.
+
+| profile | near | far | sweep | peak | CPU current |
+|---|---:|---:|---:|---:|---:|
+| `amnis` | 1,180.0 | 1,079.2 | 1,176.0 | 1,414.5 | 7,682.1 |
+| `subtilis` | 1,107.8 | 1,031.1 | 1,140.6 | 1,342.4 | 7,821.6 |
+
+Subtilis-only lowers the steady GPU local allocation by 35–72 MiB (about 3–6%) and the peak by about
+72 MiB, while adding about 140 MiB of project CPU allocator usage. These are local resource counters,
+not WDDM.
+
+### Image comparison
+
+Final frame versus the same round's `amnis` frame:
+
+| round | camera | changed pixels / 921,600 | RGB MAE |
+|---:|---|---:|---:|
+| 1 | near | 18,156 | 0.0180 |
+| 1 | far | 16,416 | 0.0663 |
+| 1 | sweep | 3,552 | 0.0095 |
+| 2 | near | 18,271 | 0.0181 |
+| 2 | far | 16,416 | 0.0663 |
+| 2 | sweep | 3,538 | 0.0094 |
+
+These are final-frame geometry-route differences; the comparison does not establish per-frame equality.
+
 ## GPU resource allocation
 
 Unit: MiB. `median / historical peak` of the local resource counters. CPU is the project allocator
