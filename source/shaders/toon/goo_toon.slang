@@ -257,7 +257,7 @@ static float3 goo_iris_emission(const float3 albedo,
     const float3 normal_view = mul(camera_at(heap_camera_slot).view, float4(shading_normal, 0.0)).xyz;
     const float2 matcap_uv = float2(normal_view.x, -normal_view.y) * 0.5 + 0.5;
     const float3 ball = matcap_index != 0u
-                            ? heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + matcap_index), heap_sampler_texture, matcap_uv).rgb
+                            ? heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + matcap_index), heap_sampler_texture, matcap_uv).rgb
                             : float3(0.0, 0.0, 0.0);
 
     // ---- the two brightnesses, with the reference's own interface default behind the sentinel ----
@@ -476,7 +476,7 @@ float4 goo_toon_frag_main(
         float rs_mask = 0.0f;
         const uint4 rs_block3 = toon_lanes3_at(heap_slots_toon_lanes, push.material_index);
         if (rs_block3.z != 0u) {
-            const float4 rs_texel = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + rs_block3.z), heap_sampler_texture, v_uv);
+            const float4 rs_texel = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + rs_block3.z), heap_sampler_texture, v_uv);
             // `float_from_vec4`, in the reference's op order: dot with the Rec.709 weights, subtract the min,
             // divide by `(max - min)`, clamp, then `t * t * (3 - 2t)`.
             const float rs_luma = dot(rs_texel.rgb, float3(0.2126f, 0.7152f, 0.0722f));
@@ -580,7 +580,7 @@ float4 goo_toon_frag_main(
                     float2(rs_sheet_u, 0.5f),
                     float2(0.5f / goo_rs_sheet_width, 0.5f),
                     float2(1.0f - 0.5f / goo_rs_sheet_width, 0.5f));
-                const float4 rs_sheet_texel = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + rs_block3.w), heap_sampler_texture, sheet_uv);
+                const float4 rs_sheet_texel = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + rs_block3.w), heap_sampler_texture, sheet_uv);
                 // LINEAR, AND THE DECODE IS THE SAMPLER'S: the lane is `VK_FORMAT_R8G8B8A8_SRGB` (see
                 // `deren::vulkan::toon_slot::goo_rs_sheet`), so the texel arrives already decoded and a second decode
                 // here would double-apply the curve. `RS_Index` IS NOT READ **HERE**: it selects WHICH sheet the

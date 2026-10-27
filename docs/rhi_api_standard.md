@@ -1,6 +1,6 @@
 # The deren RHI API standard
 
-Status: **draft v1 for RHI ABI 58 (2026-10-26)**. This document is normative for every backend DLL that
+Status: **draft v1 for RHI ABI 59 (2026-10-27)**. This document is normative for every backend DLL that
 implements `deren::promise::rhi` and for every engine/application consumer of the contract. When this
 document and the contract source disagree, the source is authoritative and this document is the defect;
 updates to the contract require an update here in the same change.
@@ -17,7 +17,7 @@ RFC 2119 sense.
 - Every interface method listed in sections 7-8 is a virtual function that a backend implements. Default
   implementations return `error::unsupported` (or perform the documented trivial operation); a backend MUST NOT
   claim an ability it does not implement.
-- The current ABI is `rhi::abi_version == 58`. A backend is loaded by the application as a DLL through
+- The current ABI is `rhi::abi_version == 59`. A backend is loaded by the application as a DLL through
   `deren_make_api_core(abi_version, create_info, error_info)`; the first argument is the caller's ABI and a
   mismatch is refused by name.
 - The contract carries no Vulkan/API-specific types except through optional escape extensions. Backend modules
@@ -805,7 +805,25 @@ reference, dropped through `release()`; a content-keyed backend may share them).
 The interface owns nothing and must not outlive its core; its copy operations are
 deleted.
 
-- `virtual ~resource_factory() noexcept = default;` -- **Requirement:** the view is destroyed only with the core; it is not a resource and carries no allocation of its own. **Returns/errors:** none. **Ownership/lifetime:** borrowed from the core, which must outlive every product and every use of this interface. **Threading:** contract does not specify; no factory call is documented as safe to race with another.
+- `virtual ~resource_factory() noexcept = default;` -- **Requirement:** the view is destroyed only with the core; it is not a resource and carries no allocation of its own. **Returns/errors:** none. **Ownership/lifetime:** borrowed from the core, which must outlive every product and every use of this interface. **Threading:** contract does not specify except for the statistics query below.
+
+- `[[nodiscard]] virtual resource_memory_statistics memory_statistics() const noexcept;`
+  returns a value snapshot with `supported == false` by default. ABI 59 adds this vtable slot;
+  older backend DLLs must be rejected. Supported backends report `buffers`, `images`, and `total`,
+  each containing current/peak allocation bytes, device-local bytes, and allocation counts.
+  Peaks cover the core's lifetime and survive frees. The combined peak is the largest live total,
+  not the sum of category peaks observed at different times. Counts describe physical allocations:
+  shared handles/views do not duplicate them, unloaded lazy resources have no allocation, and
+  release is recorded when the backend actually destroys the allocation. Backend-owned staging,
+  descriptor and scratch buffers are included; borrowed native swapchain images are excluded.
+  Bytes include allocation alignment/requirements and are not texture payload or OS GPU residency.
+  Vulkan uses VMA allocation sizes and memory-type device-local flags. Its counters are sampled
+  coherently under a lock. `allocator_allocation_bytes`, `allocator_reserved_bytes`, and
+  `allocator_device_local_reserved_bytes` separately sample the allocator's current allocation and
+  backing-block totals; a concurrent allocation/free may cause these to differ temporarily from
+  the counter snapshot. Reserved blocks can remain after resource frees. The query does not load
+  lazy resources and is safe alongside allocation/free on a live core; racing core destruction is
+  forbidden. Allocator totals may require walking allocator metadata, so avoid querying every draw.
 
 - `[[nodiscard]] virtual unique_object<buffer> create_buffer(buffer_desc const& desc) = 0;` -- **Requirement:** create a buffer from its memory intent, extra capabilities, size and optional initial bytes; the initial bytes being part of the DESCRIPTOR is deliberate, because a content-keyed backend can only recognise identical content if creation sees it, and empty initial bytes mean ALLOCATE ONLY (a backend that deduplicates MUST NOT match an allocate-only buffer against another). A descriptor the backend cannot honour (a capability it cannot serve, zero size, nonempty initial bytes whose length differs from the size) is REFUSED rather than silently satisfied. **Returns/errors:** one reference, or an EMPTY product on refusal; no error code. **Ownership/lifetime:** the reference is the caller's, dropped through `release()`; `initial_bytes` is borrowed until the call returns. **Threading:** contract does not specify.
 

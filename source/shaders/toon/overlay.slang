@@ -93,7 +93,7 @@ float3 overlay_multiplier(float2 v_uv, uint flags, Material mat)
         // `MyZmdEyeDarkShader`: `color = lerp(1, _Color.rgb, alphaTex * _Alpha)`, where `alphaTex` is the
         // mask's own channel. The article reads `.x` (and drives `_UseGrayAsAlpha` in the game's material,
         // i.e. "the gray channel is the alpha"), so `.r` is the channel.
-        const float mask = heap_sample(mat.tex_indices.x, v_uv).r;
+        const float mask = frame_texture_sample(mat.tex_indices.x, v_uv).r;
         return lerp(float3(1.0, 1.0, 1.0), colour, saturate(mask * alpha));
     }
     // NOT AN OVERLAY. `1` is the identity of a multiply, so a mis-bound pipeline leaves the frame exactly as it

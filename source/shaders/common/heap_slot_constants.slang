@@ -36,6 +36,7 @@ static const uint heap_image_capacity = 8u;
 // the bindless texture array: binding 1, one slot per scene texture. Its run (0..1023) IS the array size - the host
 // derives `scene_texture_capacity` as `heap_slots_materials - heap_slots_textures`, and the runtime refuses past it
 static const uint heap_slots_textures = heap_slot_base + 0u;
+static const uint heap_texture_bank_stride = 2048u;
 // the material table (binding 5), and the top level structure (binding 16) as a TWO-SLOT array: the TLAS is
 // rebuilt every frame, so one slot would hold one frame's structure while the other is still in flight (slot 1025,
 // where it first was, is left unused rather than half-filled; see core.cppm's heap_slots).
@@ -218,7 +219,7 @@ static const uint heap_slots_bloom_l3 = heap_slot_base + 1183u;
 static const uint heap_slots_display_color = heap_slot_base + 1207u;
 // one past the last array: the highest slot any array above uses is base + 1323 (software_tiles' second frame
 // lane; 1322..1323), and the grid reserves 2048 - room for the next families without moving one
-static const uint heap_slot_count = 2048u;
+static const uint heap_slot_count = 3072u;
 
 // THE SAMPLER HEAP IS A SECOND GRID, and its own base: the sampler heap is a separate heap in this API, and the
 // API caps it at 128 KiB, so it CANNOT use the resource grid's 1 MiB - 64 KiB, the reserved window the

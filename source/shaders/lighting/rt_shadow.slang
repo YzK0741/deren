@@ -281,7 +281,7 @@ void ahit_main(inout shadow_payload payload)
     const float2 uv = uvs[0] * (1.0 - u - v) + uvs[1] * u + uvs[2] * v;
 
     // THE CUT: the mirror of shaders/shadow.slang's discard and of shaders/surface.slang's MASK test.
-    const float alpha = material.base_color_factor.a * heap_texel_lod0(heap_at<Texture2D<float4>>(heap_slots_textures + material.tex_indices.x), heap_sampler_texture, uv).a;
+    const float alpha = material.base_color_factor.a * heap_texel_lod0(heap_at<Texture2D<float4>>(heap_slots_textures + pc.frame_slot * heap_texture_bank_stride + material.tex_indices.x), heap_sampler_texture, uv).a;
     if (alpha < material.alpha_cutoff)
     {
         IgnoreHit();

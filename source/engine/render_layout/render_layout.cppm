@@ -162,7 +162,8 @@ export namespace deren::engine::render_layout {
     inline constexpr uint32_t heap_slot_base = 16384; // 1 MiB / 64 B: the grid's slot 0
     // 1324 slots are in use: the last is `software_tiles`' second frame lane (base + 1323), so the grid has 724
     // free slots after the used region - and the texture run at the front is what grew to 1024.
-    inline constexpr uint32_t heap_slot_count = 2048;  // 1324 slots are in use, the rest is room to grow
+    inline constexpr uint32_t heap_slot_count = 3072; // second 1024-texture bank starts at offset 2048
+    inline constexpr uint32_t heap_texture_bank_stride = 2048;
     inline constexpr uint32_t heap_image_capacity = 8; // per-swapchain-image arrays (3-4 images in practice)
     /// The SAMPLER heap is a second grid with its own base, and it cannot share the resource one: the API caps
     /// the sampler heap at 128 KiB, so 64 KiB - the reserved window the embedded-sampler path requires - is the

@@ -249,6 +249,7 @@ export namespace deren::engine::render_graph::visibility {
         /// depth tie keeps hardware, an empty id keeps hardware). One without the other is a wiring mistake the
         /// append refuses, and with NEITHER the declaration is exactly the v0.5 one.
         std::optional<texture_ref> software_depth = {}, software_id = {};
+        std::optional<buffer_ref> mip_feedback = {};
     };
 
     /// THE RESOLVE IS A COMPUTE PASS, and its write scope says so: the five G-buffer targets are written as STORAGE
@@ -262,9 +263,10 @@ export namespace deren::engine::render_graph::visibility {
         texture_discard_write color;
         std::optional<resolve_shared_parameters> shared = {};
         std::optional<texture_read> software_depth = {}, software_id = {};
+        std::optional<buffer_read_write> mip_feedback = {};
 
         void visit_resources(parameter_visitor& visit) const noexcept {
-            visit(vis_id, depth, surface, velocity, color, shared, software_depth, software_id);
+            visit(vis_id, depth, surface, velocity, color, shared, software_depth, software_id, mip_feedback);
         }
     };
 
@@ -334,6 +336,8 @@ export namespace deren::engine::render_graph::visibility {
             params.software_depth = texture_read{*in.software_depth, {}, read};
             params.software_id = texture_read{*in.software_id, {}, read};
         }
+        if (in.mip_feedback)
+            params.mip_feedback = buffer_read_write{*in.mip_feedback, {}, {resource_usage::storage, pipeline_stage::compute_shader}};
         auto added = graph.add_pass("visibility resolve", std::move(params));
         if (!added) {
             return std::unexpected(added.error());

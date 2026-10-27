@@ -4,11 +4,28 @@ module;
 #include "memory_test_hooks.hpp"
 #endif
 
+#include <atomic>
 #include <mimalloc.h>
 
 module deren.utility.shared;
 
 namespace deren::utility::memory {
+    namespace {
+        constinit std::atomic<std::uint64_t> live_bytes{0}, peak_bytes{0}, live_allocations{0}, peak_allocations{0};
+        void raise_peak(std::atomic<std::uint64_t>& peak, std::uint64_t value) noexcept {
+            auto previous = peak.load(std::memory_order_relaxed);
+            while (previous < value && !peak.compare_exchange_weak(previous, value, std::memory_order_relaxed)) {
+            }
+        }
+    } // namespace
+    allocation_statistics statistics() noexcept {
+        auto bytes = live_bytes.load(std::memory_order_relaxed);
+        auto count = live_allocations.load(std::memory_order_relaxed);
+        // A query may race an allocator between its live increment and peak update.
+        raise_peak(peak_bytes, bytes);
+        raise_peak(peak_allocations, count);
+        return {bytes, peak_bytes.load(std::memory_order_relaxed), count, peak_allocations.load(std::memory_order_relaxed)};
+    }
     std::expected<void*, allocation_error> try_allocate(std::size_t bytes, std::size_t alignment) noexcept {
         if (alignment == 0 || (alignment & (alignment - 1)) != 0) {
             return std::unexpected(allocation_error::invalid_alignment);
@@ -26,10 +43,18 @@ namespace deren::utility::memory {
         if (!result) {
             return std::unexpected(allocation_error::out_of_memory);
         }
+        auto bytes_used = static_cast<std::uint64_t>(mi_usable_size(result));
+        raise_peak(peak_bytes, live_bytes.fetch_add(bytes_used, std::memory_order_relaxed) + bytes_used);
+        raise_peak(peak_allocations, live_allocations.fetch_add(1, std::memory_order_relaxed) + 1);
         return result;
     }
 
     void deallocate(void* pointer) noexcept {
+        if (!pointer)
+            return;
+        auto bytes = static_cast<std::uint64_t>(mi_usable_size(pointer));
+        live_bytes.fetch_sub(bytes, std::memory_order_relaxed);
+        live_allocations.fetch_sub(1, std::memory_order_relaxed);
         mi_free(pointer);
     }
 

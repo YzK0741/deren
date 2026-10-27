@@ -33,7 +33,11 @@ struct PushConstants
     uint morph_targets;
     uint morph_vertices;
     uint instance_base;
+    uint motion_base;
     float4x4 model;
+    uint frame_slot;
+    uint image_index;
+    uint spare_lane;
 };
 [[vk::push_constant]] ConstantBuffer<PushConstants> push;
 
@@ -56,7 +60,7 @@ float4 heap_texel(DescriptorHandle<Texture2D<float4>> texture, uint sampler_slot
 float4 main([[vk::location(2)]] float2 v_uv : TEXCOORD0) : SV_Target
 {
     Material mat = heap_at<StructuredBuffer<Material>>(heap_slots_materials)[push.material_index];
-    float4 base_color = mat.base_color_factor * heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + mat.tex_indices.x), heap_sampler_texture, v_uv);
+    float4 base_color = mat.base_color_factor * heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + push.frame_slot * heap_texture_bank_stride + mat.tex_indices.x), heap_sampler_texture, v_uv);
     if ((mat.flags & 16u) != 0u && base_color.a < mat.alpha_cutoff)
     {
         discard;

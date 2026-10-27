@@ -390,7 +390,7 @@ float toon_sdf_mask(const float2 uv, const uint lane, const float3 light_ws, con
     // HARD-EDGED rings: read at the mirrored coordinate, one side of the face receives the OTHER side's band and
     // the blend weight jumps across the seam.
     out_mask_uv = uv;
-    const float4 sdf = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + lane), heap_sampler_texture, sdf_uv);
+    const float4 sdf = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + lane), heap_sampler_texture, sdf_uv);
     // R AND G AVERAGED, which is what the reference's production path does. Its debug branches read the
     // channels separately (front light -> G, back light -> R); the goo path this ports averages them, and B and
     // A are never read outside a raw dump.
@@ -1017,8 +1017,8 @@ float3 toon_shadow_lut(const float3 albedo, const uint lane) {
     const float in_tile_x = cube.x * ((character_shadow_lut_tiles - 1.0) / (character_shadow_lut_tiles * character_shadow_lut_tiles)) + (0.5 / (character_shadow_lut_tiles * character_shadow_lut_tiles));
     const float in_tile_y = 1.0 - (cube.y * ((character_shadow_lut_tiles - 1.0) / character_shadow_lut_tiles) + (0.5 / character_shadow_lut_tiles));
     const float u = tile / character_shadow_lut_tiles + in_tile_x;
-    const float3 low = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + lane), heap_sampler_texture, float2(u, in_tile_y)).rgb;
-    const float3 high = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + lane), heap_sampler_texture, float2(u + 1.0 / character_shadow_lut_tiles, in_tile_y)).rgb;
+    const float3 low = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + lane), heap_sampler_texture, float2(u, in_tile_y)).rgb;
+    const float3 high = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + lane), heap_sampler_texture, float2(u + 1.0 / character_shadow_lut_tiles, in_tile_y)).rgb;
     return lerp(low, high, tile_lerp);
 }
 
@@ -1027,7 +1027,7 @@ float3 toon_shadow_lut(const float3 albedo, const uint lane) {
 // ============================================================================================================
 //
 // THE DEFECT THIS REPLACES IS MEASURED, NOT SUSPECTED. `surface.slang`'s decode (which is UNCHANGED by this step)
-// samples the normal map as `heap_sample(...).rgb * 2.0 - 1.0`, i.e. it trusts the blue channel to be the tangent
+// samples the normal map as `frame_texture_sample(...).rgb * 2.0 - 1.0`, i.e. it trusts the blue channel to be the tangent
 // normal's `z`. Every normal map this asset ships stores `x` and `y` and a CONSTANT blue - measured per channel over
 // the shipped PNGs: `T_actor_laevat_body_01_N` R uniq 233 / G uniq 136 / B uniq 1 (constant 0), `cloth_01_N` B uniq
 // 1, `cloth_02_N` B uniq 1, `T_wpn_misc_0016_01_N` B uniq 1 (the one exception in the model is the hair's `_HN`,
@@ -1125,7 +1125,7 @@ float3 goo_toon_shading_normal(const float3 world_pos, const float3 geo_normal, 
     // vertex-format change is needed.
     float3 decoded = normal;
     if (surface_tbn(world_pos, uv, sdir, tdir)) {
-        const float2 xy = heap_sample(mat.tex_indices.z, uv).rg * 2.0 - 1.0;
+        const float2 xy = frame_texture_sample(mat.tex_indices.z, uv).rg * 2.0 - 1.0;
         const float d = clamp(dot(xy, xy), 0.0, 1.0);
         const float z1 = max(sqrt(1.0 - d), goo_normal_z_floor);
         // THE STRENGTH'S FORM COMES FROM THE REFERENCE ENGINE'S OWN GLSL and not from the dump's black-box node: `xy`
@@ -1351,7 +1351,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         const float mask_raw = saturate(-5.0 * (dist_sq - 0.25));
         const float parallax_mask = mask_raw * mask_raw * (3.0 - 2.0 * mask_raw);
         const Material eye_material = material_at(heap_slots_materials, material_index);
-        albedo = (eye_material.base_color_factor * heap_sample(eye_material.tex_indices.x, uv - parallax_offset * parallax_mask)).rgb;
+        albedo = (eye_material.base_color_factor * frame_texture_sample(eye_material.tex_indices.x, uv - parallax_offset * parallax_mask)).rgb;
     }
     const float no_l = dot(shading_normal, l);
 
@@ -1468,7 +1468,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     float3 highlight_normal = n;
     float3 hair_bitangent = float3(0.0, 1.0, 0.0); // the smooth frame's binormal; the hair LUT blends toward it
     if (toon_lanes2.x != 0u) {
-        const float4 packed_normal = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_lanes2.x), heap_sampler_texture, uv);
+        const float4 packed_normal = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + toon_lanes2.x), heap_sampler_texture, uv);
         const float2 smooth_xy = packed_normal.zw * 2.0 - 1.0;
         const float smooth_z = sqrt(max(1.0e-16, 1.0 - min(1.0, dot(smooth_xy, smooth_xy))));
         const float3 tangent_normal = normalize(float3(smooth_xy, smooth_z));
@@ -1498,7 +1498,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     float3 orm = float3(0.0, params.reflectivity, 1.0); // no metal, the family's reflectivity, unoccluded
     float smoothness = 1.0 - params.roughness;          // the family's roughness, inverted into the map's domain
     if (toon_lanes.y != 0u) {
-        const float4 orm_texel = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_lanes.y), heap_sampler_texture, uv);
+        const float4 orm_texel = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + toon_lanes.y), heap_sampler_texture, uv);
         orm = orm_texel.rgb;
         smoothness = orm_texel.w;
     }
@@ -1624,7 +1624,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // without a mask is shaded as it was.
     float4 face_mask = float4(1.0, 0.0, 0.0, 0.0);
     if (toon_lanes.z != 0u && sdf_lane != 0u) {
-        face_mask = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_lanes.z), heap_sampler_texture, face_mask_uv);
+        face_mask = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + toon_lanes.z), heap_sampler_texture, face_mask_uv);
     }
     const float face_no_l = sdf_lane != 0u ? (sdf_weight * 2.0 - 1.0) : no_l;
     // ---- THE PROJECTED SHADOW'S OWN MASK, WHICH A FACE GATES ON ITS SDF ----
@@ -1913,9 +1913,9 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     float ramp_weight;
     float no_f_weight;
     if (toon_indices.x != 0u) {
-        ramp_colour = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_indices.x), heap_sampler_texture, float2(ramp_u, character_ramp_band_v)).rgb;
-        ramp_weight = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_indices.x), heap_sampler_texture, float2(ramp_u, character_ramp_band_v)).w;
-        no_f_weight = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_indices.x), heap_sampler_texture, float2(no_f, character_ramp_band_v)).w;
+        ramp_colour = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + toon_indices.x), heap_sampler_texture, float2(ramp_u, character_ramp_band_v)).rgb;
+        ramp_weight = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + toon_indices.x), heap_sampler_texture, float2(ramp_u, character_ramp_band_v)).w;
+        no_f_weight = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + toon_indices.x), heap_sampler_texture, float2(no_f, character_ramp_band_v)).w;
     } else {
         // THE PROCEDURAL BRANCH, which is what a material with no ramp - or an artist who switched it off - gets.
         // The family's tint stands in for the ramp's COLOUR and its Hermite step for the ramp's ALPHA, so the two
@@ -1948,7 +1948,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     if (toon_lanes.w != 0u && rig.other_colour.w > 0.0) {
         const float emoji_type = rig.other_colour.w * 0.5;
         const float2 emoji_uv = float2(frac(abs(emoji_type)), floor(emoji_type) * 0.5);
-        const float4 trick = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_lanes.w), heap_sampler_texture, uv * 0.5 + emoji_uv);
+        const float4 trick = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + toon_lanes.w), heap_sampler_texture, uv * 0.5 + emoji_uv);
         albedo = lerp(albedo, trick.rgb, trick.w);
     }
 
@@ -2338,13 +2338,13 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         // actual semantics: an unconnected `Vector` on a `ShaderNodeTexImage` samples the DEFAULT UV MAP, i.e. the
         // fragment's own uv - NOT texel (0,0). The spec's §10-A6/A8 read those three sockets as constants and its
         // §11-U8 recorded the doubt; this is the answer, and it is why `cm.G` is a per-pixel LAYER SELECTOR here.
-        const float4 face_cm = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + goo_face_block3.x), heap_sampler_texture, uv);
+        const float4 face_cm = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + goo_face_block3.x), heap_sampler_texture, uv);
         const float face_cm_r = face_cm.r; // `Front transparent red`'s `D_R`
         const float face_cm_g = face_cm.g; // the layer selector, in three places plus ChinMask
         const float face_cm_a = face_cm.a; // `运算.010`'s gate on the pre-rim
         // `混合.001 = MIX(A = 1 − uv.x, B = uv.x, f = 运算.004)` then `合并 XYZ.002 = (that, uv.y, 0.0)`.
         const float face_sdf_u = lerp(1.0 - uv.x, uv.x, face_flip);
-        const float4 face_sdf_texel = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + goo_face_block2.w), heap_sampler_texture, float2(face_sdf_u, uv.y));
+        const float4 face_sdf_texel = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + goo_face_block2.w), heap_sampler_texture, float2(face_sdf_u, uv.y));
         const float face_sdf_average = (face_sdf_texel.r + face_sdf_texel.g) * 0.5; // `(R + G) / 2`, B and A unread
 
         // ---- (3) `Recalculate normal`: the sphere normal about `headCenter`, blended twice ----
@@ -2387,7 +2387,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         const float face_after_proxy = min(face_proxy, face_sdf_min); // `运算.022` - NOT merged with `混合.002`
         const float face_chin_or_sdf = lerp(face_after_proxy, face_chin_sigmoid, saturate(face_cm_g)); // `混合.002`
         const float face_ramp_u = min(face_cast_sigmoid, face_chin_or_sdf); // `运算.002` -> `合并 XYZ.X`
-        const float4 face_ramp_texel = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + goo_base_ramp), heap_sampler_texture, float2(face_ramp_u, 0.5));
+        const float4 face_ramp_texel = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + goo_base_ramp), heap_sampler_texture, float2(face_ramp_u, 0.5));
         const float3 face_ramp_colour = face_ramp_texel.rgb; // LINEAR: the lane is `_SRGB` for step 4's reason
 
         // ---- (5) THE ALBEDO, WITH `Front transparent red` FOLDED IN ----
@@ -2527,7 +2527,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         // factor's source is `图像纹理.004` - NOT `cm_M` (the spec's §2.4 attributes it to `cm_M.G`; the dump's
         // `运算.028 <- 分离 XYZ.006.Y <- 图像纹理.004.Color` says otherwise and the dump wins). It, too, is sampled
         // at this fragment's uv rather than at texel (0,0), per the same ruling as `cm_M`.
-        const float face_csumt_g = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + goo_face_block3.y), heap_sampler_texture, uv).g;
+        const float face_csumt_g = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + goo_face_block3.y), heap_sampler_texture, uv).g;
         const float face_emission_strength = face_csumt_g > 0.5 ? face_eye_brightness : face_brightness;
         // THE CALLER ADDS `s.emissive` AND APPLIES `out_desaturation`; this pixel has already had BOTH of its own
         // versions applied (the reference's face OUTPUT is an emission node whose colour is the desaturated result
@@ -2594,7 +2594,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         // matter on a `256x1` image, which is what the spec's §A9 asserts of all four `_RD` assets; it is written
         // as the reference writes it rather than as this port's `character_ramp_band_v` so that the two readings
         // cannot diverge on the day a ramp that is NOT one pixel tall arrives.
-        const float4 ramp_texel = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + goo_base_ramp), heap_sampler_texture, float2(ramp_u, 0.5));
+        const float4 ramp_texel = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + goo_base_ramp), heap_sampler_texture, float2(ramp_u, 0.5));
         const float3 ramp_colour_goo = ramp_texel.rgb; // LINEAR: the lane is uploaded `_SRGB` for the reference's reason
 
         // ---- `directLighting_diffuse` ----
@@ -3338,7 +3338,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     float spec_band;
     if (toon_indices.z != 0u) {
         const float spec_x = saturate(0.5 + (no_h - params.spec_center) * (character_ramp_half_width / max(params.spec_softness, 1e-4)));
-        spec_band = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_indices.z), heap_sampler_texture, float2(spec_x, character_ramp_spec_band_v)).r;
+        spec_band = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + toon_indices.z), heap_sampler_texture, float2(spec_x, character_ramp_spec_band_v)).r;
     } else {
         spec_band = smoothstep(params.spec_center - params.spec_softness, params.spec_center + params.spec_softness, no_h);
     }
@@ -3380,7 +3380,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         const float2 normal_proj = float2(dot(highlight_normal, camera_right), dot(highlight_normal, camera_forward));
         const float vohn = saturate(dot(view_proj, normal_proj));
         const float lut_v = vohn * vohn * step(0.0, to_h);
-        const float3 lut_f0 = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_indices.z), heap_sampler_texture, float2(lut_u, lut_v)).rgb * f0;
+        const float3 lut_f0 = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + toon_indices.z), heap_sampler_texture, float2(lut_u, lut_v)).rgb * f0;
         // THE `* 7` IS THE ARTICLE'S, and it is what makes a LUT entry a HIGHLIGHT rather than a tint: the map holds
         // a fraction of F0 and the factor brings it into the range a specular highlight needs.
         //
@@ -3465,7 +3465,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // catchlight on the iris rather than on the sclera.
     float3 eye_highlight = float3(0.0, 0.0, 0.0);
     if (toon_indices.w != 0u) {
-        const float4 eye_matcap = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_indices.w), heap_sampler_texture, toon_matcap_uv(shading_normal, camera_forward));
+        const float4 eye_matcap = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + toon_indices.w), heap_sampler_texture, toon_matcap_uv(shading_normal, camera_forward));
         // THE ARTICLE'S OWN TWO TERMS, in its own order: `specularColor * _SpecularStrength + _SpecularColor *
         // specularW`. The first is the BALL's colour gated by the material's `_Specular` - chen's iris states 0.0, so
         // on this character that term is dead and the highlight is the second one alone; the second is the article's
@@ -3643,7 +3643,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         const float face_eye_brightness = face_scalars_b_lane.y > goo_lane_absent_threshold ? face_scalars_b_lane.y : goo_face_eye_brightness_default;
         // `CsutmMask` is uploaded UNORM (`runtime.constructor.cppm:1423`), so `.g > 0.5` compares the STORED texel -
         // the reference's own comparison, and the same read the face arm performs at `:2494`.
-        const float face_csumt_g = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_lanes3_at(heap_slots_toon_lanes, material_index).y), heap_sampler_texture, uv).g;
+        const float face_csumt_g = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + toon_lanes3_at(heap_slots_toon_lanes, material_index).y), heap_sampler_texture, uv).g;
         const float face_emission_strength = face_csumt_g > 0.5 ? face_eye_brightness : face_brightness;
         out_desaturation = goo_desaturation;
         return toon_colour * face_emission_strength;

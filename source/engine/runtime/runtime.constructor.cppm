@@ -16,6 +16,8 @@
 // Imports are NOT transitive: this partition imports what the moved code calls, and uses the shared vessel allocation service.
 // ============================================================================
 module;
+// Pure CPU filtering and bounded residency policy shared with the standalone tests.
+#include "../visibility/progressive_texture.h"
 
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32 // glfwGetWin32Window: the engine's window, as the native handle the
@@ -308,11 +310,24 @@ namespace deren::engine {
         // device root at all now, so it default-constructs its (empty) resource table. Naming it would be an
         // initializer for a member the list cannot reach - see filters.cppm's measured note.
 
-        // ---- THE HZB BUILD LANE'S GATE, READ ONCE (M3 phase A2) ----
-        // DEREN_HZB_BUILD is this phase's switch (the [render] config key is phase D): unset means this runtime
-        // allocates no HZB buffer, creates no HZB pipeline and records no HZB lane - the OFF frame must stay
-        // byte-identical to the pre-HZB build, and "no allocation at all" is the strict form of that (see
-        // ensure_hzb_resources, which is the only reader of the flag besides the record path).
+        // Two-tier texture streaming is opt-in; retain the synchronous GPU path as the default.
+        this->progressive_textures = std::getenv("DEREN_PROGRESSIVE_TEXTURES") && std::string_view(std::getenv("DEREN_PROGRESSIVE_TEXTURES")) == "1";
+        this->progressive_mips = progressive_textures && std::getenv("DEREN_PROGRESSIVE_MIPS") && std::string_view(std::getenv("DEREN_PROGRESSIVE_MIPS")) == "1";
+        auto residency_limit = [](char const* name, std::uint64_t initial) {
+            auto* value = std::getenv(name);
+            if (!value)
+                return initial;
+            char* end = nullptr;
+            auto parsed = std::strtoull(value, &end, 10);
+            return *value && !*end && parsed <= 16384 ? parsed * 1024ull * 1024ull : initial;
+        };
+        this->progressive_budget = residency_limit("DEREN_PROGRESSIVE_BUDGET_MB", progressive_budget);
+        this->progressive_upload_budget = residency_limit("DEREN_PROGRESSIVE_UPLOAD_MB", progressive_upload_budget);
+        if (auto* trace = std::getenv("DEREN_PROGRESSIVE_TRACE")) {
+            progressive_trace.open(trace);
+            progressive_trace << "update,slot,high_bytes,floor_bytes,pending_bytes,jobs,wanted,high_ready,fallback,started,failed,resident_high_bytes,retired_bytes,checkpoint,update_ms,target_ready,intermediate,full,uploaded_bytes,screen_requests\n";
+        }
+        // Unset means no HZB allocations, pipelines or passes.
         this->hzb_build_enabled = std::getenv("DEREN_HZB_BUILD") != nullptr;
         // ---- THE HZB CULL LANE'S GATE (M3 phase B1), ALSO READ ONCE ----
         // DEREN_HZB_CULL is the cull lane's switch and it REQUIRES DEREN_HZB_BUILD: the lane tests against the
@@ -461,6 +476,10 @@ namespace deren::engine {
     // destroys it before this runtime goes away (its leaves release GPU buffers through the vma
     // allocator while it is still alive), so no tree teardown happens here.
     runtime::~runtime() {
+        // Workers may submit upload barriers; finish them before the final GPU idle wait.
+        for (auto& entry : streamed_textures)
+            if (entry.upload.valid())
+                entry.high = entry.upload.get();
         // (no vma statistics log here: the accounting moved to the backend's own lifecycle point -
         // the allocator's teardown logs what the session held, which is where that decision belongs)
         // Wait for the GPU to finish BEFORE releasing anything below: the last submitted frame
@@ -2547,7 +2566,18 @@ namespace deren::engine {
         deren::utility::vessel::array<uint32_t, 5 + static_cast<std::size_t>(toon_slot::count)> texture_indices = {};
         uint32_t heap_texture_descriptors = 0; // how many went into the descriptor heap (see the log below)
         for (std::size_t i = 0; i < slots.size(); ++i) {
-            texture_input const& tex = *slots[i].first;
+            texture_input tex = *slots[i].first;
+            // Capture probe for imported single/partial-mip sources. Ordinary sessions leave it unset.
+            if (auto* limit_text = std::getenv("DEREN_BENCH_TEXTURE_LEVELS")) {
+                auto limit = std::atoi(limit_text);
+                if (limit > 0 && std::uint32_t(limit) < tex.mip_levels) {
+                    auto range = progressive_texture::mip_range(tex.width, tex.height, std::uint32_t(limit), 0);
+                    if (range && range->bytes <= tex.data.size_bytes()) {
+                        tex.mip_levels = std::uint32_t(limit);
+                        tex.data = tex.data.first(range->bytes);
+                    }
+                }
+            }
             if (!tex.valid || tex.data.empty()) {
                 texture_indices[i] = this->white_texture_index; // white fallback
                 continue;
@@ -2590,7 +2620,52 @@ namespace deren::engine {
             image_info.initial_bytes = std::as_bytes(tex.data);
             image_info.debug_name = "material texture";
             std::pair<rhi::shared_object<rhi::image>, rhi::shared_object<rhi::image_view>> created;
-            if (texture_streaming.enabled && rhi::query_extension<rhi::frame_checkpoint>(rhi_face())) {
+            if (texture_streaming.enabled && progressive_textures) {
+                auto low = image_info;
+                auto full_levels = tex.mip_levels ? tex.mip_levels : std::bit_width(std::max(tex.width, tex.height));
+                auto low_mip = progressive_texture::floor_mip(tex.width, tex.height);
+                std::optional<progressive_texture::fallback_image> reduced;
+                auto suffix = progressive_texture::mip_range(tex.width, tex.height, full_levels, low_mip);
+                if (progressive_mips && suffix) {
+                    if (suffix->offset + suffix->bytes > tex.data.size_bytes())
+                        deren::utility::panic("invalid source mip suffix");
+                    low.extent.width = suffix->width;
+                    low.extent.height = suffix->height;
+                    low.mip_levels = suffix->levels;
+                    low.initial_bytes = std::as_bytes(tex.data).subspan(suffix->offset, suffix->bytes);
+                } else {
+                    reduced = progressive_mips
+                                  ? progressive_texture::resample(std::span(tex.data.data(), tex.data.size_bytes()), tex.width, tex.height,
+                                                                  std::max(1u, tex.width >> low_mip), std::max(1u, tex.height >> low_mip), slots[i].second == rhi::image_format::rgba8_srgb)
+                                  : progressive_texture::fallback(std::span(tex.data.data(), tex.data.size_bytes()), tex.width, tex.height, slots[i].second == rhi::image_format::rgba8_srgb);
+                    if (!reduced)
+                        deren::utility::panic("invalid progressive texture source");
+                    low.extent.width = reduced->width;
+                    low.extent.height = reduced->height;
+                    low.mip_levels = 1;
+                    low.initial_bytes = std::as_bytes(std::span(reduced->bytes));
+                }
+                low.debug_name = "resident low texture";
+                created = create_shared_image(render_resource::resource_id::scene_textures, low);
+                streamed_textures.resize(owned_textures.size() + 1);
+                auto& entry = streamed_textures.back();
+                entry.bytes = tex.data.size_bytes();
+                entry.fallback = created.first;
+                entry.fallback_bytes = low.initial_bytes.size();
+                entry.source = std::make_shared<deren::utility::vessel::vector<uint8_t> const>(tex.data.begin(), tex.data.end());
+                entry.description = image_info;
+                if (!entry.description.mip_levels)
+                    entry.description.mip_levels = std::bit_width(std::max(tex.width, tex.height));
+                entry.fallback_mip = progressive_texture::floor_mip(tex.width, tex.height);
+                entry.resident_mip = entry.fallback_mip;
+                if (progressive_mips && entry.fallback_mip == 0) {
+                    // This low image already contains every original mip; no duplicate upload is needed.
+                    entry.pinned = true;
+                    entry.high = entry.fallback;
+                }
+                entry.description.initial_bytes = {};
+                entry.description.debug_name = "progressive full texture";
+            } else if (texture_streaming.enabled && rhi::query_extension<rhi::frame_checkpoint>(rhi_face())) {
                 auto source = std::make_shared<deren::utility::vessel::vector<uint8_t> const>(tex.data.begin(), tex.data.end());
                 image_info.initial_bytes = {};
                 auto lazy = rhi_face().resources->create_lazy_image({.resource = image_info, .data = source});
@@ -2602,7 +2677,9 @@ namespace deren::engine {
                 created.first = object;
                 // Only slot0's view is consumed by legacy runtime bindings; no physical view for streamed images.
                 created.second = owned_texture_views[white_texture_index];
-                streamed_textures.push_back({object, tex.data.size_bytes(), false, false});
+                streamed_textures.resize(owned_textures.size() + 1);
+                streamed_textures.back().image = object;
+                streamed_textures.back().bytes = tex.data.size_bytes();
             } else {
                 created = create_shared_image(render_resource::resource_id::scene_textures, image_info);
                 streamed_textures.resize(owned_textures.size() + 1);
@@ -2649,15 +2726,27 @@ namespace deren::engine {
 
         for (std::size_t i = 0; i < texture_indices.size(); ++i) {
             auto id = texture_indices[i];
-            if (id >= streamed_textures.size() || !streamed_textures[id].image)
+            if (id >= streamed_textures.size() || (!streamed_textures[id].image && !streamed_textures[id].source))
                 continue;
             bool const pin = texture_residency::pin_material_texture(i, info.factors.alpha_mask, info.factors.alpha_blend, info.toon_family, info.overlay_kind);
             if (pin && !streamed_textures[id].pinned) {
                 streamed_textures[id].pinned = true;
+                auto& entry = streamed_textures[id];
+                if (entry.source) {
+                    auto full = entry.description;
+                    full.initial_bytes = std::as_bytes(std::span(*entry.source));
+                    entry.high = rhi::shared_object<rhi::image>(rhi_face().resources->create_image(full));
+                    if (!entry.high)
+                        deren::utility::panic("failed to create pinned full texture");
+                    owned_textures[id] = entry.high;
+                    entry.resident_mip = 0;
+                    entry.resident_bytes = entry.bytes;
+                }
                 rhi::image_view_desc range{};
                 range.mip_count = 0;
                 range.layer_count = 0;
-                if (!contract_write_descriptor_image(rhi_face(), render_layout::heap_slots::textures + id, *streamed_textures[id].image, range, rhi::descriptor_type::sampled_image))
+                auto* pinned_image = entry.source ? entry.high.get() : entry.image.get();
+                if (!contract_write_descriptor_image(rhi_face(), render_layout::heap_slots::textures + id, *pinned_image, range, rhi::descriptor_type::sampled_image))
                     deren::utility::panic("failed to publish pinned scene texture");
                 streamed_textures[id].published = true;
             }

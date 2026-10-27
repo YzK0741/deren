@@ -72,7 +72,12 @@ def parse_run_log(text: str) -> dict:
             if match:
                 metrics[key] = float(match.group(1))
     metrics["software_raster_active"] = "software raster active:" in text
-    metrics["cluster_dag_active"] = bool(re.search(r"subtilis CPU cut: frames \d+", text))
+    # The current DAG lane logs its import count and the published cut run; the older CPU-cut line
+    # remains accepted for historical captures. "Configured" is not evidence: both the import and the
+    # published cut must appear.
+    metrics["cluster_dag_active"] = bool(
+        (re.search(r"Subtilis import: \d+ adopted", text) or re.search(r"subtilis CPU cut: frames \d+", text))
+        and "subtilis: cut run publication:" in text)
     metrics["hzb_cull_active"] = "hzb: cull lane ARMED" in text and "hzb cull: session " in text
     metrics["hzb_recovery_active"] = "hzb recovery: ARMED" in text and "prediction gate OPEN" in text
     metrics["hzb_culled_percent"] = None

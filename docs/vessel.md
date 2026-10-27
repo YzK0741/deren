@@ -43,6 +43,27 @@ and vessel does not invent that contract. Element construction, user
 hash/comparator callbacks, bounds checks, and length checks retain STL
 semantics. Container methods are not universally noexcept.
 
+## Memory statistics
+
+`deren::utility::memory::statistics()` and `vessel::memory_statistics()` return the same
+shared-service snapshot: `current_bytes`, `peak_bytes`, `current_allocations`, and
+`peak_allocations`. Bytes use mimalloc's `mi_usable_size`, including size-class/alignment
+rounding and unused container capacity. `clear()` can retain that capacity; destruction or
+capacity release reduces current usage. Peaks are lifetime totals and do not reset after a free.
+
+The allocator entry points in shared_utility record successful allocations and frees, including
+cross-thread and cross-DLL frees. Null frees and failed allocations do not change usage; successful
+zero-size allocations still count their actual storage. Queries and tracking do not allocate.
+Fields are separate atomic samples, so concurrent operations may occur between field reads.
+This covers all project `memory::allocator` clients (including explicit `allocate_shared`),
+not process RSS, mimalloc reserved pages, unrelated `new`/standard allocator storage, or stack arrays.
+
+```cpp
+auto usage = vessel::memory_statistics();
+auto live_mib = double(usage.current_bytes) / (1024 * 1024);
+auto peak_mib = double(usage.peak_bytes) / (1024 * 1024);
+```
+
 ## DLL and migration boundaries
 
 Only shared_utility implements the mimalloc allocation/free entry points.

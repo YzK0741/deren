@@ -1,5 +1,6 @@
 module;
 
+#include "resource_memory_tracker.h"
 #include "texture_upload_layout.h"
 #include "upload_sequence.h"
 
@@ -12,6 +13,7 @@ export import deren.utility.shared;
 
 export import deren.vstd;
 import deren.utility;
+import deren.promise.rhi;
 import :vma_handles;
 import deren.vulkan.constant_init;
 
@@ -185,6 +187,13 @@ namespace deren::vulkan {
      */
     export class vma_allocator : deren::utility::enable_handle_distribute {
         VmaAllocator allocator = {};
+        detail::resource_memory_tracker<deren::promise::rhi::resource_memory_statistics> memory_tracker;
+        void account_allocation(bool image, VmaAllocation allocation, bool adding) noexcept;
+        VkResult allocate_buffer(VkBufferCreateInfo const*, VmaAllocationCreateInfo const*, VkBuffer*, VmaAllocation*, VmaAllocationInfo*);
+        VkResult allocate_image(VkImageCreateInfo const*, VmaAllocationCreateInfo const*, VkImage*, VmaAllocation*, VmaAllocationInfo*);
+        void destroy_buffer(VkBuffer buffer, VmaAllocation allocation);
+        void destroy_image(VkImage image, VmaAllocation allocation);
+
         // These two are named after the parameter that carries them, not after what they hold: init()`s device
         // and queue parameters would hide members of those names and MSVC /W4 reports C4458, an error under
         // /WX (clang does not warn: -Wshadow is not in the project flags).
@@ -247,6 +256,7 @@ namespace deren::vulkan {
         [[nodiscard]] std::pair<VkCommandPool, VkCommandBuffer> create_command_pair() const;
 
     public:
+        [[nodiscard]] deren::promise::rhi::resource_memory_statistics memory_statistics() const noexcept;
         /// Serialize host access to the upload/graphics queue, including external presentation calls.
         [[nodiscard]] std::mutex& queue_access() const noexcept {
             return this->queue_mutex;
@@ -666,6 +676,61 @@ namespace {
 } // namespace
 
 namespace deren::vulkan {
+    void vma_allocator::account_allocation(bool image, VmaAllocation allocation, bool adding) noexcept {
+        if (!allocation)
+            return;
+        VmaAllocationInfo info{};
+        vmaGetAllocationInfo(allocator, allocation, &info);
+        VkMemoryPropertyFlags properties = 0;
+        vmaGetMemoryTypeProperties(allocator, info.memoryType, &properties);
+        bool local = (properties & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0;
+        if (adding)
+            memory_tracker.add(image, info.size, local);
+        else
+            memory_tracker.remove(image, info.size, local);
+    }
+    VkResult vma_allocator::allocate_buffer(VkBufferCreateInfo const* info, VmaAllocationCreateInfo const* options,
+                                            VkBuffer* buffer, VmaAllocation* allocation, VmaAllocationInfo* detail) {
+        auto result = vmaCreateBuffer(allocator, info, options, buffer, allocation, detail);
+        if (result == VK_SUCCESS)
+            account_allocation(false, *allocation, true);
+        return result;
+    }
+    VkResult vma_allocator::allocate_image(VkImageCreateInfo const* info, VmaAllocationCreateInfo const* options,
+                                           VkImage* image, VmaAllocation* allocation, VmaAllocationInfo* detail) {
+        auto result = vmaCreateImage(allocator, info, options, image, allocation, detail);
+        if (result == VK_SUCCESS)
+            account_allocation(true, *allocation, true);
+        return result;
+    }
+    void vma_allocator::destroy_buffer(VkBuffer buffer, VmaAllocation allocation) {
+        account_allocation(false, allocation, false);
+        vmaDestroyBuffer(allocator, buffer, allocation);
+    }
+    void vma_allocator::destroy_image(VkImage image, VmaAllocation allocation) {
+        account_allocation(true, allocation, false);
+        vmaDestroyImage(allocator, image, allocation);
+    }
+    deren::promise::rhi::resource_memory_statistics vma_allocator::memory_statistics() const noexcept {
+        if (!allocator)
+            return {};
+        auto result = memory_tracker.snapshot();
+        result.supported = true;
+        VmaTotalStatistics totals{};
+        vmaCalculateStatistics(allocator, &totals);
+        result.allocator_allocation_bytes = totals.total.statistics.allocationBytes;
+        result.allocator_reserved_bytes = totals.total.statistics.blockBytes;
+        for (unsigned type = 0; type < VK_MAX_MEMORY_TYPES; ++type) {
+            if (!totals.memoryType[type].statistics.blockCount)
+                continue;
+            VkMemoryPropertyFlags flags = 0;
+            vmaGetMemoryTypeProperties(allocator, type, &flags);
+            if (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+                result.allocator_device_local_reserved_bytes += totals.memoryType[type].statistics.blockBytes;
+        }
+        return result;
+    }
+
     void vma_allocator::init(
         VkInstance const instance,              // NOLINT(*-misplaced-const)
         VkDevice const device,                  // NOLINT(*-misplaced-const)
@@ -725,12 +790,12 @@ namespace deren::vulkan {
         if (this->allocator != VK_NULL_HANDLE) {
             std::lock_guard guard(this->access_mutex);
             for (auto const& buffer : buffers | std::ranges::views::values) {
-                vmaDestroyBuffer(this->allocator, buffer.buffer, buffer.allocation);
+                this->destroy_buffer(buffer.buffer, buffer.allocation);
             }
             this->buffers.clear();
 
             for (auto const& image : images | std::ranges::views::values) {
-                vmaDestroyImage(this->allocator, image.image, image.allocation);
+                this->destroy_image(image.image, image.allocation);
             }
             this->images.clear();
 
@@ -744,7 +809,7 @@ namespace deren::vulkan {
             }
             // Release the cached staging buffer
             if (this->staging_cache.buffer != VK_NULL_HANDLE) {
-                vmaDestroyBuffer(this->allocator, this->staging_cache.buffer, this->staging_cache.allocation);
+                this->destroy_buffer(this->staging_cache.buffer, this->staging_cache.allocation);
                 this->staging_cache = {};
                 this->buffer_size = 0;
             }
@@ -780,7 +845,7 @@ namespace deren::vulkan {
 
         // Not enough capacity: destroy the current cache and re-create
         if (this->staging_cache.buffer != VK_NULL_HANDLE) {
-            vmaDestroyBuffer(this->allocator, this->staging_cache.buffer, this->staging_cache.allocation);
+            this->destroy_buffer(this->staging_cache.buffer, this->staging_cache.allocation);
             this->staging_cache = {};
             this->buffer_size = 0;
         }
@@ -792,8 +857,7 @@ namespace deren::vulkan {
         staging_alloc_info.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
                                    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 
-        VkResult const result = vmaCreateBuffer(
-            this->allocator,
+        VkResult const result = this->allocate_buffer(
             &staging_create_info,
             &staging_alloc_info,
             &buffer,
@@ -1128,8 +1192,7 @@ namespace deren::vulkan {
         VmaAllocationInfo alloc_info = {};
 
         // VMA is internally thread-safe; allocation and upload need no access_mutex
-        VkResult const result = vmaCreateBuffer(
-            this->allocator,
+        VkResult const result = this->allocate_buffer(
             &buffer_create_info,
             &allocation_create_info,
             &buffer,
@@ -1175,7 +1238,7 @@ namespace deren::vulkan {
         }
 
         if (!upload_success) {
-            vmaDestroyBuffer(this->allocator, buffer, allocation);
+            this->destroy_buffer(buffer, allocation);
             this->recycle(handle);
             deren::utility::error("Failed to upload buffer");
             return vk_buffer{};
@@ -1275,8 +1338,7 @@ namespace deren::vulkan {
         VkImage image = VK_NULL_HANDLE;
         VmaAllocationInfo alloc_detail = {};
 
-        VkResult const vk_result = vmaCreateImage(
-            this->allocator,
+        VkResult const vk_result = this->allocate_image(
             &image_create_info,
             &alloc_info,
             &image,
@@ -1309,7 +1371,7 @@ namespace deren::vulkan {
         }
 
         if (!upload_success) {
-            vmaDestroyImage(this->allocator, image, allocation);
+            this->destroy_image(image, allocation);
             this->recycle(handle);
             return vk_image{};
         }
@@ -1338,6 +1400,15 @@ namespace deren::vulkan {
     }
 
     void vma_allocator::log_statistics() const {
+        auto usage = memory_statistics();
+        deren::utility::log("resource memory: buffer {} B (peak {}), image {} B (peak {}), device-local {} B (peak {}), total {} B (peak {}), reserved {} B",
+                            usage.buffers.current_bytes, usage.buffers.peak_bytes, usage.images.current_bytes, usage.images.peak_bytes,
+                            usage.total.current_device_local_bytes, usage.total.peak_device_local_bytes,
+                            usage.total.current_bytes, usage.total.peak_bytes, usage.allocator_reserved_bytes);
+        auto cpu = deren::utility::memory::statistics();
+        deren::utility::log("vessel memory: {} B usable (peak {}), {} allocations (peak {})",
+                            cpu.current_bytes, cpu.peak_bytes, cpu.current_allocations, cpu.peak_allocations);
+
         VmaTotalStatistics totals = {};
         vmaCalculateStatistics(this->allocator, &totals);
         VmaBudget budgets[VK_MAX_MEMORY_HEAPS] = {};
@@ -1387,7 +1458,7 @@ namespace deren::vulkan {
         if (it->second.use_count.fetch_sub(1) > 1) {
             return;
         }
-        vmaDestroyBuffer(this->allocator, it->second.buffer, it->second.allocation);
+        this->destroy_buffer(it->second.buffer, it->second.allocation);
         this->buffers.erase(it);
     }
 
@@ -1401,7 +1472,7 @@ namespace deren::vulkan {
         if (it->second.use_count.fetch_sub(1) > 1) {
             return;
         }
-        vmaDestroyImage(this->allocator, it->second.image, it->second.allocation);
+        this->destroy_image(it->second.image, it->second.allocation);
         this->images.erase(it);
     }
 

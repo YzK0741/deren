@@ -2059,11 +2059,31 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error unload() noexcept = 0;
     };
 
+    struct resource_memory_usage {
+        std::uint64_t current_bytes = 0, peak_bytes = 0;
+        std::uint64_t current_device_local_bytes = 0, peak_device_local_bytes = 0;
+        std::uint64_t current_allocations = 0, peak_allocations = 0;
+    };
+    /// Actual managed allocations, including backend buffers. Aliases/views do not count twice.
+    /// Device-local denotes the memory type, not WDDM residency. Peaks cover allocator lifetime.
+    struct resource_memory_statistics {
+        std::uint32_t struct_size = sizeof(resource_memory_statistics);
+        bool supported = false;
+        resource_memory_usage buffers{}, images{}, total{};
+        /// Separately sampled VMA totals; reserved blocks include cached/unallocated capacity.
+        std::uint64_t allocator_allocation_bytes = 0, allocator_reserved_bytes = 0, allocator_device_local_reserved_bytes = 0;
+    };
+    static_assert(sizeof(resource_memory_usage) == 48);
+    static_assert(sizeof(resource_memory_statistics) == 176);
+
     struct resource_factory {
         resource_factory() noexcept = default;
         virtual ~resource_factory() noexcept = default;
         resource_factory(resource_factory const&) = delete;
         resource_factory& operator=(resource_factory const&) = delete;
+        [[nodiscard]] virtual resource_memory_statistics memory_statistics() const noexcept {
+            return {};
+        }
         [[nodiscard]] virtual std::expected<unique_object<lazy_buffer>, error> create_lazy_buffer(lazy_buffer_desc const& /*desc*/) {
             return std::unexpected(error::unsupported);
         }

@@ -57,12 +57,13 @@
 // anisotropic choice is not reproduced; what IS reproduced is the mip RANGE the fragment sampler lands in, which
 // is what a mip miss changes. Set by resolve_pixel before the decode; the helpers live in THIS leaf (not in
 // heap_access.slang) so adding them does not recompile every other shader.
+uint scene_texture_base();
 static float visibility_uv_footprint = 0.0; // uv units per render pixel at the current pixel's surface
 
 float2 visibility_texture_size(uint texture_index)
 {
     uint width, height, levels;
-    heap_at<Texture2D<float4>>(heap_slots_textures + texture_index).GetDimensions(0u, width, height, levels);
+    heap_at<Texture2D<float4>>(scene_texture_base() + texture_index).GetDimensions(0u, width, height, levels);
     return float2(float(width), float(height));
 }
 
@@ -74,7 +75,7 @@ float visibility_texture_lod(uint texture_index)
 
 float4 visibility_sample_lod(uint texture_index, float2 uv)
 {
-    return combined_at(heap_slots_textures + texture_index, heap_sampler_texture).SampleLevel(uv, visibility_texture_lod(texture_index));
+    return combined_at(scene_texture_base() + texture_index, heap_sampler_texture).SampleLevel(uv, visibility_texture_lod(texture_index));
 }
 
 // THE COMPUTE STAGE'S TEXTURE FETCH IS STILL EXPLICIT-LOD (the capability reason stays: an implicit `Sample` in
@@ -84,19 +85,20 @@ float4 visibility_sample_lod(uint texture_index, float2 uv)
 #define DEREN_SURFACE_SAMPLE_TEXTURE(texture_index, uv) visibility_sample_lod(texture_index, uv)
 #include "scene/gbuffer_body.slang"
 
-// This stage's only push fields: the two heap indices every heap-native stage carries, plus the third lane the
-// renderer's push endpoint always sends (the post chain's source slot - declared so the block is CONTIGUOUS, see
-// surface.slang's `spare_lane` note). No dimensions: `RWTexture2D::GetDimensions` answers them, which keeps the
-// dispatch's extent out of a second place that could disagree with the images.
+// The endpoint supplies frame/image indices and the existing software-visibility flag. The pass appends
+// an optional feedback slot as a fourth word, keeping those three lanes intact. Image dimensions come
+// from GetDimensions, so resizing does not require another copy of the render extent.
 struct VisibilityResolvePush
 {
     uint frame_slot;  // which per-frame lane the item table and the camera read through
     uint image_index; // which per-swapchain-image lane the id/depth/output slots read through
-    uint spare_lane;  // the endpoint's third lane: pushed and never read
+    uint spare_lane;  // existing software/hybrid visibility flag
+    uint mip_feedback_slot; // optional extent-feedback descriptor; zero disables requests
 };
 [[vk::push_constant]] ConstantBuffer<VisibilityResolvePush> push;
 #define heap_frame_slot (push.frame_slot)
 #define heap_image_index (push.image_index)
+uint scene_texture_base() { return heap_slots_textures + push.frame_slot * heap_texture_bank_stride; }
 
 #include "common/mesh_fetch.slang"
 #include "common/software_candidate.slang"
@@ -335,6 +337,13 @@ gbuffer_output resolve_pixel(const uint2 pixel,
                                (triangle.uv[1].y - triangle.uv[0].y) * (triangle.uv[2].x - triangle.uv[0].x));
     const float twice_screen = abs(triangle_twice_area(screen[0], screen[1], screen[2]));
     visibility_uv_footprint = twice_screen > 0.0 ? sqrt(twice_uv / twice_screen) : 0.0;
+    if (push.mip_feedback_slot != 0u && item.material_index < 16384u) {
+        // Demand comes from geometry, independently of currently resident texture dimensions.
+        float desired = visibility_uv_footprint > 0.0 && isfinite(visibility_uv_footprint)
+            ? min(16384.0, ceil(2.0 / visibility_uv_footprint)) : 16384.0;
+        uint ignored;
+        heap_at<RWByteAddressBuffer>(push.mip_feedback_slot).InterlockedMax(item.material_index * 4u, uint(max(1.0, desired)), ignored);
+    }
 
     // ---- the SHARED material decode, then the SHARED five-target composition: the same two phases the fragment
     //      G-buffer stage calls, so the two producers cannot disagree about what a surface is. THE ORDER OF THE TWO

@@ -1334,6 +1334,10 @@ namespace deren::vulkan {
         delete this;
     }
 
+    rhi::resource_memory_statistics core::memory_statistics() const noexcept {
+        return vma.memory_statistics();
+    }
+
     rhi::unique_object<rhi::image> core::create_image(rhi::image_desc const& declared_desc) {
         // ---- THE ABI GUARD, THEN THE DESCRIPTOR ------------------------------------------------
         // Same rule create_buffer runs: only the caller's declared prefix is read.

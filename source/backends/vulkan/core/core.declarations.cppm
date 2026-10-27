@@ -1665,6 +1665,7 @@ namespace deren::vulkan {
 
         [[nodiscard]] std::expected<deren::promise::rhi::unique_object<deren::promise::rhi::lazy_buffer>, deren::promise::rhi::error> create_lazy_buffer(deren::promise::rhi::lazy_buffer_desc const&) override;
         [[nodiscard]] std::expected<deren::promise::rhi::unique_object<deren::promise::rhi::lazy_image>, deren::promise::rhi::error> create_lazy_image(deren::promise::rhi::lazy_image_desc const&) override;
+        [[nodiscard]] deren::promise::rhi::resource_memory_statistics memory_statistics() const noexcept override;
         [[nodiscard]] deren::promise::rhi::error materialize(owned_buffer&) noexcept;
         [[nodiscard]] deren::promise::rhi::error materialize(owned_image&) noexcept;
         [[nodiscard]] deren::promise::rhi::error materialize(owned_image_view&) noexcept;
@@ -1915,7 +1916,7 @@ namespace deren::vulkan {
         // baked indices and the captures were made against, so a change on either side must be a
         // deliberate edit HERE as well.
         static_assert(deren::engine::render_layout::heap_slot_base == 16384u, "the slot grid's base moved");
-        static_assert(deren::engine::render_layout::heap_slot_count == 2048u, "the slot grid's size moved");
+        static_assert(deren::engine::render_layout::heap_slot_count == 3072u, "the slot grid's size moved");
         static_assert(deren::engine::render_layout::heap_slot_stride == 64u, "the slot grid's stride moved");
         static_assert(deren::engine::render_layout::heap_image_capacity == 8u, "the per-image array capacity moved");
         static_assert(deren::engine::render_layout::heap_sampler_base == 2048u, "the sampler grid's base moved");

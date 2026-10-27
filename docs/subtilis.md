@@ -1,10 +1,14 @@
-# Subtilis - large-scene rendering system
+# Subtilis - large-scene geometry system
+
+Subtilis covers geometry representation, LOD selection, occlusion culling and optional software
+rasterization. [amnis](amnis.md) covers texture demand, upload scheduling and mip residency.
+Both use shared renderer and resource infrastructure; neither name denotes the whole renderer.
 
 > **Phase closed (2026-10-23).** The Subtilis phase is closed. DAG+HZB is the accepted shipping path
 > (textured Bistro 10.44/5.64 ms far/near); the software-raster lane remains optional/default-off and will
 > not be optimized further (negative result, see the [headroom report](reviews/2026-10-23-software-raster-headroom.md)
 > and [final closeout](reviews/2026-10-23-subtilis-final-closeout.md)). M2 (GPU cut selection) and M5
-> (streaming/paging) are deferred and not started.
+> (geometry streaming/paging) are deferred and not started.
 
 > **GPU survivor routing (2026-10-23):** the opt-in `DEREN_SOFTWARE_RASTER_GPU=1` prototype is implemented and
 > now validated on one final build: HZB compaction classifies/reserves/emits the software list on the GPU, the
@@ -42,19 +46,38 @@
 > [headroom report](reviews/2026-10-23-software-raster-headroom.md)).
 > See [closeout checkpoint](reviews/2026-10-23-subtilis-closeout-checkpoint.md).
 
-Subtilis is the name of the renderer's **large-scene geometry optimization system**. Its runtime path combines
-the visibility-buffer producer/resolve, hierarchical Cluster DAG LOD, HZB occlusion culling and the optional
-software-raster lane. This manual focuses on the Cluster DAG/LOD component, whose CPU cut feeds the other
-lanes. These components currently have separate configuration gates rather than one master switch. In code and
-narrower discussions, "Subtilis DAG" or "Subtilis LOD" refers to the hierarchy component; "the Subtilis
-system/path" refers to the composed renderer.
+Subtilis is the renderer's **large-scene geometry optimization system**. Its runtime path combines
+hierarchical Cluster DAG LOD, HZB occlusion culling and the optional software-raster lane, using the shared
+visibility-buffer producer/resolve. This manual focuses on the Cluster DAG/LOD component, whose CPU cut
+feeds the other lanes. These components have separate configuration gates rather than one master switch.
+"Subtilis DAG" or "Subtilis LOD" refers to the hierarchy component; "the Subtilis system/path" refers to
+the composed geometry path.
+
+## Responsibility boundary
+
+| Area | Responsibility |
+|---|---|
+| Subtilis | Offline cluster/DAG construction, geometry generation validation, screen-error LOD selection, HZB geometry occlusion and optional hardware/software geometry routing. |
+| amnis | Visible-material texture demand, screen mip demand, texture prefetch/upload scheduling, fallback quality and texture residency budgets. |
+| Shared infrastructure | Visibility-buffer raster/resolve, render graph and synchronization, RHI allocation/upload/unload and ownership, task execution and memory statistics. |
+
+The geometry path supplies selected/surviving geometry to visibility rendering. The visibility resolve
+can produce material and screen-footprint feedback that amnis consumes to schedule texture residency.
+Sharing a pass or resource does not transfer the other subsystem's policy into Subtilis.
+amnis can run without Subtilis DAG LOD, and Subtilis can use fully resident textures without amnis streaming.
+
+LOD cut selection currently runs on the CPU; HZB runs on the GPU. M2 GPU cut selection is deferred.
+M4 software raster remains experimental/default-off. M5 means **geometry page streaming/paging**,
+which is deferred and unimplemented; it does not refer to amnis texture streaming.
+Future geometry-page selection belongs to Subtilis, texture-mip selection to amnis, and reusable
+allocation/transfer/lifetime mechanisms remain shared infrastructure.
 
 > **Status (closed 2026-10-23).** M1a/M1b, **M1c runtime import of offline cluster DAGs**, the HZB lane and the
 > **optional M4 software-raster runtime path** are implemented. `DEREN_subtilis` assets load through the normal
 > glTF path, share immutable CPU/GPU generations, and feed the CPU cut into the existing visibility/HZB lanes;
 > DAG+HZB is the shipping path. M4 was closed as an experimental/default-off negative result: headroom and
 > subpixel-share sweeps found no stable whole-frame win, and no further software-raster optimization is planned.
-> M2 (GPU select/finalize) and M5 (streaming) are deferred and not implemented.
+> M2 (GPU select/finalize) and M5 (geometry streaming/paging) are deferred and not implemented.
 > **Default OFF**: `[render] subtilis=true` opts into payload extraction/adoption at startup and requires
 > `visibility_buffer=true` plus frame admission. Unsupported assets/items keep complete LOD0.
 >
@@ -275,7 +298,7 @@ the original geometry-scene image differences above remain LOD edge differences.
    checkpoint): it removes the CPU routing overhead but does not establish a net hybrid win on the measured scene,
    and the full-stage manifest/CSR/hardware/resolve/merge verifier is still not implemented - the capture-only
    checks validate the software producer/partition, not the resolve/merge chain.
-5. **M5 streaming/paging** is not started. The DAG probe finds 23.28% of far and 5.37% of near selected clusters
+5. **M5 geometry streaming/paging** is not started. The DAG probe finds 23.28% of far and 5.37% of near selected clusters
    below 1px; this alone does not establish software-raster ROI.
 6. The screen-error cut is a heuristic with a recorded conservative bound, not a strict per-pixel error
    guarantee; image differences and tiny near-view OFF variation are quantified in the runtime report.

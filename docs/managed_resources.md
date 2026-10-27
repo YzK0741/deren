@@ -1,5 +1,10 @@
 \page managed_resources Passchain-managed resources
 
+This is shared engine infrastructure used by [Subtilis](subtilis.md), [amnis](amnis.md) and other
+rendering clients. It manages resource generations and lifetimes; clients retain their own policies
+for geometry LOD/page selection and texture mip residency. A resource passing through this layer
+does not make its selection policy part of the resource manager.
+
 Passes can describe dynamic image and buffer requirements. The passchain collects all descriptions,
 merges compatible producers, creates complete resource generations, and distributes a shared snapshot.
 Production migrations now cover raster shadow images, clustered-light count/index buffers and camera/light/head

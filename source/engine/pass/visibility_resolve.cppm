@@ -88,6 +88,9 @@ export namespace deren::engine::pass {
         }
 
         void create(pass_context const& context) override;
+        void set_mip_feedback_slot(std::uint32_t slot) noexcept {
+            mip_feedback_slot = slot;
+        }
         void on_swapchain_recreated(pass_host const&) override {
             // nothing is per-generation: the pipeline depends on the device alone, and the images arrive per frame
         }
@@ -98,5 +101,6 @@ export namespace deren::engine::pass {
         static constexpr std::string_view shader_name = "visibility_resolve.comp.spv";
         std::optional<pipelines::pipeline_handle> resolve_pipeline = std::nullopt;
         void* built_against = nullptr;
+        std::uint32_t mip_feedback_slot = 0;
     };
 } // namespace deren::engine::pass

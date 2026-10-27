@@ -24,6 +24,33 @@ namespace {
     struct alignas(256) aligned_value {
         int value = 0;
     };
+    void test_memory_statistics() {
+        auto before = mem::statistics();
+        auto* block = mem::allocate(513, 4096);
+        auto live = vessel::memory_statistics();
+        CHECK(live.current_bytes >= before.current_bytes + 513);
+        CHECK(live.current_allocations == before.current_allocations + 1);
+        CHECK(live.peak_bytes >= live.current_bytes && live.peak_bytes >= before.peak_bytes);
+        std::thread release([block] { mem::deallocate(block); });
+        release.join();
+        auto freed = mem::statistics();
+        CHECK(freed.current_bytes == before.current_bytes);
+        CHECK(freed.current_allocations == before.current_allocations);
+        CHECK(freed.peak_bytes >= live.peak_bytes);
+        utility_memory_test_fail_after(0);
+        CHECK(!mem::try_allocate(8192));
+        CHECK(mem::statistics().current_bytes == freed.current_bytes);
+        mem::deallocate(nullptr);
+        CHECK(mem::statistics().current_allocations == freed.current_allocations);
+        {
+            vessel::vector<std::uint64_t> values;
+            values.reserve(1024);
+            CHECK(mem::statistics().current_bytes >= before.current_bytes + 8192);
+            values.clear();
+            CHECK(mem::statistics().current_bytes >= before.current_bytes + 8192);
+        }
+        CHECK(mem::statistics().current_bytes == before.current_bytes);
+    }
     void test_allocation() {
         static_assert(noexcept(mem::try_allocate(1)));
         static_assert(noexcept(mem::deallocate(nullptr)));
@@ -127,14 +154,20 @@ namespace {
             return;
         auto alloc = reinterpret_cast<void* (*)(std::size_t, std::size_t) noexcept>(const_cast<void*>(*alloc_symbol));
         auto free = reinterpret_cast<void (*)(void*) noexcept>(const_cast<void*>(*free_symbol));
+        auto before = mem::statistics();
         void* foreign = alloc(128, 256);
         CHECK(foreign != nullptr);
         CHECK(reinterpret_cast<std::uintptr_t>(foreign) % 256 == 0);
+        CHECK(mem::statistics().current_bytes >= before.current_bytes + 128);
+        CHECK(mem::statistics().current_allocations == before.current_allocations + 1);
         mem::deallocate(foreign);
+        CHECK(mem::statistics().current_bytes == before.current_bytes);
         auto local = mem::try_allocate(321, 64);
         CHECK(local.has_value());
         if (local)
             free(*local);
+        CHECK(mem::statistics().current_bytes == before.current_bytes);
+        CHECK(mem::statistics().current_allocations == before.current_allocations);
     }
     void test_fatal(char const* executable, char const* mode, char const* expected) {
         deren::utility::vessel::string file = deren::utility::vessel::string(mode + 2) + ".log";
@@ -186,6 +219,7 @@ int main(int argc, char** argv) {
         }
         return 0;
     }
+    test_memory_statistics();
     test_allocation();
     test_containers();
     test_cross_dll(argv[0]);

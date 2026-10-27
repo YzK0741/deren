@@ -1074,7 +1074,9 @@ WARN_LOGFILE           =
 # was defined in a file the INPUT list did not name.
 
 INPUT                  = ./docs/managed_resources.md \
+                         ./docs/amnis.md \
                          ./docs/vessel.md \
+                         ./docs/resource_memory_statistics.md \
                          ./docs/stacktrace.md \
                          ./docs/resource_clusters.md \
                          ./docs/render_graph.md \

@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.utility.shared
-// module version: 1.2.0
+// module version: 1.3.0
 //
 // THE PROCESS-WIDE HALF OF utility (batch ④, the dynamic-backend flip's prerequisite).
 //
@@ -121,6 +121,13 @@ namespace deren::utility {
 // One DLL owns mimalloc. Templates never link their own allocator instance, and
 // no default-resource registration or application startup hook is required.
 export namespace deren::utility::memory {
+    struct allocation_statistics {
+        std::uint64_t current_bytes = 0, peak_bytes = 0;
+        std::uint64_t current_allocations = 0, peak_allocations = 0;
+    };
+    /// Shared project-allocator usable bytes (capacity/rounding included), not RSS or reserved pages.
+    /// Individual fields are atomic samples; concurrent allocations can occur between field reads.
+    [[nodiscard]] allocation_statistics statistics() noexcept;
     enum class allocation_error { invalid_alignment,
                                   size_overflow,
                                   out_of_memory };
@@ -168,6 +175,9 @@ export namespace deren::utility::memory {
 
 /** STL semantics with an explicit project allocation policy; methods are not universally noexcept. */
 export namespace deren::utility::vessel {
+    [[nodiscard]] inline memory::allocation_statistics memory_statistics() noexcept {
+        return memory::statistics();
+    }
     template <typename T, std::size_t N>
     using array = std::array<T, N>;
     template <typename T>

@@ -483,64 +483,72 @@ int main() {
 
     // ---- the RESOLVE lane (v0.4c; v0.5 made it the opaque producer so its depth input is the frame's own
     //      G-buffer depth): two sampled reads, five storage writes, six table reads ----
-    for (bool with_culled : {false, true}) {
-        rg::builder graph;
-        visibility::resolve_inputs in{};
-        auto const surface_state = rg::resource_state{};
-        // THE TWO INPUTS ARE DEFINED AT THE IMPORT: the resolve reads them, and a graph whose only write to a
-        // sampled image is the raster lane's (this test has no raster pass) would otherwise be the
-        // `undefined_read` the graph refuses - the runtime path always has the raster lane ahead of this one.
-        rg::resource_state const sampled_state{rg::resource_layout::shader_read_only, rg::pipeline_stage::compute_shader, rg::memory_access::read};
-        in.vis_id = *graph.import_texture({31, 51}, rg::initial_contents::defined, "visibility", {}, sampled_state);
-        in.depth = *graph.import_texture({31, 52}, rg::initial_contents::defined, "GBuffer depth", {1, 1, rg::texture_aspect::depth}, sampled_state);
-        for (unsigned i = 0; i < in.surface.size(); ++i) {
-            in.surface[i] = *graph.import_texture({31, 53 + i}, rg::initial_contents::undefined, "GBuffer surface", {}, surface_state);
-        }
-        in.velocity = *graph.import_texture({31, 56}, rg::initial_contents::undefined, "velocity", {}, surface_state);
-        in.color = *graph.import_texture({31, 57}, rg::initial_contents::undefined, "scene colour", {}, surface_state);
-        std::array<rg::buffer_ref, 6> buffers{};
-        for (unsigned i = 0; i < buffers.size(); ++i) {
-            buffers[i] = *graph.import_buffer({31, 60 + i}, rg::initial_contents::defined, "resolve table", {64},
-                                              rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader, rg::memory_access::read});
-        }
-        in.shared = visibility::resolve_shared_inputs{buffers[0], buffers[1], buffers[2], buffers[3], buffers[4], buffers[5]};
-        auto culled = *graph.import_buffer({31, 100}, rg::initial_contents::defined, "selected run", {64},
-                                           rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader, rg::memory_access::write});
-        if (with_culled)
-            in.shared->culled_meshlets = culled;
-        auto added = visibility::append_resolve(graph, in);
-        CHECK(added.has_value());
-        CHECK(graph.export_resource(in.color).has_value());
-        auto plan = graph.compile({true});
-        CHECK(plan.has_value());
-        if (plan && added) {
-            CHECK(plan->passes[added->pass.index()].accesses.size() == (with_culled ? 14u : 13u)); // 2 reads + 5 writes + 6 buffers
-            auto const* params = plan->passes[added->pass.index()].parameters.get<visibility::resolve_parameters>();
-            CHECK(params != nullptr);
-            CHECK(params && params->vis_id.resource == in.vis_id);
-            CHECK(params && params->depth.resource == in.depth);
-            CHECK(params && params->surface[0].resource == in.surface[0]);
-            CHECK(params && params->surface[1].resource == in.surface[1]);
-            CHECK(params && params->surface[2].resource == in.surface[2]);
-            CHECK(params && params->velocity.resource == in.velocity);
-            CHECK(params && params->color.resource == in.color);
-            CHECK(params && params->shared.has_value());
-            CHECK(params && params->shared->camera.resource == buffers[0]);
-            CHECK(params && params->shared->materials.resource == buffers[1]);
-            CHECK(params && params->shared->items.resource == buffers[2]);
-            CHECK(params && params->shared->meshlets.resource == buffers[3]);
-            CHECK(params && params->shared->previous_transforms.resource == buffers[4]);
-            CHECK(params && params->shared->statistics.resource == buffers[5]);
-            CHECK(params && params->shared->culled_meshlets.has_value() == with_culled);
-            if (with_culled) {
-                bool dependency = false;
-                for (auto const& barrier : plan->barriers)
-                    if (barrier.resource == culled.index() && barrier.before_pass == added->pass.index())
-                        dependency = barrier.memory_dependency && barrier.after.stages == rg::pipeline_stage::compute_shader;
-                CHECK(dependency);
+    for (bool with_mip_feedback : {false, true})
+        for (bool with_culled : {false, true}) {
+            rg::builder graph;
+            visibility::resolve_inputs in{};
+            auto const surface_state = rg::resource_state{};
+            // THE TWO INPUTS ARE DEFINED AT THE IMPORT: the resolve reads them, and a graph whose only write to a
+            // sampled image is the raster lane's (this test has no raster pass) would otherwise be the
+            // `undefined_read` the graph refuses - the runtime path always has the raster lane ahead of this one.
+            rg::resource_state const sampled_state{rg::resource_layout::shader_read_only, rg::pipeline_stage::compute_shader, rg::memory_access::read};
+            in.vis_id = *graph.import_texture({31, 51}, rg::initial_contents::defined, "visibility", {}, sampled_state);
+            in.depth = *graph.import_texture({31, 52}, rg::initial_contents::defined, "GBuffer depth", {1, 1, rg::texture_aspect::depth}, sampled_state);
+            for (unsigned i = 0; i < in.surface.size(); ++i) {
+                in.surface[i] = *graph.import_texture({31, 53 + i}, rg::initial_contents::undefined, "GBuffer surface", {}, surface_state);
+            }
+            in.velocity = *graph.import_texture({31, 56}, rg::initial_contents::undefined, "velocity", {}, surface_state);
+            in.color = *graph.import_texture({31, 57}, rg::initial_contents::undefined, "scene colour", {}, surface_state);
+            std::array<rg::buffer_ref, 6> buffers{};
+            for (unsigned i = 0; i < buffers.size(); ++i) {
+                buffers[i] = *graph.import_buffer({31, 60 + i}, rg::initial_contents::defined, "resolve table", {64},
+                                                  rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader, rg::memory_access::read});
+            }
+            in.shared = visibility::resolve_shared_inputs{buffers[0], buffers[1], buffers[2], buffers[3], buffers[4], buffers[5]};
+            auto culled = *graph.import_buffer({31, 100}, rg::initial_contents::defined, "selected run", {64},
+                                               rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader, rg::memory_access::write});
+            if (with_culled)
+                in.shared->culled_meshlets = culled;
+            if (with_mip_feedback) {
+                in.mip_feedback = *graph.import_buffer({31, 101}, rg::initial_contents::defined, "mip demand", {65536},
+                                                       rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader, rg::memory_access::write});
+            }
+            auto added = visibility::append_resolve(graph, in);
+            CHECK(added.has_value());
+            CHECK(graph.export_resource(in.color).has_value());
+            auto plan = graph.compile({true});
+            CHECK(plan.has_value());
+            if (plan && added) {
+                CHECK(plan->passes[added->pass.index()].accesses.size() == (with_culled ? 14u : 13u) + (with_mip_feedback ? 1u : 0u)); // 2 reads + 5 writes + 6 buffers
+                auto const* params = plan->passes[added->pass.index()].parameters.get<visibility::resolve_parameters>();
+                CHECK(params != nullptr);
+                CHECK(params && params->mip_feedback.has_value() == with_mip_feedback);
+                if (params && with_mip_feedback)
+                    CHECK(params->mip_feedback->resource == *in.mip_feedback);
+                CHECK(params && params->vis_id.resource == in.vis_id);
+                CHECK(params && params->depth.resource == in.depth);
+                CHECK(params && params->surface[0].resource == in.surface[0]);
+                CHECK(params && params->surface[1].resource == in.surface[1]);
+                CHECK(params && params->surface[2].resource == in.surface[2]);
+                CHECK(params && params->velocity.resource == in.velocity);
+                CHECK(params && params->color.resource == in.color);
+                CHECK(params && params->shared.has_value());
+                CHECK(params && params->shared->camera.resource == buffers[0]);
+                CHECK(params && params->shared->materials.resource == buffers[1]);
+                CHECK(params && params->shared->items.resource == buffers[2]);
+                CHECK(params && params->shared->meshlets.resource == buffers[3]);
+                CHECK(params && params->shared->previous_transforms.resource == buffers[4]);
+                CHECK(params && params->shared->statistics.resource == buffers[5]);
+                CHECK(params && params->shared->culled_meshlets.has_value() == with_culled);
+                if (with_culled) {
+                    bool dependency = false;
+                    for (auto const& barrier : plan->barriers)
+                        if (barrier.resource == culled.index() && barrier.before_pass == added->pass.index())
+                            dependency = barrier.memory_dependency && barrier.after.stages == rg::pipeline_stage::compute_shader;
+                    CHECK(dependency);
+                }
             }
         }
-    }
     // ---- one image cannot be two of the resolve's outputs ----
     {
         rg::builder graph;

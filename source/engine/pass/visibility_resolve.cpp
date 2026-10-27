@@ -60,10 +60,14 @@ namespace deren::engine::pass {
         //
         // THE PUSH BLOCK IS THE TWO HEAP INDICES (and the endpoint's third lane): the shader reads its per-frame and
         // per-image slots through them, and the block's declared shape is `VisibilityResolvePush` in the shader -
-        // three uints, all written here (a heap pipeline pushes every declared byte or validation fails).
+        // The endpoint writes the first three words; the optional feedback word is appended below.
         if (!io.push_block(*io.list, {})) {
             return rhi::error::invalid_argument;
         }
+        // Preserve the endpoint's third word (software/hybrid visibility). Feedback has its own word.
+        auto status = io.list->push_constants(12, std::as_bytes(std::span(&mip_feedback_slot, 1)));
+        if (status != rhi::error::ok)
+            return status;
         // ONE THREAD PER PIXEL, rounded up: the shader returns early for the threads past the right/bottom edge,
         // and the extent it derives comes from the storage image, which the declaration's `full` rule makes the
         // render extent - so a resize needs nothing newer than the frame.

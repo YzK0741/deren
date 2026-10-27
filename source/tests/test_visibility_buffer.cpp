@@ -358,7 +358,7 @@ namespace {
                 continue;
             }
             for (std::size_t k = i + 1; k < lines.size() && lines[k].find('}') == std::string::npos; ++k) {
-                for (char const* const field : {"frame_slot;", "image_index;", "spare_lane;"}) {
+                for (char const* const field : {"frame_slot;", "image_index;", "spare_lane;", "mip_feedback_slot;"}) {
                     if (lines[k].find(field) != std::string::npos) {
                         push_fields.emplace_back(std::string(field, std::string(field).size() - 1u));
                     }
@@ -366,11 +366,12 @@ namespace {
             }
             break;
         }
-        CHECK(push_fields.size() == 3u);
-        if (push_fields.size() == 3u) {
+        CHECK(push_fields.size() == 4u);
+        if (push_fields.size() == 4u) {
             CHECK(push_fields[0] == "frame_slot");
             CHECK(push_fields[1] == "image_index");
             CHECK(push_fields[2] == "spare_lane");
+            CHECK(push_fields[3] == "mip_feedback_slot");
         }
         // ---- the two failure counters are the capture lane's witnesses: the resolve increments them
         CHECK_MSG(text_contains(code, "mesh_stat_visibility_depth_mismatch"), "the resolve must report an id/depth disagreement");
@@ -522,7 +523,9 @@ int main() {
         mode.set(false);
         CHECK(!mode.enabled && mode.restore_pending); // disabling schedules full publication
         mode.set(false);
-        CHECK(mode.restore_pending);                            // repeated disable cannot drop restoration
+        CHECK(mode.restore_pending); // repeated disable cannot drop restoration
+        mode.set(true);
+        CHECK(mode.enabled && !mode.restore_pending);           // enabling restores the configured residency budget
         CHECK(tr::pin_material_texture(0, false, false, 0, 1)); // overlay family may be zero
         CHECK(tr::pin_material_texture(0, true, false, 0, 0));
         CHECK(!tr::pin_material_texture(1, true, false, 0, 0));

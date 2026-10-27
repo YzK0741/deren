@@ -15,6 +15,8 @@ export namespace deren::engine::texture_residency {
         void set(bool next) noexcept {
             if (!next && enabled)
                 restore_pending = true;
+            if (next)
+                restore_pending = false;
             enabled = next;
         }
     };
@@ -24,6 +26,9 @@ export namespace deren::engine::texture_residency {
     struct feedback {
         std::array<std::uint32_t, feedback_words> materials{};
         std::uint32_t invalid = 0;
+    };
+    struct mip_feedback {
+        std::array<std::uint32_t, material_capacity> requested_extent{};
     };
     inline bool mark(feedback& result, std::uint32_t packed, std::span<visibility::draw_item const> items) noexcept {
         visibility::id value{packed};

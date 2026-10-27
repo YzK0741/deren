@@ -1126,7 +1126,7 @@ namespace {
         }
         cpu_heap* fixed_heap = nullptr;
         [[nodiscard]] rhi::descriptor_slot_range fixed_slots() const noexcept override {
-            return fixed_heap ? rhi::descriptor_slot_range{16384, 2048} : rhi::descriptor_slot_range{};
+            return fixed_heap ? rhi::descriptor_slot_range{16384, 3072} : rhi::descriptor_slot_range{};
         }
         bool valid_slot(std::uint32_t space, std::uint32_t slot) const noexcept {
             auto range = fixed_slots();

@@ -3015,7 +3015,7 @@ int32_t main() {
                                                    "float3 goo_toon_shading_normal(const float3 world_pos, const float3 geo_normal, const float2 uv, const float3 port_normal, bool is_front)",
                                                    "if ((mat.flags & 1u) == 0u) {",
                                                    "if (!(strength > goo_lane_absent_threshold)) {",
-                                                   "const float2 xy = heap_sample(mat.tex_indices.z, uv).rg * 2.0 - 1.0;",
+                                                   "const float2 xy = frame_texture_sample(mat.tex_indices.z, uv).rg * 2.0 - 1.0;",
                                                    "const float d = clamp(dot(xy, xy), 0.0, 1.0);",
                                                    "const float z1 = max(sqrt(1.0 - d), goo_normal_z_floor);",
                                                    "const float3 n_ts = normalize(float3(strength * xy, lerp(1.0, z1, saturate(strength))));",

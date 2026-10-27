@@ -431,7 +431,8 @@ export namespace deren::promise::rhi {
     // ABI 55: logical fixed-slot descriptor writes and binding on descriptor_space.
     // ABI 56: shared uint8_t sources, lazy resources and resource_factory lazy creation verbs.
     // ABI 57: explicit nonblocking lazy buffer/image unload.
-    inline constexpr std::uint32_t abi_version = 58u;
+    // ABI 59: resource_factory allocation/peak memory statistics snapshot.
+    inline constexpr std::uint32_t abi_version = 59u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

@@ -54,6 +54,9 @@
 // ... AND THE DECODE IS IN ANOTHER FILE OF ITS OWN, for the same 128-byte wall: the visibility resolve is a
 // COMPUTE stage, so the surface_sample type and the material/texture decode it shares with the fragment paths
 // have to be reachable without this file's push block. See surface_body.slang.
+uint scene_texture_base();
+float4 frame_texture_sample(uint texture_index, float2 uv);
+#define DEREN_SURFACE_SAMPLE_TEXTURE frame_texture_sample
 #include "common/surface_body.slang"
 // The ARRAY name carries the HEAP slot and the block member carries the record index: two index spaces, which is
 // why a lookup is `heap_material_tables[heap_slots_materials].materials[push.material_index]`.
@@ -121,6 +124,11 @@ struct PushConstants {
 // ... and the two names the shared slot macros use (heap_slots.slang says why these are macros and not constants).
 #define heap_frame_slot (push.frame_slot)
 #define heap_image_index (push.image_index)
+
+uint scene_texture_base() { return heap_slots_textures + push.frame_slot * heap_texture_bank_stride; }
+float4 frame_texture_sample(uint texture_index, float2 uv) {
+    return combined_at(scene_texture_base() + texture_index, heap_sampler_texture).Sample(uv);
+}
 
 /**
  * @brief the fragment's TANGENT frame, from the screen-space derivatives of `world_pos` and `uv`

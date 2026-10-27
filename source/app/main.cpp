@@ -2656,6 +2656,9 @@ int main(int argc, char** argv) {
     // demanding a pinned pose it would have to be told twice.
     float const sweep_base_yaw = runtime.camera.yaw;
     int32_t captured_frames = 0; // presented frames so far (scripted capture; see --capture-frames)
+    // Capture-only transition probe: exercise progressive restoration while uploads are in flight.
+    auto* disable_streaming_text = std::getenv("DEREN_BENCH_DISABLE_STREAMING_FRAME");
+    int const disable_streaming_frame = disable_streaming_text ? std::atoi(disable_streaming_text) : -1;
     // Opt-in benchmark trace: retain timestamps in memory and write only after rendering ends.
     char const* const frame_trace_path = std::getenv("DEREN_BENCH_FRAME_TRACE");
     deren::utility::vessel::vector<std::pair<double, double>> frame_trace;
@@ -2664,7 +2667,28 @@ int main(int argc, char** argv) {
     double const trace_unix_ms = std::chrono::duration<double, std::milli>(std::chrono::system_clock::now().time_since_epoch()).count();
     if (frame_trace_path)
         frame_trace.reserve(4096);
+    // Resource queries walk allocator metadata: enable only in separate memory captures.
+    char const* const resource_trace_path = std::getenv("DEREN_BENCH_RESOURCE_TRACE");
+    struct memory_sample {
+        std::uint64_t frame;
+        deren::promise::rhi::resource_memory_statistics gpu;
+        deren::utility::memory::allocation_statistics cpu;
+    };
+    deren::utility::vessel::vector<memory_sample> resource_trace;
+    std::uint64_t resource_frame = 0;
+    auto sample_resources = [&] {
+        auto gpu = runtime.rhi_face().resources->memory_statistics();
+        auto cpu = deren::utility::vessel::memory_statistics();
+        resource_trace.push_back({resource_frame, gpu, cpu});
+    };
+    if (resource_trace_path) {
+        resource_trace.reserve(128);
+        sample_resources();
+    }
     while (true) {
+        if (capture.frames > 0 && captured_frames == disable_streaming_frame) {
+            runtime.set_visibility_texture_streaming(false);
+        }
         // Phase 1: poll window events (ESC / native close -> closed, minimized -> skipped)
         deren::engine::frame_status const polled = runtime.poll_events();
         if (polled == deren::engine::frame_status::closed || deren::engine::is_failure(polled)) {
@@ -2795,6 +2819,9 @@ int main(int argc, char** argv) {
         }
 
         // A frame was presented: publish its stamp for cheap readers (frame_clock)
+        ++resource_frame;
+        if (resource_trace_path && (resource_frame % 10 == 0 || resource_frame == static_cast<std::uint64_t>(capture.frames)))
+            sample_resources();
         if (frame_trace_path) {
             auto const boundary = std::chrono::steady_clock::now();
             frame_trace.emplace_back(std::chrono::duration<double, std::milli>(boundary - trace_origin).count(),
@@ -2960,6 +2987,18 @@ int main(int argc, char** argv) {
     log_camera_pose("exit");
     // 15. Wait for the GPU to finish; primitives and pipelines are released by the runtime destructor
     runtime->wait_idle();
+    if (resource_trace_path) {
+        std::ofstream trace(resource_trace_path, std::ios::binary | std::ios::out);
+        trace << "frame,supported,gpu_buffer_local,gpu_image_local,gpu_total_local,gpu_peak_local,gpu_total,gpu_reserved,gpu_reserved_local,cpu_current,cpu_peak\n";
+        for (auto const& sample : resource_trace)
+            trace << deren::utility::vessel::format("{},{},{},{},{},{},{},{},{},{},{}\n", sample.frame, sample.gpu.supported ? 1 : 0,
+                                                    sample.gpu.buffers.current_device_local_bytes, sample.gpu.images.current_device_local_bytes,
+                                                    sample.gpu.total.current_device_local_bytes, sample.gpu.total.peak_device_local_bytes, sample.gpu.total.current_bytes,
+                                                    sample.gpu.allocator_reserved_bytes, sample.gpu.allocator_device_local_reserved_bytes,
+                                                    sample.cpu.current_bytes, sample.cpu.peak_bytes);
+        if (!trace)
+            deren::utility::error("benchmark resource trace could not be written");
+    }
     if (frame_trace_path) {
         std::ofstream trace(frame_trace_path, std::ios::binary | std::ios::out);
         trace << "frame,unix_ms,interval_ms\n";

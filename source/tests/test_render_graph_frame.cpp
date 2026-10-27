@@ -1,12 +1,15 @@
+#include "../backends/vulkan/core/vma/resource_memory_tracker.h"
 #include "vk_test.h"
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <array>
+#include <barrier>
 #include <bit>
 #include <cstring>
 #include <fstream>
 #include <memory>
 #include <string_view>
+#include <thread>
 #include <vector>
 import deren.engine.backend_loader;
 import deren.engine.render_graph.execute;
@@ -17,8 +20,10 @@ import deren.engine.render_layout;
 namespace rg = deren::engine::render_graph;
 namespace rhi = deren::promise::rhi;
 #include "frame_checkpoint_window_contract.hpp"
+#include "resource_memory_contract.hpp"
 #include "texture_feedback_contract.hpp"
 int main(int argc, char** argv) {
+    check_resource_memory_tracker();
     if (argc > 1 && std::string_view(argv[1]) == "--with-device") {
         check_window_checkpoints();
         rhi::create_info options{};
@@ -33,6 +38,7 @@ int main(int argc, char** argv) {
         if (!checkpoint)
             return deren::vk_test::finish("test_render_graph_frame");
         CHECK(checkpoint->checkpoint_and_wait() == rhi::error::not_ready);
+        check_resource_memory_device(*core);
         check_texture_feedback(*core);
         (void)core->frames->frame_begin();
         auto frames = rhi::query_extension<rhi::frame_resources>(*core);
@@ -83,6 +89,7 @@ int main(int argc, char** argv) {
         return deren::vk_test::finish("test_render_graph_frame");
     }
     auto core = deren::vk_test::probe_make_core({}, rhi::abi_version, true);
+    CHECK(!core->resources->memory_statistics().supported);
     auto frames = rhi::query_extension<rhi::frame_resources>(*core);
     CHECK(frames);
     if (!frames)

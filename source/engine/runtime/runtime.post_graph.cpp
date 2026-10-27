@@ -148,10 +148,26 @@ namespace deren::engine {
         }
         bool const residency = texture_streaming.enabled && visibility_lane_frame == visibility::opaque_lane::visibility && !active_features().rt_shadow;
         std::optional<std::uint32_t> residency_resolve_index;
+        if (!progressive_textures || (!texture_streaming.enabled && !texture_streaming.restore_pending)) {
+            if (auto result = publish_texture_bank(); result != rhi::error::ok)
+                return result;
+        }
         if (texture_streaming.enabled || texture_streaming.restore_pending) {
             if (auto result = prepare_texture_feedback(); result != rhi::error::ok)
                 return result;
-            if (!residency) {
+            if (progressive_textures) {
+                if (auto result = update_progressive_textures(!residency); result != rhi::error::ok)
+                    return result;
+                // Disabling streaming is an asynchronous restore transition. Keep polling and
+                // scheduling until every upgrade has completed (or failed with a valid fallback).
+                if (texture_streaming.restore_pending) {
+                    bool pending = false;
+                    for (auto const& entry : streamed_textures)
+                        if (entry.source && !entry.failed && (!entry.high || entry.resident_mip != 0 || entry.upload.valid()))
+                            pending = true;
+                    texture_streaming.restore_pending = pending;
+                }
+            } else if (!residency) {
                 auto* checkpoint = rhi::query_extension<rhi::frame_checkpoint>(rhi_face());
                 if (!checkpoint)
                     return rhi::error::unsupported;
@@ -1124,6 +1140,13 @@ namespace deren::engine {
                     resolve_inputs.software_depth = software_depth_ref;
                     resolve_inputs.software_id = software_id_ref;
                 }
+                if (residency && progressive_mips) {
+                    auto mip_lease = resource_lease<rhi::buffer>::from_shared(core_owner, mip_feedback_slots[frame_ring().position()]);
+                    auto mip_ref = build.import_buffer(mip_lease, {graph::initial_contents::defined, {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read | graph::memory_access::write}}, "screen mip feedback");
+                    if (!mip_ref)
+                        return post_build_error(mip_ref.error());
+                    resolve_inputs.mip_feedback = *mip_ref;
+                }
                 auto resolve_added = build.append([&](graph::builder& description) noexcept {
                     return graph::visibility::append_resolve(description, resolve_inputs);
                 });
@@ -1155,11 +1178,13 @@ namespace deren::engine {
                         return post_build_error(bound.error());
                     if (auto order = build.order_after(resolve_added->pass, *feedback); !order)
                         return post_build_error(order.error());
-                    residency_resolve_index = resolve_added->pass.index();
+                    if (!progressive_textures)
+                        residency_resolve_index = resolve_added->pass.index();
                 }
                 pass::stage resolve_stage{.name = "visibility resolve", .passes = this->visibility_resolve_stage};
                 this->prepare_stage(resolve_stage);
                 passes[20] = this->visibility_resolve_stage[0];
+                this->visibility_resolve->set_mip_feedback_slot(residency && progressive_mips ? render_layout::heap_slot_base + 1366 + frame_ring().position() : 0);
                 ios[20].push_block = host.push_block;
                 if (!passes[20] || !host.resolve || !host.resolve(host.context, *passes[20], ios[20]) || ios[20].list != commands.get()) {
                     return rhi::error::not_ready;
@@ -1170,6 +1195,12 @@ namespace deren::engine {
                         auto error = payload->record(20);
                         if (error != rhi::error::ok) {
                             return error;
+                        }
+                        if (progressive_mips && texture_streaming.enabled) {
+                            rhi::buffer_barrier host{.resource = mip_feedback_slots[frame_ring().position()].get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::host_read};
+                            auto status = frame_command_buffer()->barrier({.buffers = std::span(&host, 1)});
+                            if (status != rhi::error::ok)
+                                return status;
                         }
                         // THE GEOMETRY LANE'S GPU MARKS, EMITTED BY THE LANE THAT REPLACED IT: the per-pass
                         // timing report walks the frame's marks in gpu_mark_id order, and on a visibility frame the
