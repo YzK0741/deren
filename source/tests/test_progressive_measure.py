@@ -7,6 +7,8 @@ import tempfile
 import unittest
 
 SCRIPT = Path(__file__).resolve().parents[2]/'scripts/measure/measure_progressive_textures.py'
+sys.path.insert(0, str(SCRIPT.parent))
+from measure_render_optimizations import parse_run_log
 spec = importlib.util.spec_from_file_location('progressive_measure', SCRIPT)
 measure = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(measure)
@@ -23,6 +25,13 @@ class MemoryEvidenceTests(unittest.TestCase):
             missing[field] = 0
             with self.subTest(field=field):
                 self.assertTrue(measure.feature_activity_errors(missing, subtilis=True, hzb=True, software=True, gpu_software=True))
+
+    def test_cluster_dag_activity_requires_published_cut(self):
+        imported = 'Subtilis import: 1873 adopted (1540 shared), 531 LOD0 fallback\n'
+        published = imported + 'subtilis: cut run publication: 43930 -> 36356 records\n'
+        self.assertTrue(parse_run_log(published)['cluster_dag_active'])
+        # A configured/imported asset without a published cut is not activation evidence.
+        self.assertFalse(parse_run_log(imported)['cluster_dag_active'])
 
     def test_resource_evidence_rejects_missing_or_unsupported_samples(self):
         with self.assertRaises(ValueError):
