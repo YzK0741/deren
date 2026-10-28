@@ -1,7 +1,7 @@
-# Subtilis glTF DAG converter - Task 8 acceptance evidence (2026-10-21)
+# subtilis glTF DAG converter - Task 8 acceptance evidence (2026-10-21)
 
 Plan: [CPU glTF DAG converter](../superpowers/plans/2026-10-21-subtilis-gltf.md) Task 8.
-Design: [Subtilis glTF/CPU converter design](../superpowers/specs/2026-10-21-subtilis-gltf-design.md).
+Design: [subtilis glTF/CPU converter design](../superpowers/specs/2026-10-21-subtilis-gltf-design.md).
 Task 1-7 history: [converter checkpoint](2026-10-21-subtilis-converter-checkpoint.md).
 Tool usage: [tools/subtilis/README.md](../../tools/subtilis/README.md).
 
@@ -200,7 +200,7 @@ design.
 | small normal | 0 | 0 | 3 | 4 | 1 | exit 0, "validated 1 payload(s), full=true" |
 | large normal | 0 | 0 | 3 | 4 | 1 | exit 0, "validated 1 payload(s), full=true" |
 | bistro normal | 0 | 0 | 486 | 1,016 | 1 | exit 0, "validated 231 payload(s), full=true" |
-| small cuts (0/0.01/0.1/1.0) | 0 each | 0 | small | - | 0 | exit 3 "no Subtilis payload" (expected: cut output intentionally has none) |
+| small cuts (0/0.01/0.1/1.0) | 0 each | 0 | small | - | 0 | exit 3 "no subtilis payload" (expected: cut output intentionally has none) |
 | large cuts (0/0.01/0.1/1.0) | 0 each | 0 | small | - | 0 | exit 3 (expected by design) |
 | bistro cuts (0/0.01/0.1/1.0) | 0 each | 0 | small | - | 0 | exit 3 (expected by design) |
 

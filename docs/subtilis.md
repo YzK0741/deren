@@ -1,10 +1,12 @@
-# Subtilis - large-scene geometry system
+# subtilis - large-scene geometry system
 
-Subtilis covers geometry representation, LOD selection, occlusion culling and optional software
+subtilis covers geometry representation, LOD selection, occlusion culling and optional software
 rasterization. [amnis](amnis.md) covers texture demand, upload scheduling and mip residency.
 Both use shared renderer and resource infrastructure; neither name denotes the whole renderer.
+The feature name is lowercase `subtilis`, including user-facing log prefixes, tool messages and
+archived records.
 
-> **Phase closed (2026-10-23).** The Subtilis phase is closed. DAG+HZB is the accepted shipping path
+> **Phase closed (2026-10-23).** The subtilis phase is closed. DAG+HZB is the accepted shipping path
 > (textured Bistro 10.44/5.64 ms far/near); the software-raster lane remains optional/default-off and will
 > not be optimized further (negative result, see the [headroom report](reviews/2026-10-23-software-raster-headroom.md)
 > and [final closeout](reviews/2026-10-23-subtilis-final-closeout.md)). M2 (GPU cut selection) and M5
@@ -46,30 +48,30 @@ Both use shared renderer and resource infrastructure; neither name denotes the w
 > [headroom report](reviews/2026-10-23-software-raster-headroom.md)).
 > See [closeout checkpoint](reviews/2026-10-23-subtilis-closeout-checkpoint.md).
 
-Subtilis is the renderer's **large-scene geometry optimization system**. Its runtime path combines
+subtilis is the renderer's **large-scene geometry optimization system**. Its runtime path combines
 hierarchical Cluster DAG LOD, HZB occlusion culling and the optional software-raster lane, using the shared
 visibility-buffer producer/resolve. This manual focuses on the Cluster DAG/LOD component, whose CPU cut
 feeds the other lanes. These components have separate configuration gates rather than one master switch.
-"Subtilis DAG" or "Subtilis LOD" refers to the hierarchy component; "the Subtilis system/path" refers to
+"subtilis DAG" or "subtilis LOD" refers to the hierarchy component; "the subtilis system/path" refers to
 the composed geometry path.
 
 ## Responsibility boundary
 
 | Area | Responsibility |
 |---|---|
-| Subtilis | Offline cluster/DAG construction, geometry generation validation, screen-error LOD selection, HZB geometry occlusion and optional hardware/software geometry routing. |
+| subtilis | Offline cluster/DAG construction, geometry generation validation, screen-error LOD selection, HZB geometry occlusion and optional hardware/software geometry routing. |
 | amnis | Visible-material texture demand, screen mip demand, texture prefetch/upload scheduling, fallback quality and texture residency budgets. |
 | Shared infrastructure | Visibility-buffer raster/resolve, render graph and synchronization, RHI allocation/upload/unload and ownership, task execution and memory statistics. |
 
 The geometry path supplies selected/surviving geometry to visibility rendering. The visibility resolve
 can produce material and screen-footprint feedback that amnis consumes to schedule texture residency.
-Sharing a pass or resource does not transfer the other subsystem's policy into Subtilis.
-amnis can run without Subtilis DAG LOD, and Subtilis can use fully resident textures without amnis streaming.
+Sharing a pass or resource does not transfer the other subsystem's policy into subtilis.
+amnis can run without subtilis DAG LOD, and subtilis can use fully resident textures without amnis streaming.
 
 LOD cut selection currently runs on the CPU; HZB runs on the GPU. M2 GPU cut selection is deferred.
 M4 software raster remains experimental/default-off. M5 means **geometry page streaming/paging**,
 which is deferred and unimplemented; it does not refer to amnis texture streaming.
-Future geometry-page selection belongs to Subtilis, texture-mip selection to amnis, and reusable
+Future geometry-page selection belongs to subtilis, texture-mip selection to amnis, and reusable
 allocation/transfer/lifetime mechanisms remain shared infrastructure.
 
 > **Status (closed 2026-10-23).** M1a/M1b, **M1c runtime import of offline cluster DAGs**, the HZB lane and the
@@ -106,7 +108,7 @@ when the comparison matters):
   the full LOD0 run, writes the selected cluster records into the existing per-frame host-culled meshlet
   table, and publishes the raster/resolve/indirect metadata from that one result;
 - the **existing visibility-buffer lane** (`docs/visibility_buffer.md`) rasterizes and resolves the result
-  unchanged - Subtilis replaces the *producer* of the visible meshlet set, not the resolve math;
+  unchanged - subtilis replaces the *producer* of the visible meshlet set, not the resolve math;
 - every unsupported case (no hierarchy, invalid generation, budget overflow, strategy restriction) falls
   back to the item's complete LOD0 run; an unadmitted visibility frame keeps the legacy geometry lane.
 
@@ -131,7 +133,7 @@ reports a shared/LOD0 fallback - the frame never mixes two G-buffer producers.
 ## 3. Data model and hard limits
 
 - **Meshlet record stays 48 bytes** (`first_index`, `index_count`, `base_vertex`, pad, center/radius,
-  axis/cone) - Subtilis does not change the record or the raster ABI.
+  axis/cone) - subtilis does not change the record or the raster ABI.
 - **Packed visibility id is 32 bits, exactly filled**: `valid 1 / item 12 / meshlet 12 / triangle 7`
   (`visibility.cppm`), i.e. **4096 items per frame and 4096 selected meshlets per item**. The shared
   host-culled table keeps 65536 records; a cut must satisfy both its item's `[meshlet_base,
@@ -180,7 +182,7 @@ subtilis_hysteresis = false # imported DAGs: coarsen at 80%, refine above 100%
 - Runtime APIs: `set_subtilis(bool)`, `set_subtilis_error_px(float)`, `set_subtilis_hysteresis(bool)`.
   Explicit builder/upload via `primitive_create_info::subtilis_geometry` remains supported; no
   automatic build-at-load, disk cache or streaming is introduced.
-- Any frame that fails visibility admission keeps the legacy opaque lane as a whole; Subtilis never
+- Any frame that fails visibility admission keeps the legacy opaque lane as a whole; subtilis never
   creates a second G-buffer writer.
 - With hysteresis disabled, the imported DAG cut matches the offline reference. Optional history is
   per primitive lifetime/generation; address reuse cannot inherit a destroyed instance's decisions.
@@ -188,7 +190,7 @@ subtilis_hysteresis = false # imported DAGs: coarsen at 80%, refine above 100%
   and generation replacement invalidate it. It does not retain GPU generations. The per-item planning
   phase is parallel (thread pool), with an item-ordered
   overlap resolution so alias/shared items keep the serial semantics byte for byte.
-- With the Subtilis DAG/LOD option off: no hierarchy cut runs, and the visibility lane uses the complete LOD0
+- With the subtilis DAG/LOD option off: no hierarchy cut runs, and the visibility lane uses the complete LOD0
   records as its input.
 
 Shared-table overflow never publishes a partial meshlet run. An overflowing visible object rejects
@@ -218,13 +220,13 @@ The cut cost was then **parallelized**: `post` phase 8.6 -> **about 2 ms** (far 
 near 14.57 -> 6.28 ms) with byte-identical cuts and pixel-identical screenshots; the end-to-end frame does
 not move because the frame is GPU-bound, but the CPU headroom is what M2/M3/streaming will spend.
 
-**Capacity prerequisite for the Subtilis path:** the 1024-item build fell back to the legacy path at
+**Capacity prerequisite for the subtilis path:** the 1024-item build fell back to the legacy path at
 178.5 ms GPU frame; the 4096-item build runs the meshlet lane at 26.7-27.0 ms (**about 6.6x**) and is what makes
-Subtilis effective on a 2909-item scene at all (`visibility raster: recorded 2906 item(s)`).
+subtilis effective on a 2909-item scene at all (`visibility raster: recorded 2906 item(s)`).
 
 **Occlusion composes after the cut (M3, 2026-10-21).** The exact HZB test rejects far 71.51% / near 92.83%
 of the cut-selected candidates (100% agreement with the CPU reference), and the complete HZB lane measured
-**-78.6% (near) / -61.6% (far)** GPU frame on moving views - that gain is occlusion, not LOD; Subtilis
+**-78.6% (near) / -61.6% (far)** GPU frame on moving views - that gain is occlusion, not LOD; subtilis
 supplies the candidate set and remains responsible for the LOD error, the HZB for conservative visibility.
 
 **Bistro path comparison (2026-10-22 matrix, 1280x720, GPU frame median; historical):**
@@ -233,9 +235,9 @@ supplies the candidate set and remains responsible for the LOD error, the HZB fo
 | --- | ---: | ---: |
 | Traditional legacy path | 152.55 ms | 132.93 ms |
 | Visibility buffer, optimizations off | 24.50 ms | 21.17 ms |
-| Subtilis: Cluster DAG/LOD only | 20.73 ms | 18.73 ms |
-| Subtilis + HZB | 9.82 ms | 5.94 ms |
-| Subtilis + HZB + software raster | withdrawn (pre-fix, invalid) | withdrawn (pre-fix, invalid) |
+| subtilis: Cluster DAG/LOD only | 20.73 ms | 18.73 ms |
+| subtilis + HZB | 9.82 ms | 5.94 ms |
+| subtilis + HZB + software raster | withdrawn (pre-fix, invalid) | withdrawn (pre-fix, invalid) |
 
 In this historical matrix the system-level gain from the legacy route to DAG+HZB is 152.55/9.82 = 15.5x
 far and 132.93/5.94 = 22.4x near (across the visibility-buffer lane, capacity expansion, Cluster DAG LOD
@@ -280,7 +282,7 @@ the original geometry-scene image differences above remain LOD edge differences.
    and parallel but still costs CPU and a visible table write per frame.
 2. **Shared-vertex v1 only** - converter payload import is implemented; automatic build-at-load, disk
    caching and extra-attribute profiles are not. OFF startup cannot enable unavailable payloads later.
-3. **Textured-scene Subtilis OFF/ON** was covered by the corrected 2026-10-23 acceptance (visibility baseline/DAG/DAG+HZB/software matrix, quantified edge differences, no pixel-identity claim).
+3. **Textured-scene subtilis OFF/ON** was covered by the corrected 2026-10-23 acceptance (visibility baseline/DAG/DAG+HZB/software matrix, quantified edge differences, no pixel-identity claim).
 4. **M4 software raster** is wired behind `[render] software_raster=true` and remains default-off. It requires
    `visibility_buffer=true` and `subtilis=true`; `software_raster_threshold_px` defaults to 1.0 and must be finite
    and positive. It composes with HZB culling/recovery: HZB tests the hardware prefix and software suffix, and the
@@ -340,7 +342,7 @@ are repository-relative.
 
 **Real-scene evidence:**
 - `docs/reviews/2026-10-20-bistro/README.md` - historical: the 1024-item build forced a whole-frame fallback,
-  so that round could not produce Subtilis evidence; it is the baseline that motivated the capacity work.
+  so that round could not produce subtilis evidence; it is the baseline that motivated the capacity work.
 - `docs/reviews/2026-10-20-bistro-performance/README.md` - the OFF/ON numbers, the 6.6x capacity unlock, the
   probes, the CPU-selection parallelization and the tuning experiments (negative results included).
 - `docs/reviews/2026-10-20-bistro-textured/README.md` - 2906 visible items, 516 texture slots, PBR channel

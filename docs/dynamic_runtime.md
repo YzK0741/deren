@@ -37,7 +37,7 @@ Consumers of the former `deren::utility::{result, verdict, pass_success, pass_fa
 propagate, enforce}` must import `deren.engine.outcome` and use `deren::engine::outcome::` instead.
 Code naming RHI types also imports `deren.promise.rhi` explicitly. No compatibility re-export is
 provided, so a utility-only consumer does not need the renderer contract. Classification, error
-rewriting and fatal behavior are unchanged; this source interface change does not alter RHI ABI 55.
+rewriting and fatal behavior are unchanged; this source interface change does not alter the RHI ABI.
 
 Utility source interface 3.0.0 also replaces optional/unbounded binary reads with
 `read_binary_to_vector(path, max_bytes)` and `read_binary_to_string(path, max_bytes)`, both returning
@@ -59,7 +59,7 @@ compilations from drifting.
 | `:core_desc` | `create_info`, the ONE creation structure - the program fills it and the backend builds its context from it |
 | `:extension` | the optional interfaces and the queries that hand them out |
 
-The contract is versioned by `rhi::abi_version` (58 today), and a change to it is one of three kinds:
+The contract is versioned by `rhi::abi_version` (59 today), and a change to it is one of three kinds:
 **appending a slot to an existing interface bumps the number**, and so does **adding a field to a
 by-value structure** - its layout is what both halves pass, even when a `struct_size` guard lets the
 backend keep the old default; abi 45 (the `command_buffer_begin_info::inherit_descriptor_heaps`
@@ -68,6 +68,22 @@ is a new query, and a backend that does not implement it says so - and neither d
 helper function (a `constexpr`/`inline`/template declaration), because nothing already crossing the
 boundary changes shape. The GUI plugin boundary versions separately: `gui::gui_abi_version` is 5 today,
 and the two numbers do not imply each other.
+
+## Resource memory statistics (ABI 59)
+
+`resource_factory::memory_statistics()` returns a coherent value snapshot of buffer, image and combined
+allocation counters: current and peak bytes, device-local bytes and allocation counts. The default
+answers `supported == false`. ABI 59 appends this vtable slot, so host, backend and plugins must be
+rebuilt together; the counts are backend allocation accounting, not texture payload or WDDM residency.
+See the RHI standard for the per-counter rules.
+
+## Frame checkpoint (ABI 58)
+
+`frame_checkpoint` is the optional extension (bit 14) whose synchronous `checkpoint_and_wait()` closes,
+submits and waits for the current recording prefix outside rendering, releases the prefix leases and
+reopens the same borrowed recorder. Pipeline, push and binding state must be rebound afterwards; only
+the final submission signals frame-slot completion and presentation. See the RHI standard section 11
+for the timing-query, acquired-semaphore and failure semantics.
 
 ## Explicit lazy unload (ABI 57)
 
@@ -136,8 +152,8 @@ Pipelines declare logical numbered bindings and shader parameter locations; `loa
 validates a complete matching group and retains it for recorded/pending work. Backend descriptor
 allocations remain private. See [resource groups](resource_groups.md) for usage, ownership and limits.
 ABI 51 itself recorded immediately; deferred/lazy state recording arrived in ABI 53 (see the ABI 53
-section below). Resource groups originated in ABI 51 and the subview split in ABI 50. Current binaries
-require ABI 54 after removal of the reserved factory slots.
+section below). Resource groups originated in ABI 51 and the subview split in ABI 50. The ABI 54
+removal retired the reserved factory-slot surface; current binaries use ABI 59.
 
 ## Removal of incomplete interfaces (ABI 54)
 

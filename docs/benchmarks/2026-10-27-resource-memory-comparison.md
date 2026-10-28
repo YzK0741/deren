@@ -2,8 +2,12 @@
 
 归属 [amnis](../amnis.md)。下文保留采集时使用的方案名称与命令，作为实测记录。
 
+> **后续更新：** 本页的 CPU 稳态数字是 texture-source ownership 优化之前的实测值，已被
+> [texture source memory](2026-10-27-texture-source-memory.md) 更新；GPU 分配与纹理策略的对照仍然有效。
+> 当前初始化峰值与 consuming-import 数据以该更新页为准。
+
 本轮配置为 `subtilis=false`、`software_raster=false`；保留 visibility-buffer 几何路径，
-比较的是纹理流送策略，不能将其当作 Subtilis DAG＋HZB＋amnis 的组合性能结果。
+比较的是纹理流送策略，不能将其当作 subtilis DAG＋HZB＋amnis 的组合性能结果。
 
 本轮使用新加的 `api_core.resources->memory_statistics()` 和
 `utility::vessel::memory_statistics()` 重新采集，三种模式共用同一组二进制和着色器。

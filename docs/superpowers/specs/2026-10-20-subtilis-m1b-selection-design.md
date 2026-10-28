@@ -1,4 +1,4 @@
-# Subtilis M1b：主视图 CPU cut 接线
+# subtilis M1b：主视图 CPU cut 接线
 
 承接上传代际完成记录和用户“继续”。本子阶段只让显式上传的构建结果参与现有主视图 visibility 通路；不自动构建导入资产，不改 RHI、shader ABI 或 reservation。目标是让一份完整 cut 同时控制 raster、resolve 和 indirect dispatch。
 

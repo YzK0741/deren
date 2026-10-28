@@ -1,4 +1,4 @@
-# Subtilis M1a — LOD0 visible-run bridge
+# subtilis M1a — LOD0 visible-run bridge
 
 ## Scope
 
@@ -8,7 +8,7 @@ Implements the user-approved M1a route in `docs/superpowers/specs/2026-10-18-sub
 - `geometry/subtilis.cppm` is a pure CPU module with no RHI dependency. It tests object-space bounding spheres against clip planes, preserves source order, and publishes complete LOD0 records before enabling their metadata. Nonfinite bounds/transforms fail open; plane equations support nonuniform scale and shear.
 - The result supplies one base/count/source tuple to the raster push block, resolve draw-item table and indirect count. Empty success dispatches zero work; failed publication uses the full shared LOD0 run.
 - Reservations check per-item source count, global table bounds, the 14-bit item meshlet budget, and earlier published intervals. A shared geometry alias may fall back individually without overwriting a prior item's selected records.
-- While the admitted Subtilis frame owns the culled table, other camera host-cull writers are disabled. Toon exact-depth re-shading still draws its unchanged LOD0 geometry; it cannot overwrite the visibility records. Shadows and BLAS retain their existing policy.
+- While the admitted subtilis frame owns the culled table, other camera host-cull writers are disabled. Toon exact-depth re-shading still draws its unchanged LOD0 geometry; it cannot overwrite the visibility records. Shadows and BLAS retain their existing policy.
 - Both graph adapters declare optional culled-table reads: mesh_shader for raster, compute_shader for resolve. Runtime imports/retains the existing resource generation; no fake GPU select node is added.
 
 ## Test evidence
@@ -26,7 +26,7 @@ Implements the user-approved M1a route in `docs/superpowers/specs/2026-10-18-sub
 
 ## Device evidence
 
-The admitted deferred Subtilis scenario matches the checked-in visibility reference `AEE07350B796AC07` byte for byte, with two deterministic captures. Four additional pairs use the same model/camera/40-frame sequence in the existing visibility path and M1a:
+The admitted deferred subtilis scenario matches the checked-in visibility reference `AEE07350B796AC07` byte for byte, with two deterministic captures. Four additional pairs use the same model/camera/40-frame sequence in the existing visibility path and M1a:
 
 | Scenario | First-frame input → selected records | Result |
 | --- | --- | --- |

@@ -43,7 +43,7 @@ def parse_log(text):
     capacity = re.findall(r'subtilis capacity: items (\d+) peak (\d+), table (\d+)/(\d+), max run (\d+), refused frames (\d+)', text)
     if capacity:
         metrics.update(zip(('visible_items', 'peak_items', 'table_records', 'table_capacity', 'max_run', 'capacity_frames'), map(int, capacity[-1]), strict=True))
-    imported = re.findall(r'Subtilis import: (\d+) adopted \((\d+) shared\), (\d+) LOD0 fallback', text)
+    imported = re.findall(r'subtilis import: (\d+) adopted \((\d+) shared\), (\d+) LOD0 fallback', text)
     if imported:
         metrics.update(zip(('adopted', 'import_cache_hits', 'import_fallbacks'), map(int, imported[-1]), strict=True))
     startup = re.findall(r'model loaded \+ environment cubemap \(startup window incl. runtime init\): '+NUMBER+r' ms', text)

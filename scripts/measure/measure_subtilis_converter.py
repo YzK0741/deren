@@ -1,4 +1,4 @@
-"""Measure the Subtilis converter on a deterministic asset matrix.
+"""Measure the subtilis converter on a deterministic asset matrix.
 
 For every asset x --threads value x --rounds iteration it runs one `deren-subtilis build`
 with identical (canonical) build options and records the report JSON, the external end-to-end

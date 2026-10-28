@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure the pre-Subtilis renderer on the Bistro scene with an interleaved 3-round capture."""
+"""Measure the pre-subtilis renderer on the Bistro scene with an interleaved 3-round capture."""
 
 from __future__ import annotations
 

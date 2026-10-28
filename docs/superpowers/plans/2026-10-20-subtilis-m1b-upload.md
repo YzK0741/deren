@@ -1,4 +1,4 @@
-# Subtilis M1b upload implementation plan
+# subtilis M1b upload implementation plan
 
 > Execute inline with superpowers:executing-plans, TDD and one fresh final review. Continue the user's existing checkout workflow; no unsolicited push.
 
@@ -18,7 +18,7 @@
 
 - [x] Add test_subtilis_upload and observe missing module RED. Test full bytes, allocation failure and source lifetime.
 - [x] Add public uploaded_geometry and upload_geometry, implementation using existing pass-chain/resource_storage_pass. Retain immutable source and complete buffer generations, checking sizes before publication.
-- [x] Register CMake/CI/test/tidy entries. Run upload + CPU Subtilis tests GREEN; commit.
+- [x] Register CMake/CI/test/tidy entries. Run upload + CPU subtilis tests GREEN; commit.
 
 ## Task 2: primitive/runtime explicit source
 

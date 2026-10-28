@@ -1,4 +1,4 @@
-# Subtilis M1b：上传代际绑定
+# subtilis M1b：上传代际绑定
 
 状态：显式上传与 runtime 创建已实现，完成本地验证和独立审查修复；证据见 [验证记录](../../reviews/2026-10-20-subtilis-m1b-upload.md)。实际选层及硬件验收仍待后续。
 

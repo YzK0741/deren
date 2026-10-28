@@ -1,4 +1,4 @@
-# Subtilis M1a Implementation Plan
+# subtilis M1a Implementation Plan
 
 > **For agentic workers:** Use superpowers:executing-plans in this session, with one fresh final review. The user approved §11's M1a route and requested pausing/recording when remaining 5-hour usage reaches 5%.
 
@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Current checkout retains the approved preceding fixes. No commits/push; build with -j12, one build at a time.
-- Subtilis defaults false; only applies when visibility_buffer is requested and the whole frame is admitted. OFF has unchanged pixels.
+- subtilis defaults false; only applies when visibility_buffer is requested and the whole frame is admitted. OFF has unchanged pixels.
 - Keep current 32-bit visibility ID and 48-byte meshlet; meshlet IDs are visible-run ordinals. Empty selection is successful, failed publication returns full shared LOD0.
 - Validate per-item reservation, global 65536 table budget, and 16384 records per item before writing. Complete records precede metadata publication.
 - Reserve published intervals for this frame; overlapping aliases fall back without writing. While M1a is active, other camera host-cull writers are disabled, retaining their full LOD0 dispatch so later toon recording cannot overwrite this table. Shadows/BLAS stay unchanged.

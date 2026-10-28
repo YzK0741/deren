@@ -706,6 +706,6 @@ scratch 或仓库内 build-* 目录）：
 - 相关文档：[docs/subtilis.md](../../subtilis.md)、[converter 设计](2026-10-21-subtilis-gltf-design.md)、
   [converter 计划](../plans/2026-10-21-subtilis-gltf.md)、[converter 证据](../../reviews/2026-10-21-subtilis-converter.md)、
   [Bistro 性能证据](../../reviews/2026-10-20-bistro-performance/README.md)、[HZB 设计](2026-10-20-hzb-occlusion-design.md)、
-  [主 Subtilis 设计](2026-10-18-subtilis-design.md)、[visibility buffer 计划](../plans/2026-10-17-visibility-buffer.md)。
+  [主 subtilis 设计](2026-10-18-subtilis-design.md)、[visibility buffer 计划](../plans/2026-10-17-visibility-buffer.md)。
 
 

@@ -1,4 +1,4 @@
-"""Generate the deterministic Subtilis converter measurement fixtures.
+"""Generate the deterministic subtilis converter measurement fixtures.
 
 Two self-contained GLB files are written: a small grid (single coarse primitive, fast smoke
 asset) and a synthetic large grid (many clusters/groups, enough work to expose the parallel

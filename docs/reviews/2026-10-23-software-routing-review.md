@@ -60,7 +60,7 @@ Independently reproduced (observed, not trusted from the reports):
 ### I1. docs/subtilis.md still presents the withdrawn 5.22 ms / ~26x software-enabled win as current system gain
 
 - Evidence: `docs/subtilis.md:199-209` (table "Bistro path comparison (2026-10-22...)" rows
-  `Subtilis + HZB + software raster | 9.55 ms | 5.22 ms`, then "near-view comparison is
+  `subtilis + HZB + software raster | 9.55 ms | 5.22 ms`, then "near-view comparison is
   132.93 / 5.22 = 25.5x, or about 26x ... software raster brings the measured GPU median from
   5.94 to 5.22 ms"). The same manual's top banner says the opposite:
   `docs/subtilis.md:30-33` - "Earlier software-enabled timings, including 5.22 ms / about 26x, are

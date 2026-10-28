@@ -30,7 +30,7 @@ that build is run again.
 | Features (Doxyfile-INPUT + reference/research) | 11 | 9 | `shaders`, `mesh_shaders`, `deformation_motion_vectors`, `megalights`, `gltf_loader_usage`, `gaussian_loader`, `gaussian_splatting`, `slang_migration`, `reference/*`, `research/*`, `screenshots/README` |
 | Design specs (`docs/superpowers/specs`) | 10 | 9 | the 2026-10-09…10-16 design docs |
 | Plans (`docs/superpowers/plans`) | 25 | 15 | all plans, including cluster-geometry and visibility-buffer |
-| Subtilis design | 1 | 1 (new) | `docs/superpowers/specs/2026-10-18-subtilis-design.md` |
+| subtilis design | 1 | 1 (new) | `docs/superpowers/specs/2026-10-18-subtilis-design.md` |
 
 Result: **48 existing documents modified, 1 new design document** (49 paths), ~660 insertions / ~230 deletions
 in tracked files. `docs/reviews/**` (historical evidence) and `docs/latex/**` (generated) were NOT edited, and no
@@ -64,8 +64,8 @@ source, CMake, script, config or test file was touched.
 - RHI ABI 32 → **33** (GUI ABI 3) everywhere it was quoted as current; `image_range` DOES carry `aspect`
   (it was `image_copy_region` that lacked it); sampler set is **six**, not five/seven.
 - `mesh_geometry.slang`'s "exactly 28 bytes" meshlet comment and `visibility.cppm`'s "lightweight-Nanite
-  roadmap" comment are stale SOURCE comments — intentionally left for the Subtilis M1 code commit (see §5 of the
-  Subtilis design).
+  roadmap" comment are stale SOURCE comments — intentionally left for the subtilis M1 code commit (see §5 of the
+  subtilis design).
 
 **Counts / capacities / gates**
 - Scenario scope: sixteen scenarios (5 core, 1 visibility tier kept out of `-Full`, ten extra) and `-Full` = 15
@@ -119,14 +119,14 @@ source, CMake, script, config or test file was touched.
     Out of documentation scope; needs a source fix.
 12. **Citation style**: specs cite `path/file.cppm:133` as plain text, not resolvable Markdown links; changing
     that convention is a project-wide editorial decision.
-13. **Stale source comments to fix with the Subtilis M1 code commit**: `mesh_geometry.slang:119` ("28 bytes";
+13. **Stale source comments to fix with the subtilis M1 code commit**: `mesh_geometry.slang:119` ("28 bytes";
     actual 48 B via std430) and namespace `deren::vulkan::meshlet` (actual `deren::engine::meshlet`);
-    `visibility.cppm:20-21` "lightweight-Nanite roadmap" → "Subtilis roadmap".
+    `visibility.cppm:20-21` "lightweight-Nanite roadmap" → "subtilis roadmap".
 
 ## Deferred (not code-checkable, untouched)
 
 Performance/latency/disk-size figures, GPU-driver strings, external UE 5.8.2 file:line references, commit
-hashes, and acceptance measurements in historical records. The Subtilis design review (fifth auditor) fixed its
+hashes, and acceptance measurements in historical records. The subtilis design review (fifth auditor) fixed its
 own document, including the one load-bearing error it found: the M1 plan cannot be "table write only" — the
 visibility raster shader needs a host-culled-table branch plus four host wirings, or the frame silently loses
 geometry.
@@ -145,13 +145,13 @@ the new feature, and complete the damaged source comments.
   are kept: they are dated records of a chain that existed, not claims that it exists.
 - **New feature documented.** `docs/visibility_buffer.md` was added (manual INPUT, ASCII) and linked from the
   mainpage (highlight bullet plus chapter row 7) and README: pipeline, id layout, admission/fallback, MASK
-  handling, near-plane clipping, the gate and its frozen reference, and the measured limits/cost. The Subtilis
+  handling, near-plane clipping, the gate and its frozen reference, and the measured limits/cost. The subtilis
   hierarchical-geometry design is linked from the mainpage and README as a design-phase item.
 - **Source comments completed.** The orphaned MegaLights comment fragments left in
   `source/application_configuration/application_configuration.cpp` (a sentence cut mid-line after the feature
   removal) were deleted. `source/shaders/geometry/mesh_geometry.slang`'s record comment was corrected from
   "28 bytes `deren::vulkan::meshlet`" to the real 48-byte `deren::engine::meshlet` layout with its std430 offsets.
-  `source/engine/visibility/visibility.cppm`'s roadmap comment now says Subtilis and points at the design instead
+  `source/engine/visibility/visibility.cppm`'s roadmap comment now says subtilis and points at the design instead
   of the old "lightweight-Nanite" wording.
 - **Owner decisions 2, 3, 4 and the source-comment half of 11 are therefore resolved**; the remaining decisions
   above (manual rebuild, megalights history rows elsewhere, runtime_split hazard list, static batching, plan

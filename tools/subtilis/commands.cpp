@@ -100,7 +100,7 @@ namespace deren::tools::subtilis {
             size_t size = 0;
             auto* text = yyjson_mut_write_opts(d, 0, &allocator, &size, nullptr);
             if (!text)
-                utility::fast_panic("Subtilis report serialization failed");
+                utility::fast_panic("subtilis report serialization failed");
             string out(text, size);
             utility::memory::deallocate(text);
             yyjson_mut_doc_free(d);
@@ -120,7 +120,7 @@ namespace deren::tools::subtilis {
                 auto existing = full_asset(*d, key);
                 auto requested = asset::build_digest(options.build);
                 if (!existing || !requested || existing->data().build_hash != *requested)
-                    return std::unexpected(conversion_failure{asset::error{asset::error_code::invalid_input, "existing Subtilis payload is invalid or incompatible; rebuild from the original source", {}, {}}, 4});
+                    return std::unexpected(conversion_failure{asset::error{asset::error_code::invalid_input, "existing subtilis payload is invalid or incompatible; rebuild from the original source", {}, {}}, 4});
             }
             uint64_t total = 0;
             for (auto const& mesh : d->state->parsed.meshes)
@@ -142,7 +142,7 @@ namespace deren::tools::subtilis {
                     auto existing = full_asset(*d, key);
                     auto requested = asset::build_digest(options.build);
                     if (!existing || !requested || existing->data().build_hash != *requested)
-                        return std::unexpected(conversion_failure{asset::error{asset::error_code::invalid_input, "existing Subtilis payload is invalid or incompatible; rebuild from the original source", {}, {}}, 4});
+                        return std::unexpected(conversion_failure{asset::error{asset::error_code::invalid_input, "existing subtilis payload is invalid or incompatible; rebuild from the original source", {}, {}}, 4});
                     uint64_t root_triangles = 0;
                     for (auto id : existing->data().roots)
                         root_triangles += existing->data().clusters[id].index_count / 3;
@@ -278,7 +278,7 @@ namespace deren::tools::subtilis {
             if (!checked)
                 return diagnostic(3, checked.error());
             if (!*checked)
-                return diagnostic(3, asset::error{asset::error_code::invalid_input, "no Subtilis payload to validate", {}, {}});
+                return diagnostic(3, asset::error{asset::error_code::invalid_input, "no subtilis payload to validate", {}, {}});
             std::printf("validated %llu payload(s), full=%s\n", static_cast<unsigned long long>(*checked), c.full ? "true" : "false");
             return 0;
         }
@@ -297,7 +297,7 @@ namespace deren::tools::subtilis {
                 return diagnostic(3, d.error());
             auto keys = asset_keys(*d);
             if (keys.empty())
-                return diagnostic(3, asset::error{asset::error_code::invalid_input, "no Subtilis payload to export", {}, {}});
+                return diagnostic(3, asset::error{asset::error_code::invalid_input, "no subtilis payload to export", {}, {}});
             for (auto key : keys) {
                 auto a = full_asset(*d, key);
                 if (!a)

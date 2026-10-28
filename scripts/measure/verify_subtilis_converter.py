@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Acceptance gate, independent validators and LOD0/cut geometry checks for the Subtilis converter.
+"""Acceptance gate, independent validators and LOD0/cut geometry checks for the subtilis converter.
 
 Subcommands
   gate        Structural gate over `measurements.json`: every asset must have every configured
@@ -489,7 +489,7 @@ def check_asset(source_path, normal_path, converter, validator, work_dir, thresh
                         findings.append(f"LOD0 cut preview differs from the source triangle multiset (mesh {mesh} primitive {primitive_index})")
         # the cut preview intentionally has no DEREN payload: deren validate must say so, not pretend success
         code, stdout, stderr = run_command([str(converter), "validate", str(preview), "--full"])
-        entry["deren_validate_full"] = {"exit": code, "stdout": stdout.strip()[:500], "no_payload_by_design": code == 3 and "no Subtilis payload" in (stdout + stderr)}
+        entry["deren_validate_full"] = {"exit": code, "stdout": stdout.strip()[:500], "no_payload_by_design": code == 3 and "no subtilis payload" in (stdout + stderr)}
         asset_report["previews"].append(entry)
     ordered = [cut_counts[key] for key in sorted(cut_counts, key=float)]
     if ordered and any(later > earlier for earlier, later in zip(ordered, ordered[1:])):

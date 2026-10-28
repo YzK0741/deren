@@ -303,7 +303,7 @@ namespace deren::tools::subtilis {
         auto* primitive = primitive_value(d, key);
         auto* extensions = member(primitive, "extensions");
         if (member(extensions, "DEREN_subtilis"))
-            return fail("primitive already has a Subtilis payload");
+            return fail("primitive already has a subtilis payload");
         auto prepared = ensure_append_buffer(d);
         if (!prepared)
             return prepared;

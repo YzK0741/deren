@@ -6,7 +6,7 @@ be re-derived at all: the feature docs quote means, 4x4 tile tables and per-mate
 them came out of one of these.
 
 The render instruments need Python 3 with Pillow (`python -c "import PIL"` must work) and nothing else.
-The Subtilis converter acceptance instruments additionally need NumPy (the same requirement as
+The subtilis converter acceptance instruments additionally need NumPy (the same requirement as
 `prepare_bistro_geometry.py`); the Bistro asset and the official Khronos validator they use are
 Task 8 acceptance inputs outside the repository, not engine build dependencies. The captures they
 read come from `scripts/gates/capture.ps1`, which lands PNGs in `<BuildDir>/capture/`.
@@ -27,7 +27,7 @@ read come from `scripts/gates/capture.ps1`, which lands PNGs in `<BuildDir>/capt
 | `mask_stats.py <cascade> <rt_nobake> <rt_baked>` | is the alphaMode MASK bake moving a ray-traced shadow **towards** the raster one (which discards per pixel and is therefore the reference)? Reports the error against it before and after, and the correlation between "what the bake changed" and "how wrong the unbaked frame was" - the part that says whether it moved in the right direction rather than merely by a lot. This is the instrument whose answer was negative |
 | `mask_scan.py <ModelsDir> [asset ...]` | CPU reconnaissance over the sample assets: for every alphaMode MASK material, how many triangles would a per-triangle rule collapse at the three vertex UVs alone? The number the shader implementation is then checked against |
 | `mask_rules.py <gltf> [materialIndex]` | the same question for one asset under three rules of increasing cost (3 vertex UVs / a 4x4 barycentric grid, which is what `source/shaders/mask_bake.comp` does / every texel of the UV triangle), plus the share the raster path effectively keeps - which is what the bake has to agree with |
-| `make_subtilis_converter_fixtures.py --out-dir <dir>` | generates the deterministic small and synthetic large grid GLB fixtures for the standalone Subtilis converter measurement matrix (self-contained, no downloads) |
+| `make_subtilis_converter_fixtures.py --out-dir <dir>` | generates the deterministic small and synthetic large grid GLB fixtures for the standalone subtilis converter measurement matrix (self-contained, no downloads) |
 | `measure_subtilis_converter.py ...` | runs the converter asset x `--threads` x rounds matrix, recording every report JSON, external wall, sampled peak working set, output size/hash and per-round values; writes `measurements.json` with medians from all rounds |
 | `verify_subtilis_converter.py gate ...` | structural gate over `measurements.json` (complete stage rows/rounds, accumulated == sum of exclusive stages, real cross-group DAG, byte-identical payloads, medians from every round); `--self-test` demonstrates the negative controls |
 | `verify_subtilis_converter.py check ...` | runs the pinned official Khronos validator (separate acceptance tool, hashed manifest) on normal outputs and export-cut previews plus `deren-subtilis validate --full`, and checks LOD0 identity / cut monotonicity; writes `acceptance.json` |

@@ -1,6 +1,6 @@
-# Subtilis workstream - final closeout (2026-10-23)
+# subtilis workstream - final closeout (2026-10-23)
 
-Status: **CLOSED.** The Subtilis large-scene workstream is finished for this phase. The shipping path is
+Status: **CLOSED.** The subtilis large-scene workstream is finished for this phase. The shipping path is
 Visibility buffer + Cluster DAG LOD + HZB occlusion/recovery (DAG+HZB); the optional software-raster lane is
 kept as an experimental, default-off feature with **no further optimization planned**. No component of this
 closeout changes runtime behavior or the default configuration.
@@ -69,6 +69,6 @@ check-backend-boundary PASS. Local commits only, no push.
 
 ## 6. Decision
 
-The Subtilis phase is closed: **DAG+HZB ships; software raster stays optional/default-off and will not be
+The subtilis phase is closed: **DAG+HZB ships; software raster stays optional/default-off and will not be
 optimized further.** Work can move to other engine areas (e.g., M2/M5 or unrelated rendering work) without
 reopening this workstream.

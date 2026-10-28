@@ -1,4 +1,4 @@
-# Subtilis transfer consumer plan
+# subtilis transfer consumer plan
 
 Use inline execution with an independent review at completion. Spec: ../specs/2026-10-25-subtilis-transfer-consumer.md.
 

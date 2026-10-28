@@ -1,4 +1,4 @@
-# Subtilis offline converter
+# subtilis offline converter
 
 This standalone CPU tool builds the `DEREN_subtilis` shared-vertex cluster DAG.
 The original glTF primitive remains the LOD0 fallback. It does not yet add a

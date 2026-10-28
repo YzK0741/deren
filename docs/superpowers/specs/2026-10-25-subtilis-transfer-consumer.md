@@ -1,4 +1,4 @@
-# Subtilis geometry transfer consumer
+# subtilis geometry transfer consumer
 
 Migrate upload_geometry's two immutable vertex/index payloads to one buffer_transfer batch when both
 command_submission and scoped_synchronization are available. Preserve ready-on-return semantics. Add an

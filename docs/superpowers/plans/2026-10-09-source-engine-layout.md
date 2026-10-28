@@ -13,7 +13,7 @@
 ## Global constraints
 
 - Preserve RHI ABI 28, GUI ABI 2, exported C entry points, DLL file names, runtime configuration, compiled shader destinations, and rendering behavior.（2026-10-18 核对：这两个数值是 2026-10-09 的基线，现为 RHI ABI 33（source/promise/rhi/rhi.contract.cppm:300）与 GUI ABI 3（source/promise/gui/gui.cppm:18）；“保留当时的 ABI 语义”这条约束本身仍成立。）
-> 历史规划文档：本文写作时的 RHI ABI 为 33 / GUI ABI 为 3；当前值为 RHI ABI 45 / GUI ABI 5（见 `rhi.contract.cppm` 与 `gui.cppm`）。
+> 历史规划文档：本文写作时的 RHI ABI 为 33 / GUI ABI 为 3；当前值为 RHI ABI 59 / GUI ABI 5（见 `rhi.contract.cppm` 与 `gui.cppm`）。
 - Use `deren.engine.*`, `deren::engine`, target `deren_engine`, alias `deren::engine`.
 - Filters belong in `source/engine/filters/`, module `deren.engine.filters`.
 - Preserve frozen rendering reference hashes and reference shader contents.

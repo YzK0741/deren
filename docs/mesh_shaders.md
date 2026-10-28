@@ -110,7 +110,7 @@ whole draw from the CPU.
 
 What that makes possible, and what it does not:
 
-- **implemented here, and measured**: per-meshlet LOD selection (the Subtilis cut, [Subtilis](subtilis.md)), per-meshlet occlusion culling against a GPU-built max-depth Hi-Z pyramid with history prediction + camera recovery ([M3 recovery report](reviews/2026-10-21-hzb-recovery.md); measured -78.6% near / -61.6% far GPU frame on moving Bistro views), and the culling dispatch fed by the GPU itself through the existing indirect command buffer - no new RHI verb. The renderer already builds its own TLAS from the SAME vertex/index buffers, so the meshlet path is a second consumer of one structure rather than a parallel one.
+- **implemented here, and measured**: per-meshlet LOD selection (the subtilis cut, [subtilis](subtilis.md)), per-meshlet occlusion culling against a GPU-built max-depth Hi-Z pyramid with history prediction + camera recovery ([M3 recovery report](reviews/2026-10-21-hzb-recovery.md); measured -78.6% near / -61.6% far GPU frame on moving Bistro views), and the culling dispatch fed by the GPU itself through the existing indirect command buffer - no new RHI verb. The renderer already builds its own TLAS from the SAME vertex/index buffers, so the meshlet path is a second consumer of one structure rather than a parallel one.
 - **not possible**: the deferred lighting, SSAO, TAA, bloom, FXAA and cluster passes are fragment/compute
   work and cannot move to a mesh stage at all. A fullscreen triangle does not become cheaper either.
 - **therefore not the goal**: step 0 does not claim a win. It proves the stage is reachable from this

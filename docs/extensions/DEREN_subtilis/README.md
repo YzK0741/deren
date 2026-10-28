@@ -120,5 +120,5 @@ prefix. The existing visibility admission can refuse an entire frame.
 
 The default 1px target is configurable with `subtilis_error_px`; optional
 `subtilis_hysteresis=false` keeps reference selection deterministic by default.
-See [Subtilis](../../subtilis.md) and the [runtime acceptance report](../../reviews/2026-10-21-object-lod.md)
+See [subtilis](../../subtilis.md) and the [runtime acceptance report](../../reviews/2026-10-21-object-lod.md)
 for lifecycle, configuration, source-asset limitations and measurement evidence.

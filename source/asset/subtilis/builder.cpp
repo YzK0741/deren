@@ -108,7 +108,7 @@ namespace deren::asset::subtilis {
             size_t length = 0;
             auto* bytes = yyjson_mut_write_opts(d, 0, &allocator, &length, nullptr);
             if (!bytes)
-                utility::fast_panic("Subtilis metadata serialization failed");
+                utility::fast_panic("subtilis metadata serialization failed");
             string out(bytes, length);
             utility::memory::deallocate(bytes);
             yyjson_mut_doc_free(d);

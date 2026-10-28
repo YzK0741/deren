@@ -1,6 +1,6 @@
 # Render graph follow-up fixes — 2026-10-19
 
-Scope: four findings from the current graph/ownership review, followed by a Subtilis design refinement. No commit or dependency import in this batch.
+Scope: four findings from the current graph/ownership review, followed by a subtilis design refinement. No commit or dependency import in this batch.
 
 ## Changes
 
@@ -29,8 +29,8 @@ Logs are local ignored artifacts under `build-release-dyn-clang64/review-*` and 
 
 Read-only review found an initialization-order regression in an intermediate GUI callback guard; it was reproduced and repaired before completion. Re-review found no further callback issue. A final backend review requested the same frame-primary restriction already enforced by scoped synchronization; the role path now preserves it. Ownership protocol, ABI change, RT scope and pointer rebinding had no further concrete findings.
 
-Subtilis review identified the existing toon depth-EQUAL re-shading consumer. The proposed M1b now keeps these items at LOD0 until that consumer can use the same cut.
+subtilis review identified the existing toon depth-EQUAL re-shading consumer. The proposed M1b now keeps these items at LOD0 until that consumer can use the same cut.
 
-## Subtilis
+## subtilis
 
 The existing [design](../superpowers/specs/2026-10-18-subtilis-design.md#11-2026-10-19建议的轻量实现路线) now proposes M1a (LOD0 visible-run bridge), M1b (full-resident static opaque hierarchy), M2 (GPU selection/finalize), then Hi-Z. It specifies complete publication/fallback, per-item and ID capacity, worst-cut budget, boundary preservation, error metric/transform handling and separate shadow/BLAS policy. This is a proposed implementation route, not shipped geometry functionality.

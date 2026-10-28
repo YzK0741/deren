@@ -1,4 +1,4 @@
-# Subtilis closeout checkpoint - 2026-10-23
+# subtilis closeout checkpoint - 2026-10-23
 
 ## Raw evidence archive (2026-10-23)
 
@@ -19,7 +19,7 @@ opt-in, default-off and NOT accepted for shipping; DAG+HZB remains the shipping 
 frozen Full 15/15 + Visibility 1/1, converter 6/6); final archive manifest 728 files / 1,055,832,427 B
 (SHA-256 re-hash 0 mismatches).
 
-**Final closeout (2026-10-23):** the Subtilis phase is closed; see
+**Final closeout (2026-10-23):** the subtilis phase is closed; see
 [2026-10-23-subtilis-final-closeout.md](2026-10-23-subtilis-final-closeout.md). Software raster is
 optional/default-off and not optimized further; DAG+HZB remains the shipping path.
 

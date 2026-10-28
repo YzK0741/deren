@@ -1,4 +1,4 @@
-# Subtilis corrected raster and textured-scene measurement
+# subtilis corrected raster and textured-scene measurement
 
 The corrected software producer passes the planar CPU/GPU fixture, but adding software raster is a net cost on this textured Bistro test. Prefer visibility buffer + Cluster DAG + HZB for this scene; software raster remains experimental/default off. The earlier 5.22 ms / approximately 26x software-enabled headline is withdrawn as accepted evidence because it predates three raster wiring fixes.
 

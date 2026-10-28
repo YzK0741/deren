@@ -1,14 +1,14 @@
-# Subtilis（细织几何）设计：轻量层级 LOD 的初版与扩展
+# subtilis（细织几何）设计：轻量层级 LOD 的初版与扩展
 
 > **状态更新（2026-10-21）：M1a 与 M1b 均已实现并验收；M2（GPU 选层/finalize）未实现；M3（Hi-Z 遮挡）已以独立 HZB lane 落地（2026-10-21，含 camera recovery）；M4/M5 未开始。当前入口、实测数字与文档索引见 [docs/subtilis.md](../../subtilis.md)。**
 > 本文保留为设计记录：§2–10 是实现前的适配性基线，§11 是路线，§12–17 是逐步实现范围；与更早草案冲突时以 §12–17 为准。
 > 具体通过项以独立验收记录为准（索引见 `docs/subtilis.md` §9）。
-> 命名：**Subtilis**——拉丁语 `subtilis`（"细织的、精微的"，`sub + tela`＝织机），格言 **subtilitas in minimo**（至小之中，见其精微）。
+> 命名：**subtilis**——拉丁语 `subtilis`（"细织的、精微的"，`sub + tela`＝织机），格言 **subtilitas in minimo**（至小之中，见其精微）。
 > 代码中不出现 "Nanite"（商标）；需要类比时在文档里写"Nanite 风格的虚拟几何"。
 
 ## 1. 定位与边界
 
-**Subtilis = 静态不透明网格的层级 cluster LOD 系统**：资产离线构建 cluster 层级与保守误差；运行时按屏幕误差为每个 draw item 选一条 group cut，把选中的 cluster 写成可见列表；现有 visibility buffer 光栅/解析路径消费它。
+**subtilis = 静态不透明网格的层级 cluster LOD 系统**：资产离线构建 cluster 层级与保守误差；运行时按屏幕误差为每个 draw item 选一条 group cut，把选中的 cluster 写成可见列表；现有 visibility buffer 光栅/解析路径消费它。
 
 **首版（M1）范围**：静态、不透明、全驻留、硬件光栅，复用现有 G-buffer/visibility resolve 与 PBR。
 **非目标（后续里程碑）**：M2 GPU 选择与剔除、M3 Hi-Z 遮挡、M4 软件光栅（subpixel）、M5 分页流送；动态蒙皮/实例/透明/Gaussian 保持现有路径；不承诺 Nanite 的完整能力。
@@ -32,17 +32,17 @@
 ## 3. 与既有计划的关系
 
 - 总计划：`docs/superpowers/plans/2026-10-14-render-extensibility-cluster-geometry.md` 的 **阶段三（GPU 驱动可见几何）与阶段四 4A（全驻留层级 LOD）** 就是本系统。该计划明确："阶段三验收后冻结 4A 协议"、"先使用现有 48-byte meshlet 数据，只改可见性生产者，不要同时换资产布局"。
-- **现状差异**：阶段三尚未实现（3.1-3.7、4A.1-4A.7、4B.1-4B.4 的复选框全为未完成，阶段二的 11 项已完成；当前 GPU cull 是 mesh shader 内逐 meshlet 剔除 + host 剔除，不是 GPU 可见列表）；4A 的"GPU 层级遍历"因此没有前置。**Subtilis M1 按计划的最小起步原则，先做 host 选择 + 现有可见表通路**，把 GPU 化留给 M2（等价于计划 3.2/3.3 的能力，但以 LOD cut 为第一目标先交付）。
-- visibility buffer v0（`docs/superpowers/plans/2026-10-17-visibility-buffer.md`）是 M1 的消费端与测量床；Subtilis 不修改其 resolve 数学。
+- **现状差异**：阶段三尚未实现（3.1-3.7、4A.1-4A.7、4B.1-4B.4 的复选框全为未完成，阶段二的 11 项已完成；当前 GPU cull 是 mesh shader 内逐 meshlet 剔除 + host 剔除，不是 GPU 可见列表）；4A 的"GPU 层级遍历"因此没有前置。**subtilis M1 按计划的最小起步原则，先做 host 选择 + 现有可见表通路**，把 GPU 化留给 M2（等价于计划 3.2/3.3 的能力，但以 LOD cut 为第一目标先交付）。
+- visibility buffer v0（`docs/superpowers/plans/2026-10-17-visibility-buffer.md`）是 M1 的消费端与测量床；subtilis 不修改其 resolve 数学。
 - **路线顺序与 id 位宽的冲突（需 owner 决定并回写计划）**：同一份 visibility buffer 计划把后续顺序写成 "v1 software raster → v2 material binning → v3 cluster 层级 + screen-error LOD → v4 分页/流送"，并明说 "item 位宽与 meshlet 位宽在 v3 会被 cluster group 取代，届时升级到 64 位 vis buffer 或分两级表是预期变化"（该文件第 170 行；`docs/reviews/2026-10-18-visibility-buffer-ab.md` 的 "Follow-ups" 同义）。本设计把 cluster LOD 提到软光栅之前（M1 就是它），并在 M1 冻结现有 32-bit id（§4.2、§9），软光栅推到 M4。两处不是同一个顺序、也不是同一个 id 结论，M1 冻结前必须在计划里显式记录这次重排，否则验收时两份文档会各说各话。
-- 本设计与计划的文件边界对应关系：计划 4A 的 `cluster_asset/cluster_builder/cluster_lod/cluster_select.slang/test_cluster_lod` 在实现时以 **Subtilis 命名**落地（见 §6），文档在这一层注明映射，验收时同步更新计划复选框与命名。
+- 本设计与计划的文件边界对应关系：计划 4A 的 `cluster_asset/cluster_builder/cluster_lod/cluster_select.slang/test_cluster_lod` 在实现时以 **subtilis 命名**落地（见 §6），文档在这一层注明映射，验收时同步更新计划复选框与命名。
 
 ## 4. 数据模型（草案，M1b 验收后再冻结 GPU/资产协议）
 
 ### 4.1 资产层级（离线构建）
 
 ```
-SubtilisAsset (versioned header: magic/version/endian/hash/builder_version/unit)
+subtilisAsset (versioned header: magic/version/endian/hash/builder_version/unit)
   groups[]   : GroupRecord           // 选择单位；group 内 cluster 共享 LOD
   clusters[] : MeshletRecord(48B)    // 复用现有记录；first_index/index_count/base_vertex 指向本 LOD 页窗口
   vertex[]   : MeshVertex(64B)       // 每 item 一条拼接缓冲（含全部 LOD 页）
@@ -103,7 +103,7 @@ uint   level;       uint flags;        // flags：根/叶/材质边界锁定等
 | M4 | 软件光栅只处理 subpixel cluster；触发条件由 M1/M2 的"subpixel cluster 占比"测量决定（未测前不做） | 64-bit vis buffer 或 storage depth twin；resolve 的 id 解码扩展 |
 | M5 | 全驻留 → 分页流送（计划 4B） | 新 `geometry/subtilis_streaming.*` + residency 页表 |
 
-## 6. 模块与文件边界（Subtilis 命名）
+## 6. 模块与文件边界（subtilis 命名）
 
 | 层 | 文件（新增） | 说明 |
 | --- | --- | --- |
@@ -117,13 +117,13 @@ uint   level;       uint flags;        // flags：根/叶/材质边界锁定等
 | 配置 | `[render] subtilis = false`；`application_configuration.cppm/.cpp` + `config.example.toml` + `scripts/make_config.py` + 两个 fixture + `test_app_config.cpp` 同步 | 与 `visibility_buffer` 同级：它的七个接线点是 `application_configuration.cppm:284`、`application_configuration.cpp:270-272`、`config.example.toml:406`、`scripts/make_config.py:186/311/453`、`fixtures/config_full.toml:41` 与 `config_generated_defaults.toml:40`、`test_app_config.cpp:59/94/126/200` |
 | 文档/遥测 | 日志前缀 `subtilis:`；统计 `mesh_stat_subtilis_*`（选中/剔除/回退计数）；`docs/reviews/…-subtilis/` 存证据 | 沿用现有 stat lane 机制 |
 
-**命名迁移说明**：计划 4A 里的通用名（`cluster_asset/cluster_builder/cluster_lod/cluster_select`）在实现时映射到上述 `subtilis_*`；计划本身在 4A 验收时更新，不新开平行计划。`source/engine/geometry/` 与 `source/tools/` 目前都不存在，但计划阶段三的 file boundary 已声明 `source/engine/geometry/visibility.cppm`、4A 已声明 `source/tools/cluster_builder/main.cpp`，所以这两个目录是计划先声明的，不是本文档新造的。`visibility.cppm:20-21` 的注释原文是 "THE PACKING IS v0's, NOT THE FINAL ONE. The lightweight-Nanite roadmap replaces the item/meshlet half with cluster groups and a hierarchy"，随 M1 首个提交改为 "Subtilis roadmap"。
+**命名迁移说明**：计划 4A 里的通用名（`cluster_asset/cluster_builder/cluster_lod/cluster_select`）在实现时映射到上述 `subtilis_*`；计划本身在 4A 验收时更新，不新开平行计划。`source/engine/geometry/` 与 `source/tools/` 目前都不存在，但计划阶段三的 file boundary 已声明 `source/engine/geometry/visibility.cppm`、4A 已声明 `source/tools/cluster_builder/main.cpp`，所以这两个目录是计划先声明的，不是本文档新造的。`visibility.cppm:20-21` 的注释原文是 "THE PACKING IS v0's, NOT THE FINAL ONE. The lightweight-Nanite roadmap replaces the item/meshlet half with cluster groups and a hierarchy"，随 M1 首个提交改为 "subtilis roadmap"。
 
 ## 7. 配置、降级与兼容
 
 - 开关默认 **关闭**；关闭时完全不执行选择、不写表、不改变任何现有帧（OFF 冻结参考必须逐字节不变）。
 - 失败/溢出：单 item 回退到最高细节全量 run；整 item 无法提供几何 → 沿用 visibility admission 的整帧回退；不得静默截断或部分覆盖。
-- 旧资产（无 Subtilis 层级）继续走现有路径；不要求所有 glTF 一次迁移。
+- 旧资产（无 subtilis 层级）继续走现有路径；不要求所有 glTF 一次迁移。
 - RT 的 BLAS proxy 保持最高细节普通网格，不随每帧 cut 重建（计划 4A.6）。
 
 ## 8. 验收与测量（逐阶段）
@@ -149,7 +149,7 @@ uint   level;       uint flags;        // flags：根/叶/材质边界锁定等
 | 现计划阶段三未实现 | M1 用 host 选择绕过；M2 需决定是先在现有可见表上做 GPU select，还是先补计划 3.2/3.3 的可见列表基础设施 |
 | 现有记录/注释不一致 | `mesh_geometry.slang:119` 的注释仍写 "exactly the 28 bytes `deren::vulkan::meshlet` holds"：数字错（std430 下 `float3` 要求 16 字节对齐，实际 48B），类型名也错（宿主记录是 `deren::engine::meshlet`，`meshlet.cppm:70`）。本设计以 48B 为准，M1 首个提交把这两点一起改掉 |
 | `item 10bit` 容量 | 每帧 item ≤1024（现有约束，`id_item_capacity`）；本设计在 M1 冻结 id 布局、把 64-bit 推到 M4——但 visibility buffer 计划预期**在 cluster LOD 这一步**就换 id 编码，两处结论不一致，见 §3 的路线条目 |
-| 性能不确定性 | 当前 ON 路径 resolve 已是成本中心（post-clip 中位数 **0.68 ms** [0.64..0.96] vs 几何 pass **0.19 ms**，3×130 帧；早先的 0.92 ms 是近平面裁剪之前的值），同一 session 的 ON 总 GPU **1.21 ms** vs OFF **0.94 ms**，差值就在这一个桶里；Subtilis 的 LOD 收益必须先抵掉这个基线差值，收益只能用真实高模资产测量，测量口径见 §8 |
+| 性能不确定性 | 当前 ON 路径 resolve 已是成本中心（post-clip 中位数 **0.68 ms** [0.64..0.96] vs 几何 pass **0.19 ms**，3×130 帧；早先的 0.92 ms 是近平面裁剪之前的值），同一 session 的 ON 总 GPU **1.21 ms** vs OFF **0.94 ms**，差值就在这一个桶里；subtilis 的 LOD 收益必须先抵掉这个基线差值，收益只能用真实高模资产测量，测量口径见 §8 |
 | "零改动"假设 | 本轮审查确认 M1 不缺 resolve 数学、但缺 shader 分支与四段 host 接线（§5 任务 1-4）；其中任务 2 与任务 1 必须同一次提交，否则 raster 的 group 数已缩而它读的表没换，画面少几何 |
 | 计划/文档过时点 | 计划**阶段三**的"48-byte meshlet/window 数据"与当前一致（4A 本身不复述宽度）；但"GPU 层级遍历"的前置（阶段三）尚不存在，且阶段三/4A 的复选框全空；本文档与计划需在 M1 验收时同步复选框与命名映射 |
 
@@ -200,7 +200,7 @@ uint   level;       uint flags;        // flags：根/叶/材质边界锁定等
 
 首版开关默认关闭；没有层级资产的 item 使用现有 LOD0。沿用整帧 opaque-lane admission：若现有 visibility 路径不能承载某个 item，整帧继续走几何 lane，不能同时记录两个 opaque G-buffer 作者。MASK 在现有 visibility lane 已支持，但 M1 不简化 MASK 网格，仍用其 LOD0。
 
-验收分别比较：OFF 对现有冻结参考；M1a ON 对同配置的既有 visibility 参考。已有 visibility 相对直接几何的残差另列，不能把它算成 Subtilis 新误差，也不能通过重基线掩盖新缺口。
+验收分别比较：OFF 对现有冻结参考；M1a ON 对同配置的既有 visibility 参考。已有 visibility 相对直接几何的残差另列，不能把它算成 subtilis 新误差，也不能通过重基线掩盖新缺口。
 
 ### 11.3 M1b：再做真正的层级 LOD
 
@@ -274,7 +274,7 @@ M2 复用已经证明正确的 run 协议：compute select 产生可见表与每
 
 在 §13 基础之后实现 `geometry/subtilis_builder.cppm`，固定 meshoptimizer v1.3 commit 并复用 utility::memory。结果同时拥有原始顶点、LOD0 索引前缀、追加的 coarse 索引和 validated asset。完整源区域边界、UV/normal seam 和各源组件须保留；候选必须同时减少三角形和记录，失败保持完整子组。反向广度层次打包支持不等深森林。
 
-规则网格实测 2048 → 510 三角形、25 → 6 条根记录；group_size=2 得到三层父级。Release 54/54、Subtilis ASan/UBSan 4/4、builder 70 项检查和新增模块静态检查通过。独立审查发现的上游浮点中间溢出已用失败回归验证并修复，异常数值候选保留完整细节。
+规则网格实测 2048 → 510 三角形、25 → 6 条根记录；group_size=2 得到三层父级。Release 54/54、subtilis ASan/UBSan 4/4、builder 70 项检查和新增模块静态检查通过。独立审查发现的上游浮点中间溢出已用失败回归验证并修复，异常数值候选保留完整细节。
 
 此处仍未接入真实多级几何上传，运行时绘制量和视觉/性能收益尚未验收。下一步把同一构建结果绑定到一个资源代际，再接主视图合法静态 opaque item 的 CPU cut。完整边界、范围与后续策略见 [builder 设计](2026-10-20-subtilis-m1b-builder-design.md) 和 [验证记录](../../reviews/2026-10-20-subtilis-m1b-builder.md)。
 
@@ -296,4 +296,4 @@ Release 55/55、相关 ASan/UBSan 7/7、上传/绑定 44 项检查及新增模�
 
 按用户要求将现有R32_UINT布局调整为valid1/item12/meshlet12/triangle7，最多4096个item，每item最多4096个meshlet；超大单item按既有整帧admission回退。普通共享meshlet表65536容量不变，CPU asset预算校验仍独立。主机、raster、resolve与帧槽行跨度同步变更，必须成套重编译shader。此前10/14bit和1024项记录是历史状态，不再是当前上限。
 
-原始Bistro2909个绘制对象，最大单primitive1395个meshlet，满足当前编码，无需按材质合并。边界测试先RED后GREEN，完整Release57/57、相关ASan/UBSan4/4通过。带纹理验收已完成：场景纹理数组容量同步 128→1024（网格 1024→2048 槽，materials 起点 512→1024），由网格推导单点定义；textured Bistro 实测 516 个运行时纹理槽、无白染降级，原始层级 2909 primitives/2906 可见项出图。证据与剩余项（纹理场景 Subtilis OFF/ON）见 docs/reviews/2026-10-20-bistro-textured/README.md。
+原始Bistro2909个绘制对象，最大单primitive1395个meshlet，满足当前编码，无需按材质合并。边界测试先RED后GREEN，完整Release57/57、相关ASan/UBSan4/4通过。带纹理验收已完成：场景纹理数组容量同步 128→1024（网格 1024→2048 槽，materials 起点 512→1024），由网格推导单点定义；textured Bistro 实测 516 个运行时纹理槽、无白染降级，原始层级 2909 primitives/2906 可见项出图。证据与剩余项（纹理场景 subtilis OFF/ON）见 docs/reviews/2026-10-20-bistro-textured/README.md。

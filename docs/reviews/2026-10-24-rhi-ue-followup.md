@@ -114,7 +114,7 @@ Graphics `pipeline.cpp:221`、compute `core.api_core.cpp:1806` 当前把 native 
 
 PSO 内存缓存通常不需要公共 RHI 扩展；离线预热/缓存持久化确实成为上层需求时，再考虑 `pipeline_cache_control`。
 `memory_statistics` 则适合独立扩展：以稳定快照给出预算、分配量、使用量、峰值和统计有效性，
-不暴露 VMA/native allocator。它也为资源池、Subtilis 流式驻留和显存压力决策提供证据。
+不暴露 VMA/native allocator。它也为资源池、subtilis 流式驻留和显存压力决策提供证据。
 
 ### 5. 后续能力：资源池、多队列和查询
 

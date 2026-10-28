@@ -2,7 +2,7 @@
 
 **Final checkpoint 2026-10-20 19:40（用户要求继续后完成本轮；改动仍未提交、未 push）。**
 
-状态：两项容量契约都已扩展并拿到真实 GPU 证据——①可见性打包 ID 的 item 4096（原始未合并层级 2909 primitives，2906 项入表，无回退）；②场景纹理数组 128→**1024**（网格 1024→**2048** 槽）；③textured Bistro 资产已按 pin 重建并全项校验（`textured-verified/`），在远/近两个固定相机下 albedo/lit 四张纹理帧全部出图（516 个纹理槽、无白染、validation 0）；④**PBR 路径验收完成**：开阴影的 PBR lit 远/近 + G-buffer 的 normal/roughness/metallic/AO 通道，确认 normal/MR 贴图被 PBR 着色消费；⑤**性能增益已实测**（独立报告 `docs/reviews/2026-10-20-bistro-performance/`）：同一 2909 项场景容量解锁使 GPU 帧时间 178.5→26.7 ms（~6.6×），Subtilis 在 4096 容量上再减 11–12% 三角形、GPU 帧时间 −8.7%、端到端帧时间 −8.2%；⑥**优化空间探针 + CPU 选层并行化完成**：探针测得视锥剔除 0–2%（无空间）、近景遮挡 33%（保守下界，M3 主攻）、远景亚像素 cluster 22%（M4 主攻）；`record_visibility_items` 已并行化（选层 CPU 8.6→~2 ms，cuts/截图与串行版完全一致，CTest 57/57、ASan 6/6）。**剩余：纹理场景 Subtilis OFF/ON 对照**（需临时 builder 补丁）以及是否提交的决定。
+状态：两项容量契约都已扩展并拿到真实 GPU 证据——①可见性打包 ID 的 item 4096（原始未合并层级 2909 primitives，2906 项入表，无回退）；②场景纹理数组 128→**1024**（网格 1024→**2048** 槽）；③textured Bistro 资产已按 pin 重建并全项校验（`textured-verified/`），在远/近两个固定相机下 albedo/lit 四张纹理帧全部出图（516 个纹理槽、无白染、validation 0）；④**PBR 路径验收完成**：开阴影的 PBR lit 远/近 + G-buffer 的 normal/roughness/metallic/AO 通道，确认 normal/MR 贴图被 PBR 着色消费；⑤**性能增益已实测**（独立报告 `docs/reviews/2026-10-20-bistro-performance/`）：同一 2909 项场景容量解锁使 GPU 帧时间 178.5→26.7 ms（~6.6×），subtilis 在 4096 容量上再减 11–12% 三角形、GPU 帧时间 −8.7%、端到端帧时间 −8.2%；⑥**优化空间探针 + CPU 选层并行化完成**：探针测得视锥剔除 0–2%（无空间）、近景遮挡 33%（保守下界，M3 主攻）、远景亚像素 cluster 22%（M4 主攻）；`record_visibility_items` 已并行化（选层 CPU 8.6→~2 ms，cuts/截图与串行版完全一致，CTest 57/57、ASan 6/6）。**剩余：纹理场景 subtilis OFF/ON 对照**（需临时 builder 补丁）以及是否提交的决定。
 
 ## 本轮完成（证据见 README.md / results.json）
 
@@ -39,7 +39,7 @@
 
 ## 剩余工作（按顺序）
 
-1. **纹理场景 Subtilis OFF/ON**：把上一轮 `docs/reviews/2026-10-20-bistro/acceptance-only.patch` 的 builder 思路适配到当前 `runtime.cpp`（`DEREN_BISTRO_BUILD` 时在 `create_primitive` 里 build 层级），应用到工作区、重编译、用 `textured-albedo/lit` 配置各跑 OFF/ON（远+近），记录 fallback/coarse/像素差；然后反向应用补丁、重编译、重跑测试。**无纹理原始层级的 OFF/ON 性能增益已由 `docs/reviews/2026-10-20-bistro-performance/` 实测**（含临时补丁的 apply/revert 记录与 CPU 选层代价），纹理版主要验证"带纹理时的画面/收益是否一致"。
+1. **纹理场景 subtilis OFF/ON**：把上一轮 `docs/reviews/2026-10-20-bistro/acceptance-only.patch` 的 builder 思路适配到当前 `runtime.cpp`（`DEREN_BISTRO_BUILD` 时在 `create_primitive` 里 build 层级），应用到工作区、重编译、用 `textured-albedo/lit` 配置各跑 OFF/ON（远+近），记录 fallback/coarse/像素差；然后反向应用补丁、重编译、重跑测试。**无纹理原始层级的 OFF/ON 性能增益已由 `docs/reviews/2026-10-20-bistro-performance/` 实测**（含临时补丁的 apply/revert 记录与 CPU 选层代价），纹理版主要验证"带纹理时的画面/收益是否一致"。
 2. 可选：normal map 朝向与参考图比对；MASK/alpha 轮廓逐材质核对；transmission 材质仍明确在验收外。
 3. 提交/推送决策（本轮按要求未做 `.git` 变更）；提交前重跑 CTest + `git diff --check`。
 

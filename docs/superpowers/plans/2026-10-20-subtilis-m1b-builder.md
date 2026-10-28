@@ -1,4 +1,4 @@
-# Subtilis M1b Builder Implementation Plan
+# subtilis M1b Builder Implementation Plan
 
 > **For agentic workers:** Use superpowers:executing-plans in the current session, TDD per task, and one fresh whole-change review. The user explicitly approved the written builder design and asked to start; preserve the existing inline/current-checkout workflow.
 

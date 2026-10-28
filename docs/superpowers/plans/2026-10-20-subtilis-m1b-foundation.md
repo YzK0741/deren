@@ -1,6 +1,6 @@
-# Subtilis M1b foundation Implementation Plan
+# subtilis M1b foundation Implementation Plan
 
-> **For agentic workers:** Use superpowers:executing-plans inline, TDD and one fresh final review. Continue the user-approved Subtilis design on HEAD feb66065 without reverting the user's seven follow-up commits.
+> **For agentic workers:** Use superpowers:executing-plans inline, TDD and one fresh final review. Continue the user-approved subtilis design on HEAD feb66065 without reverting the user's seven follow-up commits.
 
 **Goal:** Establish a validated replacement-group asset and deterministic CPU cut/publication contract for the next real-LOD builder and upload integration.
 **Architecture:** Pure CPU modules own immutable validated group forests and cut selection. Groups are stored bottom-up, each has a complete coarse meshlet range and either zero or a complete contiguous child group range. Roots cover every group once. Existing M1a visible-run metadata/publication remains the consumer protocol.
@@ -60,7 +60,7 @@ Baseline: user commits 2b296a08..feb66065 preserve timing changes and source hyg
 Ruling: deliver M1b's asset/cut foundation before coupling the offline simplifier and runtime upload — this fixes the data/coverage/error contract first and avoids introducing an unvalidated asset format or half-wired mixed-LOD rendering.
 Ruling: bottom-up child indices (children before parent) make cycle rejection and bounds/budget construction iterative and simple; a future disk decoder must normalize to this CPU order.
 
-Verification: full Release build + 53/53 tests; fresh ASan/UBSan build + 7/7 relevant tests, including real probe DLL loading. Independent foundation review and subsequent ownership-move review found no actionable issues. Exact CI tidy gate (31 files, warnings-as-errors) passed after adding the three Subtilis modules and removing the stale, deleted better_pmr.cpp entry. Evidence: ../../reviews/2026-10-20-subtilis-m1b-foundation.md.
+Verification: full Release build + 53/53 tests; fresh ASan/UBSan build + 7/7 relevant tests, including real probe DLL loading. Independent foundation review and subsequent ownership-move review found no actionable issues. Exact CI tidy gate (31 files, warnings-as-errors) passed after adding the three subtilis modules and removing the stale, deleted better_pmr.cpp entry. Evidence: ../../reviews/2026-10-20-subtilis-m1b-foundation.md.
 
 User steering: finish CI, then pause. Do not proceed into meshoptimizer/builder/runtime upload after CI.
 

@@ -29,9 +29,9 @@
 
 ## 原始软件路径实际覆盖范围
 
-开关没有把整张场景或所有 meshlet 改成软件光栅。每个 Subtilis 选出的 meshlet 仍按保守投影球直径与阈值拆成硬件前缀和软件后缀；visibility mesh-task 只 dispatch 硬件前缀，软件 CSR 只收录软件后缀，ID 仍以完整 run 中的 meshlet 序号解码。三角形不是在两个路径各画一次。
+开关没有把整张场景或所有 meshlet 改成软件光栅。每个 subtilis 选出的 meshlet 仍按保守投影球直径与阈值拆成硬件前缀和软件后缀；visibility mesh-task 只 dispatch 硬件前缀，软件 CSR 只收录软件后缀，ID 仍以完整 run 中的 meshlet 序号解码。三角形不是在两个路径各画一次。
 
-这两组采集中，远景 Subtilis 保留 41,030 个 meshlet，其中 4,233 个（10.3%）转给软件路径；近景保留 35,444 个，其中 850 个（2.4%）转给软件路径。远景软件 meshlet 产生 4,572 个 tile-entry，近景 913 个。每个 tile-entry 都是一个 meshlet，而 shader 会对它处理 meshlet 的全部三角形。
+这两组采集中，远景 subtilis 保留 41,030 个 meshlet，其中 4,233 个（10.3%）转给软件路径；近景保留 35,444 个，其中 850 个（2.4%）转给软件路径。远景软件 meshlet 产生 4,572 个 tile-entry，近景 913 个。每个 tile-entry 都是一个 meshlet，而 shader 会对它处理 meshlet 的全部三角形。
 
 成本问题在于软件 pass 的执行粒度很宽：compute dispatch 覆盖完整 80×45 个 16×16 tile，逐 tile 写满图像的 software depth/ID；每个有效像素都会遍历该 tile 的 CSR entries，并重新 fetch、变换每个候选 meshlet 的三角形顶点、做三角形覆盖测试。即使三角形投影尺寸小于 1 像素，当前实现仍执行逐像素、逐候选、逐三角形的完整测试。高密度场景中的最热 tile 可以达到 977 个候选，因此“仅部分 meshlet 被分流”仍可能触发很大的重复工作。这是性能退化的直接算法原因，测量没有显示全场景几何都走软件路径。
 
@@ -106,26 +106,26 @@ CPU active 中位数仍增加约 3 ms（DAG 5.20/5.05 ms，软件 1.0 px 为 8.3
 
 验证层 smoke：同一 1.0 px 远景 HZB 配置重复两次，截图哈希一致；无 HZB 软件配置重复两次也一致，且与 DAG 图像不同。两种 smoke 均 130 帧退出码 0，Vulkan validation 未发现 VUID、Validation Error、WARNING 或 ERROR。阈值矩阵中少数 HZB 配置截图哈希有两种，因此此 smoke 只能支持稳定性和有效执行，仍不能替代 GPU/CPU 参考图逐像素验证。全量 CTest 为 64/65；唯一失败 `test_backend_boundary` 的两个硬链接用例因 Windows `PermissionError: [WinError 5] 拒绝访问`，单独重跑可复现，与渲染改动无关。
 
-## Subtilis 开始前的历史基线（2026-10-22）
+## subtilis 开始前的历史基线（2026-10-22）
 
-为判断一般渲染流程是否也在 Subtilis 开发期间发生变化，额外测量了 Subtilis 首个脚手架提交 `c5df0913fa838d494585da8ea54121b3bf1a6a0d` 的父提交 `344c3ef82af40714abc2f91d789243c44ce4885f`。这是 Subtilis 尚未进入代码库的历史版本。历史版本原有 visibility 容量不足以覆盖当前 Bistro 派生资产，因此在隔离的历史工作树中把 item 和 meshlet ID 容量都扩到 4096；相关 CPU/GPU ID 布局同步修改。历史灯光导入也有与场景大小无关的越界问题，测试时将导入上限约束到现有四个 GUI 灯光槽，与当前运行行为一致。省略的场景树诊断日志不参与渲染。
+为判断一般渲染流程是否也在 subtilis 开发期间发生变化，额外测量了 subtilis 首个脚手架提交 `c5df0913fa838d494585da8ea54121b3bf1a6a0d` 的父提交 `344c3ef82af40714abc2f91d789243c44ce4885f`。这是 subtilis 尚未进入代码库的历史版本。历史版本原有 visibility 容量不足以覆盖当前 Bistro 派生资产，因此在隔离的历史工作树中把 item 和 meshlet ID 容量都扩到 4096；相关 CPU/GPU ID 布局同步修改。历史灯光导入也有与场景大小无关的越界问题，测试时将导入上限约束到现有四个 GUI 灯光槽，与当前运行行为一致。省略的场景树诊断日志不参与渲染。
 
 两边使用同一资产 SHA-256 `620f424239909d023b30dd86fe953c579298a39ef2d4706bca59fc0d2982085b`、1280×720、相同相机与画质选项，visibility buffer 开启，Cluster DAG、软件光栅和 HZB 关闭。每个相机各跑三轮，每轮采集 130 帧。历史版每轮有两个各 60 帧的 GPU 计时窗口，按帧数加权；当前版取每轮 129 帧 session average。表中先对每轮结果取中位数，再计算相对变化。
 
-| 相机 | Subtilis 前历史版 GPU | 当前全关优化 GPU | 变化 | 历史版 → 当前版 visibility raster |
+| 相机 | subtilis 前历史版 GPU | 当前全关优化 GPU | 变化 | 历史版 → 当前版 visibility raster |
 | --- | ---: | ---: | ---: | ---: |
 | 远景 | 24.74 ms | 24.50 ms | −1.0% | 24.14 → 23.88 ms |
 | 近景 | 22.08 ms | 21.17 ms | −4.1% | 21.23 → 20.31 ms |
 
 历史版每轮 GPU 时间范围为远景 24.475–24.780 ms、近景 21.860–22.810 ms；当前版为远景 24.43–24.81 ms、近景 20.30–21.82 ms。远景区间几乎完全重叠，近景也有重叠，因此只能说这组测试中当前全关配置略快，不能据此把差异归因于某项一般流程优化。历史版与当前版源码相隔多个改动，仍有提交间的其他变化；结果适合作为整体历史参照，不是单变量实验。
 
-六次历史采集均退出码 0、每轮 120 个 GPU 计时帧；远景截图哈希三轮一致，近景有两种。当前全关结果来自上方稀疏瓦片矩阵，三轮均为 129 个 GPU 样本。历史版没有 Subtilis、HZB 或软件光栅实现。历史可执行文件 SHA-256 为 `483eae1fa8725c051a51e2e7f889df5ffa6ff92506279e875ef330502c510c92`；基线 JSON、逐轮日志和运行配置位于忽略目录 `build-release-dyn-clang64/pre-subtilis-baseline-measurements-20261022/`，采集脚本为 `scripts/measure/measure_pre_subtilis_baseline.py`。
+六次历史采集均退出码 0、每轮 120 个 GPU 计时帧；远景截图哈希三轮一致，近景有两种。当前全关结果来自上方稀疏瓦片矩阵，三轮均为 129 个 GPU 样本。历史版没有 subtilis、HZB 或软件光栅实现。历史可执行文件 SHA-256 为 `483eae1fa8725c051a51e2e7f889df5ffa6ff92506279e875ef330502c510c92`；基线 JSON、逐轮日志和运行配置位于忽略目录 `build-release-dyn-clang64/pre-subtilis-baseline-measurements-20261022/`，采集脚本为 `scripts/measure/measure_pre_subtilis_baseline.py`。
 
 ### 容量不足触发 legacy 回退的旧数据
 
-另一个更早的同资产远景对比（用户提供的测量截图，16 帧）显示，1024 容量旧构建 GPU 帧时间为 178.5 ms，其中 scene pass 为 177.8 ms；将 item/meshlet 容量扩为 4096 后，visibility lane 为 26.7–27.0 ms，其中 visibility raster 为 26.2 ms。按 178.5/27.0 计算约为 6.6 倍。这是 Subtilis 渲染系统的容量扩展前置收益：扩容让系统能走 visibility lane，而不再整场景回退到 legacy；它不是 Cluster DAG/LOD 算法自身的收益。
+另一个更早的同资产远景对比（用户提供的测量截图，16 帧）显示，1024 容量旧构建 GPU 帧时间为 178.5 ms，其中 scene pass 为 177.8 ms；将 item/meshlet 容量扩为 4096 后，visibility lane 为 26.7–27.0 ms，其中 visibility raster 为 26.2 ms。按 178.5/27.0 计算约为 6.6 倍。这是 subtilis 渲染系统的容量扩展前置收益：扩容让系统能走 visibility lane，而不再整场景回退到 legacy；它不是 Cluster DAG/LOD 算法自身的收益。
 
-这也解释了此前提到的约 150–180 ms 长帧。它与上节 4096 容量历史版本的 24.74 ms 结果属于不同容量和渲染路径，不能直接拿来衡量 Subtilis 前后的一般流程变化。截图中的新构建约 27 ms、我们扩容后的历史构建约 24.74 ms 量级相近；之后当前构建的优化全开数据则见下一节。
+这也解释了此前提到的约 150–180 ms 长帧。它与上节 4096 容量历史版本的 24.74 ms 结果属于不同容量和渲染路径，不能直接拿来衡量 subtilis 前后的一般流程变化。截图中的新构建约 27 ms、我们扩容后的历史构建约 24.74 ms 量级相近；之后当前构建的优化全开数据则见下一节。
 
 ## 三路全开在稀疏瓦片优化后的结果
 
@@ -138,7 +138,7 @@ CPU active 中位数仍增加约 3 ms（DAG 5.20/5.05 ms，软件 1.0 px 为 8.3
 | 传统 legacy 路径 | 152.55 ms | 132.93 ms | 原始六配置矩阵；1024 容量回退的另一轮远景测量为 178.5 ms |
 | Visibility buffer 基线（无三项优化） | 24.50 ms | 21.17 ms | 当前构建，作为优化组合的基准 |
 | 仅 Cluster DAG | 20.73 ms | 18.73 ms | 单项生效 |
-| 仅软件光栅 | — | — | 不可独立生效；运行时要求 Cluster DAG/Subtilis，关闭 DAG 时软件路径不激活 |
+| 仅软件光栅 | — | — | 不可独立生效；运行时要求 Cluster DAG/subtilis，关闭 DAG 时软件路径不激活 |
 | 仅 HZB（DAG 关闭） | 23.95 ms | 22.18 ms | 独立复测；HZB build/cull/recovery 激活，但本场景剔除率为 0% |
 | Cluster DAG + 软件光栅 | 19.49 ms | 18.59 ms | 两项组合；对应软件光栅单独增开在 DAG 基线之上 |
 | Cluster DAG + HZB | 9.82 ms | 5.94 ms | 两项组合 |

@@ -1,4 +1,4 @@
-# Subtilis glTF Cluster DAG Converter Implementation Plan
+# subtilis glTF Cluster DAG Converter Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans inline to implement this plan task-by-task. Preserve the current-session native execution method and current-checkout authorization. One fresh whole-change reviewer after implementation; no per-task agents. Steps use checkbox syntax for tracking.
 
@@ -61,7 +61,7 @@
 - [x] 抽出原CPU依赖目标，按固定revision vendor yyjson并生成/核对manifest；实现显式字节读写，先验证再分配。JSON schema固定version=1/profile/shared-vertices和bufferView非负整数。
 - [x] 配置：`cmake -S tools/subtilis -B build-subtilis -G Ninja -DCMAKE_BUILD_TYPE=Release`；构建/测试codec通过。独立配置设置`CMAKE_DISABLE_FIND_PACKAGE_Vulkan=TRUE`仍成功，target图无promise/engine/CUDA。
 - [x] 根Release重配置、构建和原58项CTest通过，证明helper抽取未改变现有工程；此后原工程全套仅在其构建配置或共享utility再次改变时重跑。
-- [x] 本地提交：`feat: add the standalone Subtilis payload codec`。
+- [x] 本地提交：`feat: add the standalone subtilis payload codec`。
 
 ## Task 2 — validated DAG、full geometry验证和CPU cut参考
 
@@ -94,7 +94,7 @@
 - [x] RED：未知JSON嵌套对象/大整数、可选与required扩展、原数组ID和BIN前缀保持；原LOD0索引和材质/动画/node语义不变。被工具理解的DEREN扩展只从fastgltf解码用的临时required列表中排除，原DOM保留；真正未知required不得忽略。
 - [x] `test_subtilis_document`先RED；IO用yyjson拥有原DOM，几何解码复用fastgltf原mesh/primitive索引和accessor工具，不经deren.gltf_loader展平。partial策略只跳过语义已知不适用项，不吞损坏core数据。
 - [x] 附加Task2人工DAG，serialize→read→decode→make_asset→select_cut全链GREEN；core indices/attributes/节点引用与输入语义一致。量化位置的node变换不烘焙进模型空间数据。
-- [x] 本地提交：`feat: preserve glTF documents and bind Subtilis payloads`。
+- [x] 本地提交：`feat: preserve glTF documents and bind subtilis payloads`。
 
 ## Task 4 — 叶聚类、边界拓扑与单次约束reduction
 
@@ -141,7 +141,7 @@
 - [x] RED：source/buildHash相同且full valid则复用、不追加；过期source、不同参数、损坏已有payload明确拒绝并要求从源重建，不静默再append。strict/partial对构建失败和不适用目标分类符合spec。
 - [x] `test_subtilis_converter`确认RED；实现有界资源读取、原索引保持的追加、MIME正确的image嵌入和事务式发布。参数/线程元数据仅放报告，资产构建参数保持canonical顺序。
 - [x] GREEN：输入/输出资源逐项hash、core DOM语义、实例身份、临时文件清理和失败原子性全部通过。
-- [x] 本地提交：`feat: package Subtilis glTF assets without losing source resources`。
+- [x] 本地提交：`feat: package subtilis glTF assets without losing source resources`。
 
 ## Task 7 — 确定性多核调度、工作集与阶段剖析
 
@@ -156,7 +156,7 @@
 - [x] RED：已知workspace预算缩小导致降低并发或整primitive拒绝，不改变任何成功资产的reduction；allocator并发初始化、workspace复用和取消/收尾无泄漏。
 - [x] `test_subtilis_parallel`先RED；用有界工作池/任务队列，粗粒度primitive优先，单大primitive在每轮group层并行；统一预算，不重复并行。保留build_serial为参考。
 - [x] GREEN并跑整个独立工具CTest。计时测试只验证阶段完整/非负和total不重复累计，不断言机器相关加速或毫秒阈值。
-- [x] 本地提交：`perf: parallelize Subtilis asset construction deterministically`。
+- [x] 本地提交：`perf: parallelize subtilis asset construction deterministically`。
 
 ## Task 8 — 真实资产、CI、文档与最终审查
 

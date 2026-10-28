@@ -25,7 +25,7 @@
 - 设置进入 `config.toml`，同时支持无窗口渲染与既有窗口渲染。只在 GPU 完成相应帧后释放在途资源。
 - 配置实现同时更新 `config.example.toml`、`source/tests/test_app_config.cpp` 和配置 fixtures；运行目录生成的 `config.toml` 不当作仓库源文件。
 - 当前 RHI ABI 为 32（2026-10-18 核对：现为 33，证据 source/promise/rhi/rhi.contract.cppm:300；实施时以该常量为准，本条数值仅保留当时的基线）。不是每次追加 enum 都升级 ABI：遵守 contract 中 enum、`struct_size` 与虚函数边界的现有规则；变更前列出兼容性分类及测试。
-> 历史规划文档：本文写作时的 RHI ABI 为 33 / GUI ABI 为 3；当前值为 RHI ABI 45 / GUI ABI 5（见 `rhi.contract.cppm` 与 `gui.cppm`）。
+> 历史规划文档：本文写作时的 RHI ABI 为 33 / GUI ABI 为 3；当前值为 RHI ABI 59 / GUI ABI 5（见 `rhi.contract.cppm` 与 `gui.cppm`）。
 
 ## 依赖与交付边界
 
@@ -262,6 +262,6 @@ root 粗级及其依赖常驻并计入预算；预算小于 root 最低占用时
 阶段一内部优先级：1.0 身份引用清单 → 1.1/1.2 存储及事务化层级 → 1.3 动画与 dirty 更新 → 1.4 资产/材质版本和提交历史 → 1.5 场景各消费者 → 1.6 回归。阶段三先交付 GPU 全量与视锥路径，再评估本帧 Hi-Z；历史两阶段遮挡可独立关闭。阶段四先证明 group cut 与混合 LOD 边界正确，再追求简化率；4B 仍需 4A 验收后决定投入。
 
 
-### 2026-10-19：Subtilis 先行通路
+### 2026-10-19：subtilis 先行通路
 
-已批准先实现 Subtilis M1a：CPU 选择现有 LOD0 记录，经现有可见表接入 visibility；此步不是阶段三的 GPU 可见列表验收。随后 M1b 全驻留层级资产，再 M2 GPU select/finalize。保留 32-bit ID 至容量和软件光栅实际需要升级；阶段三/四的未实现复选框维持原状。详见 `2026-10-19-subtilis-m1a.md` 和设计 §11。
+已批准先实现 subtilis M1a：CPU 选择现有 LOD0 记录，经现有可见表接入 visibility；此步不是阶段三的 GPU 可见列表验收。随后 M1b 全驻留层级资产，再 M2 GPU select/finalize。保留 32-bit ID 至容量和软件光栅实际需要升级；阶段三/四的未实现复选框维持原状。详见 `2026-10-19-subtilis-m1a.md` 和设计 §11。

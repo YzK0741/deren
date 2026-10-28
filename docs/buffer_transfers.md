@@ -1,7 +1,7 @@
 # Independent buffer transfers
 
 The engine module `deren.engine.buffer_transfer` batches buffer uploads and readbacks on the existing
-independent graphics submission path. It adds no RHI virtuals, queues or ABI change (RHI ABI 54).
+independent graphics submission path. It adds no RHI virtuals, queues or ABI change (current RHI ABI 59).
 It requires both `command_submission` and `scoped_synchronization`; an unavailable mechanism returns
 `unsupported`. Acquired-frame submission and screenshot readback are outside this service.
 
@@ -87,7 +87,7 @@ if (request && output && request->poll() == rhi::error::ok) {
 This first version allocates staging per operation and batches command submission; it is not a staging
 ring, copy-queue scheduler or frame-capture replacement. Pooling can follow after profiling consumers.
 
-## Subtilis geometry consumer
+## subtilis geometry consumer
 
 `subtilis::upload_geometry` now uses this service for its immutable vertex/index pair. The default
 `geometry_upload_mode::automatic` selects one batch when the core owns its lifetime and exposes both

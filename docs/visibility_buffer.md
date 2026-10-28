@@ -5,21 +5,21 @@ current shape, its admission rules, its gate and its measured limits. The design
 `docs/superpowers/plans/2026-10-17-visibility-buffer.md`; the measurements and known differences are in
 `docs/reviews/2026-10-18-visibility-buffer-ab.md` (with the follow-up probe record beside it).
 
-**The LOD above this lane is Subtilis**: its screen-error cut chooses which cluster records this lane rasterizes
-(off by default). See [Subtilis](subtilis.md) for the builder, the cut, the capacity contract and the measured
+**The LOD above this lane is subtilis**: its screen-error cut chooses which cluster records this lane rasterizes
+(off by default). See [subtilis](subtilis.md) for the builder, the cut, the capacity contract and the measured
 numbers that the OFF/ON evidence in this page predates.
 
-This lane is shared renderer infrastructure. Subtilis supplies geometry selections; the resolve can emit
+This lane is shared renderer infrastructure. subtilis supplies geometry selections; the resolve can emit
 visible-material and screen-footprint demand for [amnis](amnis.md) texture streaming. amnis can consume
-that feedback without Subtilis DAG LOD, and Subtilis can use fully resident textures without amnis streaming.
+that feedback without subtilis DAG LOD, and subtilis can use fully resident textures without amnis streaming.
 Geometry selection and texture residency retain separate policies and configuration gates.
 
 An additional experimental mode, `[render] software_raster=true`, moves conservatively classified sub-pixel
 clusters from the hardware mesh-task prefix into a tiled CSR software raster. It requires both the visibility lane
-and Subtilis and is default-off. It composes with HZB culling and recovery: HZB evaluates both the hardware prefix
+and subtilis and is default-off. It composes with HZB culling and recovery: HZB evaluates both the hardware prefix
 and software suffix, while software raster filters its suffix using the final HZB visibility/recovery flags. The
 software candidate is resolved before a depth-only merge updates the G-buffer depth. See
-[Subtilis M4](subtilis.md#10-milestone-status) for the recorded evidence and the final closeout: the mode
+[subtilis M4](subtilis.md#10-milestone-status) for the recorded evidence and the final closeout: the mode
 remains optional/default-off and is not optimized further.
 
 A second opt-in mode, `DEREN_SOFTWARE_RASTER_GPU=1`, moves the software-candidate routing itself into the HZB

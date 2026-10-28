@@ -1,4 +1,4 @@
-# Subtilis selection checkpoint — 2026-10-20
+# subtilis selection checkpoint — 2026-10-20
 
 > 历史暂停记录，已在用户续接后恢复实施。当前结果见 [主视图选层验证](2026-10-20-subtilis-m1b-selection.md)。
 

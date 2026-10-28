@@ -258,7 +258,7 @@ pipeline_desc 新字段须按 struct_size 读取，旧描述默认不使用 text
 
 **2026-10-18 现状核对：** 追加发生在 ABI 31，当前 ABI 已是 33
 （`source/promise/rhi/rhi.contract.cppm:300`）；两个动词的注释仍以 "ABI 31" 标注它们加入的
-> 历史规划文档：本文写作时的 RHI ABI 为 33 / GUI ABI 为 3；当前值为 RHI ABI 45 / GUI ABI 5（见 `rhi.contract.cppm` 与 `gui.cppm`）。
+> 历史规划文档：本文写作时的 RHI ABI 为 33 / GUI ABI 为 3；当前值为 RHI ABI 59 / GUI ABI 5（见 `rhi.contract.cppm` 与 `gui.cppm`）。
 版本（`source/promise/rhi/rhi.api_core.cppm:1799`、`:2105`）。语义未变：工厂按
 `struct_size` 读取 `texture_group_info`，`load_texture_group(nullptr)` 仍选择后端全空组。
 `pipeline_desc::texture_group` 也确实是按 `struct_size` 追加的尾部字段

@@ -11,7 +11,7 @@ are not listed here.
 - upstream: https://github.com/zeux/meshoptimizer
 - local changes: none; source/license manifest in `meshoptimizer/manifest.sha256`
 - license: MIT (`meshoptimizer/LICENSE.md`); Uses meshoptimizer. Copyright (c) 2016-2026, Arseny Kapoulkine.
-- build: private static allocator/clusterizer/partition/simplifier/indexgenerator target for the CPU Subtilis builder
+- build: private static allocator/clusterizer/partition/simplifier/indexgenerator target for the CPU subtilis builder
 - provenance and archive SHA256: [meshoptimizer/VENDOR.md](meshoptimizer/VENDOR.md)
 
 ## Boost.Graph

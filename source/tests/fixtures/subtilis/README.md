@@ -1,4 +1,4 @@
-# Subtilis converter fixtures
+# subtilis converter fixtures
 
 Small GLB fixtures are generated in a unique temporary directory by
 `test_subtilis_document.cpp`; no opaque binary copies are checked in.

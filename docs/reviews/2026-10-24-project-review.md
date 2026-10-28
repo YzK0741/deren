@@ -315,7 +315,7 @@ are about reach, not decoration:
 
 ## 9. Docs and claims: the provenance gap
 
-The Subtilis closeout, the withdrawn 5.22 ms / ~26x number, "M4 NOT accepted", the scoped Gaussian
+The subtilis closeout, the withdrawn 5.22 ms / ~26x number, "M4 NOT accepted", the scoped Gaussian
 numbers and the UE-comparison document's self-declared status are all honest and consistent. The
 remaining problem is that the project's headline numbers cannot be re-derived from the repository:
 

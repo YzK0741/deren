@@ -25,7 +25,7 @@ to error rewriting, fatal handling, or process-wide sink/allocator ownership.
 - Headless CTest: 71/71 passed. New test_engine_outcome: 19 checks, zero failures, including void and
   move-only values. The original utility-only test keeps ensure coverage and has no RHI import.
 - Device lane: 7/7 passed (resource group 221; texture group 116; submission completion 75;
-  render graph frame 12; Gaussian GPU frame 65; buffer transfer 65; Subtilis transfer 83).
+  render graph frame 12; Gaussian GPU frame 65; buffer transfer 65; subtilis transfer 83).
 - Dynamic runtime with device: ABI 55, 1174 checks, zero failures. Its debug log contains no
   `VUID` or `Validation Error` matches.
 - Independent read-only review: no actionable correctness findings.

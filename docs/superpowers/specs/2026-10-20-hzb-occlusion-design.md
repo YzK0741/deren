@@ -86,7 +86,7 @@ host 侧原型（已回退，补丁归档 `occlusion-prototype.patch`）证明�
 - 探针本身是**保守**的（README.md:63-64）：球偏小、max pyramid、只在其"最近深度仍在最远遮挡之后"才计遮挡，
   所以 33.28% 是下界，真实可剔除只会更多。
 - 原型只处理 `subtilis::run_source::visible` 的 item（`occlusion-prototype.patch` 的
-  `plan.run.source == subtilis::run_source::visible` 条件），所以它的 35% 是**Subtilis cut 之后**的记录占比
+  `plan.run.source == subtilis::run_source::visible` 条件），所以它的 35% 是**subtilis cut 之后**的记录占比
   （日志 `occ-near-on.log`：`subtilis: cut run publication: 43930 -> 38864 records ...`，每帧候选 38,864 条）。
   探针的 33.28% 是**LOD0 全量候选集**（43,930 条）上的占比。两者不是同一个分母，引用时必须写清。
 

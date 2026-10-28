@@ -194,7 +194,7 @@ index b4fb6b2f..053c4ff1 100644
 +                }
 +            }
 +        }
-         // ---- PHASE 2: PER-ITEM PLANNING, IN PARALLEL. The Subtilis cut is the per-item CPU cost this phase
+         // ---- PHASE 2: PER-ITEM PLANNING, IN PARALLEL. The subtilis cut is the per-item CPU cost this phase
          // exists for (measured: ~3 us per item on the 2909-item Bistro scene, ~8.6 ms/frame serially). Each
          // worker owns its scratch vectors, and the only shared write is the host-culled lane at the item's own
 @@ -1805,6 +1965,28 @@ namespace deren::engine {

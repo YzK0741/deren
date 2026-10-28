@@ -76,7 +76,7 @@ def parse_run_log(text: str) -> dict:
     # remains accepted for historical captures. "Configured" is not evidence: both the import and the
     # published cut must appear.
     metrics["cluster_dag_active"] = bool(
-        (re.search(r"Subtilis import: \d+ adopted", text) or re.search(r"subtilis CPU cut: frames \d+", text))
+        (re.search(r"subtilis import: \d+ adopted", text) or re.search(r"subtilis CPU cut: frames \d+", text))
         and "subtilis: cut run publication:" in text)
     metrics["hzb_cull_active"] = "hzb: cull lane ARMED" in text and "hzb cull: session " in text
     metrics["hzb_recovery_active"] = "hzb recovery: ARMED" in text and "prediction gate OPEN" in text

@@ -1,4 +1,4 @@
-"""Minimal glTF/GLB reader shared by the Subtilis converter acceptance scripts.
+"""Minimal glTF/GLB reader shared by the subtilis converter acceptance scripts.
 
 Only the feature subset the offline converter fixtures and the Bistro geometry asset use:
 triangle primitives, non-sparse accessors with float/unsigned integer components, GLB chunks

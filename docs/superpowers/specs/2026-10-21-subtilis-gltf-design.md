@@ -1,4 +1,4 @@
-# Subtilis cluster DAG：glTF 扩展与 CPU 离线转换器
+# subtilis cluster DAG：glTF 扩展与 CPU 离线转换器
 
 日期：2026-10-21。状态：**已按用户确认的 CPU-first 路线实施；Task 1-8 完成，真实资产、Khronos core validator、cut/LOD0、独立 CPU CI 与证据报告已记录；最终 whole-change review 待进行（由 Lead 执行）**。[实施计划](../plans/2026-10-21-subtilis-gltf.md)与[验收记录](../../reviews/2026-10-21-subtilis-converter.md)为权威证据。代码基线 `07e365bd`。
 
@@ -232,7 +232,7 @@ deren-subtilis export-cut cooked.glb --error 0.01 -o preview.glb
 5. **glTF保真**：普通查看器忽略扩展仍正确显示原LOD0；转换前后core几何/材质/节点语义一致，实例不重复烘焙；未知字段、外部资源和已有扩展有保留/拒绝打包用例。生成文件经过Khronos validator，并单独运行本扩展validator；core validator不理解自有DAG语义。
 6. **独立预览**：有多个误差cut输出，检查轮廓与材质缝、裂缝和三角形变化；原LOD0几何身份精确一致，简化结果按质量报告验收，不能要求与LOD0像素完全相同。
 7. **真实场景**：小资产、合成大网格、原层级Bistro；串行/多核各至少3次测总墙钟、阶段耗时与内存，加载/IO单独标注。CPU热点及收益上限分析是首版交付；CUDA实验不阻塞首版验收。
-8. **仓库回归**：普通deren构建/测试不新增CUDA依赖，现有Subtilis/HZB行为不变。无GPU CI运行格式、DAG与CPU构建用例。未来若有CUDA测试，必须明确设备运行，缺设备标skip，不能冒充PASS。
+8. **仓库回归**：普通deren构建/测试不新增CUDA依赖，现有subtilis/HZB行为不变。无GPU CI运行格式、DAG与CPU构建用例。未来若有CUDA测试，必须明确设备运行，缺设备标skip，不能冒充PASS。
 
 ## 11. 建议实施分界
 

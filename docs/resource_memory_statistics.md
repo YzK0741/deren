@@ -1,6 +1,6 @@
 # Resource memory statistics
 
-Shared resource and memory measurement used by [amnis](amnis.md), [Subtilis](subtilis.md) and other clients.
+Shared resource and memory measurement used by [amnis](amnis.md), [subtilis](subtilis.md) and other clients.
 GPU snapshots cover an api_core's managed allocations; vessel snapshots cover the shared project allocator.
 Neither attributes allocations to an individual feature. Feature comparisons require controlled runs with
 other settings held constant.

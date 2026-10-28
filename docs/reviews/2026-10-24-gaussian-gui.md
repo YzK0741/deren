@@ -1,6 +1,6 @@
 # Gaussian GUI disappearance investigation
 
-The user reproduced a disappearing/flickering GUI in static Gaussian views. The same pre-Subtilis build (`344c3ef8`) exhibits the problem; its PBR helmet view is normal. This is not evidence of a Subtilis regression.
+The user reproduced a disappearing/flickering GUI in static Gaussian views. The same pre-subtilis build (`344c3ef8`) exhibits the problem; its PBR helmet view is normal. This is not evidence of a subtilis regression.
 
 ## Localization
 

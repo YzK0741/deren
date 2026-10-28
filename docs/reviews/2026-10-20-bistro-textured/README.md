@@ -1,6 +1,6 @@
 # Bistro：纹理资产 + 4096 容量真机验收（2026-10-20）
 
-完成两项**容量契约的真实 GPU 验收**并且都有 RED→GREEN 证据：①可见性打包 ID 的 item 容量 4096（原始未合并层级 2909 个绘制对象，2906 项实际入表，无回退）；②场景纹理数组容量 1024（网格扩到 2048 槽；textured Bistro 实测只需 516 个运行时纹理槽，全部写入、无白染降级、validation 干净）。带纹理资产的 albedo 与 lit 视图在远/近两个固定相机下都已出图；**PBR 路径另行验收**（开阴影的 lit 渲染 + G-buffer 的 normal/roughness/metallic/AO 通道），normal 与 roughness/metallic 贴图确认被 PBR 着色消费。**纹理场景的 Subtilis OFF/ON 对照仍未做**（需要临时 builder 补丁，本轮未应用任何临时生产补丁），本轮改动随后已提交（`e1ba1568` 等，见 `progress.md`）。
+完成两项**容量契约的真实 GPU 验收**并且都有 RED→GREEN 证据：①可见性打包 ID 的 item 容量 4096（原始未合并层级 2909 个绘制对象，2906 项实际入表，无回退）；②场景纹理数组容量 1024（网格扩到 2048 槽；textured Bistro 实测只需 516 个运行时纹理槽，全部写入、无白染降级、validation 干净）。带纹理资产的 albedo 与 lit 视图在远/近两个固定相机下都已出图；**PBR 路径另行验收**（开阴影的 lit 渲染 + G-buffer 的 normal/roughness/metallic/AO 通道），normal 与 roughness/metallic 贴图确认被 PBR 着色消费。**纹理场景的 subtilis OFF/ON 对照仍未做**（需要临时 builder 补丁，本轮未应用任何临时生产补丁），本轮改动随后已提交（`e1ba1568` 等，见 `progress.md`）。
 
 ## 资产、许可与处理
 
@@ -111,11 +111,11 @@ RTX 4060 Laptop，NVIDIA 617.42，Release，1280×720，离屏 32 帧（日志�
 
 ## 限制与剩余工作
 
-- **纹理场景的 Subtilis OFF/ON 对照未做**：需要临时 builder 补丁（`acceptance-only.patch` 那一类，仅实验用）让 2909 个 primitive 在导入时构建层级；本轮没有应用任何临时生产补丁，生产 diff 里没有测试入口。
+- **纹理场景的 subtilis OFF/ON 对照未做**：需要临时 builder 补丁（`acceptance-only.patch` 那一类，仅实验用）让 2909 个 primitive 在导入时构建层级；本轮没有应用任何临时生产补丁，生产 diff 里没有测试入口。
 - PBR 的材质保真度只到**通道级证据**：normal/roughness/metallic 贴图确认被消费，但 metallic 有近似转换泄漏，且该资产没有 occlusion 贴图；没有与 Khronos 参考渲染逐材质比对，也没有原生 specular/gloss 扩展（引擎不支持）。
 - 无纹理几何的 OFF/ON 对照已在上一轮完成（`docs/reviews/2026-10-20-bistro/`），本轮不重复。
 - 纹理本身的质量边界：normal 朝向未参考比对；18 个 transmission 材质在验收外；spec/gloss→metal/rough 是近似；alpha 保留但 MASK 轮廓未逐材质核对。
-- 性能数字仅单会话 GPU pass 统计，未固定频率/预热/交错多轮，不构成收益结论；**新特性的实际增益已单独实测**：见 [Bistro 大场景性能增益报告](../2026-10-20-bistro-performance/README.md)（容量解锁 ~6.6×、Subtilis 再 −8.7% GPU 帧时间、CPU 选层 +8.6 ms/帧）。
+- 性能数字仅单会话 GPU pass 统计，未固定频率/预热/交错多轮，不构成收益结论；**新特性的实际增益已单独实测**：见 [Bistro 大场景性能增益报告](../2026-10-20-bistro-performance/README.md)（容量解锁 ~6.6×、subtilis 再 −8.7% GPU 帧时间、CPU 选层 +8.6 ms/帧）。
 - 所有改动**未提交、未 push**；`.vscode/` 与既有 CI checkpoint 文件保持原样。
 
 ## 复现步骤

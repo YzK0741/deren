@@ -1,4 +1,4 @@
-# Subtilis glTF DAG converter - fresh whole-change review (2026-10-21)
+# subtilis glTF DAG converter - fresh whole-change review (2026-10-21)
 
 Reviewer: hzb-architect (single fresh read-only reviewer, no per-task agents; plan bullet 6).
 Scope: the committed converter workstream on local master, HEAD 20e05cb9 (range 07e365bd..20e05cb9,

@@ -95,6 +95,6 @@ The old texture-group range overlapped the scene grid. Its private table/pool no
 constants. The resource heap working budget increased from 1280 KiB to 4 MiB for disjoint fixed ranges
 and reusable group descriptors. Rebuild shaders and backend together.
 
-Resource groups originated in RHI ABI **51**. Unified recorder push_constants and deferred recording require current ABI
-**53**; application, backend and plugins need matching rebuilt binaries. Validation evidence and boundaries are recorded in
+Resource groups originated in RHI ABI **51**. Unified recorder push_constants and deferred recording require ABI
+**53 or newer**; application, backend and plugins need matching rebuilt binaries. Validation evidence and boundaries are recorded in
 `docs/reviews/2026-10-24-resource-group.md`.

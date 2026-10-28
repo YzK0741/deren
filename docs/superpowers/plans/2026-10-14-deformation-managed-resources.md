@@ -3,7 +3,7 @@
 Continuation of the approved lifetime-group design; keep the previous uncommitted camera migration.
 Scope: motion transforms, skin matrices, previous skin matrices and morph data, shared by scene,
 shadow and traced deformation jobs. Preserve shader layout, heap slots and ABI32.（2026-10-18 核对：RHI ABI 现为 33，证据 source/promise/rhi/rhi.contract.cppm:300；ABI32 是当时的基线值，不是当前值。）
-> 历史规划文档：本文写作时的 RHI ABI 为 33 / GUI ABI 为 3；当前值为 RHI ABI 45 / GUI ABI 5（见 `rhi.contract.cppm` 与 `gui.cppm`）。
+> 历史规划文档：本文写作时的 RHI ABI 为 33 / GUI ABI 为 3；当前值为 RHI ABI 59 / GUI ABI 5（见 `rhi.contract.cppm` 与 `gui.cppm`）。
 
 - [x] Behavioral RED regression for ownership, setup data preservation, per-slot partial updates, history, provider handover/retirement and invalid admission.
 - [x] Add deformation resource producer, append the missing previous-skin resource id, and adopt borrowed generations in runtime. Prepare at construction for setup writes; preserve old slot contents after completion before replacement.

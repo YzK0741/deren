@@ -1,6 +1,6 @@
 # Triangle-driven software raster prototype
 
-The UE-inspired producer is an opt-in A/B path, selected with `DEREN_SOFTWARE_RASTER_TRIANGLES=1` in addition to the existing software-raster configuration. The default remains the tiled producer. The complete Subtilis system still comprises visibility buffer, Cluster DAG, HZB/recovery and optional software raster.
+The UE-inspired producer is an opt-in A/B path, selected with `DEREN_SOFTWARE_RASTER_TRIANGLES=1` in addition to the existing software-raster configuration. The default remains the tiled producer. The complete subtilis system still comprises visibility buffer, Cluster DAG, HZB/recovery and optional software raster.
 
 ## Implementation
 

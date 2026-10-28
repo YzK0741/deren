@@ -2307,7 +2307,7 @@ namespace deren::engine {
         //      meshlets, the draw's model matrix and the camera - so the dispatch asks for the survivors only and a
         //      rejected meshlet costs no workgroup launch at all. The shadow pass deliberately does NOT get this: its
         //      frustum is per cascade, and it dispatches its casters once per cascade.
-        // Visibility owns this frame's compacted table while Subtilis is active. Later toon
+        // Visibility owns this frame's compacted table while subtilis is active. Later toon
         // LOD0 re-shading must not overwrite its records through the camera host-cull path.
         env.meshlet_culled = !self.subtilis_active_frame;
         env.meshlet_view_proj = &runtime::meshlet_view_proj;

@@ -1,4 +1,4 @@
-# Subtilis M1b 上传代际验证
+# subtilis M1b 上传代际验证
 
 承接 [CPU builder](2026-10-20-subtilis-m1b-builder.md)，本轮实现 [上传设计](../superpowers/specs/2026-10-20-subtilis-m1b-upload-design.md)：构建结果、GPU 顶点和完整索引 payload 统一为只读共享代际，通过已有 pass-chain 创建和持有资源。没有新增 RHI ABI、渲染图资源创建或自动导入时简化。
 
@@ -16,7 +16,7 @@ GPU 索引 buffer 包含 coarse 尾部，index_type 为 uint32；draw_index_coun
 |---|---|
 | 完整 Release 构建，12 线程 | 通过 |
 | 完整 Release CTest | 55/55 |
-| ASan/UBSan：Subtilis、RHI ownership、resource_cluster | 7/7，halt_on_error |
+| ASan/UBSan：subtilis、RHI ownership、resource_cluster | 7/7，halt_on_error |
 | 上传/绑定测试 | 44 项检查 |
 | 新增两个翻译单元 clang-tidy | 无项目诊断，warnings-as-errors |
 

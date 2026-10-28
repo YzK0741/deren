@@ -1,10 +1,10 @@
 {
-  "question": "Subtilis LOD 与 4096-item 容量对 4.2M 三角形 / 2909 绘制对象 Bistro 场景的实际渲染增益",
+  "question": "subtilis LOD 与 4096-item 容量对 4.2M 三角形 / 2909 绘制对象 Bistro 场景的实际渲染增益",
   "asset": "D:/deren-assets/bistro/bistro-geometry.gltf (6006 nodes, 254 materials, 2909 primitives, 0 textures)",
   "config": {
     "render": "deferred lit path, shadow/taa/fxaa/bloom/ssao off, 1280x720, 130-frame offscreen captures",
     "validation": "off for the 2x2 wall/CPU matrix, on for the 3x3 GPU cross-check matrix",
-    "temporary_builder_probe": "DEREN_BISTRO_BUILD builds the Subtilis hierarchies at import; applied identically to OFF and ON, reverted after the runs (patch archived here)"
+    "temporary_builder_probe": "DEREN_BISTRO_BUILD builds the subtilis hierarchies at import; applied identically to OFF and ON, reverted after the runs (patch archived here)"
   },
   "capacity_unlock_vs_old_1024_build": {
     "note": "the same scene on the previous build (1024-item admission) fell back to the legacy whole-frame geometry path; those numbers are the prior review logs (16-frame captures, gbuffer_debug=on, far camera)",

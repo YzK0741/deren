@@ -195,6 +195,6 @@ v0 把「几何生产」与「材质着色」拆开，之后的顺序是：v1 so
 - [x] Material binning, DECIDED AGAINST by measurement (see the review record): material is per ITEM (already fully coherent on the measured frame), the whole fragment G-Buffer pass costs 0.19 ms so any material-only change is capped at ~21% of the resolve, and a bin consume pass needs an RHI indirect-compute verb that does not exist. The measured gap is geometry reconstruction. Recorded alternatives for a future pass: multi-pixel-per-thread resolve with hoisting (20-40% if latency-bound; needs >=5-repeat measurement), and a scoped -O2/-O3 for this shader.
 
 
-### 2026-10-19 路线调整（Subtilis M1a 获准实施）
+### 2026-10-19 路线调整（subtilis M1a 获准实施）
 
-后续顺序改为 CPU LOD0 可见 run → 全驻留层级资产 → GPU select/finalize → Hi-Z；软件光栅与分页按测量需要再实施。M1 保留 32-bit ID，meshlet 字段为 run 内序号；不勾选未完成的 GPU 阶段。以 [Subtilis §11](../specs/2026-10-18-subtilis-design.md) 和 [M1a 计划](2026-10-19-subtilis-m1a.md) 为准，取代上面的早期 v1-v4 顺序。
+后续顺序改为 CPU LOD0 可见 run → 全驻留层级资产 → GPU select/finalize → Hi-Z；软件光栅与分页按测量需要再实施。M1 保留 32-bit ID，meshlet 字段为 run 内序号；不勾选未完成的 GPU 阶段。以 [subtilis §11](../specs/2026-10-18-subtilis-design.md) 和 [M1a 计划](2026-10-19-subtilis-m1a.md) 为准，取代上面的早期 v1-v4 顺序。

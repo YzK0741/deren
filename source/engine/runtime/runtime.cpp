@@ -2226,7 +2226,7 @@ namespace deren::engine {
             }
             leaves[index] = leaf;
         }
-        // ---- PHASE 2: PER-ITEM PLANNING, IN PARALLEL. The Subtilis cut is the per-item CPU cost this phase
+        // ---- PHASE 2: PER-ITEM PLANNING, IN PARALLEL. The subtilis cut is the per-item CPU cost this phase
         // exists for (measured: ~3 us per item on the 2909-item Bistro scene, ~8.6 ms/frame serially). Each
         // worker owns its scratch vectors, and the only shared write is the host-culled lane at the item's own
         // `meshlet_base` run, so two workers never touch the same byte. The old serial loop carried `published`
@@ -3421,7 +3421,7 @@ namespace deren::engine {
         // instead of a second copy of the geometry. The flag is the DEVICE's, not the config's: the
         // usage bit needs the extension enabled, and a buffer uploaded without it can never be built
         // from - so it is decided where the upload happens, once, and not per frame by whoever wants
-        // to trace. Subtilis uploads both buffers in one transfer batch when supported, waiting
+        // to trace. subtilis uploads both buffers in one transfer batch when supported, waiting
         // before publication. Ordinary geometry carries initial_bytes in the creation descriptor.
         rhi::buffer_flags const geometry_flags = rhi::to_bits(rhi::buffer_flag::device_address) |
                                                  (runtime_detail::ray_query_available_of(this->rhi_face()) ? rhi::to_bits(rhi::buffer_flag::acceleration_structure_input) : rhi::no_buffer_flags);

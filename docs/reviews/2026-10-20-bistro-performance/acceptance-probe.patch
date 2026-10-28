@@ -14,7 +14,7 @@ index eece18b9..b8bfb4e3 100644
  
      bool runtime::record_visibility_items(deren::promise::rhi::command_buffer& command_buffer, std::uint32_t& recorded) {
          namespace vis = deren::engine::visibility;
-+        // TEMPORARY ACCEPTANCE PROBE: the CPU cost this function adds per frame (the Subtilis cut included),
++        // TEMPORARY ACCEPTANCE PROBE: the CPU cost this function adds per frame (the subtilis cut included),
 +        // measured here because the engine's cpu_phases window mixes in the frame-slot GPU wait.
 +        auto const record_started = std::chrono::steady_clock::now();
 +        double cut_ms = 0.0;
@@ -86,7 +86,7 @@ index eece18b9..b8bfb4e3 100644
 +    std::unique_ptr<primitive> runtime::create_primitive(std::string_view const pipeline_name, primitive_create_info const& supplied_info) {
 +        auto info = supplied_info;
 +        // TEMPORARY ACCEPTANCE PROBE, NOT A SHIPPED IMPORT POLICY (apply/revert is recorded in the review):
-+        // with DEREN_BISTRO_BUILD set, every 64-byte-stride draw gets its Subtilis hierarchy built at import,
++        // with DEREN_BISTRO_BUILD set, every 64-byte-stride draw gets its subtilis hierarchy built at import,
 +        // so OFF and ON run against the SAME asset state and differ only in whether the lane consumes it.
 +        // A primitive that fails to build keeps the shared path (the per-item fallback) instead of aborting the
 +        // 2909-item scene's load.

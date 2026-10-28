@@ -5,21 +5,21 @@
 | 特性 | 实际增益（本机实测） | 代价 |
 | --- | --- | --- |
 | **item 容量 1024→4096**（启用 visibility lane） | 同一远距相机 GPU 帧时间 **178.5 ms → 26.7 ms（约 6.6×）**；scene pass 177.8 ms → 0.3 ms | 需要 meshlet 容量从 14-bit 降到 12-bit（每 item ≤4096 meshlet），本项目最大 item 1395，无回退 |
-| **Subtilis LOD**（在 4096 容量之上） | 三角形 **−11.4%（far）/ −12.4%（near）**；GPU 帧时间 **−8.7%（far，−2.35 ms）/ −8.7%（near，−2.08 ms）**；端到端墙钟帧时间 **−8.2% / −8.1%** | CPU host 选层 **+8.6 ms/帧**（2,909 items，≈3 µs/item）；当前 GPU-bound（GPU 22–25 ms，CPU active ~15 ms）仍有余量吸收，尚未抵消净收益 |
+| **subtilis LOD**（在 4096 容量之上） | 三角形 **−11.4%（far）/ −12.4%（near）**；GPU 帧时间 **−8.7%（far，−2.35 ms）/ −8.7%（near，−2.08 ms）**；端到端墙钟帧时间 **−8.2% / −8.1%** | CPU host 选层 **+8.6 ms/帧**（2,909 items，≈3 µs/item）；当前 GPU-bound（GPU 22–25 ms，CPU active ~15 ms）仍有余量吸收，尚未抵消净收益 |
 
-结论：**容量扩展不是"小优化"而是把该场景从不可用路径拉到可用路径（~6.6×）；Subtilis 在其上再给约 8–9% 的 GPU/帧时间收益，CPU 侧代价 8.6 ms 目前被 GPU 空档吸收。** 一旦 GPU 帧时间降到 ~15 ms 以下或 item 数继续增加，host 选层会成为新瓶颈（后续 GPU 选层 M2 要解决的就是它）。
+结论：**容量扩展不是"小优化"而是把该场景从不可用路径拉到可用路径（~6.6×）；subtilis 在其上再给约 8–9% 的 GPU/帧时间收益，CPU 侧代价 8.6 ms 目前被 GPU 空档吸收。** 一旦 GPU 帧时间降到 ~15 ms 以下或 item 数继续增加，host 选层会成为新瓶颈（后续 GPU 选层 M2 要解决的就是它）。
 
 ## 测试方法与配置
 
 - **资产**：`D:/deren-assets/bistro/bistro-geometry.gltf`（原始未合并层级；6006 nodes / 254 materials / 2,909 primitives / 4.2M 绘制三角形 / 0 textures）。选无纹理版本是为了排除纹理内存与采样对测量矩阵的干扰；三角形侧开销与纹理场景一致。
-- **临时验收补丁**（仅实验用，已还原）：`DEREN_BISTRO_BUILD=1` 时在 `create_primitive` 里为每个 64B stride 的 draw 构建 Subtilis 层级，**OFF 和 ON 都构建同一份资产**，两组只差"lane 是否消费层级"。2909 个层级全部构建成功、0 失败、峰值进程内存 0.95 GB、加载多约 10–15 s。补丁归档为 [acceptance-probe.patch](acceptance-probe.patch)，测量后已 `git checkout` 还原并重新编译；工作区没有残留。
+- **临时验收补丁**（仅实验用，已还原）：`DEREN_BISTRO_BUILD=1` 时在 `create_primitive` 里为每个 64B stride 的 draw 构建 subtilis 层级，**OFF 和 ON 都构建同一份资产**，两组只差"lane 是否消费层级"。2909 个层级全部构建成功、0 失败、峰值进程内存 0.95 GB、加载多约 10–15 s。补丁归档为 [acceptance-probe.patch](acceptance-probe.patch)，测量后已 `git checkout` 还原并重新编译；工作区没有残留。
 - **两组矩阵**：
   1. **GPU 交叉验证矩阵**：validation 开，130 帧/次，OFF/ON 各 3 次交错（far + near）。
   2. **墙钟 + CPU 矩阵**：validation 关，130 帧/次 + 3 帧 load 基线，OFF/ON 各 2 次交错（far + near）。
 - **指标来源**：引擎自带的 `gpu pass timings (session avg of N frames)`（GPU timestamp）、同一日志的最后一帧窗口 `avg of N frames over X s`（端到端墙钟帧时间）、`cpu frame phases`（steady-state 窗口）以及补丁里 `record_visibility_items` / subtilis cut 的微秒级计时。
 - **机器**：RTX 4060 Laptop，NVIDIA 617.42，Release，1280×720，vsync off，`max_fps=0`，shadow/TAA/FXAA/SSAO/bloom 全关，deferred lit 路径。单机单会话、未锁频，**不构成发布基准**。
 
-## Subtilis OFF/ON 结果
+## subtilis OFF/ON 结果
 
 | 指标 | far OFF | far ON | 变化 | near OFF | near ON | 变化 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -53,7 +53,7 @@ validation 开启的 3×3 交叉矩阵给出一致结果（far −8.3%、near �
 同一资产、同一 far 相机，旧构建（item 容量 1024）触发整帧回退：`visibility raster 0.01 ms`、`scene 177.8 ms`（2909 次 legacy 完整 draw），GPU 帧总时间 **178.5 ms**；新构建（容量 4096）走 meshlet visibility lane：`visibility raster 26.2 ms`、`scene 0.28–0.46 ms`，GPU 帧总时间 **26.7–27.0 ms**。即 **约 6.6×（178.5 ÷ 27.0）**；ON 侧旧回退 168.4 ms → 24.6 ms，约 6.8×。
 
 - 旧基线来自 `docs/reviews/2026-10-20-bistro/` 里 1024 容量构建的未合并场景日志（16 帧 capture、`gbuffer_debug=on`、同 far 相机）；新数字来自本轮 4096 构建（lit、130 帧）。两者渲染数学没有差异，差异项已如实标注。
-- 这不是"Subtilis 的收益"，而是**容量契约把场景从 legacy 整帧回退切到 visibility lane 的收益**；没有它，Subtilis 在该场景上根本无法生效。
+- 这不是"subtilis 的收益"，而是**容量契约把场景从 legacy 整帧回退切到 visibility lane 的收益**；没有它，subtilis 在该场景上根本无法生效。
 
 ## 三个探针：优化空间的实测定位（追加）
 
@@ -170,7 +170,7 @@ GPU 工作没有变化，因此当前 GPU-bound 下墙钟帧时间不变（省�
 
 ## 怎么解读这些数字
 
-- 两项特性的收益来源不同：**容量 = 换路径**（2909 个完整 draw → 2909 个间接 mesh dispatch + meshlet 剔选，scene pass 几乎归零）；**Subtilis = 在 lane 内换层级**（减 11–12% 三角形，换 8.7% GPU 时间）。
+- 两项特性的收益来源不同：**容量 = 换路径**（2909 个完整 draw → 2909 个间接 mesh dispatch + meshlet 剔选，scene pass 几乎归零）；**subtilis = 在 lane 内换层级**（减 11–12% 三角形，换 8.7% GPU 时间）。
 - **优化顺序现在由探针数据决定**，而不是由"直觉上 Nanite 该有什么"：
   - 视锥剔除没有空间（0–2%），不用为此加 compute pass；
   - **遮挡剔除**（33% 只是弱下界，精确界下 far/near 均约 70-93% 候选可剔）→ M3 已落地：moving 视角 GPU 帧 far −61.6% / near −78.6%（见上节）；

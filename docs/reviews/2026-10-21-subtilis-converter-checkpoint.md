@@ -1,4 +1,4 @@
-# Subtilis converter checkpoint — 2026-10-21
+# subtilis converter checkpoint — 2026-10-21
 
 Plan: [CPU glTF DAG converter](../superpowers/plans/2026-10-21-subtilis-gltf.md).
 Base: d900c48f. Current-checkout inline execution, local commits, no push.
@@ -247,7 +247,7 @@ engine/CMake, the wire format and canonical build identity are untouched.
   contract (successful assets are). (e) Stage `cpuMs` is accumulated task time, not hardware
   CPU-time counters; Task 8's measure script must not treat it as CPU-cycle profiling.
 - No commit from the implementer: the Lead accepts and commits
-  (`perf: parallelize Subtilis asset construction deterministically` expected).
+  (`perf: parallelize subtilis asset construction deterministically` expected).
 
 Remaining work: Task 8 (real assets, Khronos validator, independent CPU-tool CI, final fresh
 whole-change review, docs/archive). Tasks 1-7 are complete as described above; do not redo them

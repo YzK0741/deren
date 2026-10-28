@@ -1,4 +1,4 @@
-# Subtilis M1b selection implementation plan
+# subtilis M1b selection implementation plan
 
 > Execute inline with executing-plans/TDD and one fresh whole-change review, continuing the user's current-checkout workflow. No push unless requested.
 

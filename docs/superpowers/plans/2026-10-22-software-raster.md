@@ -12,7 +12,7 @@
 
 **Task 1 状态（2026-10-22 收尾）：** 完成，判决 **GO**——far `visibility raster` 3 轮交错中位数差 **1.54 ms = M1c far ON 20.11 ms 的 7.66%**（门限 1.5%/0.302 ms），near 记录 0.09 ms（不作条件）；分类计数与 M1c 探针对照可解释（1.0 px 10.32% ≤ 23.28%），holes 移除工作量与探针后缀逐帧可对账。**per-tile 容量实测推翻 Q7 的 32/64 前提：far 单 tile 最大 977 条（2.0 px 1907），near 226/290，32 与 64 都每帧 overflow；而 far 1.0/2.0 只有 4,572/12,557 entries（129/170 个非零 tile），固定 1024/2048 会为 4.5-12.5k entries 预留 29.5/59MiB/lane。用户已批准 Q7 = CSR 稀疏列表（2026-10-22，spec §3.4/§9.2）：全局 entry 预算 65,536 entries（512KiB）/lane + counts/offsets，超预算才整帧 hardware-only；无 per-tile 容量。** 报告：`docs/reviews/2026-10-22-software-raster.md`；证据：`D:/deren-assets/2026-10-22-software-raster/`（98 文件逐文件 SHA-256，0 mismatch）。
 
-**最终状态（2026-10-23）：** 用户决定结束 Subtilis 阶段：软件光栅保留为 optional/default-off，不再优化；本计划的 tile-producer 路线已被 2026-10-23 routing 设计取代，最终处置见 [Subtilis final closeout](../../reviews/2026-10-23-subtilis-final-closeout.md)。
+**最终状态（2026-10-23）：** 用户决定结束 subtilis 阶段：软件光栅保留为 optional/default-off，不再优化；本计划的 tile-producer 路线已被 2026-10-23 routing 设计取代，最终处置见 [subtilis final closeout](../../reviews/2026-10-23-subtilis-final-closeout.md)。
 
 **实现状态（2026-10-23）：** M4 的实现按新批准的 `2026-10-23-software-routing-design.md` 演进（direct CPU list / triangle producer / GPU routing prototype），本计划的 T3-T5 tile-producer 断言由新计划与 2026-10-23 报告替代；仅 Task 1（GO）与 Task 2（脚手架，随后被生产者替换）已验收。M4 整体尚未验收：software raster 保持 default OFF，完整混合帧尚无稳定净收益（见 2026-10-23 各报告），GPU routing Task 3 仍有未完成项。
 

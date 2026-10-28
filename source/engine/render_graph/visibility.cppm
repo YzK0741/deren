@@ -14,7 +14,7 @@ export namespace deren::engine::render_graph::visibility {
     /// culls and emits, and this frame slot's draw arguments - which the dispatches consume at the DRAW-INDIRECT
     /// stage rather than reading as a storage buffer (the mesh draws are `draw_mesh_tasks_indirect` records).
     ///
-    /// Subtilis additionally reads the optional compacted table. The raster does NOT read the draw-item table -
+    /// subtilis additionally reads the optional compacted table. The raster does NOT read the draw-item table -
     /// the per-item block arrives in its push block, and the item table's consumer is the resolve stage (below).
     struct shared_inputs {
         buffer_ref camera, meshlets, indirect;

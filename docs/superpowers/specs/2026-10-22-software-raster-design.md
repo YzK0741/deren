@@ -346,7 +346,7 @@ block.geometry.base_vertex = 1                                   // host-culled 
 - 相关文档：[docs/subtilis.md](../../subtilis.md)、[M1c 验收](../../reviews/2026-10-21-object-lod.md)、
   [M1c checkpoint](../../reviews/2026-10-22-object-lod-checkpoint.md)、[M1c final review](../../reviews/2026-10-22-object-lod-final-review.md)、
   [visibility buffer 计划](../plans/2026-10-17-visibility-buffer.md)、[visibility manual](../../visibility_buffer.md)、
-  [Subtilis 主设计](2026-10-18-subtilis-design.md)、[HZB 设计](2026-10-20-hzb-occlusion-design.md)、
+  [subtilis 主设计](2026-10-18-subtilis-design.md)、[HZB 设计](2026-10-20-hzb-occlusion-design.md)、
   [M1c runtime 设计](2026-10-21-object-lod-runtime-design.md)、`source/engine/visibility/visibility.cppm`、
   `source/shaders/scene/visibility.slang`、`source/shaders/scene/visibility_resolve.slang`。
 

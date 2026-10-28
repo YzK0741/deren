@@ -33,7 +33,7 @@ descriptor versioning, retention or barriers were added. No FPS gain is claimed.
   file produced 475 checks/1 failure; migrating its two bindings fixed it.
 - Full regression exposed the CPU tracking backend's missing fixed profile. Its logical methods now forward
   to the existing test tracking/failure-injection layer; this fixture is not a complete validation backend.
-  Focused retests passed: Subtilis frame 4436/0, runtime injection 96/0.
+  Focused retests passed: subtilis frame 4436/0, runtime injection 96/0.
 - Additional runtime device testing exposed a stale test assertion: command_context::submit rejects a
   borrowed frame command by the existing contract. The test now verifies this refusal and uses
   frames->submit(), matching production runtime; production submission behavior was not modified.

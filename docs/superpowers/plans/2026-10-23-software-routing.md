@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans inline. Use one final fresh-context review, no implementer agents.
 
-**Status (closed 2026-10-23):** implementation + acceptance evidence complete; final fresh review done; M4 recorded as experimental/opt-in/default-off/NOT accepted (`docs/reviews/2026-10-23-m4-decision.md`). Task 3 boxes are ticked with evidence; Task 4 is the completed review. The Subtilis phase is closed per user decision: software raster is optional/default-off and not optimized further; see the [final closeout](../../reviews/2026-10-23-subtilis-final-closeout.md).
+**Status (closed 2026-10-23):** implementation + acceptance evidence complete; final fresh review done; M4 recorded as experimental/opt-in/default-off/NOT accepted (`docs/reviews/2026-10-23-m4-decision.md`). Task 3 boxes are ticked with evidence; Task 4 is the completed review. The subtilis phase is closed per user decision: software raster is optional/default-off and not optimized further; see the [final closeout](../../reviews/2026-10-23-subtilis-final-closeout.md).
 
 **Goal:** Reduce hybrid rendering overhead in the user-approved order.
 **Architecture:** Reuse the stable hardware-prefix/software-suffix split to generate direct work. Then improve triangle-scale selection and finally move survivor routing to GPU.

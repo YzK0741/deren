@@ -1,6 +1,6 @@
-# Subtilis buffer-transfer consumer checkpoint
+# subtilis buffer-transfer consumer checkpoint
 
-Date: 2026-10-25. RHI ABI remains 54. This checkpoint migrates the immutable Subtilis vertex/index
+Date: 2026-10-25. RHI ABI remains 54. This checkpoint migrates the immutable subtilis vertex/index
 pair, including runtime calls using the default upload mode; it does not change per-frame rendering.
 
 ## Behavior

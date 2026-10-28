@@ -80,6 +80,6 @@ subtilis_cache extract_subtilis_payloads(fastgltf::GltfDataGetter& file, Asset c
         }
     }
     if (available || unavailable)
-        deren::utility::log("glTF Subtilis: {} available payload(s), {} unavailable declaration(s)", available, unavailable);
+        deren::utility::log("glTF subtilis: {} available payload(s), {} unavailable declaration(s)", available, unavailable);
     return cache;
 }

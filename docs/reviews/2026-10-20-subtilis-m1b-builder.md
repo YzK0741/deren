@@ -1,4 +1,4 @@
-# Subtilis M1b CPU builder 验证记录
+# subtilis M1b CPU builder 验证记录
 
 实现范围是 [builder 设计](../superpowers/specs/2026-10-20-subtilis-m1b-builder-design.md) 的纯 CPU 部分。公开入口为 `deren::engine::subtilis::build`；返回 move-only `built_geometry`，同时拥有原始顶点字节、规范化 LOD0 索引前缀、追加的 coarse 索引和只读 validated asset。上传和运行时选层尚未接线，整个 M1b 尚未完成。
 
@@ -18,7 +18,7 @@ meshoptimizer 固定为 v1.3 / `9e1f07b159d3cb777f1c67ed31fc11fd117986f4`，MIT�
 |---|---|
 | Release 完整构建，12 线程 | 通过 |
 | Release 完整 CTest | 54/54 |
-| ASan + UBSan，Subtilis 四项测试 | 4/4，halt_on_error |
+| ASan + UBSan，subtilis 四项测试 | 4/4，halt_on_error |
 | builder 测试 | 70 项检查通过 |
 | 新增四个 builder 翻译单元 clang-tidy | 无项目诊断，warnings-as-errors |
 | 上游文件 SHA256 | 23/23 |

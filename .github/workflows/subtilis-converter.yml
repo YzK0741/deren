@@ -1,6 +1,6 @@
 name: subtilis-converter
 
-# Independent CPU-only CI for the standalone Subtilis glTF cluster-DAG converter
+# Independent CPU-only CI for the standalone subtilis glTF cluster-DAG converter
 # (tools/subtilis). It deliberately does NOT join the engine CI contract: `.github/workflows/ci.yml`
 # and CMakeLists' VR_TEST_TARGETS are untouched, and `test_docs` (which compares those two) keeps
 # its existing expectation. This workflow only touches the tool's own CMake project.

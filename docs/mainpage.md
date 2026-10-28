@@ -67,12 +67,18 @@ implementation details, measured results and the limits of each feature.
   G-buffer targets from it. It is off by default, falls back per frame for geometry it cannot name, and is
   gated by its own frozen reference set. See \ref md_docs_2visibility__buffer "The visibility buffer lane"
   for the pipeline, the admission rules and the measured cost.
-- **Hierarchical geometry (Subtilis).** The static opaque cluster-LOD lane is implemented: an offline-style
+- **Hierarchical geometry (subtilis).** The static opaque cluster-LOD lane is implemented: an offline-style
   builder produces a unique-parent cluster forest, an explicit upload ties it to a resource generation, and a
   deterministic CPU screen-error cut feeds the visibility lane's per-frame meshlet set (default off, with the
-  complete LOD0 run as the fallback). See \ref md_docs_2subtilis "Subtilis" for the current scope, the measured
+  complete LOD0 run as the fallback). See \ref md_docs_2subtilis "subtilis" for the current scope, the measured
   numbers and the closed phase status: DAG+HZB ships, the optional M4 software raster is a recorded
   negative result, and M2/M5 are deferred.
+- **amnis texture residency.** `amnis` is the named, opt-in texture-residency feature: visibility and
+  screen-footprint feedback drive whole-image, two-tier and progressive mip streaming, with immutable
+  source sharing and bounded async uploads. It is independent of subtilis geometry cuts and changes no
+  defaults. See \ref md_docs_2amnis "amnis texture residency" for the responsibility boundary, modes,
+  subfeatures and measured CPU/memory limits. The current amnis phase closed on 2026-10-28;
+  its closeout records the accepted opt-in baseline and deferred work.
 - **Ray-traced shadows.** `deren.engine.pass.ray_traced_shadow` sits beside the cascade path; see
   the module documentation and `docs/reference/` for the source notes it was built from.
 - **A toon character pipeline.** Per-material families (base / skin / face / hair / eye /
@@ -125,18 +131,19 @@ finally the migration history.
 | 5 | \subpage md_docs_2runtime__split "Runtime split" | How the runtime, the scene tree and the render environment divide the frame between them. |
 | 6 | \subpage md_docs_2mesh__shaders "Mesh shaders" | The mesh-shader geometry path: what it replaced, what it measured. |
 | 7 | \subpage md_docs_2visibility__buffer "The visibility buffer lane" | An experimental opaque producer: packed id raster plus a compute resolve, its gate and its measured limits. |
-| 8 | \subpage md_docs_2subtilis "Subtilis (hierarchical cluster LOD)" | The static opaque cluster-LOD lane: asset builder, explicit upload, CPU screen-error cut, measured gains, fallbacks and open milestones. |
-| 9 | \subpage md_docs_2deformation__motion__vectors "Deformation motion vectors" | Why a deforming mesh needs more than a camera motion vector, and what was stored. |
-| 10 | \subpage md_docs_2gltf__loader__usage "glTF loader usage" | Loading models, animations, skins, morph targets and punctual lights. |
-| 11 | \subpage md_docs_2gaussian__loader "Gaussian PLY loader" | Trained PLY conventions, validation, limits and loading diagnostics. |
-| 12 | \subpage md_docs_2gaussian__splatting "Gaussian splatting" | Viewer setup, GPU preparation/sorting/cache, rendering rules, measurements and repaired failures. |
-| 13 | \subpage md_docs_2slang__migration "Slang migration" | Moving the shaders to Slang and compiling to SPIR-V. |
-| 14 | \subpage md_docs_2descriptor__heap__migration "Descriptor heap migration" | Replacing descriptor sets with a renderer-managed heap. |
-| 15 | \subpage md_docs_2descriptor__heap__handover "Descriptor heap handover" | How the heap is handed to the passes, and the constraints that imposes. |
-| 16 | \subpage md_docs_2migration__tradeoffs "Migration tradeoffs" | What each of those migrations cost, and what was given up for it. |
-| 17 | \subpage md_docs_2compiler__tolerance "Compiler tolerance" | What the build needs from a toolchain, what a second one (GCC) measured, and what still stops it. |
-| 18 | \subpage md_docs_2unified__image__layouts "Unified image layouts" | One layout vocabulary for render targets, uploads and read-back. |
-| 19 | \subpage md_docs_2host__image__copy "Host image copy" | The VK_EXT_host_image_copy path: a texture uploaded without a staging buffer. |
+| 8 | \subpage md_docs_2subtilis "subtilis (hierarchical cluster LOD)" | The static opaque cluster-LOD lane: asset builder, explicit upload, CPU screen-error cut, measured gains, fallbacks and open milestones. |
+| 9 | \subpage md_docs_2amnis "amnis texture residency" | The opt-in texture-residency feature: visibility and screen-footprint demand, whole-image/two-tier/progressive streaming, immutable source ownership, and measured CPU/memory limits. |
+| 10 | \subpage md_docs_2deformation__motion__vectors "Deformation motion vectors" | Why a deforming mesh needs more than a camera motion vector, and what was stored. |
+| 11 | \subpage md_docs_2gltf__loader__usage "glTF loader usage" | Loading models, animations, skins, morph targets and punctual lights. |
+| 12 | \subpage md_docs_2gaussian__loader "Gaussian PLY loader" | Trained PLY conventions, validation, limits and loading diagnostics. |
+| 13 | \subpage md_docs_2gaussian__splatting "Gaussian splatting" | Viewer setup, GPU preparation/sorting/cache, rendering rules, measurements and repaired failures. |
+| 14 | \subpage md_docs_2slang__migration "Slang migration" | Moving the shaders to Slang and compiling to SPIR-V. |
+| 15 | \subpage md_docs_2descriptor__heap__migration "Descriptor heap migration" | Replacing descriptor sets with a renderer-managed heap. |
+| 16 | \subpage md_docs_2descriptor__heap__handover "Descriptor heap handover" | How the heap is handed to the passes, and the constraints that imposes. |
+| 17 | \subpage md_docs_2migration__tradeoffs "Migration tradeoffs" | What each of those migrations cost, and what was given up for it. |
+| 18 | \subpage md_docs_2compiler__tolerance "Compiler tolerance" | What the build needs from a toolchain, what a second one (GCC) measured, and what still stops it. |
+| 19 | \subpage md_docs_2unified__image__layouts "Unified image layouts" | One layout vocabulary for render targets, uploads and read-back. |
+| 20 | \subpage md_docs_2host__image__copy "Host image copy" | The VK_EXT_host_image_copy path: a texture uploaded without a staging buffer. |
 
 Seven further pages sit in the manual's `INPUT` ahead of this one and are not part of the numbered
 reading path: the passchain resource pages (\ref managed_resources "Passchain-managed resources",
@@ -173,7 +180,7 @@ One contract, and every graphics backend is an implementation of it.
   `std::shared_ptr` no longer manages an RHI handle. Both sides of the boundary compile the SAME
   interface unit, so the two compilations cannot drift.
 - **The C ABI is one symbol.** `source/promise/rhi/backend_entry.hpp` declares the single `extern "C"` entry
-  the host resolves, `deren_make_api_core`. Its first argument is `rhi::abi_version` (55 today), so a
+  the host resolves, `deren_make_api_core`. Its first argument is `rhi::abi_version` (59 today), so a
   mismatched backend is refused BEFORE an object exists, with the backend's own number in the returned
   error; it returns an owning `rhi::shared_object<api_core>` (the contract's own shared container), so there
   is no second destroy entry.

@@ -1,4 +1,4 @@
-# Subtilis M1b 主视图选层验证
+# subtilis M1b 主视图选层验证
 
 承接上传代际，按 [设计](../superpowers/specs/2026-10-20-subtilis-m1b-selection-design.md) 和 [实施计划](../superpowers/plans/2026-10-20-subtilis-m1b-selection.md) 完成显式来源的 CPU 层级选层接线。实现提交：`34d0f1b0`、`c5d1dae3`。
 
@@ -16,7 +16,7 @@ runtime 只准备一次 run：完整写入当前帧槽的可见表后，使用�
 |---|---|
 | 完整 Release 构建，12线程 | 通过 |
 | 完整 Release CTest | 57/57 |
-| ASan/UBSan：Subtilis 七项、visibility、RHI ownership、resource_cluster | 10/10 |
+| ASan/UBSan：subtilis 七项、visibility、RHI ownership、resource_cluster | 10/10 |
 | 新适配层 clang-tidy，warnings-as-errors | 无项目诊断 |
 | 适配层测试 | 51项检查 |
 | 实际 runtime/渲染图帧测试 | 102项检查 |

@@ -1,12 +1,12 @@
 # Bistro：首轮真实 GPU 几何验收（2026-10-20）
 
-完成近、远两个固定相机的 Subtilis OFF/ON 对照。真实粗层已被消费、两组 Vulkan 校验均干净，图像差异较小；**尚无稳定性能收益证据，也不是完整纹理场景验收**。
+完成近、远两个固定相机的 subtilis OFF/ON 对照。真实粗层已被消费、两组 Vulkan 校验均干净，图像差异较小；**尚无稳定性能收益证据，也不是完整纹理场景验收**。
 
 ## 资产、许可与处理
 
 Amazon Lumberyard Bistro，Amazon Lumberyard / NVIDIA ORCA，2017，原始资产 [CC BY 4.0](https://developer.nvidia.com/orca/amazon-lumberyard-bistro)。使用 [zeux/niagara_bistro](https://github.com/zeux/niagara_bistro) 的 glTF 编辑版本：tree `2bdb6a410f8ebd475d3737e7c8e038ed2b00b02e`，bistro.gltf blob `83bc8307a00dd54b0fa2fdb10cc890b2955c8b0e`，bistro.bin blob `f6c918e6e5fa9b0f0dc3b51d6b6be286783fb8c9`。描述 SHA256 见 asset-manifest.json。原文件、README 和 LICENSE 保留在 `D:/deren-assets/bistro`，没有把大资产提交到仓库。
 
-原场景展开后4,209,006个三角形、2909个绘制对象，96盏点光源及1盏方向光。初次运行正确触发 visibility 的1024项上限，OFF/ON 均整帧回退，因此这些图不能证明 Subtilis 效果；日志保存在 bistro-*-unmerged.log.gz。
+原场景展开后4,209,006个三角形、2909个绘制对象，96盏点光源及1盏方向光。初次运行正确触发 visibility 的1024项上限，OFF/ON 均整帧回退，因此这些图不能证明 subtilis 效果；日志保存在 bistro-*-unmerged.log.gz。
 
 使用仓库 scripts/measure/prepare_bistro_geometry.py 制作静态测试副本：烘焙节点 TRS/矩阵，逆转置变换法线，镜像时调整绕序，按材质合并，保留所有4,209,006个三角形、UV及材质分区。脚本检查三角形数和索引范围，输出254个材质项，180,854,920字节几何缓冲。没有扩大 ID 或 GPU 表容量。
 

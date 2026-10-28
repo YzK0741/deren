@@ -1,6 +1,6 @@
 \page managed_resources Passchain-managed resources
 
-This is shared engine infrastructure used by [Subtilis](subtilis.md), [amnis](amnis.md) and other
+This is shared engine infrastructure used by [subtilis](subtilis.md), [amnis](amnis.md) and other
 rendering clients. It manages resource generations and lifetimes; clients retain their own policies
 for geometry LOD/page selection and texture mip residency. A resource passing through this layer
 does not make its selection policy part of the resource manager.

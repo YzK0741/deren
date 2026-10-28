@@ -1,4 +1,4 @@
-# Subtilis converter Task 8 evidence archive
+# subtilis converter Task 8 evidence archive
 
 Heavy Task-8 measurement artifacts and standard-GLB previews for the offline converter
 (`tools/subtilis`). The repository keeps only the small result JSONs, the scripts and the

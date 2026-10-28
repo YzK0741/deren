@@ -108,7 +108,7 @@ per-pixel derivative. No sparse residency, virtual texture pages or CPU HZB was 
   passes without changing that test. Both logs are retained.
 - 32 pure policy/filter/layout assertions pass; graph tests exercise optional feedback access, and
   the CPU shader mirror checks all four push fields.
-- Vulkan validation passes for fixed, moving, zero budget, active software raster + Subtilis,
+- Vulkan validation passes for fixed, moving, zero budget, active software raster + subtilis,
   missing/partial NPOT mip chains, and full restoration from intermediate tiers. No reported VUID or
   backend error and no failed upgrade in accepted captures.
 - NPOT 513x257 sources with one mip use 128x64 floor → generated 256x128 → full 513x257 images;
@@ -128,7 +128,7 @@ python scripts/measure/make_mip_residency_fixture.py tmp/mip-fixture
 ```
 
 `--memory --frames 900` performs a separate WDDM run; Windows CIM access must be available.
-`--source-levels 1` or `2` exercises partial source chains, and `--software` also enables Subtilis for
+`--source-levels 1` or `2` exercises partial source chains, and `--software` also enables subtilis for
 the active software lane. Runtime use requires visibility texture streaming configured, plus both
 progressive environment flags. Existing optional/upload budgets remain configurable in MiB.
 

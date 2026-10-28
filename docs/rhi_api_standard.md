@@ -989,7 +989,7 @@ borrowed operands. The explicit GUI descriptor-heap bind remains part of that na
 
 ## 8. Optional extension interfaces
 
-Status: **draft v1 for RHI ABI 55**. Section 8 of *The deren RHI API standard*. Sections 1-6 (scope and
+Status: **draft v1 for RHI ABI 59**. Section 8 of *The deren RHI API standard*. Sections 1-6 (scope and
 source of truth, the object/ownership model, errors and validation order, recording/frames/synchronization,
 ABI rules, conformance checklist) are normative as written and are NOT repeated here; where a clause below
 needs one of them it says so. Where this file and `source/promise/rhi/rhi.extension.cppm` disagree, the
