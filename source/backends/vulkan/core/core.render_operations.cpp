@@ -1,6 +1,9 @@
 module;
+#include "push_range_validation.h"
+
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdlib>
 #include <mutex>
 #include <span>
@@ -15,9 +18,48 @@ namespace deren::vulkan {
     namespace rec = rhi::recording;
     using kind = rec::operation_kind;
 
+    namespace {
+        // Opt-in CPU attribution; no clocks or diagnostic output in ordinary captures.
+        struct operation_profile {
+            using clock = std::chrono::steady_clock;
+            inline static thread_local std::array<double, 6> totals{};
+            inline static thread_local std::uint64_t calls = 0;
+            bool enabled;
+            unsigned phase = 0;
+            clock::time_point previous{};
+            operation_profile()
+                : enabled([] { static bool const active = std::getenv("DEREN_RENDER_OPERATION_PROFILE") != nullptr; return active; }()) {
+                if (enabled)
+                    previous = clock::now();
+            }
+            void mark(unsigned next) noexcept {
+                if (!enabled)
+                    return;
+                auto now = clock::now();
+                totals[phase] += std::chrono::duration<double, std::micro>(now - previous).count();
+                previous = now;
+                phase = next;
+            }
+            ~operation_profile() {
+                if (!enabled)
+                    return;
+                mark(phase);
+                if (++calls % 4096 == 0) {
+                    deren::utility::log("operation CPU profile: {} calls | prepare {:.3f} us | validate {:.3f} us | demand {:.3f} us | native {:.3f} us | save {:.3f} us | early {:.3f} us",
+                                        calls, totals[0] / calls, totals[1] / calls, totals[2] / calls,
+                                        totals[3] / calls, totals[4] / calls, totals[5] / calls);
+                }
+            }
+        };
+    } // namespace
+
     void core::frame_commands::reset_operations() noexcept {
         operations.clear();
         saved_state.clear();
+        selected_batch.clear();
+        restored_selection.clear();
+        saved_selection.clear();
+        pending_push_ranges.clear();
         current_resources = {};
         current_textures = {};
         bound_pipeline = emitted_pipeline = nullptr;
@@ -33,6 +75,7 @@ namespace deren::vulkan {
             return recording_error;
         if (operations.empty() && !restore_state)
             return rhi::error::ok;
+        operation_profile profile;
         bool const optimize = std::getenv("DEREN_RENDER_OPERATIONS_UNOPTIMIZED") == nullptr;
         if (!optimize) {
             static bool const warned = [] {
@@ -42,17 +85,19 @@ namespace deren::vulkan {
             }();
             (void)warned;
         }
-        rec::operation_stream combined;
+        saved_state.simplify_into(saved_selection, false);
+        operations.simplify_into(selected_batch, final_application, optimize);
+        std::span<rec::render_operation const* const> const batch = selected_batch;
+        std::span<rec::render_operation const* const> selected = batch;
         if (restore_state) {
-            for (auto const* op : saved_state.simplify(false))
-                combined.append_copy(*op);
+            restored_selection.assign(saved_selection.begin(), saved_selection.end());
+            restored_selection.insert(restored_selection.end(), batch.begin(), batch.end());
+            rec::simplify_selection(restored_selection, false, optimize);
             native_state_mask = 0;
+            selected = restored_selection;
         }
-        auto batch = operations.simplify(final_application, optimize);
         owner->deferred_retained += batch.size();
-        for (auto const* op : batch)
-            combined.append_copy(*op);
-        auto const selected = combined.simplify(false, optimize);
+        profile.mark(1);
         auto fail = [&](rhi::error error) noexcept { recording_error = error; executable = false; return error; };
 
         auto valid_pipeline = [&](owned_pipeline const* pipeline, std::uint64_t identity) {
@@ -82,10 +127,11 @@ namespace deren::vulkan {
         std::uint64_t pipeline_identity = native_state[static_cast<unsigned>(kind::pipeline)][1];
         auto resources = current_resources;
         auto textures = current_textures;
-        deren::utility::vessel::vector<std::pair<std::uint64_t, std::uint64_t>> push_ranges;
-        for (auto* op : saved_state.simplify(false))
+        auto& push_ranges = pending_push_ranges;
+        push_ranges.clear();
+        for (auto* op : saved_selection)
             if (op->kind() == kind::push)
-                push_ranges.emplace_back(op->data[0], op->bytes.size());
+                detail::merge_push_range(push_ranges, op->data[0], op->bytes.size());
         auto vertex = native_state[static_cast<unsigned>(kind::vertex)];
         auto index = native_state[static_cast<unsigned>(kind::index)];
         bool has_vertex = (native_state_mask & rec::bit(kind::vertex)) != 0;
@@ -125,7 +171,7 @@ namespace deren::vulkan {
                 textures = op->textures;
                 break;
             case kind::push:
-                push_ranges.emplace_back(op->data[0], op->bytes.size());
+                detail::merge_push_range(push_ranges, op->data[0], op->bytes.size());
                 break;
             default:
                 break;
@@ -156,6 +202,7 @@ namespace deren::vulkan {
             }
         }
 
+        profile.mark(2);
         // All operation metadata has been validated before any lazy allocation occurs.
         for (auto const* op : selected) {
             auto status = rhi::error::ok;
@@ -168,6 +215,7 @@ namespace deren::vulkan {
             if (status != rhi::error::ok)
                 return fail(status);
         }
+        profile.mark(3);
         auto const command = native();
         auto push = [&](std::uint32_t offset, std::span<std::byte const> bytes) {
             ++owner->emitted_setters;
@@ -339,12 +387,14 @@ namespace deren::vulkan {
                 break;
             }
         }
+        profile.mark(4);
         // Compact the canonical logical state; keep copied payloads and group owners for interop restore.
         for (auto* op : batch)
             if (!op->is_unique())
-                saved_state.append_copy(*op);
+                saved_selection.push_back(op);
+        rec::simplify_selection(saved_selection, false);
         rec::operation_stream compact;
-        for (auto* op : saved_state.simplify(false))
+        for (auto* op : saved_selection)
             compact.append_copy(*op);
         saved_state = std::move(compact);
         operations.clear();

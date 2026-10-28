@@ -141,7 +141,8 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
     CHECK(space != nullptr);
     if (space && output) {
         auto fixed = space->fixed_slots();
-        CHECK(fixed.base == 16384u && fixed.count == 2048u);
+        // The progressive texture descriptor bank extends the fixed grid to 3072 slots.
+        CHECK(fixed.base == 16384u && fixed.count == 3072u);
         rhi::descriptor_buffer_write write{.slot = fixed.base, .resource = output.get(), .size = 60};
         CHECK(space->write_buffer(write) == rhi::error::ok);
         write.slot = fixed.base - 1u;

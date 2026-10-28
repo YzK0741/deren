@@ -395,6 +395,8 @@ namespace deren::vulkan {
             owned_pipeline const* emitted_pipeline = nullptr;
             deren::promise::rhi::recording::operation_stream operations;
             deren::promise::rhi::recording::operation_stream saved_state;
+            deren::utility::vessel::vector<deren::promise::rhi::recording::render_operation const*> selected_batch, restored_selection, saved_selection;
+            deren::utility::vessel::vector<std::pair<std::uint64_t, std::uint64_t>> pending_push_ranges;
             deren::promise::rhi::resource_group_ref current_resources;
             deren::promise::rhi::texture_group_ref current_textures;
             deren::promise::rhi::error recording_error = deren::promise::rhi::error::ok;

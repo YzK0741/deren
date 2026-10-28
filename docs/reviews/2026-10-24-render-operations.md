@@ -22,6 +22,11 @@ is made.
 
 ## Measurement (what the deferral actually removes)
 
+**2026-10-27 follow-up:** the simplification measurements below did not measure the CPU cost of
+stream replay itself. A later [CPU cost study](../benchmarks/2026-10-27-operation-stream-cpu.md) fixes
+repeated stream/payload copies and quadratic push-range checking. It also records current native
+interop restoration/readback coverage and the remaining image-repeatability limits.
+
 PBR (`deferred`) and Gaussian (`gaussian_splat`) were captured on one Release build with
 `DEREN_RENDER_OPERATION_STATS=1`. "Unoptimized" (`DEREN_RENDER_OPERATIONS_UNOPTIMIZED=1`) is the
 no-simplification control; both arms use the same deferred execution stream, so it measures the simplification

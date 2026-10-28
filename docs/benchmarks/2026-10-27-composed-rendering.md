@@ -1,6 +1,12 @@
 # Composed rendering benchmark — 2026-10-27
 
-**Scope:** measure Subtilis DAG + HZB + amnis progressive mip streaming, with the experimental triangle
+**CPU recorder follow-up:** this report preserves the measurements before the common operation-stream
+CPU fix. A later controlled [before/after study](2026-10-27-operation-stream-cpu.md) reduces composed
+frame time from 25.625 to 14.381 ms in its own paired matrix. The old composition delta must not be
+interpreted as an unavoidable GPU HZB cost; stream copying and repeated push-range validation amplified
+CPU recording work. The later study retains its own build identities, image limits and controls.
+
+**Scope:** measure subtilis DAG + HZB + amnis progressive mip streaming, with the experimental triangle
 software-raster comparison. This is a measurement report, not a policy switch: no renderer default was
 changed and the experiment switches remain opt-in (`DEREN_PROGRESSIVE_TEXTURES`,
 `DEREN_PROGRESSIVE_MIPS`, `DEREN_HZB_*`, `DEREN_SOFTWARE_RASTER_*`).
@@ -15,7 +21,7 @@ FXAA/GUI/vsync off, progressive mip streaming on. The three profiles are:
 | profile | geometry | texture | software |
 |---|---|---|---|
 | `amnis` | ordinary visibility lane | progressive mips | off |
-| `dag_hzb` | Subtilis DAG + HZB build/cull/recovery | progressive mips | off |
+| `dag_hzb` | subtilis DAG + HZB build/cull/recovery | progressive mips | off |
 | `all` | same as `dag_hzb` | progressive mips | triangle software raster + GPU survivor routing |
 
 ## Method
@@ -64,9 +70,9 @@ sweep is 0.8 ms more expensive); this matrix does not establish a software-raste
 also uses different geometry work than the ordinary lane, so the delta is not an isolated attribution
 to one pass.
 
-## Subtilis-only follow-up
+## subtilis-only follow-up
 
-This follow-up disables HZB and software raster and leaves only the Subtilis DAG enabled, with the same
+This follow-up disables HZB and software raster and leaves only the subtilis DAG enabled, with the same
 progressive mip texture path and the same asset/binary/settings. Six timing runs (two rounds) and three
 separate resource captures were added. Activation is logged as `adopted 1,873`, `cluster_dag_active
 true`, `hzb_cull_active false`, `software_raster_active false`; all runs exit zero with no validation
@@ -82,7 +88,7 @@ Unit: ms, `mean / p95`, median over two rounds; FPS is `1000 / mean`.
 | `subtilis` | **21.784 / 24.957 (45.90 FPS)** | **22.604 / 26.145 (44.24 FPS)** | **21.607 / 25.422 (46.28 FPS)** |
 | delta | -0.72 ms / +3.3% FPS | -1.99 ms / +8.8% FPS | -0.70 ms / +3.2% FPS |
 
-Subtilis alone is faster than `amnis` in these three views. This is a different result from
+subtilis alone is faster than `amnis` in these three views. This is a different result from
 `dag_hzb`: adding HZB build/cull/recovery to the same DAG reverses the frame-time delta in the matrix
 above. The DAG cut changes geometry work, so this is a whole-frame comparison, not a pass attribution.
 
@@ -95,7 +101,7 @@ Unit: MiB steady median / peak; CPU is the project allocator steady median.
 | `amnis` | 1,180.0 | 1,079.2 | 1,176.0 | 1,414.5 | 7,682.1 |
 | `subtilis` | 1,107.8 | 1,031.1 | 1,140.6 | 1,342.4 | 7,821.6 |
 
-Subtilis-only lowers the steady GPU local allocation by 35–72 MiB (about 3–6%) and the peak by about
+subtilis-only lowers the steady GPU local allocation by 35–72 MiB (about 3–6%) and the peak by about
 72 MiB, while adding about 140 MiB of project CPU allocator usage. These are local resource counters,
 not WDDM.
 
@@ -132,7 +138,7 @@ steady median.
 | `all` | sweep | 1,226.9 | 1,373.5 | 7,823.6 |
 
 The composed profiles do not reduce the steady GPU allocation relative to `amnis` in this capture:
-Subtilis retains geometry generations and HZB tables while amnis already keeps the progressive texture
+subtilis retains geometry generations and HZB tables while amnis already keeps the progressive texture
 floor. The `dag_hzb` peak is about 72 MiB lower and its CPU current is about 141 MiB higher; the
 `all` profile adds the software route's buffers. These differences are not a memory-policy conclusion.
 
@@ -163,7 +169,7 @@ equality.
 ## Validation
 
 Three 32-frame validation smokes cover the composed paths: `amnis` only, `dag_hzb`, and `all`
-(Subtilis DAG + HZB + software triangle routing). All exit zero, produce one screenshot, report zero
+(subtilis DAG + HZB + software triangle routing). All exit zero, produce one screenshot, report zero
 validation errors and pass the independent activity gates. The final matrix uses the same executable
 and shader bundle for all eighteen timing runs (one distinct binary-hash set, one shader-hash set).
 

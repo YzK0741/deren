@@ -93,6 +93,7 @@ export namespace deren::promise::rhi::recording {
         std::memcpy(&result, value.data(), sizeof(T));
         return result;
     }
+    inline void simplify_selection(deren::utility::vessel::vector<render_operation const*>& result, bool final, bool optimize = true);
     class operation_stream {
         // Contiguous command-owned slots; no virtual object is allocated separately.
         deren::utility::vessel::vector<operation_value> storage;
@@ -181,55 +182,76 @@ export namespace deren::promise::rhi::recording {
         void clear() noexcept {
             storage.clear();
         }
-        [[nodiscard]] deren::utility::vessel::vector<render_operation const*> simplify(bool final, bool optimize = true) const {
-            deren::utility::vessel::vector<render_operation const*> result;
+        /// Borrowed pointers remain valid until this stream is modified. Reuse caller capacity.
+        void simplify_into(deren::utility::vessel::vector<render_operation const*>& result, bool final, bool optimize = true) const {
+            result.clear();
             result.reserve(storage.size());
             for (auto const& value : storage)
                 result.push_back(&base(value));
-            if (!optimize)
-                return result;
-            // Coarse equality filtering never crosses another kind or a protected operation.
-            for (std::size_t i = 1; i < result.size(); ++i)
-                if (!result[i]->is_unique() && result[i - 1] && *result[i] == *result[i - 1])
-                    result[i - 1] = nullptr;
-            std::uint64_t live = final ? 0 : state_mask;
-            // Covered push words since the latest push consumer. Preserve partial overlaps.
-            deren::utility::vessel::vector<std::uint32_t> covered;
-            for (std::size_t i = result.size(); i > 0; --i) {
-                auto* op = result[i - 1];
-                if (!op)
-                    continue;
-                if (op->is_unique()) {
-                    live |= op->reads();
-                    if (op->reads() & bit(operation_kind::push))
-                        covered.clear();
-                    continue;
-                }
-                auto key = bit(op->kind());
-                if (!(live & key)) {
-                    result[i - 1] = nullptr;
-                    continue;
-                }
-                if (op->kind() == operation_kind::push) {
-                    bool overwritten = true;
-                    auto begin = static_cast<std::uint32_t>(op->data[0] / 4);
-                    auto end = begin + static_cast<std::uint32_t>((op->bytes.size() + 3) / 4);
-                    for (auto word = begin; word < end; ++word) {
-                        if (std::find(covered.begin(), covered.end(), word) == covered.end()) {
-                            overwritten = false;
-                            covered.push_back(word);
-                        }
-                    }
-                    if (overwritten) {
-                        result[i - 1] = nullptr;
-                        continue;
-                    }
-                } else
-                    live &= ~key;
-                live |= op->reads();
-            }
-            result.erase(std::remove(result.begin(), result.end(), nullptr), result.end());
+            simplify_selection(result, final, optimize);
+        }
+        [[nodiscard]] deren::utility::vessel::vector<render_operation const*> simplify(bool final, bool optimize = true) const {
+            deren::utility::vessel::vector<render_operation const*> result;
+            simplify_into(result, final, optimize);
             return result;
         }
     };
+    inline void simplify_selection(deren::utility::vessel::vector<render_operation const*>& result, bool final, bool optimize) {
+        if (!optimize)
+            return;
+        // Coarse equality filtering never crosses another kind or a protected operation.
+        for (std::size_t i = 1; i < result.size(); ++i)
+            if (!result[i]->is_unique() && result[i - 1] && *result[i] == *result[i - 1])
+                result[i - 1] = nullptr;
+        std::uint64_t live = final ? 0 : state_mask;
+        // Covered push words since the latest push consumer. Preserve partial overlaps.
+        // Common Vulkan push ranges fit inline. Preserve arbitrary offsets via a sparse fallback.
+        deren::utility::vessel::array<std::uint64_t, 4> covered{};
+        deren::utility::vessel::vector<std::uint32_t> overflow;
+        for (std::size_t i = result.size(); i > 0; --i) {
+            auto* op = result[i - 1];
+            if (!op)
+                continue;
+            if (op->is_unique()) {
+                live |= op->reads();
+                if (op->reads() & bit(operation_kind::push)) {
+                    covered.fill(0);
+                    overflow.clear();
+                }
+                continue;
+            }
+            auto key = bit(op->kind());
+            if (!(live & key)) {
+                result[i - 1] = nullptr;
+                continue;
+            }
+            if (op->kind() == operation_kind::push) {
+                bool overwritten = true;
+                auto begin = static_cast<std::uint32_t>(op->data[0] / 4);
+                auto end = begin + static_cast<std::uint32_t>((op->bytes.size() + 3) / 4);
+                for (auto word = begin; word < end; ++word) {
+                    bool seen = false;
+                    if (word < covered.size() * 64) {
+                        auto mask = std::uint64_t{1} << (word % 64);
+                        seen = (covered[word / 64] & mask) != 0;
+                        covered[word / 64] |= mask;
+                    } else {
+                        seen = std::find(overflow.begin(), overflow.end(), word) != overflow.end();
+                        if (!seen)
+                            overflow.push_back(word);
+                    }
+                    if (!seen) {
+                        overwritten = false;
+                    }
+                }
+                if (overwritten) {
+                    result[i - 1] = nullptr;
+                    continue;
+                }
+            } else
+                live &= ~key;
+            live |= op->reads();
+        }
+        result.erase(std::remove(result.begin(), result.end(), nullptr), result.end());
+    }
 } // namespace deren::promise::rhi::recording
