@@ -85,13 +85,14 @@ namespace {
         deren::utility::vessel::array<deren::utility::vessel::array<float, 64>, 2> scratch{};
         deren::utility::vessel::vector<glm::mat4> matrices;
         std::size_t slot = 0;
+        std::size_t scene_changes = 0;
         backend callbacks() {
             return {.scene = &tree,
                     .morph_scratch_active = [this] { return scratch[slot].data(); },
                     .set_skin_matrices_active = [this](std::span<glm::mat4 const> m) { matrices.assign(m.begin(), m.end()); },
                     .morph_scratch_slot = [this](uint32_t s) { return scratch[s].data(); },
                     .set_skin_matrices_slot = [](std::span<glm::mat4 const>, uint32_t) {},
-                    .scene_changed = [] {},
+                    .scene_changed = [this] { ++scene_changes; },
                     .run_tasks = [](std::span<std::function<void()>> tasks) { for (auto& task : tasks) task(); },
                     .task_worker_count = [] { return 1; }};
         }
@@ -127,6 +128,59 @@ namespace {
         CHECK(std::fabs(h.tree.roots[0].local[3].x - 5.0f) < 1e-4f);
         CHECK(std::fabs(h.tree.roots[1].local[3].x - 90.0f) < 1e-4f);
         CHECK(std::fabs(h.tree.roots[0].children[0].local[3].x) < 1e-4f);
+    }
+
+    void test_controller_reports_only_actual_transform_changes() {
+        controller_host h;
+        h.add_node(0, 0.0f);
+        h.add_node(0, 0.0f);
+        for (auto& node : h.tree.roots)
+            node.import_instance = 1;
+        test_node model;
+        test_source src;
+        src.node_by_source.emplace(0, &model);
+        src.animations.push_back({"move", {{{0.0f, 1.0f}, {0.0f, 0.0f, 0.0f, 10.0f, 0.0f, 0.0f}, 3, interpolation::linear}}, {{channel_path::translation, 0, 0}}});
+        src.animations.push_back({"constant", {{{0.0f, 1.0f}, {7.0f, 0.0f, 0.0f, 7.0f, 0.0f, 0.0f}, 3, interpolation::linear}}, {{channel_path::translation, 0, 0}}});
+        controller c;
+        c.init(src, h.callbacks(), glm::vec3(3.0f, 0.0f, 0.0f), 1);
+        c.set_time(0.5f);
+        c.update(0.0f);
+        CHECK(h.tree.roots[0].local[3].x == 8.0f);
+        CHECK(h.tree.roots[1].local[3].x == 8.0f);
+        auto changes = h.scene_changes;
+        CHECK(changes > 0);
+        c.update(0.1f); // paused pose still samples, but changes neither target
+        CHECK(h.scene_changes == changes);
+        // The second target can be edited externally while the sampled time stays fixed.
+        h.tree.roots[1].local[3].x = 99.0f;
+        c.update(0.0f);
+        CHECK(h.scene_changes == ++changes);
+        CHECK(h.tree.roots[1].local[3].x == 8.0f);
+        c.set_time(0.25f); // scrub backwards must still invalidate
+        c.update(0.0f);
+        CHECK(h.scene_changes == ++changes);
+        CHECK(h.tree.roots[0].local[3].x == 5.5f);
+        c.set_time(std::nextafter(std::nextafter(0.25f, 1.0f), 1.0f)); // motion survives TRS rounding
+        c.update(0.0f);
+        CHECK(h.scene_changes == ++changes);
+        CHECK(h.tree.roots[0].local[3].x > 5.5f);
+        c.set_playing(true);
+        c.update(0.1f);
+        CHECK(h.scene_changes == ++changes);
+        CHECK(std::fabs(h.tree.roots[0].local[3].x - 6.5f) < 1e-5f);
+        c.select(1);                         // a different clip at the same time can change the pose
+        CHECK(h.scene_changes == ++changes); // select resets the previous clip to rest
+        c.set_time(0.25f);
+        c.update(0.0f);
+        CHECK(h.scene_changes == ++changes);
+        CHECK(h.tree.roots[0].local[3].x == 10.0f);
+        c.set_playing(true);
+        c.update(0.1f); // time advances, constant channel does not move
+        CHECK(h.scene_changes == changes);
+        h.tree.roots[1].local[3].x = std::nanf("");
+        c.update(0.0f); // invalid external data must not compare as an unchanged pose
+        CHECK(h.scene_changes == ++changes);
+        CHECK(h.tree.roots[1].local[3].x == 10.0f);
     }
 
     void test_controller_morph_history_follows_frames_across_slots() {
@@ -797,6 +851,7 @@ namespace {
 
 int32_t main() {
     test_controller_does_not_animate_other_assets_or_synthetic_leaves();
+    test_controller_reports_only_actual_transform_changes();
     test_controller_morph_history_follows_frames_across_slots();
     test_controller_shared_skin_cancels_each_mesh_world();
     test_camera_world_lookup_selects_the_requested_import();

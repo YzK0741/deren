@@ -296,13 +296,21 @@ namespace deren::engine::animation {
             return false; // weights-only channels don't move the node's local transform
         }
         glm::mat4 const trs = glm::translate(glm::mat4(1.0f), pose.translation) * glm::mat4_cast(pose.rotation) * glm::scale(glm::mat4(1.0f), pose.scale);
+        bool changed = false;
         for (node_target const& target : targets) {
-            target.node->local = target.scene_root ? glm::translate(glm::mat4(1.0f), this->import_shift) * trs : trs;
+            glm::mat4 const local = target.scene_root ? glm::translate(glm::mat4(1.0f), this->import_shift) * trs : trs;
+            // Sampling a paused/constant channel still publishes morph and skin state each frame.
+            // Only an actual local change invalidates scene bounds; compare every target so an
+            // external edit is observed even when the sample time and other targets are unchanged.
+            if (target.node->local != local) {
+                target.node->local = local;
+                changed = true;
+            }
         }
         if (source == this->debug_source) {
             this->debug_translation = pose.translation;
         }
-        return true;
+        return changed;
     }
 
     void controller::update(float const dt_seconds) {
