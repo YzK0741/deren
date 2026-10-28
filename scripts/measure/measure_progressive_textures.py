@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import statistics
 import subprocess
+import time
 
 
 def memory_evidence_error(summary):
@@ -66,6 +67,79 @@ def feature_activity_errors(metrics, *, subtilis=False, hzb=False, software=Fals
     return [f'requested feature did not execute: {field}' for field in required if not metrics.get(field)]
 
 
+def summarize_process_memory(samples, frames):
+    if len(frames) <= 180:
+        raise ValueError('not enough frame timestamps for process memory')
+    start, end = float(frames[180]['unix_ms']), float(frames[-1]['unix_ms'])
+    steady = [row for row in samples if start <= float(row['unix_ms']) <= end]
+    if len(steady) < 3:
+        raise ValueError('insufficient steady process memory samples')
+    for row in steady:
+        if int(row['working_bytes']) <= 0 or int(row['private_bytes']) <= 0 or int(row['peak_working_bytes']) < int(row['working_bytes']):
+            raise ValueError('invalid process memory counters')
+    result = dict(samples=len(samples), steady_samples=len(steady),
+                  working_peak_bytes=max(int(row['peak_working_bytes']) for row in steady))
+    for key in ['working', 'private']:
+        values = [int(row[key + '_bytes']) for row in steady]
+        result[key + '_steady_median_bytes'] = statistics.median(values)
+        result[key + '_steady_max_bytes'] = max(values)
+    return result
+
+
+def load_process_memory_summary(memory_file, frame_file):
+    if not frame_file.is_file():
+        raise ValueError('process memory requires a frame timestamp trace')
+    with frame_file.open() as file:
+        frames = list(csv.DictReader(file))
+    samples = [json.loads(line) for line in memory_file.read_text().splitlines()]
+    return summarize_process_memory(samples, frames)
+
+
+def make_process_memory_reader(process):
+    # PROCESS_MEMORY_COUNTERS_EX layout matches the local Windows psapi.h; no CIM service required.
+    import ctypes
+    class Counters(ctypes.Structure):
+        _fields_ = [('cb', ctypes.c_ulong), ('faults', ctypes.c_ulong)] + [
+            (key, ctypes.c_size_t) for key in ('peak', 'working', 'paged_peak', 'paged',
+                                             'nonpaged_peak', 'nonpaged', 'pagefile', 'pagefile_peak', 'private')]
+    query = ctypes.WinDLL('psapi', use_last_error=True).GetProcessMemoryInfo
+    query.argtypes = [ctypes.c_void_p, ctypes.POINTER(Counters), ctypes.c_ulong]
+    query.restype = ctypes.c_int
+    def read():
+        counters = Counters()
+        counters.cb = ctypes.sizeof(counters)
+        if not query(int(process._handle), ctypes.byref(counters), counters.cb):
+            if process.poll() is not None:
+                return None
+            raise OSError(ctypes.get_last_error(), 'GetProcessMemoryInfo failed')
+        return dict(unix_ms=time.time()*1000, working_bytes=counters.working,
+                    private_bytes=counters.private, peak_working_bytes=counters.peak)
+    return read
+
+
+def wait_with_process_memory(process):
+    samples = []
+    deadline = time.monotonic() + 300
+    try:
+        read = make_process_memory_reader(process)
+        while process.poll() is None:
+            if time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired(process.args, 300)
+            sample = read()
+            if sample is None:
+                break
+            samples.append(sample)
+            try:
+                process.wait(timeout=0.1)
+            except subprocess.TimeoutExpired:
+                pass
+        return process.wait(), samples
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--exe', type=Path, required=True)
@@ -82,13 +156,17 @@ def main():
     parser.add_argument('--subtilis', action='store_true', help='Enable imported geometry DAG LOD independently of software raster')
     parser.add_argument('--hzb', action='store_true', help='Enable HZB build, cull and recovery')
     parser.add_argument('--gpu-software', action='store_true', help='Experimental triangle raster and GPU survivor routing; requires --software --hzb')
+    parser.add_argument('--operation-profile', action='store_true', help='Diagnostic CPU attribution; exclude these frame timings from performance comparisons')
     parser.add_argument('--source-levels', type=int, default=0)
     parser.add_argument('--camera', default='35,8,42,0,-88,0')
     parser.add_argument('--memory', action='store_true', help='Separate WDDM memory run; do not use its timings for performance comparisons')
     parser.add_argument('--resource-memory', action='store_true', help='Separate resource/vessel counter capture; exclude its frame timings')
+    parser.add_argument('--process-memory', action='store_true', help='Also sample Windows working set and private bytes; requires --resource-memory')
     parser.add_argument('--unlit', action='store_true')
     parser.add_argument('--no-visibility', action='store_true')
     args = parser.parse_args()
+    if args.process_memory and (os.name != 'nt' or not args.resource_memory or args.memory):
+        parser.error('--process-memory requires Windows --resource-memory, without --memory')
     if args.gpu_software and not (args.software and args.hzb):
         parser.error('--gpu-software requires --software --hzb')
     if args.no_visibility and (args.subtilis or args.software or args.hzb):
@@ -155,14 +233,16 @@ lut_size = 128
         env.update(DEREN_HZB_BUILD='1', DEREN_HZB_CULL='1', DEREN_HZB_RECOVERY='1')
     if args.gpu_software:
         env.update(DEREN_SOFTWARE_RASTER_TRIANGLES='1', DEREN_SOFTWARE_RASTER_GPU='1')
+    if args.operation_profile:
+        env['DEREN_RENDER_OPERATION_PROFILE'] = '1'
     cmd = [str(exe), '--config', str(config), '--capture-frames', str(args.frames),
            '--capture-camera='+args.camera, '--capture-sweep', str(args.sweep)]
     hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in [exe, *exe.parent.glob('*.dll')]}
     shader_hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in (exe.parent/'shaders').glob('*.spv')}
     (out/'manifest.json').write_text(json.dumps(dict(command=cmd, mode=args.mode, budget_mb=args.budget,
         validation=args.validation, mips=args.mips, software=args.software, subtilis=args.subtilis or args.software,
-        hzb=args.hzb, gpu_software=args.gpu_software, source_levels=args.source_levels, memory=args.memory,
-        resource_memory=args.resource_memory, hashes=hashes, shader_hashes=shader_hashes,
+        hzb=args.hzb, gpu_software=args.gpu_software, operation_profile=args.operation_profile, source_levels=args.source_levels, memory=args.memory,
+        resource_memory=args.resource_memory, process_memory=args.process_memory, hashes=hashes, shader_hashes=shader_hashes,
         model_sha256=hashlib.sha256(args.model.read_bytes()).hexdigest(),
         disable_streaming_frame=args.disable_streaming_frame, unlit=args.unlit, no_visibility=args.no_visibility,
         environment={key: value for key, value in env.items() if key.startswith('DEREN_')}), indent=2))
@@ -187,6 +267,11 @@ lut_size = 128
                         sampler.terminate()
                         sampler_exit = sampler.wait()
                 result = subprocess.CompletedProcess(cmd, status)
+        elif args.process_memory:
+            process = subprocess.Popen(cmd, cwd=out, env=env, stdout=log, stderr=subprocess.STDOUT)
+            status, samples = wait_with_process_memory(process)
+            (out/'process-memory.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in samples))
+            result = subprocess.CompletedProcess(cmd, status)
         else:
             result = subprocess.run(cmd, cwd=out, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=300)
     logs = '\n'.join(p.read_text(errors='replace') for p in out.glob('*.log'))
@@ -213,6 +298,8 @@ lut_size = 128
             uploads=sum(int(r['started']) for r in rows),
             failed=max((int(r['failed']) for r in rows), default=0))
     frame_file = out/'frames.csv'
+    if args.process_memory:
+        summary['process_memory'] = load_process_memory_summary(out/'process-memory.jsonl', frame_file)
     if frame_file.exists():
         frame_rows = list(csv.DictReader(frame_file.open()))
         summary['frame_columns'] = list(frame_rows[0]) if frame_rows else []

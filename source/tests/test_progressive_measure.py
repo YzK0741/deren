@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 SCRIPT = Path(__file__).resolve().parents[2]/'scripts/measure/measure_progressive_textures.py'
 sys.path.insert(0, str(SCRIPT.parent))
@@ -15,6 +16,37 @@ spec.loader.exec_module(measure)
 
 
 class MemoryEvidenceTests(unittest.TestCase):
+    def test_process_memory_requires_frame_file(self):
+        with self.assertRaises(ValueError):
+            measure.load_process_memory_summary(Path('missing-memory.jsonl'), Path('missing-frames.csv'))
+
+    def test_sampler_initialization_failure_cleans_up_child(self):
+        class Child:
+            args = ['fake-renderer']
+            killed = False
+            def poll(self): return 1 if self.killed else None
+            def kill(self): self.killed = True
+            def wait(self, timeout=None): return 1
+        child = Child()
+        with mock.patch.object(measure, 'make_process_memory_reader', side_effect=OSError('initialization failed'), create=True) as factory:
+            with self.assertRaises(OSError):
+                measure.wait_with_process_memory(child)
+            factory.assert_called_once_with(child)
+        self.assertTrue(child.killed)
+
+    def test_process_memory_uses_rendering_window_and_rejects_missing_samples(self):
+        frames = [{'unix_ms': str(i)} for i in range(361)]
+        samples = [dict(unix_ms=t, working_bytes=w, private_bytes=w*2, peak_working_bytes=2000)
+                   for t, w in [(100, 1000), (180, 100), (190, 200), (200, 300), (400, 1900)]]
+        result = measure.summarize_process_memory(samples, frames)
+        self.assertEqual(result['working_steady_median_bytes'], 200)
+        self.assertEqual(result['private_steady_median_bytes'], 400)
+        self.assertEqual(result['steady_samples'], 3)
+        self.assertEqual(result['working_peak_bytes'], 2000)
+        for invalid in [[], samples[:2], [dict(row, working_bytes=0) for row in samples]]:
+            with self.assertRaises(ValueError):
+                measure.summarize_process_memory(invalid, frames)
+
     def test_composed_feature_activity_requires_actual_execution(self):
         self.assertTrue(measure.feature_activity_errors({}, subtilis=True, hzb=True, software=True, gpu_software=True))
         active = dict(cluster_dag_active=True, adopted=464, hzb_cull_active=True, hzb_recovery_active=True,
@@ -27,7 +59,7 @@ class MemoryEvidenceTests(unittest.TestCase):
                 self.assertTrue(measure.feature_activity_errors(missing, subtilis=True, hzb=True, software=True, gpu_software=True))
 
     def test_cluster_dag_activity_requires_published_cut(self):
-        imported = 'Subtilis import: 1873 adopted (1540 shared), 531 LOD0 fallback\n'
+        imported = 'subtilis import: 1873 adopted (1540 shared), 531 LOD0 fallback\n'
         published = imported + 'subtilis: cut run publication: 43930 -> 36356 records\n'
         self.assertTrue(parse_run_log(published)['cluster_dag_active'])
         # A configured/imported asset without a published cut is not activation evidence.
