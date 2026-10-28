@@ -8,7 +8,7 @@
 // ============================================================================
 // ============================================================================
 // module: deren.engine.runtime
-// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.1.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // The renderer core: per-frame-slot frame facade (pace/record/submit phases,
 // scene resources, parallel secondary-CB recording). It re-exports its peer
@@ -518,6 +518,8 @@ namespace deren::engine {
         std::size_t progressive_max_jobs = 2;
         std::array<rhi::shared_object<rhi::buffer>, 2> texture_feedback_slots;
         std::array<rhi::shared_object<rhi::buffer>, 2> mip_feedback_slots;
+        std::array<rhi::shared_object<rhi::buffer>, 2> texture_feedback_readback_slots, mip_feedback_readback_slots;
+        rhi::shared_object<rhi::buffer> feedback_zero_source;
         std::array<bool, 2> texture_feedback_pending{};
         std::array<deren::utility::vessel::vector<rhi::shared_object<rhi::image>>, 2> texture_bank_images;
         std::array<deren::utility::vessel::vector<std::uint64_t>, 2> texture_bank_bytes;
@@ -4725,16 +4727,7 @@ namespace deren::engine {
             // converts a pure image_source (e.g. the glTF loader's image_view) into the
             // internal texture_input with the slot's upload format; invalid images -> white
             auto const to_texture = [](auto const& image, rhi::image_format const format) {
-                texture_input out = {};
-                if (image.valid) {
-                    out.data = image.data;
-                    out.width = image.width;
-                    out.height = image.height;
-                    out.mip_levels = image.mip_levels;
-                    out.format = format;
-                    out.valid = true;
-                }
-                return out;
+                return texture_input_from(image, format);
             };
             // per-node drawable -> primitive_create_info (reads the next drawable of the stream)
             auto const fill_info = [&](DI& drawable, primitive_create_info& info) {
@@ -4904,7 +4897,7 @@ namespace deren::engine {
             result.material_count = this->material_count - materials_before;
             if (this->subtilis_on && (result.subtilis_imported || result.subtilis_fallback_lod0)) {
                 auto failures = [&](subtilis::import_failure reason) { return result.subtilis_failures[static_cast<size_t>(reason)]; };
-                deren::utility::log("Subtilis import: {} adopted ({} shared), {} LOD0 fallback [wire {}, profile {}, material {}, source {}, DAG {}, LOD0-only {}, item {}, table {}]", result.subtilis_imported, result.subtilis_cache_hits, result.subtilis_fallback_lod0, failures(subtilis::import_failure::invalid_payload), failures(subtilis::import_failure::profile_mismatch), failures(subtilis::import_failure::material_not_opaque), failures(subtilis::import_failure::source_mismatch), failures(subtilis::import_failure::invalid_dag), failures(subtilis::import_failure::lod0_only), failures(subtilis::import_failure::capacity_item), failures(subtilis::import_failure::capacity_table));
+                deren::utility::log("subtilis import: {} adopted ({} shared), {} LOD0 fallback [wire {}, profile {}, material {}, source {}, DAG {}, LOD0-only {}, item {}, table {}]", result.subtilis_imported, result.subtilis_cache_hits, result.subtilis_fallback_lod0, failures(subtilis::import_failure::invalid_payload), failures(subtilis::import_failure::profile_mismatch), failures(subtilis::import_failure::material_not_opaque), failures(subtilis::import_failure::source_mismatch), failures(subtilis::import_failure::invalid_dag), failures(subtilis::import_failure::lod0_only), failures(subtilis::import_failure::capacity_item), failures(subtilis::import_failure::capacity_table));
             }
             // WHAT THE SCENE CUT INTO (docs/mesh_shaders.md step 3): the meshlets a task stage would cull, and how
             // many primitives contributed them. Logged once per import, where the whole scene's numbers exist.

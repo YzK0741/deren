@@ -12,6 +12,7 @@
 #include <glm/glm.hpp>
 #include <optional>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 #include <yyjson.h>
 
@@ -124,8 +125,88 @@ namespace {
         CHECK(f32(0, off_weights + 12) == 0.0f);
     }
 
+    void test_consuming_resolve_moves_decoded_pixels() {
+        auto result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/gltf_model/DamagedHelmet.gltf");
+        CHECK(result.has_value());
+        if (!result.has_value()) {
+            return;
+        }
+        auto& scenes = *result;
+        std::uint64_t before = 0;
+        for (auto const& texture : scenes.textures)
+            before += texture.data.size();
+        CHECK(before > 0);
+
+        auto const materials = deren::gltf::resolve_materials(scenes, true);
+        CHECK(materials.size() == scenes.materials.size());
+        if (materials.empty())
+            return;
+        std::uint64_t after = 0;
+        for (auto const& texture : scenes.textures)
+            after += texture.data.size();
+        // Consuming resolve moves each referenced texture's pixels into its mip chain; it must not
+        // retain the complete decoded set next to the full mip set.
+        CHECK(after < before);
+        auto const held = materials[0].slots[0];
+        CHECK(held.valid && held.owner && !held.data.empty());
+        if (held.owner)
+            CHECK(held.data.data() == held.owner->data());
+    }
+
+    void test_resolved_mip_payload_has_no_undeclared_tail() {
+        struct fixture {
+            std::uint32_t width, height, levels;
+            std::size_t bytes;
+        };
+        for (auto const f : {fixture{8, 4, 3, 168}, fixture{1, 8, 1, 32}, fixture{9, 5, 3, 220}, fixture{4, 4, 3, 84}}) {
+            for (bool consume : {false, true}) {
+                deren::gltf::scenes scene;
+                scene.textures.resize(1);
+                scene.materials.resize(1);
+                auto& texture = scene.textures[0];
+                texture.width = f.width;
+                texture.height = f.height;
+                texture.component = 4;
+                texture.data.assign(f.width * f.height * 4, 255);
+                scene.materials[0].texture_indices["albedo"] = 0;
+                auto resolved = deren::gltf::resolve_materials(scene, consume);
+                CHECK(resolved.size() == 1 && resolved[0].slots[0].valid);
+                if (resolved.empty() || !resolved[0].slots[0].valid)
+                    continue;
+                auto const& image = resolved[0].slots[0];
+                CHECK(image.mip_levels == f.levels && image.data.size() == f.bytes);
+                CHECK(image.owner && image.owner->size() == f.bytes);
+                CHECK(std::all_of(image.data.begin(), image.data.end(), [](auto byte) { return byte == 255; }));
+            }
+        }
+    }
+
+    void test_consuming_resolve_matches_copy_path() {
+        auto copied_scene = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/gltf_model/DamagedHelmet.gltf");
+        auto moved_scene = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/gltf_model/DamagedHelmet.gltf");
+        CHECK(copied_scene.has_value() && moved_scene.has_value());
+        if (!copied_scene.has_value() || !moved_scene.has_value())
+            return;
+        auto const copied = deren::gltf::resolve_materials(*copied_scene);
+        auto const moved = deren::gltf::resolve_materials(*moved_scene, true);
+        CHECK(copied.size() == moved.size());
+        for (std::size_t m = 0; m < std::min(copied.size(), moved.size()); ++m) {
+            for (std::size_t i = 0; i < copied[m].slots.size(); ++i) {
+                auto const& a = copied[m].slots[i];
+                auto const& b = moved[m].slots[i];
+                CHECK(a.valid == b.valid);
+                if (!a.valid || !b.valid)
+                    continue;
+                CHECK(a.width == b.width && a.height == b.height && a.mip_levels == b.mip_levels);
+                CHECK(a.data.size() == b.data.size());
+                if (a.data.size() == b.data.size())
+                    CHECK(std::equal(a.data.begin(), a.data.end(), b.data.begin()));
+            }
+        }
+    }
+
     void test_load_damaged_helmet() {
-        auto const result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/gltf_model/DamagedHelmet.gltf");
+        auto result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/gltf_model/DamagedHelmet.gltf");
         CHECK(result.has_value());
         if (!result.has_value()) {
             return;
@@ -161,6 +242,22 @@ namespace {
         // renderer-ready materials resolve one per source material
         deren::utility::vessel::vector<deren::gltf::resolved_material> const resolved = deren::gltf::resolve_materials(scenes);
         CHECK(resolved.size() == scenes.materials.size());
+        if (!resolved.empty()) {
+            auto const held = resolved[0].slots[0];
+            static_assert(std::is_const_v<typename decltype(held.owner)::element_type>);
+            CHECK(held.owner && !held.data.empty());
+            if (!held.owner || held.data.empty())
+                return;
+            auto before = held.data[0];
+            auto count = scenes.textures.size();
+            auto node_count = scenes.node_by_source.size();
+            CHECK(deren::gltf::release_texture_pixels(*result) > 0);
+            CHECK(scenes.textures.size() == count && scenes.node_by_source.size() == node_count);
+            for (auto const& texture : scenes.textures)
+                CHECK(texture.data.empty() && texture.data.capacity() == 0);
+            CHECK(held.owner && held.data[0] == before);
+            CHECK(deren::gltf::release_texture_pixels(*result) == 0);
+        }
     }
 
     void test_async_load_matches_sync() {
@@ -581,6 +678,9 @@ void test_subtilis_extraction() {
 }
 int32_t main() {
     test_subtilis_extraction();
+    test_consuming_resolve_moves_decoded_pixels();
+    test_resolved_mip_payload_has_no_undeclared_tail();
+    test_consuming_resolve_matches_copy_path();
     test_load_damaged_helmet();
     test_async_load_matches_sync();
     test_missing_file_reports_file_not_found();

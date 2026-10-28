@@ -1206,6 +1206,19 @@ namespace {
         return rgba;
     }
 
+    /// Consume the decoded pixels when the caller promises they are no longer needed. RGBA8 can move the
+    /// source buffer directly; 3/1-channel inputs must convert first, then release the source. This is what
+    /// keeps the loader from retaining a second full copy of every texture through mip generation.
+    deren::utility::vessel::vector<uint8_t> to_rgba(deren::gltf::texture_data& texture, bool const consume) {
+        if (!consume)
+            return to_rgba(static_cast<deren::gltf::texture_data const&>(texture));
+        if (texture.component == 4)
+            return std::move(texture.data);
+        auto rgba = to_rgba(static_cast<deren::gltf::texture_data const&>(texture));
+        deren::utility::vessel::vector<uint8_t>{}.swap(texture.data);
+        return rgba;
+    }
+
     // 8-bit sRGB <-> linear conversion: color textures (slot 0) are averaged in linear space so
     // their mips keep correct brightness; the other (UNORM data) slots are averaged in byte space.
     float srgb_to_linear(uint8_t const c) {
@@ -1241,25 +1254,39 @@ namespace {
         uint32_t mip_levels = 0;
     };
 
-    mip_chain generate_mip_chain(std::span<uint8_t const> const rgba, uint32_t const width, uint32_t const height, bool const srgb) {
+    mip_chain generate_mip_chain(deren::utility::vessel::vector<uint8_t> rgba, uint32_t const width, uint32_t const height, bool const srgb) {
         uint32_t const mip_count = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::min(width, height))))) + 1;
         mip_chain result;
         result.mip_levels = mip_count;
-        result.data.reserve(static_cast<size_t>(width) * height * 4 * 4 / 3); // geometric series for power-of-two
-
-        deren::utility::vessel::vector<uint8_t> a(rgba.begin(), rgba.end());
+        std::size_t const base_bytes = static_cast<std::size_t>(width) * height * 4;
+        if (rgba.size() < base_bytes) {
+            return result;
+        }
+        std::size_t total_bytes = 0;
+        for (uint32_t mip = 0, w = width, h = height; mip < mip_count; ++mip) {
+            total_bytes += static_cast<std::size_t>(w) * h * 4;
+            if (w == 1 && h == 1)
+                break;
+            w = std::max(1u, w / 2);
+            h = std::max(1u, h / 2);
+        }
+        result.data = std::move(rgba);
+        result.data.resize(base_bytes); // drop any trailing padding before appending mips
+        result.data.reserve(total_bytes);
         deren::utility::vessel::vector<uint8_t> b;
-        std::span<uint8_t const> cur = a;
+        std::size_t offset = 0;
         uint32_t w = width;
         uint32_t h = height;
         for (uint32_t mip = 0; mip < mip_count; ++mip) {
-            result.data.insert(result.data.end(), cur.begin(), cur.end());
-            if (w == 1 && h == 1) {
+            std::span<uint8_t const> const cur(result.data.data() + offset, static_cast<std::size_t>(w) * h * 4);
+            // mip0 is already owned; append only levels declared by mip_count. Rectangular
+            // chains can end before 1x1, and must not append an extra unadvertised level.
+            if (mip + 1 == mip_count || (w == 1 && h == 1)) {
                 break;
             }
             uint32_t const nw = std::max(1u, w / 2);
             uint32_t const nh = std::max(1u, h / 2);
-            b.assign(static_cast<size_t>(nw) * nh * 4, 0);
+            b.assign(static_cast<std::size_t>(nw) * nh * 4, 0);
             for (uint32_t y = 0; y < nh; ++y) {
                 uint32_t const sy0 = std::min(y * 2, h - 1);
                 uint32_t const sy1 = std::min(y * 2 + 1, h - 1);
@@ -1281,8 +1308,8 @@ namespace {
                     }
                 }
             }
-            std::swap(a, b);
-            cur = a;
+            offset += cur.size();
+            result.data.insert(result.data.end(), b.begin(), b.end());
             w = nw;
             h = nh;
         }
@@ -1811,89 +1838,123 @@ namespace deren::gltf {
 
     // ---- resolved materials + renderer-ready drawable iteration (pure CPU) ----
 
-    deren::utility::vessel::vector<resolved_material> resolve_materials(deren::gltf::scenes const& scenes) {
-        constexpr deren::utility::vessel::array<std::string_view, 5> slot_names = {"albedo", "metallic_roughness", "normal", "occlusion", "emissive"};
-
-        // decoded texture cache: one entry per glTF texture index; shared textures decode once,
-        // and the shared_ptr owners keep every image_view's span alive for the caller
-        struct decoded_texture {
-            std::shared_ptr<deren::utility::vessel::vector<uint8_t>> data = {};
-            uint32_t width = 0;
-            uint32_t height = 0;
-            uint32_t mip_levels = 1;
-        };
-        deren::utility::vessel::vector<std::optional<decoded_texture>> cache(scenes.textures.size());
-
-        auto const decode = [&scenes, &cache](uint16_t const texture_index, bool const srgb) -> decoded_texture {
-            decoded_texture out = {};
-            auto& entry = cache[texture_index];
-            if (!entry) {
-                entry = decoded_texture{};
-                deren::gltf::texture_data const& tex = scenes.textures[texture_index];
-                deren::utility::vessel::vector<uint8_t> const rgba = to_rgba(tex);
-                if (!rgba.empty() && tex.width > 0 && tex.height > 0) {
-                    mip_chain mips = generate_mip_chain(rgba, tex.width, tex.height, srgb);
-                    entry->data = std::make_shared<deren::utility::vessel::vector<uint8_t>>(std::move(mips.data));
-                    entry->width = tex.width;
-                    entry->height = tex.height;
-                    entry->mip_levels = mips.mip_levels;
-                }
-            }
-            if (entry->data) {
-                out = *entry;
-            }
-            return out;
-        };
-
-        deren::utility::vessel::vector<resolved_material> result;
-        result.reserve(scenes.materials.size());
-        for (auto const& mat : scenes.materials) {
-            resolved_material out = {};
-            out.factors.base_color_factor = mat.factors.base_color_factor;
-            out.factors.emissive_factor = glm::vec4(mat.factors.emissive_factor, 1.0f);
-            out.factors.metallic_factor = mat.factors.metallic_factor;
-            out.factors.roughness_factor = mat.factors.roughness_factor;
-            out.factors.normal_scale = mat.factors.normal_scale;
-            out.factors.occlusion_strength = mat.factors.occlusion_strength;
-            out.factors.alpha_cutoff = mat.factors.alpha_cutoff;
-            out.factors.alpha_mask = mat.factors.alpha_mask;
-            out.factors.alpha_blend = mat.factors.alpha_blend;
-            out.double_sided = mat.double_sided;
-            // THE FAMILY IS RESOLVED HERE, ONCE. This is the last place the material's NAME exists - the
-            // resolved form that everything downstream consumes carries five slots, the factors and the
-            // family, and no string. Classifying at the consumer instead would mean either carrying the name
-            // through the whole pipeline or re-deriving it, and a per-draw string match is exactly the kind
-            // of work that belongs at import.
-            out.toon_family = static_cast<uint32_t>(toon_family_of(mat.name));
-            // ... AND THE OVERLAY CHANNEL, resolved at the same moment from the same name: a material that
-            // classified into one of the article's two framebuffer multiplies is not shaded at all, so this is
-            // the fact that takes it out of the shading passes and into the overlay pass. The two are disjoint
-            // by construction - `toon_family_of` answers `none` for exactly these names.
-            out.overlay_kind = static_cast<uint32_t>(overlay_kind_of(mat.name));
-            // ... AND THE NAME ITSELF, because the toon sidecar is keyed by it: a consumer that has only the
-            // family cannot look up the entry describing THIS material. See resolved_material::name.
-            out.name = mat.name;
-            for (int32_t i = 0; i < 5; ++i) {
-                auto const it = mat.texture_indices.find(deren::utility::vessel::string(slot_names[i]));
-                if (it == mat.texture_indices.end() || it->second >= scenes.textures.size()) {
-                    continue;
-                }
-                // slot 0 (albedo) is sRGB color: average its mips in linear space
-                decoded_texture const decoded = decode(it->second, i == 0);
-                if (!decoded.data) {
-                    continue;
-                }
-                image_view& slot = out.slots[i];
-                slot.data = *decoded.data;
-                slot.width = decoded.width;
-                slot.height = decoded.height;
-                slot.mip_levels = decoded.mip_levels;
-                slot.owner = decoded.data;
-                slot.valid = true;
-            }
-            result.push_back(std::move(out));
+    std::uint64_t release_texture_pixels(scenes& scene) noexcept {
+        std::uint64_t bytes = 0;
+        for (auto& texture : scene.textures) {
+            bytes += texture.data.size();
+            deren::utility::vessel::vector<uint8_t>{}.swap(texture.data);
         }
-        return result;
+        return bytes;
+    }
+
+    namespace {
+        deren::utility::vessel::vector<resolved_material> resolve_materials_impl(deren::gltf::scenes const& scenes, deren::gltf::scenes* const consume_scene) {
+            constexpr deren::utility::vessel::array<std::string_view, 5> slot_names = {"albedo", "metallic_roughness", "normal", "occlusion", "emissive"};
+
+            if (consume_scene != nullptr) {
+                // Textures no material references will never be decoded; release their decoded bytes
+                // before the mip peak rather than carrying them through the whole resolve.
+                deren::utility::vessel::vector<uint8_t> referenced(consume_scene->textures.size(), 0);
+                for (auto const& material : consume_scene->materials)
+                    for (auto const& entry : material.texture_indices)
+                        if (entry.second < referenced.size())
+                            referenced[entry.second] = 1;
+                for (std::size_t i = 0; i < referenced.size(); ++i)
+                    if (!referenced[i])
+                        deren::utility::vessel::vector<uint8_t>{}.swap(consume_scene->textures[i].data);
+            }
+
+            // decoded texture cache: one entry per glTF texture index; shared textures decode once,
+            // and the shared_ptr owners keep every image_view's span alive for the caller
+            struct decoded_texture {
+                std::shared_ptr<deren::utility::vessel::vector<uint8_t> const> data = {};
+                uint32_t width = 0;
+                uint32_t height = 0;
+                uint32_t mip_levels = 1;
+            };
+            deren::utility::vessel::vector<std::optional<decoded_texture>> cache(scenes.textures.size());
+
+            auto const decode = [&scenes, &cache, consume_scene](uint16_t const texture_index, bool const srgb) -> decoded_texture {
+                decoded_texture out = {};
+                auto& entry = cache[texture_index];
+                if (!entry) {
+                    entry = decoded_texture{};
+                    deren::gltf::texture_data const& tex = scenes.textures[texture_index];
+                    // Consuming mode moves the decoded RGBA bytes into mip0. The source is only retained when
+                    // the caller keeps the ordinary read-only contract (toon sidecars, tests, repeat resolves).
+                    auto rgba = consume_scene != nullptr ? to_rgba(consume_scene->textures[texture_index], true) : to_rgba(tex);
+                    if (!rgba.empty() && tex.width > 0 && tex.height > 0) {
+                        mip_chain mips = generate_mip_chain(std::move(rgba), tex.width, tex.height, srgb);
+                        entry->data = std::make_shared<deren::utility::vessel::vector<uint8_t> const>(std::move(mips.data));
+                        entry->width = tex.width;
+                        entry->height = tex.height;
+                        entry->mip_levels = mips.mip_levels;
+                    }
+                }
+                if (entry->data) {
+                    out = *entry;
+                }
+                return out;
+            };
+
+            deren::utility::vessel::vector<resolved_material> result;
+            result.reserve(scenes.materials.size());
+            for (auto const& mat : scenes.materials) {
+                resolved_material out = {};
+                out.factors.base_color_factor = mat.factors.base_color_factor;
+                out.factors.emissive_factor = glm::vec4(mat.factors.emissive_factor, 1.0f);
+                out.factors.metallic_factor = mat.factors.metallic_factor;
+                out.factors.roughness_factor = mat.factors.roughness_factor;
+                out.factors.normal_scale = mat.factors.normal_scale;
+                out.factors.occlusion_strength = mat.factors.occlusion_strength;
+                out.factors.alpha_cutoff = mat.factors.alpha_cutoff;
+                out.factors.alpha_mask = mat.factors.alpha_mask;
+                out.factors.alpha_blend = mat.factors.alpha_blend;
+                out.double_sided = mat.double_sided;
+                // THE FAMILY IS RESOLVED HERE, ONCE. This is the last place the material's NAME exists - the
+                // resolved form that everything downstream consumes carries five slots, the factors and the
+                // family, and no string. Classifying at the consumer instead would mean either carrying the name
+                // through the whole pipeline or re-deriving it, and a per-draw string match is exactly the kind
+                // of work that belongs at import.
+                out.toon_family = static_cast<uint32_t>(toon_family_of(mat.name));
+                // ... AND THE OVERLAY CHANNEL, resolved at the same moment from the same name: a material that
+                // classified into one of the article's two framebuffer multiplies is not shaded at all, so this is
+                // the fact that takes it out of the shading passes and into the overlay pass. The two are disjoint
+                // by construction - `toon_family_of` answers `none` for exactly these names.
+                out.overlay_kind = static_cast<uint32_t>(overlay_kind_of(mat.name));
+                // ... AND THE NAME ITSELF, because the toon sidecar is keyed by it: a consumer that has only the
+                // family cannot look up the entry describing THIS material. See resolved_material::name.
+                out.name = mat.name;
+                for (int32_t i = 0; i < 5; ++i) {
+                    auto const it = mat.texture_indices.find(deren::utility::vessel::string(slot_names[i]));
+                    if (it == mat.texture_indices.end() || it->second >= scenes.textures.size()) {
+                        continue;
+                    }
+                    // slot 0 (albedo) is sRGB color: average its mips in linear space
+                    decoded_texture const decoded = decode(it->second, i == 0);
+                    if (!decoded.data) {
+                        continue;
+                    }
+                    image_view& slot = out.slots[i];
+                    slot.data = *decoded.data;
+                    slot.width = decoded.width;
+                    slot.height = decoded.height;
+                    slot.mip_levels = decoded.mip_levels;
+                    slot.owner = decoded.data;
+                    slot.valid = true;
+                }
+                result.push_back(std::move(out));
+            }
+            return result;
+        }
+    } // namespace
+
+    deren::utility::vessel::vector<resolved_material> resolve_materials(deren::gltf::scenes const& scenes) {
+        return resolve_materials_impl(scenes, nullptr);
+    }
+
+    deren::utility::vessel::vector<resolved_material> resolve_materials(deren::gltf::scenes& scenes, bool const consume_texture_pixels) {
+        return resolve_materials_impl(scenes, consume_texture_pixels ? &scenes : nullptr);
     }
 
     drawable_iterator& drawable_iterator::operator++() {
@@ -2013,6 +2074,10 @@ namespace deren::gltf {
 
     std::future<deren::utility::vessel::vector<resolved_material>> resolve_materials_async(deren::gltf::scenes const& scenes) {
         return std::async(std::launch::async, [&scenes] { return resolve_materials(scenes); });
+    }
+
+    std::future<deren::utility::vessel::vector<resolved_material>> resolve_materials_async(deren::gltf::scenes& scenes, bool const consume_texture_pixels) {
+        return std::async(std::launch::async, [&scenes, consume_texture_pixels] { return resolve_materials(scenes, consume_texture_pixels); });
     }
 
     // ---- keyframe sampling (pure CPU; see animation_sampler docs for the values layout) ----

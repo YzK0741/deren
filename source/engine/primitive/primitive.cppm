@@ -3,7 +3,7 @@
 //         GPU primitives that live in the scene-tree leaves, plus the GPU
 //         material / camera / light UBO records of the scene block; versioned in
 //         lock-step with deren.engine.runtime, see that module's banner)
-// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.1.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // GPU scene contents (namespace deren::engine):
 //   - deren::engine::primitive (owns geometry buffers + material push constants,
@@ -426,7 +426,17 @@ namespace deren::engine {
         uint32_t mip_levels = 1;
         ::deren::promise::rhi::image_format format = ::deren::promise::rhi::image_format::rgba8_unorm;
         bool valid = false;
+        /// Optional immutable owner. All aliases must remain immutable while retained by the runtime.
+        std::shared_ptr<deren::utility::vessel::vector<uint8_t> const> owner = {};
     };
+
+    /// Reuse only an exact whole-vector owner; borrowed or partial spans need their own snapshot.
+    export [[nodiscard]] inline std::shared_ptr<deren::utility::vessel::vector<uint8_t> const>
+    share_texture_source(texture_input const& input) {
+        if (input.owner && input.data.data() == input.owner->data() && input.data.size() == input.owner->size())
+            return input.owner;
+        return std::make_shared<deren::utility::vessel::vector<uint8_t> const>(input.data.begin(), input.data.end());
+    }
 
     /**
      * @ingroup engine_primitive
@@ -502,6 +512,24 @@ namespace deren::engine {
         { v.mip_levels } -> std::convertible_to<uint32_t>;
         { v.valid } -> std::convertible_to<bool>;
     };
+
+    export template <image_source Image>
+    [[nodiscard]] texture_input texture_input_from(Image const& image, ::deren::promise::rhi::image_format format) {
+        texture_input out{};
+        if (!image.valid)
+            return out;
+        out.data = image.data;
+        out.width = image.width;
+        out.height = image.height;
+        out.mip_levels = image.mip_levels;
+        out.format = format;
+        out.valid = true;
+        // Converting a mutable shared_ptr to const does not prevent writes through other aliases.
+        // Only an explicitly immutable owner opts into sharing; other inputs retain snapshot semantics.
+        if constexpr (requires { { image.owner } -> std::same_as<decltype(out.owner) const&>; })
+            out.owner = image.owner;
+        return out;
+    }
 
     /** @brief a PBR factors source: the same field names/shapes as material_factors */
     export template <class T>

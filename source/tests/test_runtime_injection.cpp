@@ -288,6 +288,58 @@ namespace {
 int main(int const argc, char** const argv) {
     rhi::create_info const creation{};
     if (argc == 1) {
+        using texture_bytes = deren::utility::vessel::vector<std::uint8_t>;
+        auto pixels = std::make_shared<texture_bytes const>(64, std::uint8_t{37});
+        struct owned_image {
+            std::span<std::uint8_t const> data;
+            std::uint32_t width = 4, height = 4, mip_levels = 1;
+            bool valid = true;
+            std::shared_ptr<texture_bytes const> owner;
+        };
+        owned_image image{.data = std::span(*pixels), .owner = pixels};
+        auto input = deren::engine::texture_input_from(image, rhi::image_format::rgba8_srgb);
+        CHECK(input.owner == pixels && input.data.data() == pixels->data());
+        auto retained = deren::engine::share_texture_source(input);
+        CHECK(retained == pixels);
+        input.data = input.data.subspan(4, 8);
+        auto subset = deren::engine::share_texture_source(input);
+        CHECK(subset->size() == 8 && subset != pixels && subset->front() == 37);
+        struct borrowed_image {
+            std::span<std::uint8_t const> data;
+            std::uint32_t width = 4, height = 4, mip_levels = 1;
+            bool valid = true;
+        };
+        texture_bytes borrowed(64, 23);
+        struct weak_image : borrowed_image {
+            std::weak_ptr<texture_bytes const> owner;
+        };
+        weak_image weak_source;
+        weak_source.data = std::span(*pixels);
+        weak_source.owner = pixels;
+        CHECK(!deren::engine::texture_input_from(weak_source, rhi::image_format::rgba8_unorm).owner);
+        struct mutable_image : borrowed_image {
+            std::shared_ptr<texture_bytes> owner;
+        };
+        auto mutable_pixels = std::make_shared<texture_bytes>(64, 55);
+        mutable_image mutable_source;
+        mutable_source.data = std::span(*mutable_pixels);
+        mutable_source.owner = mutable_pixels;
+        auto mutable_input = deren::engine::texture_input_from(mutable_source, rhi::image_format::rgba8_unorm);
+        CHECK(!mutable_input.owner); // pre-existing mutable sources keep snapshot semantics
+        auto mutable_snapshot = deren::engine::share_texture_source(mutable_input);
+        (*mutable_pixels)[0] = 99;
+        CHECK(mutable_snapshot->front() == 55);
+        auto copied = deren::engine::share_texture_source(deren::engine::texture_input_from(
+            borrowed_image{std::span(borrowed)}, rhi::image_format::rgba8_unorm));
+        borrowed[0] = 99;
+        CHECK(copied->front() == 23 && copied->data() != borrowed.data());
+        std::weak_ptr<texture_bytes const> lifetime = pixels;
+        image = {};
+        input = {};
+        pixels.reset();
+        CHECK(!lifetime.expired() && retained->front() == 37);
+        retained.reset();
+        CHECK(lifetime.expired());
         auto fixture = deren::vk_test::probe_make_core(creation, rhi::abi_version, true);
         CHECK(fixture);
         if (fixture) {

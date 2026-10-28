@@ -1151,12 +1151,18 @@ int main(int argc, char** argv) {
     auto prefilter_future = deren::engine::prefilter_environment_async(env, env_size, env_mip_count);
     auto irradiance_future = deren::engine::generate_irradiance_map_async(env, env_size, irr_size);
     auto lut_future = deren::engine::generate_brdf_lut_async(lut_size);
-    auto resolve_future = deren::gltf::resolve_materials_async(*scenes);
+    // Raw decoded pixels are only needed after resolution by a toon sidecar; otherwise move them into
+    // the generated mip chains so the import peak does not retain both copies.
+    auto resolve_future = deren::gltf::resolve_materials_async(*scenes, !toon_sidecar);
 
     deren::utility::vessel::vector<float> const prefiltered = prefilter_future.get();
     deren::utility::vessel::vector<float> const irradiance = irradiance_future.get();
     deren::utility::vessel::vector<float> const brdf_lut = lut_future.get();
-    deren::utility::vessel::vector<deren::gltf::resolved_material> const materials = resolve_future.get();
+    auto materials = resolve_future.get();
+    if (!toon_sidecar) {
+        auto released = deren::gltf::release_texture_pixels(*scenes);
+        deren::utility::log("import memory: released {} B of decoded texture pixels; resolved mip owners remain valid", released);
+    }
     auto const stage2_done = std::chrono::steady_clock::now();
     deren::utility::log("  IBL (prefilter/irradiance/BRDF LUT) + material resolve, parallel wall: {:.1f} ms", std::chrono::duration<double, std::milli>(stage2_done - stage2_start).count());
 
@@ -1352,7 +1358,7 @@ int main(int argc, char** argv) {
 
     deren::gltf::scene_node_iterator const node_first = scenes->nodes_begin();
     deren::gltf::scene_node_iterator const node_last;
-    deren::gltf::drawable_iterator const scene_first(*scenes, materials);
+    deren::gltf::drawable_iterator scene_first(*scenes, materials);
     deren::gltf::drawable_iterator const scene_last;
     glm::vec3 const scene_import_shift = -scene_center + scene_sink;
 
@@ -2200,6 +2206,8 @@ int main(int argc, char** argv) {
     deren::engine::scene_import_result const imported = runtime.import_scene(node_first, node_last, scene_first, scene_last, scene_import_shift);
     deren::utility::log("imported {} primitives ({} new materials)", imported.primitive_count, imported.material_count);
     runtime.log_scene_tree();
+    scene_first = deren::gltf::drawable_iterator{};
+    decltype(materials){}.swap(materials); // streaming/lazy resources retain their shared immutable sources
 
     // 12b. THE FRAME'S STATIC SURROUND, when the config names one ([render] background_glb): the SAME
     //      importer runs a SECOND time into the SAME scene tree, flagged as environment. The flag is the
@@ -2225,7 +2233,7 @@ int main(int argc, char** argv) {
             deren::utility::panic(std::source_location::current(), "failed to load background model '{}': error code {}", background_path.string(), static_cast<int32_t>(background_scenes.error()));
         }
         deren::gltf::scene_bounds const background_bounds = deren::gltf::log_scene_diagnostics(*background_scenes);
-        auto background_resolve = deren::gltf::resolve_materials_async(*background_scenes);
+        auto background_resolve = deren::gltf::resolve_materials_async(*background_scenes, true);
         deren::utility::vessel::vector<deren::gltf::resolved_material> const background_materials = background_resolve.get();
         // THE OFFSET IS DERIVED FROM THE SUBJECT, NOT CONFIGURED: the background's own y = 0 is its author's
         // GROUND plane and the subject's lowest point after ITS centering shift is `bounds.min.y +

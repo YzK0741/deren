@@ -2652,7 +2652,7 @@ namespace deren::engine {
                 entry.bytes = tex.data.size_bytes();
                 entry.fallback = created.first;
                 entry.fallback_bytes = low.initial_bytes.size();
-                entry.source = std::make_shared<deren::utility::vessel::vector<uint8_t> const>(tex.data.begin(), tex.data.end());
+                entry.source = share_texture_source(tex);
                 entry.description = image_info;
                 if (!entry.description.mip_levels)
                     entry.description.mip_levels = std::bit_width(std::max(tex.width, tex.height));
@@ -2666,7 +2666,7 @@ namespace deren::engine {
                 entry.description.initial_bytes = {};
                 entry.description.debug_name = "progressive full texture";
             } else if (texture_streaming.enabled && rhi::query_extension<rhi::frame_checkpoint>(rhi_face())) {
-                auto source = std::make_shared<deren::utility::vessel::vector<uint8_t> const>(tex.data.begin(), tex.data.end());
+                auto source = share_texture_source(tex);
                 image_info.initial_bytes = {};
                 auto lazy = rhi_face().resources->create_lazy_image({.resource = image_info, .data = source});
                 if (!lazy)

@@ -177,7 +177,9 @@ inline void check_lazy_resource_contract(rhi::api_core& core) {
     CHECK(simplified->bind_vertex_buffer(**a, 0) == rhi::error::ok);
     CHECK(simplified->bind_vertex_buffer(**b, 0) == rhi::error::ok);
     CHECK(simplified->apply_operations() == rhi::error::ok);
-    CHECK((*a)->state() == rhi::lazy_state::unloaded);
+    // The developer control deliberately retains dead setters and materializes both buffers.
+    auto const first_state = std::getenv("DEREN_RENDER_OPERATIONS_UNOPTIMIZED") ? rhi::lazy_state::ready : rhi::lazy_state::unloaded;
+    CHECK((*a)->state() == first_state);
     CHECK((*b)->state() == rhi::lazy_state::ready);
     CHECK(simplified->end_recording() == rhi::error::ok);
 }

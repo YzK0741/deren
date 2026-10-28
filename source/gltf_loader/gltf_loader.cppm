@@ -1,6 +1,6 @@
 // ============================================================================
 // module: gltf_loader
-// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 2.1.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Pure-CPU glTF / GLB loader (vendored fastgltf + stb): drawable stream, retained
 // node tree, animations / skins / morph targets / cameras / punctual lights.
@@ -891,7 +891,7 @@ namespace deren::gltf {
         uint32_t height = 0;
         uint32_t mip_levels = 1;
         bool valid = false;
-        std::shared_ptr<deren::utility::vessel::vector<uint8_t>> owner = {};
+        std::shared_ptr<deren::utility::vessel::vector<uint8_t> const> owner = {};
     };
 
     /** @brief PBR factors of one resolved material (mirrors the runtime's material_factors) */
@@ -1125,12 +1125,26 @@ namespace deren::gltf {
      */
     export deren::utility::vessel::vector<resolved_material> resolve_materials(deren::gltf::scenes const& scenes);
 
+    /// Consuming twin: when @p consume_texture_pixels is true, decoded texture bytes are moved into the
+    /// generated mip chains as each texture is resolved, instead of being retained alongside them until
+    /// release_texture_pixels(). Metadata stays intact; the caller must not rely on the raw pixel bytes
+    /// afterwards. Pass false for the ordinary read-only behavior.
+    export deren::utility::vessel::vector<resolved_material> resolve_materials(deren::gltf::scenes& scenes, bool consume_texture_pixels);
+
+    /// Explicitly release decoded pixels after all raw-pixel consumers finish. Metadata and resolved
+    /// image owners survive; resolving again requires reloading the source. Returns released payload bytes.
+    export std::uint64_t release_texture_pixels(scenes& scene) noexcept;
+
     /**
      * @ingroup gltf_loader
      * @brief async twin of resolve_materials(): runs the texture decode + mip generation on a
      *        std::async thread; @p scenes must stay alive until the future is consumed
      */
     export std::future<deren::utility::vessel::vector<resolved_material>> resolve_materials_async(deren::gltf::scenes const& scenes);
+
+    /// Async consuming twin; @p scenes must stay alive until the future is consumed. See the
+    /// consuming resolve_materials overload for the pixel-ownership contract.
+    export std::future<deren::utility::vessel::vector<resolved_material>> resolve_materials_async(deren::gltf::scenes& scenes, bool consume_texture_pixels);
 
     /**
      * @ingroup gltf_loader
