@@ -2069,7 +2069,7 @@ export namespace deren::promise::rhi {
     struct resource_memory_statistics {
         std::uint32_t struct_size = sizeof(resource_memory_statistics);
         bool supported = false;
-        resource_memory_usage buffers{}, images{}, total{};
+        resource_memory_usage buffers, images, total;
         /// Separately sampled VMA totals; reserved blocks include cached/unallocated capacity.
         std::uint64_t allocator_allocation_bytes = 0, allocator_reserved_bytes = 0, allocator_device_local_reserved_bytes = 0;
     };

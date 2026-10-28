@@ -1332,6 +1332,11 @@ if(VR_BUILD_TESTS)
     endforeach()
 
     target_link_libraries(test_rhi_ownership promise)
+    # The injection test's single entry point carries the local objects for every child mode; Debug+ASan
+    # builds that frame above the Windows default 1 MiB reserve. Give this test executable room to run.
+    if(WIN32)
+        target_link_options(test_runtime_injection PRIVATE -Wl,--stack,8388608)
+    endif()
 
     # Execute the real module-partition query bodies with driver query doubles.
     # This test links no Vulkan loader and needs no GPU or window.

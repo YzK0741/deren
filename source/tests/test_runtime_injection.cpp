@@ -285,9 +285,8 @@ namespace {
 
 } // namespace
 
-int main(int const argc, char** const argv) {
-    rhi::create_info const creation{};
-    if (argc == 1) {
+namespace {
+    void check_texture_input_contract(rhi::create_info const& creation) {
         using texture_bytes = deren::utility::vessel::vector<std::uint8_t>;
         auto pixels = std::make_shared<texture_bytes const>(64, std::uint8_t{37});
         struct owned_image {
@@ -346,6 +345,13 @@ int main(int const argc, char** const argv) {
             deren::vk_test::check_buffer_creation_contract(*fixture);
             deren::vk_test::check_recording_scope_contract(*fixture);
         }
+    }
+} // namespace
+
+int main(int const argc, char** const argv) {
+    rhi::create_info const creation{};
+    if (argc == 1) {
+        check_texture_input_contract(creation);
     }
 
     if (has_flag(argc, argv, do_concrete_panic_mode)) {
