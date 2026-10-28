@@ -12,6 +12,7 @@ import deren.promise.rhi;
 import deren.engine.buffer_transfer;
 import deren.engine.backend_loader;
 import deren.vulkan.main_context;
+#include "../engine/visibility/feedback_readback.h"
 #include "queue_gate.hpp"
 namespace rhi = deren::promise::rhi;
 namespace sync = rhi::synchronization;
@@ -39,6 +40,50 @@ int main(int argc, char** argv) {
     if (!core)
         return deren::vk_test::finish("test_buffer_transfer");
     auto& native = static_cast<deren::vulkan::main_context&>(*core->main_context());
+    // Full mip-demand payload, two independent snapshots, then repeated zero-reset reuse.
+    {
+        constexpr std::uint64_t size = 65536;
+        std::array<std::byte, size> zeros{}, sentinel{};
+        for (std::size_t i = 0; i < size; ++i)
+            sentinel[i] = std::byte((i * 17 + 3) & 255);
+        auto zero = core->resources->create_buffer({.size = size, .usage = rhi::buffer_usage::staging_source, .initial_bytes = zeros});
+        auto input = core->resources->create_buffer({.size = size, .usage = rhi::buffer_usage::staging_source, .initial_bytes = sentinel});
+        std::array<rhi::unique_object<rhi::buffer>, 2> gpu, host;
+        for (unsigned i = 0; i < 2; ++i) {
+            gpu[i] = core->resources->create_buffer({.size = size, .usage = rhi::buffer_usage::storage_gpu_only, .flags = rhi::to_bits(rhi::buffer_flag::transfer_source) | rhi::to_bits(rhi::buffer_flag::transfer_destination)});
+            host[i] = core->resources->create_buffer({.size = size, .usage = rhi::buffer_usage::uniform_cached, .flags = rhi::to_bits(rhi::buffer_flag::transfer_destination)});
+        }
+        CHECK(zero && input && gpu[0] && gpu[1] && host[0] && host[1]);
+        if (zero && input && gpu[0] && gpu[1] && host[0] && host[1]) {
+            for (unsigned frame = 0; frame < 4; ++frame) {
+                unsigned slot = frame % 2;
+                auto command = core->commands->make_command_buffer({});
+                CHECK(command && command->begin_recording({}) == rhi::error::ok);
+                if (!command)
+                    break;
+                CHECK(engine::feedback_readback::clear(*command, *gpu[slot], *zero, size) == rhi::error::ok);
+                if (frame < 2) {
+                    rhi::buffer_barrier before{.resource = gpu[slot].get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::transfer_destination};
+                    CHECK(command->barrier({.buffers = std::span(&before, 1)}) == rhi::error::ok);
+                    CHECK(command->copy_buffer(*gpu[slot], *input, size, 0, 0) == rhi::error::ok);
+                    rhi::buffer_barrier after{.resource = gpu[slot].get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::shader_write};
+                    CHECK(command->barrier({.buffers = std::span(&after, 1)}) == rhi::error::ok);
+                }
+                CHECK(engine::feedback_readback::publish(*command, *host[slot], *gpu[slot], size) == rhi::error::ok);
+                CHECK(command->end_recording() == rhi::error::ok);
+                CHECK(core->commands->submit(*command) == rhi::error::ok);
+                core->wait_idle(); // test oracle only; runtime uses the completed frame-slot wait.
+                auto mapped = host[slot]->mapped();
+                CHECK(mapped.size() == size);
+                bool matches = mapped.size() == size;
+                for (std::size_t i = 0; matches && i < size; ++i)
+                    matches = mapped[i] == (frame < 2 ? sentinel[i] : std::byte{});
+                CHECK(matches);
+                if (frame == 2)
+                    CHECK(host[1]->mapped()[0] == sentinel[0]);
+            }
+        }
+    }
     engine::buffer_transfer_service service(core);
     auto cluster = engine::resource_cluster::create(core);
     auto allocation = cluster->create_buffer({.size = 64, .usage = rhi::buffer_usage::storage_gpu_only, .flags = rhi::to_bits(rhi::buffer_flag::transfer_source) | rhi::to_bits(rhi::buffer_flag::transfer_destination)});

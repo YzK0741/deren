@@ -37,6 +37,7 @@ import deren.engine.pass.output_targets;
 import deren.engine.visibility.software;
 import deren.engine.visibility.hzb; // the pyramid layout the probe's lane sizes are computed with (§4.1)
 import deren.promise.rhi;
+#include "../visibility/feedback_readback.h"
 namespace deren::engine {
     namespace graph = deren::engine::render_graph;
     namespace rhi = deren::promise::rhi;
@@ -1197,8 +1198,8 @@ namespace deren::engine {
                             return error;
                         }
                         if (progressive_mips && texture_streaming.enabled) {
-                            rhi::buffer_barrier host{.resource = mip_feedback_slots[frame_ring().position()].get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::host_read};
-                            auto status = frame_command_buffer()->barrier({.buffers = std::span(&host, 1)});
+                            auto slot = frame_ring().position();
+                            auto status = feedback_readback::publish(*frame_command_buffer(), *mip_feedback_readback_slots[slot], *mip_feedback_slots[slot], sizeof(texture_residency::mip_feedback));
                             if (status != rhi::error::ok)
                                 return status;
                         }

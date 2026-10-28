@@ -9,6 +9,7 @@ module deren.engine.runtime;
 import deren.engine.texture_residency;
 import deren.promise.rhi;
 import deren.utility.shared;
+#include "../visibility/feedback_readback.h"
 
 namespace deren::engine {
     namespace rhi = deren::promise::rhi;
@@ -26,11 +27,25 @@ namespace deren::engine {
             desc.first_stage = rhi::shader_stage::compute;
             desc.compute_code = std::as_bytes(code);
             desc.debug_name = "visibility material feedback";
-            visibility_feedback_pipeline = rhi_face().resources->create_pipeline(desc);
+            // Publish readiness only after every allocation and descriptor write succeeds. A failed
+            // attempt leaves the pipeline empty so the next call retries initialization safely.
+            auto feedback_pipeline = rhi_face().resources->create_pipeline(desc);
+            auto make_feedback = [&](std::uint64_t bytes, rhi::shared_object<rhi::buffer>& gpu, rhi::shared_object<rhi::buffer>& host) {
+                gpu = rhi_face().resources->create_buffer({.size = bytes,
+                                                           .usage = progressive_textures ? rhi::buffer_usage::storage_gpu_only : rhi::buffer_usage::storage_coherent,
+                                                           .flags = rhi::to_bits(rhi::buffer_flag::device_address) | (progressive_textures ? rhi::to_bits(rhi::buffer_flag::transfer_source) | rhi::to_bits(rhi::buffer_flag::transfer_destination) : 0u)});
+                if (progressive_textures)
+                    host = rhi_face().resources->create_buffer({.size = bytes, .usage = rhi::buffer_usage::uniform_cached, .flags = rhi::to_bits(rhi::buffer_flag::transfer_destination)});
+                return gpu && (!progressive_textures || host);
+            };
+            if (progressive_textures) {
+                std::array<std::byte, sizeof(texture_residency::mip_feedback)> zeros{};
+                feedback_zero_source = rhi_face().resources->create_buffer({.size = zeros.size(), .usage = rhi::buffer_usage::staging_source, .initial_bytes = zeros});
+                if (!feedback_zero_source)
+                    return rhi::error::operation_failed;
+            }
             for (unsigned slot = 0; slot < 2; ++slot) {
-                texture_feedback_slots[slot] = rhi::shared_object<rhi::buffer>(rhi_face().resources->create_buffer(
-                    {.size = sizeof(texture_residency::feedback), .usage = rhi::buffer_usage::storage_coherent, .flags = rhi::to_bits(rhi::buffer_flag::device_address)}));
-                if (!visibility_feedback_pipeline || !texture_feedback_slots[slot])
+                if (!feedback_pipeline || !make_feedback(sizeof(texture_residency::feedback), texture_feedback_slots[slot], texture_feedback_readback_slots[slot]))
                     return rhi::error::operation_failed;
             }
             auto* descriptors = rhi::query_extension<rhi::descriptor_space>(rhi_face());
@@ -39,23 +54,32 @@ namespace deren::engine {
                 if (result != rhi::error::ok)
                     return result;
                 if (progressive_mips) {
-                    mip_feedback_slots[slot] = rhi::shared_object<rhi::buffer>(rhi_face().resources->create_buffer(
-                        {.size = sizeof(texture_residency::mip_feedback), .usage = rhi::buffer_usage::storage_coherent, .flags = rhi::to_bits(rhi::buffer_flag::device_address)}));
-                    if (!mip_feedback_slots[slot])
+                    if (!make_feedback(sizeof(texture_residency::mip_feedback), mip_feedback_slots[slot], mip_feedback_readback_slots[slot]))
                         return rhi::error::operation_failed;
                     result = descriptors->write_buffer({.slot = mip_feedback_slot + slot, .resource = mip_feedback_slots[slot].get(), .size = sizeof(texture_residency::mip_feedback)});
                     if (result != rhi::error::ok)
                         return result;
                 }
             }
+            visibility_feedback_pipeline = std::move(feedback_pipeline);
         }
         auto slot = frame_ring().position();
         visibility_feedback_buffer = texture_feedback_slots[slot];
         if (progressive_textures && texture_feedback_pending[slot]) {
-            std::memcpy(&progressive_feedback, visibility_feedback_buffer->mapped().data(), sizeof(progressive_feedback));
+            // wait_and_acquire completed this slot before record_post_graph; no additional CPU wait.
+            std::memcpy(&progressive_feedback, texture_feedback_readback_slots[slot]->mapped().data(), sizeof(progressive_feedback));
             texture_feedback_pending[slot] = false;
             if (progressive_mips)
-                std::memcpy(&progressive_mip_feedback, mip_feedback_slots[slot]->mapped().data(), sizeof(progressive_mip_feedback));
+                std::memcpy(&progressive_mip_feedback, mip_feedback_readback_slots[slot]->mapped().data(), sizeof(progressive_mip_feedback));
+        }
+        if (progressive_textures) {
+            auto commands = frame_command_buffer();
+            if (!commands)
+                return rhi::error::not_ready;
+            auto result = feedback_readback::clear(*commands, *visibility_feedback_buffer, *feedback_zero_source, sizeof(texture_residency::feedback));
+            if (result == rhi::error::ok && progressive_mips)
+                result = feedback_readback::clear(*commands, *mip_feedback_slots[slot], *feedback_zero_source, sizeof(texture_residency::mip_feedback));
+            return result;
         }
         auto mapped = visibility_feedback_buffer->mapped();
         if (mapped.size() < sizeof(texture_residency::feedback))
@@ -80,7 +104,13 @@ namespace deren::engine {
             return result;
         auto extent = render_extent();
         commands.dispatch((extent.width + 7) / 8, (extent.height + 7) / 8, 1);
-        // Host publication is this pass's epilogue. The checkpoint establishes execution completion.
+        if (progressive_textures) {
+            result = feedback_readback::publish(commands, *texture_feedback_readback_slots[frame_ring().position()], *visibility_feedback_buffer, sizeof(texture_residency::feedback));
+            if (result == rhi::error::ok)
+                texture_feedback_pending[frame_ring().position()] = true;
+            return result;
+        }
+        // Original same-frame path: the checkpoint establishes execution completion.
         rhi::buffer_barrier host{.resource = visibility_feedback_buffer.get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::host_read};
         result = commands.barrier({.buffers = std::span(&host, 1)});
         if (result == rhi::error::ok)
