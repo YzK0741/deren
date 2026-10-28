@@ -2143,7 +2143,16 @@ namespace deren::engine {
                 return static_cast<runtime*>(owner)->record_visibility_recovery(command_buffer, recorded);
             };
         } else if (parallel) {
-            auto const& segments = this->visibility_segments[static_cast<std::size_t>(this->frame_ring().position())];
+            auto& segments = this->visibility_segments[static_cast<std::size_t>(this->frame_ring().position())];
+            if (segments.empty()) {
+                // Lazily after the scene startup peak: the visibility lane's small segment set must not tip
+                // the import-time device-memory budget shared with the main-pass segment pool.
+                uint32_t const workers = static_cast<uint32_t>(std::min(std::max(1, this->task_pool_threads()), 8));
+                segments.reserve(workers);
+                for (uint32_t worker = 0; worker < workers; ++worker) {
+                    segments.push_back(this->rhi_face().commands->make_mergeable_command_buffer({}));
+                }
+            }
             this->visibility_segment_view.assign(segments.begin(), segments.end());
             frame.segments = this->visibility_segment_view;
         }

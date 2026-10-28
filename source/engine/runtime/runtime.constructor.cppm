@@ -1249,17 +1249,9 @@ namespace deren::engine {
                 segments.push_back(face.commands->make_mergeable_command_buffer({})); // one per worker
             }
             this->main_segments.push_back(std::move(segments));
-            // The per-item lane does not need one segment per pool thread: a small fixed fan-out keeps the
-            // command-pool cost bounded while still removing the serial item-record tail. The opt-in keeps
-            // ordinary runs at their original startup cost.
-            static bool const parallel_visibility = std::getenv("DEREN_PARALLEL_VISIBILITY") != nullptr;
-            uint32_t const visibility_workers = parallel_visibility ? std::min(record_workers, 8u) : 0u;
-            deren::utility::vessel::vector<rhi::mergeable_command_buffer_ref> visibility_segments;
-            visibility_segments.reserve(visibility_workers);
-            for (uint32_t s = 0; s < visibility_workers; ++s) {
-                visibility_segments.push_back(face.commands->make_mergeable_command_buffer({}));
-            }
-            this->visibility_segments.push_back(std::move(visibility_segments));
+            // The visibility segments are created lazily on the first parallel visibility frame, after the
+            // scene's texture/geometry startup peak, rather than beside the thousands of main-pass segments.
+            this->visibility_segments.emplace_back();
         }
     }
 

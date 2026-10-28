@@ -2075,6 +2075,8 @@ namespace deren::engine {
         if (this->visibility_items_mapped == nullptr || this->mesh_indirect_mapped == nullptr || !this->mesh_indirect_buffer || this->frame_visible.empty()) {
             return false;
         }
+        static bool const visibility_trace = std::getenv("DEREN_RECORD_TRACE") != nullptr;
+        auto const visibility_phase1_started = std::chrono::steady_clock::now();
         // ONE FRAME'S PER-ITEM PLAN. Everything a plan holds is either pure CPU or a write into the item's OWN
         // slice of the host-culled meshlet lane - there is no cross-item order in it. That is what lets the
         // planning phase below run in parallel; the command buffer and the shared push-data window stay the
@@ -2234,6 +2236,7 @@ namespace deren::engine {
             }
             leaves[index] = leaf;
         }
+        auto const visibility_phase2_started = std::chrono::steady_clock::now();
         // ---- PHASE 2: PER-ITEM PLANNING, IN PARALLEL. The subtilis cut is the per-item CPU cost this phase
         // exists for (measured: ~3 us per item on the 2909-item Bistro scene, ~8.6 ms/frame serially). Each
         // worker owns its scratch vectors, and the only shared write is the host-culled lane at the item's own
@@ -2456,6 +2459,7 @@ namespace deren::engine {
         } else {
             plan_range(0u, count);
         }
+        auto const visibility_phase3_started = std::chrono::steady_clock::now();
         // ---- PHASE 3: THE PUBLICATION RULE, IN ITEM ORDER. A run that overlaps an EARLIER PUBLISHED run falls
         // back to the shared one, exactly as the old per-item `published` scan answered - and an overlapping
         // item is planned here, in order, with that set. An ordered interval table makes the normal (disjoint)
@@ -2966,6 +2970,7 @@ namespace deren::engine {
             }
             deren::utility::log("cluster probe: {} items written to {} ({})", count, path, dump.good() ? "ok" : "failed");
         }
+        auto const visibility_phase4_started = std::chrono::steady_clock::now();
         // ---- PHASE 4: RECORD. The planner above is per item and order-free; the RHI commands are not.
         // With mergeable segments the item ranges record concurrently into separate recorders and the pass
         // executes the segments in item order inside its own rendering instance. Without them this is the
@@ -3081,6 +3086,17 @@ namespace deren::engine {
         }
         if (!ok) {
             return false;
+        }
+        if (visibility_trace) {
+            auto const now = std::chrono::steady_clock::now();
+            auto const us = [](auto const from, auto const to) {
+                return std::chrono::duration<double, std::micro>(to - from).count();
+            };
+            std::fprintf(stderr, "visibility record: scan %.1f us | plan %.1f us | publish %.1f us | record %.1f us | total %.1f us\n",
+                         us(visibility_phase1_started, visibility_phase2_started),
+                         us(visibility_phase2_started, visibility_phase3_started),
+                         us(visibility_phase3_started, visibility_phase4_started),
+                         us(visibility_phase4_started, now), us(visibility_phase1_started, now));
         }
         if (this->subtilis_active_frame && !this->subtilis_logged) {
             this->subtilis_logged = true;
