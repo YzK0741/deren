@@ -5,14 +5,14 @@ as a fixed baseline. Scope: measure common CPU frame preparation, graph construc
 deferred-operation execution and task batching/waits before choosing the next optimization.
 Use systematic-debugging and verification-before-completion; do not extend amnis or alter policy.
 
-- [ ] Preserve current source/binary identities and prepare a temporary diagnostic build.
-- [ ] Measure begin subphases; post graph setup/prepare/record; per-pass access/barrier/callback costs;
+- [x] Preserve current source/binary identities and prepare a temporary diagnostic build.
+- [x] Measure begin subphases; post graph setup/prepare/record; per-pass access/barrier/callback costs;
   visibility planning/publication/recording; heavy deferred batches and task-group elapsed time.
-- [ ] Capture near/far/moving DAG+HZB with eager residency and current progressive mips. Run two
+- [x] Capture near/far/moving DAG+HZB with eager residency and current progressive mips. Run two
   reversed-order diagnostic rounds; exclude all diagnostic frame times from performance claims.
-- [ ] Restore exact production sources, rebuild/verify and run a clean control if needed to bound
+- [x] Restore exact production sources, rebuild/verify and run a clean control if needed to bound
   instrumentation effects. Preserve manifests, source patches and useful raw attribution evidence.
-- [ ] Identify the dominant wall-time component and recommend one next change, with uncertainty
+- [x] Identify the dominant wall-time component and recommend one next change, with uncertainty
   and parallel-worker versus caller-wait distinctions. Document and independently review findings.
 
 Existing accepted frame baseline is the feedback-copy report. Per-pass barriers can flush commands
@@ -34,3 +34,8 @@ publication with old allocation code and failed first-frame validation. The acce
 final bundle is intact. Force timestamps/rebuild all four profiled units plus texture_residency;
 verify actual GPU-only/readback allocations before new snapshots. Restore using write_bytes (fresh
 mtime), not timestamp-preserving copies. Final evidence moves to tmp/common-cpu-v2.
+
+Complete: sixteen captures verified, restored sources verified, four targeted tests passed and
+independent review checked probe nesting, source semantics, numerical tables and interval windows.
+Report: docs/benchmarks/2026-10-28-common-cpu-attribution.md. Follow-up implementation is tracked
+separately in 2026-10-28-animation-transform-invalidation.md.
