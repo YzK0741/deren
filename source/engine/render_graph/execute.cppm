@@ -1,5 +1,8 @@
 module;
+#include <chrono>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <expected>
 #include <memory>
 #include <span>
@@ -266,6 +269,7 @@ export namespace deren::engine::render_graph::execution {
             if (!state) {
                 return rhi::error::invalid_argument;
             }
+            static bool const trace_record = std::getenv("DEREN_RECORD_TRACE") != nullptr;
             // Frame snapshots may outlive their acquire but must never record against a later one.
             // Check even resources with no barrier, before emitting any command from this plan.
             for (std::size_t i = 0; i < state->bindings.size(); ++i) {
@@ -290,11 +294,21 @@ export namespace deren::engine::render_graph::execution {
                     }
                 }
                 auto const& batch = state->batches[pass];
+                auto const pass_started = std::chrono::steady_clock::now();
                 auto error = state->extension->record(commands, batch.images, batch.buffers);
+                auto const barrier_done = std::chrono::steady_clock::now();
                 if (error != rhi::error::ok) {
                     return error;
                 }
                 error = callback(record_context{*state, pass});
+                auto const callback_done = std::chrono::steady_clock::now();
+                if (trace_record) {
+                    auto const barrier_us = std::chrono::duration<double, std::micro>(barrier_done - pass_started).count();
+                    auto const callback_us = std::chrono::duration<double, std::micro>(callback_done - barrier_done).count();
+                    auto const& name = state->graph.passes[pass].name;
+                    std::fprintf(stderr, "record graph: pass '%.*s' barrier %.1f us | callback %.1f us\n",
+                                 static_cast<int>(name.size()), name.data(), barrier_us, callback_us);
+                }
                 if (error != rhi::error::ok) {
                     return error;
                 }
