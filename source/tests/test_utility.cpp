@@ -7,9 +7,11 @@
 #include "vk_test.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <fstream>
@@ -769,6 +771,41 @@ namespace {
         CHECK(!saw_c); // behind the camera is culled
     }
 
+    void test_bvh_random_membership_matches_direct_boxes() {
+        constexpr std::size_t count = 1024;
+        std::array<int32_t, count> ids{};
+        deren::utility::vessel::vector<deren::utility::aabb_box<int32_t>> boxes;
+        std::uint32_t state = 0x42564831u;
+        auto sample = [&state] {
+            state = state * 1664525u + 1013904223u;
+            return float(state >> 8) * (1.0f / 16777216.0f);
+        };
+        for (std::size_t i = 0; i < count; ++i) {
+            ids[i] = static_cast<int32_t>(i);
+            glm::vec3 const center((sample() - 0.5f) * 100.0f, (sample() - 0.5f) * 100.0f, (sample() - 0.5f) * 100.0f);
+            boxes.push_back({.min = center - glm::vec3(0.25f), .max = center + glm::vec3(0.25f), .extra_data = &ids[i]});
+        }
+        auto tree = deren::utility::bvh<int32_t>::make(boxes);
+        CHECK(tree.has_value());
+        if (!tree)
+            return;
+        glm::mat4 const projection = glm::perspective(glm::radians(70.0f), 1.5f, 0.1f, 200.0f);
+        for (glm::vec3 const eye : {glm::vec3(0, 0, 80), glm::vec3(80, 15, 0), glm::vec3(-20, 80, -20)}) {
+            auto const frustum = deren::utility::make_frustum(projection * glm::lookAt(eye, glm::vec3(0), glm::vec3(0, 1, 0)));
+            std::array<bool, count> found{};
+            for (auto const* node : tree->frustum_cull(frustum)) {
+                auto const id = static_cast<std::size_t>(*node->extra_data);
+                CHECK(id < count);
+                if (id < count) {
+                    CHECK(!found[id]);
+                    found[id] = true;
+                }
+            }
+            for (std::size_t i = 0; i < count; ++i)
+                CHECK(found[i] == frustum.in(boxes[i].min, boxes[i].max));
+        }
+    }
+
     // Documented contract: add() new leaves, then rebuild(). Leaf storage must keep element
     // addresses stable across the growth (a vector would reallocate and dangle the internal
     // nodes until rebuild). Regression: repeated add()+rebuild() with a wide frustum must keep
@@ -881,6 +918,7 @@ int32_t main(int argc, char** argv) {
     test_bvh_non_finite_aabb_is_sanitized();
     test_bvh_degenerate_inputs_do_not_crash();
     test_bvh_frustum_cull_keeps_visible_boxes();
+    test_bvh_random_membership_matches_direct_boxes();
     test_bvh_add_rebuild_contract();
     test_ensure();
     return deren::vk_test::finish("test_utility");

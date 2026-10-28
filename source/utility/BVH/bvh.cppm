@@ -1,5 +1,7 @@
 module;
 
+#include "morton_encoding.hpp"
+
 #include <glm/glm.hpp>
 
 export module deren.utility:bvh;
@@ -568,28 +570,11 @@ bool hit(glm::vec3 const& min, glm::vec3 const& max, glm::vec3 const& start, glm
 }
 
 namespace {
-    // Standard-C++ morton interleave (no __uint128_t extension, so this compiles on every
-    // toolchain incl. MSVC): output bit 3*i carries x bit i, 3*i+1 carries y bit i, 3*i+2
-    // carries z bit i for i in [0, 32). Bits are set straight into the little-endian byte
-    // array, which is byte-identical to the former __uint128_t spread + dump. constexpr so
-    // the interleaving is verifiable at compile time (static_assert below).
+    // The private encoder uses Boost.Int128 only as an intermediate. Storage, quantization and
+    // byte-lexicographic ordering remain unchanged; no Boost integer is exported by this module.
     constexpr deren::utility::morton_code morton_encode(uint32_t const x, uint32_t const y, uint32_t const z) {
-        deren::utility::morton_code code; // NSDMI: zero-initialized
-        auto const set_bit = [&code](uint32_t const bit) {
-            code.data[bit >> 3] =
-                static_cast<uint8_t>(code.data[bit >> 3] | static_cast<uint8_t>(1u << (bit & 7u)));
-        };
-        for (uint32_t i = 0; i < 32; ++i) {
-            if (((x >> i) & 1u) != 0) {
-                set_bit(3 * i);
-            }
-            if (((y >> i) & 1u) != 0) {
-                set_bit(3 * i + 1);
-            }
-            if (((z >> i) & 1u) != 0) {
-                set_bit(3 * i + 2);
-            }
-        }
+        deren::utility::morton_code code;
+        code.data = deren::utility::bvh_detail::encode_morton_bytes(x, y, z);
         return code;
     }
 

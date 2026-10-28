@@ -7,6 +7,7 @@ std/** linguist-vendored
 source/third_party/** linguist-vendored
 # Preserve the upstream bytes checked by Boost's SHA-256 vendor manifest.
 source/third_party/boost/** -text
+source/third_party/boost_int128/** -text
 source/third_party/meshoptimizer/** -text
 source/third_party/yyjson/** -text
 gltf_model/** linguist-vendored

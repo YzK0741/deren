@@ -24,6 +24,16 @@ are not listed here.
 - provenance, extraction and allocation constraints: [boost/README.md](boost/README.md)
 - reproducible manifest verification: `python scripts/tools/vendor_boost_graph.py --output source/third_party/boost --verify`
 
+## Boost.Int128
+
+- revision: `16f0b3374470e3821c10277775de18cf320cda45`
+- upstream: https://github.com/boostorg/int128
+- local changes: none; 34 upstream headers/license files with SHA-256 manifest
+- license: Boost Software License 1.0 (`boost_int128/LICENSE`)
+- build: private header-only dependency for BVH Morton encoding; no exported integer type
+- provenance and offline verification: [boost_int128/README.md](boost_int128/README.md)
+- reproducible manifest verification: `python scripts/tools/vendor_boost_int128.py --output source/third_party/boost_int128 --verify`
+
 ## VRDX (Vulkan Radix Sort)
 
 - version: 0.6.0 (`VRDX_VERSION_*` in `vrdx/include/vk_radix_sort.h`)

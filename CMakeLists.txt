@@ -1185,6 +1185,12 @@ endif()
 option(VR_BUILD_TESTS "Build the headless unit tests" ON)
 
 # Private header subset; link only from graph implementation/probes, never the RHI ABI.
+# Standalone, pinned Boost.Int128 is a private implementation dependency of BVH only.
+add_library(boost_int128_headers INTERFACE)
+target_include_directories(boost_int128_headers SYSTEM INTERFACE
+        "${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/boost_int128/include")
+target_link_libraries(static_utility PRIVATE boost_int128_headers)
+
 add_library(boost_graph_headers INTERFACE)
 target_include_directories(boost_graph_headers SYSTEM INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/boost")
@@ -1282,6 +1288,9 @@ if(VR_BUILD_TESTS)
     add_test(NAME test_boost_graph_vendor
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tools/vendor_boost_graph.py"
                 --output "${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/boost" --verify)
+    add_test(NAME test_boost_int128_vendor
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tools/vendor_boost_int128.py"
+                --output "${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/boost_int128" --verify)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         find_package(Threads REQUIRED)
         add_executable(stacktrace_posix_probe
@@ -1314,7 +1323,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_engine_outcome test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_progressive_texture test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb test_visibility_software test_visibility_software_pass test_visibility_merge_pass test_render_operations)
+    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_morton test_engine_outcome test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_progressive_texture test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb test_visibility_software test_visibility_software_pass test_visibility_merge_pass test_render_operations)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1331,6 +1340,7 @@ if(VR_BUILD_TESTS)
                 TIMEOUT 120)
     endforeach()
 
+    target_link_libraries(test_morton boost_int128_headers)
     target_link_libraries(test_rhi_ownership promise)
     # The injection test's single entry point carries the local objects for every child mode; Debug+ASan
     # builds that frame above the Windows default 1 MiB reserve. Give this test executable room to run.
