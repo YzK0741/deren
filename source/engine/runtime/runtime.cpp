@@ -2,6 +2,7 @@ module;
 #include <GLFW/glfw3.h>
 #include <algorithm> // std::min in the resource publication
 #include <array>
+#include <atomic>
 #include <bit> // std::bit_cast for the caster world-matrix hash
 #include <chrono>
 #include <cmath>
@@ -1526,6 +1527,10 @@ namespace deren::engine {
         return command_buffer.push_constants(0u, bytes) == rhi::error::ok;
     }
 
+    bool runtime::push_raw_block(void* const /*owner*/, rhi::command_recorder& command_buffer, std::span<std::byte const> const bytes) {
+        return command_buffer.push_constants(0u, bytes) == rhi::error::ok;
+    }
+
     // ---- the MESH session's endpoints (docs/mesh_shaders.md step 1): what a draw without an input assembler
     //      needs and only the device's owner can answer. ----
 
@@ -2061,7 +2066,10 @@ namespace deren::engine {
         }
     }
 
-    bool runtime::record_visibility_items(deren::promise::rhi::command_buffer& command_buffer, std::uint32_t& recorded) {
+    bool runtime::record_visibility_items(deren::promise::rhi::command_buffer& command_buffer,
+                                          std::span<rhi::mergeable_command_buffer_ref const> segments,
+                                          pass::visibility_frame::bind_segment_fn bind_segment, void* segment_owner,
+                                          std::uint32_t& recorded) {
         namespace vis = deren::engine::visibility;
         recorded = 0;
         if (this->visibility_items_mapped == nullptr || this->mesh_indirect_mapped == nullptr || !this->mesh_indirect_buffer || this->frame_visible.empty()) {
@@ -2958,66 +2966,121 @@ namespace deren::engine {
             }
             deren::utility::log("cluster probe: {} items written to {} ({})", count, path, dump.good() ? "ok" : "failed");
         }
-        // ---- PHASE 4: RECORD, SERIAL. Command-buffer state, the heap push window and the item table are the
-        // recording thread's by contract, and each item is recorded in its own index order - the one ordering
-        // this lane actually requires. ----
+        // ---- PHASE 4: RECORD. The planner above is per item and order-free; the RHI commands are not.
+        // With mergeable segments the item ranges record concurrently into separate recorders and the pass
+        // executes the segments in item order inside its own rendering instance. Without them this is the
+        // original serial path. Command-buffer state, the heap push window and the item table retain the
+        // same final ordering in both paths. ----
         this->visibility_recovery_draws.clear();
         if (this->hzb_recovery_active_frame) {
             this->visibility_recovery_draws.reserve(count);
         }
+        struct range_totals {
+            unsigned input_count = 0, selected_count = 0, fallback_count = 0;
+            std::uint64_t input_triangles = 0, selected_triangles = 0;
+            std::uint32_t candidates = 0;
+            deren::utility::vessel::vector<visibility_recovery_draw> recovery;
+        };
         unsigned input_count = 0, selected_count = 0, fallback_count = 0;
         std::uint64_t input_triangles = 0, selected_triangles = 0;
-        std::optional<rhi::cull_mode> recorded_cull;
-        for (std::uint32_t index = 0; index < count; ++index) {
-            visibility_item_plan& plan = plans[index];
-            if (recorded_cull != plan.cull) {
-                command_buffer.set_cull_mode(plan.cull);
-                recorded_cull = plan.cull;
-            }
-            static_assert(runtime::mesh_command_capacity == deren::engine::visibility::hzb::hzb_mesh_command_capacity);
-            static_assert(runtime::visibility_command_run == deren::engine::visibility::hzb::hzb_visibility_command_run);
-            // ---- THE HZB CULL LANE'S PER-ITEM DESCRIPTION (spec §4.3) ----
-            // The cull pass walks ONE run per item, so all it needs is where the run starts and how long it is. A
-            // CUT-VISIBLE run's candidate records are this frame's host-culled lane at `run.base` (the host wrote
-            // them in phase 2 - so the entry is filled HERE, after the plan published); every other item offers the
-            // phase-B cull nothing and is written with count 0, which is the shader's "no work" answer. The write is
-            // to host-visible coherent memory before submission (§8.2 step 0: the cull dispatch ran earlier in the
-            // command buffer but the GPU only sees the buffer after `vkQueueSubmit`).
-            if (this->hzb_cull_active_frame && this->hzb_items_mapped != nullptr) {
-                bool const cut_visible = deren::engine::visibility::apply_hzb_run(plan.row, plan.block, plan.run);
-                std::uint32_t const candidates = cut_visible ? plan.run.count : 0u;
-                auto* const table = static_cast<pass::hzb_item*>(this->hzb_items_mapped);
-                table[static_cast<std::size_t>(frame_slot) * pass::hzb_cull_item_capacity + index] =
-                    pass::hzb_item{.meshlet_base = plan.run.base, .candidate_count = candidates, .source = cut_visible ? pass::hzb_item_source_culled : pass::hzb_item_source_unculled, .pad = plan.block.geometry.index_count};
-                this->hzb_cull_candidate_total += candidates;
-                if (this->hzb_recovery_active_frame) {
-                    auto const recovery_index = static_cast<std::size_t>(frame_slot) * runtime::mesh_command_capacity + runtime::hzb_recovery_command_run + index;
-                    commands[recovery_index] = rhi::mesh_task_command{.groups_x = 0u, .groups_y = 1u, .groups_z = 1u};
-                    if (cut_visible) {
-                        this->visibility_recovery_draws.push_back(visibility_recovery_draw{plan.block, plan.cull, index});
-                        this->visibility_recovery_draws.back().block.pad = 1u;
+        auto record_range = [&](rhi::command_recorder& target, std::uint32_t const begin, std::uint32_t const end,
+                                range_totals& totals) -> bool {
+            std::optional<rhi::cull_mode> recorded_cull;
+            for (std::uint32_t index = begin; index < end; ++index) {
+                visibility_item_plan& plan = plans[index];
+                if (recorded_cull != plan.cull) {
+                    target.set_cull_mode(plan.cull);
+                    recorded_cull = plan.cull;
+                }
+                static_assert(runtime::mesh_command_capacity == deren::engine::visibility::hzb::hzb_mesh_command_capacity);
+                static_assert(runtime::visibility_command_run == deren::engine::visibility::hzb::hzb_visibility_command_run);
+                // ---- THE HZB CULL LANE'S PER-ITEM DESCRIPTION (spec §4.3) ----
+                if (this->hzb_cull_active_frame && this->hzb_items_mapped != nullptr) {
+                    bool const cut_visible = deren::engine::visibility::apply_hzb_run(plan.row, plan.block, plan.run);
+                    std::uint32_t const candidates = cut_visible ? plan.run.count : 0u;
+                    auto* const table = static_cast<pass::hzb_item*>(this->hzb_items_mapped);
+                    table[static_cast<std::size_t>(frame_slot) * pass::hzb_cull_item_capacity + index] =
+                        pass::hzb_item{.meshlet_base = plan.run.base, .candidate_count = candidates, .source = cut_visible ? pass::hzb_item_source_culled : pass::hzb_item_source_unculled, .pad = plan.block.geometry.index_count};
+                    totals.candidates += candidates;
+                    if (this->hzb_recovery_active_frame) {
+                        auto const recovery_index = static_cast<std::size_t>(frame_slot) * runtime::mesh_command_capacity + runtime::hzb_recovery_command_run + index;
+                        commands[recovery_index] = rhi::mesh_task_command{.groups_x = 0u, .groups_y = 1u, .groups_z = 1u};
+                        if (cut_visible) {
+                            totals.recovery.push_back(visibility_recovery_draw{plan.block, plan.cull, index});
+                            totals.recovery.back().block.pad = 1u;
+                        }
                     }
                 }
+                if (!runtime::visibility_items_write(this, index, std::as_bytes(std::span(&plan.row, 1u)))) {
+                    return false;
+                }
+                if (!runtime::push_raw_block(this, target, std::as_bytes(std::span(&plan.block, 1u)))) {
+                    return false;
+                }
+                std::size_t const command_index = static_cast<std::size_t>(frame_slot) * runtime::mesh_command_capacity + runtime::visibility_command_run + index;
+                commands[command_index] = rhi::mesh_task_command{.groups_x = plan.block.geometry.index_count, .groups_y = 1u, .groups_z = 1u};
+                std::uint64_t const offset = static_cast<std::uint64_t>(command_index) * rhi::mesh_task_command_size;
+                if (target.draw_mesh_tasks_indirect(*this->mesh_indirect_buffer, offset, 1u, rhi::mesh_task_command_size) != rhi::error::ok) {
+                    return false;
+                }
+                totals.input_count += plan.input_count;
+                totals.selected_count += plan.selected_count;
+                totals.fallback_count += plan.fallback_count;
+                totals.input_triangles += plan.input_triangles;
+                totals.selected_triangles += plan.selected_triangles;
             }
-            if (!runtime::visibility_items_write(this, index, std::as_bytes(std::span(&plan.row, 1u)))) {
-                return false;
+            return true;
+        };
+        auto merge_totals = [&](range_totals const& totals) {
+            input_count += totals.input_count;
+            selected_count += totals.selected_count;
+            fallback_count += totals.fallback_count;
+            input_triangles += totals.input_triangles;
+            selected_triangles += totals.selected_triangles;
+            this->hzb_cull_candidate_total += totals.candidates;
+            for (auto const& draw : totals.recovery) {
+                this->visibility_recovery_draws.push_back(draw);
             }
-            if (!runtime::push_raw_block(this, command_buffer, std::as_bytes(std::span(&plan.block, 1u)))) {
-                return false;
+        };
+        std::size_t const workers = std::min<std::size_t>(segments.size(), static_cast<std::size_t>(count));
+        bool ok = true;
+        if (workers == 0u) {
+            range_totals totals;
+            ok = record_range(command_buffer, 0u, count, totals);
+            if (ok) {
+                merge_totals(totals);
             }
-            // THE DISPATCH: one command per item, in the THIRD command run (the first two are the scene's
-            // culled/unculled classes, which the old geometry lane still writes on a capture frame).
-            std::size_t const command_index = static_cast<std::size_t>(frame_slot) * runtime::mesh_command_capacity + runtime::visibility_command_run + index;
-            commands[command_index] = rhi::mesh_task_command{.groups_x = plan.block.geometry.index_count, .groups_y = 1u, .groups_z = 1u};
-            std::uint64_t const offset = static_cast<std::uint64_t>(command_index) * rhi::mesh_task_command_size;
-            if (command_buffer.draw_mesh_tasks_indirect(*this->mesh_indirect_buffer, offset, 1u, rhi::mesh_task_command_size) != rhi::error::ok) {
-                return false;
+        } else {
+            deren::utility::vessel::vector<std::function<void()>> tasks;
+            tasks.reserve(workers);
+            deren::utility::vessel::vector<range_totals> totals(workers);
+            std::atomic<bool> failed{false};
+            for (std::size_t worker = 0; worker < workers; ++worker) {
+                auto const begin = static_cast<std::uint32_t>((static_cast<std::uint64_t>(count) * worker) / workers);
+                auto const end = static_cast<std::uint32_t>((static_cast<std::uint64_t>(count) * (worker + 1u)) / workers);
+                tasks.emplace_back([&, worker, begin, end] {
+                    if (failed.load(std::memory_order_relaxed)) {
+                        return;
+                    }
+                    auto const& segment = segments[worker];
+                    if (bind_segment == nullptr || !bind_segment(segment_owner, segment) ||
+                        !record_range(*segment, begin, end, totals[worker]) ||
+                        segment->end_recording() != rhi::error::ok) {
+                        failed.store(true, std::memory_order_relaxed);
+                    }
+                });
             }
-            input_count += plan.input_count;
-            selected_count += plan.selected_count;
-            fallback_count += plan.fallback_count;
-            input_triangles += plan.input_triangles;
-            selected_triangles += plan.selected_triangles;
+            this->run_tasks(tasks, deren::engine::task_priority::recording);
+            ok = !failed.load(std::memory_order_relaxed);
+            if (ok) {
+                for (auto const& worker_totals : totals) {
+                    merge_totals(worker_totals);
+                }
+                ok = command_buffer.execute(std::span(segments.data(), workers)) == rhi::error::ok;
+            }
+        }
+        if (!ok) {
+            return false;
         }
         if (this->subtilis_active_frame && !this->subtilis_logged) {
             this->subtilis_logged = true;

@@ -2126,13 +2126,26 @@ namespace deren::engine {
     // all, and the recorder counts what it actually recorded.
     pass::visibility_frame runtime::make_visibility_frame(bool const recovery) noexcept {
         pass::visibility_frame frame{};
-        frame.record_items = [](void* owner, deren::promise::rhi::command_buffer& command_buffer, std::uint32_t& recorded) {
-            return static_cast<runtime*>(owner)->record_visibility_items(command_buffer, recorded);
+        static bool const parallel = std::getenv("DEREN_PARALLEL_VISIBILITY") != nullptr;
+        frame.record_items = [](void* owner, deren::promise::rhi::command_buffer& command_buffer,
+                                std::span<rhi::mergeable_command_buffer_ref const> segments,
+                                pass::visibility_frame::bind_segment_fn bind_segment, void* segment_owner,
+                                std::uint32_t& recorded) {
+            return static_cast<runtime*>(owner)->record_visibility_items(command_buffer, segments, bind_segment,
+                                                                         segment_owner, recorded);
         };
         if (recovery) {
-            frame.record_items = [](void* owner, rhi::command_buffer& command_buffer, std::uint32_t& recorded) {
+            frame.segments = {};
+            frame.record_items = [](void* owner, rhi::command_buffer& command_buffer,
+                                    std::span<rhi::mergeable_command_buffer_ref const> /*segments*/,
+                                    pass::visibility_frame::bind_segment_fn /*bind_segment*/, void* /*segment_owner*/,
+                                    std::uint32_t& recorded) {
                 return static_cast<runtime*>(owner)->record_visibility_recovery(command_buffer, recorded);
             };
+        } else if (parallel) {
+            auto const& segments = this->visibility_segments[static_cast<std::size_t>(this->frame_ring().position())];
+            this->visibility_segment_view.assign(segments.begin(), segments.end());
+            frame.segments = this->visibility_segment_view;
         }
         frame.owner = this;
         frame.extent = this->render_extent();

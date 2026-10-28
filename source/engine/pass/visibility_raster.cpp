@@ -67,6 +67,41 @@ namespace deren::engine::pass {
         deren::utility::log("SUCCESS: visibility raster pipeline created (mesh stage, one r32_uint target, depth-tested, no blending)");
     }
 
+    bool visibility_raster_pass::bind_segment(void* const owner, rhi::mergeable_command_buffer_ref const& segment) noexcept {
+        return owner != nullptr && segment && static_cast<visibility_raster_pass*>(owner)->bind_segment_impl(segment);
+    }
+
+    bool visibility_raster_pass::bind_segment_impl(rhi::mergeable_command_buffer_ref const& segment) noexcept {
+        if (!this->raster_pipeline.has_value() || !segment) {
+            return false;
+        }
+        rhi::image_format const color_format = deren::engine::render_layout::visibility_format;
+        rhi::command_buffer_inheritance_info inheritance{};
+        inheritance.color_format_count = 1;
+        inheritance.color_formats = &color_format;
+        inheritance.depth_format = rhi::image_format::depth;
+        inheritance.samples = 1;
+        rhi::command_buffer_begin_info begin{};
+        begin.usage = rhi::to_bits(rhi::command_buffer_usage::render_pass_continue);
+        begin.next = &inheritance.header;
+        if (segment->begin_recording(begin) != rhi::error::ok) {
+            return false;
+        }
+        this->raster_pipeline->viewport = rhi::viewport{.x = 0.0f,
+                                                        .y = 0.0f,
+                                                        .width = static_cast<float>(this->pass_frame.extent.width),
+                                                        .height = static_cast<float>(this->pass_frame.extent.height),
+                                                        .min_depth = 0.0f,
+                                                        .max_depth = 1.0f};
+        this->raster_pipeline->scissor = rhi::rect{.offset_x = 0, .offset_y = 0, .width = this->pass_frame.extent.width, .height = this->pass_frame.extent.height};
+        this->raster_pipeline->begin_pipeline(*segment);
+        segment->set_cull_mode(rhi::cull_mode::back);
+        segment->set_depth_write(true);
+        segment->set_viewport(this->raster_pipeline->viewport);
+        segment->set_scissor(this->raster_pipeline->scissor);
+        return true;
+    }
+
     rhi::error visibility_raster_pass::record_content(resolved_io const& io) noexcept {
         if (!this->raster_pipeline.has_value() || this->pass_frame.record_items == nullptr || io.targets.size() != visibility_raster_io.targets.size() ||
             io.list == nullptr || io.extent.width == 0 || io.extent.height == 0 || this->pass_frame.extent.width == 0 || this->pass_frame.extent.height == 0) {
@@ -91,6 +126,9 @@ namespace deren::engine::pass {
                                              .has_stencil = false,
                                              .clear_depth = 1.0f,
                                              .clear_stencil = 0};
+        this->pass_frame.bind_segment = &visibility_raster_pass::bind_segment;
+        this->pass_frame.segment_owner = this;
+        bool const parallel = !this->pass_frame.segments.empty() && this->pass_frame.bind_segment != nullptr;
         rhi::rendering_info const rendering_info{
             .struct_size = sizeof(rhi::rendering_info),
             .area = {.offset_x = 0, .offset_y = 0, .width = this->pass_frame.extent.width, .height = this->pass_frame.extent.height},
@@ -98,8 +136,8 @@ namespace deren::engine::pass {
             .colors = std::span<rhi::color_attachment const>(colors.data(), colors.size()),
             .depth = depth,
             .has_depth = true,
-            // straight into the primary: the per-item dispatches are ordinary commands, not secondaries
-            .secondary_contents = false,
+            // Parallel recording produces mergeable segments; the serial path records straight into the primary.
+            .secondary_contents = parallel,
         };
         if (rhi::error const begun = io.list->begin_rendering(rendering_info); begun != rhi::error::ok) {
             return begun;
@@ -130,7 +168,8 @@ namespace deren::engine::pass {
         io.list->set_viewport(this->raster_pipeline->viewport);
         io.list->set_scissor(this->raster_pipeline->scissor);
         std::uint32_t recorded = 0;
-        bool const ok = this->pass_frame.record_items(this->pass_frame.owner, *io.list, recorded);
+        bool const ok = this->pass_frame.record_items(this->pass_frame.owner, *io.list, this->pass_frame.segments,
+                                                      this->pass_frame.bind_segment, this->pass_frame.segment_owner, recorded);
         io.list->end_rendering();
         // THE LANE'S OWN WITNESS (visibility-buffer v0.4b): one line, once per run, saying that the item recorder
         // actually ran and how many mesh-task dispatches it issued. Until this existed the lane's only evidence was

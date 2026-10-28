@@ -2056,6 +2056,10 @@ namespace deren::engine {
         // (the GPU reads the secondaries while the slot's primary executes, so they share the primary's
         // lifetime), index = segment.
         deren::utility::vessel::vector<deren::utility::vessel::vector<rhi::mergeable_command_buffer_ref>> main_segments;
+        /// Per-slot visibility-raster segments: the item lane records concurrently, then the pass executes
+        /// them in item order inside its own rendering instance.
+        deren::utility::vessel::vector<deren::utility::vessel::vector<rhi::mergeable_command_buffer_ref>> visibility_segments;
+        deren::utility::vessel::vector<rhi::mergeable_command_buffer_ref> visibility_segment_view;
         // ---- THE FRAME'S COMMAND BUFFER, IN THE CONTRACT'S OWNERSHIP SPELLING (abi 15) -------------------
         // The engine's recording lives entirely on the contract now (abi 15-36): this holds the frame's
         // borrowed view so the frame steps can hand it to passes, and NO raw-handle bridge exists here any
@@ -2380,7 +2384,10 @@ namespace deren::engine {
         pass::visibility_frame make_visibility_frame(bool recovery = false) noexcept;
         /// the recorder: push each admitted item's own block, write its table row and issue its dispatch
         bool record_visibility_recovery(deren::promise::rhi::command_buffer& command_buffer, std::uint32_t& recorded);
-        bool record_visibility_items(deren::promise::rhi::command_buffer& command_buffer, std::uint32_t& recorded);
+        bool record_visibility_items(deren::promise::rhi::command_buffer& command_buffer,
+                                     std::span<rhi::mergeable_command_buffer_ref const> segments,
+                                     pass::visibility_frame::bind_segment_fn bind_segment, void* segment_owner,
+                                     std::uint32_t& recorded);
         /**
          * THE STRUCTURE PHASE ITSELF, which is one value now (see `deren.engine.ray_tracing`): the bottom and top level
          * structures, the map from their indices back to the casters they were built from, and the MASK/skin
@@ -2484,6 +2491,7 @@ namespace deren::engine {
         /// @brief a block pushed VERBATIM, with no index lanes: the mask bake declares none (it addresses its
         ///        sources and its destination through device addresses and reads one material table)
         static bool push_raw_block(void* owner, rhi::command_buffer& command_buffer, std::span<std::byte const> bytes);
+        static bool push_raw_block(void* owner, rhi::command_recorder& command_buffer, std::span<std::byte const> bytes);
         /**
          * @brief the MESH session's three endpoints (docs/mesh_shaders.md step 1), each the runtime's because it
          *        owns the device: the device address of a bound buffer, a push at a RAW offset (the geometry lanes

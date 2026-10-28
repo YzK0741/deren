@@ -157,6 +157,8 @@ def main():
     parser.add_argument('--hzb', action='store_true', help='Enable HZB build, cull and recovery')
     parser.add_argument('--gpu-software', action='store_true', help='Experimental triangle raster and GPU survivor routing; requires --software --hzb')
     parser.add_argument('--operation-profile', action='store_true', help='Diagnostic CPU attribution; exclude these frame timings from performance comparisons')
+    parser.add_argument('--record-trace', action='store_true', help='Per-pass graph-record trace; exclude these frame timings from performance comparisons')
+    parser.add_argument('--parallel-visibility', action='store_true', help='Record visibility item ranges into per-worker mergeable segments; diagnostic')
     parser.add_argument('--source-levels', type=int, default=0)
     parser.add_argument('--camera', default='35,8,42,0,-88,0')
     parser.add_argument('--memory', action='store_true', help='Separate WDDM memory run; do not use its timings for performance comparisons')
@@ -235,13 +237,17 @@ lut_size = 128
         env.update(DEREN_SOFTWARE_RASTER_TRIANGLES='1', DEREN_SOFTWARE_RASTER_GPU='1')
     if args.operation_profile:
         env['DEREN_RENDER_OPERATION_PROFILE'] = '1'
+    if args.record_trace:
+        env['DEREN_RECORD_TRACE'] = '1'
+    if args.parallel_visibility:
+        env['DEREN_PARALLEL_VISIBILITY'] = '1'
     cmd = [str(exe), '--config', str(config), '--capture-frames', str(args.frames),
            '--capture-camera='+args.camera, '--capture-sweep', str(args.sweep)]
     hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in [exe, *exe.parent.glob('*.dll')]}
     shader_hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in (exe.parent/'shaders').glob('*.spv')}
     (out/'manifest.json').write_text(json.dumps(dict(command=cmd, mode=args.mode, budget_mb=args.budget,
         validation=args.validation, mips=args.mips, software=args.software, subtilis=args.subtilis or args.software,
-        hzb=args.hzb, gpu_software=args.gpu_software, operation_profile=args.operation_profile, source_levels=args.source_levels, memory=args.memory,
+        hzb=args.hzb, gpu_software=args.gpu_software, operation_profile=args.operation_profile, record_trace=args.record_trace, parallel_visibility=args.parallel_visibility, source_levels=args.source_levels, memory=args.memory,
         resource_memory=args.resource_memory, process_memory=args.process_memory, hashes=hashes, shader_hashes=shader_hashes,
         model_sha256=hashlib.sha256(args.model.read_bytes()).hexdigest(),
         disable_streaming_frame=args.disable_streaming_frame, unlit=args.unlit, no_visibility=args.no_visibility,
