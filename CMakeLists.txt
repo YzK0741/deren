@@ -1009,7 +1009,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE $<$<CONFIG:Rel
 # declared here, on the library that actually uses the XXH3_128bits symbol. It propagates to
 # consumers (deren_engine / deren_assets / deren) at link time, so the executable does not need to
 # link xxhash itself. The platform_* TUs live here too - they are per-half by nature (no state).
-target_link_libraries(static_utility
+target_link_libraries(static_utility PUBLIC
         vstd_lib
         xxhash
         # PUBLIC because this module re-exports deren.utility.shared: every consumer that imports
@@ -1055,7 +1055,7 @@ target_link_libraries(backend_loader
 # The file dialog (source/utility/platform_dialog.cpp, for the config's `model = "ask"`) is GetOpenFileNameW,
 # which lives in the common dialog library. Windows-only, like the backend itself.
 if(WIN32)
-    target_link_libraries(static_utility comdlg32)
+    target_link_libraries(static_utility PUBLIC comdlg32)
 endif()
 
 target_link_libraries(app_config
