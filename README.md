@@ -15,18 +15,18 @@
 [Gaussian splatting details and viewer setup](#gaussian-splatting).
 
 <p align="center">
-  <img src="docs/screenshots/DamagedHelmet.png" width="49%" alt="DamagedHelmet with PBR + IBL + shadows" />
-  <img src="docs/screenshots/FlightHelmet.png" width="49%" alt="FlightHelmet with PBR + IBL + shadows" />
+  <img src="docs/screenshots/DamagedHelmet.png" width="49%" alt="DamagedHelmet with Studio Neutral HDR lighting and PBR Neutral tone mapping" />
+  <img src="docs/screenshots/FlightHelmet.png" width="49%" alt="FlightHelmet with Studio Neutral HDR lighting and PBR Neutral tone mapping" />
 </p>
 
 <p align="center">
   <img src="docs/screenshots/CharacterForward.png" width="34%" alt="The character-forward pipeline on a posed anime model" />
 </p>
 
-<sub>The two helmet shots are the default configuration as it stood when they were captured - deferred shading
-with SSAO, the cascaded shadows, the IBL prefilter and the traced-GI path that has since been removed
-(`1162d88`) - captured headlessly at 1080x960 from the scene's own framing, so they can be regenerated rather
-than re-taken by hand. The character shot is the character-forward pipeline on a posed anime
+<sub>The two helmet shots use deferred PBR with Studio Neutral HDR lighting, a solid grey background and
+Khronos PBR Neutral tone mapping, captured at 1080x960 with fixed cameras on 2026-10-29.
+These are material previews with direct sun, shadows, SSAO and temporal/post effects disabled.
+The character shot is the character-forward pipeline on a posed anime
 model; that session had the `toon shading` combo at `off (plain pbr)`, so the shading response is the smooth
 one and the banded cel looks are the combo's other values (see **Cel/toon shading** below). The debug overlay,
 the title bar and the taskbar were cropped away. See [`docs/screenshots/README.md`](docs/screenshots/README.md) for both.</sub>
