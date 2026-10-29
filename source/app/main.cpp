@@ -1,4 +1,5 @@
 #define GLFW_INCLUDE_NONE // glfw3.h must not pull <GL/gl.h>: we link no OpenGL, and this states it instead of relying on the environment
+#include "../engine/lighting/environment_controls.hpp"
 #include "startup_splash.hpp"
 
 #include <GLFW/glfw3.h> // the application's window: this file creates it and the backend only binds to it (see glfw_window_host)
@@ -34,6 +35,7 @@ import deren.engine.math;
 import deren.engine.scene_tree; // scene storage + GPU primitives (was vulkan.model)
 // the backend-creation contract (create_info): what this app hands the runtime below
 import deren.promise.rhi;
+#include "environment_loader.hpp"
 import deren.engine.runtime;
 import deren.engine.backend_loader;    // load_api_core(): the app owns the acquisition (batch ⑥)
 import deren.engine.render_start_demo; // the example's pass wiring: this app's chain, from outside the renderer
@@ -1166,6 +1168,8 @@ int main(int argc, char** argv) {
     auto const stage2_done = std::chrono::steady_clock::now();
     deren::utility::log("  IBL (prefilter/irradiance/BRDF LUT) + material resolve, parallel wall: {:.1f} ms", std::chrono::duration<double, std::milli>(stage2_done - stage2_start).count());
 
+    if (!deren::engine::environment_detail::valid_half_radiance(prefiltered) || !deren::engine::environment_detail::valid_half_radiance(irradiance))
+        deren::utility::panic(std::source_location::current(), "IBL exceeds finite half-float radiance; reduce environment_intensity");
     deren::utility::vessel::vector<uint8_t> const env_bytes = deren::engine::to_half_rgba(prefiltered);
     deren::utility::vessel::vector<uint8_t> const irr_bytes = deren::engine::to_half_rgba(irradiance);
     deren::utility::vessel::vector<uint8_t> const lut_bytes = deren::engine::to_half_rg(brdf_lut);
@@ -2539,6 +2543,13 @@ int main(int argc, char** argv) {
     // reason: the frame loop mirrors the binding into the runtime, so a config value that never reached the
     // binding would be overwritten by its default on the first frame.
     gui.goo_toon = settings.render.goo_toon;
+    gui.exposure = settings.render.exposure;
+    gui.tone_mapping = settings.render.tone_mapping;
+    gui.environment_rotation = settings.lighting.environment_rotation;
+    gui.environment_strength = settings.lighting.environment_strength;
+    gui.environment_background = settings.lighting.environment_background;
+    gui.environment_color = {settings.lighting.environment_color[0], settings.lighting.environment_color[1], settings.lighting.environment_color[2]};
+    gui.environment_blur = settings.lighting.environment_blur;
     gui.sun_intensity = settings.render.sun_intensity; // a scale on the sun (see [render] sun_intensity)
     // WHICH FILTER RESOLVES A SCALED RENDER CHAIN ([render] upscale), applied ONCE here and deliberately NOT
     // mirrored into `gui` like the toggles above: it selects a shader path rather than a per-frame quantity, so
@@ -2624,6 +2635,36 @@ int main(int argc, char** argv) {
     for (authored_camera const& ac : authored_cameras) {
         gui_camera_names.push_back(ac.camera->name.empty() ? "<unnamed>" : deren::utility::vessel::string(ac.camera->name));
     }
+    // Presets are local files; builds and the render loop never fetch remote assets.
+    deren::utility::vessel::vector<std::filesystem::path> environment_paths{{}};
+    gui.environment_names.push_back("Procedural sky");
+    if (!settings.lighting.environment_hdr.empty()) {
+        std::filesystem::path path(settings.lighting.environment_hdr);
+        if (path.is_relative())
+            path = deren::utility::executable_directory() / path;
+        environment_paths.push_back(path);
+        gui.environment_names.push_back(deren::utility::vessel::string(path.filename().string()));
+        gui.environment_index = 1;
+    }
+    std::error_code environment_scan_error;
+    std::vector<std::filesystem::path> discovered;
+    for (auto const& item : std::filesystem::directory_iterator(deren::utility::executable_directory() / "environments", environment_scan_error)) {
+        auto extension = item.path().extension().string();
+        std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+        if (extension == ".hdr" && item.is_regular_file(environment_scan_error))
+            discovered.push_back(item.path());
+    }
+    std::ranges::sort(discovered);
+    for (auto const& path : discovered) {
+        if (std::ranges::find(environment_paths, path) != environment_paths.end())
+            continue;
+        environment_paths.push_back(path);
+        gui.environment_names.push_back(deren::utility::vessel::string(path.filename().string()));
+    }
+    int32_t applied_environment = gui.environment_index;
+    int32_t requested_environment = applied_environment;
+    std::future<prepared_environment> environment_job;
+    gui.environment_status = "Environment ready";
     deren::chores::setup_gui(runtime, use_gui, settings, gui, animation, gui_camera_names, seed_orbit_from_camera);
 
     // Per-frame cheap clock: stamp() once per presented frame on this (the frame owner) thread,
@@ -2693,7 +2734,13 @@ int main(int argc, char** argv) {
         resource_trace.reserve(128);
         sample_resources();
     }
+    auto previous_environment_state = std::tuple(gui.environment_rotation, gui.environment_strength, gui.environment_background, gui.environment_color.x, gui.environment_color.y, gui.environment_color.z, gui.environment_blur);
     while (true) {
+        // Deterministic capture-only exercise of asynchronous preset publication and error retention.
+        if (capture.frames > 0 && std::getenv("DEREN_ENVIRONMENT_TEST_CYCLE") != nullptr &&
+            captured_frames > 0 && captured_frames % 60 == 0 && !environment_job.valid() && environment_paths.size() > 1) {
+            gui.environment_index = int32_t((captured_frames / 60) % environment_paths.size());
+        }
         if (capture.frames > 0 && captured_frames == disable_streaming_frame) {
             runtime.set_visibility_texture_streaming(false);
         }
@@ -2710,6 +2757,38 @@ int main(int argc, char** argv) {
             continue;
         }
         runtime.recreate_if_minimized();
+        // Upload only between frames. set_ibl waits for prior submissions and rolls back failed writes.
+        if (environment_job.valid() && environment_job.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            auto prepared = environment_job.get();
+            if (requested_environment == gui.environment_index) {
+                bool published = prepared.error.empty() && runtime.set_ibl(deren::engine::ibl_input{
+                                                               .prefiltered_env = prepared.environment, .irradiance = prepared.irradiance, .brdf_lut = lut_bytes, .env_size = uint32_t(env_size), .env_mip_count = uint32_t(env_mip_count), .irr_size = uint32_t(irr_size), .lut_size = uint32_t(lut_size)});
+                if (published) {
+                    start_demo.reset_temporal_history();
+                    applied_environment = requested_environment;
+                    gui.environment_status = "Environment ready: " + gui.environment_names[applied_environment];
+                    deren::utility::log("environment switched: {}", gui.environment_names[applied_environment]);
+                } else {
+                    gui.environment_index = applied_environment;
+                    gui.environment_status = prepared.error.empty() ? "Environment upload failed; previous environment retained" : prepared.error;
+                    deren::utility::log("environment switch refused: {}", gui.environment_status);
+                }
+            } else
+                gui.environment_status = "Environment ready: " + gui.environment_names[applied_environment];
+        }
+        if (!environment_job.valid() && gui.environment_index != applied_environment) {
+            if (gui.environment_index < 0 || std::size_t(gui.environment_index) >= environment_paths.size())
+                gui.environment_index = applied_environment;
+            else {
+                requested_environment = gui.environment_index;
+                auto path = environment_paths[requested_environment];
+                float scale = settings.lighting.environment_intensity;
+                gui.environment_status = "Preparing environment: " + gui.environment_names[requested_environment];
+                environment_job = std::async(std::launch::async, [path, sun_direction, env_size, env_mip_count, irr_size, scale] {
+                    return prepare_environment(path, sun_direction, env_size, env_mip_count, irr_size, scale);
+                });
+            }
+        }
 
         // Scripted capture: the camera sweep, advanced by the number of PRESENTED frames - a frame index,
         // not a clock reading, so two runs of one sweep are byte-identical (the harness's determinism run
@@ -2719,6 +2798,14 @@ int main(int argc, char** argv) {
             runtime.camera.yaw = sweep_base_yaw + glm::radians(capture.sweep_yaw_deg_per_frame) * static_cast<float>(captured_frames);
         }
 
+        runtime.set_environment(gui.environment_rotation, gui.environment_strength, gui.environment_background, gui.environment_color, gui.environment_blur);
+        runtime.set_tone_mapping(gui.tone_mapping);
+        runtime.set_exposure(gui.exposure);
+        auto current_environment_state = std::tuple(gui.environment_rotation, gui.environment_strength, gui.environment_background, gui.environment_color.x, gui.environment_color.y, gui.environment_color.z, gui.environment_blur);
+        if (current_environment_state != previous_environment_state) {
+            start_demo.reset_temporal_history();
+            previous_environment_state = current_environment_state;
+        }
         // Phase 2: pace + acquire the next frame slot. After pace_and_acquire() returns
         // proceed, this slot's previous submission has completed, so the per-frame host writes
         // below (scene node locals -> culling, skin matrices, morph weights) cannot race an
@@ -2866,7 +2953,6 @@ int main(int argc, char** argv) {
         // visible - imported model lights were loaded into those slots, so they must stay lit in
         // headless-overlay runs too (the demo slots stay off unless the user enabled them)
         deren::chores::apply_point_lights(runtime, gui, demo_lights);
-        runtime.set_exposure(gui.exposure);                                                     // gui exposure slider -> linear scale (post-process pass)
         runtime.set_bloom(gui.bloom_enabled ? gui.bloom_intensity : 0.0f, gui.bloom_threshold); // bloom checkbox + knobs -> post pass
         runtime.set_async_present(config.settings.render.async_present);
         runtime.set_max_fps(config.settings.render.max_fps); // 0 = uncapped (see config.example.toml)

@@ -1,0 +1,8 @@
+{
+  "upstream": "https://github.com/KhronosGroup/ToneMapping",
+  "revision": "180b1a7bddec33f73fe41712a2963cc3ad8e5547",
+  "files": {
+    "pbrNeutral.glsl": "087a1542c8d12d2d0fb89f570057e4e8365cc04eee5bff76c6e365cfa69f3734",
+    "LICENSE.txt": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+  }
+}

@@ -94,6 +94,8 @@ export namespace deren::engine {
         // =============================================================================================
         /// @brief TAA on/off (`runtime::set_taa_enabled`) + the resolve's two blend weights (the pass's)
         void set_taa(bool enabled, float blend_static, float blend_min) noexcept;
+        /// Discard accumulated lighting after an environment change without toggling TAA policy.
+        void reset_temporal_history() noexcept;
         /// @brief the spatial filter's width in GI texels (0 = a pass-through); the pass clamps it
         /// @brief the composite's joint-bilateral GI upsample switch
         /// @brief the multi-bounce gain the tracer re-emits at a hit (the pass clamps it to [0, 1])

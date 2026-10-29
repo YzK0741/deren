@@ -2110,6 +2110,7 @@ set(VR_SHADER_INCLUDES
     # ibl_specular.slang is included by shading.slang, so it belongs here for the same reason the three above
     # do: editing it alone must not leave stale SPIR-V behind.
     "${VR_SHADER_SRC_DIR}/lighting/ibl_specular.slang"
+    "${VR_SHADER_SRC_DIR}/post/pbr_neutral.slang"
     # heap_slot_constants.slang is the SLOT GRID's shader-side source of truth (render_layout.cppm is the
     # host's): a shader that includes it and is not rebuilt after it changes would index the heap by stale
     # numbers, which validation cannot see. The C++ side is compared against it by a test (see

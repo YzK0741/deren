@@ -1825,6 +1825,7 @@ namespace deren::engine {
         // post chain's exposure and bloom weights, FXAA's two thresholds, and the GI upsample's silhouette test.
         // The members stay the app-facing ones (`set_exposure` and friends) - this is the frame's copy of them.
         this->frame_facts.settings.exposure = this->exposure_scale;
+        this->frame_facts.settings.tone_mapping = this->tone_mapping;
         this->frame_facts.settings.bloom_intensity = this->bloom_intensity;
         this->frame_facts.settings.bloom_threshold = this->bloom_threshold;
         this->frame_facts.settings.fxaa_subpixel = this->fxaa_subpixel;

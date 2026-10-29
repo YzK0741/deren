@@ -2473,7 +2473,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         const float3 face_direct_specular = face_ndotl_clamped * (face_specular_term * face_specular_color) * face_cast_visibility * face_light_color * (face_energy_compensation + 1.0);
         // `IBL_diffuse = 混合.019 ⊙ AmbientLightColorTint ⊙ diffuseFGD ⊙ diffuseColor`, where `混合.019` reads the
         // probe irradiance TWICE - darkened by `亮度 / 对比度(0, −0.4)` and raw - and `cm.G` picks between them.
-        const float3 face_probe = irradiance_sample(face_shading_normal);
+        const float3 face_probe = environment_irradiance(face_shading_normal);
         const float3 face_ambient = lerp(goo_face_bright_contrast(face_probe, goo_face_ambient_contrast), face_probe, saturate(face_cm_g));
         const float face_diffuse_fgd = face_fgd_texel.b + goo_fgd_diffuse_offset;
         const float3 face_ibl_diffuse = face_ambient * face_ambient_tint * face_diffuse_fgd * face_diffuse_colour;
@@ -3102,14 +3102,14 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         goo_spec_ibl = goo_specular_fgd * goo_specular_fgd_strength * goo_energy_compensation;
         // `混合.013 = Shader Info.Ambient Lighting ⊙ 组输入.AmbientLightColorTint`: the irradiance is the ENGINE's
         // (the spec's §5.4: `Shader Info.Ambient Lighting` is PROBE DIFFUSE IRRADIANCE and it has exactly ONE
-        // consumer in the container - here), which the port already samples as `irradiance_sample(n)`; the TINT is
+        // consumer in the container - here), which the port already samples as `environment_irradiance(n)`; the TINT is
         // the material's new lane. `G8`/`G9` of the spec's §7.2 are the two things that must NOT come along:
         // `params.ambient_strength` (a family switch the reference has no equivalent of) and `ao_used` (the
         // reference's IBL diffuse reads no occlusion - its `混合.008` has four factors and AO is not one of them).
         // `diffuseColor` IS STEP 4'S `goo_diffuse_colour`, deliberately and not by coincidence: `G10`/`G15` say the
         // reference's IBL diffuse and its direct diffuse must carry the SAME `(1 - metallic)` discount, and step 4
         // already chose the reference's `1 - metallic*MetallicMax` over the article's `0.96 - 0.96*metallic`.
-        goo_diff_ibl = irradiance_sample(n) * goo_ambient_tint * goo_diffuse_fgd * goo_diffuse_colour;
+        goo_diff_ibl = environment_irradiance(n) * goo_ambient_tint * goo_diffuse_fgd * goo_diffuse_colour;
 
         // ---- AND WHAT THIS ARM HANDS BACK: THE ONE TERM IT OWNS, AND THE TWO FACTORS ----
         //
@@ -3132,7 +3132,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // shadow - and a toon look without ambient is the single most common way this style reads as broken.
     // `ao_used` AND NOT `ao`, for the reason the skin branch above states: the article's skin feeds its own
     // albedo-alpha occlusion to EVERY term that reads an occlusion, and this one does too.
-    const float3 ambient = irradiance_sample(n) * albedo * ao_used * params.ambient_strength;
+    const float3 ambient = environment_irradiance(n) * albedo * ao_used * params.ambient_strength;
 
     // ---- THE RIM: TWO DIFFERENT MECHANISMS, WHICH IS WHAT THE ARTICLE CARRIES ----
     //
@@ -3563,7 +3563,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // engine's is `[lighting] env_mip_count` mips deep (5 by default). The curve's SHAPE is kept - a smooth
     // surface reads a sharper mip than linear-in-roughness would give it - and the range is the asset's.
     const float env_level = clamp(log2(max(0.01, roughness)) * 1.2 + 5.0, 0.0, max(0.0, float(env_cube_levels() - 1)));
-    const float3 env_map_colour = env_cube_sample_lod(env_dir, env_level);
+    const float3 env_map_colour = environment_specular_sample(env_dir, env_level);
     // `selfAoShadowEffect` again, which is the article's: an environment reflection is occluded by the same
     // self-shadowing the highlight is, or a crevice shines.
     const float3 indir_light_specular = env_map_colour * final_ibl_brdf * rig.env.x * self_ao_shadow * params.ibl_specular_strength;

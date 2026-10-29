@@ -1161,11 +1161,11 @@ export namespace deren::engine::render_resource {
     // =============================================================================================
 
     /// @brief the push block the whole post chain shares, in bytes; its shape is `deren.engine.pass.post`'s
-    /// @note 32 AND NOT 28 SINCE THE ARTICLE'S LUT WEIGHT JOINED IT (`post_push_constants::lut_weight`), the fourth
+    /// @note 36 bytes: the existing LUT row plus the explicit tone-mapping selector. The fourth
     ///       float of the FXAA lanes' row. The shader's `PostPush` declares the same field in the same place - the note
     ///       there is explicit that the layout up to the three heap indices has to match the CPU struct, because a
     ///       block that stopped short reads its lanes out of the wrong members.
-    inline constexpr uint32_t post_push_bytes = 32;
+    inline constexpr uint32_t post_push_bytes = 36;
 
     /**
      * @brief the bloom chain's four levels, as ONE declaration per level

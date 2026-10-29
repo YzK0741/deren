@@ -392,6 +392,8 @@ namespace deren::engine {
         //                 READS (`calc_shadow_area`): a world-space radius, not an angle.
         glm::vec4 area_light = {};
         glm::vec4 area_light_axis = {};
+        glm::vec4 environment = {1, 0, 1, 0};                           // cos(yaw), sin(yaw), relative strength, background mode
+        glm::vec4 environment_background = {0.18f, 0.18f, 0.18f, 0.5f}; // linear RGB, blur
     };
     // std140 layout guard against the GLSL LightUBO: four cascade matrices (256 B), the direction,
     // the two per-cascade vec4s (304 B), four floats, light_count (a glm::vec4 whose x carries the
@@ -408,7 +410,8 @@ namespace deren::engine {
     // sizeof(light_ubo) used to end (8 * sizeof(glm::vec4)), and each new vec4 adds one more.
     static_assert(offsetof(light_ubo, area_light) == max_shadow_cascades * sizeof(glm::mat4) + 8 * sizeof(glm::vec4) + max_punctual_lights * sizeof(point_light));
     static_assert(offsetof(light_ubo, area_light_axis) == max_shadow_cascades * sizeof(glm::mat4) + 9 * sizeof(glm::vec4) + max_punctual_lights * sizeof(point_light));
-    static_assert(sizeof(light_ubo) == max_shadow_cascades * sizeof(glm::mat4) + 10 * sizeof(glm::vec4) + max_punctual_lights * sizeof(point_light));
+    static_assert(offsetof(light_ubo, environment) == max_shadow_cascades * sizeof(glm::mat4) + 10 * sizeof(glm::vec4) + max_punctual_lights * sizeof(point_light));
+    static_assert(sizeof(light_ubo) == max_shadow_cascades * sizeof(glm::mat4) + 12 * sizeof(glm::vec4) + max_punctual_lights * sizeof(point_light));
     static_assert(sizeof(light_ubo) <= 16384, "the light UBO must stay inside the guaranteed maxUniformBufferRange (16 KB)");
     static_assert(sizeof(point_light) == 64);
 

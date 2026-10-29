@@ -15,6 +15,39 @@ import deren.application_configuration;
 
 namespace {
     template <typename Settings>
+    void check_environment_controls(Settings const& s) {
+        if constexpr (requires { s.lighting.environment_rotation; s.lighting.environment_strength; s.lighting.environment_background; s.render.tone_mapping; s.render.exposure; }) {
+            CHECK(s.lighting.environment_rotation == 90.0f);
+            CHECK(s.lighting.environment_strength == 2.0f);
+            CHECK(s.lighting.environment_background == 1);
+            CHECK(s.render.tone_mapping == 1);
+            CHECK(s.render.exposure == 1.5f);
+        } else
+            CHECK_MSG(false, "environment viewing controls must be parsed");
+    }
+
+    void test_environment_viewing_controls() {
+        std::ofstream("environment-viewing.toml") << "[lighting]\nenvironment_rotation=90\nenvironment_strength=2\nenvironment_background=1\n[render]\ntone_mapping=1\nexposure=1.5\n";
+        auto s = deren::app_config::load_settings("environment-viewing.toml");
+        check_environment_controls(s);
+        std::filesystem::remove("environment-viewing.toml");
+    }
+
+    void test_environment_invalid_controls() {
+        std::ofstream("environment-invalid.toml") << "[lighting]\nenvironment_rotation=nan\nenvironment_strength=inf\nenvironment_background=99\nenvironment_blur=nan\nenvironment_color=[nan, -1.0, 2.0]\nenvironment_intensity=inf\n[render]\nexposure=nan\ntone_mapping=99\n";
+        auto s = deren::app_config::load_settings("environment-invalid.toml");
+        CHECK(s.lighting.environment_rotation == 0);
+        CHECK(s.lighting.environment_strength == 1);
+        CHECK(s.lighting.environment_background == 0);
+        CHECK(s.lighting.environment_blur == 0.5f);
+        CHECK(s.lighting.environment_color[0] == 0.18f);
+        CHECK(s.lighting.environment_color[1] == 0);
+        CHECK(s.lighting.environment_color[2] == 1);
+        CHECK(s.lighting.environment_intensity == 0.35f);
+        CHECK(s.render.exposure == 1 && s.render.tone_mapping == 0);
+        std::filesystem::remove("environment-invalid.toml");
+    }
+    template <typename Settings>
     void check_presentation_settings(Settings const& settings, bool expected) {
         if constexpr (requires { settings.render.async_present; settings.render.offscreen; }) {
             CHECK(settings.render.async_present == expected);
@@ -458,6 +491,8 @@ namespace {
 } // namespace
 
 int32_t main() {
+    test_environment_viewing_controls();
+    test_environment_invalid_controls();
     for (auto value : {"0", "-1", "nan", "inf", "1e100", "1e-100", "\"wrong\""}) {
         auto file = std::filesystem::path("subtilis-invalid.toml");
         {

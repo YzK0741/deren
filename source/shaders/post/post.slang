@@ -64,6 +64,7 @@ struct PostPush
     // before the three heap indices, because that is where the CPU's `post_push_constants` puts it - see this
     // struct's own note above about a block that stops short reading its lanes out of the wrong members.
     float lut_weight;
+    float tone_mapping;
     uint frame_slot;
     uint image_index;
     uint post_source_slot; // this chain's own lane: the host names the pass's ABSOLUTE grid slot per pass
@@ -72,6 +73,8 @@ struct PostPush
 #define heap_frame_slot (pc.frame_slot)
 #define heap_image_index (pc.image_index)
 #define heap_post_source_slot (pc.post_source_slot)
+
+#include "post/pbr_neutral.slang"
 
 /// @brief ACES filmic tonemapping (Narkowicz fit)
 /// @param color linear HDR colour, already multiplied by the exposure scale
@@ -204,7 +207,7 @@ float4 frag_main([[vk::location(0)]] float2 v_uv : TEXCOORD0) : SV_Target
     // ambient and the IBL.
     color += bloom * pc.bloom_intensity;
     color *= pc.exposure;
-    color = aces_tone_mapping(color);
+    color = pc.tone_mapping > 0.5 ? pbr_neutral_tone_mapping(max(color, float3(0.0))) : aces_tone_mapping(color);
     // Display encoding: normally the sRGB swapchain attachment does it (pc.encode_gamma == 0); this path
     // only exists so a UNORM swapchain still gets correct output.
     if (pc.encode_gamma > 0.5)

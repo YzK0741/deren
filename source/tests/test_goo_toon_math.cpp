@@ -2755,7 +2755,7 @@ int32_t main() {
                                                "lerp(float3(goo_fgd_texel.r), float3(goo_fgd_texel.g), goo_fresnel0)",
                                                "const float goo_energy_compensation = 1.0 / goo_fgd_reflectivity - 1.0;",
                                                "goo_spec_ibl = goo_specular_fgd * goo_specular_fgd_strength * goo_energy_compensation;",
-                                               "goo_diff_ibl = irradiance_sample(n) * goo_ambient_tint * goo_diffuse_fgd * goo_diffuse_colour;",
+                                               "goo_diff_ibl = environment_irradiance(n) * goo_ambient_tint * goo_diffuse_fgd * goo_diffuse_colour;",
                                                "goo_ndotl_clamped * (goo_specular_chosen * goo_specular_color) * shadow_used * goo_light_color * direct_occlusion"}) {
                 CHECK_MSG(character_forward.find(spelling) != deren::utility::vessel::string::npos, spelling);
             }

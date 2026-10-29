@@ -1,4 +1,5 @@
 // Headless unit tests: deren.engine.math module (pure CPU - IBL precompute helpers) ===
+#include "../engine/lighting/environment_controls.hpp"
 #include "vk_test.h"
 
 #include <algorithm>
@@ -307,6 +308,20 @@ void test_orbit_camera_pan() {
 }
 
 int32_t main() {
+    using namespace deren::engine::environment_detail;
+    auto base = pack_environment(0, 1, 0);
+    CHECK(base[0] == 1 && base[1] == 0 && base[2] == 1 && base[3] == 0);
+    auto quarter = pack_environment(90, 2, 2);
+    CHECK(std::abs(quarter[0]) < 1e-6f && std::abs(quarter[1] - 1) < 1e-6f);
+    auto bad = pack_environment(NAN, INFINITY, 99);
+    CHECK(bad[0] == 1 && bad[1] == 0 && bad[2] == 1 && bad[3] == 0);
+    CHECK(pack_environment(720, -1, 1)[2] == 0);
+    auto background = pack_background({NAN, -1, 2}, INFINITY);
+    CHECK(background[0] == 0.18f && background[1] == 0 && background[2] == 1 && background[3] == 0.5f);
+    CHECK(valid_half_radiance(std::array<float, 2>{0, 65504}));
+    CHECK(!valid_half_radiance(std::array<float, 2>{1, 65505}));
+    CHECK(!valid_half_radiance(std::array<float, 2>{1, INFINITY}));
+    CHECK(!valid_half_radiance(std::array<float, 2>{1, NAN}));
     test_environment_cubemap_shape();
     test_irradiance_map_shape();
     test_brdf_lut_shape();

@@ -1,4 +1,6 @@
 module;
+#include "../lighting/environment_controls.hpp"
+
 #include <GLFW/glfw3.h>
 #include <algorithm> // std::min in the resource publication
 #include <array>
@@ -3276,6 +3278,16 @@ namespace deren::engine {
         this->head_state.front = glm::vec4(glm::normalize(front), 0.0f);
         this->head_state.right = glm::vec4(glm::normalize(right), 0.0f);
         this->head_state.up = glm::vec4(glm::normalize(up), 0.0f);
+    }
+
+    void runtime::set_tone_mapping(int32_t mode) noexcept {
+        this->tone_mapping = mode == 1 ? 1.0f : 0.0f;
+    }
+    void runtime::set_environment(float rotation_degrees, float strength, int32_t background, glm::vec3 color, float blur) noexcept {
+        auto e = environment_detail::pack_environment(rotation_degrees, strength, background);
+        auto b = environment_detail::pack_background({color.x, color.y, color.z}, blur);
+        this->light_state.environment = {e[0], e[1], e[2], e[3]};
+        this->light_state.environment_background = {b[0], b[1], b[2], b[3]};
     }
 
     void runtime::set_exposure(float const exposure) noexcept {

@@ -163,6 +163,8 @@ namespace deren::app_config {
         // this lane; without the key the only value reachable was the furnace mode's 0 or 1. 1.0 is the
         // shading path's own constant 7.5 unchanged; the gui exposes it as "sun intensity".
         float sun_intensity = 1.0f;
+        float exposure = 1.0f;
+        int32_t tone_mapping = 0;
         // Clustered light culling ([render] clustered_lights, M5): the punctual lights are sorted
         // into a screen-tile x depth-slice grid once per frame and the shading stage loops only its
         // own cluster's list. false = the brute-force loop over every active light - the reference
@@ -378,6 +380,11 @@ namespace deren::app_config {
          * ambience. 1.0 is the file's raw radiance, which for a studio HDRI is a good deal brighter.
          */
         float environment_intensity = 0.35f;
+        float environment_rotation = 0.0f;
+        float environment_strength = 1.0f;
+        int32_t environment_background = 0;
+        deren::utility::vessel::array<float, 3> environment_color = {0.18f, 0.18f, 0.18f};
+        float environment_blur = 0.5f;
         /**
          * THE REFERENCE PACKAGE'S AREA LIGHT - a 30 m x 30 m square soft box, 4000 W, which that package's
          * `manifest.json` (`deren-ab/bg/endfield-background/manifest.json`) names as the main light of the shot:

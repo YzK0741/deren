@@ -70,6 +70,7 @@ namespace deren::engine {
     export struct render_settings {
         /// the tonemap's exposure scale (the composite, the bloom levels and FXAA all push it)
         float exposure = 1.0f;
+        float tone_mapping = 0.0f;
         /// the bloom sum's weight and the prefilter's threshold (the same three)
         float bloom_intensity = 0.0f;
         float bloom_threshold = 0.6f;

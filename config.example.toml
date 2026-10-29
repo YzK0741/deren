@@ -40,6 +40,9 @@ model_dir = ""
 screenshot_dir = ""
 
 # ---- [render] window / presentation ----
+[render]
+exposure = 1.0 # linear multiplier before tone mapping
+tone_mapping = 0 # 0 existing ACES fit, 1 Khronos PBR Neutral
 async_present = false # overlap window presentation with preparation; currently experimental
 offscreen = false     # startup only: no window or surface; scripted captures select this automatically
 # Initial window size in pixels; the window is resizable, resizing rebuilds the
@@ -495,6 +498,13 @@ panel_height = 560
 # Lower values speed up startup (fewer pixels precomputed); higher values improve
 # ambient / reflection quality.
 [lighting]
+
+# Environment viewing: runtime strength multiplies the baked HDR intensity below.
+environment_strength = 1.0
+environment_rotation = 0.0 # degrees about Y, shared by diffuse/specular/background sampling
+environment_background = 0 # 0 existing sky, 1 solid, 2 environment, 3 blurred environment
+environment_color = [0.18, 0.18, 0.18] # linear RGB; exposure/tone mapping still apply
+environment_blur = 0.5 # roughness-mip fraction for background mode 3 only
 env_size      = 256   # base environment cubemap size
 env_mip_count = 5     # prefiltered environment mip chain length
 irr_size      = 32    # irradiance cubemap size

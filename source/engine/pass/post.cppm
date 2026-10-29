@@ -86,6 +86,7 @@ export namespace deren::engine::pass {
         // WITHOUT changing the look, so the default keeps the frame exact and the artist's switch is this number;
         // turning it on is a one-line change here, and the measurement above is what says what that costs.
         float lut_weight = 0.0f;
+        float tone_mapping = 0.0f;
     };
 
     static_assert(sizeof(post_push_constants) == render_resource::post_push_bytes,

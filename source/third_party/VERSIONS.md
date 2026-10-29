@@ -1,5 +1,13 @@
 # Vendored Third-Party Versions
 
+## Khronos PBR Neutral tone mapping
+
+- upstream: https://github.com/KhronosGroup/ToneMapping
+- revision and SHA256: `khronos_tonemapping/provenance.json`
+- license: Apache-2.0 (`khronos_tonemapping/LICENSE.txt`); Copyright 2024 The Khronos Group, Inc.
+- local adaptation: GLSL vec3/mix to Slang float3/lerp in `source/shaders/post/pbr_neutral.slang`
+- build: optional composite tone mapper; existing ACES remains the default
+
 Pinned versions + local patches for the vendored code under `third_party/`
 (see each subtree's LICENSE). These are the checked-in copies the build
 uses; system-package equivalents (e.g. MSYS2 packages) are not vendored and

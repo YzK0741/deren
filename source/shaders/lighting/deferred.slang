@@ -163,8 +163,7 @@ float4 main([[vk::location(0)]] float2 v_uv : TEXCOORD0, float4 sv_position : SV
         // hard-coded `(0.3, 1.0, 0.5)`, which is a second place for one sun to live and would put the visible
         // disc somewhere other than the direction the shadows are cast from the moment `[lighting]
         // sun_direction` moved.
-        return float4(sky_color(normalize(far_point - camera_at(heap_camera_slot).camera_pos),
-                                normalize(light_at(heap_light_slot).light_dir.xyz)), 1.0);
+        return float4(environment_background_color(normalize(far_point - camera_at(heap_camera_slot).camera_pos)), 1.0);
     }
 
     const float4 albedo_metallic = gbuffer_texel(heap_at<Texture2D<float4>>(heap_slots_gbuffer_albedo + heap_image_index), v_uv);

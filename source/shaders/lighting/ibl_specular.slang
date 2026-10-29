@@ -42,7 +42,7 @@ float ibl_specular_lod(float roughness) {
 
 /// @brief one sample of the prefiltered environment: the radiance arriving from @p reflection
 float3 ibl_specular_sample(float3 reflection, float lod) {
-    return env_cube_sample_lod(reflection, lod);
+    return environment_specular_sample(reflection, lod);
 }
 
 /// @brief Prefiltered GGX environment radiance for a reflection ray, at the mip that matches

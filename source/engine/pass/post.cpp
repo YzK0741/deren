@@ -208,6 +208,7 @@ namespace deren::engine::pass {
         post_push_constants push = {};
         std::memcpy(&push, io.push.data(), sizeof(push));
         push.mode = 2.0f;
+        push.tone_mapping = io.constants.settings.tone_mapping;
         // THE RENDERING SCOPE RIDES THE CONTRACT NOW (abi 20): one colour attachment, CLEAR + STORE (the
         // helper the raw spelling used), zero clear colour, no depth - the composite's whole scope.
         deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {

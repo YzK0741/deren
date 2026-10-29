@@ -1824,6 +1824,7 @@ namespace deren::engine {
         // the shading stages apply through the scene layout's push-constant range (see
         // record_main_segment)
         float exposure_scale = 1.0f;
+        float tone_mapping = 0.0f;
         float bloom_intensity = 0.0f;
         float bloom_threshold = 0.6f;
         // cel/toon shading: quantization steps (0 = plain PBR) and the band edge softness;
@@ -3764,6 +3765,8 @@ namespace deren::engine {
          *       every frame, so this is safe at any time (GUI slider included)
          */
         void set_exposure(float exposure) noexcept;
+        void set_tone_mapping(int32_t mode) noexcept;
+        void set_environment(float rotation_degrees, float strength, int32_t background, glm::vec3 color, float blur) noexcept;
         /**
          * @ingroup runtime
          * @brief publish the FACE SDF's head frame (scene block slot 749) for the next frame
@@ -4569,7 +4572,7 @@ namespace deren::engine {
          *       reading them - a heap write has no update-after-bind notion to make that legal. Mid-loop
          *       IBL swaps need wait_idle() first.
          */
-        void set_ibl(ibl_input const& info);
+        bool set_ibl(ibl_input const& info);
 
         /**
          * @brief upload the ARTICLE'S POST LUT (`ZmdLutPost.shader`'s `_LutTex`) into its heap slot

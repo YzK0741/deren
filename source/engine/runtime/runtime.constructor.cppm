@@ -2315,9 +2315,9 @@ namespace deren::engine {
         }
     }
 
-    void runtime::set_ibl(ibl_input const& info) {
+    bool runtime::set_ibl(ibl_input const& info) {
         if (!info.env_size || !info.env_mip_count || !info.irr_size || !info.lut_size) {
-            return;
+            return false;
         }
         deren::utility::vessel::vector<rhi::shared_object<rhi::image>> images;
         deren::utility::vessel::vector<rhi::shared_object<rhi::image_view>> views;
@@ -2342,14 +2342,14 @@ namespace deren::engine {
             !upload(resource_id::ibl_irradiance, info.irradiance, info.irr_size, 1, rhi::image_format::r16g16b16a16_sfloat, true) ||
             !upload(resource_id::brdf_lut, info.brdf_lut, info.lut_size, 1, rhi::image_format::r16g16_sfloat, false)) {
             deren::utility::log("IBL resources could not be prepared; keeping the previous environment");
-            return;
+            return false;
         }
         rhi::sampler_desc desc{};
         desc.address_mode = rhi::sampler_address_mode::clamp_to_edge;
         desc.max_lod = static_cast<float>(info.env_mip_count - 1);
         auto sampler = create_shared_sampler(resource_id::environment_sampler, desc);
         if (!sampler) {
-            return;
+            return false;
         }
         this->rhi_face().wait_idle();
         deren::utility::vessel::array<uint32_t, 3> const slots{deren::engine::render_layout::heap_slots::env_cube,
@@ -2378,7 +2378,7 @@ namespace deren::engine {
             }
             this->shared_heap_ready = this->shared_heap_ready && restored;
             deren::utility::log("IBL descriptor publication failed; previous bindings restored: {}", restored);
-            return;
+            return false;
         }
         // Commit only after all heap writes succeed; old owners remain alive during rollback.
         this->ibl_views = std::move(views);
@@ -2387,6 +2387,7 @@ namespace deren::engine {
         this->failed_shared_publication.clear();
         this->shared_heap_ready = true;
         this->ibl_ready = true;
+        return true;
     }
     // THE ARTICLE'S POST LUT (`ZmdLutPost.shader`'s `_LutTex`), uploaded exactly as the BRDF LUT above is - the same
     // `create_image(data, ...)` -> `make_image_view` -> `write_heap_grid_image` triple, because a baked cube and a

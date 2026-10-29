@@ -736,6 +736,15 @@ namespace deren::chores {
         // linear exposure applied before tonemapping (pbr.frag + skybox.frag); main pushes it
         // into the runtime every frame like the light slots
         panel.add_slider("exposure", &bindings.exposure, 0.1f, 5.0f);
+        panel.add_combo("tone mapping", {"ACES (existing)", "Khronos PBR Neutral"}, &bindings.tone_mapping);
+        if (!bindings.environment_names.empty()) panel.add_combo("environment", bindings.environment_names, &bindings.environment_index);
+        panel.add_label([&bindings] { return bindings.environment_status; });
+        panel.add_slider("environment rotation", &bindings.environment_rotation, -180.0f, 180.0f);
+        panel.add_slider("environment strength", &bindings.environment_strength, 0.0f, 8.0f);
+        panel.add_combo("background", {"procedural sky", "solid colour", "environment", "blurred environment"}, &bindings.environment_background);
+        panel.add_vec3("background linear RGB", &bindings.environment_color.x, 0.01f);
+        panel.add_slider("background blur", &bindings.environment_blur, 0.0f, 1.0f);
+
         // bloom (bright-pass threshold + blend weight); 0 intensity disables it
         // the useful ranges: a threshold above ~0.75 leaves almost no pixel over it (so nothing
         // glows), and the intensity needed for a visible glow grows with the threshold - keeping

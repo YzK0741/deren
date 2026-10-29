@@ -109,6 +109,10 @@ namespace deren::app_config {
                     }
                 }
             }
+            if (auto v = (*render)["exposure"].value<double>())
+                settings.render.exposure = std::isfinite(*v) ? float(std::clamp(*v, 0.05, 20.0)) : 1.0f;
+            if (auto v = (*render)["tone_mapping"].value<int64_t>())
+                settings.render.tone_mapping = *v == 1 ? 1 : 0;
             if (toml::node const* node = render->get("sun_intensity")) {
                 if (std::optional<double> const value = node->value<double>()) {
                     settings.render.sun_intensity = static_cast<float>(std::clamp(*value, 0.0, 3.0));
@@ -447,6 +451,14 @@ namespace deren::app_config {
                     settings.lighting.environment_intensity = static_cast<float>(*value);
                 }
             }
+            if (auto v = (*lighting)["environment_rotation"].value<double>())
+                settings.lighting.environment_rotation = std::isfinite(*v) ? float(std::remainder(*v, 360.0)) : 0.0f;
+            if (auto v = (*lighting)["environment_strength"].value<double>())
+                settings.lighting.environment_strength = std::isfinite(*v) ? float(std::clamp(*v, 0.0, 64.0)) : 1.0f;
+            if (auto v = (*lighting)["environment_blur"].value<double>())
+                settings.lighting.environment_blur = std::isfinite(*v) ? float(std::clamp(*v, 0.0, 1.0)) : 0.5f;
+            if (auto v = (*lighting)["environment_background"].value<int64_t>())
+                settings.lighting.environment_background = *v >= 0 && *v <= 3 ? int32_t(*v) : 0;
             if (toml::node const* node = lighting->get("demo_lights")) {
                 if (std::optional<int64_t> const value = node->value<int64_t>()) {
                     settings.lighting.demo_lights = static_cast<int32_t>(*value);
@@ -479,6 +491,9 @@ namespace deren::app_config {
                     }
                 }
             };
+            read_vec3(*lighting, "environment_color", settings.lighting.environment_color);
+            for (auto& v : settings.lighting.environment_color)
+                v = std::isfinite(v) ? std::clamp(v, 0.0f, 1.0f) : 0.18f;
             read_vec3(*lighting, "area_light_position", settings.lighting.area_light_position);
             read_vec3(*lighting, "area_light_target", settings.lighting.area_light_target);
             for (auto const& [key, target] : {
@@ -604,7 +619,7 @@ namespace deren::app_config {
         // The environment multiplier scales radiance: a negative one would mirror the image into nonsense
         // and a NaN would poison every texel of the IBL it feeds. Both fall back to the reference's own
         // number instead of rendering an environment nobody chose. (`!(x >= 0)` is the NaN test.)
-        if (!(settings.lighting.environment_intensity >= 0.0f)) {
+        if (!(settings.lighting.environment_intensity >= 0.0f) || !std::isfinite(settings.lighting.environment_intensity)) {
             deren::utility::log("app_config: invalid environment_intensity {} (use a finite value >= 0), falling back to 0.35", settings.lighting.environment_intensity);
             settings.lighting.environment_intensity = 0.35f;
         }

@@ -205,6 +205,11 @@ namespace deren::engine {
     // The CLAMPS travel with the values (they are the same fact), which is why the argument for each of them now
     // lives in the pass that owns it rather than in the setter below.
 
+    void render_start_demo::reset_temporal_history() noexcept {
+        if (this->taa)
+            this->taa->reset_history();
+    }
+
     void render_start_demo::set_taa(bool const enabled, float const blend_static, float const blend_min) noexcept {
         bool const turned_on = this->runtime_owner != nullptr && this->runtime_owner->set_taa_enabled(enabled);
         if (this->taa == nullptr) {

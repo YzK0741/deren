@@ -32,6 +32,10 @@ implementation details, measured results and the limits of each feature.
   environment and a BRDF lookup table. Normal maps, occlusion and emissive feed the shared
   material and lighting functions. The scene uses a deferred G-buffer path; direct-light
   BRDF/diffuse presets remain selectable. See \ref md_docs_2shaders "Shaders".
+- **Environment viewing.** Local HDR presets can be switched while running; diffuse/specular IBL
+  and environment backgrounds share rotation and strength. Solid/blurred backgrounds, exposure and
+  optional Khronos PBR Neutral tone mapping support material comparisons. See
+  \ref md_docs_2environment__lighting "Environment lighting" for controls and asset attribution.
 - **Declared pass inputs and outputs.** Each pass describes its resource uses once;
   the declaration layer resolves those uses against the render resources. A composable
   pass chain separates scene rendering, lighting and post processing, with shared named

@@ -127,6 +127,15 @@ namespace deren::chores {
         int32_t brdf_model = 0;            // brdf-model combo (0 = GGX+joint, 1 = GGX+height-corr,
                                            // 2 = Beckmann, 3 = Blinn-Phong); write-through to runtime
         int32_t diffuse_model = 0;         // diffuse combo (0 = Lambert, 1 = Oren-Nayar)
+        float environment_rotation = 0.0f;
+        float environment_strength = 1.0f;
+        int32_t environment_background = 0;
+        glm::vec3 environment_color = {0.18f,0.18f,0.18f};
+        float environment_blur = 0.5f;
+        int32_t environment_index = 0;
+        int32_t tone_mapping = 0;
+        deren::utility::vessel::vector<deren::utility::vessel::string> environment_names;
+        deren::utility::vessel::string environment_status;
         float exposure = 1.0f;             // linear exposure slider (runtime::set_exposure)
         // bloom on/off (M9): the checkbox gates the whole chain; the intensity slider keeps its value
         // while it is off, so toggling back restores the previous look. main() mirrors it by pushing an

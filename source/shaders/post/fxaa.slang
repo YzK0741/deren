@@ -28,6 +28,7 @@ struct PostPush
     // is not hypothetical: adding the field to `post.slang` alone left `deferred_taa_fxaa` as the one reference
     // scenario that changed, because FXAA read its `display` image out of the LUT's slot.
     float lut_weight;
+    float tone_mapping;
     uint frame_slot;           // THE HEAP INDICES, at the END so every field above keeps its offset
     uint image_index;
 };

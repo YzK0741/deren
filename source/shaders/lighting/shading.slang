@@ -78,7 +78,7 @@ struct CameraUBO {
 // does not include this file needs them too (see that file's note on which index each kind of array takes).
 // ... and the specular half of the split sum, which lives in a file of its own so that the two sides of a
 // subtraction compute it from the same expressions (see that file's header).
-#include "lighting/ibl_specular.slang"
+
 
 // Light UBO (scene set binding 7): the orthographic light view-proj (world -> shadow map) and the
 // light direction, followed by the active punctual lights. The direction is filled by the CPU
@@ -145,7 +145,29 @@ struct LightUBO {
     // reason - both signs land on the shipped expression while the feature is off.
     float4 area_light;      // xyz = emitter centre (WORLD, Y-up metres), w = half the side; w <= 0 = no area light
     float4 area_light_axis; // xyz = emitter normal (centre -> target); w = penumbra world radius (metres); <= 0 = no area shadow
+    float4 environment;
+    float4 environment_background;
 };
+
+#include "lighting/sky.slang"
+float3 environment_direction(float3 dir) {
+    float4 e = light_at(heap_light_slot).environment;
+    return float3(e.x * dir.x - e.y * dir.z, dir.y, e.y * dir.x + e.x * dir.z);
+}
+float3 environment_specular_sample(float3 dir, float lod) {
+    return env_cube_sample_lod(environment_direction(dir), lod) * light_at(heap_light_slot).environment.z;
+}
+float3 environment_irradiance(float3 dir) {
+    return irradiance_sample(environment_direction(dir)) * light_at(heap_light_slot).environment.z;
+}
+float3 environment_background_color(float3 dir) {
+    float mode = light_at(heap_light_slot).environment.w;
+    if (mode < 0.5) return sky_color(dir, normalize(light_at(heap_light_slot).light_dir.xyz));
+    if (mode < 1.5) return light_at(heap_light_slot).environment_background.rgb;
+    float lod = mode < 2.5 ? 0.0 : light_at(heap_light_slot).environment_background.w * float(max(env_cube_levels()-1,0));
+    return environment_specular_sample(dir, lod);
+}
+#include "lighting/ibl_specular.slang"
 
 // Per-cluster light lists (scene set bindings 11/12), written by shaders/light_cluster.slang: one
 // entry per cluster in cluster_counts (how many lights landed in it) and a fixed-capacity row per
@@ -699,7 +721,7 @@ float3 evaluate_direct_light(float3 n, float3 v, float3 base_color, float metall
 ///        always uses this fixed GGX model, independent of the BRDF presets above
 /// Diffuse ambient: irradiance map lookup by the world normal
 float3 get_diffuse_light(float3 n) {
-    return irradiance_sample(n);
+    return environment_irradiance(n);
 }
 
 // The specular half - get_specular_sample / get_ibl_ggx_fresnel / get_ibl_radiance_ggx - is
