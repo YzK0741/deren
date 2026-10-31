@@ -1,0 +1,19 @@
+#!/bin/sh
+# Read every ref being pushed (the pre-push protocol supplies them on stdin).
+while read -r local_ref local_sha remote_ref remote_sha; do
+    case "$remote_ref" in
+        refs/heads/master|refs/heads/main)
+            echo "push refused: direct pushes to ${remote_ref#refs/heads/} are disabled." >&2
+            echo "Use scripts/push.ps1 on a feature branch, open a PR, and merge after CI is green." >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [ "$DEREN_LOCAL_CI_OK" != "1" ]; then
+    echo "push refused: the local CI gate marker is missing." >&2
+    echo "Run scripts/push.ps1 (it runs scripts/run-local-ci.ps1 before pushing), or run the gate and set DEREN_LOCAL_CI_OK=1 explicitly." >&2
+    exit 1
+fi
+
+exit 0

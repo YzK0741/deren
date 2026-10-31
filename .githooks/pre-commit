@@ -1,0 +1,9 @@
+#!/bin/sh
+# Every commit must go through scripts/commit.ps1, which sets this marker only
+# after the three checklist answers and the local CI gate.
+if [ "$DEREN_CHECKLIST_OK" != "1" ]; then
+    echo "commit refused: use scripts/commit.ps1 so the completeness/CI/honesty checklist runs." >&2
+    echo "A direct 'git commit' is not allowed; the checklist marker was not set." >&2
+    exit 1
+fi
+exit 0

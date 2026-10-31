@@ -1,0 +1,9 @@
+#!/bin/sh
+# Direct local merges into an integration branch are not allowed. Use a pull
+# request and squash merge on GitHub, so the branch only receives reviewed,
+# green commits.
+if [ "$DEREN_ALLOW_MERGE" != "1" ]; then
+    echo "merge refused: direct local merges are disabled; use a pull request." >&2
+    exit 1
+fi
+exit 0
