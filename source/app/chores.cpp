@@ -50,7 +50,7 @@ namespace deren::chores {
 
         // 3. Pick the model file: `model = "ask"` opens the platform's own file dialog first (the config's
         //    way of saying "let me choose at startup"); otherwise settings.model when configured/argv-given;
-        //    else the default model under settings.paths.model_dir (or the auto-located gltf_model/).
+        //    else the default model under settings.paths.model_dir (or the auto-located asset/).
         //    WHICH LOADER READS IT IS THE FILE'S OWN EXTENSION (see app_config::model_format_of), so the dialog
         //    offers both families and neither the title nor the filter promises glTF alone.
         if (deren::app_config::wants_model_dialog(settings)) {
@@ -67,15 +67,15 @@ namespace deren::chores {
             config.model_path = settings.model;
         }
         if (config.model_path.empty() && !settings.paths.model_dir.empty()) {
-            config.model_path = (std::filesystem::path(settings.paths.model_dir) / "DamagedHelmet.gltf").string();
+            config.model_path = (std::filesystem::path(settings.paths.model_dir) / "DamagedHelmet" / "DamagedHelmet.gltf").string();
             if (!std::filesystem::is_regular_file(config.model_path)) {
-                deren::utility::panic(std::source_location::current(), "cannot find model '{}' under configured model_dir '{}'.", "DamagedHelmet.gltf", settings.paths.model_dir);
+                deren::utility::panic(std::source_location::current(), "cannot find model '{}' under configured model_dir '{}'.", "DamagedHelmet/DamagedHelmet.gltf", settings.paths.model_dir);
             }
         } else if (config.model_path.empty()) {
             if (std::optional<std::filesystem::path> const located = locate_model_file()) {
                 config.model_path = located->string();
             } else {
-                deren::utility::panic("cannot find gltf_model/DamagedHelmet.gltf. run the program from the project root or pass a model path as argv[1]");
+                deren::utility::panic("cannot find asset/DamagedHelmet/DamagedHelmet.gltf. run the program from the project root or pass a model path as argv[1]");
             }
         }
 
@@ -129,11 +129,11 @@ namespace deren::chores {
         return std::nullopt;
     }
 
-    // Walk up from the working directory to find the default model under gltf_model/
+    // Walk up from the working directory to find the default model under asset/
     std::optional<std::filesystem::path> locate_model_file() {
         std::filesystem::path current = std::filesystem::current_path();
         for (int32_t depth = 0; depth < 4; ++depth) {
-            std::filesystem::path candidate = current / "gltf_model" / "DamagedHelmet.gltf";
+            std::filesystem::path candidate = current / "asset" / "DamagedHelmet" / "DamagedHelmet.gltf";
             if (std::filesystem::is_regular_file(candidate)) {
                 return candidate;
             }
@@ -291,33 +291,27 @@ namespace deren::chores {
         }
 
         {
-            // THE REWRITTEN TOON CHAIN'S PIPELINE (`goo_toon.slang`), registered under its own name so that
-            // `[render] goo_toon` can select it at a frame's composition and nothing else about the frame changes.
+            // THE GAME-SHADER TOON MODEL'S PIPELINE (`game_toon.slang`), the THIRD shading model for the
+            // SAME character-forward pass. Same reasoning as the goo block above: the same geometry, the
+            // same pass, the same frame and the same forced state; only the fragment module differs.
+            // `[render] game_toon` selects it and it is OFF by default, so with the flag off this block
+            // adds one startup pipeline and no pixel.
             //
-            // IT GOES THROUGH `runtime::make_character_forward_pipeline`, WHICH IS NOT AN OVERSIGHT: that entry
-            // point's three forced states (ONE HDR target, blending off, depth compare EQUAL) are this stage's
-            // exactly, so the two pipelines differ in ONE thing - which module the fragment stage came from - and
-            // a second core-level builder would be a copy of one state block existing only to be called here. The
-            // NAME is what the pass and the frame choose between (see `runtime::goo_toon_pipeline_name`).
+            // PHASE 1 IS A PLUMBING MILESTONE: the shader still calls the shared body, so a run with
+            // game_toon on and goo_toon off reproduces the old chain's pixels until the cloth port lands.
             //
-            // THE GEOMETRY IS pbr's, unchanged, on the character-forward pipeline's own terms: this is the same
-            // leaves drawn a second time, so the varying block (location 0/1/2 = world position, normal, uv) is
-            // the one both fragment stages read.
-            //
-            // A FAILURE IS NOT FATAL, and unlike the overlay and outline cases below it is not even a missing
-            // feature: `make_character_forward_frame` falls back to the old pipeline name, so a device that
-            // refuses this one draws the old chain rather than nothing - and `set_goo_toon` reports the fallback
-            // once, when the knob is turned on.
-            deren::utility::vessel::vector<uint8_t> goo_fragment_code;
-            deren::utility::vessel::vector<uint8_t> goo_mesh_code;
-            deren::utility::vessel::vector<uint8_t> goo_meshlet_code;
-            load_shader(shaders_dir, "goo_toon.frag.spv", goo_fragment_code);
-            load_shader(shaders_dir, "pbr.mesh.spv", goo_mesh_code);
-            load_shader(shaders_dir, "pbr.meshlet.spv", goo_meshlet_code);
-            runtime.register_shader("goo_toon.frag.spv", goo_fragment_code);
-            auto const goo_result = runtime.make_character_forward_pipeline("goo_toon", goo_fragment_code, goo_mesh_code, goo_meshlet_code);
-            if (!goo_result) {
-                deren::utility::log("WARNING: the rewritten toon pipeline was not created ({}); [render] goo_toon will draw the old chain", goo_result.error());
+            // A FAILURE IS NOT FATAL, like goo_toon's: `make_character_forward_frame` falls back to the
+            // old pipeline name and `set_game_toon` reports the fallback once, when the knob is on.
+            deren::utility::vessel::vector<uint8_t> game_fragment_code;
+            deren::utility::vessel::vector<uint8_t> game_mesh_code;
+            deren::utility::vessel::vector<uint8_t> game_meshlet_code;
+            load_shader(shaders_dir, "game_toon.frag.spv", game_fragment_code);
+            load_shader(shaders_dir, "pbr.mesh.spv", game_mesh_code);
+            load_shader(shaders_dir, "pbr.meshlet.spv", game_meshlet_code);
+            runtime.register_shader("game_toon.frag.spv", game_fragment_code);
+            auto const game_result = runtime.make_character_forward_pipeline("game_toon", game_fragment_code, game_mesh_code, game_meshlet_code);
+            if (!game_result) {
+                deren::utility::log("WARNING: the game toon pipeline was not created ({}); [render] game_toon will draw the previous chain", game_result.error());
             }
         }
 
@@ -398,14 +392,15 @@ namespace deren::chores {
         }
 
         {
-            // THE REWRITTEN CHAIN'S RIM (`goo_rim.slang`), registered exactly as the article's contour above and
-            // for the same reason: it is a fullscreen stage with ONE additive target and no depth attachment, so
-            // its pass builds its own pipeline in `create` and there is no named pipeline here. The two rims are
-            // mutually exclusive at run time (the rewritten chain silences the article's), which is why both are
-            // registered unconditionally and neither is a fallback for the other.
-            deren::utility::vessel::vector<uint8_t> goo_rim_fragment_code;
-            load_shader(shaders_dir, "goo_rim.frag.spv", goo_rim_fragment_code);
-            runtime.register_shader("goo_rim.frag.spv", goo_rim_fragment_code);
+            // THE GAME CHAIN'S DEPTH RIM (`game_toon_depth_rim.slang`). Registered exactly like the article's
+            // contour above and for the same reason: it is a fullscreen stage with ONE additive target and no depth
+            // attachment, so its pass builds its own pipeline in `create` and there is no named pipeline here. The
+            // two rims are alternatives at run time (the post-graph lane records this one only while
+            // `game_toon_active()`), which is why both are registered unconditionally and neither is a fallback for
+            // the other.
+            deren::utility::vessel::vector<uint8_t> game_rim_fragment_code;
+            load_shader(shaders_dir, "game_toon_depth_rim.frag.spv", game_rim_fragment_code);
+            runtime.register_shader("game_toon_depth_rim.frag.spv", game_rim_fragment_code);
         }
 
         {
@@ -736,7 +731,7 @@ namespace deren::chores {
         // linear exposure applied before tonemapping (pbr.frag + skybox.frag); main pushes it
         // into the runtime every frame like the light slots
         panel.add_slider("exposure", &bindings.exposure, 0.1f, 5.0f);
-        panel.add_combo("tone mapping", {"ACES (existing)", "Khronos PBR Neutral"}, &bindings.tone_mapping);
+        panel.add_combo("tone mapping", {"ACES (existing)", "Khronos PBR Neutral", "GameToon reference"}, &bindings.tone_mapping);
         if (!bindings.environment_names.empty()) panel.add_combo("environment", bindings.environment_names, &bindings.environment_index);
         panel.add_label([&bindings] { return bindings.environment_status; });
         panel.add_slider("environment rotation", &bindings.environment_rotation, -180.0f, 180.0f);
@@ -807,7 +802,9 @@ namespace deren::chores {
             // switch that selects a shading model for a pass that is not recording is a control with no effect -
             // and offered only when the rewritten pipeline was actually built, on the checkbox above's own terms.
 
-            panel.add_checkbox("goo toon (rewritten chain)", &bindings.goo_toon).set_visible_when([&runtime, &bindings] { return bindings.character_forward && runtime.goo_toon_ready(); });
+            // THE GAME-SHADER MODEL. Offered only while the stage is on and only when the game pipeline was
+            // actually built.
+            panel.add_checkbox("game toon (game shader)", &bindings.game_toon).set_visible_when([&runtime, &bindings] { return bindings.character_forward && runtime.game_toon_ready(); });
         }
         // cel/toon shading: quantize the diffuse falloff (and harden shadows/highlights);
         // 0 steps leaves plain PBR, softness shrinks toward hard comic edges

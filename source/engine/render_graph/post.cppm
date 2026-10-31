@@ -193,3 +193,18 @@ export namespace deren::engine::render_graph::post {
         return graph.compile({true});
     }
 } // namespace deren::engine::render_graph::post
+
+export namespace deren::engine::render_graph::radiance_capture {
+    struct parameters {
+        texture_read source;
+        buffer_discard_write target;
+        void visit_resources(parameter_visitor& visit) const noexcept {
+            visit(source, target);
+        }
+    };
+    inline std::expected<pass_ref, graph_error> append(builder& graph, texture_ref source, buffer_ref target) noexcept {
+        constexpr access_scope read{resource_usage::transfer_source, pipeline_stage::transfer};
+        constexpr access_scope write{resource_usage::transfer_destination, pipeline_stage::transfer};
+        return graph.add_pass("radiance readback", parameters{{source, {}, read}, {target, {}, write}}, pass_options{.side_effect = true});
+    }
+} // namespace deren::engine::render_graph::radiance_capture

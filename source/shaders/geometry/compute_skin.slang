@@ -29,7 +29,7 @@ struct SkinPush
     // Device addresses as two 32-bit halves, the shape every pass in this project pushes them in.
     uint2 source_vertices;
     uint2 destination;
-    uint source_stride;      // the source's byte stride (64: the engine's interleaved vertex)
+    uint source_stride;      // the source's byte stride (80: the engine's interleaved vertex)
     uint destination_stride; // 32: position(3) + normal(3) + uv(2), what hit shading reads
     uint vertex_count;
     uint skin_base; // this primitive's joint block in the skin matrices (0 = the identity block)
@@ -49,12 +49,12 @@ uint64_t skin_lane_address(uint2 halves)
 
 /// @brief one record of the source vertex's position/normal/uv, off a base address
 /// @note the source is the engine's interleaved vertex, read as untyped words: floats for the first eight (the
-///       offsets 0, 3 and 6 are position, normal and UV) and uints for the joints, which sit at byte 32 of a
-///       64-byte record (the vertex stage declares them as location 4, a uint4; the weights follow at byte
-///       48). THOSE TWO OFFSETS ARE THE LAYOUT'S, NOT THE STRIDE'S: `source_stride` scales which vertex is
-///       read, and the caller only ever hands this pass a caster whose stride IS 64 - a mesh whose vertex
-///       layout changed would need this shader changed with it, and the caller refuses it instead, so a wrong
-///       deformation cannot be written silently.
+///       offsets 0, 3 and 6 are position, normal and UV) and uints for the joints, which sit at byte 32 of an
+///       80-byte record (the TANGENT was APPENDED at byte 64, so it moved none of these offsets; the weights
+///       follow at byte 48). THOSE TWO OFFSETS ARE THE LAYOUT'S, NOT THE STRIDE'S: `source_stride` scales which
+///       vertex is read, and the caller only ever hands this pass a caster whose stride IS 80 - a mesh whose
+///       vertex layout changed would need this shader changed with it, and the caller refuses it instead, so a
+///       wrong deformation cannot be written silently.
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void comp_main(uint3 invocation : SV_DispatchThreadID)

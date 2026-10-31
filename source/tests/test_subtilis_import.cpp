@@ -53,7 +53,7 @@ namespace {
         vector<uint8_t> payload, vertices, indices;
         uint32_t vertex_count = 0, index_count = 0;
         sub::import_input input() const {
-            return {payload, 1, "shared-vertices", true, true, vertices, 64, vertex_count, indices, 4, index_count};
+            return {payload, 1, "shared-vertices", true, true, vertices, 80, vertex_count, indices, 4, index_count};
         }
     };
     fixture load(std::string_view name) {
@@ -69,11 +69,11 @@ namespace {
         CHECK(s.size() == 8 + uint64_t(f.vertex_count) * 32 + uint64_t(f.index_count) * 4);
         if (s.size() != 8 + uint64_t(f.vertex_count) * 32 + uint64_t(f.index_count) * 4)
             return f;
-        f.vertices.resize(size_t(f.vertex_count) * 64);
+        f.vertices.resize(size_t(f.vertex_count) * 80);
         for (uint32_t i = 0; i < f.vertex_count; ++i) {
-            std::memcpy(f.vertices.data() + i * 64, s.data() + 8 + i * 12, 12);
-            std::memcpy(f.vertices.data() + i * 64 + 12, s.data() + 8 + f.vertex_count * 12 + i * 12, 12);
-            std::memcpy(f.vertices.data() + i * 64 + 24, s.data() + 8 + f.vertex_count * 24 + i * 8, 8);
+            std::memcpy(f.vertices.data() + i * 80, s.data() + 8 + i * 12, 12);
+            std::memcpy(f.vertices.data() + i * 80 + 12, s.data() + 8 + f.vertex_count * 12 + i * 12, 12);
+            std::memcpy(f.vertices.data() + i * 80 + 24, s.data() + 8 + f.vertex_count * 24 + i * 8, 8);
         }
         f.indices.assign(s.begin() + 8 + f.vertex_count * 32, s.end());
         return f;
@@ -116,11 +116,11 @@ namespace {
         fixture f;
         f.vertex_count = static_cast<uint32_t>(input.source.positions.size());
         f.index_count = static_cast<uint32_t>(input.source.indices.size());
-        f.vertices.resize(f.vertex_count * 64);
+        f.vertices.resize(f.vertex_count * 80);
         for (uint32_t i = 0; i < f.vertex_count; ++i) {
-            std::memcpy(f.vertices.data() + i * 64, input.source.positions[i].data(), 12);
-            std::memcpy(f.vertices.data() + i * 64 + 12, input.source.normals[i].data(), 12);
-            std::memcpy(f.vertices.data() + i * 64 + 24, input.source.uv0[i].data(), 8);
+            std::memcpy(f.vertices.data() + i * 80, input.source.positions[i].data(), 12);
+            std::memcpy(f.vertices.data() + i * 80 + 12, input.source.normals[i].data(), 12);
+            std::memcpy(f.vertices.data() + i * 80 + 24, input.source.uv0[i].data(), 8);
         }
         f.indices.resize(f.index_count * 4);
         std::memcpy(f.indices.data(), input.source.indices.data(), f.indices.size());
@@ -144,11 +144,11 @@ namespace {
         input.data.source_hash = *wire::source_digest(input.source);
         auto f = load("cross_dag");
         f.vertex_count = static_cast<uint32_t>(input.source.positions.size());
-        f.vertices.assign(f.vertex_count * 64, 0);
+        f.vertices.assign(f.vertex_count * 80, 0);
         for (uint32_t i = 0; i < f.vertex_count; ++i) {
-            std::memcpy(f.vertices.data() + i * 64, input.source.positions[i].data(), 12);
-            std::memcpy(f.vertices.data() + i * 64 + 12, input.source.normals[i].data(), 12);
-            std::memcpy(f.vertices.data() + i * 64 + 24, input.source.uv0[i].data(), 8);
+            std::memcpy(f.vertices.data() + i * 80, input.source.positions[i].data(), 12);
+            std::memcpy(f.vertices.data() + i * 80 + 12, input.source.normals[i].data(), 12);
+            std::memcpy(f.vertices.data() + i * 80 + 24, input.source.uv0[i].data(), 8);
         }
         f.index_count = 432;
         f.indices.resize(f.index_count * 4);
@@ -260,7 +260,7 @@ int main() {
                     indices[i] = static_cast<uint32_t>(i % 3);
                 deren::engine::primitive_create_info fill{};
                 fill.vertex_data = fixture.vertices;
-                fill.vertex_stride = 64;
+                fill.vertex_stride = 80;
                 fill.vertex_count = fixture.vertex_count;
                 fill.index_data = {reinterpret_cast<uint8_t const*>(indices.data()), indices.size() * 4};
                 fill.index_count = static_cast<uint32_t>(indices.size());
@@ -294,7 +294,7 @@ int main() {
         auto p = wire::decode(std::as_bytes(std::span(f.payload)), {});
         CHECK(p);
         CHECK(a->lod0_index_count() == f.index_count && a->indices().size() > f.index_count);
-        CHECK(a->vertices().size() == f.vertices.size() && a->vertex_stride() == 64);
+        CHECK(a->vertices().size() == f.vertices.size() && a->vertex_stride() == 80);
         if (p) {
             CHECK(a->lod0_clusters().size() == p->leaves.size());
             CHECK(std::equal(a->indices().begin(), a->indices().end(), p->indices.begin(), p->indices.end()));

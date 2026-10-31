@@ -78,8 +78,8 @@ namespace {
         }
         deren::gltf::vertex_view const vertex = it.get_vertex();
         CHECK(vertex.count == 3);
-        CHECK(vertex.stride == 64); // position(12) normal(12) uv(8) joints(16) weights(16)
-        if (vertex.count != 3 || vertex.stride != 64 || vertex.data.size() < 3u * vertex.stride) {
+        CHECK(vertex.stride == 80); // position(12) normal(12) uv(8) joints(16) weights(16) tangent(16)
+        if (vertex.count != 3 || vertex.stride != 80 || vertex.data.size() < 3u * vertex.stride) {
             return;
         }
         // field offsets inside the interleaved stride
@@ -87,6 +87,7 @@ namespace {
         constexpr std::size_t off_normal = 12;
         constexpr std::size_t off_uv = 24;
         constexpr std::size_t off_weights = 48;
+        constexpr std::size_t off_tangent = 64;
         auto const at = [&vertex](std::size_t const index, std::size_t const offset) {
             return vertex.data.data() + index * vertex.stride + offset;
         };
@@ -123,10 +124,18 @@ namespace {
         CHECK(f32(0, off_weights + 4) == 0.0f);
         CHECK(f32(0, off_weights + 8) == 0.0f);
         CHECK(f32(0, off_weights + 12) == 0.0f);
+        // TANGENT: this fixture has none, so the record is the zero one whose w == 0 is the fragment stage's
+        // "no vertex frame, use the derivative fallback" signal
+        for (std::size_t i = 0; i < 3; ++i) {
+            CHECK(f32(i, off_tangent + 0) == 0.0f);
+            CHECK(f32(i, off_tangent + 4) == 0.0f);
+            CHECK(f32(i, off_tangent + 8) == 0.0f);
+            CHECK(f32(i, off_tangent + 12) == 0.0f);
+        }
     }
 
     void test_consuming_resolve_moves_decoded_pixels() {
-        auto result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/gltf_model/DamagedHelmet.gltf");
+        auto result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/asset/DamagedHelmet/DamagedHelmet.gltf");
         CHECK(result.has_value());
         if (!result.has_value()) {
             return;
@@ -182,8 +191,8 @@ namespace {
     }
 
     void test_consuming_resolve_matches_copy_path() {
-        auto copied_scene = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/gltf_model/DamagedHelmet.gltf");
-        auto moved_scene = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/gltf_model/DamagedHelmet.gltf");
+        auto copied_scene = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/asset/DamagedHelmet/DamagedHelmet.gltf");
+        auto moved_scene = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/asset/DamagedHelmet/DamagedHelmet.gltf");
         CHECK(copied_scene.has_value() && moved_scene.has_value());
         if (!copied_scene.has_value() || !moved_scene.has_value())
             return;
@@ -206,7 +215,7 @@ namespace {
     }
 
     void test_load_damaged_helmet() {
-        auto result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/gltf_model/DamagedHelmet.gltf");
+        auto result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/asset/DamagedHelmet/DamagedHelmet.gltf");
         CHECK(result.has_value());
         if (!result.has_value()) {
             return;
@@ -261,7 +270,7 @@ namespace {
     }
 
     void test_async_load_matches_sync() {
-        auto future = deren::gltf::load_model_async(VR_TEST_SOURCE_DIR "/gltf_model/DamagedHelmet.gltf");
+        auto future = deren::gltf::load_model_async(VR_TEST_SOURCE_DIR "/asset/DamagedHelmet/DamagedHelmet.gltf");
         auto const result = future.get();
         CHECK(result.has_value());
         if (result.has_value()) {

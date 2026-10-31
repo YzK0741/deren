@@ -53,7 +53,7 @@ import deren.engine.gaussian_splatting.raster; // the Gaussian splat cloud's own
 import deren.engine.gaussian_splatting.gpu_frame;
 import deren.engine.pass.character_forward;     // ... and the toon character stage, which re-shades the OPAQUE leaves over it
 import deren.engine.pass.toon_screen_rim;       // ... and its second rim, a fullscreen additive contour from the depth
-import deren.engine.pass.goo_rim;               // ... and the REWRITTEN chain's rim, a fullscreen additive stage of its own
+import deren.engine.pass.game_toon_depth_rim;   // ... and the GAME chain's depth rim, a dedicated fullscreen contour of its own
 import deren.engine.pass.upscale;               // the resolve: the render chain's LDR image -> the presented swapchain
 import deren.engine.pass.ray_traced_shadow;     // the ninth, and the only pass that traces outside the chain: the ray-traced shadow
 import deren.engine.pass.mask_bake;             // ... and the one-shot MASK bake, which is a JOB rather than a frame pass
@@ -532,6 +532,8 @@ namespace deren::engine {
         [[nodiscard]] rhi::error record_texture_feedback(rhi::command_buffer&);
         [[nodiscard]] rhi::error update_texture_residency(bool all);
 
+        rhi::shared_object<rhi::image> probe_image;
+        rhi::shared_object<rhi::image_view> probe_view;
         uint32_t white_texture_index = 0;
         deren::utility::vessel::map<std::tuple<deren::utility::xxh3_digest, rhi::image_format, std::uint32_t, std::uint32_t, std::uint32_t>, uint32_t> texture_slot_cache = {}; // digest (data_block<16>), format, width, height, mip_levels
         // scene-wide IBL (bindings 2-4): prefiltered env / irradiance / BRDF LUT, uploaded once
@@ -1340,15 +1342,16 @@ namespace deren::engine {
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         deren::utility::vessel::array<pass::frame_pass*, 1> toon_screen_rim_pass = {};
         /**
-         * THE REWRITTEN CHAIN'S RIM (deren.engine.pass.goo_rim): the SAME screen-space shape as the contour above -
-         * a fullscreen additive stage, no frame of its own - placed right after it, and the two are mutually
-         * exclusive by construction rather than by order: the owner answers this pass's feature with
-         * `goo_toon_active()`, which is the negation of the predicate that answers the contour's. On a frame the
-         * rewritten chain draws, this stage records and that one does not; on every other frame neither does.
+         * THE GAME-SHADER CHAIN'S DEPTH RIM (deren.engine.pass.game_toon_depth_rim): the SAME fullscreen additive
+         * shape as the two rims above, gated by the game chain being the one drawing (`runtime::game_toon_active`)
+         * rather than by the article's or Goo's feature name. A THIRD pass rather than a mode of either, for the
+         * reason `feature_active` is asked once per name: the article's contour is off whenever a rewritten chain
+         * draws and the Goo rim's constants are the Goo material table's, while this stage takes its colour/shape
+         * from its own parameters (the captured profile's rim, set through `set_toon_screen_rim`).
          */
-        // called goo_rim_pass, not goo_rim_stage: the local of that name in
+        // called game_toon_depth_rim_pass, not game_toon_depth_rim_stage: the local of that name in
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
-        deren::utility::vessel::array<pass::frame_pass*, 1> goo_rim_pass = {};
+        deren::utility::vessel::array<pass::frame_pass*, 1> game_toon_depth_rim_pass = {};
         /// the scene frame's view of the per-slot segments (a member, so the span it hands the pass outlives it).
         /// The CONTRACT handles, not natives: `scene_frame::segment_buffer::buffer` is `rhi::command_buffer*`
         /// (the secondary is the caller's `shared_ptr`, and the frame carries the borrowed pointer).
@@ -1368,14 +1371,16 @@ namespace deren::engine {
          */
         bool character_forward_on = false;
         /**
-         * WHICH TOON CHAIN THE CHARACTER STAGE DRAWS WITH (see @ref goo_toon_pipeline_name and `set_goo_toon`):
-         * false = the old `character_forward.slang`, true = the rewritten `goo_toon.slang`.
+         * WHICH TOON CHAIN THE CHARACTER STAGE DRAWS WITH, SECOND OPT-IN (see @ref game_toon_pipeline_name and
+         * `set_game_toon`): true = the game-shader model ported from the pinned MyZmdShaders sources
+         * (`game_toon.slang`).
          *
-         * SEPARATE FROM `character_forward_on` ABOVE AND NOT FOLDED INTO IT, because they answer two different
-         * questions: whether the stage runs, and which shading model it runs. The rewrite's A/B holds the first
-         * fixed and moves the second, which is a comparison that cannot be expressed with one flag.
+         * THIRD MODEL, NOT A REPLACEMENT FOR `goo_toon_on`: the two answer "which reference does this run
+         * draw with" separately, and a run that sets both gets `game_toon` with a one-time diagnostic (see
+         * `make_character_forward_frame`) rather than two silently-ignored knobs. Keeping them separate is
+         * what lets the cloth A/B hold the stage and the old model fixed while only this one moves.
          */
-        bool goo_toon_on = false;
+        bool game_toon_on = false;
         // The two blend weights are NOT here any more: they are the TAA pass's own parameters now, set through
         // `set_taa` (which forwards them) and clamped by the pass - see vulkan.pass.taa::set_blend. What stays
         // here is the SWITCH and the jitter phase, because both are frame-loop state: the switch decides whether
@@ -1845,6 +1850,11 @@ namespace deren::engine {
         // (see consume_screenshot_request / acquire_current_frame_image)
         bool screenshot_requested = false;
         bool screenshot_key_down = false;
+        std::optional<camera_ubo> camera_override;
+        bool camera_override_changed = false;
+        bool radiance_requested = false, radiance_recorded = false, radiance_ready = false;
+        rhi::shared_object<rhi::buffer> radiance_readback;
+        rhi::image_extent radiance_extent{};
         // Read-back copy of the presented image, recorded INSIDE the frame's own command buffer
         // (end_recording, right before the present transition) while the swapchain image is still
         // owned by the app. The old path transitioned the image after vkQueuePresentKHR, which the
@@ -3529,45 +3539,49 @@ namespace deren::engine {
 
         /**
          * @ingroup runtime
-         * @brief draw the character stage with the REWRITTEN toon chain instead of the old one
+         * @brief draw the character stage with the GAME-SHADER model instead of the old chain
          *
          * WHAT IT SELECTS, EXACTLY: the pipeline name `make_character_forward_frame` hands the pass - see
-         * @ref goo_toon_pipeline_name. It does NOT turn the stage on: a frame with `character_forward` off draws
-         * no character stage at all, whatever this says, and that separation is deliberate - "the new shading
-         * model" and "the character stage exists" are two facts, and a single knob for both would make the A/B
-         * that verifies the rewrite unable to say which one moved the picture.
+         * @ref game_toon_pipeline_name. It does NOT turn the stage on: `character_forward` remains the stage
+         * switch, so the A/B can separate "the game model" from "the stage exists".
          *
-         * OFF BY DEFAULT, on `set_character_forward`'s terms: it changes what every eye-family material in the
-         * scene is shaded by, and this step of the rewrite implements ONE reference group - so it is a switch a
-         * run asks for rather than a state a frame drifts into.
+         * OFF BY DEFAULT: a run that does not ask for it gets the frame the old chain produces.
          *
-         * @param enabled true = the stage draws with `source/shaders/toon/goo_toon.slang` (when that pipeline was created);
-         *        false = it draws with the old `character_forward.slang`
-         * @note CPU-side only, like `set_character_forward`: it is read while the frame is COMPOSED, so a toggle
-         *       mid-run is seen by the next frame and disturbs no in-flight recording.
+         * @param enabled true = the stage draws with `source/shaders/toon/game_toon.slang` (when that pipeline
+         *        was created); false = the old chain
+         * @note CPU-side only: read while the frame is COMPOSED, so a mid-run toggle is seen by the next frame
+         *       and disturbs no in-flight recording.
          */
-        void set_goo_toon(bool enabled) noexcept;
+        /**
+         * @brief shape/colour of the screen-space depth rim, for the GameToon profile-on chain
+         *
+         * The captured viewer's hair/face contour is a depth-contour term; the renderer's game-shader chain owns a
+         * DEDICATED sampled-depth pass for it (`deren.engine.pass.game_toon_depth_rim`, which the post graph records
+         * only while `game_toon_active()`), and this setter configures THAT pass. The article's `toon_screen_rim`
+         * and the Goo chain's `goo_rim` are deliberately not touched: this knob belongs to the game chain's
+         * profile, and retuning another chain's stage from it would make two experiments one parameter.
+         * `strength = 0` keeps the contour off.
+         */
+        void set_toon_screen_rim(float width, float scale, float strength, float r, float g, float b) noexcept;
+
+        void set_game_toon(bool enabled) noexcept;
 
         /**
-         * @brief whether the REWRITTEN chain's pipeline exists, i.e. whether `goo_toon` can select anything
+         * @brief whether the GAME-SHADER model's pipeline exists, i.e. whether `game_toon` can select anything
          *
-         * Asked of the registry rather than of the knob, exactly as `character_forward_ready` is: the pipeline
-         * needs the mesh stage, so a device without `VK_EXT_mesh_shader` registers none.
+         * Asked of the registry rather than of the knob, exactly as `goo_toon_ready` is: the pipeline needs the
+         * mesh stage, so a device without `VK_EXT_mesh_shader` registers none.
          */
-        [[nodiscard]] bool goo_toon_ready() const noexcept;
+        [[nodiscard]] bool game_toon_ready() const noexcept;
 
         /**
-         * @brief whether THE REWRITTEN CHAIN IS THE ONE DRAWING this frame: `goo_toon` on AND its pipeline there
+         * @brief whether THE GAME-SHADER MODEL IS THE ONE DRAWING this frame: `game_toon` on AND its pipeline there
          *
-         * A DIFFERENT QUESTION FROM `goo_toon_ready` ABOVE, and the difference is the knob: `ready` answers "can
-         * this chain be selected at all", this answers "is it selected". It is the SAME PREDICATE
-         * `make_character_forward_frame` uses to choose the pipeline name, exposed because a second stage has to
-         * ask it: the screen-space rim must not draw the article's contour over the reference's rim, and the
-         * question it needs answered is this one rather than either half of it. Two predicates for one decision
-         * would let a knob turned on without a pipeline silence the article's rim and draw nothing - so the
-         * frame's own answer is published here rather than recomposed by the asker.
+         * The same single-predicate rule as `goo_toon_active`: `make_character_forward_frame` chooses the name
+         * with it, and a stage that must stay silent under the new model asks this rather than recomposing the
+         * two halves (a knob on without a pipeline must not silence the old rim and draw nothing).
          */
-        [[nodiscard]] bool goo_toon_active() const noexcept;
+        [[nodiscard]] bool game_toon_active() const noexcept;
 
         /**
          * @ingroup runtime
@@ -4053,34 +4067,24 @@ namespace deren::engine {
         static constexpr std::string_view outline_pipeline_name = "outline";
 
         /**
-         * @brief the name the REWRITTEN TOON CHAIN's fragment stage is registered under (`source/shaders/toon/goo_toon.slang`)
+         * @ingroup runtime
+         * @brief the name the GAME-SHADER TOON MODEL's fragment stage is registered under
+         *        (`source/shaders/toon/game_toon.slang`)
          *
-         * THE SAME PASS, THE SAME FRAME AND THE SAME STATE AS `character_forward_pipeline_name` ABOVE, and that
-         * is the whole design: this name differs from it in ONE thing - which `.spv` the fragment stage came from
-         * - so switching `[render] goo_toon` swaps the shading model and nothing else. The alternative (a second
-         * pass, a second stage, a second target) would have made "the new chain" and "a different frame" the same
-         * experiment, and the rewrite's own acceptance is a single-variable A/B.
+         * THE SAME PASS, THE SAME FRAME AND THE SAME STATE AS `character_forward_pipeline_name` AND
+         * `goo_toon_pipeline_name`: this name differs in ONE thing - which `.spv` the fragment stage came from - so
+         * `[render] game_toon` swaps the shading model and nothing else. It is registered through the same
+         * `make_character_forward_pipeline` for the same reason `goo_toon` is (one HDR target, depth compare
+         * EQUAL, depth write off), and the name is chosen between in `make_character_forward_frame`.
          *
-         * IT IS REGISTERED THROUGH `make_character_forward_pipeline`, WHICH IS WHY NO `core::make_goo_toon_*`
-         * EXISTS: that builder's three forced states (ONE HDR target, blending off, depth compare EQUAL, plus the
-         * render-extent viewport) are exactly this stage's, so a second core entry point would be a byte-for-byte
-         * copy of one state block whose only purpose was to be called from here. The two names are then chosen
-         * between in `make_character_forward_frame`, which is also the one place that knows whether this pipeline
-         * was built at all.
+         * THE MODEL IS PORTED FROM `author_src`'s `ZmdToonMain.hlsl` family and verified against the original
+         * cloth DXBC; the module is a plumbing milestone until the cloth branch lands (its entry still calls the
+         * shared body, so `game_toon` on / `goo_toon` off reproduces the old chain's pixels).
          *
-         * ⚠ DIFFERENT FROM `character_forward_pipeline_name` IN ONE MORE WAY, AND IT IS THE PASS'S: the pass
-         * keeps its `feature()` name (`"character_forward"`) either way, so the OUTLINE and OVERLAY stages that
-         * hang off that feature keep running unchanged. `goo_toon` selects a SHADING MODEL, not a pass, and this
-         * step of the rewrite ports one group of that model; a switch that also turned the pass on would make
-         * "the new iris" and "the character stage exists at all" the same variable.
-         *
-         * ... AND THE SCREEN-SPACE RIM IS THE ONE TOON STAGE THAT DOES *NOT* KEEP RUNNING UNDER IT, which is why
-         * it no longer shares this feature name: that pass draws the ARTICLE's contour and the reference the
-         * rewrite follows has no such thing, so the two rims would both be on the character. It asks under
-         * `"toon_screen_rim"` and is switched off by `goo_toon_active()` (`toon_screen_rim_pass::feature` has the
-         * argument, and it is a name this renderer's feature table composes rather than a new `[render]` key).
+         * PRECEDENCE WHEN BOTH MODEL KNOBS ARE ON: `game_toon` wins, with a one-time diagnostic from
+         * `make_character_forward_frame`; the two knobs stay separate so an A/B can move one at a time.
          */
-        static constexpr std::string_view goo_toon_pipeline_name = "goo_toon";
+        static constexpr std::string_view game_toon_pipeline_name = "game_toon";
 
         /**
          * @ingroup runtime
@@ -4414,6 +4418,24 @@ namespace deren::engine {
             uint32_t height = 0;
             deren::utility::vessel::vector<uint8_t> rgba = {}; // width * height * 4, R G B A
         };
+        struct radiance_image {
+            uint32_t width = 0, height = 0;
+            deren::utility::vessel::vector<float> rgba = {};
+        };
+        /// Override the orbit camera for offscreen views; nullopt restores the ordinary camera.
+        void set_camera_override(std::optional<camera_ubo> view) noexcept {
+            camera_override = std::move(view);
+            camera_override_changed = true;
+        }
+        /// One unread request at a time. No allocation until the frame graph records the copy.
+        [[nodiscard]] bool request_radiance_capture() noexcept {
+            if (radiance_requested || radiance_recorded || radiance_ready)
+                return false;
+            radiance_requested = true;
+            return true;
+        }
+        /// Opaque scene radiance before later composition. Waits for submitted copy completion.
+        [[nodiscard]] std::expected<radiance_image, deren::utility::vessel::string> acquire_radiance_image();
 
         /**
          * @ingroup runtime
@@ -4573,6 +4595,10 @@ namespace deren::engine {
          *       IBL swaps need wait_idle() first.
          */
         bool set_ibl(ibl_input const& info);
+        bool set_local_probe(std::span<uint8_t const> half, uint32_t size, uint32_t mips, glm::vec3 position, glm::vec3 minimum, glm::vec3 maximum, float fade, float gain);
+        void disable_local_probe() noexcept {
+            light_state.probe_max_enabled.w = 0;
+        }
 
         /**
          * @brief upload the ARTICLE'S POST LUT (`ZmdLutPost.shader`'s `_LutTex`) into its heap slot

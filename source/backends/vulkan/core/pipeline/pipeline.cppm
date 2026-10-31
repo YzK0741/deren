@@ -76,8 +76,8 @@ namespace deren::vulkan {
      *        is what a G-buffer surface target needs - alpha there carries data (metallic /
      *        roughness / flags), so src-alpha blending would mix the surface with the cleared target.
      *        A non-empty list must have exactly one entry per color format, and lets a pass mix
-     *        states per target: the G-buffer pass overwrites its three surface targets and accumulates
-     *        into the HDR target it adds emissive to (make_color_blend_attachment_additive)
+     *        states per target: the G-buffer overwrites every target, while deferred lighting uses
+     *        additive blending to add lighting to the nearest surface's stored emissive.
      * @return vk_pipeline on success, error message on failure
      */
     export std::expected<vk_pipeline, std::string_view> make_pipeline(

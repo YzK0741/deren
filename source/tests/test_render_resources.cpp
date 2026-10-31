@@ -184,8 +184,8 @@ int32_t main() {
     // ---- the schema describes itself, completely ----
     auto const schema = rr::validate_schema();
     CHECK_MSG(schema.has_value(), schema.has_value() ? "" : schema.error().c_str());
-    CHECK(rr::resource_schema.size() == 79);                    // 76 + M4 Task 2's three software-raster families
-    CHECK(static_cast<uint32_t>(rr::resource_id::count) == 80); // 79 families plus `none`
+    CHECK(rr::resource_schema.size() == 80);                    // 76 + M4 Task 2's three software-raster families
+    CHECK(static_cast<uint32_t>(rr::resource_id::count) == 81); // 80 families plus `none`
     CHECK(rr::find(rr::resource_id::material_table)->scope == rr::resource_scope::device_wide);
     CHECK(rr::find(rr::resource_id::instance_table)->scope == rr::resource_scope::device_wide);
     CHECK(rr::find(rr::resource_id::skin_matrices_previous)->scope == rr::resource_scope::per_frame_slot);
@@ -520,7 +520,7 @@ int32_t main() {
         CHECK(rr::deferred_io.targets[0].kind == rr::target_kind::color);
         CHECK(rr::deferred_io.barrier_images.empty()); // it moves no image of its own
         CHECK(rr::deferred_io.push.has_value());
-        CHECK(rr::deferred_io.push->size == 84);                         // mat4 + vec4 + one float
+        CHECK(rr::deferred_io.push->size == 88);                         // mat4 + vec4 + two floats
         CHECK(rr::deferred_io.push->stages == rr::stage_flag::fragment); // the vertex stage pushes nothing
     }
 

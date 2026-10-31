@@ -67,6 +67,7 @@ float4 main(
     si.roughness = s.roughness;
     si.ao = s.ao;
     si.shadow_override = -1.0;
+    si.punctual_visibility = float4(1.0, 1.0, 1.0, 1.0); // no depth-march pass on the forward path
     // The forward path adds the diffuse ambient itself; the deferred path leaves it to the resolve.
 
     const float out_alpha = ((s.flags & 32u) != 0u) ? s.alpha : 1.0;
@@ -95,6 +96,15 @@ struct pbr_vertex_output
     [[vk::location(1)]] float3 normal : WORLD_NORMAL;
     [[vk::location(2)]] float2 uv : UV_OUT;
     [[vk::location(3)]] float3 prev_world_pos : PREV_WORLD_POS;
+    /// THE MESH'S OWN TANGENT FRAME, for the fragment stages that want one (the GameToon hair's split-normal
+    /// decode is the first): xyz is the world-space tangent, w the authored glTF handedness (+1/-1). APPENDED at
+    /// location 4 so every existing fragment interface keeps its locations 0..3 - a stage that does not read it
+    /// simply does not declare it, and the rasterizer drops an unwritten interpolant.
+    ///
+    /// `w == 0` MEANS THE PRIMITIVE HAS NO TANGENT ATTRIBUTE - the zero record the loader writes. The fragment
+    /// side reads that as "build the frame from the screen-space derivatives instead" rather than as a degenerate
+    /// frame, so a model that ships no TANGENT behaves exactly as it did before this varying existed.
+    [[vk::location(4)]] float4 tangent : WORLD_TANGENT;
     float4 position : SV_Position;
 };
 
@@ -157,12 +167,19 @@ pbr_vertex_output pbr_shade_vertex(const MeshVertex v, const uint vertex_index, 
     // skinning after morph: blend the four joint transforms with the vertex weights (the identity block at
     // skin_base 0 leaves unskinned vertices unchanged). Normals use the weighted rotation part.
     float3 skinned_normal = morph_normal;
+    // ... and the TANGENT goes through the SAME rotation as the normal: it is a direction in the mesh's frame,
+    // so it takes the skin's rotation exactly as the normal does (the fragment stage re-orthogonalises it
+    // against the interpolated normal, which is where non-uniform scale is repaired). A morph target's own
+    // TANGENT deltas are NOT in the morph block (animation::controller writes position/normal deltas only), so
+    // the authored tangent is the one that travels - documented rather than silently approximated.
+    float3 skinned_tangent = v.tangent.xyz;
     const float wsum = v.weights.x + v.weights.y + v.weights.z + v.weights.w;
     if (wsum > 0.0)
     {
         float4 pos = float4(0.0, 0.0, 0.0, 0.0);
         float4 prev_pos = float4(0.0, 0.0, 0.0, 0.0);
         float3 nrm = float3(0.0, 0.0, 0.0);
+        float3 tan = float3(0.0, 0.0, 0.0);
         pos += v.weights.x * (mul(local_pos, skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.x)));
         pos += v.weights.y * (mul(local_pos, skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.y)));
         pos += v.weights.z * (mul(local_pos, skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.z)));
@@ -178,9 +195,14 @@ pbr_vertex_output pbr_shade_vertex(const MeshVertex v, const uint vertex_index, 
         nrm += v.weights.y * mul(morph_normal, ((float3x3)skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.y)));
         nrm += v.weights.z * mul(morph_normal, ((float3x3)skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.z)));
         nrm += v.weights.w * mul(morph_normal, ((float3x3)skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.w)));
+        tan += v.weights.x * mul(skinned_tangent, ((float3x3)skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.x)));
+        tan += v.weights.y * mul(skinned_tangent, ((float3x3)skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.y)));
+        tan += v.weights.z * mul(skinned_tangent, ((float3x3)skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.z)));
+        tan += v.weights.w * mul(skinned_tangent, ((float3x3)skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.w)));
         local_pos = pos / wsum;
         prev_local_pos = prev_pos / wsum;
         skinned_normal = nrm / wsum;
+        skinned_tangent = tan / wsum;
     }
 
     // VR_MAT4 for the local as well, so the ternary is between two values of the SAME type: assigning a
@@ -193,6 +215,13 @@ pbr_vertex_output pbr_shade_vertex(const MeshVertex v, const uint vertex_index, 
     o.world_pos = world_pos.xyz;
     o.normal = normalize(mul(skinned_normal, ((float3x3)world)));
     o.uv = v.uv;
+    // THE TANGENT through the same world rotation, and NORMALISED WITH A ZERO GUARD: a primitive without a
+    // TANGENT attribute carries (0,0,0), and normalising that would put a NaN on every such vertex's varying -
+    // the fragment stage's `w == 0` test says "no frame", but it can only read a finite xyz. The authored w
+    // rides through unchanged, so +1/-1 still says which way `cross(N, T)` builds the bitangent.
+    const float3 world_tangent = mul(skinned_tangent, ((float3x3)world));
+    const float world_tangent_len_sq = dot(world_tangent, world_tangent);
+    o.tangent = float4(world_tangent_len_sq > 0.0 ? world_tangent * rsqrt(world_tangent_len_sq) : float3(0.0, 0.0, 0.0), v.tangent.w);
 
     // The previous LOCAL position through the previous frame's world matrix. The node's rigid motion comes
     // from that matrix, and a vertex's own movement inside its object space comes from prev_local_pos above -
@@ -339,7 +368,7 @@ static const uint pbr_outline_edge_lane = 3u;
 // STEP 15 MOVED THEM ONCE MORE for `_GooRSArm0`, the surface stage's thirtieth lane (the same mechanism's `armA`
 // sockets: `RS_Index` / `RS Strength` / `Layer weight Value` / `Layer weight Value Offset`), which this pass must
 // NOT read either, for the reason immediately above.
-static const uint pbr_toon_colour_lanes = 30u;
+static const uint pbr_toon_colour_lanes = 46u;
 
 [shader("mesh")]
 [outputtopology("triangle")]

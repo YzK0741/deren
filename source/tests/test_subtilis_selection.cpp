@@ -23,8 +23,8 @@ namespace {
     auto bytes(std::span<T> value) {
         return std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const*>(value.data()), value.size_bytes()};
     }
-    std::shared_ptr<sub::built_geometry const> source(std::uint32_t stride = 64, std::uint32_t normal = 12) {
-        deren::utility::vessel::vector<std::array<float, 16>> vertices;
+    std::shared_ptr<sub::built_geometry const> source(std::uint32_t stride = 80, std::uint32_t normal = 12) {
+        deren::utility::vessel::vector<std::array<float, 20>> vertices;
         deren::utility::vessel::vector<std::uint32_t> indices;
         for (unsigned y = 0; y < 17; ++y) {
             for (unsigned x = 0; x < 17; ++x) {
@@ -99,7 +99,7 @@ int main() {
     ++leaf.vertex_count;
     leaf.vertex_stride = 32;
     require_mismatch();
-    leaf.vertex_stride = 64;
+    leaf.vertex_stride = 80;
     --leaf.meshlet_count;
     require_mismatch();
     ++leaf.meshlet_count;

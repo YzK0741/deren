@@ -309,7 +309,7 @@ namespace deren::engine {
         // pixel's worth of aspect).
         rhi::image_extent const output = this->presentation_extent();
         this->current_aspect = static_cast<float>(output.width) / static_cast<float>(output.height);
-        this->current_ubo = make_orbit_camera_ubo(this->camera.yaw, this->camera.pitch, this->camera.distance, this->camera.target, this->scene_extent_radius, this->current_aspect);
+        this->current_ubo = this->camera_override ? *this->camera_override : make_orbit_camera_ubo(this->camera.yaw, this->camera.pitch, this->camera.distance, this->camera.target, this->scene_extent_radius, this->current_aspect);
         // Motion-vector support: the G-buffer computes its vectors from the UNJITTERED pair, and the
         // previous matrix is the one THIS swapchain image's history was rendered with (not simply the
         // last frame's: several images are in rotation, so the last frame's camera is not what that
@@ -671,7 +671,8 @@ namespace deren::engine {
                 this->camera.target.z,
                 aspect,
             };
-            this->camera_moved = key != this->camera_key;
+            this->camera_moved = key != this->camera_key || this->camera_override_changed;
+            this->camera_override_changed = false;
 
             if (scene_changed_this_frame || !this->cull_bvh.has_value()) {
                 // scene changed: rebuild the BVH from current world AABBs (and drop stale leaves)
@@ -1407,7 +1408,8 @@ namespace deren::engine {
         if (!this->evaluate_mesh_shaders(nullptr)) {
             return std::unexpected(deren::utility::vessel::string("the device cannot run the mesh stage the G-buffer pass now requires"));
         }
-        // 保留原来的五目标配方：四张数据图覆盖写入，HDR 目标累加自发光。
+        // All five targets belong to the nearest opaque surface. Emissive must overwrite too:
+        // adding would retain a farther emitter when a nearer non-emissive fragment wins depth later.
         // 深度写入仍由绘制时的动态状态控制，mesh/meshlet 共用同一份创建配方。
         auto const build_gbuffer = [this, fragment_shader_code](std::span<uint8_t const> const stage_code) {
             deren::utility::vessel::array<rhi::image_format, gbuffer_pass_attachment_count> const formats = {
@@ -1422,7 +1424,7 @@ namespace deren::engine {
                 rhi::blend_mode::opaque,
                 rhi::blend_mode::opaque,
                 rhi::blend_mode::opaque,
-                rhi::blend_mode::additive,
+                rhi::blend_mode::opaque,
             };
             auto built = pipelines::make_graphics_pipeline(this->rhi_face(), formats, rhi::image_format::depth,
                                                            stage_code, fragment_shader_code, 1u, true,
@@ -2513,21 +2515,26 @@ namespace deren::engine {
             std::shared_lock const lock(this->access_mutex);
             overlay_ready = this->mesh_pipelines.contains(overlay_pipeline_name) || this->meshlet_pipelines.contains(overlay_pipeline_name);
         }
-        // ---- WHICH SHADING MODEL THIS FRAME DRAWS WITH (see runtime::set_goo_toon) ----
+        // ---- WHICH SHADING MODEL THIS FRAME DRAWS WITH (see runtime::set_goo_toon / set_game_toon) ----
         //
-        // THE ONE PLACE THE TWO NAMES ARE CHOSEN BETWEEN, and it is here rather than in the pass for the reason
-        // the name itself is handed over at all: the registry is the runtime's (see the note below). The choice
-        // is made on TWO facts rather than one - the knob AND whether that pipeline exists - because a name that
-        // was never registered would be reported by the session's bind callback as an unknown pipeline, once per
-        // frame; falling back to the old name instead draws the old chain, which is a valid frame whose only
-        // defect is that it is not the experiment that was asked for (and `set_goo_toon` says so, once, when the
-        // knob is turned on).
-        bool goo_toon_ready = false;
+        // THE ONE PLACE THE NAMES ARE CHOSEN BETWEEN, and it is here rather than in the pass for the reason
+        // the name itself is handed over at all: the registry is the runtime's (see the note below). Each
+        // choice is made on TWO facts rather than one - the knob AND whether that pipeline exists - because a
+        // name that was never registered would be reported by the session's bind callback as an unknown
+        // pipeline, once per frame; falling back to the old name instead draws the old chain, which is a
+        // valid frame whose only defect is that it is not the experiment that was asked for (and the setters
+        // say so, once, when the knob is turned on).
+        //
+        // PRECEDENCE WHEN BOTH MODEL KNOBS ARE ON: `game_toon` wins, and the choice is written as an explicit
+        // three-way rather than a fold so a reader can see that the two knobs are not silently combined. A run
+        // asks for one model at a time; both-on is therefore a precedence rule, not a second feature.
+        bool game_toon_ready = false;
         {
             std::shared_lock const lock(this->access_mutex);
-            goo_toon_ready = this->mesh_pipelines.contains(goo_toon_pipeline_name) || this->meshlet_pipelines.contains(goo_toon_pipeline_name);
+            game_toon_ready = this->mesh_pipelines.contains(game_toon_pipeline_name) || this->meshlet_pipelines.contains(game_toon_pipeline_name);
         }
-        std::string_view const toon_pipeline_name = (this->goo_toon_on && goo_toon_ready) ? goo_toon_pipeline_name : character_forward_pipeline_name;
+        std::string_view const toon_pipeline_name =
+            (this->game_toon_on && game_toon_ready) ? game_toon_pipeline_name : character_forward_pipeline_name;
         // DOES THE OUTLINE PIPELINE EXIST? Asked on exactly the same terms as the overlay one above, and for the
         // same reason: an empty name is the pass's documented "draw no outline", whereas a name that resolves to
         // nothing would be reported by the session's bind callback as "unknown pipeline" - a log line per frame
@@ -2705,7 +2712,10 @@ namespace deren::engine {
         this->gaussian_pass = {at("gaussian")};
         this->character_forward_pass = {at("character_forward")};
         this->toon_screen_rim_pass = {at("toon_screen_rim")};
-        this->goo_rim_pass = {at("goo_rim")};
+        // ... and the GAME chain's depth rim, looked up by its own declaration name like every other stage: a chain
+        // without one leaves it null, which the post-graph lane reads as "there is no pass here".
+        this->game_toon_depth_rim_pass = {at("game_toon_depth_rim")};
+        this->game_toon_depth_rim_pass = {at("goo_rim")};
         this->gbuffer_debug_stage = {at("gbuffer-debug")};
         this->rt_shadow_pass = {at("rt_shadow")};
         this->deferred_pass = {at("deferred")};
@@ -3485,6 +3495,11 @@ namespace deren::engine {
             // information the old `!= VK_SUCCESS` test threw away.
             deren::utility::log("runtime: frame submit was refused ({})", static_cast<std::uint32_t>(submitted));
             return frame_status::submit_failed;
+        }
+        if (this->radiance_recorded) {
+            this->radiance_ready = true;
+            this->radiance_requested = false;
+            this->radiance_recorded = false;
         }
         if (this->frame_chain != nullptr) {
             this->submitted_resource_views[this->frame_ring().position()] = this->frame_chain->resources().snapshot();

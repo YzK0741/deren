@@ -30,6 +30,7 @@
 #include "lighting/shading.slang"
 
 #include "toon/toon_params.slang"
+#include "toon/reference_shape.h"
 
 /**
  * @brief the toon stage's VIEW-ANGLE rim - the second half of both references' rim light
@@ -224,7 +225,7 @@ struct HeadUBO {
 };
 
 /// THE TOON LIGHT RIG (scene block slot 751): the character stage's global numbers, declared BY THIS STAGE
-/// exactly as `HeadUBO` is. THE LAYOUT MUST MATCH `deren::vulkan::toon_rig` - nine `float4`s, lane by lane named
+/// exactly as `HeadUBO` is. THE LAYOUT MUST MATCH `deren::vulkan::toon_rig` - ten `float4`s, lane by lane named
 /// here - and `runtime::set_toon_rig` is the only writer. A rig nobody writes is not a broken frame: the
 /// application always publishes one, and the host's defaults are the article's own values.
 struct ToonRigUBO {
@@ -234,7 +235,7 @@ struct ToonRigUBO {
     // x = the head light's weight in the day-0 state, y = its (much smaller) weight in the day-1 state,
     // z = `_SelfAoShadowStrength`, w = the occlusion exponent the metallic/gloss map's B channel is raised to
     float4 other_light;
-    // rgb = the head light's colour on the SHADOW side of a surface
+    // rgb = head light colour; w = face expression index.
     float4 other_colour;
     // rgb = the sun's colour on a surface's shadow side, a = `_BaseColorPow` (the albedo's own exponent)
     float4 main_dark;
@@ -251,8 +252,9 @@ struct ToonRigUBO {
     float4 misc;
     // x = `[render] toon_shadow_softness`: 0 = the shipped single 3x3 PCF (BIT-IDENTICAL - the call site's
     // `calc_shadow_soft` returns `calc_shadow` unchanged at 0), 1..4 = the wider unrotated PCF grids
-    // (2,2)/(3,3)/(5,4)/(8,3). y/z/w reserved.
+    // (2,2)/(3,3)/(5,4)/(8,3). y = nose shadow reduction, z = hair width, w = hair shift.
     float4 shadow_softness;
+    float4 reference_modes; // x hair P mask, y angular face SDF; z/w reserved
 };
 
 /// @brief the rig's lanes as a VALUE, which a heap handle cannot be
@@ -272,6 +274,7 @@ static ToonRigUBO toon_rig_value() {
     rig.sss = toon_rig_at(heap_slots_toon_rig).sss;
     rig.env = toon_rig_at(heap_slots_toon_rig).env;
     rig.misc = toon_rig_at(heap_slots_toon_rig).misc;
+    rig.reference_modes = toon_rig_at(heap_slots_toon_rig).reference_modes;
     rig.shadow_softness = toon_rig_at(heap_slots_toon_rig).shadow_softness;
     return rig;
 }
@@ -399,6 +402,9 @@ float toon_sdf_mask(const float2 uv, const uint lane, const float3 light_ws, con
     // it back into a world-space normal in the head's frame (see the caller), which is how a face gets a rim that
     // follows its SHAPE rather than its tessellation.
     out_sdf_z = lerp(-(sdf.b * 2.0 - 1.0), sdf.b * 2.0 - 1.0, mirror);
+    if (toon_rig_value().reference_modes.y > 0.5) {
+        return reference_face_sdf_weight(average, dot(light_dir,head_front), side);
+    }
     // ---- THE ARTICLE'S WINDOW, `ZmdFaceToonMain.hlsl:159-173` ----
     //
     // `light_dir_front_z` IS THE ARTICLE'S `mainLightDir_xz_faceDir.z` and `sdf_back_light` ITS `backLight`: the
@@ -529,16 +535,18 @@ static const float character_shadow_lut_tiles = 32.0;
 /// the top of it) `outline.slang` all address the SAME table, so a stale copy in any one of them reads another
 /// material's lanes - a plausible wrong picture rather than an error. `tests/test_toon_material_sidecar.cpp` and
 /// `tests/test_goo_toon_math.cpp` pin all four against `deren::vulkan::toon_colour_lane::count`.
-static const uint character_toon_colour_lanes = 30u;
+static const uint character_toon_colour_lanes = 46u;
 
 /// @brief how many `uvec4` BLOCKS of sidecar lanes the table holds - the stride of lanes 4 and up
 ///
-/// LANES 4..7 LIVE IN BLOCK 0, 8..11 IN BLOCK 1 AND 12..15 IN BLOCK 2, so the shader addresses block 1 at
-/// `material * 3 + 1` and block 2 at `material * 3 + 2` (see `toon_lanes2_at` / `toon_lanes3_at`). This number is
-/// half of that contract and `deren::vulkan::toon_lane_blocks` is the other half - WHICH STEP 7 RAISED FROM 2 TO 3,
-/// because the FACE's three masks did not fit the second block. The three accessors' literals and this constant
-/// have to move together; a stale one reads another material's block, silently.
-static const uint character_toon_lane_blocks = 3u;
+/// LANES 4..7 LIVE IN BLOCK 0, 8..11 IN BLOCK 1, 12..15 IN BLOCK 2 AND 16..19 IN BLOCK 3, so the shader addresses
+/// block 1 at `material * 4 + 1`, block 2 at `material * 4 + 2` and block 3 at `material * 4 + 3` (see
+/// `toon_lanes2_at` / `toon_lanes3_at` / `toon_lanes4_at`). This number is half of that contract and
+/// `deren::vulkan::toon_lane_blocks` is the other half - WHICH STEP 7 RAISED FROM 2 TO 3 (the FACE's three masks did
+/// not fit the second block) AND STEP 17 RAISED TO 4 for the outline's `_OutlineMask` lane (lane 16, sampled per
+/// VERTEX inside `game_toon/outline.slang`'s mesh stage). The four accessors' literals and this constant have to move
+/// together; a stale one reads another material's block, silently.
+static const uint character_toon_lane_blocks = 4u;
 
 // ============================================================================================================
 // STEP 4: THE REFERENCE'S DIRECT-DIFFUSE TERM, AND THE TWO FACTORS IT MULTIPLIES THE PRE-RIM COLOUR BY
@@ -1203,6 +1211,7 @@ float3 goo_toon_shading_normal(const float3 world_pos, const float3 geo_normal, 
  *        caller applies it at the pixel, which is where the reference has it. It is `goo_desaturation_neutral`
  *        unless the step-6 arm runs, so a caller that does not care gets the identity.
  */
+
 float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, float3 n, float3 world_pos, float ao_engine, toon_params params, uint4 toon_indices, const float2 uv, const uint4 toon_lanes, const uint material_index, out float out_desaturation) {
     // ---- STEP 4'S TWO OUTPUTS, WHICH ARE LOCALS RATHER THAN PARAMETERS BECAUSE THE COMPOSITION IS ALSO HERE ----
     //
@@ -1752,6 +1761,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         const float3 head_up = normalize(head_frame_at(heap_slots_scene_head + heap_frame_slot).up.xyz);
         face_normal = normalize(face_dir.x * head_right + face_dir.y * head_up + face_dir.z * head_front);
         face_normal = normalize(lerp(face_normal, n, face_mask.y));
+        if (rig.reference_modes.y > 0.5) highlight_normal=face_normal;
     }
 
     // ---- THE SSS, WHICH MOVES THE ALBEDO RATHER THAN ADDING A TERM ----
@@ -3415,6 +3425,34 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // RIM and has no counterpart in any of the four mains. MEASURED on this character (see the report's item 7):
     // the two gates were suppressing the highlight on the shadowed side and at grazing angles, which is exactly
     // where the article's own `selfAoShadowEffect` already decides how much highlight survives.
+    // Optional strand-aligned band for hair without the authored split-normal/LUT route.
+    // Derivatives are evaluated uniformly over this material; singular UVs retain the old lobe.
+    if(family==VR_FAMILY_HAIR && toon_lanes2.x==0u && rig.shadow_softness.z>0.0) {
+        float3 tangent,bitangent;
+        bool frame_valid=surface_tbn(world_pos,uv,tangent,bitangent);
+        float3 strand=bitangent-highlight_normal*dot(bitangent,highlight_normal);
+        float3 shifted=strand+highlight_normal*rig.shadow_softness.w;
+        float3 half_vector=v+l;
+        if(frame_valid && reference_strand_frame_valid(dot(strand,strand),dot(shifted,shifted),dot(half_vector,half_vector))) {
+            float dot_th=dot(normalize(shifted),normalize(half_vector));
+            float primary=reference_hair_band(dot_th,rig.shadow_softness.z);
+            float secondary=reference_hair_band(dot_th, min(1.0,rig.shadow_softness.z*1.8));
+            if (rig.reference_modes.x > 0.5) {
+                Material hair_material=material_at(heap_slots_materials,material_index);
+                if (hair_material.tex_indices.y!=0u) {
+                    float4 mask=frame_texture_sample(hair_material.tex_indices.y,uv);
+                    // This opt-in interpretation is for an authored HG hair P mask: G band cap, A intensity.
+                    float3 secondary_strand=strand+highlight_normal*(rig.shadow_softness.w-0.18);
+                    if(reference_strand_frame_valid(dot(strand,strand),dot(secondary_strand,secondary_strand),dot(half_vector,half_vector)))
+                        secondary=reference_hair_band(dot(normalize(secondary_strand),normalize(half_vector)),min(1.0,rig.shadow_softness.z*1.8));
+                    primary=reference_masked_hair_lobe(primary,mask.g,mask.a,dot(highlight_normal,v));
+                    secondary=reference_masked_hair_lobe(secondary,mask.g,mask.a,dot(highlight_normal,v));
+                }
+            }
+            specular_brdf=lerp(float3(.04),albedo,.35)*(primary+.25*secondary)*4.0;
+            spec_band=1.0;
+        }
+    }
     const float3 main_specular = specular_light * specular_brdf * spec_band * specular_strength * rig.env.z;
 
     // ---- THE EYE'S HIGHLIGHT: A MATCAP ON A CORNEA THE UV ITSELF DESCRIBES ----
@@ -3510,7 +3548,11 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // The reason is visible in the other change this family needed: the skin's albedo ALPHA is its OCCLUSION
     // (`:154`, see `ao_used`), so using it as a diffuse/highlight MIX as well would make the same channel do two
     // unrelated jobs - the article gives the alpha to the occlusion and leaves the blend out of this shader.
-    const float diffuse_specular_blend = (family == VR_FAMILY_SKIN) ? 1.0 : (1.0 - rig.env.w * (1.0 - albedo_alpha));
+    float diffuse_specular_blend = (family == VR_FAMILY_SKIN) ? 1.0 : (1.0 - rig.env.w * (1.0 - albedo_alpha));
+    // This asset paints a nose shadow in base alpha. Optional reduction lifts only that
+    // authored shadow's diffuse weight, preserving face geometry, eyes and the SDF terminator.
+    if(family==VR_FAMILY_FACE && rig.shadow_softness.y>0.0)
+        diffuse_specular_blend=reference_nose_diffuse_blend(albedo_alpha,rig.env.w,rig.shadow_softness.y);
 
     // ---- THE ENVIRONMENT'S SPECULAR HALF: A POLYNOMIAL INSTEAD OF THE ENGINE'S LUT ----
     //
@@ -3688,8 +3730,8 @@ float4 main(
     // IT WAS BEING GATHERED AND THROWN AWAY, and the loss was invisible rather than absent: `gather_surface`
     // already fetches `s.emissive` (the material's emissive factor times its emissive map, `surface.slang`), this
     // stage simply never read it. What that costs is not "the toon shade is missing a term" but "an emissive
-    // toon material lost the emission the G-buffer had already added": the G-buffer pass ADDS emissive into the
-    // scene colour (`gbuffer.slang`: `out.scene_color = float4(s.emissive, 1.0)`, blended ONE/ONE), and this
+    // toon material lost the emission the G-buffer had already stored": the G-buffer pass writes emissive into the
+    // scene colour (`gbuffer.slang`: `out.scene_color = float4(s.emissive, 1.0)`, opaque replacement), and this
     // pass then OVERWRITES that same pixel with the toon result - so the emission has to be put back, or a
     // character whose material ships one (chen's cloth carries an emissive map and factor 0.57/0.81/0.88) is
     // shaded flat where the engine's own forward path would glow.

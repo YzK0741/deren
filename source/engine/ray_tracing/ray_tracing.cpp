@@ -428,9 +428,10 @@ namespace deren::engine::ray_tracing {
             // `skin_base != 0` is the test for "skinned", because index 0 is the identity block every unskinned
             // draw uses (see set_skin_matrices). The stride test is the shader's precondition, not a heuristic:
             // source/shaders/geometry/compute_skin.slang reads the joints at byte 32 and the weights at byte 48 of the engine's
-            // 64-byte interleaved vertex, so a caster whose vertices are packed differently is REFUSED (it keeps
-            // its bind pose and is counted in the log) rather than skinned with the wrong words.
-            constexpr uint32_t skin_source_stride_expected = 64u;
+            // 80-byte interleaved vertex (position/normal/uv, joints, weights, then the appended TANGENT), so a
+            // caster whose vertices are packed differently is REFUSED (it keeps its bind pose and is counted in
+            // the log) rather than skinned with the wrong words.
+            constexpr uint32_t skin_source_stride_expected = 80u;
             std::uintptr_t skin_address = 0;
             uint32_t skin_stride = 0;
             uint32_t skin_source_stride = 0;

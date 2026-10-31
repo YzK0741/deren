@@ -21,10 +21,12 @@ module;
 
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32 // glfwGetWin32Window: the engine's window, as the native handle the
-#include <GLFW/glfw3native.h>    // backend's own GLFW image can understand (see to_rhi_create_info)
-#include <algorithm>             // std::min in the resource publication
-#include <array>                 // the HZB cull table publication's three-entry table
-#include <bit>                   // std::bit_cast for the caster world-matrix hash
+#include "../lighting/reflection_probe.hpp"
+
+#include <GLFW/glfw3native.h> // backend's own GLFW image can understand (see to_rhi_create_info)
+#include <algorithm>          // std::min in the resource publication
+#include <array>              // the HZB cull table publication's three-entry table
+#include <bit>                // std::bit_cast for the caster world-matrix hash
 #include <chrono>
 #include <cstddef>    // std::ptrdiff_t in the phase-B table zeroing
 #include <cstdint>    // the HZB table layout constants' arithmetic
@@ -2315,6 +2317,43 @@ namespace deren::engine {
         }
     }
 
+    bool runtime::set_local_probe(std::span<uint8_t const> half, uint32_t size, uint32_t mips, glm::vec3 position, glm::vec3 minimum, glm::vec3 maximum, float fade, float gain) {
+        if (!probe_detail::valid({position, minimum, maximum, fade, gain}) || size < 16 || size > 512 || (size & (size - 1)))
+            return false;
+        uint32_t expected_mips = 1;
+        uint64_t bytes = 0;
+        for (auto n = size; n > 1; n >>= 1)
+            ++expected_mips;
+        for (uint32_t l = 0; l < expected_mips; ++l)
+            bytes += uint64_t(6) * (size >> l) * (size >> l) * 8;
+        if (mips != expected_mips || half.size() != bytes)
+            return false;
+        for (size_t i = 0; i < half.size(); i += 2) {
+            float v = radiance_detail::decode_binary16(uint16_t(half[i]) | (uint16_t(half[i + 1]) << 8));
+            if (!std::isfinite(v) || v < 0 || ((i % 8) == 6 && v != 1))
+                return false;
+        }
+        rhi::image_desc desc{};
+        desc.extent = {size, size, 1};
+        desc.mip_levels = mips;
+        desc.array_layers = 6;
+        desc.format = rhi::image_format::r16g16b16a16_sfloat;
+        desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::cube_compatible);
+        desc.initial_bytes = std::as_bytes(half);
+        auto created = create_shared_image(render_resource::resource_id::local_probe, desc);
+        if (!created.first || !created.second)
+            return false;
+        this->rhi_face().wait_idle();
+        if (!contract_write_descriptor_image(this->rhi_face(), render_layout::heap_slots::local_probe, *created.first,
+                                             rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image))
+            return false;
+        probe_image = std::move(created.first);
+        probe_view = std::move(created.second);
+        light_state.probe_position_gain = {position, gain};
+        light_state.probe_min_fade = {minimum, fade};
+        light_state.probe_max_enabled = {maximum, 1};
+        return true;
+    }
     bool runtime::set_ibl(ibl_input const& info) {
         if (!info.env_size || !info.env_mip_count || !info.irr_size || !info.lut_size) {
             return false;
@@ -2565,12 +2604,26 @@ namespace deren::engine {
             // to 16, so omitting this line is the same access violation inside `register_material` the RS mask's own
             // note records.
             std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_rs_sheet)], rhi::image_format::rgba8_srgb},
+            // ---- STEP 17'S ONE, AND IT IS THE LANE THAT NEEDED THE FOURTH BLOCK ----
+            //
+            // THE OUTLINE MASK IS UNORM, and it is the mask statement again rather than the sheet's: the captured
+            // vertex stage reads `.r` and `.g` as MULTIPLIERS on the hull's width and its view-depth offset
+            // (`game_toon/outline.slang`'s `vert:60-61`), i.e. two NUMBERS. An `_SRGB` upload would bend both by
+            // 2.2 gamma, and the hull's width is the one quantity on screen a gamma error there is actually
+            // visible in - a thin ring either side of the true silhouette.
+            //
+            // AND THIS LINE IS NOT OPTIONAL FOR THE REASON THE TWO COMMENTS ABOVE GIVE, WHICH IS STILL MEASURED
+            // RATHER THAN ASSUMED: the array's size is `5 + toon_slot::count`, so leaving this entry out
+            // value-initialises the last element to `{nullptr, VK_FORMAT_UNDEFINED}` and the loop below
+            // dereferences `slots[i].first`. `count` moves 16 -> 17 with this lane.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::outline_mask)], rhi::image_format::rgba8_unorm},
         };
 
         deren::utility::vessel::array<uint32_t, 5 + static_cast<std::size_t>(toon_slot::count)> texture_indices = {};
         uint32_t heap_texture_descriptors = 0; // how many went into the descriptor heap (see the log below)
         for (std::size_t i = 0; i < slots.size(); ++i) {
             texture_input tex = *slots[i].first;
+            auto const texture_format = tex.override_format ? tex.format : slots[i].second;
             // Capture probe for imported single/partial-mip sources. Ordinary sessions leave it unset.
             if (auto* limit_text = std::getenv("DEREN_BENCH_TEXTURE_LEVELS")) {
                 auto limit = std::atoi(limit_text);
@@ -2595,7 +2648,7 @@ namespace deren::engine {
             // key on the digest data_block itself (not a raw byte array): data_block carries the
             // equality/ordering the deren::utility::vessel::map key needs
             auto const key = std::tuple<deren::utility::xxh3_digest, rhi::image_format, std::uint32_t, std::uint32_t, std::uint32_t>{
-                digest, slots[i].second, tex.width, tex.height, tex.mip_levels};
+                digest, texture_format, tex.width, tex.height, tex.mip_levels};
             auto const cached = this->texture_slot_cache.find(key);
             if (cached != this->texture_slot_cache.end()) {
                 texture_indices[i] = cached->second; // shared texture: reuse its slot
@@ -2619,7 +2672,7 @@ namespace deren::engine {
             image_info.extent = rhi::image_extent{.width = tex.width, .height = tex.height, .depth = 1u};
             image_info.mip_levels = tex.mip_levels; // the caller uploads a full mip-major chain
             image_info.array_layers = 1;
-            image_info.format = slots[i].second;
+            image_info.format = texture_format;
             image_info.flags = rhi::to_bits(rhi::image_flag::sampled);
             image_info.initial_bytes = std::as_bytes(tex.data);
             image_info.debug_name = "material texture";
@@ -2640,8 +2693,8 @@ namespace deren::engine {
                 } else {
                     reduced = progressive_mips
                                   ? progressive_texture::resample(std::span(tex.data.data(), tex.data.size_bytes()), tex.width, tex.height,
-                                                                  std::max(1u, tex.width >> low_mip), std::max(1u, tex.height >> low_mip), slots[i].second == rhi::image_format::rgba8_srgb)
-                                  : progressive_texture::fallback(std::span(tex.data.data(), tex.data.size_bytes()), tex.width, tex.height, slots[i].second == rhi::image_format::rgba8_srgb);
+                                                                  std::max(1u, tex.width >> low_mip), std::max(1u, tex.height >> low_mip), texture_format == rhi::image_format::rgba8_srgb)
+                                  : progressive_texture::fallback(std::span(tex.data.data(), tex.data.size_bytes()), tex.width, tex.height, texture_format == rhi::image_format::rgba8_srgb);
                     if (!reduced)
                         deren::utility::panic("invalid progressive texture source");
                     low.extent.width = reduced->width;
@@ -2891,9 +2944,10 @@ namespace deren::engine {
                                            texture_indices[toon_base + static_cast<std::size_t>(deren::engine::toon_slot::goo_matcap05)],
                                            texture_indices[toon_base + static_cast<std::size_t>(deren::engine::toon_slot::goo_base_ramp)],
                                            texture_indices[toon_base + static_cast<std::size_t>(deren::engine::toon_slot::goo_face_sdf)]);
-        // THE THIRD BLOCK, WHICH STEP 7 ADDED AND WHICH IS WHY `toon_lane_blocks` IS 3: the FACE container's three
-        // masks are lanes 11..13, and lane 11 was the last free component of the block above. `w` is reserved and
-        // zeroed, the same contract every other block follows ("a lane nobody set reads DO NOT READ").
+        // THE THIRD BLOCK, WHICH STEP 7 ADDED AND WHICH RAISED `toon_lane_blocks` FROM 2 TO 3: the FACE container's
+        // three masks are lanes 11..13, and lane 11 was the last free component of the block above. `w` is reserved
+        // and zeroed, the same contract every other block follows ("a lane nobody set reads DO NOT READ"). (Step 17
+        // raised the constant again to 4 for the outline mask's FOURTH block, below.)
         //
         // STEP 13'S `goo_rs_mask` TAKES `.z`, AND THE LANE WAS DEAD UNTIL IT DID. `toon_slot::goo_rs_mask` was
         // added to the enum, given a format in `register_material` and named in the application's vocabulary, and
@@ -2918,6 +2972,20 @@ namespace deren::engine {
                                            // the left was left at `0u` for a whole step with the enum, the format row
                                            // and the vocabulary row all present, and the frame did not move.
                                            texture_indices[toon_base + static_cast<std::size_t>(deren::engine::toon_slot::goo_rs_sheet)]);
+        // THE FOURTH BLOCK, WHICH STEP 17 ADDED FOR THE OUTLINE's `_OutlineMask` AND WHICH IS WHY `toon_lane_blocks`
+        // IS 4: the three blocks above were full, and this lane cannot be answered on the host - the mask multiplies
+        // a PER-VERTEX hull width/depth-offset inside `game_toon/outline.slang`'s mesh stage, so it has to reach a
+        // shader as a texture index. `.y/.z/.w` are reserved and zeroed, the same "a lane nobody set reads DO NOT
+        // READ" contract every other block follows.
+        //
+        // THE `0u` VALUES ARE LOAD-BEARING FOR THE ONE COMPONENT THAT IS NOT ZERO: `.x` MUST be the slot, or the
+        // shader's `Q121 != 0u` gate keeps the captured Q326-ABSENT arm for the face and the hair - exactly the
+        // failure the two blocks above record (the matcap at step 1, the RS mask at step 13), and this lane was
+        // staged, formatted and vocabulary-named before it had any way to reach the shader at all.
+        glm::uvec4 const toon_lanes_extra4(texture_indices[toon_base + static_cast<std::size_t>(deren::engine::toon_slot::outline_mask)],
+                                           0u,
+                                           0u,
+                                           0u);
         // ---- AND THE COLOUR LANES, THE SAME FIX ONE TABLE FURTHER ALONG ----
         //
         // They are written BELOW, after the early return, which is the whole reason they have to be in the key:
@@ -2937,6 +3005,9 @@ namespace deren::engine {
         std::memcpy(material_key.data.data() + sizeof(record) + sizeof(toon_lanes_extra), &toon_lanes_extra2, sizeof(toon_lanes_extra2));
         std::memcpy(material_key.data.data() + sizeof(record) + sizeof(toon_lanes_extra) + sizeof(toon_lanes_extra2), &toon_lanes_extra3, sizeof(toon_lanes_extra3));
         std::memcpy(material_key.data.data() + sizeof(record) + sizeof(toon_lanes_extra) + sizeof(toon_lanes_extra2) + sizeof(toon_lanes_extra3),
+                    &toon_lanes_extra4,
+                    sizeof(toon_lanes_extra4));
+        std::memcpy(material_key.data.data() + sizeof(record) + sizeof(toon_lanes_extra) + sizeof(toon_lanes_extra2) + sizeof(toon_lanes_extra3) + sizeof(toon_lanes_extra4),
                     info.toon.colours.data(),
                     static_cast<std::size_t>(deren::engine::toon_colour_lane::count) * sizeof(glm::vec4));
         if (auto const cached = this->material_slot_cache.find(material_key); cached != this->material_slot_cache.end()) {
@@ -2973,6 +3044,11 @@ namespace deren::engine {
         // `cm_M` and its brightness switch at once while the log still reported all three as ON (lane 11 is
         // `goo_face_sdf`, i.e. the component that closed the second block - see `toon_slot`).
         static_cast<glm::uvec4*>(this->toon_lane_mapped)[static_cast<std::size_t>(material_index) * deren::engine::toon_lane_blocks + 2u] = toon_lanes_extra3;
+        // ... AND THE FOURTH BLOCK, for the reason the two notes above give, and one of its own: the OUTLINE's mask
+        // is read per VERTEX by a geometry stage that only has the material index to address the table with, so a
+        // block the host never writes reads "do not read" for every material and the Q326 arm is silently the
+        // absent branch - the same shape as the step-1 matcap and step-13 RS-mask failures.
+        static_cast<glm::uvec4*>(this->toon_lane_mapped)[static_cast<std::size_t>(material_index) * deren::engine::toon_lane_blocks + 3u] = toon_lanes_extra4;
         // AND THE MATERIAL'S COLOURS, at the same index and in the same once-written spirit: the shader addresses
         // them with `material_index * toon_colour_lane::count + lane`, so the two sides' stride has to agree - see
         // `character_toon_colour_lanes` in the stage and the drift check in the sidecar test.
@@ -3001,7 +3077,7 @@ namespace deren::engine {
         // gates on, and a zero here is the difference between "the asset states no ramp" and "the host resolved one
         // and never wrote it" - which is exactly the failure step 1 recorded (the iris rendered a black ball while
         // the sidecar line said `ON`).
-        deren::utility::log("toon: material {} (family {}) -> lanes: sdf {}, metallic/gloss {}, face mask {}, split normal {}, goo matcap {}, goo base ramp {} of {} texture(s)",
+        deren::utility::log("toon: material {} (family {}) -> lanes: sdf {}, metallic/gloss {}, face mask {}, split normal {}, goo matcap {}, goo base ramp {}, outline mask {} of {} texture(s)",
                             material_index,
                             record.toon_family,
                             toon_lanes_extra.x,
@@ -3010,6 +3086,7 @@ namespace deren::engine {
                             toon_lanes_extra2.x,
                             toon_lanes_extra2.y,
                             toon_lanes_extra2.z,
+                            toon_lanes_extra4.x,
                             this->owned_texture_views.size());
         // ... AND THE SPECULAR STRENGTH, WHICH IS THE ONE LANE WHOSE "NOTHING STATED" IS A SENTINEL RATHER THAN
         // THE TABLE'S NEUTRAL (`-1`, see `toon_colour_lane::specular_strength`), so a log line is the only place

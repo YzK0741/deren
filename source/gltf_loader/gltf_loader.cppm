@@ -1091,6 +1091,68 @@ namespace deren::gltf {
 
     /**
      * @ingroup gltf_loader
+     * @brief THE CAPTURED GAME_TOON VIEWER'S FACE FRAME (`Q324` forward / `Q80` right), derived from the FACE MESH
+     *
+     * THIS IS NOT `head_basis`, and the difference is the whole reason it exists. `head_basis` is read off the
+     * head BONE's matrix: it says where the skeleton's head points, not where the painted face is. The captured
+     * viewer's `faceFrame()` (`tmp/game_toon-studio-audit/final/responses/eadba1af4f-DIaZSo8d.js`, the method on
+     * the material manager, around byte 248129) instead measures the FACE GEOMETRY at load:
+     *
+     *   - vertex filter: `uv.x` in [0.2, 0.8] and `uv.y` in [0.25, 0.7];
+     *   - `c` = mean POSITION of the vertices with `uv.x < 0.4`;
+     *   - `u` = mean POSITION of the vertices with `uv.x > 0.6`;
+     *   - `f` = mean NORMAL of the vertices in the middle band (`0.4 <= uv.x <= 0.6`);
+     *   - `forward` = `f`, `right` = `u - c` orthogonalized against `f` (Gran-Schmidt), both normalized;
+     *   - the two axes are then expressed in the HEAD BONE's local space, so the per-frame publish can rotate
+     *     them by the head bone's current world matrix (`Q324 = forward.transformDirection(head.matrixWorld)`,
+     *     `Q80 = right.transformDirection(head.matrixWorld)`, and `Q91` is the bone's world position).
+     *
+     * The captured viewer needs a SkinnedMesh for that head-bone conversion. THIS REPOSITORY'S CHARACTERS ARE
+     * BAKED (every staged `*.glb` is eight mesh nodes, zero skins - the face itself is one node per body part), so
+     * the loader keeps the same two measured directions and the SAME VIEWER CONVENTION, but when there is no
+     * skeleton it stores them in WORLD space (`head_relative == false`) because the baked pose IS the bind pose.
+     * `world_forward` / `world_right` / `world_center` are always the load-pose ("bind") world axes, which is what
+     * the application publishes for frame 0; when `head_relative` is true the runtime may instead rotate
+     * `forward` / `right` by `animation.joint_world(rig, head_joint)` as the captured viewer does every frame.
+     *
+     * WHY THE FACE MESH AND NOT THE BONE: on the captured asset the head bone's rows and the painted face differ
+     * by ~26 degrees (the staged `laevatain_game_toon_preview.glb` measures `Q324 = (-0.131, -0.391, 0.911)` against
+     * a bone frame of `(0,0,1)`), and `Q80` is not a bone axis at all - it is the UV-space left/right of the
+     * painted face, which is exactly the axis the SDF atlas is mirrored about. Using the bone frame makes the
+     * mirror threshold fall at the wrong camera yaw, which is the rotating face-shadow pop this frame fixes.
+     */
+    export struct face_frame {
+        glm::vec3 forward = glm::vec3(0.0f, 0.0f, 1.0f);       // `Q324` in frame space (head-local when head_relative)
+        glm::vec3 right = glm::vec3(-1.0f, 0.0f, 0.0f);        // `Q80` in frame space
+        glm::vec3 world_forward = glm::vec3(0.0f, 0.0f, 1.0f); // `Q324` at the load/bind pose, world space
+        glm::vec3 world_right = glm::vec3(-1.0f, 0.0f, 0.0f);  // `Q80` at the load/bind pose, world space
+        glm::vec3 world_center = glm::vec3(0.0f);              // `Q91` at the load/bind pose (head bone position)
+        /// index into `skin::joints` when `head_relative`; meaningless otherwise
+        std::size_t head_joint = 0;
+        /// index into `scenes::skins` when `head_relative` (the rig whose joint block carries `head_joint`)
+        std::size_t skin_index = 0;
+        /// true when `forward`/`right` are HEAD-LOCAL and must be rotated by the head bone every frame
+        bool head_relative = false;
+        /// false when the scene has no face-family primitive or its attributes are unusable - the caller then
+        /// keeps `head_basis` (bone/fallback) and the old `-head_right` derivation
+        bool valid = false;
+    };
+
+    /**
+     * @ingroup gltf_loader
+     * @brief measure `face_frame` from the first face-family mesh of @p scene_index
+     *
+     * The face-family primitive is chosen by `toon_family_of(material.name) == toon_family::face`, i.e. the same
+     * classifier the toon stage uses to pick the face arm - the captured viewer's `faceFrame()` is called for
+     * exactly the SDF-bearing skin-family mesh, and the face family is where that mesh's material name lands.
+     *
+     * @return a frame with `valid == false` when nothing face-family exists, when POSITION/NORMAL/TEXCOORD_0 are
+     *         missing, when either UV side band has no vertex, or when the averaged normal is degenerate
+     */
+    export face_frame face_frame_of(scenes const& loaded, std::size_t scene_index) noexcept;
+
+    /**
+     * @ingroup gltf_loader
      * @brief a glTF material that has been RESOLVED: its factors, its five decoded texture slots, and the
      *        toon family its name classified into
      */

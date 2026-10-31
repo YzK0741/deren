@@ -71,10 +71,11 @@ static const uint heap_slots_meshlet_culled = heap_slot_base + 1259u;
 // THE VISIBILITY ITEM TABLE (visibility-buffer v0.2b): a per-frame lane of draw_item records (112 B each), one
 // per visible draw item, written by the host and read by the resolve compute pass (one descriptor, per-frame lane).
 static const uint heap_slots_visibility_items = heap_slot_base + 1267u;
-// THE TOON LANES BESIDE THE MATERIAL RECORD: one `uvec4` per material - x is that material's `_SDFLightmap`
-// texture-array index, y its `_MetallicGlossMap`'s, and z and w are reserved - where 0 in a component is "do not
-// read", the same contract `material_record::toon_indices` uses for its four. Lanes 0..3 of `deren::vulkan::toon_slot`
-// live in the record; every lane from `sdf_lightmap` on lives here.
+// THE TOON LANES BESIDE THE MATERIAL RECORD: `toon_lane_blocks` `uvec4`s per material, one block per four lanes -
+// block 0's x is that material's `_SDFLightmap` texture-array index, y its `_MetallicGlossMap`'s, and the later
+// blocks carry the face masks, the RS lanes and the outline mask (see `deren::vulkan::toon_slot`) - where 0 in a
+// component is "do not read", the same contract `material_record::toon_indices` uses for its four. Lanes 0..3 of
+// `deren::vulkan::toon_slot` live in the record; every lane from `sdf_lightmap` on lives here.
 //
 // WHY A BUFFER OF ITS OWN RATHER THAN A FIFTH COMPONENT THERE, and it is a measurement rather than a preference:
 // the material record is INLINE IN THE PER-DRAW PUSH BLOCK (`surface.slang`: 96 B of material fields plus two
@@ -130,6 +131,7 @@ static const uint heap_slots_post_lut = heap_slot_base + 1265u;
 static const uint heap_slots_goo_fgd_lut = heap_slot_base + 1266u;
 static const uint heap_slots_mask_instances = heap_slot_base + 1042u;
 // frame-invariant images the shading stage samples
+static const uint heap_slots_local_probe = heap_slot_base + 1364u;
 static const uint heap_slots_env_cube = heap_slot_base + 1044u;
 static const uint heap_slots_irradiance_cube = heap_slot_base + 1045u;
 static const uint heap_slots_brdf_lut = heap_slot_base + 1046u;

@@ -168,7 +168,7 @@ gbuffer_output resolve_pixel(const uint2 pixel,
         return gbuffer_empty_output();
     }
 
-    // ---- the geometry fetch: the SAME 64-byte interleaved vertex and index decode the raster lane used, through
+    // ---- the geometry fetch: the SAME 80-byte interleaved vertex and index decode the raster lane used, through
     //      the same helpers (`mesh_geometry.slang`), with the item's addresses and the meshlet's own window ----
     const MeshGeometryLanes geometry = visibility_geometry(item);
 

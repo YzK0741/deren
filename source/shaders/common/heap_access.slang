@@ -45,13 +45,17 @@ DescriptorHandle<Sampler2D> combined_at(uint texture_slot, uint sampler_slot)
 /// the lanes are per material and a flat array keeps the stride question away (see `deren::vulkan::toon_colour_lane`).
 #define toon_colour_at(slot, index) heap_at<StructuredBuffer<float4>>(slot)[index]
 /// THE SECOND BLOCK of the toon lane table (lanes 8..11, see `deren::vulkan::toon_slot`): the same buffer, read at the
-/// middle `uvec4` - `material_index * 3 + 1`, a stride the stage names as `character_toon_lane_blocks`.
-#define toon_lanes2_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 3u + 1u]
+/// middle `uvec4` - `material_index * 4 + 1`, a stride the stage names as `character_toon_lane_blocks`.
+#define toon_lanes2_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 4u + 1u]
 /// THE THIRD BLOCK (lanes 12..15), which STEP 7 raised `deren::vulkan::toon_lane_blocks` TO 3 FOR: the FACE container's
 /// three masks (`_GooFaceSDF` / `_GooFaceCmM` / `_GooFaceCsutm`) are lanes 11..13, and lane 11 closed the second
-/// block. The three accessors must move TOGETHER - a stale stride here reads another material's block, which is
+/// block. The accessors must move TOGETHER - a stale stride here reads another material's block, which is
 /// the silent-drift failure the note on `toon_lanes_at` below records.
-#define toon_lanes3_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 3u + 2u]
+#define toon_lanes3_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 4u + 2u]
+/// THE FOURTH BLOCK (lanes 16..19), which `_OutlineMask` (lane 16) raised `toon_lane_blocks` TO 4 FOR: the hull's
+/// width/depth mask has to be sampled per VERTEX inside the outline's mesh stage, so it cannot be resolved on the
+/// host the way the second `_RS` sheet is. `.x` is that lane; `.y/.z/.w` are reserved and the host zeroes them.
+#define toon_lanes4_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 4u + 3u]
 #define cluster_count_at(slot, cluster) heap_at<StructuredBuffer<uint>>(slot)[cluster]
 #define cluster_indices_at(slot, i) heap_at<StructuredBuffer<uint>>(slot)[i]
 
@@ -73,28 +77,30 @@ DescriptorHandle<Sampler2D> combined_at(uint texture_slot, uint sampler_slot)
 #define skin_matrix_at(slot, index) heap_at<StructuredBuffer<VR_MAT4>>(slot)[index]
 #define skin_matrix_previous_at(slot, index) heap_at<StructuredBuffer<VR_MAT4>>(slot)[index]
 #define morph_value_at(slot, index) heap_at<StructuredBuffer<float>>(slot)[index]
-// THE TOON LANES BESIDE THE MATERIAL RECORD: one `uvec4` per material - x is its `_SDFLightmap` texture-array
-// index, y its `_MetallicGlossMap`'s, z and w reserved - with 0 in a component meaning "do not read", the same
-// contract the record's four lanes use. It is a structured buffer rather than members of the material record
-// because the record is INLINE in the per-draw push block and a word added to it moves every offset in
-// `surface.slang` and `shadow.slang` - see core::heap_slots::toon_lanes.
+// THE TOON LANES BESIDE THE MATERIAL RECORD: `deren::vulkan::toon_lane_blocks` `uvec4`s per material, one block
+// per four lanes - block 0's x is `_SDFLightmap`'s texture-array index, y `_MetallicGlossMap`'s, and the later
+// blocks carry the face masks, the RS lanes and the outline mask (see `deren::vulkan::toon_slot`) - with 0 in a
+// component meaning "do not read", the same contract the record's four lanes use. It is a structured buffer rather
+// than members of the material record because the record is INLINE in the per-draw push block and a word added to
+// it moves every offset in `surface.slang` and `shadow.slang` - see core::heap_slots::toon_lanes.
 /// THE FIRST BLOCK of the toon lane table (lanes 4..7), read at `material * blocks + 0`.
 ///
 /// THE STRIDE IS THE WHOLE POINT OF THIS MACRO AND IT WAS WRONG FOR THREE ROUNDS: the table holds
 /// `deren::vulkan::toon_lane_blocks` `uvec4`s per material, so block 0 sits at `material * blocks`, block 1 at
-/// `material * blocks + 1` and block 2 at `material * blocks + 2` - while this accessor read `[material]` and the
-/// host wrote `[material * 2]`. The two sides
+/// `material * blocks + 1`, block 2 at `material * blocks + 2` and block 3 at `material * blocks + 3` - while this
+/// accessor read `[material]` and the host wrote `[material * 2]`. The two sides
 /// therefore disagreed about EVERY material: element `m` held the host's material `m / 2`, block `m % 2`. What that
 /// looked like is the reason the codebase documents silent drift rather than assuming it: the FACE (material 5) read
 /// element 5 = material 2's block 1 = all zeroes, so it silently lost its SDF, its mask and its expression lane at
 /// once; the cloth read another material's lanes; and the FRAME still looked like a character - which is how it went
 /// unnoticed until a probe on the face rim came back with a 0-pixel difference.
 ///
-/// STEP 7 CHANGED THE `2u` TO `3u` AND THAT IS THE ONE THING ABOUT IT THAT CANNOT BE VERIFIED BY READING: the
-/// literal below, `toon_lanes2_at`'s, `toon_lanes3_at`'s, the host's `toon_lane_blocks`, the bytes
-/// `material_capacity * toon_lane_blocks * sizeof(uvec4)` allocates and the copy the runtime makes into it are SIX
-/// spellings of one number, and `tests/test_toon_material_sidecar.cpp` pins the first three against the fourth.
-#define toon_lanes_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 3u]
+/// STEP 7 CHANGED THE `2u` TO `3u` AND STEP 17 CHANGED IT TO `4u`, AND THAT IS THE ONE THING ABOUT EACH MOVE THAT
+/// CANNOT BE VERIFIED BY READING: the literal below, its three siblings' (`toon_lanes2_at` / `toon_lanes3_at` /
+/// `toon_lanes4_at`), the host's `toon_lane_blocks`, the bytes
+/// `material_capacity * toon_lane_blocks * sizeof(uvec4)` allocates and the copy the runtime makes into it are SEVEN
+/// spellings of one number, and `tests/test_toon_material_sidecar.cpp` pins the first four against the fifth.
+#define toon_lanes_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 4u]
 
 /// one cascade's world -> light-clip matrix, read as the FIRST matrix array of the light buffer.
 /// @note WHY NOT `light_at(slot).light_view_proj[index]`, measured: Slang lowers a matrix ARRAY member of a

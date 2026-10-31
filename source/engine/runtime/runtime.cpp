@@ -45,6 +45,8 @@ import deren.engine.pipelines;
 import deren.engine.render_resource;
 import deren.engine.render_resource.shared;
 import deren.engine.pass.buffer_storage;
+import deren.engine.pass.toon_screen_rim;
+import deren.engine.pass.game_toon_depth_rim; // the game chain's dedicated depth rim (see set_toon_screen_rim)
 
 import deren.utility;
 import deren.engine.frame_constants;     // one frame's shared constants (see update_frame_constants)
@@ -1086,20 +1088,20 @@ namespace deren::engine {
         return this->mesh_pipelines.contains(character_forward_pipeline_name) || this->meshlet_pipelines.contains(character_forward_pipeline_name);
     }
 
-    bool runtime::goo_toon_ready() const noexcept {
-        // The same question asked of the OTHER name, and the same answer's shape: this pipeline goes through the
-        // same builder, so it exists exactly when the mesh stage does (see `make_character_forward_frame`, which
-        // is where the two names are chosen between and which asks this itself rather than trusting the knob).
+    bool runtime::game_toon_ready() const noexcept {
+        // The same question asked of the GAME model's name: the pipeline goes through the same builder, so it
+        // exists exactly when the mesh stage does. `make_character_forward_frame` asks this itself rather than
+        // trusting the knob.
         std::shared_lock const lock(this->access_mutex);
-        return this->mesh_pipelines.contains(goo_toon_pipeline_name) || this->meshlet_pipelines.contains(goo_toon_pipeline_name);
+        return this->mesh_pipelines.contains(game_toon_pipeline_name) || this->meshlet_pipelines.contains(game_toon_pipeline_name);
     }
 
-    bool runtime::goo_toon_active() const noexcept {
-        // THE FRAME'S OWN PREDICATE, and the comment below is why it is here rather than recomposed by the asker:
-        // `make_character_forward_frame` picks the pipeline with exactly this expression, so the stage that has to
-        // stay silent while the rewritten chain draws asks the same question the choice was made with.
+    bool runtime::game_toon_active() const noexcept {
+        // The frame's own predicate, on `goo_toon_active`'s terms: the pipeline choice and any stage that has to
+        // stay silent under this model must ask the same question, or a knob on without a pipeline would silence
+        // the old rim and draw nothing.
         std::shared_lock const lock(this->access_mutex);
-        return this->goo_toon_on && (this->mesh_pipelines.contains(goo_toon_pipeline_name) || this->meshlet_pipelines.contains(goo_toon_pipeline_name));
+        return this->game_toon_on && (this->mesh_pipelines.contains(game_toon_pipeline_name) || this->meshlet_pipelines.contains(game_toon_pipeline_name));
     }
 
     void runtime::set_toon_lookup(toon_lookup const& lookup) noexcept {
@@ -1121,17 +1123,30 @@ namespace deren::engine {
         }
     }
 
-    void runtime::set_goo_toon(bool const enabled) noexcept {
-        // CPU-side only, on `set_character_forward`'s terms: the flag is read while the next frame's
-        // `character_forward_frame` is COMPOSED (see `make_character_forward_frame`, which is where the pipeline
-        // name is chosen), so no in-flight recording is touched.
-        this->goo_toon_on = enabled;
-        if (enabled && !(this->mesh_pipelines.contains(goo_toon_pipeline_name) || this->meshlet_pipelines.contains(goo_toon_pipeline_name))) {
-            // The knob is on but there is no pipeline to draw with: say so rather than leaving a frame that looks
-            // like the old chain and no line explaining why. NOTE WHAT THIS IS NOT: it is not a warning that the
-            // character stage is missing. With `character_forward` also on, that stage still runs - it simply
-            // draws with the OLD pipeline, which is a valid frame and a wrong experiment.
-            this->warn_missing_feature("goo_toon", "the rewritten toon chain has no effect: the goo_toon pipeline was not created (see the startup log - it needs the mesh stage and the device's mesh shader feature), so the character stage draws with character_forward.slang");
+    void runtime::set_toon_screen_rim(float const width, float const scale, float const strength,
+                                      float const r, float const g, float const b) noexcept {
+        // THE GAME CHAIN'S DEPTH RIM IS THE TARGET, not the article's contour: this setter is the captured
+        // GameToon profile-on chain's knob (its only caller is main's `[render] game_toon` block), and that chain
+        // draws its own dedicated rim pass (`deren.engine.pass.game_toon_depth_rim`). The article's contour
+        // parameters and the Goo rim's stay where they are, so this call cannot retune either of the other chains'
+        // stages. The name is kept for the caller's sake: it still answers "the screen-space depth rim's shape".
+        if (this->game_toon_depth_rim_pass[0] == nullptr) {
+            return;
+        }
+        auto* const rim = static_cast<pass::game_toon_depth_rim_pass*>(this->game_toon_depth_rim_pass[0]);
+        rim->set_shape(width, scale, strength);
+        rim->set_colour(r, g, b);
+    }
+
+    void runtime::set_game_toon(bool const enabled) noexcept {
+        // CPU-side only, on the two switches above's terms: the flag is read while the next frame's
+        // `character_forward_frame` is COMPOSED, so no in-flight recording is touched.
+        this->game_toon_on = enabled;
+        if (enabled && !(this->mesh_pipelines.contains(game_toon_pipeline_name) || this->meshlet_pipelines.contains(game_toon_pipeline_name))) {
+            // The knob is on but there is no pipeline to draw with: say why. Like goo_toon's note, this is NOT a
+            // warning that the character stage is missing - with character_forward on, that stage still runs and
+            // draws with the previous model, which is a valid frame and a wrong experiment.
+            this->warn_missing_feature("game_toon", "the game-shader toon model has no effect: the game_toon pipeline was not created (see the startup log - it needs the mesh stage and the device's mesh shader feature), so the character stage draws with the previous chain");
         }
     }
 
@@ -2223,7 +2238,7 @@ namespace deren::engine {
                 return false;
             }
             if (!leaf->pipeline_name.empty() || (leaf->push.flags & 1u) != 0u || leaf->push.skin_base != 0u || leaf->push.morph_targets != 0u ||
-                !leaf->vertex_buffer || !leaf->index_buffer || leaf->meshlet_count == 0u || leaf->vertex_stride != 64) {
+                !leaf->vertex_buffer || !leaf->index_buffer || leaf->meshlet_count == 0u || leaf->vertex_stride != 80) {
                 return false; // the candidate scan refused this frame; a mixed frame must not be recorded
             }
             // THE CULL MODE IS THE MATERIAL'S, exactly as the fragment path sets it per draw: glTF doubleSided (record
@@ -3260,6 +3275,11 @@ namespace deren::engine {
         // shader's `atan2` produces a face that is black or flickering with nothing in the log to say why, and the
         // fallback frame is a usable answer where a broken one is not. The reference guards the same case in
         // `EfFaceGetHeadBasis` (`valid < 0.5`).
+        //
+        // `front.w` SURVIVES THE NORMALIZATION BECAUSE IT IS THE CAPTURED-FACE-FRAME FLAG, not padding (see
+        // `head_ubo::front`): `1.0` says the axes came from `deren::gltf::face_frame` (`Q324`/`Q80`) and the
+        // GameToon skin arm must read `right` as `Q80` instead of deriving it from the head bone's right. The
+        // normalization below would otherwise overwrite it with `0.0` and silently restore the old mirror axis.
         glm::vec3 const front = glm::vec3(basis.front);
         glm::vec3 const right = glm::vec3(basis.right);
         glm::vec3 const up = glm::vec3(basis.up);
@@ -3275,13 +3295,13 @@ namespace deren::engine {
             deren::utility::log("head frame: refusing a degenerate basis (lengths {} {} {}), keeping the fallback", front_len_sq, right_len_sq, up_len_sq);
             return;
         }
-        this->head_state.front = glm::vec4(glm::normalize(front), 0.0f);
+        this->head_state.front = glm::vec4(glm::normalize(front), basis.front.w);
         this->head_state.right = glm::vec4(glm::normalize(right), 0.0f);
         this->head_state.up = glm::vec4(glm::normalize(up), 0.0f);
     }
 
     void runtime::set_tone_mapping(int32_t mode) noexcept {
-        this->tone_mapping = mode == 1 ? 1.0f : 0.0f;
+        this->tone_mapping = mode >= 0 && mode <= 2 ? static_cast<float>(mode) : 0.0f;
     }
     void runtime::set_environment(float rotation_degrees, float strength, int32_t background, glm::vec3 color, float blur) noexcept {
         auto e = environment_detail::pack_environment(rotation_degrees, strength, background);
@@ -3322,6 +3342,9 @@ namespace deren::engine {
             return;
         }
         this->sun_direction = normalized;
+        // Shading and shadow fitting consume the published light state, not sun_direction.
+        // Keep the texel-size metadata in w when changing its world-space direction.
+        this->light_state.light_dir = glm::vec4(normalized, this->light_state.light_dir.w);
         // THE CASCADES ARE FITTED IN LIGHT SPACE, so a cached fit belongs to ONE direction: the same reason a
         // new light setup invalidates it (see update_shadow_frustum).
         this->shadow_frustum_valid = false;
@@ -3392,18 +3415,21 @@ namespace deren::engine {
                 break;
             }
             point_light& slot = this->light_state.punctual_lights[count];
-            slot.position = glm::vec4(light.position, 0.0f);
+            slot.position = glm::vec4(light.position, light.npr_data.y);
             // color already scaled by intensity (radiance units, as the shader expects)
-            slot.color = glm::vec4(light.color * light.intensity, 0.0f);
+            slot.color = glm::vec4(light.color * light.intensity, light.npr_mode);
             // a zero-length spot axis would encode NaNs (normalize(0) divides by 0): fall back
             // to the default downward axis so the shader's normalize() stays finite
             float const axis_length = glm::length(light.spot_direction);
             glm::vec3 const axis = axis_length > 1e-6f ? light.spot_direction / axis_length : glm::vec3(0.0f, -1.0f, 0.0f);
-            slot.spot_dir = glm::vec4(axis, 0.0f);
+            slot.spot_dir = glm::vec4(axis, light.npr_data.x);
             // inner cone: cos of the inner half-angle (glTF KHR innerConeAngle when set), else the
-            // legacy soft-inner derivation mix(outer, 1, 0.6) == 0.6 + 0.4 * outer
+            // legacy soft-inner derivation mix(outer, 1, 0.6) == 0.6 + 0.4 * outer. A point light has no
+            // cone, so its params.z/w carry the rest of the captured nprData for the viewer's wrap/spec modes.
             float const inner_cos = light.spot_inner_cos.value_or(0.6f + 0.4f * light.spot_outer_cos);
-            slot.params = glm::vec4(light.range, light.spot ? 1.0f : 0.0f, light.spot_outer_cos, light.spot ? inner_cos : 0.0f);
+            slot.params = light.spot
+                              ? glm::vec4(light.range, 1.0f, light.spot_outer_cos, inner_cos)
+                              : glm::vec4(light.range, 0.0f, light.npr_data.z, light.npr_data.w);
             ++count;
         }
         this->light_state.light_count.x = static_cast<float>(count);

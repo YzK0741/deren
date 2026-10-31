@@ -53,6 +53,12 @@
 #ifndef DEREN_SURFACE_SAMPLE_TEXTURE
 #define DEREN_SURFACE_SAMPLE_TEXTURE heap_sample
 #endif
+// Emissive is the one fetch that may override the leaf's sampler: its atlas packs small bright islands
+// beside unrelated UV islands, and implicit LOD can filter yellow across the seam even when the emitter's
+// geometry is occluded. A leaf that has an explicit-LOD fetch names it here; the default stays the same.
+#ifndef DEREN_SURFACE_SAMPLE_EMISSIVE
+#define DEREN_SURFACE_SAMPLE_EMISSIVE DEREN_SURFACE_SAMPLE_TEXTURE
+#endif
 
 /// @brief the FIRST PHASE's answer: the material record, the sampled base colour and the MASK verdict
 /// @note the Material RECORD travels with the base colour because phase two needs its factors and texture lanes;
@@ -132,7 +138,7 @@ surface_sample gather_surface_finish(const surface_base base,
     // occlusion: sampled AO modulated by occlusion_strength; without an occlusion map the slot is
     // the white fallback (ao = 1) and the strength has no effect
     s.ao = lerp(1.0, DEREN_SURFACE_SAMPLE_TEXTURE(mat.tex_indices.w, uv).r, mat.occlusion_strength);
-    s.emissive = mat.emissive_factor.rgb * DEREN_SURFACE_SAMPLE_TEXTURE(mat.emissive_index, uv).rgb;
+    s.emissive = mat.emissive_factor.rgb * DEREN_SURFACE_SAMPLE_EMISSIVE(mat.emissive_index, uv).rgb;
     s.flags = mat.flags;
     s.toon_family = mat.toon_family;
     s.toon_indices = mat.toon_indices;

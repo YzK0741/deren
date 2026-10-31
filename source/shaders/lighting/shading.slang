@@ -852,6 +852,8 @@ struct shade_input {
     // lookup, so it cannot be recomputed from world_pos inside the shared lighting code). The forward
     // path and every other caller leave it negative, so their behaviour is unchanged by construction.
     float shadow_override;
+    // per-light visibility weights for the punctual path; the forward path fills them with 1
+    float4 punctual_visibility;
 };
 
 /**

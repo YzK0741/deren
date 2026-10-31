@@ -223,6 +223,11 @@ namespace deren::app_config {
         // switch: it then outputs the stored albedo instead of shading it.
         bool unlit = false;
         bool fxaa = false; // FXAA the final image (one extra fullscreen pass)
+        // Bloom ([render] bloom): the four-level bright-pass chain. The overlay's checkbox gates it live;
+        // this lane is the startup default that checkbox is initialized from. It is separate from `fxaa`
+        // because a material/reference capture needs to disable both independently, and because the
+        // overlay's bloom intensity slider is not a switch (0 intensity still records the chain).
+        bool bloom = true;
         /**
          * THE RENDER SCALE ([render] render_scale): the fraction of the swapchain's extent the RENDER chain
          * runs at, so the scene is shaded at fewer pixels than are presented.
@@ -308,7 +313,16 @@ namespace deren::app_config {
         //
         // OFF BY DEFAULT on the same terms as the flag above, and for a sharper reason: the rewrite lands one
         // reference group at a time, so a run that does not ask for it must get the frame the old chain produces.
-        bool goo_toon = false;
+        // WHICH TOON CHAIN THAT STAGE DRAWS WITH, SECOND OPT-IN ([render] game_toon): true = the game-shader
+        // model ported from the pinned MyZmdShaders sources (`game_toon.slang`, see
+        // deren::vulkan::runtime::game_toon_pipeline_name). A THIRD MODEL beside the old chain and Goo, not a
+        // replacement: `character_forward` still turns the stage on, and this only says which fragment module
+        // shades it.
+        //
+        // OFF BY DEFAULT on the same contract as the flag above: a run that does not ask for it must get the
+        // frame the previous chain produces. When both model flags are on, `game_toon` wins (the frame's
+        // three-way choice is where that precedence lives); a normal run asks for one model at a time.
+        bool game_toon = false;
         /**
          * THE FRAME'S STATIC SURROUND AS A SECOND MODEL ([render] background_glb): the path of a glTF/GLB
          * whose geometry is the environment rather than the subject. Empty by default and that default is the
@@ -553,6 +567,12 @@ namespace deren::app_config {
      * rather than dimming one, because a dimmed sun still draws its own terminator.
      */
     export struct toon_settings {
+        // Optional reference-look shaping; zero preserves the original shader path.
+        float nose_shadow_reduction = 0.0f;
+        float hair_highlight_width = 0.0f;
+        float hair_highlight_shift = 0.0f;
+        bool hair_masked_highlights = false;
+        bool face_angular_sdf = false;
         float day_strength = 1.0f;                                                         // `_DayStrength` (0..1)
         float head_light_day0 = 0.7f;                                                      // `_OtherLightResultStrength_day0` - the author's default
         float head_light_day1 = 0.3f;                                                      // `_OtherLightResultStrength_day1` - the author's default
@@ -579,6 +599,12 @@ namespace deren::app_config {
      * @note empty string / zero fields mean "not specified": the caller falls back to its
      *       built-in defaults, mirroring the pre-config argv behavior.
      */
+    export struct reflection_probe_settings {
+        bool enabled = false;
+        deren::utility::vessel::string asset;
+        deren::utility::vessel::array<float, 3> position = {0, 0, 0}, minimum = {-1, -1, -1}, maximum = {1, 1, 1};
+        float fade = .5f, gain = 1;
+    };
     export struct app_settings {
         // model file (empty = locate default via paths.model_dir; "ask" opens the platform's own file
         // dialog at startup - see wants_model_dialog, which is the only thing that may interpret it).
@@ -589,6 +615,7 @@ namespace deren::app_config {
         path_settings paths = {};
         render_settings render = {};
         lighting_settings lighting = {};
+        reflection_probe_settings reflection_probe = {};
         toon_settings toon = {};
         gui_settings gui = {};
         deren::utility::vessel::string config_file = {}; // path actually read (empty = no config file found / used)

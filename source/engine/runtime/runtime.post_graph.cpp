@@ -54,13 +54,14 @@ namespace deren::engine {
             //   17 gaussian splats     18 ray-traced shadow   19 VISIBILITY RASTER  20 VISIBILITY RESOLVE
             //   21 reserved for the HZB CULL lane (phase B; kept free so that phase can append it without
             //      renumbering), 22 HZB BUILD (M3 phase A2)
+            //   27 GAME TOON DEPTH RIM (the game chain's own contour, after 14 and before the resolve)
             // THE VISIBILITY LANES ARE 19/20 BECAUSE THOSE ARE THE LAST FREE SLOTS. The first attempt shipped them at
             // 3/4 (the post chain overwrote `passes[3]` with `post_bloom_3`) and the second at 10/11 (the TAA lane's
             // two passes): both are harmless while the visibility passes are pruned, and both mis-record another pass
             // the moment one runs - measured, first as a `post_bloom_3` begin_rendering in the wrong layout, then as
             // the post composite recording the resolve pass instead of itself (a transparent-black frame).
-            std::array<pass::resolved_io, 27> ios;
-            std::array<pass::frame_pass*, 27> passes{};
+            std::array<pass::resolved_io, 28> ios;
+            std::array<pass::frame_pass*, 28> passes{};
             rhi::error record(unsigned lane) const noexcept {
                 if (host.apply_behaviour) {
                     host.apply_behaviour(host.context, *passes[lane], ios[lane]);
@@ -130,6 +131,7 @@ namespace deren::engine {
         using graph::visibility::hzb_cull_parameters;
     } // namespace
     rhi::error runtime::record_post_graph() {
+        this->radiance_recorded = false;
         using lease = resource_lease<rhi::image>;
         // The HZB probe may only dump a frame whose build lane RECORDED it (see the probe block at the end of
         // this function): cleared here, once per frame, and set by that lane's recorder. A frame that is not a
@@ -1372,6 +1374,43 @@ namespace deren::engine {
                     return post_build_error(debug_bound.error());
                 }
             }
+            if (this->radiance_requested) {
+                if (this->graph_debug_frame)
+                    return rhi::error::invalid_argument;
+                auto extent = this->render_extent();
+                if (!this->radiance_readback || this->radiance_extent.width != extent.width || this->radiance_extent.height != extent.height) {
+                    rhi::buffer_desc desc{};
+                    desc.size = std::uint64_t(extent.width) * extent.height * 8;
+                    desc.usage = rhi::buffer_usage::readback_coherent;
+                    this->radiance_readback = this->rhi_face().resources->create_buffer(desc);
+                    this->radiance_extent = extent;
+                }
+                if (!this->radiance_readback)
+                    return rhi::error::operation_failed;
+                auto target = build.import_buffer(resource_lease<rhi::buffer>::from_shared(this->core_owner, this->radiance_readback), {}, "radiance staging");
+                if (!target)
+                    return post_build_error(target.error());
+                auto added = build.append([&](graph::builder& description) noexcept { return graph::radiance_capture::append(description, scene_target, *target); });
+                if (!added)
+                    return post_build_error(added.error());
+                auto bound = build.bind_pass<graph::radiance_capture::parameters>(*added,
+                                                                                  [this, extent](graph::radiance_capture::parameters const& params, rhi::command_buffer& cmd, graph::execution::record_context const& context) noexcept {
+                                                                                      auto* source = context.image(params.source.resource.index());
+                                                                                      auto* target = context.buffer(params.target.resource.index());
+                                                                                      if (!source || !target || source->format() != rhi::image_format::r16g16b16a16_sfloat)
+                                                                                          return rhi::error::invalid_argument;
+                                                                                      auto copied = cmd.copy_image_to_buffer(*target, *source, {.extent = extent});
+                                                                                      if (copied != rhi::error::ok)
+                                                                                          return copied;
+                                                                                      rhi::buffer_barrier host{.resource = target, .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read};
+                                                                                      auto published = cmd.barrier(rhi::barrier_group{.buffers = std::span{&host, 1}});
+                                                                                      if (published == rhi::error::ok)
+                                                                                          this->radiance_recorded = true;
+                                                                                      return published;
+                                                                                  });
+                if (!bound)
+                    return post_build_error(bound.error());
+            }
             // THE GAUSSIAN RASTER AS A GRAPH PASS (adoption stage 2O): the removed legacy tail ran it BEFORE transparency
             // (lighting -> gaussian -> transparent), so it is appended here. Its GPU compute chain keeps its own
             // buffer barriers inside the recorder - the snapshot's private buffers, no other pass touches them - and
@@ -1477,25 +1516,37 @@ namespace deren::engine {
                     return post_build_error(toon_bound.error());
                 }
             }
-            if (this->feature_active("goo_rim")) {
-                pass::stage goo_stage{.name = "goo_rim", .passes = this->goo_rim_pass};
-                this->prepare_stage(goo_stage);
-                passes[16] = this->goo_rim_pass[0];
-                ios[16].push_block = host.push_block;
-                if (!passes[16] || !host.resolve || !host.resolve(host.context, *passes[16], ios[16]) || ios[16].list != commands.get() ||
-                    ios[16].targets.size() != 1 || ios[16].targets[0].image_handle != scene_target_image) {
+            // THE GAME CHAIN'S DEPTH RIM (lane 27): the dedicated contour that replaces the article's while the
+            // game-shader model draws. It is a THIRD lane rather than a mode of either rim above because the
+            // feature registry answers once per NAME and this stage's answer is a different question:
+            // `game_toon_active()` is the runtime's own composed predicate (the knob AND the pipeline), i.e. the
+            // same expression `make_character_forward_frame` selects the pipeline with - so the contour cannot
+            // disagree with the surface it outlines. ITS PASS MUST EXIST: a chain that never emplaced it leaves
+            // `game_toon_depth_rim_pass` null, and the lane is then simply absent rather than resolving a pass
+            // that is not there.
+            //
+            // SAME TOPOLOGY AS `toon_screen_rim` (target preserve-write, depth/albedo sampled reads), so it reuses
+            // that adapter: the node's label says "toon screen rim" in the graph's diagnostics, but the RECORDED
+            // pass is this lane's own (a different pass object with its own pipeline and colour).
+            if (this->game_toon_active() && this->character_forward_pass[0] != nullptr) {
+                pass::stage game_rim_stage{.name = "game_toon_depth_rim", .passes = this->game_toon_depth_rim_pass};
+                this->prepare_stage(game_rim_stage);
+                passes[27] = this->game_toon_depth_rim_pass[0];
+                ios[27].push_block = host.push_block;
+                if (!passes[27] || !host.resolve || !host.resolve(host.context, *passes[27], ios[27]) || ios[27].list != commands.get() ||
+                    ios[27].targets.size() != 1 || ios[27].targets[0].image_handle != scene_target_image) {
                     return rhi::error::not_ready;
                 }
-                auto goo_added = build.append([&](graph::builder& description) noexcept {
-                    return graph::goo_rim::append(description, {scene_target, *depth_ref, lighting_inputs.surface[0]});
+                auto game_rim_added = build.append([&](graph::builder& description) noexcept {
+                    return graph::toon_screen_rim::append(description, {scene_target, *depth_ref, lighting_inputs.surface[0]});
                 });
-                if (!goo_added) {
-                    return post_build_error(goo_added.error());
+                if (!game_rim_added) {
+                    return post_build_error(game_rim_added.error());
                 }
-                auto goo_bound = build.bind_pass<graph::goo_rim::parameters>(
-                    goo_added->pass, [payload](graph::goo_rim::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(16); });
-                if (!goo_bound) {
-                    return post_build_error(goo_bound.error());
+                auto game_rim_bound = build.bind_pass<graph::toon_screen_rim::parameters>(
+                    game_rim_added->pass, [payload](graph::toon_screen_rim::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(27); });
+                if (!game_rim_bound) {
+                    return post_build_error(game_rim_bound.error());
                 }
             }
             // THE TAA RESOLVE AND ITS HISTORY COPY (adoption stage 2I): TWO graph passes from the one pass object.

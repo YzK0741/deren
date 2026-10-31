@@ -711,7 +711,7 @@ namespace {
 
         inputs.skin_bake = true;
 
-        caster.vertex_stride = 64;
+        caster.vertex_stride = 80;
 
         caster.push.skin_base = 1;
 

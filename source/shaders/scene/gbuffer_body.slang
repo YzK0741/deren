@@ -82,8 +82,8 @@ float2 motion_vector(float3 world_pos, float3 prev_world_pos, VR_MAT4 view_proj_
  * @param velocity the motion vector `motion_vector` computed for this pixel
  * @note THE MATERIAL ID IS STORED AS TWO UNORM BYTES because the old path stored it that way and the lighting
  *       stage decodes it with `round(255 * stored)`; k / 255 is exactly representable, so the byte round-trips.
- * @note THE EMISSIVE TERM IS STORED WHOLE rather than added anywhere: the old attachment blends ONE/ONE with a
- *       clear of zero, which for the single fragment a pixel keeps is a plain store - the same value.
+ * @note The emissive term is stored with opaque replacement, matching the surface/depth winner.
+ *       Multiple fragments may pass depth in far-to-near order; additive blending would retain hidden emission.
  */
 gbuffer_output gbuffer_from_surface(surface_sample s, uint material_index, float2 velocity) {
     gbuffer_output out;
@@ -102,7 +102,7 @@ gbuffer_output gbuffer_from_surface(surface_sample s, uint material_index, float
 
     out.velocity = velocity;
 
-    // The emissive term goes STRAIGHT into the scene color (the attachment blends ONE/ONE), because
+    // The emissive term overwrites scene color with this depth-winning surface's value, because
     // emissive is lighting-independent and needs the material's emissive texture and this fragment's UVs -
     // neither of which the G-Buffer stores, so the lighting stage could not reconstruct it afterwards.
     out.scene_color = float4(s.emissive, 1.0);

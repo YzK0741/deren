@@ -52,10 +52,10 @@ import deren.engine.pass.scene;
 import deren.engine.pass.shadow;
 import deren.engine.pass.taa;
 import deren.engine.pass.transparent;
-import deren.engine.pass.character_forward; // the toon character stage: the OPAQUE leaves re-shaded over the lit frame
-import deren.engine.pass.toon_screen_rim;   // ... and its second rim: a fullscreen additive contour from the depth
-import deren.engine.pass.goo_rim;           // ... and the REWRITTEN chain's rim: the same shape, the Goo reference's values
-import deren.engine.pass.upscale;           // the resolve: the render chain's LDR image -> the presented swapchain
+import deren.engine.pass.character_forward;   // the toon character stage: the OPAQUE leaves re-shaded over the lit frame
+import deren.engine.pass.toon_screen_rim;     // ... and its second rim: a fullscreen additive contour from the depth
+import deren.engine.pass.game_toon_depth_rim; // ... and the GAME chain's depth rim: a dedicated contour of its own
+import deren.engine.pass.upscale;             // the resolve: the render chain's LDR image -> the presented swapchain
 
 export namespace deren::engine {
 
@@ -109,6 +109,7 @@ export namespace deren::engine {
         /// is a property of the LIGHTING STAGE (the shader returns the stored albedo), and the renderer's other
         /// features ask that pass for it - so there was never a second copy in the runtime to keep.
         void set_unlit(bool unlit) noexcept;
+        void set_radiance_capture(bool enabled) noexcept;
         /// @brief screen-space AO: the switch and its three shaping values, all of them the lighting pass's
         ///
         /// The SESSION-level diagnostic travels with it ("why does this switch do nothing?"), asked through the
@@ -191,10 +192,11 @@ export namespace deren::engine {
         /// surface stage. Gated by the SAME `character_forward` feature - the contour means nothing without the
         /// shading it outlines, so the two are one switch.
         pass::toon_screen_rim_pass* toon_screen_rim = nullptr;
-        /// THE REWRITTEN CHAIN'S RIM (`deren.engine.pass.goo_rim`): the same fullscreen additive shape as the contour
-        /// above, with the Goo reference's numbers instead of the article's, and MUTUALLY EXCLUSIVE with it - the
-        /// feature table below answers this one with `goo_toon_active()` and that one with its negation.
-        pass::goo_rim_pass* goo_rim = nullptr;
+        /// THE GAME CHAIN'S DEPTH RIM (`deren.engine.pass.game_toon_depth_rim`): the same fullscreen additive
+        /// depth-contour shape as the article's rim above, but its own declaration/feature and ITS OWN colour
+        /// parameter - the captured profile's contour. Gated at the post-graph lane by
+        /// `runtime::game_toon_active()`, so it records only while the game-shader chain is the one drawing.
+        pass::game_toon_depth_rim_pass* game_toon_depth_rim = nullptr;
         pass::rt_shadow_pass* rt_shadow = nullptr;
         pass::deferred_pass* deferred = nullptr;
         pass::taa_pass* taa = nullptr;

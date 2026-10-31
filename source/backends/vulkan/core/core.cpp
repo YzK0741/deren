@@ -610,9 +610,9 @@ namespace deren::vulkan {
         std::span<uint8_t const> const fragment_shader_code,
         VkShaderStageFlagBits const first_stage) const {
         // Five color targets: the three surface targets, the motion vectors, and the scene color the
-        // pass ADDS the emissive term into (lighting-independent, and it needs the emissive texture and
+        // pass stores the nearest surface's emissive term in (lighting-independent, and it needs the emissive texture and
         // the UVs the G-buffer does not store - see core::gbuffer_pass_attachment_count). The first
-        // four are overwritten, the scene color accumulates, so the blend states differ per attachment.
+        // five are overwritten: a nearer non-emissive surface must clear a farther emitter's color.
         deren::utility::vessel::array<VkFormat, gbuffer_pass_attachment_count> const formats = {
             gbuffer_formats[0],
             gbuffer_formats[1],
@@ -625,7 +625,7 @@ namespace deren::vulkan {
             make_color_blend_attachment_opaque(),
             make_color_blend_attachment_opaque(),
             make_color_blend_attachment_opaque(), // motion vectors are data, not coverage
-            make_color_blend_attachment_additive(),
+            make_color_blend_attachment_opaque(), // emissive belongs to the depth-winning surface
         };
         auto result = deren::vulkan::make_pipeline(
             this->logical_device,

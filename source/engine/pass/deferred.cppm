@@ -56,6 +56,7 @@ export namespace deren::engine::pass {
             glm::mat4 inv_view_proj = glm::mat4(1.0f);           // clip -> world, reconstructed per pixel
             glm::vec4 ssao = glm::vec4(0.5f, 0.0f, 8.0f, 0.02f); // radius, intensity (0 = off), samples, bias
             float unlit = 0.0f;                                  // 1.0 = write the stored albedo, unshaded
+            float punctual = 0.0f;                               // reserved lane kept in the 88-byte push block
         };
 
         deferred_pass() = default;
@@ -64,6 +65,10 @@ export namespace deren::engine::pass {
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
         [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
+        /// @brief WIP: keep the requested radiance capture state on the pass
+        void set_radiance_capture(bool enabled) noexcept {
+            this->radiance_capture = enabled;
+        }
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
         [[nodiscard]] deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
@@ -139,6 +144,7 @@ export namespace deren::engine::pass {
         // called pass_frame, not frame: set_frame()'s frame parameter in deferred.cpp would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).
         deferred_frame pass_frame = {};
+        bool radiance_capture = false;
     }; // namespace deren::engine::pass
 
     static_assert(sizeof(deferred_pass::push_constants) == render_resource::deferred_io.push->size,

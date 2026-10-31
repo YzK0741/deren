@@ -79,6 +79,30 @@ struct test_deferred final : pass::frame_pass {
     }
 };
 int main() {
+    for (bool producer : {false, true}) {
+        rg::builder capture_graph;
+        auto source = *capture_graph.import_texture({901, 1}, rg::initial_contents::undefined, "radiance source", {}, rg::resource_state{});
+        auto target = *capture_graph.import_buffer({901, 2}, rg::initial_contents::undefined, "radiance staging", {128}, rg::resource_state{});
+        if (producer) {
+            CHECK(capture_graph.add_pass("opaque lighting", std::array<rg::resource_access, 1>{{{source, rg::content_access::discard_write, {}, {rg::resource_usage::color_attachment, rg::pipeline_stage::color_output}}}}));
+        }
+        auto copied = rg::radiance_capture::append(capture_graph, source, target);
+        CHECK(copied);
+        if (producer) {
+            CHECK(capture_graph.add_pass("later transparent", std::array<rg::resource_access, 1>{{{source, rg::content_access::preserve_write, {}, {rg::resource_usage::color_attachment, rg::pipeline_stage::color_output}}}}, {true}));
+            CHECK(capture_graph.export_resource(source));
+        }
+        auto compiled = capture_graph.compile({true});
+        CHECK(bool(compiled) == producer);
+        if (compiled) {
+            CHECK(compiled->execution_order.size() == 3);
+            CHECK(compiled->execution_order[0] == 0 && compiled->execution_order[1] == 1 && compiled->execution_order[2] == 2);
+            auto const* params = compiled->passes[1].parameters.get<rg::radiance_capture::parameters>();
+            CHECK(compiled->passes[1].side_effect && params);
+            CHECK(params && params->source.scope.usage == rg::resource_usage::transfer_source);
+            CHECK(params && params->target.scope.usage == rg::resource_usage::transfer_destination);
+        }
+    }
     {
         rg::builder combined;
         post::inputs inputs{};
@@ -156,6 +180,7 @@ int main() {
         for (unsigned i = 0; i < 4; ++i)
             chain.emplace<pass::post_bloom_pass>(i);
         deren::engine::runtime runtime{core, options};
+        CHECK(!runtime.acquire_radiance_image());
         CHECK(runtime.overlay_draw().valid());
         CHECK(runtime.overlay_draw().has_recording && !runtime.overlay_draw().has_recording(runtime.overlay_draw().owner));
         runtime.set_scene(scene);
@@ -189,7 +214,7 @@ int main() {
         if (mode == 4)
             deren::vk_test::probe_scoped_validation_failure(*core, 0);
         auto const end = runtime.end_recording();
-        if (mode != 0) {
+        if (mode != 0 && mode != 2) {
             CHECK(end == deren::engine::frame_status::end_recording_failed);
             CHECK(runtime.submit_and_present() == deren::engine::frame_status::submit_failed);
             CHECK(deferred.graph == (mode == 3 ? 1U : 0U));

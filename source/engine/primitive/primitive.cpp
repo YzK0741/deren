@@ -370,6 +370,23 @@ namespace deren::engine {
         return ubo;
     }
 
+    camera_ubo make_cube_capture_camera(glm::vec3 const& position, uint32_t face, float near_plane, float far_plane) {
+        glm::vec3 const directions[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+        glm::vec3 const up[6] = {{0, 1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};
+        camera_ubo result{};
+        if (face >= 6 || !(near_plane > 0 && far_plane > near_plane) || !std::isfinite(far_plane)) {
+            result.view = result.proj = result.view_proj_unjittered = result.prev_view_proj = glm::mat4(1);
+            return result;
+        }
+        result.camera_pos = position;
+        result.view = glm::lookAtRH(position, position + directions[face], up[face]);
+        result.proj = glm::perspectiveRH_ZO(glm::radians(90.0f), 1.0f, near_plane, far_plane);
+        result.proj[1][1] *= -1;
+        result.view_proj_unjittered = result.proj * result.view;
+        result.prev_view_proj = result.view_proj_unjittered;
+        return result;
+    }
+
     glm::vec3 orbit_camera_pan_delta(
         float const yaw,
         float const distance,

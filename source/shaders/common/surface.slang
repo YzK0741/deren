@@ -56,7 +56,13 @@
 // have to be reachable without this file's push block. See surface_body.slang.
 uint scene_texture_base();
 float4 frame_texture_sample(uint texture_index, float2 uv);
+// Emissive is sampled at LOD 0 deliberately. The emissive atlas packs the lamp lenses beside unrelated
+// islands, and the implicit-LOD sample picks a high mip where a small UV footprint is viewed at a grazing
+// angle; the filtered texel then pulls yellow from a neighbouring island onto the glass. LOD 0 has no
+// cross-island filtering, so the lamp's geometry can be fully occluded without leaving a yellow patch.
+float4 frame_texture_sample_lod0(uint texture_index, float2 uv);
 #define DEREN_SURFACE_SAMPLE_TEXTURE frame_texture_sample
+#define DEREN_SURFACE_SAMPLE_EMISSIVE frame_texture_sample_lod0
 #include "common/surface_body.slang"
 // The ARRAY name carries the HEAP slot and the block member carries the record index: two index spaces, which is
 // why a lookup is `heap_material_tables[heap_slots_materials].materials[push.material_index]`.
@@ -128,6 +134,9 @@ struct PushConstants {
 uint scene_texture_base() { return heap_slots_textures + push.frame_slot * heap_texture_bank_stride; }
 float4 frame_texture_sample(uint texture_index, float2 uv) {
     return combined_at(scene_texture_base() + texture_index, heap_sampler_texture).Sample(uv);
+}
+float4 frame_texture_sample_lod0(uint texture_index, float2 uv) {
+    return combined_at(scene_texture_base() + texture_index, heap_sampler_texture).SampleLevel(uv, 0.0);
 }
 
 /**

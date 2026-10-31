@@ -43,12 +43,12 @@ export namespace deren::engine::pass {
     ///
     /// Two device addresses as two 32-bit halves each, then four uints: 16 + 16 = 32 bytes. The strides are the
     /// shader's precondition, not a heuristic - it reads the joints at byte 32 and the weights at byte 48 of the
-    /// engine's 64-byte interleaved vertex, so a caster whose vertices are packed differently is refused by the
-    /// renderer rather than skinned with the wrong words.
+    /// engine's 80-byte interleaved vertex (the TANGENT is appended at byte 64, so it moved neither), so a caster
+    /// whose vertices are packed differently is refused by the renderer rather than skinned with the wrong words.
     struct compute_skin_push_constants {
         glm::uvec2 source_vertices = glm::uvec2(0u); // the primitive's bind-pose vertices, low and high
         glm::uvec2 destination = glm::uvec2(0u);     // the skinned buffer this job fills
-        uint32_t source_stride = 0;                  // 64: the engine's interleaved vertex
+        uint32_t source_stride = 0;                  // 80: the engine's interleaved vertex
         uint32_t destination_stride = 0;             // 32: position, normal, uv
         uint32_t vertex_count = 0;
         uint32_t skin_base = 0; // this primitive's joint block in skins.matrices
@@ -61,7 +61,7 @@ export namespace deren::engine::pass {
         // `uint64_t`, the contract's spelling for a device address (see `mask_bake_request`'s note)
         std::uint64_t source_vertices = 0; // the primitive's bind-pose vertices
         std::uint64_t destination = 0;     // the skinned buffer this job fills (0 = not a skinned caster)
-        uint32_t source_stride = 0;        // 64
+        uint32_t source_stride = 0;        // 80
         uint32_t destination_stride = 0;   // 32
         uint32_t vertex_count = 0;
         uint32_t skin_base = 0;

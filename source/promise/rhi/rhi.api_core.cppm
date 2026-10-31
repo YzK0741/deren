@@ -1165,7 +1165,7 @@ export namespace deren::promise::rhi {
     enum class blend_mode : std::uint32_t {
         opaque = 0,   ///< overwrite: the G-buffer's surface targets (alpha carries data there)
         alpha = 1,    ///< classic src-alpha over
-        additive = 2, ///< accumulate: the HDR target's emissive accumulation
+        additive = 2, ///< accumulate lighting over the stored scene color
         multiply = 3, ///< multiply: the toon chain's light modulation
     };
 

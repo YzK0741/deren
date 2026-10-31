@@ -864,18 +864,27 @@ namespace {
         return result;
     }
 
-    // ---- CPU-side geometry building for drawable_iterator (interleaved pbr.vert layout) ----
+    // ---- CPU-side geometry building for drawable_iterator (interleaved mesh-stage layout) ----
 
-    // Interleaved vertex, layout matches pbr.vert / shadow.vert input locations 0,1,2,4,5
-    // (stride 64): position(12) normal(12) uv(8) joints(16) weights(16). No tangent attribute:
-    // pbr.frag rebuilds the TBN frame from screen-space derivatives (mirrored UVs included).
+    // Interleaved vertex, byte-for-byte the record `source/shaders/geometry/mesh_geometry.slang` fetches
+    // in the MESH stages (the input-assembler vertex pipeline was removed, docs/mesh_shaders.md step 4)
+    // (stride 80): position(12) normal(12) uv(8) joints(16) weights(16) tangent(16). APPENDED, not inserted:
+    // every field the shared fetch's word offsets and `compute_skin.slang` name (0/3/6 for position/normal/
+    // uv, 8/12 for joints/weights) keeps its offset, and the TANGENT is what the GameToon hair's split-normal
+    // decode reads (`source/shaders/toon/game_toon/captured/hair.slang`) instead of the fragment derivative
+    // frame. A primitive WITHOUT a TANGENT attribute keeps `tangent = (0,0,0,0)`, whose `w == 0` is the
+    // fragment stage's "no vertex frame, use the derivative fallback" signal - so the layout is ONE stride
+    // for every mesh, which is what makes `mesh_geometry.slang`'s fixed stride and the 80-byte gates in
+    // visibility/subtilis/ray tracing agree.
     struct vertex {
         glm::vec3 position;
         glm::vec3 normal;
         glm::vec2 uv;
         glm::uvec4 joints = glm::uvec4(0u);                    // JOINTS_0 (indices into the node's skin)
         glm::vec4 weights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f); // WEIGHTS_0 (identity when unskinned)
+        glm::vec4 tangent = glm::vec4(0.0f);                   // TANGENT.xyz + handedness w (w == 0 when absent)
     };
+    static_assert(sizeof(vertex) == 80u, "the mesh fetch's fixed stride (mesh_geometry.slang) is 80 bytes");
 
     struct built_mesh {
         deren::utility::vessel::vector<vertex> vertices;
@@ -893,6 +902,10 @@ namespace {
         auto const* position_portion = get_portion("POSITION");
         auto const* normal_portion = get_portion("NORMAL");
         auto const* uv_portion = get_portion("TEXCOORD_0");
+        // TANGENT vec4: xyz is the surface tangent, w its handedness (+1/-1). OPTIONAL - a primitive without
+        // it keeps the zero record (`w == 0`), which is how the fragment stage tells "no vertex frame" apart
+        // from a real one. The authored attribute is what the GameToon hair's split-normal decode uses.
+        auto const* tangent_portion = get_portion("TANGENT");
         // skinned attributes (optional): JOINTS_0 is u8/u16 vec4 of joint indices into the
         // node's skin, WEIGHTS_0 is float vec4 (or normalized u8/u16)
         auto const* joints_portion = get_portion("JOINTS_0");
@@ -999,6 +1012,7 @@ namespace {
         };
         guard_vertex_count(normal_portion, 3);
         guard_vertex_count(uv_portion, 2);
+        guard_vertex_count(tangent_portion, 4);
         guard_vertex_count(joints_portion, 4);
         guard_vertex_count(weights_portion, 4);
         if (vertex_count != position_count) {
@@ -1021,6 +1035,24 @@ namespace {
             } else {
                 deren::utility::vessel::array<float, 2> const uv = read_attribute.operator()<2>(*uv_portion, i, false);
                 uvs.emplace_back(uv[0], uv[1]);
+            }
+        }
+
+        // ---- TANGENT: the authored vec4 when the primitive has one, the zero record otherwise ----
+        // Kept VERBATIM rather than normalised or re-derived: the specification says TANGENT.xyz is a unit
+        // vector and TANGENT.w is the handedness, and the fragment stage is where the frame is orthogonalised
+        // against the interpolated normal anyway (interpolation and non-uniform scale both bend the authored
+        // vector, and doing that work here would be doing it per vertex instead of per pixel). A zero w is the
+        // "absent" signal the fragment stage reads; a file that ships TANGENT with a zero w is treated as
+        // absent rather than handed a degenerate frame, which is the honest reading of a malformed attribute.
+        deren::utility::vessel::vector<glm::vec4> tangents;
+        tangents.resize(vertex_count, glm::vec4(0.0f));
+        if (tangent_portion != nullptr) {
+            for (size_t i = 0; i < vertex_count; ++i) {
+                // signed_normalized: KHR_mesh_quantization allows TANGENT as a signed normalized integer whose
+                // full range maps to [-1, 1], exactly like NORMAL (see read_attribute)
+                deren::utility::vessel::array<float, 4> const t = read_attribute.operator()<4>(*tangent_portion, i, true);
+                tangents[i] = glm::vec4(t[0], t[1], t[2], t[3]);
             }
         }
 
@@ -1155,10 +1187,10 @@ namespace {
             return glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
         };
 
-        // interleave into the single-binding layout the pbr pipeline expects (stride 64)
+        // interleave into the single-binding layout the mesh stages fetch (stride 80)
         result.vertices.reserve(vertex_count);
         for (size_t i = 0; i < vertex_count; ++i) {
-            result.vertices.push_back(vertex{.position = positions[i], .normal = normals[i], .uv = uvs[i], .joints = read_joints(i), .weights = read_weights(i)});
+            result.vertices.push_back(vertex{.position = positions[i], .normal = normals[i], .uv = uvs[i], .joints = read_joints(i), .weights = read_weights(i), .tangent = tangents[i]});
         }
         if (prim.index.empty()) {
             result.index_data = std::move(synthesized_indices); // non-indexed -> synthesized
@@ -1419,6 +1451,287 @@ namespace deren::gltf {
             }
         }
         return std::nullopt;
+    }
+
+    face_frame face_frame_of(scenes const& loaded, std::size_t const scene_index) noexcept {
+        face_frame out{};
+        if (scene_index >= loaded.scene.size()) {
+            return out;
+        }
+        deren::gltf::scene const& owner = loaded.scene[scene_index];
+        deren::utility::vessel::vector<node> const& nodes = owner.nodes;
+        std::size_t const none = static_cast<std::size_t>(-1);
+
+        auto const family_of = [&loaded](primitive const& prim) {
+            return prim.material_index < loaded.materials.size()
+                       ? toon_family_of(loaded.materials[prim.material_index].name)
+                       : toon_family::none;
+        };
+
+        // THE CAPTURED VIEWER FINDS ITS FACE MESH BY MATERIAL FAMILY TOO: `faceFrame()` is called for the
+        // SDF-bearing skin mesh, and on this asset that mesh's material name classifies as `face`. The first
+        // face-family node of the scene is the one the captured viewer would measure (the character has one face).
+        std::size_t mesh_node = none;
+        for (std::size_t i = 0; i < nodes.size() && mesh_node == none; ++i) {
+            for (mesh const& candidate_mesh : nodes[i].meshes) {
+                for (primitive const& prim : candidate_mesh.primitives) {
+                    if (family_of(prim) == toon_family::face) {
+                        mesh_node = i;
+                        break;
+                    }
+                }
+                if (mesh_node != none) {
+                    break;
+                }
+            }
+        }
+        if (mesh_node == none) {
+            return out;
+        }
+
+        // ---- component-type aware attribute readers: the same conversion rules `build_mesh` applies above ----
+        auto const read_floats = [](vertex_portion const& portion, std::size_t const index, std::size_t const width,
+                                    bool const signed_normalized, float* const values) -> bool {
+            std::size_t const component_bytes = get_component_size(portion.component);
+            if (component_bytes == 0 || portion.data.size() < (index + 1) * width * component_bytes) {
+                return false;
+            }
+            auto const* const bytes = portion.data.data();
+            for (std::size_t c = 0; c < width; ++c) {
+                std::size_t const at = index * width + c;
+                switch (portion.component) {
+                case component_type::float_t:
+                    values[c] = reinterpret_cast<float const*>(bytes)[at];
+                    break;
+                case component_type::unsigned_byte_t:
+                    values[c] = static_cast<float>(bytes[at]) / 255.0f;
+                    break;
+                case component_type::byte_t: {
+                    float const raw = static_cast<float>(static_cast<std::int8_t>(bytes[at]));
+                    values[c] = signed_normalized ? std::max(raw / 127.0f, -1.0f) : raw;
+                    break;
+                }
+                case component_type::unsigned_short_t:
+                    values[c] = static_cast<float>(reinterpret_cast<std::uint16_t const*>(bytes)[at]) / 65535.0f;
+                    break;
+                case component_type::short_t: {
+                    float const raw = static_cast<float>(reinterpret_cast<std::int16_t const*>(bytes)[at]);
+                    values[c] = signed_normalized ? std::max(raw / 32767.0f, -1.0f) : raw;
+                    break;
+                }
+                default:
+                    return false;
+                }
+            }
+            return true;
+        };
+        auto const read_joint_indices = [](vertex_portion const& portion, std::size_t const index,
+                                           std::uint32_t* const values) -> bool {
+            std::size_t const component_bytes = get_component_size(portion.component);
+            if (component_bytes == 0 || portion.data.size() < (index + 1) * 4 * component_bytes) {
+                return false;
+            }
+            auto const* const bytes = portion.data.data();
+            for (std::size_t c = 0; c < 4; ++c) {
+                std::size_t const at = index * 4 + c;
+                if (portion.component == component_type::unsigned_byte_t) {
+                    values[c] = bytes[at];
+                } else if (portion.component == component_type::unsigned_short_t) {
+                    values[c] = reinterpret_cast<std::uint16_t const*>(bytes)[at];
+                } else {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        skin const* const skin_object = nodes[mesh_node].skin_index.has_value() && *nodes[mesh_node].skin_index < loaded.skins.size()
+                                            ? &loaded.skins[*nodes[mesh_node].skin_index]
+                                            : nullptr;
+
+        // ---- THE CAPTURED MEANS: two UV side bands give the face's left/right, the middle band gives its normal.
+        //      The window is the captured vertex filter (`uv.x` in [0.2,0.8], `uv.y` in [0.25,0.7]), and the sides
+        //      split at the captured 0.4 / 0.6 thresholds. ----
+        glm::vec3 left_sum(0.0f);
+        glm::vec3 right_sum(0.0f);
+        glm::vec3 normal_sum(0.0f);
+        std::size_t left_count = 0;
+        std::size_t right_count = 0;
+        std::size_t normal_count = 0;
+        bool weights_usable = skin_object != nullptr && !skin_object->joints.empty();
+        deren::utility::vessel::vector<float> joint_weight_totals(weights_usable ? skin_object->joints.size() : 0u, 0.0f);
+
+        for (mesh const& candidate_mesh : nodes[mesh_node].meshes) {
+            for (primitive const& prim : candidate_mesh.primitives) {
+                if (family_of(prim) != toon_family::face) {
+                    continue;
+                }
+                auto const find = [&prim](std::string_view const attribute) -> vertex_portion const* {
+                    auto const at = prim.vertex.find(deren::utility::vessel::string(attribute));
+                    return at == prim.vertex.end() ? nullptr : &at->second;
+                };
+                vertex_portion const* const position = find("POSITION");
+                vertex_portion const* const normal = find("NORMAL");
+                vertex_portion const* const uv = find("TEXCOORD_0");
+                vertex_portion const* const joints = find("JOINTS_0");
+                vertex_portion const* const weights = find("WEIGHTS_0");
+                if (position == nullptr || normal == nullptr || uv == nullptr) {
+                    continue;
+                }
+                std::size_t const component_bytes = get_component_size(position->component);
+                if (component_bytes == 0) {
+                    continue;
+                }
+                if (weights_usable && (joints == nullptr || weights == nullptr)) {
+                    weights_usable = false;
+                }
+                std::size_t const vertex_count = position->data.size() / (component_bytes * 3);
+                for (std::size_t v = 0; v < vertex_count; ++v) {
+                    // THE BONE WEIGHTS ARE ACCUMULATED FOR EVERY VERTEX, BEFORE THE UV WINDOW FILTER - that is the
+                    // captured loop's order, and it is what makes the dominant bone the MESH's dominant bone rather
+                    // than the face band's.
+                    if (weights_usable) {
+                        std::uint32_t joint_index[4] = {};
+                        float weight[4] = {};
+                        if (!read_joint_indices(*joints, v, joint_index) || !read_floats(*weights, v, 4, false, weight)) {
+                            weights_usable = false;
+                        } else {
+                            for (std::size_t c = 0; c < 4; ++c) {
+                                if (joint_index[c] < joint_weight_totals.size()) {
+                                    joint_weight_totals[joint_index[c]] += weight[c];
+                                }
+                            }
+                        }
+                    }
+                    float position_value[3] = {};
+                    float normal_value[3] = {};
+                    float uv_value[2] = {};
+                    if (!read_floats(*position, v, 3, true, position_value) || !read_floats(*normal, v, 3, true, normal_value) ||
+                        !read_floats(*uv, v, 2, false, uv_value)) {
+                        continue;
+                    }
+                    float const u = uv_value[0];
+                    float const w = uv_value[1];
+                    if (u < 0.2f || u > 0.8f || w < 0.25f || w > 0.7f) {
+                        continue;
+                    }
+                    glm::vec3 const position_value_vector(position_value[0], position_value[1], position_value[2]);
+                    if (u < 0.4f) {
+                        left_sum += position_value_vector;
+                        ++left_count;
+                    } else if (u > 0.6f) {
+                        right_sum += position_value_vector;
+                        ++right_count;
+                    } else {
+                        normal_sum += glm::vec3(normal_value[0], normal_value[1], normal_value[2]);
+                        ++normal_count;
+                    }
+                }
+            }
+        }
+        if (left_count == 0 || right_count == 0 || normal_count == 0) {
+            return out;
+        }
+        glm::vec3 const normal_mean = normal_sum / static_cast<float>(normal_count);
+        glm::vec3 const centroid_left = left_sum / static_cast<float>(left_count);
+        glm::vec3 const centroid_right = right_sum / static_cast<float>(right_count);
+        glm::vec3 const separation = centroid_right - centroid_left;
+        if (glm::dot(normal_mean, normal_mean) <= 1e-12f || glm::dot(separation, separation) <= 1e-12f) {
+            return out;
+        }
+
+        // `forward` in a frame, `right` = the UV separation orthogonalized against it (the captured
+        // `M.addScaledVector(T, -M.dot(T))`). A right axis that collapses onto forward is not a frame.
+        auto const make_axes = [&normal_mean, &separation](glm::mat4 const& to_frame, glm::vec3& forward, glm::vec3& right) {
+            forward = glm::normalize(glm::mat3(to_frame) * normal_mean);
+            right = glm::mat3(to_frame) * separation;
+            right -= forward * glm::dot(right, forward);
+            if (glm::dot(right, right) <= 1e-12f) {
+                return false;
+            }
+            right = glm::normalize(right);
+            return true;
+        };
+
+        glm::mat4 const mesh_world = nodes[mesh_node].transform_matrix;
+        if (weights_usable) {
+            std::size_t dominant = 0;
+            for (std::size_t joint = 1; joint < joint_weight_totals.size(); ++joint) {
+                if (joint_weight_totals[joint] > joint_weight_totals[dominant]) {
+                    dominant = joint;
+                }
+            }
+            auto const node_of_source = [&nodes](std::size_t const source) -> std::size_t {
+                for (std::size_t i = 0; i < nodes.size(); ++i) {
+                    if (nodes[i].source_index == source) {
+                        return i;
+                    }
+                }
+                return none;
+            };
+            std::size_t const bone_node = node_of_source(skin_object->joints[dominant]);
+            if (bone_node != none) {
+                deren::utility::vessel::vector<std::size_t> parent(nodes.size(), none);
+                for (std::size_t i = 0; i < nodes.size(); ++i) {
+                    for (std::size_t const child : nodes[i].children) {
+                        parent[child] = i;
+                    }
+                }
+                // THE CAPTURED HEAD LOOKUP: walk up from the dominant bone to the nearest ancestor whose name is
+                // a head bone; `looks_like_head_joint` is the same token rule the rest of this loader uses. No
+                // head ancestor at all falls back to the dominant bone itself, exactly as the captured viewer does.
+                std::size_t head_node = bone_node;
+                while (head_node != none && !looks_like_head_joint(nodes[head_node].name) && parent[head_node] != none) {
+                    head_node = parent[head_node];
+                }
+                if (head_node == none || !looks_like_head_joint(nodes[head_node].name)) {
+                    head_node = bone_node;
+                }
+                std::size_t head_joint = dominant;
+                for (std::size_t joint = 0; joint < skin_object->joints.size(); ++joint) {
+                    if (skin_object->joints[joint] == nodes[head_node].source_index) {
+                        head_joint = joint;
+                        break;
+                    }
+                }
+                // The captured skinning matrix of the dominant bone at the load/bind pose:
+                // `bone.matrixWorld * boneInverse * bindMatrix` (three.js), whose objects map one-for-one onto
+                // deren's node world matrix, glTF inverse bind matrix and mesh node world matrix.
+                glm::mat4 const skin_matrix = nodes[bone_node].transform_matrix *
+                                              skin_object->inverse_bind_matrices[dominant] * mesh_world;
+                glm::mat4 const head_world = nodes[head_node].transform_matrix;
+                glm::vec3 forward;
+                glm::vec3 right;
+                if (make_axes(glm::inverse(head_world) * skin_matrix, forward, right)) {
+                    out.forward = forward;
+                    out.right = right;
+                    out.world_forward = glm::normalize(glm::mat3(head_world) * forward);
+                    out.world_right = glm::normalize(glm::mat3(head_world) * right);
+                    out.world_center = glm::vec3(head_world[3]);
+                    out.head_joint = head_joint;
+                    out.skin_index = *nodes[mesh_node].skin_index;
+                    out.head_relative = true;
+                    out.valid = true;
+                    return out;
+                }
+            }
+        }
+
+        // ---- NO USABLE SKELETON: this repository's staged characters are baked (0 skins), so the load pose IS
+        //      the bind pose and the captured frame-space conversion collapses to the mesh node's world matrix. ----
+        glm::vec3 forward;
+        glm::vec3 right;
+        if (!make_axes(mesh_world, forward, right)) {
+            return out;
+        }
+        out.forward = forward;
+        out.right = right;
+        out.world_forward = forward;
+        out.world_right = right;
+        out.world_center = glm::vec3(0.0f);
+        out.head_relative = false;
+        out.valid = true;
+        return out;
     }
 
     toon_family toon_family_of(std::string_view const name) {

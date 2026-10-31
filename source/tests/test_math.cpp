@@ -1,5 +1,8 @@
 // Headless unit tests: deren.engine.math module (pure CPU - IBL precompute helpers) ===
+#include "../engine/lighting/cubemap_sampling.hpp"
 #include "../engine/lighting/environment_controls.hpp"
+#include "../engine/lighting/radiance_capture.hpp"
+#include "../shaders/toon/reference_shape.h"
 #include "vk_test.h"
 
 #include <algorithm>
@@ -12,6 +15,117 @@ import deren.engine.math;
 import deren.engine.primitive; // orbit_camera_pan_delta: the arrow-key camera pan
 
 namespace {
+    void test_radiance_cube_camera_and_pixels() {
+        using namespace deren::engine::environment_detail;
+        using namespace deren::engine::radiance_detail;
+        glm::vec3 const position(2, -3, 5);
+        for (unsigned face = 0; face < 6; ++face) {
+            auto camera = deren::engine::make_cube_capture_camera(position, face, .05f, 50.0f);
+            CHECK(glm::length(camera.camera_pos - position) < 1e-6f);
+            auto inv = glm::inverse(camera.proj * camera.view);
+            for (float u : {-.75f, 0.0f, .75f})
+                for (float v : {-.75f, 0.0f, .75f}) {
+                    auto p = inv * glm::vec4(-u, v, 1, 1);
+                    auto ray = glm::normalize(glm::vec3(p) / p.w - position);
+                    auto expected = cube_direction(face, u, v);
+                    CHECK(glm::length(ray - glm::normalize(glm::vec3(expected.x, expected.y, expected.z))) < 2e-4f);
+                }
+            auto near_point = inv * glm::vec4(0, 0, 0, 1), far_point = inv * glm::vec4(0, 0, 1, 1);
+            CHECK(std::abs(glm::length(glm::vec3(near_point) / near_point.w - position) - .05f) < 1e-5f);
+            CHECK(std::abs(glm::length(glm::vec3(far_point) / far_point.w - position) - 50.0f) < .05f);
+        }
+        CHECK(decode_binary16(0x0000) == 0);
+        CHECK(decode_binary16(0x3c00) == 1);
+        CHECK(decode_binary16(0x5000) == 32);
+        CHECK(decode_binary16(0x7bff) == 65504);
+        CHECK(decode_binary16(0x8001) == -std::ldexp(1.0f, -24));
+        CHECK(std::isinf(decode_binary16(0x7c00)));
+        CHECK(std::isnan(decode_binary16(0x7e00)));
+        std::array<float, 16> source{1, 2, 3, 2, 4, 5, 6, 2, 7, 8, 9, 2, 10, 11, 12, 2}, result{};
+        CHECK(canonicalize_face(source, 2, result));
+        CHECK(result[0] == 4 && result[4] == 1 && result[8] == 10 && result[12] == 7);
+        CHECK(result[3] == 1 && result[7] == 1 && result[11] == 1 && result[15] == 1);
+        source[0] = NAN;
+        CHECK(!canonicalize_face(source, 2, result));
+        CHECK(!canonicalize_face(source, 0, result));
+    }
+    void test_cube_filter_continuity() {
+        using namespace deren::engine::environment_detail;
+        auto max_delta = [](cube_vector a, cube_vector b) { return std::max({std::abs(a.x - b.x), std::abs(a.y - b.y), std::abs(a.z - b.z)}); };
+        struct edge_mapping {
+            int face, edge;
+            bool reverse;
+        };
+        constexpr edge_mapping mappings[6][4] = {
+            {{4, 1, false}, {5, 0, false}, {2, 1, true}, {3, 1, false}},
+            {{5, 1, false}, {4, 0, false}, {2, 0, false}, {3, 0, true}},
+            {{1, 2, false}, {0, 2, true}, {5, 2, true}, {4, 2, false}},
+            {{1, 3, true}, {0, 3, false}, {4, 3, false}, {5, 3, true}},
+            {{1, 1, false}, {0, 0, false}, {2, 3, false}, {3, 2, false}},
+            {{0, 1, false}, {1, 0, false}, {2, 2, true}, {3, 3, true}},
+        };
+        for (int size : {1, 2, 4, 16}) {
+            bool bounded = true;
+            auto fetch = [&](int face, int x, int y) {
+                bounded &= face >= 0 && face < 6 && x >= 0 && x < size && y >= 0 && y < size;
+                return cube_vector{float(face + 1), 3.0f * face + (x + .5f) / size, .3f * face + (y + .5f) / size};
+            };
+            float edge_error = 0, corner_error = 0;
+            for (int face = 0; face < 6; ++face)
+                for (int edge = 0; edge < 4; ++edge)
+                    for (float along : {-.99f, -.5f, 0.0f, .5f, .99f}) {
+                        float u = edge == 0 ? -1.0f : edge == 1 ? 1.0f
+                                                                : along;
+                        float v = edge == 2 ? -1.0f : edge == 3 ? 1.0f
+                                                                : along;
+                        auto a = cube_direction(face, edge < 2 ? u * (1 - 1e-6f) : u, edge >= 2 ? v * (1 - 1e-6f) : v);
+                        auto b = cube_direction(face, edge < 2 ? u * (1 + 1e-6f) : u, edge >= 2 ? v * (1 + 1e-6f) : v);
+                        edge_error = std::max(edge_error, max_delta(cube_sample_level(fetch, size, a), cube_sample_level(fetch, size, b)));
+                    }
+            for (float sx : {-1.0f, 1.0f})
+                for (float sy : {-1.0f, 1.0f})
+                    for (float sz : {-1.0f, 1.0f}) {
+                        auto a = cube_sample_level(fetch, size, cube_vector{sx * (1 + 1e-6f), sy, sz});
+                        auto b = cube_sample_level(fetch, size, cube_vector{sx, sy * (1 + 1e-6f), sz});
+                        auto c = cube_sample_level(fetch, size, cube_vector{sx, sy, sz * (1 + 1e-6f)});
+                        corner_error = std::max({corner_error, max_delta(a, b), max_delta(b, c), max_delta(c, a)});
+                    }
+            CHECK_MSG(edge_error < .002f, "all twelve cube edges remain continuous when the selected major face changes");
+            CHECK_MSG(corner_error < .002f, "all eight cube corners have the same three-face limit");
+            CHECK(bounded);
+            float orientation_error = 0, center_error = 0, constant_error = 0;
+            for (int face = 0; face < 6; ++face)
+                for (int edge = 0; edge < 4; ++edge)
+                    for (int i = 0; i < size; ++i) {
+                        int x = edge == 0 ? -1 : edge == 1 ? size
+                                                           : i;
+                        int y = edge == 2 ? -1 : edge == 3 ? size
+                                                           : i;
+                        auto m = mappings[face][edge];
+                        int along = m.reverse ? size - 1 - i : i;
+                        int nx = m.edge == 0 ? 0 : m.edge == 1 ? size - 1
+                                                               : along;
+                        int ny = m.edge == 2 ? 0 : m.edge == 3 ? size - 1
+                                                               : along;
+                        orientation_error = std::max(orientation_error, max_delta(cube_border_texel(fetch, size, face, x, y), fetch(m.face, nx, ny)));
+                    }
+            auto constant = [](int, int, int) { return cube_vector{.25f, 1, 4}; };
+            for (int face = 0; face < 6; ++face)
+                for (int y = 0; y < size; ++y)
+                    for (int x = 0; x < size; ++x) {
+                        auto d = cube_direction(face, (x + .5f) / size * 2 - 1, (y + .5f) / size * 2 - 1);
+                        center_error = std::max(center_error, max_delta(cube_sample_level(fetch, size, d), fetch(face, x, y)));
+                        constant_error = std::max(constant_error, max_delta(cube_sample_level(constant, size, d), {.25f, 1, 4}));
+                    }
+            CHECK(orientation_error < 1e-6f);
+            CHECK(center_error < 1e-5f);
+            CHECK(constant_error < 1e-6f);
+            CHECK(bounded);
+            auto face_constant = [](int face, int, int) { return cube_vector{float(face + 1), 0, 0}; };
+            CHECK(std::abs(cube_sample_level(face_constant, size, {1, 1, 0}).x - 2.0f) < 1e-5f);
+            CHECK(std::abs(cube_sample_level(face_constant, size, {1, 1, 1}).x - 3.0f) < 1e-5f);
+        }
+    }
     constexpr std::size_t cubemap_float_count(int32_t size) {
         return static_cast<std::size_t>(6) * static_cast<std::size_t>(size) * static_cast<std::size_t>(size) * 4;
     }
@@ -322,7 +436,42 @@ int32_t main() {
     CHECK(!valid_half_radiance(std::array<float, 2>{1, 65505}));
     CHECK(!valid_half_radiance(std::array<float, 2>{1, INFINITY}));
     CHECK(!valid_half_radiance(std::array<float, 2>{1, NAN}));
+    CHECK(!reference_strand_frame_valid(0.f, 1.f, 1.f));
+    CHECK(!reference_strand_frame_valid(1.f, 1.f, 0.f));
+    CHECK(!reference_strand_frame_valid(INFINITY, 1.f, 1.f));
+    CHECK(reference_strand_frame_valid(1.f, 1.f, 1.f));
+    CHECK(reference_hair_band(0.f, .3f) == 1.f);
+    CHECK(reference_hair_band(1.f, .3f) == 0.f);
+    CHECK(reference_hair_band(.2f, .2f) < reference_hair_band(.2f, .5f));
+    CHECK(reference_hair_band(.2f, .3f) == reference_hair_band(-.2f, .3f));
+    CHECK(reference_hair_band(0.f, 0.f) == 0.f);
+    CHECK(reference_nose_weight(1.f, 1.f) == 0.f);
+    CHECK(reference_nose_weight(.8f, 1.f) == 1.f);
+    CHECK(reference_nose_weight(.8f, 0.f) == 0.f);
+    CHECK(reference_nose_weight(.85f, 1.f) > reference_nose_weight(.95f, 1.f));
+    CHECK(reference_nose_weight(NAN, 1.f) == 0.f);
+    CHECK(reference_nose_diffuse_blend(.7f, 1.f, 0.f) == .7f);
+    CHECK(reference_nose_diffuse_blend(.7f, 1.f, 1.f) == 1.f);
+    CHECK(reference_nose_diffuse_blend(1.f, 1.f, 1.f) == 1.f);
+    CHECK(reference_hair_band(INFINITY, .3f) == 0.f);
+    CHECK(reference_masked_hair_lobe(1.f, 0.f, 1.f, 1.f) == 0.f);
+    CHECK(reference_masked_hair_lobe(1.f, 1.f, 0.f, 1.f) == 0.f);
+    CHECK(reference_masked_hair_lobe(1.f, 1.f, 1.f, 0.f) == 0.f);
+    CHECK(reference_masked_hair_lobe(1.f, .4f, .5f, 1.f) == .2f);
+    CHECK(reference_masked_hair_lobe(NAN, 1.f, 1.f, 1.f) == 0.f);
+    CHECK(reference_masked_hair_lobe(2.f, 2.f, 2.f, 2.f) == 1.f);
+    CHECK(reference_masked_hair_lobe(1.f, -1.f, 1.f, 1.f) == 0.f);
+    CHECK(reference_masked_hair_lobe(1.f, 1.f, INFINITY, 1.f) == 0.f);
+    CHECK(reference_masked_hair_lobe(1.f, 1.f, 1.f, NAN) == 0.f);
+    CHECK(reference_face_sdf_weight(.5f, 1.f, 0.f) == 1.f);
+    CHECK(reference_face_sdf_weight(.5f, -1.f, 0.f) == 0.f);
+    CHECK(std::abs(reference_face_sdf_weight(.5f, 0.f, 1.f) - .5f) < 1e-5f);
+    CHECK(reference_face_sdf_weight(.7f, 0.f, 1.f) == reference_face_sdf_weight(.7f, 0.f, -1.f));
+    CHECK(reference_face_sdf_weight(.5f, 0.f, 0.f) == 1.f);
+    CHECK(reference_face_sdf_weight(NAN, 1.f, 0.f) == 1.f);
     test_environment_cubemap_shape();
+    test_cube_filter_continuity();
+    test_radiance_cube_camera_and_pixels();
     test_irradiance_map_shape();
     test_brdf_lut_shape();
     test_prefiltered_environment_is_smooth();

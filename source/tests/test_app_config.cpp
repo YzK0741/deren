@@ -5,6 +5,7 @@
 #include "vk_test.h"
 
 #include <array>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -81,6 +82,7 @@ namespace {
         CHECK(settings.render.furnace);                                                          // fixture: the analytic verification mode
         CHECK(settings.render.unlit);                                                            // fixture: the flat render mode
         CHECK(settings.render.fxaa);
+        CHECK(!settings.render.bloom);                                                       // fixture turns the bright-pass bloom chain off
         CHECK(settings.render.render_scale > 0.49f && settings.render.render_scale < 0.51f); // fixture: a half-scale render chain
         CHECK(settings.render.upscale == "linear");                                          // fixture: the bilinear reference the FSR filter is measured against
         CHECK(!settings.render.gpu_timings);
@@ -95,6 +97,9 @@ namespace {
         CHECK(settings.render.visibility_texture_streaming);
         CHECK(settings.render.software_raster); // fixture: the M4 hybrid path on
         CHECK(settings.render.software_raster_threshold_px == 2.f);
+        // fixture: the THIRD toon model was PARSED, not merely defaulted - the same trap the `taa` comment
+        // records: a parser that silently drops the key still passes a defaults-only test.
+        CHECK(settings.render.game_toon);
         // the frame's static surround (`[render] background_glb`): a STRING key, so unlike the boolean
         // switches above this CHECK cannot pass by accident - an empty compiled default would read back as
         // "" and the comparison would fail
@@ -124,6 +129,7 @@ namespace {
         CHECK(settings.model.empty());
         CHECK(settings.render.shadow);
         CHECK(!settings.render.fxaa);
+        CHECK(settings.render.bloom);       // default: the bright-pass bloom chain is on
         CHECK(settings.render.gpu_timings); // default: pass timings are collected
         CHECK(!settings.render.gbuffer_debug);
         CHECK(settings.render.gbuffer_channel == 1);
@@ -135,6 +141,9 @@ namespace {
         CHECK(!settings.render.visibility_texture_streaming);
         CHECK(!settings.render.software_raster);
         CHECK(settings.render.software_raster_threshold_px == 1.f);
+        // default: the GAME-SHADER toon model is OFF - a run that does not ask for it gets the frame the
+        // previous chain produces (the flag's contract; `character_forward` is the stage, this is the model).
+        CHECK(!settings.render.game_toon);
         // default: NO background model - the frame is the one import it always was (see the key's note)
         CHECK(settings.render.background_glb.empty());
         CHECK(settings.render.shadow_cascades == 3); // default: three cascades
@@ -228,7 +237,7 @@ namespace {
     void test_generated_config_parses() {
         deren::app_config::app_settings const settings = deren::app_config::load_settings(VR_TEST_SOURCE_DIR "/source/tests/fixtures/config_generated_defaults.toml");
         CHECK(!settings.config_file.empty()); // parsed, not rejected
-        CHECK(settings.model == "gltf_model/DamagedHelmet.gltf");
+        CHECK(settings.model == "asset/DamagedHelmet/DamagedHelmet.gltf");
         CHECK(settings.grid_side == 0);
         // [render] presentation
         CHECK(settings.render.window_width == 1080);
@@ -491,6 +500,31 @@ namespace {
 } // namespace
 
 int32_t main() {
+    std::ofstream("probe-invalid.toml") << "[reflection_probe]\nenabled=true\nposition=\"bad\"\nfade=\"bad\"\n";
+    auto invalid_probe = deren::app_config::load_settings("probe-invalid.toml").reflection_probe;
+    CHECK(!std::isfinite(invalid_probe.position[0]));
+    CHECK(!std::isfinite(invalid_probe.fade));
+    std::filesystem::remove("probe-invalid.toml");
+    std::ofstream("toon-shape.toml") << "[toon]\nnose_shadow_reduction=0.8\nhair_highlight_width=0.3\nhair_highlight_shift=-0.2\n";
+    auto shape = deren::app_config::load_settings("toon-shape.toml").toon;
+    CHECK(shape.nose_shadow_reduction == .8f);
+    CHECK(shape.hair_highlight_width == .3f);
+    CHECK(shape.hair_highlight_shift == -.2f);
+    std::ofstream("toon-shape.toml") << "[toon]\nnose_shadow_reduction=nan\nhair_highlight_width=5\nhair_highlight_shift=-5\n";
+    shape = deren::app_config::load_settings("toon-shape.toml").toon;
+    CHECK(shape.nose_shadow_reduction == 0);
+    CHECK(shape.hair_highlight_width == 1);
+    CHECK(shape.hair_highlight_shift == -1);
+    std::filesystem::remove("toon-shape.toml");
+    CHECK(!deren::app_config::app_settings{}.toon.hair_masked_highlights);
+    CHECK(!deren::app_config::app_settings{}.toon.face_angular_sdf);
+    std::ofstream("toon-modes.toml") << "[toon]\nhair_masked_highlights=true\nface_angular_sdf=true\n";
+    auto modes = deren::app_config::load_settings("toon-modes.toml").toon;
+    CHECK(modes.hair_masked_highlights && modes.face_angular_sdf);
+    std::ofstream("toon-modes.toml") << "[toon]\nhair_masked_highlights=1\nface_angular_sdf=\"true\"\n";
+    modes = deren::app_config::load_settings("toon-modes.toml").toon;
+    CHECK(!modes.hair_masked_highlights && !modes.face_angular_sdf);
+    std::filesystem::remove("toon-modes.toml");
     test_environment_viewing_controls();
     test_environment_invalid_controls();
     for (auto value : {"0", "-1", "nan", "inf", "1e100", "1e-100", "\"wrong\""}) {

@@ -78,7 +78,7 @@ namespace {
         }
     };
     std::shared_ptr<sub::built_geometry const> source() {
-        deren::utility::vessel::vector<std::array<float, 16>> vertices;
+        deren::utility::vessel::vector<std::array<float, 20>> vertices;
         deren::utility::vessel::vector<std::uint32_t> indices;
         for (unsigned y = 0; y < 17; ++y) {
             for (unsigned x = 0; x < 17; ++x) {
@@ -93,9 +93,9 @@ namespace {
                 }
             }
         }
-        auto v = std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const*>(vertices.data()), vertices.size() * 64};
+        auto v = std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const*>(vertices.data()), vertices.size() * 80};
         auto i = std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const*>(indices.data()), indices.size() * 4};
-        auto built = sub::build({{v, 64, 289, i, 4, 0, static_cast<unsigned>(indices.size()), 0}});
+        auto built = sub::build({{v, 80, 289, i, 4, 0, static_cast<unsigned>(indices.size()), 0}});
         return built ? std::make_shared<sub::built_geometry const>(std::move(*built)) : nullptr;
     }
 } // namespace
@@ -103,7 +103,7 @@ int exercise(bool adopted) {
     auto cpu = source();
     if (adopted) {
         auto input = subtilis_fixture::cross_dag();
-        deren::utility::vessel::vector<std::array<float, 16>> vertices(input.source.positions.size());
+        deren::utility::vessel::vector<std::array<float, 20>> vertices(input.source.positions.size());
         for (size_t i = 0; i < vertices.size(); ++i) {
             std::memcpy(vertices[i].data(), input.source.positions[i].data(), 12);
             std::memcpy(vertices[i].data() + 3, input.source.normals[i].data(), 12);
@@ -113,7 +113,7 @@ int exercise(bool adopted) {
         CHECK(payload);
         if (payload) {
             auto bytes = [](auto const& values) { return std::span<uint8_t const>(reinterpret_cast<uint8_t const*>(values.data()), values.size() * sizeof(values[0])); };
-            auto asset = sub::import_payload({bytes(*payload), 1, "shared-vertices", true, true, bytes(vertices), 64, static_cast<uint32_t>(vertices.size()), bytes(input.source.indices), 4, static_cast<uint32_t>(input.source.indices.size())});
+            auto asset = sub::import_payload({bytes(*payload), 1, "shared-vertices", true, true, bytes(vertices), 80, static_cast<uint32_t>(vertices.size()), bytes(input.source.indices), 4, static_cast<uint32_t>(input.source.indices.size())});
             CHECK(asset);
             if (asset) {
                 auto built = sub::built_geometry::adopt_imported(std::make_shared<sub::imported_asset const>(std::move(*asset)));
@@ -364,14 +364,14 @@ int exercise(bool adopted) {
         uint32_t used = 0;
         for (auto const& root : scene.roots)
             used += static_cast<deren::engine::primitive*>(root.primitive_leaf.get())->meshlet_count;
-        std::array<std::array<float, 16>, 3> vertices{};
+        std::array<std::array<float, 20>, 3> vertices{};
         vertices[1][0] = vertices[2][1] = 1;
         deren::utility::vessel::vector<uint32_t> indices(size_t(deren::engine::meshlet_capacity - used - 1) * deren::engine::meshlet_max_indices);
         for (size_t i = 0; i < indices.size(); ++i)
             indices[i] = static_cast<uint32_t>(i % 3);
         deren::engine::primitive_create_info raw{};
         raw.vertex_data = {reinterpret_cast<uint8_t const*>(vertices.data()), sizeof(vertices)};
-        raw.vertex_stride = 64;
+        raw.vertex_stride = 80;
         raw.vertex_count = 3;
         raw.index_data = {reinterpret_cast<uint8_t const*>(indices.data()), indices.size() * 4};
         raw.index_count = static_cast<uint32_t>(indices.size());

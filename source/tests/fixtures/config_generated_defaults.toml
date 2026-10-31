@@ -4,7 +4,7 @@
 # ============================================================
 
 # ---- top level: model to load ----
-model = "gltf_model/DamagedHelmet.gltf"
+model = "asset/DamagedHelmet/DamagedHelmet.gltf"
 
 grid_side = 0
 sun_intensity = 1.0

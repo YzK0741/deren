@@ -1,5 +1,8 @@
 #define GLFW_INCLUDE_NONE // glfw3.h must not pull <GL/gl.h>: we link no OpenGL, and this states it instead of relying on the environment
 #include "../engine/lighting/environment_controls.hpp"
+#include "../engine/lighting/radiance_capture.hpp"
+#include "../engine/lighting/reflection_probe.hpp"
+#include "radiance_cube_capture.hpp"
 #include "startup_splash.hpp"
 
 #include <GLFW/glfw3.h> // the application's window: this file creates it and the backend only binds to it (see glfw_window_host)
@@ -145,6 +148,7 @@ namespace {
     // Both are stripped from argv before app_config sees them, so the positional model /
     // grid-side slots keep their meaning.
     struct capture_options {
+        deren::app::radiance_capture::options radiance;
         bool windowed = false;                                                        // explicit window-system regression captures
         int32_t frames = 0;                                                           // 0 = normal interactive run
         std::optional<deren::utility::vessel::array<float, 3>> camera = std::nullopt; // yaw(deg), pitch(deg), distance
@@ -204,6 +208,15 @@ namespace {
         };
         for (int32_t i = 1; i < argc; ++i) {
             std::string_view const arg(argv[i]);
+            auto const key = arg.substr(0, arg.find('='));
+            if (key == "--capture-radiance-cube" || key == "--probe-position" || key == "--probe-size" || key == "--probe-near" || key == "--probe-far") {
+                auto value = take_value(i, arg, key);
+                if (!value)
+                    options.radiance.invalid = true;
+                else
+                    deren::app::radiance_capture::parse_option(options.radiance, key, *value);
+                continue;
+            }
             if (arg == "--capture-windowed") {
                 options.windowed = true;
                 continue;
@@ -326,15 +339,16 @@ namespace {
     static constexpr std::string_view toon_rs_arm0_row = "_GooRSArm0";
 
     /// THE REFERENCE'S SECOND `_RS` SHEET SLOT - the one `RS_Index = 1` selects - AND IT IS NOT A LANE, nor may it
-    /// become one. `toon_lane` below is sized by `deren::engine::toon_slot::count`, so a second sheet slot AS A LANE would
-    /// cost a 17th vocabulary entry, a wider lane block (`toon_lane_blocks` 3 -> 4, in the SAME heap slot:
-    /// `source/backends/vulkan/core/core.declarations.cppm`'s `heap_slots::toon_lanes`) and a FOURTH accessor beside the three that
-    /// exist (`source/shaders/common/heap_access.slang`'s `toon_lanes_at`/`toon_lanes2_at`/`toon_lanes3_at`, one `uint4` column
-    /// each) - a fourth DESCRIPTOR SET is NOT the cost and was never the proposal
-    /// (`goo_step15_lane_rs_index_spec.md` §3.5/§9.4: the rejected `Rb`).
-    /// The reference needs none of that: `RS_Index` is a per-material CONSTANT (§1.3 - no material link in either
-    /// dump), so the choice is resolved here at registration time and the shader keeps reading ONE slot, exactly
-    /// like `RampSelect`/`RampIndex` above and for the same reason.
+    /// become one. `toon_lane` below is sized by `deren::engine::toon_slot::count`, so a second sheet slot AS A LANE
+    /// would cost a vocabulary entry, another lane block (in the SAME heap slot:
+    /// `source/backends/vulkan/core/core.declarations.cppm`'s `heap_slots::toon_lanes`) and another accessor beside
+    /// the ones that exist (`source/shaders/common/heap_access.slang`'s `toon_lanes_at`/`toon_lanes2_at`/
+    /// `toon_lanes3_at`/`toon_lanes4_at`, one `uint4` column each) - a fourth DESCRIPTOR SET is NOT the cost and was
+    /// never the proposal (`goo_step15_lane_rs_index_spec.md` §3.5/§9.4: the rejected `Rb`).
+    /// THAT PRICE WAS PAID IN STEP 17 FOR A LANE THAT CANNOT BE ANSWERED HERE (`_OutlineMask`, which a mesh stage
+    /// samples per vertex), and it does not make this one cheaper: `RS_Index` is a per-material CONSTANT (§1.3 - no
+    /// material link in either dump), so the choice is resolved here at registration time and the shader keeps
+    /// reading ONE slot, exactly like `RampSelect`/`RampIndex` above and for the same reason.
     static constexpr std::string_view toon_rs_sheet_b = "_GooRSSheet1";
 
     /// @brief what the `armA` sheet lane should resolve: a sidecar slot NAME, and whether it is the second sheet
@@ -431,8 +445,24 @@ int main(int argc, char** argv) {
     // from argv first (see parse_capture_options) so they cannot land in the positional slots.
     deren::utility::vessel::vector<char*> filtered_argv;
     capture_options const capture = parse_capture_options(argc, argv, filtered_argv);
-    deren::chores::startup_config const config = deren::chores::analyse_config(static_cast<int32_t>(filtered_argv.size()), filtered_argv.data());
-    deren::app_config::app_settings const& settings = config.settings;
+    auto const& probe = capture.radiance;
+    if (!deren::app::radiance_capture::valid(probe) || (probe.enabled && (capture.frames || capture.windowed || capture.camera || capture.sweep_yaw_deg_per_frame || capture.animation_seconds_per_frame))) {
+        deren::utility::error("invalid or conflicting radiance capture arguments");
+        return 2;
+    }
+    deren::chores::startup_config config = deren::chores::analyse_config(static_cast<int32_t>(filtered_argv.size()), filtered_argv.data());
+    auto& settings = config.settings;
+    if (probe.enabled) {
+        if (settings.render.character_forward || settings.render.game_toon || settings.render.subtilis || settings.render.software_raster || !settings.render.background_glb.empty() || std::getenv("DEREN_HZB_CULL") || std::getenv("DEREN_PROGRESSIVE_TEXTURES")) {
+            deren::utility::error("radiance capture requires ordinary static PBR without background models or experimental culling");
+            return 2;
+        }
+        settings.render.window_width = settings.render.window_height = probe.size;
+        settings.render.offscreen = true;
+        settings.render.render_scale = 1;
+        settings.render.taa = settings.render.ssao = settings.render.unlit = settings.render.gbuffer_debug = false;
+        settings.render.visibility_texture_streaming = false;
+    }
     std::filesystem::path const& shaders_dir = config.shaders_dir;
     deren::utility::vessel::string const& model_path = config.model_path;
     // Keep the splash younger than its GLFW owner, including early-exit teardown.
@@ -648,6 +678,17 @@ int main(int argc, char** argv) {
     auto scenes = gaussian_only ? std::expected<deren::gltf::scenes, deren::gltf::error_code>{no_model} : load_future.get();
     if (!scenes) {
         deren::utility::panic(std::source_location::current(), "failed to load model '{}': error code {}", model_path, static_cast<int32_t>(scenes.error()));
+    }
+    if (probe.enabled) {
+        bool dynamic = gaussian_only || !scenes->animations.empty() || !scenes->skins.empty();
+        for (auto const& [id, node] : scenes->node_by_source)
+            for (auto const& mesh : node->meshes)
+                for (auto const& primitive : mesh.primitives)
+                    dynamic |= !primitive.targets.empty();
+        if (dynamic) {
+            deren::utility::error("radiance capture refuses animation, skins, morph targets and PLY");
+            return 2;
+        }
     }
     deren::utility::vessel::vector<float> const env = env_future.get();
     auto const startup_done = std::chrono::steady_clock::now();
@@ -873,12 +914,24 @@ int main(int argc, char** argv) {
         // AND IT IS ONE OF THE REFERENCE'S TWO SHEETS, WHICH IS WHY THERE IS NO SECOND ENTRY HERE: `RS_Index`
         // (`_GooRSArm0`'s `.x`, a `color` row) chooses between this sheet and the second one, and the host
         // resolves that choice BY NAME in `toon_texture` (`toon_rs_sheet_of` above) instead of growing this
-        // table - a 17th entry would need `toon_slot::count` to move, i.e. a second texture lane, a
-        // `toon_lane_blocks` of 4 and a fourth descriptor set the shader would have to choose between. The shader
-        // therefore still reads ONE slot and still never looks at `rs_arm0_lane.x`: the second sheet is a
-        // MATERIAL's choice, not a frame's, which is the whole reason it can be answered here. See
-        // `goo_step15_lane_rs_index_spec.md` §9 and `toon_rs_sheet_b`.
+        // table - a second texture lane would need `toon_slot::count` to move and another lane block (the cost
+        // step 17 paid for `_OutlineMask`, which has no host answer at all), while THIS choice is a per-material
+        // constant with one slot to name. The shader therefore still reads ONE slot and still never looks at
+        // `rs_arm0_lane.x`: the second sheet is a MATERIAL's choice, not a frame's, which is the whole reason it
+        // can be answered here. See `goo_step15_lane_rs_index_spec.md` §9 and `toon_rs_sheet_b`.
         {"_GooRSSheet", "_UseGooRSSheet"},
+        // ---- STEP 17: THE INVERTED-HULL OUTLINE'S WIDTH/DEPTH MASK ----
+        //
+        // `_OutlineMask` IS A GAME PROPERTY NAME AND ITS FLAG IS `_EnableOutlineMask`, which is the one entry in this
+        // table whose flag is not `_Use<Slot>` for an ASSET reason rather than a port reason: the captured viewer
+        // emits its `#ifdef Q326` from `_EnableOutlineMask === 1 && _OutlineMask`, and the staged reference asset
+        // states the flag as a `float` row (`1.0` on face/hair, `0.0` on body/cloth) beside the `slot` row. A
+        // material with the flag 0 therefore names no readable mask here even when the file carries a texture row,
+        // which is exactly the viewer's condition - and the lane stays 0, i.e. the Q326-absent uniform hull.
+        //
+        // IT IS THE LANE THAT RAISED `toon_lane_blocks` TO 4 and added `toon_lanes4_at`; it cannot be answered on
+        // the host because the mask modulates a PER-VERTEX hull quantity inside the outline's geometry stage.
+        {"_OutlineMask", "_EnableOutlineMask"},
     }};
     // THE MATERIAL COLOUR VOCABULARY, one `color` row name per `deren::engine::toon_colour_lane`, in lane order - the
     // same arrangement the texture table above uses and for the same reason: the asset pipeline's spelling belongs
@@ -1072,6 +1125,23 @@ int main(int argc, char** argv) {
         // nothing - but note it is not the same as `Use RS_Eff? = 0`: a zeroed `armA` still passes through the
         // LIGHTEN below. See `toon_colour_lane::goo_rs_arm0` and the `armA` block in `source/shaders/toon/goo_toon.slang`.
         "_GooRSArm0",
+        "_GameToon0",
+        "_GameToon1",
+        "_GameToon2",
+        "_GameToon3",
+        "_GameToon4",
+        "_GameToon5",
+        "_GameToon6",
+        "_GameToon7",
+        "_GameToon8",
+        "_GameToon9",
+        "_GameToon10",
+        "_GameToon11",
+        "_GameToon12",
+        "_GameToon13",
+        "_GameToon14",
+        "_GameToon15",
+
     }};
     // The declared flag for a toon lane; the `_Use<Slot>` convention for every OTHER slot, which the diagnostic
     // needs because it walks the whole file (`_BaseMap`, `_BumpMap`, the outline and SDF masks and the rest).
@@ -1365,6 +1435,8 @@ int main(int argc, char** argv) {
     deren::gltf::drawable_iterator scene_first(*scenes, materials);
     deren::gltf::drawable_iterator const scene_last;
     glm::vec3 const scene_import_shift = -scene_center + scene_sink;
+    if (probe.enabled)
+        deren::utility::log("radiance world position ({},{},{}), scene import shift ({},{},{})", probe.position.x, probe.position.y, probe.position.z, scene_import_shift.x, scene_import_shift.y, scene_import_shift.z);
 
     // ---- THE TOON LOOKUP: the one place the sidecar reader and the renderer meet ----
     // `deren_engine` deliberately does not depend on `gltf_loader` (see that target's note: the engine is
@@ -1962,6 +2034,20 @@ int main(int argc, char** argv) {
          // zero makes `armA`'s colour zero, and a zero colour still passes through `混合.029` (LIGHTEN), whose
          // `max(base, 0)` is only bitwise `base` where `base >= 0`. The outer gate is what keeps a material with no
          // RS row unchanged. See `toon_colour_lane::goo_rs_arm0`.
+         glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+         glm::vec4(0.0f),
+         glm::vec4(0.0f),
+         glm::vec4(0.0f),
+         glm::vec4(0.0f),
+         glm::vec4(0.0f),
+         glm::vec4(0.0f),
+         glm::vec4(0.0f),
+         glm::vec4(0.0f),
+         glm::vec4(0.0f),
+         glm::vec4(0.0f),
+         glm::vec4(0.0f),
+         glm::vec4(0.0f),
+         glm::vec4(0.0f),
          glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)}};
     auto const toon_colour = [](void* const owner, std::string_view const material_name, deren::engine::toon_colour_lane const lane) -> glm::vec4 {
         std::size_t const lane_index = static_cast<std::size_t>(lane);
@@ -2139,6 +2225,39 @@ int main(int argc, char** argv) {
     // an asset node index) because that is what picks a matrix out of the rig's joint block.
     std::size_t head_rig = 0;
     std::optional<std::size_t> head_joint = std::nullopt;
+    // ---- THE CAPTURED VIEWER'S FACE FRAME (`Q324`/`Q80`), MEASURED FROM THE FACE MESH AT LOAD ----
+    //
+    // WHY THIS EXISTS AT ALL: the captured viewer does not read its face frame off the head bone. Its
+    // `faceFrame()` takes the FACE MESH's vertices, averages the POSITIONs of the two UV side bands (`uv.x < 0.4`
+    // and `uv.x > 0.6`) to get left/right, averages the NORMALs of the middle band for the forward axis, and
+    // orthogonalizes right against forward (`tmp/game_toon-studio-audit/final/responses/
+    // eadba1af4f-DIaZSo8d.js`, the material manager's `faceFrame`, around byte 248129). The staged Laevatain
+    // model's bone/glTF frame is `(0,0,1)` forward while its painted face measures `(-0.131,-0.391,0.911)`, ~26
+    // degrees apart, and `Q80` (the UV left/right of the painted face) is not a bone axis at all - it is the axis
+    // the SDF atlas is MIRRORED about, which is why the mirror threshold landed at the wrong camera yaw and the
+    // face shadow popped there.
+    //
+    // THE GATE IS THE PUNCTUAL-RIG GATE below (SAME PREDICATE, SAME REASON): the captured frame is only published
+    // for the captured GameToon preview model's own render, so every other model in this repository keeps the
+    // bone/fallback head frame it had (the game chains read the same `head_ubo`). The `front.w` flag tells the
+    // shader which of the two it is looking at (see `head_ubo::front`); when the loader finds no face mesh the
+    // block simply is not published and `skin_face.slang` keeps its historical `-head_right` derivation.
+    std::optional<deren::gltf::face_frame> captured_face_frame = std::nullopt;
+    bool const publish_captured_face_frame = settings.render.game_toon && model_path.find("game_toon") != deren::utility::vessel::string::npos;
+    if (publish_captured_face_frame) {
+        for (std::size_t scene_index = 0; scene_index < scenes->scene.size() && !captured_face_frame.has_value(); ++scene_index) {
+            deren::gltf::face_frame frame = deren::gltf::face_frame_of(*scenes, scene_index);
+            if (frame.valid) {
+                captured_face_frame = frame;
+                deren::utility::log("face frame: captured Q324 ({:.3f} {:.3f} {:.3f}) Q80 ({:.3f} {:.3f} {:.3f}) head_relative {}",
+                                    frame.forward.x, frame.forward.y, frame.forward.z, frame.right.x, frame.right.y, frame.right.z,
+                                    frame.head_relative);
+            }
+        }
+        if (!captured_face_frame.has_value()) {
+            deren::utility::log("face frame: no usable face-family mesh in '{}' - the SDF keeps the bone/fallback head frame", model_path);
+        }
+    }
     {
         deren::gltf::head_basis head = deren::gltf::head_basis_fallback();
         for (std::size_t scene_index = 0; scene_index < scenes->scene.size() && !head_joint.has_value(); ++scene_index) {
@@ -2159,7 +2278,23 @@ int main(int argc, char** argv) {
         // the one a model with NO HEAD BONE takes, and for such a model there is no `HC` object to read a centre
         // from. `center.w = 0.0` is what tells the face arm that, and its answer is the socket's own default
         // (`sphereNormal_Strength = 0.0`) rather than a sphere about the world origin.
-        runtime.set_head_basis(deren::engine::head_ubo{.front = glm::vec4(head.front, 0.0f), .right = glm::vec4(head.right, 0.0f), .up = glm::vec4(head.up, 0.0f), .center = glm::vec4(0.0f)});
+        //
+        // THE CAPTURED FACE FRAME IS PUBLISHED HERE FOR FRAME 0 (the frame loop re-publishes every frame): it wins
+        // over the bone/fallback frame when the loader measured one, and `front.w = 1.0` marks it as `Q324`/`Q80`.
+        if (captured_face_frame.has_value()) {
+            glm::vec3 const world_forward = captured_face_frame->world_forward;
+            glm::vec3 const world_right = captured_face_frame->world_right;
+            glm::vec3 const up = glm::normalize(glm::cross(world_right, world_forward));
+            bool const has_head_position = captured_face_frame->head_relative;
+            runtime.set_head_basis(deren::engine::head_ubo{
+                .front = glm::vec4(world_forward, 1.0f),
+                .right = glm::vec4(world_right, 0.0f),
+                .up = glm::vec4(up, 0.0f),
+                .center = glm::vec4(has_head_position ? captured_face_frame->world_center : glm::vec3(0.0f),
+                                    has_head_position ? 1.0f : 0.0f)});
+        } else {
+            runtime.set_head_basis(deren::engine::head_ubo{.front = glm::vec4(head.front, 0.0f), .right = glm::vec4(head.right, 0.0f), .up = glm::vec4(head.up, 0.0f), .center = glm::vec4(0.0f)});
+        }
     }
 
     // ---- THE TOON LIGHT RIG, published once, before the frame loop ----
@@ -2177,6 +2312,8 @@ int main(int argc, char** argv) {
         rig.other_light.x = settings.toon.head_light_day0;
         rig.other_light.y = settings.toon.head_light_day1;
         rig.other_colour = glm::vec4(settings.toon.head_light_colour[0], settings.toon.head_light_colour[1], settings.toon.head_light_colour[2], 0.0f);
+        rig.reference_modes.x = settings.toon.hair_masked_highlights ? 1.0f : 0.0f;
+        rig.reference_modes.y = settings.toon.face_angular_sdf ? 1.0f : 0.0f;
         rig.main_dark.x = settings.toon.sun_dark_colour[0];
         rig.main_dark.y = settings.toon.sun_dark_colour[1];
         rig.main_dark.z = settings.toon.sun_dark_colour[2];
@@ -2198,6 +2335,9 @@ int main(int argc, char** argv) {
         // `outline` stages (`goo_toon.slang`'s own `rs_shadow` lookup is a different call site and stays 3x3 at
         // every level; `overlay` has no shadow sample at all).
         rig.shadow_softness.x = settings.render.toon_shadow_softness;
+        rig.shadow_softness.y = settings.toon.nose_shadow_reduction;
+        rig.shadow_softness.z = settings.toon.hair_highlight_width;
+        rig.shadow_softness.w = settings.toon.hair_highlight_shift;
         runtime.set_toon_rig(rig);
         deren::utility::log("toon: light rig published - day strength {:.3f}, head light {:.2f} at day 1 of {:.2f} at day 0, env strength {:.2f}, shadow softness {}",
                             rig.day.x,
@@ -2299,6 +2439,58 @@ int main(int argc, char** argv) {
             demo_lights.push_back(light);
         }
         deren::utility::log("demo lights: {} procedural punctual lights around the scene (clustered light stress)", total);
+    }
+
+    // 13c. The captured GameToon viewer's character-only punctual rig (the same values as
+    //      `tmp/game_toon-studio-audit/final/2fcd9c7ad0-1619b7616e7ad936.json-laevat.json`).
+    //      Pushed through the ordinary `punctual_lights` UBO so the GameToon fragment loop sees deren
+    //      world-space positions instead of a second, unmatchable coordinate system.
+    if (settings.render.game_toon && model_path.find("game_toon") != deren::utility::vessel::string::npos) {
+        struct captured_light {
+            float p[3];
+            float f[3];
+            float c[3];
+            float intensity;
+            float range;
+            bool spot;
+            float outer_deg;
+            float inner_deg;
+            float mode;
+            float npr0;
+            float npr1;
+            float npr2;
+            float npr3;
+        };
+        static constexpr captured_light captured[] = {
+            {{1.135f, 0.942f, 0.138f}, {-0.8698f, 0.0f, -0.4935f}, {0.7506f, 0.9342f, 1.0f}, 18.0f, 1.15f, true, 71.6229f, 62.2358f, 3.0f, 0.368f, 0.194f, 0.0f, 0.0f},
+            {{0.6402f, 1.7082f, -0.1039f}, {-0.9756f, -0.1811f, -0.1244f}, {1.0f, 0.8274f, 0.7078f}, 25.0f, 0.555f, true, 98.307f, 74.8897f, 3.0f, 0.4f, 0.7f, 0.0f, 0.0f},
+            {{0.228f, 1.5494f, 0.036f}, {-0.6932f, -0.5692f, 0.4421f}, {1.0f, 0.7321f, 0.5269f}, 1.5f, 0.2635f, false, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
+            {{0.0708f, 1.6474f, 0.0601f}, {0.4854f, -0.098f, 0.8688f}, {1.0f, 0.6695f, 0.1536f}, 0.5f, 0.2082f, false, 0.0f, 0.0f, 2.0f, 0.6f, 0.95f, 0.0f, 0.0f},
+            {{-0.1233f, 1.6341f, 0.194f}, {-0.8206f, 0.0f, 0.5715f}, {1.0f, 0.0323f, 0.0119f}, 0.3f, 0.2082f, false, 0.0f, 0.0f, 2.0f, 0.6f, 0.95f, 0.0f, 0.0f},
+            {{-0.2722f, 1.288f, -0.042f}, {-0.6085f, 0.0f, 0.7936f}, {1.0f, 0.6664f, 0.6969f}, 2.0f, 0.1316f, false, 0.0f, 0.0f, 2.0f, 0.6f, 0.95f, 0.0f, 0.0f},
+            {{0.1016f, 1.5468f, 0.051f}, {-0.9947f, 0.0f, -0.1026f}, {1.0f, 0.7565f, 0.5754f}, 0.2f, 0.1716f, false, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
+            {{-0.105f, 1.478f, 0.353f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.9053f, 0.7874f}, 0.35f, 0.4596f, false, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
+            {{0.0211f, 1.7919f, 0.0002f}, {0.4862f, -0.0728f, 0.8708f}, {1.0f, 0.7943f, 0.3573f}, 3.0f, 0.1491f, false, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
+            // FogLight_1: captured `npr:"fog"`; the last active character-only light in the rig.
+            {{0.0134f, 1.0117f, -1.3375f}, {0.0f, 0.0f, 1.0f}, {0.2166f, 0.2166f, 0.2603f}, 0.4f, 1.5f, true, 86.6636f, 81.1457f, 4.0f, 0.7f, 1.0f, 0.0f, 0.0f},
+        };
+        for (captured_light const& c : captured) {
+            deren::engine::punctual_light light = {};
+            light.position = glm::vec3(c.p[0], c.p[1], c.p[2]);
+            light.spot_direction = glm::vec3(c.f[0], c.f[1], c.f[2]);
+            light.color = glm::vec3(c.c[0], c.c[1], c.c[2]);
+            light.intensity = c.intensity;
+            light.range = c.range;
+            light.spot = c.spot;
+            if (c.spot) {
+                light.spot_outer_cos = std::cos(glm::radians(c.outer_deg) * 0.5f);
+                light.spot_inner_cos = std::cos(glm::radians(c.inner_deg) * 0.5f);
+            }
+            light.npr_mode = c.mode;
+            light.npr_data = glm::vec4(c.npr0, c.npr1, c.npr2, c.npr3);
+            demo_lights.push_back(light);
+        }
+        deren::utility::log("GameToon rig: {} captured punctual lights pushed through the scene light UBO", std::size(captured));
     }
 
     // 14. Main render loop: until the window closes or ESC is pressed.
@@ -2522,6 +2714,7 @@ int main(int argc, char** argv) {
     deren::chores::gui_bindings gui;
     gui.shadow_enabled = settings.render.shadow; // checkbox initial states mirror the config
     gui.fxaa_enabled = settings.render.fxaa;
+    gui.bloom_enabled = settings.render.bloom;         // bloom chain initial state (the frame mirrors it below)
     gui.gbuffer_debug = settings.render.gbuffer_debug; // gbuffer debug view initial state (M1)
     gui.gbuffer_channel = settings.render.gbuffer_channel;
     gui.render_mode = settings.render.unlit ? 1 : 0; // render-mode combo (0 = pbr, 1 = unlit)
@@ -2539,10 +2732,10 @@ int main(int argc, char** argv) {
     // that never reached the gui (the trap the two lines above record) would be overwritten by the binding's
     // default on the very first frame.
     gui.character_forward = settings.render.character_forward;
-    // ... AND WHICH CHAIN THAT STAGE DRAWS WITH, initialised from the config on the same line and for the same
-    // reason: the frame loop mirrors the binding into the runtime, so a config value that never reached the
-    // binding would be overwritten by its default on the first frame.
-    gui.goo_toon = settings.render.goo_toon;
+    // ... AND THE GAME-SHADER MODEL, on the same load-bearing copy's terms: the frame loop mirrors the binding
+    // into the runtime, so a config value that never reached the binding would be overwritten by its default
+    // on the first frame (`runtime::set_game_toon`).
+    gui.game_toon = settings.render.game_toon;
     gui.exposure = settings.render.exposure;
     gui.tone_mapping = settings.render.tone_mapping;
     gui.environment_rotation = settings.lighting.environment_rotation;
@@ -2704,6 +2897,26 @@ int main(int argc, char** argv) {
     // glTF camera, or the pinned `--capture-camera` above - so a sweep composes with all three instead of
     // demanding a pinned pose it would have to be told twice.
     float const sweep_base_yaw = runtime.camera.yaw;
+    if (settings.reflection_probe.enabled && !probe.enabled) {
+        auto const& r = settings.reflection_probe;
+        auto vec = [](auto const& a) { return glm::vec3(a[0], a[1], a[2]); };
+        auto path = std::filesystem::path(r.asset.c_str());
+        if (path.is_relative())
+            path = deren::utility::executable_directory() / path;
+        std::error_code ec;
+        auto length = std::filesystem::file_size(path, ec);
+        std::optional<deren::engine::probe_detail::asset> asset;
+        if (!ec && length <= 32 + uint64_t(6) * 512 * 512 * 8 * 2) {
+            std::vector<std::byte> bytes(length);
+            std::ifstream file(path, std::ios::binary);
+            if (file.read(reinterpret_cast<char*>(bytes.data()), bytes.size()))
+                asset = deren::engine::probe_detail::decode(bytes);
+        }
+        if (!asset || !runtime.set_local_probe(asset->half, asset->size, asset->mips, vec(r.position), vec(r.minimum), vec(r.maximum), r.fade, r.gain))
+            deren::utility::log("local probe: invalid asset/config/upload; using global IBL ({})", path.string());
+        else
+            deren::utility::log("local probe loaded: {} ({}px, {} mips), position ({},{},{})", path.string(), asset->size, asset->mips, r.position[0], r.position[1], r.position[2]);
+    }
     int32_t captured_frames = 0; // presented frames so far (scripted capture; see --capture-frames)
     // Capture-only transition probe: exercise progressive restoration while uploads are in flight.
     auto* disable_streaming_text = std::getenv("DEREN_BENCH_DISABLE_STREAMING_FRAME");
@@ -2735,7 +2948,22 @@ int main(int argc, char** argv) {
         sample_resources();
     }
     auto previous_environment_state = std::tuple(gui.environment_rotation, gui.environment_strength, gui.environment_background, gui.environment_color.x, gui.environment_color.y, gui.environment_color.z, gui.environment_blur);
+    unsigned probe_face = 0, probe_frames = 0;
+    bool probe_done = false;
+    std::vector<float> probe_pixels;
+    auto const probe_started = std::chrono::steady_clock::now();
+    if (probe.enabled) {
+        probe_pixels.resize(std::size_t(6) * probe.size * probe.size * 4);
+        start_demo.set_radiance_capture(true);
+    }
     while (true) {
+        if (probe.enabled) {
+            if (std::chrono::steady_clock::now() - probe_started > std::chrono::minutes(5)) {
+                deren::utility::error("radiance capture timed out");
+                return 3;
+            }
+            runtime.set_camera_override(deren::engine::make_cube_capture_camera(probe.position, probe_face, probe.near_plane, probe.far_plane));
+        }
         // Deterministic capture-only exercise of asynchronous preset publication and error retention.
         if (capture.frames > 0 && std::getenv("DEREN_ENVIRONMENT_TEST_CYCLE") != nullptr &&
             captured_frames > 0 && captured_frames % 60 == 0 && !environment_job.valid() && environment_paths.size() > 1) {
@@ -2799,7 +3027,12 @@ int main(int argc, char** argv) {
         }
 
         runtime.set_environment(gui.environment_rotation, gui.environment_strength, gui.environment_background, gui.environment_color, gui.environment_blur);
-        runtime.set_tone_mapping(gui.tone_mapping);
+        // The captured GameToon viewer's toon path ends in its own tone map (Q332 disabled); tone mode 2 is
+        // that transcribed curve. Keep the selected mode for every other chain.
+        // The captured character.frag is written for the viewer's own tone map (mode 2); with the staged skin
+        // payload accessors fixed, mode 2 no longer shifts skin green, so profile-on uses the captured display
+        // path and the selected tone map is left for profile-off.
+        runtime.set_tone_mapping(gui.game_toon ? 2 : gui.tone_mapping);
         runtime.set_exposure(gui.exposure);
         auto current_environment_state = std::tuple(gui.environment_rotation, gui.environment_strength, gui.environment_background, gui.environment_color.x, gui.environment_color.y, gui.environment_color.z, gui.environment_blur);
         if (current_environment_state != previous_environment_state) {
@@ -2850,7 +3083,34 @@ int main(int argc, char** argv) {
         // head's forward and `-row1` its right, where "row" is HLSL's and therefore a COLUMN of the
         // column-major matrix this engine stores. `head_basis_from_axes` negates, re-orthogonalises and falls
         // back when the bone is degenerate, so a zero matrix here cannot put NaNs in the sigmoid.
-        if (head_joint.has_value()) {
+        // ---- THE CAPTURED FACE FRAME (`Q324`/`Q80`) OWNS THE HEAD BASIS WHEN THE LOADER MEASURED ONE ----
+        //
+        // The captured viewer re-derives `Q324`/`Q80` every frame by `transformDirection(head.matrixWorld)` on
+        // the bind-pose axes (its `update()` loop; see the loader's `face_frame_of` for the load-side measurement).
+        // THIS REPOSITORY'S CHARACTERS ARE BAKED (zero skins), so there is no head bone to turn and the load-pose
+        // axes ARE the frame - the publish below is then the same vector every frame. The `head_relative` branch
+        // is the captured transform for a skinned asset, kept so the wiring is the same shape as the viewer's.
+        // `front.w = 1.0` marks the block as the captured frame (see `head_ubo::front`); `skin_face.slang` reads
+        // that flag and stops deriving `Q80` as `-head_right`.
+        if (captured_face_frame.has_value()) {
+            glm::vec3 world_forward = captured_face_frame->world_forward;
+            glm::vec3 world_right = captured_face_frame->world_right;
+            glm::vec3 center(0.0f);
+            bool has_center = false;
+            if (captured_face_frame->head_relative) {
+                if (std::optional<glm::mat4> const bone = animation.joint_world(captured_face_frame->skin_index, captured_face_frame->head_joint); bone.has_value()) {
+                    world_forward = glm::normalize(glm::mat3(*bone) * captured_face_frame->forward);
+                    world_right = glm::normalize(glm::mat3(*bone) * captured_face_frame->right);
+                    center = glm::vec3((*bone)[3]);
+                    has_center = true;
+                }
+            }
+            runtime.set_head_basis(deren::engine::head_ubo{
+                .front = glm::vec4(world_forward, 1.0f),
+                .right = glm::vec4(world_right, 0.0f),
+                .up = glm::vec4(glm::normalize(glm::cross(world_right, world_forward)), 0.0f),
+                .center = glm::vec4(center, has_center ? 1.0f : 0.0f)});
+        } else if (head_joint.has_value()) {
             if (std::optional<glm::mat4> const bone = animation.joint_world(head_rig, *head_joint); bone.has_value()) {
                 glm::mat4 const& joint = *bone;
                 glm::vec3 const forward_row(joint[0][2], joint[1][2], joint[2][2]); // HLSL `_31_32_33`
@@ -2892,6 +3152,10 @@ int main(int argc, char** argv) {
         gui.anim_playing = animation.is_playing(); // reflect controller-side pauses (scrub / select)
         gui.anim_index = static_cast<int32_t>(animation.current());
 
+        if (probe.enabled && probe_frames == 8 && !runtime.request_radiance_capture()) {
+            deren::utility::error("radiance request refused");
+            return 3;
+        }
         // Phase 3: record + submit + present the paced frame
         deren::engine::frame_status const rec = runtime.begin_recording();
         if (rec == deren::engine::frame_status::closed || deren::engine::is_failure(rec)) {
@@ -2906,13 +3170,33 @@ int main(int argc, char** argv) {
         if (result == deren::engine::frame_status::closed || deren::engine::is_failure(result)) {
             break;
         }
-        if (result == deren::engine::frame_status::skipped) {
+        if (result == deren::engine::frame_status::skipped && !probe.enabled) {
             // present reported the swapchain out of date / recreated it: retry next iteration
             frame_stats.on_skipped();
             std::this_thread::yield();
             continue;
         }
 
+        if (probe.enabled && ++probe_frames == 9) {
+            auto image = runtime.acquire_radiance_image();
+            auto const face_values = std::size_t(probe.size) * probe.size * 4;
+            if (!image || image->width != static_cast<uint32_t>(probe.size) || image->height != static_cast<uint32_t>(probe.size) ||
+                !deren::engine::radiance_detail::canonicalize_face(image->rgba, probe.size, std::span<float>(probe_pixels).subspan(probe_face * face_values, face_values))) {
+                deren::utility::error("radiance readback failed");
+                return 3;
+            }
+            probe_frames = 0;
+            if (++probe_face == 6) {
+                auto written = deren::app::radiance_capture::write_cube(probe.output, probe.size, probe_pixels);
+                if (!written) {
+                    deren::utility::error(deren::app::radiance_capture::describe(written.error()));
+                    return 3;
+                }
+                probe_done = true;
+                break;
+            }
+            start_demo.reset_temporal_history();
+        }
         // A frame was presented: publish its stamp for cheap readers (frame_clock)
         ++resource_frame;
         if (resource_trace_path && (resource_frame % 10 == 0 || resource_frame == static_cast<std::uint64_t>(capture.frames)))
@@ -2953,6 +3237,11 @@ int main(int argc, char** argv) {
         // visible - imported model lights were loaded into those slots, so they must stay lit in
         // headless-overlay runs too (the demo slots stay off unless the user enabled them)
         deren::chores::apply_point_lights(runtime, gui, demo_lights);
+        if (settings.render.game_toon) {
+            // captured hair rim depth: width 0.368, gain 10, modest strength; the contour stage owns
+            // the only legal gbuffer_depth sample after the character pass.
+            runtime.set_toon_screen_rim(0.368f, 10.0f, 0.25f, 1.0f, 0.85f, 0.95f);
+        }
         runtime.set_bloom(gui.bloom_enabled ? gui.bloom_intensity : 0.0f, gui.bloom_threshold); // bloom checkbox + knobs -> post pass
         runtime.set_async_present(config.settings.render.async_present);
         runtime.set_max_fps(config.settings.render.max_fps); // 0 = uncapped (see config.example.toml)
@@ -2977,8 +3266,9 @@ int main(int argc, char** argv) {
         // frame with no opaque geometry records nothing rather than an empty instance.
         runtime.set_character_forward(gui.character_forward);
         // ... and WHICH CHAIN that stage shades with, mirrored on the line above's own terms - CPU-side, read while
-        // the next frame is composed, so a toggle mid-run is seen by the frame after it (`runtime::set_goo_toon`).
-        runtime.set_goo_toon(gui.goo_toon);
+        // ... and the THIRD model, mirrored on the same terms. The frame's three-way choice gives `game_toon`
+        // precedence when both model switches are on, so this pair is never silently combined into a fourth state.
+        runtime.set_game_toon(gui.game_toon);
         start_demo.set_ssao(gui.ssao_enabled, gui.ssao_radius, gui.ssao_intensity, static_cast<uint32_t>(std::max(gui.ssao_samples, 0.0f) + 0.5f));
         // cel shading: the combo picks a discrete band count (index 0 = off); every entry is a
         // visibly different look, unlike a continuous strength that had dead zones between bands
@@ -3102,5 +3392,5 @@ int main(int argc, char** argv) {
             deren::utility::error("benchmark frame trace could not be written");
     }
     deren::utility::log("render loop finished");
-    return 0;
+    return probe.enabled && !probe_done ? 3 : 0;
 }

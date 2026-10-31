@@ -109,10 +109,12 @@ namespace deren::app_config {
                     }
                 }
             }
-            if (auto v = (*render)["exposure"].value<double>())
+            if (auto v = (*render)["exposure"].value<double>()) {
                 settings.render.exposure = std::isfinite(*v) ? float(std::clamp(*v, 0.05, 20.0)) : 1.0f;
-            if (auto v = (*render)["tone_mapping"].value<int64_t>())
-                settings.render.tone_mapping = *v == 1 ? 1 : 0;
+            }
+            if (auto v = (*render)["tone_mapping"].value<int64_t>()) {
+                settings.render.tone_mapping = (*v >= 0 && *v <= 2) ? static_cast<int32_t>(*v) : 0;
+            }
             if (toml::node const* node = render->get("sun_intensity")) {
                 if (std::optional<double> const value = node->value<double>()) {
                     settings.render.sun_intensity = static_cast<float>(std::clamp(*value, 0.0, 3.0));
@@ -239,6 +241,11 @@ namespace deren::app_config {
                     settings.render.fxaa = *value;
                 }
             }
+            if (toml::node const* node = render->get("bloom")) {
+                if (std::optional<bool> const value = node->value<bool>()) {
+                    settings.render.bloom = *value;
+                }
+            }
             if (toml::node const* node = render->get("render_scale")) {
                 if (std::optional<double> const value = node->value<double>()) {
                     settings.render.render_scale = static_cast<float>(*value);
@@ -312,14 +319,12 @@ namespace deren::app_config {
                     settings.render.character_forward = *value;
                 }
             }
-            // THE REWRITTEN TOON CHAIN'S SELECTOR ([render] goo_toon): which `.spv` the character stage's fragment
-            // half comes from - see `deren::vulkan::runtime::goo_toon_pipeline_name`. It rides `[render]` rather than the
-            // `[toon]` rig table below because it is a frame's render setting rather than a piece of the
-            // character's art direction, and because the capture instrument can only override `[render]` keys
-            // (`scripts/gates/capture.ps1`), which is what makes the A/B runnable.
-            if (toml::node const* node = render->get("goo_toon")) {
+            // THE GAME-SHADER MODEL'S SELECTOR ([render] game_toon): the `.spv` the character stage's fragment
+            // half comes from - see `deren::vulkan::runtime::game_toon_pipeline_name`. A plain boolean:
+            // `node->value<bool>()` failing leaves the default.
+            if (toml::node const* node = render->get("game_toon")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
-                    settings.render.goo_toon = *value;
+                    settings.render.game_toon = *value;
                 }
             }
             // THE STATIC SURROUND'S SECOND MODEL ([render] background_glb): an empty string is the default and
@@ -329,54 +334,6 @@ namespace deren::app_config {
             if (toml::node const* node = render->get("background_glb")) {
                 if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
                     settings.render.background_glb = *value;
-                }
-            }
-            // ---- THE TOON LIGHT RIG ([toon]) ----
-            //
-            // A TABLE OF ITS OWN rather than more keys under `[render]`, because these are the CHARACTER stage's art
-            // direction rather than the frame's render settings - and because they belong together: they are the
-            // lanes of one block (`deren::vulkan::toon_rig`), and a reader who moves one of them wants to see the others.
-            if (toml::table const* toon = table.get_as<toml::table>("toon")) {
-                for (auto const& [key, target] : {
-                         std::pair{"day_strength", &settings.toon.day_strength},
-                         std::pair{"head_light_day0", &settings.toon.head_light_day0},
-                         std::pair{"head_light_day1", &settings.toon.head_light_day1},
-                         std::pair{"env_strength", &settings.toon.env_strength},
-                         std::pair{"env_rotation", &settings.toon.env_rotation},
-                         std::pair{"specular_strength", &settings.toon.specular_strength},
-                         std::pair{"diffuse_blend_effect", &settings.toon.diffuse_blend_effect},
-                         std::pair{"rim_area", &settings.toon.rim_area},
-                         std::pair{"rim_strength", &settings.toon.rim_strength},
-                         std::pair{"rim_nolxz_strength", &settings.toon.rim_nolxz_strength},
-                         std::pair{"backlight_strength", &settings.toon.backlight_strength},
-                         std::pair{"emotion_type", &settings.toon.emotion_type},
-                     }) {
-                    if (toml::node const* node = toon->get(key)) {
-                        if (std::optional<double> const value = node->value<double>()) {
-                            *target = static_cast<float>(*value);
-                        }
-                    }
-                }
-                // THE DAY STRENGTH IS CLAMPED rather than trusted, because it is a blend weight between two whole
-                // shading outcomes: a value above 1 would extrapolate past the sun's own state and a negative one
-                // past the head light's, and neither is a look anybody asked for. Every other rig number is a scale
-                // whose useful range is the artist's.
-                settings.toon.day_strength = std::clamp(settings.toon.day_strength, 0.0f, 1.0f);
-                // THREE NUMBERS OR NOTHING, the rule the sun's direction already follows: a partly-specified colour
-                // would mix this config's components with the default's, which is a colour nobody asked for.
-                for (auto const& [key, target] : {
-                         std::pair{"head_light_colour", &settings.toon.head_light_colour},
-                         std::pair{"sun_dark_colour", &settings.toon.sun_dark_colour},
-                     }) {
-                    if (toml::node const* node = toon->get(key)) {
-                        if (toml::array const* values = node->as_array(); values != nullptr && values->size() == target->size()) {
-                            for (std::size_t i = 0; i < values->size(); ++i) {
-                                if (std::optional<double> const component = (*values)[i].value<double>()) {
-                                    (*target)[i] = static_cast<float>(*component);
-                                }
-                            }
-                        }
-                    }
                 }
             }
             if (toml::node const* node = render->get("gbuffer_channel")) {
@@ -406,6 +363,88 @@ namespace deren::app_config {
             }
         }
 
+        // ---- THE TOON LIGHT RIG ([toon]) ----
+        //
+        // A TABLE OF ITS OWN rather than more keys under `[render]`, because these are the CHARACTER stage's art
+        // direction rather than the frame's render settings - and because they belong together: they are the
+        // lanes of one block (`deren::vulkan::toon_rig`), and a reader who moves one of them wants to see the others.
+        if (toml::table const* toon = table.get_as<toml::table>("toon")) {
+            for (auto const& [key, target] : {
+                     std::pair{"day_strength", &settings.toon.day_strength},
+                     std::pair{"head_light_day0", &settings.toon.head_light_day0},
+                     std::pair{"head_light_day1", &settings.toon.head_light_day1},
+                     std::pair{"env_strength", &settings.toon.env_strength},
+                     std::pair{"env_rotation", &settings.toon.env_rotation},
+                     std::pair{"specular_strength", &settings.toon.specular_strength},
+                     std::pair{"diffuse_blend_effect", &settings.toon.diffuse_blend_effect},
+                     std::pair{"rim_area", &settings.toon.rim_area},
+                     std::pair{"rim_strength", &settings.toon.rim_strength},
+                     std::pair{"rim_nolxz_strength", &settings.toon.rim_nolxz_strength},
+                     std::pair{"backlight_strength", &settings.toon.backlight_strength},
+                     std::pair{"emotion_type", &settings.toon.emotion_type},
+                 }) {
+                if (toml::node const* node = toon->get(key)) {
+                    if (std::optional<double> const value = node->value<double>()) {
+                        *target = static_cast<float>(*value);
+                    }
+                }
+            }
+            // THE DAY STRENGTH IS CLAMPED rather than trusted, because it is a blend weight between two whole
+            // shading outcomes: a value above 1 would extrapolate past the sun's own state and a negative one
+            // past the head light's, and neither is a look anybody asked for. Every other rig number is a scale
+            // whose useful range is the artist's.
+            auto shape_control = [&](char const* key, float lo, float hi) {
+                auto value = (*toon)[key].value<double>();
+                return value && std::isfinite(*value) ? float(std::clamp(*value, double(lo), double(hi))) : 0.f;
+            };
+            settings.toon.nose_shadow_reduction = shape_control("nose_shadow_reduction", 0, 1);
+            settings.toon.hair_highlight_width = shape_control("hair_highlight_width", 0, 1);
+            settings.toon.hair_highlight_shift = shape_control("hair_highlight_shift", -1, 1);
+            settings.toon.hair_masked_highlights = (*toon)["hair_masked_highlights"].is_boolean() && (*toon)["hair_masked_highlights"].value<bool>().value_or(false);
+            settings.toon.face_angular_sdf = (*toon)["face_angular_sdf"].is_boolean() && (*toon)["face_angular_sdf"].value<bool>().value_or(false);
+            settings.toon.day_strength = std::clamp(settings.toon.day_strength, 0.0f, 1.0f);
+            // THREE NUMBERS OR NOTHING, the rule the sun's direction already follows: a partly-specified colour
+            // would mix this config's components with the default's, which is a colour nobody asked for.
+            for (auto const& [key, target] : {
+                     std::pair{"head_light_colour", &settings.toon.head_light_colour},
+                     std::pair{"sun_dark_colour", &settings.toon.sun_dark_colour},
+                 }) {
+                if (toml::node const* node = toon->get(key)) {
+                    if (toml::array const* values = node->as_array(); values != nullptr && values->size() == target->size()) {
+                        for (std::size_t i = 0; i < values->size(); ++i) {
+                            if (std::optional<double> const component = (*values)[i].value<double>()) {
+                                (*target)[i] = static_cast<float>(*component);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (auto const* probe = table.get_as<toml::table>("reflection_probe")) {
+            auto& r = settings.reflection_probe;
+            r.enabled = (*probe)["enabled"].value_or(false);
+            if (auto v = (*probe)["asset"].value<std::string_view>()) {
+                r.asset = *v;
+            }
+            auto vec = [&](char const* key, auto& target) {
+                if (!probe->contains(key)) {
+                    return;
+                }
+                auto const* values = probe->get_as<toml::array>(key);
+                if (!values || values->size() != 3) {
+                    target[0] = std::numeric_limits<float>::quiet_NaN();
+                    return;
+                }
+                for (size_t i = 0; i < 3; ++i) {
+                    target[i] = float((*values)[i].value_or(std::numeric_limits<double>::quiet_NaN()));
+                }
+            };
+            vec("position", r.position);
+            vec("box_min", r.minimum);
+            vec("box_max", r.maximum);
+            r.fade = probe->contains("fade") ? float((*probe)["fade"].value_or(std::numeric_limits<double>::quiet_NaN())) : .5f;
+            r.gain = probe->contains("gain") ? float((*probe)["gain"].value_or(std::numeric_limits<double>::quiet_NaN())) : 1.f;
+        }
         if (toml::table const* lighting = table.get_as<toml::table>("lighting")) {
             if (toml::node const* node = lighting->get("env_size")) {
                 if (std::optional<int64_t> const value = node->value<int64_t>()) {
@@ -451,14 +490,18 @@ namespace deren::app_config {
                     settings.lighting.environment_intensity = static_cast<float>(*value);
                 }
             }
-            if (auto v = (*lighting)["environment_rotation"].value<double>())
+            if (auto v = (*lighting)["environment_rotation"].value<double>()) {
                 settings.lighting.environment_rotation = std::isfinite(*v) ? float(std::remainder(*v, 360.0)) : 0.0f;
-            if (auto v = (*lighting)["environment_strength"].value<double>())
+            }
+            if (auto v = (*lighting)["environment_strength"].value<double>()) {
                 settings.lighting.environment_strength = std::isfinite(*v) ? float(std::clamp(*v, 0.0, 64.0)) : 1.0f;
-            if (auto v = (*lighting)["environment_blur"].value<double>())
+            }
+            if (auto v = (*lighting)["environment_blur"].value<double>()) {
                 settings.lighting.environment_blur = std::isfinite(*v) ? float(std::clamp(*v, 0.0, 1.0)) : 0.5f;
-            if (auto v = (*lighting)["environment_background"].value<int64_t>())
+            }
+            if (auto v = (*lighting)["environment_background"].value<int64_t>()) {
                 settings.lighting.environment_background = *v >= 0 && *v <= 3 ? int32_t(*v) : 0;
+            }
             if (toml::node const* node = lighting->get("demo_lights")) {
                 if (std::optional<int64_t> const value = node->value<int64_t>()) {
                     settings.lighting.demo_lights = static_cast<int32_t>(*value);
@@ -492,8 +535,9 @@ namespace deren::app_config {
                 }
             };
             read_vec3(*lighting, "environment_color", settings.lighting.environment_color);
-            for (auto& v : settings.lighting.environment_color)
+            for (auto& v : settings.lighting.environment_color) {
                 v = std::isfinite(v) ? std::clamp(v, 0.0f, 1.0f) : 0.18f;
+            }
             read_vec3(*lighting, "area_light_position", settings.lighting.area_light_position);
             read_vec3(*lighting, "area_light_target", settings.lighting.area_light_target);
             for (auto const& [key, target] : {

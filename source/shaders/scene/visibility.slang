@@ -10,7 +10,7 @@
 //
 // WHY THIS SHELL IS SEPARATE FROM pbr.slang: the id does not need the material, the skin, the morph or the
 // vertex attributes the G-buffer pass interpolates, and adding a second output to that file's vertex record
-// would make every existing fragment stage pay for it. This stage reads the same 64-byte interleaved vertex -
+// would make every existing fragment stage pay for it. This stage reads the same 80-byte interleaved vertex -
 // through the SAME `mesh_vertex_at`/`mesh_index_at` the pbr meshlet entry uses - so a triangle lands on the
 // same pixels with the same depth by construction rather than by a copied expression.
 //

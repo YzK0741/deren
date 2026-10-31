@@ -294,9 +294,10 @@ export namespace deren::engine::render_layout {
         /** @brief the transforms of the previous frame, kept for motion vectors and TAA reprojection */
         static constexpr uint32_t previous_transforms = heap_slot_base + 1036u; // binding 13, per frame slot
         /** @brief the skinned joint matrices for this frame, written by the skinning pass */
-        static constexpr uint32_t skin_matrices = heap_slot_base + 1038u;   // binding 9, per frame slot
-        static constexpr uint32_t morph_data = heap_slot_base + 1040u;      // binding 10, per frame slot
-        static constexpr uint32_t mask_instances = heap_slot_base + 1042u;  // binding 17, per frame slot
+        static constexpr uint32_t skin_matrices = heap_slot_base + 1038u;  // binding 9, per frame slot
+        static constexpr uint32_t morph_data = heap_slot_base + 1040u;     // binding 10, per frame slot
+        static constexpr uint32_t mask_instances = heap_slot_base + 1042u; // binding 17, per frame slot
+        static constexpr uint32_t local_probe = heap_slot_base + 1364u;
         static constexpr uint32_t env_cube = heap_slot_base + 1044u;        // binding 2
         static constexpr uint32_t irradiance_cube = heap_slot_base + 1045u; // binding 3
         static constexpr uint32_t brdf_lut = heap_slot_base + 1046u;        // binding 4

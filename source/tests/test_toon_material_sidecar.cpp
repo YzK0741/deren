@@ -419,12 +419,14 @@ namespace {
             // `_GooAnisoRough`, the anisotropic lobe's two roughnesses); STEP 13 RAISED THEM TO 29 (lanes 27/28 are
             // `_GooRSScalars` / `_GooRSTint`, mechanism table #14's `RS EFF`); STEP 15 RAISED THEM TO 30 (lane 29 is
             // `_GooRSArm0`, the same mechanism's `armA` sockets). Each time the numbers moved together
-            // with the enum, the host's two tables and the shaders' reads. THE TEXTURE LANE'S COUNT MOVED TWICE
-            // MORE TOO AND IS CHECKED ON THE SAME LINE: step 13 spent `toon_slot::count`'s last-but-one slot on
-            // `_GooRSMask`, so `count = 14,` became `count = 15,`; step 15 spent the LAST one on `_GooRSSheet`, so it
-            // is now `count = 16,` - and that is the ceiling, `toon_record_lanes + toon_lane_blocks * 4`.
-            CHECK(shader.find("character_toon_colour_lanes = 30u") != deren::utility::vessel::string::npos);
-            CHECK(primitive.find("count = 16,") != deren::utility::vessel::string::npos);
+            // with the enum, the host's two tables and the shaders' reads. THE TEXTURE LANE'S COUNT MOVED THREE
+            // TIMES TOO AND IS CHECKED ON THE SAME LINE: step 13 spent `toon_slot::count`'s last-but-one slot on
+            // `_GooRSMask`, so `count = 14,` became `count = 15,`; step 15 spent the 16th on `_GooRSSheet` (which
+            // closed the third lane block); and STEP 17 added the 17th for the outline's `_OutlineMask`, which is
+            // why `count = 17,` - the first lane of a FOURTH block, `toon_record_lanes + toon_lane_blocks * 4`
+            // being the (now 20-lane) ceiling.
+            CHECK(shader.find("character_toon_colour_lanes = 46u") != deren::utility::vessel::string::npos);
+            CHECK(primitive.find("count = 17,") != deren::utility::vessel::string::npos);
             // ... AND THE OTHER READER OF THE SAME TABLE, which carries its OWN copy of the stride because a
             // stage cannot include `toon/character_forward.slang` without inheriting its entry point: the outline's
             // geometry stage. It reads ONE lane of the table and still needs the whole stride - a copy left at an
@@ -433,27 +435,18 @@ namespace {
             CHECK(pbr_file.good());
             if (pbr_file.good()) {
                 deren::utility::vessel::string const pbr{std::istreambuf_iterator<char>{pbr_file}, std::istreambuf_iterator<char>{}};
-                CHECK(pbr.find("pbr_toon_colour_lanes = 30u") != deren::utility::vessel::string::npos);
+                CHECK(pbr.find("pbr_toon_colour_lanes = 46u") != deren::utility::vessel::string::npos);
             }
-            // ... AND THE THIRD READER, which step 3 added: the REWRITTEN chain's rim is a fullscreen stage of its
-            // own (`source/shaders/toon/goo_rim.slang`) and it reads FIVE lanes of this table, so a copy left at the old count
-            // would give every material another material's rim colour, rim scalars AND rim widths - the loudest
-            // form of the silent failure this check exists for. The file is spelled here rather than reached
-            // through `toon/character_forward.slang` because it is not part of that include chain at all.
-            std::ifstream goo_rim_file{VR_TEST_SOURCE_DIR "/source/shaders/toon/goo_rim.slang"};
-            CHECK(goo_rim_file.good());
-            if (goo_rim_file.good()) {
-                deren::utility::vessel::string const goo_rim{std::istreambuf_iterator<char>{goo_rim_file}, std::istreambuf_iterator<char>{}};
-                CHECK(goo_rim.find("goo_rim_colour_lanes = 30u") != deren::utility::vessel::string::npos);
-            }
-            // AND THE LANE BLOCK COUNT, the same shape one level down: lanes 8..11 ride a SECOND `uvec4` of the same
+            // AND THE LANE BLOCK COUNT, the same shape one level down: lanes 4..7 ride a SECOND `uvec4` of the same
             // table, addressed as `material * blocks + 1`, so a block count that drifts reads a neighbouring
             // material's lanes exactly the way a colour-lane drift reads its colours. STEP 7 RAISED BOTH OF THESE
-            // FROM 2 TO 3, because the FACE container's three masks did not fit the second block; the numbers below
-            // moved with the enum, the host's `toon_lane_blocks`, the allocation and all three accessors.
-            CHECK(shader.find("character_toon_lane_blocks = 3u") != deren::utility::vessel::string::npos);
-            CHECK(primitive.find("toon_lane_blocks = 3") != deren::utility::vessel::string::npos);
-            // AND THE STRIDE ITSELF, on ALL THREE accessors - because the failure this check exists for already
+            // FROM 2 TO 3, because the FACE container's three masks did not fit the second block; STEP 17 RAISED
+            // THEM TO 4 for the outline's `_OutlineMask`, which is sampled per vertex and therefore cannot be
+            // answered on the host. The numbers below moved with the enum, the host's `toon_lane_blocks`, the
+            // allocation and all four accessors.
+            CHECK(shader.find("character_toon_lane_blocks = 4u") != deren::utility::vessel::string::npos);
+            CHECK(primitive.find("toon_lane_blocks = 4") != deren::utility::vessel::string::npos);
+            // AND THE STRIDE ITSELF, on ALL FOUR accessors - because the failure this check exists for already
             // happened: the host moved to a two-block stride while `toon_lanes_at` still read `[material]`, so every
             // material read another material's lanes and the frame merely looked like a character. The spellings
             // below are what the two sides must agree on, and they are asserted rather than measured on a frame
@@ -462,9 +455,10 @@ namespace {
             CHECK(heap_access_file.good());
             if (heap_access_file.good()) {
                 deren::utility::vessel::string const access{std::istreambuf_iterator<char>{heap_access_file}, std::istreambuf_iterator<char>{}};
-                CHECK(access.find("#define toon_lanes_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 3u]") != deren::utility::vessel::string::npos);
-                CHECK(access.find("#define toon_lanes2_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 3u + 1u]") != deren::utility::vessel::string::npos);
-                CHECK(access.find("#define toon_lanes3_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 3u + 2u]") != deren::utility::vessel::string::npos);
+                CHECK(access.find("#define toon_lanes_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 4u]") != deren::utility::vessel::string::npos);
+                CHECK(access.find("#define toon_lanes2_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 4u + 1u]") != deren::utility::vessel::string::npos);
+                CHECK(access.find("#define toon_lanes3_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 4u + 2u]") != deren::utility::vessel::string::npos);
+                CHECK(access.find("#define toon_lanes4_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 4u + 3u]") != deren::utility::vessel::string::npos);
             }
         }
     }
@@ -626,7 +620,7 @@ namespace {
                         expected = static_cast<std::size_t>(std::strtoul(primitive.c_str() + count_at + 8, nullptr, 10));
                     }
                 }
-                CHECK(expected == 30u);
+                CHECK(expected == 46u);
                 CHECK(stated == expected);
             }
         }
@@ -714,9 +708,10 @@ namespace {
         // own `extras` block speaks for, the rewritten chain's iris brightnesses, its two rim lanes, its
         // screen-space rim widths, step 10/12's anisotropy pair and step 13's two `RS EFF` lanes - out of the key
         // while every existing asset continued to look right. THIS IS THE TEXTURE LANE'S COUNT (`toon_slot`), not
-        // the colour lane's: step 13 raised it to 15 for `_GooRSMask` and STEP 15 raised it to 16 for `_GooRSSheet`.
-        CHECK(primitive.find("count = 16,") != deren::utility::vessel::string::npos);
-        CHECK(primitive.find("toon_lane_blocks = 3") != deren::utility::vessel::string::npos);
+        // the colour lane's: step 13 raised it to 15 for `_GooRSMask`, STEP 15 raised it to 16 for `_GooRSSheet`,
+        // and STEP 17 raised it to 17 for the outline's `_OutlineMask` - which also moved the lane blocks below.
+        CHECK(primitive.find("count = 17,") != deren::utility::vessel::string::npos);
+        CHECK(primitive.find("toon_lane_blocks = 4") != deren::utility::vessel::string::npos);
 
         // (b) THE BYTES ACTUALLY GO IN, from the array the table is filled from: keying anything else (the
         // neutral, a copy taken before the lookup resolved, a differently ordered row) would dedup on the wrong
@@ -796,6 +791,83 @@ namespace {
         }
     }
 
+    /// THE OUTLINE'S `_OutlineMask` LANE, END TO END: it is the 17th `toon_slot`, the one that raised
+    /// `toon_lane_blocks` 3 -> 4, and it is the only outline carrier that is a TEXTURE rather than a transcribed
+    /// number - so its sync points are exactly the ones a lane can fail at, and all of them are silent in a frame.
+    ///
+    /// WHAT IT PINS, and why each one is a real failure rather than bookkeeping:
+    ///  (a) THE ENUM VALUE AND THE BLOCK COUNT. A lane added to `toon_slot` without the block raise writes into a
+    ///      block no accessor names; the shader then reads 0 - the Q326-absent arm - for every material, which is a
+    ///      uniform hull and not a crash.
+    ///  (b) THE APPLICATION'S VOCABULARY ROW. `main.cpp` resolves a slot row only through `toon_lane[]`; a lane
+    ///      missing there resolves no texture BEFORE the flag is even asked (the module's own note records this).
+    ///      The flag is the sidecar's `_EnableOutlineMask`, which is a REAL game property - not this port's
+    ///      `_Use<Slot>` invention - because the captured viewer emits `#ifdef Q326` from it.
+    ///  (c) THE HOST'S FORMAT ROW AND PACK WRITE. The format row is mandatory for the array's size, and the pack
+    ///      write is the step the matcap and RS-mask lanes both lost for a whole step each: the enum, the format and
+    ///      the vocabulary were right and the component was left `0u`.
+    ///  (d) THE CONSUMER. Nothing reads the lane if the outline's mesh entry does not name the FOURTH block
+    ///      accessor with the material index the record addresses it by.
+    /// ... AND (e) THE SIDECAR ROUND TRIP, executed rather than grepped: the staged face/hair rows are a `slot`
+    /// name plus a `float _EnableOutlineMask 1.0`, so the flag gate and the name join are what make the lane
+    /// non-zero at all.
+    void test_the_outline_mask_lane_is_wired_end_to_end() {
+        std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/source/engine/primitive/primitive.cppm"};
+        std::ifstream constructor_file{VR_TEST_SOURCE_DIR "/source/engine/runtime/runtime.constructor.cppm"};
+        std::ifstream app_file{VR_TEST_SOURCE_DIR "/source/app/main.cpp"};
+        std::ifstream outline_file{VR_TEST_SOURCE_DIR "/source/shaders/toon/game_toon/captured/outline.slang"};
+        CHECK(primitive_file.good());
+        CHECK(constructor_file.good());
+        CHECK(app_file.good());
+        CHECK(outline_file.good());
+        if (!primitive_file.good() || !constructor_file.good() || !app_file.good() || !outline_file.good()) {
+            return;
+        }
+        auto const slurp = [](std::ifstream& file) { return deren::utility::vessel::string{std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{}}; };
+        deren::utility::vessel::string const primitive = slurp(primitive_file);
+        deren::utility::vessel::string const constructor = slurp(constructor_file);
+        deren::utility::vessel::string const app = slurp(app_file);
+        deren::utility::vessel::string const outline = slurp(outline_file);
+        // (a)
+        CHECK_MSG(primitive.find("outline_mask = 16,") != deren::utility::vessel::string::npos, "the outline mask is lane 16");
+        CHECK_MSG(primitive.find("count = 17,") != deren::utility::vessel::string::npos, "and it moved the lane count to 17");
+        CHECK_MSG(primitive.find("toon_lane_blocks = 4") != deren::utility::vessel::string::npos, "which needed the fourth block");
+        // (b)
+        CHECK_MSG(app.find("{\"_OutlineMask\", \"_EnableOutlineMask\"}") != deren::utility::vessel::string::npos,
+                  "the application vocabulary names the slot AND its real game flag");
+        // (c)
+        CHECK_MSG(constructor.find("toon_slot::outline_mask)], rhi::image_format::rgba8_unorm") != deren::utility::vessel::string::npos,
+                  "the lane is staged UNORM (its r/g are multipliers, not colour)");
+        CHECK_MSG(constructor.find("toon_lanes_extra4(") != deren::utility::vessel::string::npos, "the host packs the fourth block");
+        CHECK_MSG(constructor.find("+ 3u] = toon_lanes_extra4;") != deren::utility::vessel::string::npos, "at block 3 of a 4-block stride");
+        CHECK_MSG(constructor.find("toon_lanes_extra4.x") != deren::utility::vessel::string::npos, "and reports the lane in the registration log");
+        // (d) the consumer reads the block, addressed by the material index
+        CHECK_MSG(outline.find("toon_lanes4_at(heap_slots_toon_lanes, material_index).x") != deren::utility::vessel::string::npos,
+                  "the outline stage reads lane 16 through the fourth-block accessor");
+        CHECK_MSG(outline.find("game_toon_outline_mask_texture(push.material_index)") != deren::utility::vessel::string::npos,
+                  "and hands the mesh entry the material index it addresses the table with");
+        // (e) the sidecar rows the staged reference asset carries, parsed by the shipped reader
+        constexpr std::string_view staged =
+            "material\tkind\tname\tvalue\n"
+            "M_actor_laevat_face_01\tslot\t_OutlineMask\tWF_T_actor_common_female_face_01_ST\n"
+            "M_actor_laevat_face_01\tfloat\t_EnableOutlineMask\t1.0\n"
+            "M_actor_laevat_body_01\tfloat\t_EnableOutlineMask\t0.0\n";
+        auto const parsed = deren::toon::parse_sidecar(staged);
+        CHECK(parsed.has_value());
+        if (!parsed.has_value()) {
+            return;
+        }
+        deren::toon::material_sidecar const* const face = parsed->find("M_actor_laevat_face_01");
+        deren::toon::material_sidecar const* const body = parsed->find("M_actor_laevat_body_01");
+        CHECK(face != nullptr);
+        CHECK(body != nullptr);
+        if (face != nullptr && body != nullptr) {
+            CHECK(face->enabled_by_flag("_EnableOutlineMask"));
+            CHECK(face->slot("_OutlineMask") == "WF_T_actor_common_female_face_01_ST");
+            CHECK(!body->enabled_by_flag("_EnableOutlineMask"));
+        }
+    }
+
 } // namespace
 
 int32_t main() {
@@ -816,5 +888,6 @@ int32_t main() {
     test_the_two_asset_scalar_lanes_hold_on_both_sides();
     test_the_goo_specular_fgd_row_is_a_readable_float_row();
     test_the_material_dedup_key_carries_the_colour_lanes();
+    test_the_outline_mask_lane_is_wired_end_to_end();
     return deren::vk_test::finish("test_toon_material_sidecar");
 }

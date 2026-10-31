@@ -8,16 +8,16 @@
 //
 // IT IS SLANG, NOT GLSL, and that is deliberate: the fetch is a device ADDRESS cast to a pointer
 // (`(uint*)address`), which GLSL spells GL_EXT_buffer_reference and Slang spells as a C-style cast (see
-// shaders/compute_skin.slang, which does exactly this against the same 64-byte interleaved vertex). The
+// shaders/compute_skin.slang, which does exactly this against the same 80-byte interleaved vertex). The
 // GLSL sources are archived in shaders/glsl.old/ and no longer built, so there is no second consumer to
 // keep a GLSL spelling alive for.
 //
 // THE LAYOUT IS NOT NEGOTIATED HERE: `mesh_vertex_at` reads the engine's ONE interleaved vertex record,
-// byte for byte the one the vertex pipelines declare as locations 0,1,2,4,5 and the one
-// shaders/compute_skin.slang skins. Position (float3, byte 0), normal (float3, byte 12), uv (float2, byte
-// 24), joints (uint4, byte 32), weights (float4, byte 48), stride 64 - sorted by location, so the input
-// assembler's derived offsets and these are the same numbers. A mesh whose layout differed would need
-// this file changed with it; the caller refuses such a mesh instead (see the host's mesh draw path).
+// byte for byte the one the loader writes and the one shaders/compute_skin.slang skins. Position (float3,
+// byte 0), normal (float3, byte 12), uv (float2, byte 24), joints (uint4, byte 32), weights (float4, byte
+// 48), tangent (float4, byte 64), stride 80 - sorted by field order, with the TANGENT APPENDED so every
+// offset the other fetch paths name keeps its byte. A mesh whose layout differed would need this file changed
+// with it; the caller refuses such a mesh instead (see the host's mesh draw path).
 //
 // IT DOES NOT DECIDE WHERE A TRIANGLE GOES: the stage's own transform body is shared with the vertex
 // entry of the same file, so the two paths emit the same clip positions by construction rather than by a
@@ -70,21 +70,25 @@ struct MeshVertex
     float2 uv;
     uint4 joints;
     float4 weights;
+    /// glTF TANGENT: xyz the surface tangent, w its handedness (+1/-1); ALL ZERO on a primitive without the
+    /// attribute, which is the fragment stage's "no vertex frame" signal (the derivative frame is the fallback)
+    float4 tangent;
 };
 
 /// @brief the engine's interleaved vertex stride, in bytes
-/// @note NOT a push lane: a mesh whose vertex layout differed could not be drawn by the raster pipelines
-///       at all (their input state is derived from the vertex stage's own declarations), so the stride is
-///       a property of the RENDERER rather than of the draw. shaders/compute_skin.slang makes the same
-///       assumption and the caller refuses a source whose stride is not this.
-static const uint mesh_vertex_stride = 64u;
+/// @note NOT a push lane: a mesh whose vertex layout differed could not be drawn by the renderer at all (the
+///       fetch below is the only one), so the stride is a property of the RENDERER rather than of the draw.
+///       shaders/compute_skin.slang makes the same assumption and the caller refuses a source whose stride is
+///       not this. The TANGENT is the LAST field on purpose: appending it moved no offset the other fetch paths
+///       (compute_skin's joint/weight words, rt_shadow's position/uv, mask_bake's position/normal/uv) name.
+static const uint mesh_vertex_stride = 80u;
 
 /// @brief read vertex @p index (base-vertex included by the caller) off the draw's vertex buffer
 /// @param geometry the draw's geometry lanes
 /// @param index the ABSOLUTE vertex index (the caller adds `base_vertex` to the fetched index)
 /// @note untyped words, bit-cast to float, exactly as compute_skin reads them: the bit pattern is the
 ///       payload, so the type is a view rather than a conversion. THE WORD OFFSETS ARE THE LAYOUT'S, not
-///       the stride's: 0 = position, 3 = normal, 6 = uv, 8 = joints, 12 = weights.
+///       the stride's: 0 = position, 3 = normal, 6 = uv, 8 = joints, 12 = weights, 16 = tangent.
 MeshVertex mesh_vertex_at(const MeshGeometryLanes geometry, const uint index)
 {
     MeshVertex v;
@@ -95,6 +99,7 @@ MeshVertex mesh_vertex_at(const MeshGeometryLanes geometry, const uint index)
     v.uv = float2(asfloat(words[6]), asfloat(words[7]));
     v.joints = uint4(words[8], words[9], words[10], words[11]);
     v.weights = float4(asfloat(words[12]), asfloat(words[13]), asfloat(words[14]), asfloat(words[15]));
+    v.tangent = float4(asfloat(words[16]), asfloat(words[17]), asfloat(words[18]), asfloat(words[19]));
     return v;
 }
 

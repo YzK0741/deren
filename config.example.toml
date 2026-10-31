@@ -15,12 +15,12 @@
 
 # ---- top level: model to load ----
 # model: glTF/GLB file to load. When empty, tries DamagedHelmet.gltf under
-#   paths.model_dir, then auto-locates gltf_model/ upward from the cwd.
+#   paths.model_dir, then auto-locates asset/ upward from the cwd.
 #   The value "ask" (exactly, case-sensitive) opens the platform's own file dialog at startup instead:
 #   GetOpenFileNameW on Windows, zenity/kdialog on Linux, osascript on macOS. Cancelling it, or running
 #   where no dialog backend exists, is NOT an error - the app falls back to the default model above, so
 #   an unattended run still starts. A positional argv model path overrides this key, dialog and all.
-model = "gltf_model/DamagedHelmet.gltf"
+model = "asset/DamagedHelmet/DamagedHelmet.gltf"
 
 # grid_side: when > 1, lays the first pbr model out as a grid_side x grid_side
 #   instanced grid (single instanced draw call stress test; 0 = off)
@@ -32,7 +32,7 @@ grid_side = 0
 shaders_dir = ""
 
 # model_dir: default model directory used when model is empty (looks for
-#   DamagedHelmet.gltf inside). Empty = auto-locate "gltf_model/" upward.
+#   DamagedHelmet.gltf inside). Empty = auto-locate "asset/" upward.
 model_dir = ""
 
 # screenshot_dir: base directory for F12 screenshots (created on demand).
@@ -360,6 +360,12 @@ upscale = "easu"
 
 fxaa = false
 
+# bloom: the four-level bright-pass bloom chain (prefilter + three downsamples, summed by the composite).
+# The overlay's "bloom" checkbox initializes from this value and can change it live; its intensity slider
+# does not disable the chain (0 keeps recording it). Default true = the shipped look. A material/reference
+# capture sets this and `fxaa` false together.
+bloom = true
+
 # gpu_timings: measure how long each pass takes on the GPU (timestamp queries). The frame writes a
 # timestamp at every pass boundary, the values are read back once the frame slot completed and
 # averaged over a 60-frame window: the report goes to the log and to the debug overlay, which is
@@ -447,6 +453,17 @@ character_forward = false
 #
 # OFF by default, so a run that does not ask for it gets the frame the old chain produces.
 goo_toon = false
+
+# game_toon: a THIRD shading model for the same character stage - the game-shader toon model ported from the
+# pinned MyZmdShaders author sources (commit 6507457; `ZmdToonMain.hlsl` and the family mains) and registered
+# as the `game_toon` pipeline (see deren::vulkan::runtime::game_toon_pipeline_name). Like `goo_toon` it is NOT a
+# second way to turn the stage on: `character_forward` is the stage switch and this only chooses the fragment
+# module. The model is migrated family by family; the first target is cloth, verified against the original cloth
+# DXBC. When both `game_toon` and `goo_toon` are on, `game_toon` wins (the frame's three-way selection makes that
+# explicit); a normal run asks for one model at a time.
+#
+# OFF by default, so a run that does not ask for it gets the frame the previous chain produces.
+game_toon = false
 
 # background_glb: A SECOND MODEL DRAWN AS THE FRAME'S STATIC SURROUND - the ground and the backdrop the
 # subject stands on - imported into the SAME scene tree by the same importer, one line after the subject.
@@ -667,3 +684,24 @@ backlight_strength = 1.0
 #   files have none: the game picks the expression from the character's animation/script system, and nothing in
 #   the `.toon.tsv` describes it. See `deren::vulkan::toon_rig`'s `other_colour.w` for the lane it rides.
 emotion_type = 0.0
+# Optional art-directed face/hair shaping (all zero keeps the original response).
+# Nose: reduce base-alpha diffuse dimming on a face whose alpha is an authored nose mask.
+# Hair: tangent-aligned band for hair without a split-normal map; width 0 disables it.
+nose_shadow_reduction = 0.0
+hair_highlight_width = 0.0
+hair_highlight_shift = 0.0
+# Requires an HG hair P mask in the glTF metallic-roughness slot and a positive hair width.
+hair_masked_highlights = false
+# Existing face SDF/head basis; missing SDF keeps legacy shading.
+face_angular_sdf = false
+
+
+# Optional single static local reflection probe (world coordinates after import placement).
+[reflection_probe]
+enabled = false
+asset = ""
+position = [0.0, 0.0, 0.0]
+box_min = [-1.0, -1.0, -1.0]
+box_max = [1.0, 1.0, 1.0]
+fade = 0.5
+gain = 1.0

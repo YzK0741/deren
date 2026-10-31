@@ -18,6 +18,7 @@
 // Imports are NOT transitive: this partition imports what its own code calls.
 // ============================================================================
 module;
+#include "../lighting/radiance_capture.hpp"
 
 #include <algorithm>
 #include <array>
@@ -44,6 +45,23 @@ import deren.engine.visibility.software;
 import deren.engine.pass.hzb_cull;
 
 namespace deren::engine {
+    std::expected<runtime::radiance_image, deren::utility::vessel::string> runtime::acquire_radiance_image() {
+        if (!radiance_ready || !radiance_readback)
+            return std::unexpected(deren::utility::vessel::string("radiance capture: no submitted image"));
+        this->rhi_face().wait_idle();
+        auto const bytes = radiance_readback->mapped();
+        std::uint64_t count = std::uint64_t(radiance_extent.width) * radiance_extent.height * 4;
+        if (count == 0 || count > SIZE_MAX / sizeof(float) || bytes.size() < count * 2)
+            return std::unexpected(deren::utility::vessel::string("radiance capture: invalid readback extent"));
+        radiance_image image{.width = radiance_extent.width, .height = radiance_extent.height};
+        image.rgba.resize(static_cast<std::size_t>(count));
+        for (std::size_t i = 0; i < count; ++i) {
+            std::uint16_t bits = std::to_integer<std::uint8_t>(bytes[i * 2]) | (std::uint16_t(std::to_integer<std::uint8_t>(bytes[i * 2 + 1])) << 8);
+            image.rgba[i] = radiance_detail::decode_binary16(bits);
+        }
+        radiance_ready = false;
+        return image;
+    }
     std::expected<runtime::frame_image, deren::utility::vessel::string> runtime::acquire_current_frame_image() {
         // NO `screenshot_pending` CHECK HERE, AND THAT IS A MEASURED DECISION rather than an omission:
         // the one caller is `if (consume_screenshot_request()) { acquire_current_frame_image(); }`

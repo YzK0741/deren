@@ -154,6 +154,11 @@ namespace deren::engine {
         glm::vec3 spot_direction = glm::vec3(0.0f, -1.0f, 0.0f); // spot axis (normalized when spot)
         float spot_outer_cos = -0.2f;                            // cos of the outer cone half-angle (spot only)
         std::optional<float> spot_inner_cos = std::nullopt;      // cos of the inner cone half-angle (spot only); nullopt = legacy mix(outer, 1, 0.6)
+        // Captured GameToon viewer rig payload, carried through the existing point_light lanes:
+        // colour.w = mode (0 wrap, 2 specular, 3 rim), spot_dir.w = nprData.x, position.w = nprData.y,
+        // and for a POINT light params.z/params.w = nprData.z/ nprData.w (a spot keeps its cone cosines there).
+        float npr_mode = 0.0f;
+        glm::vec4 npr_data = glm::vec4(0.0f);
     };
     /** @brief max simultaneous punctual lights (LightUBO.punctual_lights / GLSL PunctualLight array)
      * @note 128 lights keep the light UBO at 8576 bytes, inside the 16384-byte
@@ -223,8 +228,14 @@ namespace deren::engine {
      * shader's copy is the same four members in the same order.
      */
     export struct head_ubo {
-        glm::vec4 front = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);  // the direction the face looks
-        glm::vec4 right = glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f); // its right
+        /// the direction the face looks. **`.w` IS A FLAG AND NOT PADDING**: `1.0` means the two axes are the
+        /// CAPTURED VIEWER'S FACE FRAME (`Q324`/`Q80`, measured from the face mesh's UV side bands and averaged
+        /// normal - see `deren::gltf::face_frame`), `0.0` means they are the old bone/glTF frame. It tells
+        /// `game_toon_skin_face_shade` which `Q80` convention to use without adding a member (the block is 64 bytes
+        /// and its shader copy has no spare lane either): with the captured frame up, `right` IS `Q80`; without it,
+        /// `right` is the head bone's right and the fallback keeps the historical `-right` derivation.
+        glm::vec4 front = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+        glm::vec4 right = glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f); // its right (the captured `Q80` when `front.w == 1`)
         glm::vec4 up = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);     // its up
         /// the reference's `headCenter`: the head object's WORLD POSITION, `posWS - this` being the sphere normal
         /// `Recalculate normal` builds. `.w` IS A FLAG AND NOT PADDING: `1.0` means "a centre is known" and `0.0`
@@ -276,7 +287,7 @@ namespace deren::engine {
         /// the author's. `head_day1` is live at the default `day_strength = 1` (`mainLightColor_final =
         /// lerp(head_day0, sun + head_day1, day)`), so both were visible; `head_day0` only at day < 1.
         glm::vec4 other_light = glm::vec4(0.7f, 0.3f, 1.0f, 1.0f);
-        /// rgb = `_OtherLightColor` - the head light's colour on the SHADOW side of a surface
+        /// rgb = `_OtherLightColor`; w = face expression index.
         glm::vec4 other_colour = glm::vec4(0.60f, 0.65f, 0.80f, 0.0f);
         /// rgb = `_MainLightColor_dark` - the sun's colour on a surface's shadow side; a = `_BaseColorPow`
         glm::vec4 main_dark = glm::vec4(0.60f, 0.65f, 0.80f, 1.0f);
@@ -300,7 +311,7 @@ namespace deren::engine {
         /// x = the backlight compensation's weight, y = `_NoFStrength`, z = `_NoFPowStrength`,
         /// w = `_RampColorNoLStrength`
         glm::vec4 misc = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
-        /// x = THE TOON SHADOW SOFTNESS LEVEL (`[render] toon_shadow_softness`, 0..4), y/z/w reserved.
+        /// x = THE TOON SHADOW SOFTNESS LEVEL (`[render] toon_shadow_softness`, 0..4); y/z/w are optional nose reduction, hair width and hair shift.
         ///
         /// 0 IS THE SHIPPED PATH AND NOT ONE TAP MORE: the character chain's shadow then takes the same single
         /// 3x3 hardware-PCF lookup it always has, so a config that omits the key renders byte-identically. The
@@ -320,9 +331,11 @@ namespace deren::engine {
         /// only the toon chain reads it (`source/shaders/toon/character_forward.slang`'s one shadow call site). The rig's
         /// other lanes let this be a per-run A/B knob with no rebuild - the same lever `_DayStrength` uses.
         glm::vec4 shadow_softness = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+        /// x = authored hair P-mask mode, y = angular face SDF; z/w reserved, all opt-in.
+        glm::vec4 reference_modes = glm::vec4(0.0f);
     };
-    // 144: nine vec4s, so the shader's copy is the same nine members with no padding to agree about.
-    static_assert(sizeof(toon_rig) == 9 * sizeof(glm::vec4));
+    // Ten vec4s; both shader mirrors append the same member without moving previous offsets.
+    static_assert(sizeof(toon_rig) == 10 * sizeof(glm::vec4));
 
     /**
      * @ingroup engine_primitive
@@ -394,6 +407,9 @@ namespace deren::engine {
         glm::vec4 area_light_axis = {};
         glm::vec4 environment = {1, 0, 1, 0};                           // cos(yaw), sin(yaw), relative strength, background mode
         glm::vec4 environment_background = {0.18f, 0.18f, 0.18f, 0.5f}; // linear RGB, blur
+        glm::vec4 probe_position_gain = {};
+        glm::vec4 probe_min_fade = {};
+        glm::vec4 probe_max_enabled = {};
     };
     // std140 layout guard against the GLSL LightUBO: four cascade matrices (256 B), the direction,
     // the two per-cascade vec4s (304 B), four floats, light_count (a glm::vec4 whose x carries the
@@ -411,7 +427,7 @@ namespace deren::engine {
     static_assert(offsetof(light_ubo, area_light) == max_shadow_cascades * sizeof(glm::mat4) + 8 * sizeof(glm::vec4) + max_punctual_lights * sizeof(point_light));
     static_assert(offsetof(light_ubo, area_light_axis) == max_shadow_cascades * sizeof(glm::mat4) + 9 * sizeof(glm::vec4) + max_punctual_lights * sizeof(point_light));
     static_assert(offsetof(light_ubo, environment) == max_shadow_cascades * sizeof(glm::mat4) + 10 * sizeof(glm::vec4) + max_punctual_lights * sizeof(point_light));
-    static_assert(sizeof(light_ubo) == max_shadow_cascades * sizeof(glm::mat4) + 12 * sizeof(glm::vec4) + max_punctual_lights * sizeof(point_light));
+    static_assert(sizeof(light_ubo) == max_shadow_cascades * sizeof(glm::mat4) + 15 * sizeof(glm::vec4) + max_punctual_lights * sizeof(point_light));
     static_assert(sizeof(light_ubo) <= 16384, "the light UBO must stay inside the guaranteed maxUniformBufferRange (16 KB)");
     static_assert(sizeof(point_light) == 64);
 
@@ -431,6 +447,7 @@ namespace deren::engine {
         bool valid = false;
         /// Optional immutable owner. All aliases must remain immutable while retained by the runtime.
         std::shared_ptr<deren::utility::vessel::vector<uint8_t> const> owner = {};
+        bool override_format = false; // Opt-in explicit colour/data encoding, otherwise lane default.
     };
 
     /// Reuse only an exact whole-vector owner; borrowed or partial spans need their own snapshot.
@@ -739,17 +756,17 @@ namespace deren::engine {
          * read a pure-white mask, i.e. `_M = 1` everywhere, i.e. the strongest possible statement about a branch
          * the material never switched on (spec F5).
          *
-         * SLOT 15 IS `armA`'s SHEET, AND TAKING IT SPENDS THE LAST LANE THIS TABLE HAS: the reference's `RS EFF`
-         * selects between two arms (`RS Model`: 0 = `armA`, which samples the two 256x1 `_RS` character sheets;
-         * 1 = `armB`, `_M ⊙ RS ColorTint`), and step 15 ports `armA`. `toon_colour_lane`'s sibling note records
-         * the lane ceiling as `toon_record_lanes + toon_lane_blocks * 4` = 16, so this is the last lane that fits.
-         * THE SECOND SHEET IS NOT A LANE, AND THE CEILING IS NO LONGER WHY IT IS ABSENT: this arm still carries
-         * ONE sheet slot, and the reference's other `_RS` sheet rides the material record's NAME plus that
-         * sheet's OWN switch (`_GooRSSheet1` + `_UseGooRSSheet1`), which the HOST resolves from `RS_Index` when
-         * the texture is registered - `main.cpp`'s `toon_texture` picks one of the two names and the stage keeps
-         * sampling one slot, the same split `toon_colour_lane::goo_rs_arm0` describes for `.x`.
-         * `toon_lane_blocks` therefore stays 3 - raising it to 4 IS the rejected `Rb` (spec §3.5/§9.4) - and the
-         * ceiling above still bounds what a LANE could add rather than what the port does without one.
+         * SLOT 15 IS `armA`'s SHEET, AND IT CLOSED THE THIRD LANE BLOCK: the reference's `RS EFF` selects between
+         * two arms (`RS Model`: 0 = `armA`, which samples the two 256x1 `_RS` character sheets; 1 = `armB`,
+         * `_M ⊙ RS ColorTint`), and step 15 ports `armA`. `toon_colour_lane`'s sibling note recorded the lane
+         * ceiling as `toon_record_lanes + toon_lane_blocks * 4` = 16 at the time, so it was the last lane that fit.
+         * THE SECOND SHEET IS STILL NOT A LANE, and its reason is now its OWN rather than the ceiling: this arm
+         * still carries ONE sheet slot, and the reference's other `_RS` sheet rides the material record's NAME plus
+         * that sheet's OWN switch (`_GooRSSheet1` + `_UseGooRSSheet1`), which the HOST resolves from `RS_Index`
+         * when the texture is registered - `main.cpp`'s `toon_texture` picks one of the two names and the stage
+         * keeps sampling one slot, the same split `toon_colour_lane::goo_rs_arm0` describes for `.x`. (The ceiling
+         * itself moved after this lane: `_OutlineMask` below is lane 16 and raised `toon_lane_blocks` to 4 - see
+         * that lane's note - so "no free lane" is no longer part of this argument.)
          *
          * SRGB RATHER THAN UNORM, AND THE DIFFERENCE IS THE SAMPLER AND NOT THE SHADER: an `_RS` sheet is a
          * COLOUR image (the reference multiplies it into a tint), so `::deren::promise::rhi::image_format::rgba8_srgb` hands the stage
@@ -759,7 +776,39 @@ namespace deren::engine {
          */
         goo_rs_mask = 14,  // `_GooRSMask`: the Non-Color `_M` mask of mechanism table #14 (`RS EFF`), UNORM
         goo_rs_sheet = 15, // `_GooRSSheet`: `armA`'s 256x1 `_RS` colour sheet (mechanism table #14), SRGB
-        count = 16,
+        /**
+         * `_OutlineMask`: THE INVERTED-HULL OUTLINE's WIDTH / DEPTH-OFFSET MASK - the captured viewer's `Q121`
+         * texture, sampled only when its own `#ifdef Q326` is defined, i.e. when `_EnableOutlineMask === 1` AND
+         * the material names an `_OutlineMask` image (`source/shaders/toon/game_toon/captured/outline.slang`'s
+         * header transcribes `vert:56-62`).
+         *
+         * WHAT THE SHADER DOES WITH IT, and it is why the image must be staged UNORM: the vertex stage samples it at
+         * the hull's own uv and uses TWO CHANNELS as MULTIPLIERS - `R18 *= mask.r` scales the hull's screen-space
+         * WIDTH, and `R136 *= mask.g` scales its VIEW-DEPTH offset (`vert:60-61`). Both channels are NUMBERS; an
+         * sRGB decode would bend every one of them, exactly as it would bend `sdf_mask`'s or `goo_rs_mask`'s.
+         *
+         * WHY IT IS A LANE RATHER THAN A CONSTANT IN THE SHADER: this was the LAST unbridged input of the outline
+         * port. The sidecar has staged the rows since the reference asset was attached (`slot _OutlineMask` ->
+         * `WF_T_actor_common_female_face_01_ST` for the face, `WF_T_actor_laevat_hair_01_ST` for the hair, both with
+         * `_EnableOutlineMask = 1.0`; body/cloth state the flag 0.0 and name no image), and `main.cpp` resolves a
+         * texture `slot` row only through this enum's vocabulary - so without a lane the Q326 arm could only ever be
+         * the "absent" branch: a uniform-width, uniform-offset hull on exactly the two families that asked for the
+         * modulation.
+         *
+         * IT IS THE FIRST LANE OF THE FOURTH BLOCK, and taking it is a deliberate reversal of the "raising
+         * `toon_lane_blocks` to 4 is the rejected `Rb`" ruling that the Goo spec made for a DIFFERENT question (a
+         * second `_RS` sheet, which is a host-side name choice and needs no lane - see `goo_rs_sheet`'s note). This
+         * lane cannot be answered on the host: the mask modulates a PER-VERTEX quantity inside the hull's geometry
+         * stage, so the shader must sample it. The cost is exactly the one the block contract spells out - a fourth
+         * `uvec4` per material in the same heap slot, `toon_lane_blocks` 3 -> 4, and a fourth accessor
+         * (`toon_lanes4_at`) beside the other three - and it is paid here rather than left as a recorded deviation.
+         *
+         * `0` MEANS "DO NOT READ", the same contract every lane above uses, and it is the correct answer for
+         * body/cloth (whose `_EnableOutlineMask` is 0) and for every material that states no image: the outline
+         * stage then keeps the captured Q326-ABSENT arm, i.e. the uniform hull it drew before this lane existed.
+         */
+        outline_mask = 16, // `_OutlineMask`: r = hull-width multiplier, g = hull-depth-offset multiplier (UNORM)
+        count = 17,
     };
     // THE LANES SPLIT INTO TWO GROUPS, and the split is a fact about the material record rather than a
     // convenience: lanes 0..3 ride `material_record::toon_indices`, and every lane from 4 on is carried BESIDE
@@ -796,15 +845,26 @@ namespace deren::engine {
     // the only hand-edited places are the allocation and the two accessors' strides. A lane that reads another
     // material's block is the failure this whole arrangement exists to prevent, and it is silent - see the
     // three-round bug in `heap_access.slang`'s note on `toon_lanes_at`.
-    export inline constexpr uint32_t toon_lane_blocks = 3;
+    //
+    // ---- 4: `_OutlineMask` (lane 16) DID NOT FIT THE THIRD BLOCK, AND IT CANNOT BE ANSWERED ON THE HOST ----
+    //
+    // The third block (12..15) was full (`goo_face_cm`, `goo_face_csumt`, `goo_rs_mask`, `goo_rs_sheet`), and the
+    // outline mesh stage needs a PER-VERTEX texture read - the captured `#ifdef Q326` multiplies the hull's width
+    // by the mask's `.r` and its depth offset by `.g` INSIDE the geometry stage, so the answer has to reach a
+    // shader and cannot be baked into the material's record. That made lane 16 the first lane of a FOURTH block
+    // and this constant 4. The cost is the one the paragraph above already prices: the same heap slot grows to four
+    // `uvec4`s per material, the dedup key follows the constant, and `heap_access.slang` gains the block-3 accessor
+    // (`toon_lanes4_at`) beside `toon_lanes_at` / `toon_lanes2_at` / `toon_lanes3_at`. The Goo spec's rejected `Rb`
+    // was a lane for a SECOND `_RS` SHEET, which is a host-side name choice and still needs no lane; it is not this.
+    export inline constexpr uint32_t toon_lane_blocks = 4;
     static_assert(static_cast<uint32_t>(toon_slot::split_normal) == toon_record_lanes + 4u,
                   "split_normal is the first lane of the SECOND block, which is the one after the record's");
     // AND A LANE PAST THE LAST BLOCK IS THE FAILURE THIS CATCHES, which is a real one rather than a formality: the
-    // shader addresses the table by BLOCK (`toon_lanes_at` reads block 0, `toon_lanes2_at` block 1 and
-    // `toon_lanes3_at` block 2), so a lane added past `toon_lane_blocks * 4` would be written by the host into a
-    // block no accessor names - a lane that silently reads nothing rather than a compile error. Raising
-    // `toon_lane_blocks` needs its accessors widened in the same move (see the note above), so the assertion is
-    // where that decision is forced.
+    // shader addresses the table by BLOCK (`toon_lanes_at` block 0, `toon_lanes2_at` block 1, `toon_lanes3_at`
+    // block 2 and `toon_lanes4_at` block 3), so a lane added past `toon_lane_blocks * 4` would be written by the
+    // host into a block no accessor names - a lane that silently reads nothing rather than a compile error. Raising
+    // `toon_lane_blocks` needs its accessor widened in the same move (see the note above), so the assertion is
+    // where that decision is forced; the ceiling is now 4 + 4*4 = 20.
     static_assert(static_cast<uint32_t>(toon_slot::count) <= toon_record_lanes + toon_lane_blocks * 4u,
                   "a toon lane past the last block needs toon_lane_blocks raised AND its accessors widened");
 
@@ -1425,7 +1485,24 @@ namespace deren::engine {
          * `Use RS_Eff?` and only that - see the RS block's note in `source/shaders/toon/goo_toon.slang`.
          */
         goo_rs_arm0 = 29, // `_GooRSArm0`: `RS_Index` [x] / `RS Strength` [y] / `Layer weight Value` [z] / `Offset` [w]
-        count = 30,
+        // Captured viewer profile: sixteen explicitly packed vec4 values; zero disables it.
+        game_toon_0 = 30,
+        game_toon_1 = 31,
+        game_toon_2 = 32,
+        game_toon_3 = 33,
+        game_toon_4 = 34,
+        game_toon_5 = 35,
+        game_toon_6 = 36,
+        game_toon_7 = 37,
+        game_toon_8 = 38,
+        game_toon_9 = 39,
+        game_toon_10 = 40,
+        game_toon_11 = 41,
+        game_toon_12 = 42,
+        game_toon_13 = 43,
+        game_toon_14 = 44,
+        game_toon_15 = 45,
+        count = 46,
     };
 
     /**
@@ -1617,7 +1694,8 @@ namespace deren::engine {
                                                                                                                // and `s023 = s036 * RS Strength` zeroes the whole arm when it is zero.
                                                                                                                // A material with no `_GooRSArm0` row therefore gets an `arm0` of zero
                                                                                                                // rather than a guess. See `toon_colour_lane::goo_rs_arm0`.
-                                                                                                               glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)};
+                                                                                                               glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+                                                                                                               glm::vec4(0.0f), glm::vec4(0.0f), glm::vec4(0.0f), glm::vec4(0.0f), glm::vec4(0.0f), glm::vec4(0.0f), glm::vec4(0.0f), glm::vec4(0.0f), glm::vec4(0.0f), glm::vec4(0.0f), glm::vec4(0.0f), glm::vec4(0.0f), glm::vec4(0.0f), glm::vec4(0.0f), glm::vec4(0.0f), glm::vec4(0.0f)};
         /**
          * THE AUTHOR'S TRANSPARENT VARIANT (`_TRANSPARENT_ON`), which its sidecar selects with the PAIR
          * `_SrcBlend 5` / `_DstBlend 10` - Unity's `SrcAlpha` / `OneMinusSrcAlpha`.
@@ -1983,9 +2061,10 @@ namespace deren::engine {
         // MSVC /W4 reports C4458 (an error under /WX).
         uint32_t draw_index_count = 0;
         uint32_t vertex_count = 0;
-        // Bytes per vertex of the interleaved layout (position first). Only the acceleration-structure
-        // build reads it: the raster pipelines get the stride from their vertex input state, so this is
-        // the one consumer that has to be told (see deren.engine.acceleration_structure).
+        // Bytes per vertex of the interleaved layout (position first; 80 since the TANGENT was appended). The
+        // mesh stages fetch through the shader's fixed 80-byte layout; this field is what the
+        // acceleration-structure build reads and what the stride gates (visibility/subtilis admission,
+        // compute_skin's expected source) compare against.
         uint32_t vertex_stride = 0;
         /**
          * THE PRIMITIVE'S MESHLETS, in the order `build_meshlets` produced them (docs/mesh_shaders.md step 3):
@@ -2319,6 +2398,11 @@ namespace deren::engine {
         glm::vec3 const& target,
         float scene_radius,
         float aspect);
+
+    /// Six RH 90-degree views (+X,-X,+Y,-Y,+Z,-Z), retaining Vulkan Y flip and normal winding.
+    /// Readback X must be mirrored for canonical cubemap pixels. Requires face<6, 0<near<far.
+    export camera_ubo make_cube_capture_camera(glm::vec3 const& position, uint32_t face,
+                                               float near_plane, float far_plane);
 
     /**
      * @ingroup engine_primitive

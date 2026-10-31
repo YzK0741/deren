@@ -91,7 +91,10 @@ export namespace deren::engine::subtilis {
         }
         auto const& source = leaf.subtilis_geometry->source();
         auto const& layout = source.statistics();
-        return source.vertex_stride() == 64 && layout.normal_offset == 12 && layout.uv_offset == 24 &&
+        // The coarse LOD run is drawn by the same fixed mesh fetch, so the source's stride has to be the
+        // engine's: 80 bytes since the TANGENT was appended (`gltf_loader.cpp`), with normal/uv still at their
+        // original offsets (the appended field moved nothing).
+        return source.vertex_stride() == 80 && layout.normal_offset == 12 && layout.uv_offset == 24 &&
                !(policy.material_flags & (16u | 32u)) && !policy.exact_depth_redraw &&
                !leaf.transparent && !leaf.overlay_kind && leaf.pipeline_name.empty() &&
                !(leaf.push.flags & 1u) && !leaf.push.skin_base && !leaf.push.morph_targets;

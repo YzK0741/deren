@@ -232,12 +232,11 @@ namespace deren::vulkan {
     /**
      * @ingroup vulkan_core
      * @brief color attachments the G-buffer pass declares: the three surface targets above, the
-     *        motion-vector target, and the scene-color target it ADDS the emissive term into
+     *        motion-vector target, and the scene-color target storing the nearest surface's emissive
      * @note emissive is lighting-independent, so it does not belong to the deferred lighting stage -
      *       and it needs the material's emissive texture and the fragment's UVs, neither of which the
-     *       G-buffer stores. Adding it in the base pass is what commercial deferred renderers do (the
-     *       G-buffer pass writes the surface and adds emissive to the scene color), and it is why that
-     *       last attachment is blended ONE/ONE while the surface and velocity targets are overwritten.
+     *       G-buffer stores. All five attachments overwrite: otherwise a farther fragment's emission
+     *       could survive a nearer non-emissive fragment that passes depth later.
      *       It is CLEARed to zero by the instance, and the deferred lighting stage adds the lighting
      *       (and the sky, where no geometry wrote depth) on top.
      */

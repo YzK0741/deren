@@ -180,6 +180,7 @@ export namespace deren::engine::render_resource {
         software_tiles,
         /// the number of enumerators, so the schema's completeness can be checked by ITERATING rather than
         /// against a hand-kept list: `validate_schema()` requires exactly one entry per id in [1, count)
+        local_probe,
         count,
     };
 
@@ -290,6 +291,7 @@ export namespace deren::engine::render_resource {
         {.id = resource_id::furnace_cube, .name = "furnace_cube", .kind = resource_kind::image_cube, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
         {.id = resource_id::scene_textures, .name = "scene_textures", .kind = resource_kind::image2d, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
         {.id = resource_id::white_texture, .name = "white_texture", .kind = resource_kind::image2d, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::local_probe, .name = "local_probe", .kind = resource_kind::image_cube, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
         {.id = resource_id::ibl_env, .name = "ibl_env", .kind = resource_kind::image_cube, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
         {.id = resource_id::ibl_irradiance, .name = "ibl_irradiance", .kind = resource_kind::image_cube, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
         {.id = resource_id::brdf_lut, .name = "brdf_lut", .kind = resource_kind::image2d, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
@@ -901,7 +903,7 @@ export namespace deren::engine::render_resource {
      * index), pushed through the draw path the primitive owns, so this declaration has no push block.
      *
      * `scene_color` IS AN ALIAS, and deliberately: the resolver maps it to the image the frame's scene pass
-     * accumulates emissive into, which selects the HDR target normally, and the
+     * stores the nearest surface's emissive in, which selects the HDR target normally, and the
      * TAA resolve's input while that resolve runs (it takes the HDR target for its own output). That is a
      * FRAME decision, not a resource fact, so the declaration names what it means and the renderer decides
      * which image that is. It also means the scene pass and the TAA resolve agree by construction about which
@@ -1153,7 +1155,7 @@ export namespace deren::engine::render_resource {
         .targets = deferred_targets,
         .barrier_images = {},
         .barrier_buffers = {},
-        .push = push_block{.offset = 0, .size = 84, .stages = stage_flag::fragment},
+        .push = push_block{.offset = 0, .size = 88, .stages = stage_flag::fragment},
     };
 
     // =============================================================================================

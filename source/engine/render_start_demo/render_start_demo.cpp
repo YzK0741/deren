@@ -51,10 +51,14 @@ namespace deren::engine {
         // ... and the toon stage's SECOND rim: a fullscreen additive contour from the depth, right after the
         // surface it outlines and before the resolve, so the anti-aliasing sees it in the frame it belongs to.
         this->chain.emplace<pass::toon_screen_rim_pass>();
+        // ... and the GAME chain's depth rim, in the same place of the chain's order: the article's contour above is
+        // silenced while the game-shader model draws, so this is the contour that runs instead. They are alternatives
+        // at run time (see runtime.post_graph.cpp's lane gate), so their chain order only matters on a frame neither
+        // records, where it does not.
+        this->chain.emplace<pass::game_toon_depth_rim_pass>();
         // ... and the REWRITTEN chain's rim, in the SAME slot of the chain's order (right after the surface stage
         // it outlines, before the resolve) - the two are alternatives at run time, and their order only matters on
         // a frame neither records, where it does not.
-        this->chain.emplace<pass::goo_rim_pass>();
         this->chain.emplace<pass::taa_pass>();
         this->chain.emplace<pass::rt_shadow_pass>();
         this->chain.emplace<pass::cluster_pass>();
@@ -84,7 +88,7 @@ namespace deren::engine {
         this->gaussian = this->find<pass::gaussian_splatting_pass>("gaussian");
         this->character_forward = this->find<pass::character_forward_pass>("character_forward");
         this->toon_screen_rim = this->find<pass::toon_screen_rim_pass>("toon_screen_rim");
-        this->goo_rim = this->find<pass::goo_rim_pass>("goo_rim");
+        this->game_toon_depth_rim = this->find<pass::game_toon_depth_rim_pass>("game_toon_depth_rim");
         this->rt_shadow = this->find<pass::rt_shadow_pass>("rt_shadow");
         this->deferred = this->find<pass::deferred_pass>("deferred");
         this->taa = this->find<pass::taa_pass>("taa");
@@ -229,6 +233,11 @@ namespace deren::engine {
         }
     }
 
+    void render_start_demo::set_radiance_capture(bool enabled) noexcept {
+        if (this->deferred)
+            this->deferred->set_radiance_capture(enabled);
+    }
+
     void render_start_demo::set_unlit(bool const unlit) noexcept {
         if (this->deferred != nullptr) {
             this->deferred->set_unlit(unlit);
@@ -321,27 +330,18 @@ namespace deren::engine {
             // would carry the article's contour AND the reference's rim, which is the same "two rims" defect
             // step 2 suppresses inside `toon_diffuse`, one stage over.
             //
-            // `goo_toon_active()` IS THE RUNTIME'S OWN ANSWER to "is the rewritten chain drawing THIS frame",
-            // and it is deliberately the same predicate `make_character_forward_frame` uses to pick the pipeline
-            // name (`goo_toon_on && the pipeline exists`): the two must not be able to disagree, or a knob turned
-            // on without the pipeline would silence the article's rim and draw nothing in its place.
-            bool const goo_toon_active = self.runtime_owner != nullptr && self.runtime_owner->goo_toon_active();
-            return facts.character_forward_pending && self.toon_screen_rim != nullptr && self.toon_screen_rim->ready() && !goo_toon_active;
-        }
-        if (name == "goo_rim") {
-            // THE REWRITTEN CHAIN'S RIM, and it is the SAME predicate as the branch above with the sign of the
-            // last term flipped - which is the whole reason the two are one name each rather than one name with a
-            // mode: `feature_active` is asked once per NAME, so "the article's contour is off" and "the Goo rim is
-            // on" have to be two answers that cannot drift apart. Both would be wrong the other way: a Goo rim
-            // drawn over the old chain's frame would double the rim the old chain already computes inside
-            // `toon_diffuse`, and an article contour left on under `goo_toon` is the same defect one stage over.
+            // THE GAME-SHADER MODEL IS THE SECOND REFERENCE CHAIN and its inline rim (`ZmdToonMain.hlsl:343-370`)
+            // is the author's own rim, so the article's contour must be off under it for the same "two rims"
+            // reason - and the game chain now has a contour of its own to put in its place: the dedicated
+            // `game_toon_depth_rim` pass, which `runtime::set_toon_screen_rim` configures for the profile-on path
+            // and whose post-graph lane is gated on this same `game_toon_active()` predicate.
             //
-            // IT IS ALSO THE GATE THE FRAME LOOP ASKS BEFORE RECORDING THE STAGE AT ALL (see runtime.frames.cppm),
-            // so with `[render] goo_toon = false` the pass is not resolved, not recorded, and its stage preamble
-            // does not publish the G-buffer - which is what makes every pre-existing capture scenario byte
-            // identical rather than "identical because the shader wrote zero".
-            bool const goo_toon_active = self.runtime_owner != nullptr && self.runtime_owner->goo_toon_active();
-            return facts.character_forward_pending && self.goo_rim != nullptr && self.goo_rim->ready() && goo_toon_active;
+            // IT USED TO BE COMPUTED AND LEFT UNUSED HERE (`[[maybe_unused]]`), which is precisely the "two rims"
+            // defect the paragraph above describes: with `[render] game_toon = true` the article's contour kept
+            // drawing on the game-shaded character. It is now the last term of the answer.
+            bool const game_toon_active = self.runtime_owner != nullptr && self.runtime_owner->game_toon_active();
+            return facts.character_forward_pending && self.toon_screen_rim != nullptr && self.toon_screen_rim->ready() &&
+                   !game_toon_active;
         }
         if (name == "gbuffer-debug") {
             return gbuffer_debug;
