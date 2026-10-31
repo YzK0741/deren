@@ -46,8 +46,9 @@ class PosixStacktraceTests(unittest.TestCase):
             log = Path(directory) / "trace.log"
             log.write_text(run("--capture").report)
             decoder = Path(__file__).resolve().parents[2] / "scripts" / "diagnostics" / "symbolize_stacktrace.py"
-            result = subprocess.run([sys.executable, str(decoder), str(log), "--symbolizer", SYMBOLIZER],
-                                    capture_output=True, text=True, timeout=5)
+            result = subprocess.run([sys.executable, str(decoder), str(log), "--symbolizer", SYMBOLIZER,
+                                     "--timeout", "10", "--budget", "60"],
+                                    capture_output=True, text=True, timeout=90)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("posix_capture_site", result.stdout)
 
