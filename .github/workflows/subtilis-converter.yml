@@ -20,19 +20,6 @@ name: subtilis-converter
 # and UBSan covers the integer/arithmetic paths; leak coverage remains a Linux-CI follow-up.
 
 on:
-  push:
-    branches: [master]
-    paths:
-      - "source/asset/subtilis/**"
-      - "source/tests/test_subtilis_*.cpp"
-      - "tools/subtilis/**"
-      - "cmake/deren_cpu_utility.cmake"
-      - "cmake/deren_asset_dependencies.cmake"
-      - "source/utility/**"
-      - "source/vstd/**"
-      - "source/third_party/**"
-      - "scripts/measure/**"
-      - ".github/workflows/subtilis-converter.yml"
   pull_request:
     paths:
       - "source/asset/subtilis/**"
@@ -45,6 +32,10 @@ on:
       - "source/third_party/**"
       - "scripts/measure/**"
       - ".github/workflows/subtilis-converter.yml"
+
+concurrency:
+  group: subtilis-converter-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   release-tests:

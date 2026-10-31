@@ -26,9 +26,14 @@ name: ci
 # fails a job rather than a picture.
 
 on:
-  push:
-    branches: [master]
   pull_request:
+  workflow_dispatch:
+
+# One run per ref. A new push to the same PR cancels the previous run instead of
+# leaving an obsolete full build/results pair behind.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   posix-stacktrace:
