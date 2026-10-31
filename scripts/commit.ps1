@@ -38,19 +38,19 @@ try {
     Ask-Required "ci 是否本地通过 (has the local CI gate passed)"
     Ask-Required "是否确保诚实 (is this commit honest, with no hidden WIP or untracked dependency)"
 
-    Write-Host ""
-    Write-Host "Running the local CI gate (this is the same gate the commit claims passed)..." -ForegroundColor Cyan
-    & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-local-ci.ps1") -Mode Full
-    if ($LASTEXITCODE -ne 0) {
-        throw "commit refused: local CI gate failed"
-    }
-
     if ($DryRun) {
         Write-Host ""
-        Write-Host "DRY RUN: local gate passed; no commit created." -ForegroundColor Yellow
+        Write-Host "DRY RUN: running the gate against HEAD without creating a commit." -ForegroundColor Yellow
+        & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-local-ci.ps1") -Mode Full -NoMarker
+        if ($LASTEXITCODE -ne 0) { throw "local CI gate failed" }
         return
     }
 
+    $previous = (git rev-parse HEAD).Trim()
+    Remove-Item (Join-Path $repo "tmp/ci-pass.json") -ErrorAction SilentlyContinue
+
+    # Commit first, then attest it: the marker must be generated AFTER the commit
+    # it names, otherwise a later amend could silently reuse a stale pass.
     $env:DEREN_CHECKLIST_OK = "1"
     try {
         git commit -m $Message
@@ -58,6 +58,18 @@ try {
     }
     finally {
         Remove-Item Env:DEREN_CHECKLIST_OK -ErrorAction SilentlyContinue
+    }
+
+    try {
+        Write-Host ""
+        Write-Host "Running the local CI gate against the new commit..." -ForegroundColor Cyan
+        & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-local-ci.ps1") -Mode Full
+        if ($LASTEXITCODE -ne 0) { throw "local CI gate failed" }
+    }
+    catch {
+        Remove-Item (Join-Path $repo "tmp/ci-pass.json") -ErrorAction SilentlyContinue
+        git reset --soft $previous | Out-Null
+        throw "commit rolled back: local CI failed; the staged changes are intact"
     }
 
     Write-Host ""

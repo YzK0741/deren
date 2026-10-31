@@ -1,7 +1,8 @@
 param(
     [ValidateSet("Fast", "Full")]
     [string]$Mode = "Full",
-    [string]$BuildDir = "build-release-dyn-clang64"
+    [string]$BuildDir = "build-release-dyn-clang64",
+    [switch]$NoMarker
 )
 
 $ErrorActionPreference = "Stop"
@@ -60,6 +61,34 @@ try {
         if ($LASTEXITCODE -ne 0) {
             throw "clang-tidy failed (exit $LASTEXITCODE)"
         }
+    }
+
+    if (-not $NoMarker) {
+        # The marker is intentionally outside the repository: CI cannot commit a
+        # file after it runs without creating a second unverified commit, and a
+        # committed marker would only assert itself. This file is a local
+        # attestation consumed by the pre-push hook and scripts/push.ps1.
+        $dirty = git status --porcelain --untracked-files=no
+        if ($LASTEXITCODE -ne 0) { throw "git status failed" }
+        if ($dirty) {
+            throw "refusing to write a CI marker: tracked files are modified; commit or stash them first"
+        }
+        $commit = (git rev-parse HEAD).Trim()
+        $tree = (git rev-parse "HEAD^{tree}").Trim()
+        $commitTime = (git show -s --format=%cI HEAD).Trim()
+        $marker = [ordered]@{
+            commit = $commit
+            tree = $tree
+            commit_time = $commitTime
+            generated_at = [DateTimeOffset]::Now.ToString("o")
+            mode = $Mode
+            build_dir = $BuildDir
+            working_tree_clean = $true
+        }
+        $markerPath = Join-Path $repo "tmp/ci-pass.json"
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $markerPath) | Out-Null
+        $marker | ConvertTo-Json -Depth 4 | Set-Content -Path $markerPath -Encoding utf8
+        Write-Host "CI marker written: $markerPath" -ForegroundColor DarkGray
     }
 
     Write-Host ""
