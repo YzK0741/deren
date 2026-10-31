@@ -1,6 +1,0 @@
-Independent whole-plan read-only review found two P1 issues:
-1. Micromap build/order refusal continued into BLAS with an unbuilt/unordered dependency.
-2. IBL replacement released old owners before fallible heap publication.
-Both were reproduced and fixed. Follow-up reviewer confirmed both resolved and found no concrete new
-issue in recovery, image/view/device retention, descriptor compatibility, immutable upload sources,
-or the managed SBT helper. Reviewer did not run builds/GPU tests; parent verification is archived.

@@ -10,7 +10,7 @@ Models and Gaussian clouds are stored one folder per asset. The renderer's defau
 | `DamagedHelmet/` | Khronos DamagedHelmet sample (glTF, textures, license) | See `DamagedHelmet/LICENSE.md` |
 | `FlightHelmet/` | Khronos FlightHelmet sample (glTF, textures, license) | CC0-1.0, see `FlightHelmet/LICENSE.md` |
 | `flowers/` | NVIDIA Bouquet of Flowers Gaussian splat cloud | CC BY 4.0, see `flowers/README.md` |
-| `laevatain/` | Laevatain / GameToon preview model and Toon sidecar | **All rights reserved by Hypergryph Network Technology Co., Ltd. (鹰角网络)** — see `laevatain/LICENSE.md` |
+| `laevatain/` | Laevatain / GameToon preview model and Toon sidecar | **All rights reserved by Hypergryph Network Technology Co., Ltd.** — see `laevatain/LICENSE.md` |
 
 `laevatain/*.glb` and `flowers/*.ply` are stored with Git LFS. After cloning, install
 `git-lfs` and run `git lfs pull` if the assets were not fetched automatically.

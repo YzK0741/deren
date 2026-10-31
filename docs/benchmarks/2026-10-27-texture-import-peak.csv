@@ -1,3 +1,0 @@
-mode,frames,asset,cpu_peak_bytes,cpu_steady_bytes,gpu_peak_local_bytes,gpu_steady_local_bytes,note
-eager,240,D:/deren-assets/2026-10-23-software-raster/subtilis-textured/subtilis-textured.gltf,3322421992,347387456,3564073952,3184391216,consuming import; 1280x720; sampler capture
-progressive,240,D:/deren-assets/2026-10-23-software-raster/subtilis-textured/subtilis-textured.gltf,3318156304,2885456536,1543531056,1543531056,consuming import; 1280x720; sampler capture

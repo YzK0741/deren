@@ -1,2 +1,0 @@
-=== deferred_visibility (deferred through the VISIBILITY raster+resolve lanes)
-  actual  (AEE07350B796AC07)

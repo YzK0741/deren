@@ -58,7 +58,7 @@ width). Pixels inside the crop are the renderer's own; the crop was re-encoded w
 screenshot of the `game_toon` profile-on path rendering GameToon: captured skin/face, hair, cloth,
 eye and outline shader branches, the captured light rig and the viewer's display transform. The
 model and its Toon sidecar are checked in under `asset/laevatain/`; all rights to that asset belong
-to Hypergryph Network Technology Co., Ltd. (鹰角网络), see `asset/laevatain/LICENSE.md`.
+to Hypergryph Network Technology Co., Ltd., see `asset/laevatain/LICENSE.md`.
 
 It was cropped from a 2560x1494 desktop screenshot (2026-10-31). The ImGui debug overlay and the
 Windows taskbar are cut away, leaving the render alone. Pixels inside the crop are the renderer's

@@ -1,7 +1,0 @@
-Validation Error: [ VUID-vkDestroyInstance-instance-00629 ] | MessageID = 0x8b3d8e18
-vkDestroyInstance(): VkInstance 0x1d4f4db0110 has 1 leaked objects that have not been destroyed.
-VkSurfaceKHR 0x20000000002
-The Vulkan spec states: All child objects that were created with instance or with a VkPhysicalDevice retrieved from it, and that can be destroyed or freed, must have been destroyed or freed prior to destroying instance (https://docs.vulkan.org/spec/latest/chapters/initialization.html#VUID-vkDestroyInstance-instance-00629)
-Objects: 1
-    [0] VkInstance 0x1d4f4db0110
-

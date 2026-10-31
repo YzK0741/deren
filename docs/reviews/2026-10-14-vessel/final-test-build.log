@@ -1,5 +1,0 @@
-[0/2] Re-checking globbed directories...
-[1/5] Scanning C:/Users/23530/Desktop/yzk/deren/source/tests/test_goo_toon_math.cpp for CXX dependencies
-[2/5] Generating CXX dyndep file CMakeFiles/test_goo_toon_math.dir/CXX.dd
-[3/5] Building CXX object CMakeFiles/test_goo_toon_math.dir/source/tests/test_goo_toon_math.cpp.obj
-[4/5] Linking CXX executable test_goo_toon_math.exe

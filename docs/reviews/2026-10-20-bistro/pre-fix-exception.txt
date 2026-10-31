@@ -1,7 +1,0 @@
-code=c0000005 pc=00007FF6D165931A base=00007FF6D1650000 rva=931a module=C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\deren.exe
-00007FF6D1661CBC base=00007FF6D1650000 rva=11cbc C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\deren.exe
-00007FFE423A44D6 base=00007FFE422E0000 rva=c44d6 C:\Windows\SYSTEM32\ntdll.dll
-00007FFE423A3C75 base=00007FFE422E0000 rva=c3c75 C:\Windows\SYSTEM32\ntdll.dll
-00007FFE42445DEE base=00007FFE422E0000 rva=165dee C:\Windows\SYSTEM32\ntdll.dll
-00007FF6D165931A base=00007FF6D1650000 rva=931a C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\deren.exe
-3F3333333F800000 base=0000000000000000 rva=3f3333333f800000 C:\Users\23530\Desktop\yzk\deren\build-release-dyn-clang64\deren.exe

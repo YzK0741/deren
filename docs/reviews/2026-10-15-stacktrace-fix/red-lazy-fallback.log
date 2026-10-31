@@ -1,2 +1,0 @@
-FAIL C:/Users/23530/Desktop/yzk/deren/source/tests/test_stacktrace.cpp:268: read_log("deren-crash.log").find("lazy fallback output") != vessel::string::npos
-[test_stacktrace] 53 checks, 1 failed -> FAIL
