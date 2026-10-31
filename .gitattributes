@@ -1,22 +1,21 @@
 # Language statistics: count project code, ignore third-party and non-code folders.
 # (Folder-based vendoring replaces the previous extension whitelist, so project
 #  sources — cpp/cppm/headers/cmake/glsl — count naturally.)
-
 # Third-party code / assets
 std/** linguist-vendored
 source/third_party/** linguist-vendored
 # Preserve the upstream bytes checked by Boost's SHA-256 vendor manifest.
 source/third_party/boost/** -text
-source/third_party/boost_int128/** -text
 source/third_party/khronos_tonemapping/** -text
 source/third_party/meshoptimizer/** -text
 source/third_party/yyjson/** -text
-gltf_model/** linguist-vendored
-
+asset/** linguist-vendored
 # Non-code folders (docs, screenshots)
 docs/** linguist-vendored
 snapshot/** linguist-vendored
-
 # Shell scripts must keep LF endings in the working tree (core.autocrlf=true
 # would otherwise check them out as CRLF and break the shebang on POSIX).
 *.sh text eol=lf
+.githooks/* text eol=lf
+asset/laevatain/*.glb filter=lfs diff=lfs merge=lfs -text
+asset/flowers/*.ply filter=lfs diff=lfs merge=lfs -text

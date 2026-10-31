@@ -32,8 +32,8 @@ for DamagedHelmet and 319816 bytes for FlightHelmet.
 
 Studio Neutral: Copyright 2020 Amazon, LLC, distributed by Khronos Group, CC-BY-4.0; retained
 asset hashes/license provenance are in the manifest and the fetched `neutral.hdr.license`.
-FlightHelmet model-associated files are CC0-1.0 in glTF-Sample-Assets; DamagedHelmet retains
-the terms in `gltf_model/LICENSE.md`. These material previews do not establish pixel equivalence
+FlightHelmet model-associated files are CC0-1.0 in glTF-Sample-Assets; its terms are kept in
+`asset/FlightHelmet/LICENSE.md`. DamagedHelmet retains the terms in `asset/DamagedHelmet/LICENSE.md`. These material previews do not establish pixel equivalence
 to Sample Viewer.
 
 ## CharacterForward.png
@@ -52,8 +52,20 @@ width). Pixels inside the crop are the renderer's own; the crop was re-encoded w
 (`optimize=True`) and NOT resampled.
 
 
+## GameToon.png
+
+`GameToon.png` (1140x1030) is the current README character shot. It is a HAND-TAKEN desktop
+screenshot of the `game_toon` profile-on path rendering GameToon: captured skin/face, hair, cloth,
+eye and outline shader branches, the captured light rig and the viewer's display transform. The
+model and its Toon sidecar are checked in under `asset/laevatain/`; all rights to that asset belong
+to Hypergryph Network Technology Co., Ltd. (鹰角网络), see `asset/laevatain/LICENSE.md`.
+
+It was cropped from a 2560x1494 desktop screenshot (2026-10-31). The ImGui debug overlay and the
+Windows taskbar are cut away, leaving the render alone. Pixels inside the crop are the renderer's
+own; the crop was re-encoded with Pillow (`optimize=True`) and NOT resampled.
+
 ## gaussian-viewer.jpg
 
-The Gaussian viewer renders NVIDIA's Bouquet of Flowers (CC BY-SA 4.0), with
-562,974 splats. See [Gaussian splatting](../gaussian_splatting.md) for the asset
-and viewer details.
+The Gaussian viewer renders NVIDIA's Bouquet of Flowers (CC BY 4.0), with
+562,974 splats. The cloud is checked in at `asset/flowers/flowers_1.ply`; see
+[Gaussian splatting](../gaussian_splatting.md) for the loader and viewer details.

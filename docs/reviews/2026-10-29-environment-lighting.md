@@ -71,7 +71,7 @@ and command; it uses the same frozen bundle as the standard after captures. Base
 
 Studio Neutral is Amazon/Khronos CC-BY-4.0. Papermill is HDRLabs/UX3D CC-BY-NC-SA-3.0, used only
 as an optional local noncommercial reference; its HDR is not bundled in the repository. Keep the
-downloaded license files. DamagedHelmet retains its supplied `gltf_model/LICENSE.md`. PBR Neutral
+downloaded license files. DamagedHelmet retains its supplied `asset/LICENSE.md`. PBR Neutral
 source/license/revision are retained under `source/third_party/khronos_tonemapping` (Apache-2.0).
 
 The supplied Viewer screenshot does not identify HDR bytes, orientation, camera or exposure.

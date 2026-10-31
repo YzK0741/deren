@@ -17,7 +17,7 @@ import os
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DEFAULT_MODEL = "gltf_model/DamagedHelmet.gltf"  # relative to the renderer's cwd
+DEFAULT_MODEL = "asset/DamagedHelmet/DamagedHelmet.gltf"  # relative to the renderer's cwd
 
 
 # ---- small input helpers -------------------------------------------------
@@ -266,7 +266,7 @@ def ask_all(output_dir: str) -> dict:
         "paths.shaders_dir: shader SPIR-V directory", "", hint="empty = find 'source/shaders/' upward from cwd"
     )
     model_dir = ask_text(
-        "paths.model_dir: default model directory (for empty model)", "", hint="empty = find 'gltf_model/' upward"
+        "paths.model_dir: default model directory (for empty model)", "", hint="empty = find 'asset/' upward"
     )
 
     print("\n-- render (window / presentation) --")

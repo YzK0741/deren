@@ -10,7 +10,7 @@
 
 > The project was renamed from `vulkan_render` to `deren` on 2026-10-02. Portable modules now use `deren.engine.*` and `deren::engine`; native Vulkan implementations retain `deren.vulkan.*` and `deren::vulkan`.
 
-![The Gaussian viewer: NVIDIA's Bouquet of Flowers (CC BY-SA 4.0), 562,974 splats, rendered by deren](docs/screenshots/gaussian-viewer.jpg)
+![The Gaussian viewer: NVIDIA's Bouquet of Flowers (CC BY 4.0), 562,974 splats, rendered by deren](docs/screenshots/gaussian-viewer.jpg)
 
 [Gaussian splatting details and viewer setup](#gaussian-splatting).
 
@@ -20,16 +20,15 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/CharacterForward.png" width="34%" alt="The character-forward pipeline on a posed anime model" />
+  <img src="docs/screenshots/GameToon.png" width="40%" alt="GameToon through the game-toon profile-on pipeline" />
 </p>
 
 <sub>The two helmet shots use deferred PBR with Studio Neutral HDR lighting, a solid grey background and
 Khronos PBR Neutral tone mapping, captured at 1080x960 with fixed cameras on 2026-10-29.
 These are material previews with direct sun, shadows, SSAO and temporal/post effects disabled.
-The character shot is the character-forward pipeline on a posed anime
-model; that session had the `toon shading` combo at `off (plain pbr)`, so the shading response is the smooth
-one and the banded cel looks are the combo's other values (see **Cel/toon shading** below). The debug overlay,
-the title bar and the taskbar were cropped away. See [`docs/screenshots/README.md`](docs/screenshots/README.md) for both.</sub>
+The character shot is GameToon through the game-toon/profile-on path: captured skin, hair, cloth, eye and
+outline branches with the captured light rig and display transform. The debug overlay, the title bar and
+the taskbar were cropped away. See [`docs/screenshots/README.md`](docs/screenshots/README.md) for all three.</sub>
 
 ## Build helpers
 
@@ -37,6 +36,9 @@ The repo ships platform **setup** scripts plus unified Python **build / run / do
 points under `scripts/build_helpers/` (Python 3.8+). Setup stays shell because it installs the toolchain that
 provides Python; the build/run/docs commands are identical on **Windows** (MSYS2 clang64) and **POSIX**
 (Linux / WSL / macOS).
+
+Commit and CI rules are in [`CONTRIBUTING.md`](CONTRIBUTING.md); use `scripts/commit.ps1` and
+`scripts/push.ps1` rather than direct `git commit` / `git push`.
 
 **Setup**
 
@@ -91,7 +93,7 @@ C++ code and shader sources live under `source/`:
 
 Development and build tools live in root-level `scripts/`; README images live in `docs/screenshots/`.
 
-The engine CMake target is `deren_engine` (`deren::engine`). Build shader outputs remain in `<build>/shaders/`; manual shader tools write to the repository `shaders/` output directory. Documentation and screenshots live in `docs/`; configuration and model assets remain at the root.
+The engine CMake target is `deren_engine` (`deren::engine`). Build shader outputs remain in `<build>/shaders/`; manual shader tools write to the repository `shaders/` output directory. Documentation and screenshots live in `docs/`; configuration stays at the root, and models live under `asset/<name>/` (see [`asset/README.md`](asset/README.md)).
 
 ## Version
 
@@ -105,7 +107,7 @@ Each **independently reusable module set** also carries its own `module version`
 in a comment block at the top of its main interface unit — `deren.utility` 1.0.0 (with
 `deren.utility.shared` 1.2.0), `deren.vstd` 0.1.1a
 (the trimmed `std` replacement), `deren.gltf_loader` 1.0.0, `deren.application_configuration` 1.0.0,
-`deren.engine.math` 1.0.0,
+`deren.engine.math` 1.0.1,
 `deren.vulkan.constant_init` 0.9.1 (the compile-time info-struct builders that
 `deren.vulkan.core` and `deren.engine.runtime` embed), `deren.vulkan.core` 0.24.0, `deren.engine.runtime` 1.0.0,
 `deren.engine.profiling` 1.0.0, `deren.engine.pipelines` 1.0.0, `deren.engine.shadow_fit` 1.0.0,
@@ -201,9 +203,9 @@ A `.ply` in the `model` key IS a Gaussian splat cloud and nothing else: the exte
 Measured on the screenshot above (RTX 4060 Laptop, 1280x720): **562,974 splats**, SH degree 3, **135.1 MB** of static tables uploaded once, **zero** validation errors. The per-frame work now runs on the GPU - the CPU only prepares instance/camera metadata (about 0.002 ms) - and the panel's live counter reads a steady **~410 fps**. Measured on the current build (three 1500-frame static runs, GUI/TAA/VSync/validation off, `[render] gpu_timings` at its default): the stable one-second windows read 409.7 / 410.7 / 410.3 fps (2.44 ms per presented frame), and the session-average GPU frame is **2.50-2.67 ms**, of which the Gaussian stages are prepare 0.87-1.03 ms + sort 0.20 ms + finalize 0.01-0.02 ms + raster 0.87-0.88 ms. That is roughly 40x the 9.7 fps the CPU-sorting path showed (67 ms depth sort + 33 ms projection/SH on 16 threads); those numbers belong to the pre-GPU-frame build and are kept only as history. The per-stage method and its limits are in [docs/gaussian_splatting.md](docs/gaussian_splatting.md).
 
 ```powershell
-# fetch the asset (133 MB, CC BY-SA 4.0 - fetched, never committed) and point config.toml at it:
-./scripts/assets/fetch_gaussian_viewer_asset.ps1 -BuildDir build-release-dyn-clang64
-#   config.toml:  model = "gaussian-viewer\\flowers\\flowers_1\\flowers_1.ply"
+# the cloud is checked in under asset/flowers (CC BY 4.0, Git LFS); after cloning:
+git lfs pull
+#   config.toml:  model = "asset/flowers/flowers_1.ply"
 ./build-release-dyn-clang64/deren.exe    # left-drag orbit, wheel zoom, F12 screenshot, F1 panel, ESC quit
 ```
 
@@ -276,7 +278,7 @@ Related source docs (tracked in the repo):
 │                            #   gaussian/ - documented in-source and grouped under the Doxygen "shaders"
 │                            #   group. The retired GLSL stage sources and the shared GLSL bodies they were
 │                            #   built on are archived under source/reference/shaders/
-├── gltf_model/              # Sample model (DamagedHelmet)
+├── asset/                    # Models/clouds, one folder per asset: DamagedHelmet/, FlightHelmet/, flowers/, laevatain/
 ├── docs/                    # Usage guides, screenshots/ + reference shaders; Doxygen HTML is generated on demand (gitignored)
 ├── scripts/                 # build_helpers/ (cross-platform Python build/run/docs), setup/ (platform
 │                            #   environment setup), gates/ (Windows capture/render/device probes), measure/
@@ -360,7 +362,7 @@ cmake --build build
 
 ### Run
 
-Run from the project root or any build directory (the program walks upward to locate `source/shaders/` and `gltf_model/` when they are not configured):
+Run from the project root or any build directory (the program walks upward to locate `source/shaders/` and `asset/` when they are not configured):
 
 ```bash
 ./build-release/deren                # or build-release-clang64/deren.exe on Windows
@@ -369,7 +371,7 @@ Run from the project root or any build directory (the program walks upward to lo
 ./build-release/deren path/to/model.glb 8   # grid_side 8: one instanced draw call
 ```
 
-By default it loads `gltf_model/DamagedHelmet.gltf` and renders it with PBR + IBL. Controls: **left-drag** to orbit, **wheel** to zoom, **drag the window border** to resize (the swapchain is recreated on the fly), **ESC** to quit. Loaded models that carry keyframe animations (e.g. glTF-Sample-Assets `AnimatedCube` / `BoxAnimated`) play automatically on a loop.
+By default it loads `asset/DamagedHelmet/DamagedHelmet.gltf` and renders it with PBR + IBL. Controls: **left-drag** to orbit, **wheel** to zoom, **drag the window border** to resize (the swapchain is recreated on the fly), **ESC** to quit. Loaded models that carry keyframe animations (e.g. glTF-Sample-Assets `AnimatedCube` / `BoxAnimated`) play automatically on a loop.
 
 #### Startup configuration
 
