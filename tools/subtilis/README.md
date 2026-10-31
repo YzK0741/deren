@@ -151,9 +151,9 @@ not byte-identical, or medians not derived from all rounds (`--self-test` demons
 controls). `verify check` runs the official pinned Khronos core validator (2.0.0-dev.3.10, hashed
 in `scripts/measure/khronos_validator_manifest.json`; separate acceptance tool, never part of the
 CMake build or vendored) and `deren-subtilis validate --full` on normal outputs and export-cut
-previews, plus LOD0/cut geometry identity checks. Acceptance evidence, per-round numbers,
-limitations and the out-of-tree artifact archive are recorded in
-[docs/reviews/2026-10-21-subtilis-converter.md](../../docs/reviews/2026-10-21-subtilis-converter.md).
+previews, plus LOD0/cut geometry identity checks. Per-round acceptance evidence and
+the out-of-tree artifact archive are maintained outside this repository; the shipped
+tool tests, validator manifest and this README are the reproducible contract.
 
 Independent CI for this tool is `.github/workflows/subtilis-converter.yml`: it is deliberately
 separate from the engine `ci.yml`/`VR_TEST_TARGETS` contract and needs no Vulkan/CUDA install, no

@@ -1,12 +1,12 @@
 {
   "application_evidence": {
     "chores_archives": [
-      "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\libchores.a"
+      "build-release-dyn-clang64/libchores.a"
     ],
     "complete": true,
     "explicit_app_objects": [],
     "main_objects": [
-      "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\CMakeFiles\\deren.dir\\main.cpp.obj"
+      "build-release-dyn-clang64/CMakeFiles/deren.dir/main.cpp.obj"
     ]
   },
   "backend_archive": "deren_vulkan.dll",
@@ -24,7 +24,7 @@
   "backend_surface_shape": "export table",
   "consumers": [
     {
-      "file": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\libderen_engine.a",
+      "file": "build-release-dyn-clang64/libderen_engine.a",
       "members": [
         "acceleration_structure.cpp.obj",
         "acceleration_structure.cppm.obj",
@@ -106,14 +106,14 @@
       ]
     },
     {
-      "file": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\libchores.a",
+      "file": "build-release-dyn-clang64/libchores.a",
       "members": [
         "chores.cpp.obj",
         "chores.cppm.obj"
       ]
     },
     {
-      "file": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\CMakeFiles\\deren.dir\\main.cpp.obj",
+      "file": "build-release-dyn-clang64/CMakeFiles/deren.dir/main.cpp.obj",
       "members": []
     }
   ],
@@ -205,7 +205,7 @@
   "leavers": [
     "deren_make_api_core"
   ],
-  "nm": "C:\\msys64\\clang64\\bin\\llvm-nm.EXE",
+  "nm": "llvm-nm.EXE",
   "owning_stl_count": 0,
   "owning_stl_symbols": [],
   "reverse_boundary_symbols": [],
@@ -227,7 +227,7 @@
   "whitelist": {
     "count": 0,
     "hits": [],
-    "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\scripts\\backend_boundary_whitelist_dynamic.json",
+    "path": "scripts/checks/backend_boundary_whitelist_dynamic.json",
     "stale": [],
     "untracked_by_the_ratchet": []
   }

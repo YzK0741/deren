@@ -219,7 +219,7 @@ namespace deren::chores {
             runtime.register_shader("visibility_feedback.comp.spv", visibility_feedback_code);
         }
 
-        // ---- THE SOFTWARE RASTER'S MODULES (M4 Task 2, docs/superpowers/specs/2026-10-22-software-raster-
+        // ---- THE SOFTWARE RASTER'S MODULES (M4 Task 2, historical design record
         //      design.md): the tiled compute stage and the depth-only merge's vertex/fragment pair. Task 4 appends the
         //      passes on a gated frame; Task 2 lands them WITH their pipelines, so the host-side job is the same as the
         //      resolve's above - load and REGISTER. A name nobody registered leaves a pass disabled with one log line,
@@ -240,7 +240,7 @@ namespace deren::chores {
             runtime.register_shader("software_merge.frag.spv", software_merge_fragment_code);
         }
 
-        // ---- THE HZB BUILD MODULE (M3 phase A2, docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md) ----
+        // ---- THE HZB BUILD MODULE (M3 phase A2, historical design record) ----
         // The runtime creates its own build pass lazily on the first frame after `create_passes()` (the shader
         // cannot be registered before `setup_pipeline()` runs, because that is this function), and that pass asks
         // for the module through `pass_context::shader` - so loading and registering it here is the whole host-side
@@ -252,7 +252,7 @@ namespace deren::chores {
             load_shader(shaders_dir, "hzb_build.comp.spv", hzb_build_code);
             runtime.register_shader("hzb_build.comp.spv", hzb_build_code);
         }
-        // ---- THE HZB CULL MODULE (M3 phase B1, docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md) ----
+        // ---- THE HZB CULL MODULE (M3 phase B1, historical design record) ----
         // The runtime creates its own cull pass lazily, exactly as it does the build pass, and asks for the module
         // through `pass_context::shader` - so loading and registering it here is the whole host-side contract. THE
         // SAME TWO GATES THE RUNTIME READS guard the load (the cull lane requires the build lane: it tests against
@@ -291,17 +291,17 @@ namespace deren::chores {
         }
 
         {
-            // THE GAME-SHADER TOON MODEL'S PIPELINE (`game_toon.slang`), the THIRD shading model for the
-            // SAME character-forward pass. Same reasoning as the goo block above: the same geometry, the
+            // THE GAME-SHADER TOON MODEL'S PIPELINE (`game_toon.slang`), the SECOND shading model for the
+            // SAME character-forward pass. Same reasoning as the article block above: the same geometry, the
             // same pass, the same frame and the same forced state; only the fragment module differs.
             // `[render] game_toon` selects it and it is OFF by default, so with the flag off this block
             // adds one startup pipeline and no pixel.
             //
             // PHASE 1 IS A PLUMBING MILESTONE: the shader still calls the shared body, so a run with
-            // game_toon on and goo_toon off reproduces the old chain's pixels until the cloth port lands.
+            // game_toon on reproduces the article chain's pixels until the cloth port lands.
             //
-            // A FAILURE IS NOT FATAL, like goo_toon's: `make_character_forward_frame` falls back to the
-            // old pipeline name and `set_game_toon` reports the fallback once, when the knob is on.
+            // A FAILURE IS NOT FATAL: `make_character_forward_frame` falls back to the article pipeline
+            // name and `set_game_toon` reports the fallback once, when the knob is on.
             deren::utility::vessel::vector<uint8_t> game_fragment_code;
             deren::utility::vessel::vector<uint8_t> game_mesh_code;
             deren::utility::vessel::vector<uint8_t> game_meshlet_code;

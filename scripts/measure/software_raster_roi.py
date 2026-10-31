@@ -1,6 +1,6 @@
 """Task 1 (GO/NO-GO) measurement for M4 software raster: the subpixel workload upper bound.
 
-WHAT IT MEASURES, AND WHY IT EXISTS. The M4 spec (docs/superpowers/specs/2026-10-22-software-raster-design.md)
+WHAT IT MEASURES, AND WHY IT EXISTS. The M4 spec (historical design record)
 proposes to move a cut run's SUBPIXEL clusters from the hardware visibility raster to a tiled software producer.
 Before that producer is built, Task 1 measures the ceiling of what the hardware raster can save by NOT dispatching
 those clusters at all:
@@ -53,7 +53,7 @@ ASSET = Path("D:/deren-assets/2026-10-21-object-lod/bistro-object-lod.glb")
 ASSET_SHA256 = "620f424239909d023b30dd86fe953c579298a39ef2d4706bca59fc0d2982085b"
 EXE = Path("build-release-dyn-clang64/deren.exe")
 
-# M1c's accepted numbers this gate is defined against (docs/reviews/2026-10-21-object-lod.md §4/§8):
+# M1c's accepted numbers this gate is defined against (historical development record §4/§8):
 #   far GPU 24.46 -> 20.11 ms (session average, 130 frames), cut clusters 41,030, cut triangles 3,318,617,
 #   <1px 23.28% / <2px 38.23% of clusters, <1px 21.92% / <2px 36.75% of triangles;
 #   near GPU 21.33 -> 18.58 ms, cut clusters 35,444, cut triangles 2,860,109, <1px 5.37% / <2px 15.95%,

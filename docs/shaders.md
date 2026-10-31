@@ -105,10 +105,11 @@
  * producer; the ray-traced shadow (`rt_shadow.*`) after the producer and before the lighting stage it
  * feeds; the lighting stage; the Gaussian raster (`gaussian_reset`/`gaussian_prepare`/`gaussian_finalize`
  * compute passes then `gaussian_raster.vert`/`.frag`) AFTER lighting and BEFORE the transparent pass; the
- * transparent pass; the character chain (`character_forward`, then `toon_screen_rim`, then `goo_rim`, all
- * three composing over the shaded frame); then TAA. The post chain's LAST pass is `fxaa.frag`, or - below
- * `[render] render_scale = 1.0` - `upscale.slang`'s EASU resolve instead; the two are one exclusion because
- * both want to be the frame's last writer, and a 1.0-scale frame records neither.
+ * transparent pass; the character chain (`character_forward`, then `toon_screen_rim`, then
+ * `game_toon_depth_rim`, all three composing over the shaded frame); then TAA. The post chain's LAST
+ * pass is `fxaa.frag`, or - below `[render] render_scale = 1.0` - `upscale.slang`'s EASU resolve
+ * instead; the two are one exclusion because both want to be the frame's last writer, and a
+ * 1.0-scale frame records neither.
  *
  * @section shader_taa Temporal anti-aliasing
  *

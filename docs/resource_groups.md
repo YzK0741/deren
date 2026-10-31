@@ -96,5 +96,6 @@ constants. The resource heap working budget increased from 1280 KiB to 4 MiB for
 and reusable group descriptors. Rebuild shaders and backend together.
 
 Resource groups originated in RHI ABI **51**. Unified recorder push_constants and deferred recording require ABI
-**53 or newer**; application, backend and plugins need matching rebuilt binaries. Validation evidence and boundaries are recorded in
-`docs/reviews/2026-10-24-resource-group.md`.
+**53 or newer**; application, backend and plugins need matching rebuilt binaries. The validation evidence and
+the ABI boundary record were maintainer material and are not distributed with the repository; the boundaries
+stated here are the contract.

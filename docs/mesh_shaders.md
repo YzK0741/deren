@@ -79,8 +79,8 @@ the exact next experiments - are in section 5, step by step.
 > }
 > ```
 >
-> (It is inlined here rather than left in `build-release-clang64/dvm/t_push.slang`, where the first version of this
-> note pointed: that directory is a build artifact and a clean build deletes it.) The objective names a second
+> (It is inlined here because the directory it was first tried in is a build artifact and a clean build deletes
+> it.) The objective names a second
 > mechanism for the same culling - a compute pass writing `VkDrawMeshTasksIndirectCommandEXT` - and that one does not
 > crash, so this is a blocked MECHANISM rather than a blocked feature.
 
@@ -110,7 +110,7 @@ whole draw from the CPU.
 
 What that makes possible, and what it does not:
 
-- **implemented here, and measured**: per-meshlet LOD selection (the subtilis cut, [subtilis](subtilis.md)), per-meshlet occlusion culling against a GPU-built max-depth Hi-Z pyramid with history prediction + camera recovery ([M3 recovery report](reviews/2026-10-21-hzb-recovery.md); measured -78.6% near / -61.6% far GPU frame on moving Bistro views), and the culling dispatch fed by the GPU itself through the existing indirect command buffer - no new RHI verb. The renderer already builds its own TLAS from the SAME vertex/index buffers, so the meshlet path is a second consumer of one structure rather than a parallel one.
+- **implemented here, and measured**: per-meshlet LOD selection (the subtilis cut, [subtilis](subtilis.md)), per-meshlet occlusion culling against a GPU-built max-depth Hi-Z pyramid with history prediction + camera recovery (measured -78.6% near / -61.6% far GPU frame on moving Bistro views; the supporting record is not distributed with this repository), and the culling dispatch fed by the GPU itself through the existing indirect command buffer - no new RHI verb. The renderer already builds its own TLAS from the SAME vertex/index buffers, so the meshlet path is a second consumer of one structure rather than a parallel one.
 - **not possible**: the deferred lighting, SSAO, TAA, bloom, FXAA and cluster passes are fragment/compute
   work and cannot move to a mesh stage at all. A fullscreen triangle does not become cheaper either.
 - **therefore not the goal**: step 0 does not claim a win. It proves the stage is reachable from this
@@ -464,7 +464,7 @@ asserted on the CPU instead, by `source/tests/test_meshlet.cpp`, which CI runs:
 | malformed input | an empty span, no vertices, a stride shorter than one position, a window past the buffer end: an EMPTY result, never a read past it (an out-of-range index inside a valid window keeps the meshlet - the draw is not silently dropped - and simply does not extend the bounds) |
 
 **THE TASK STAGE IS UNUSABLE ON THIS SLANG, FOR TWO INDEPENDENT REASONS - BOTH COMPILER CRASHES.** Throwaway probes
-in `build-release-clang64/dvm/` settled the syntax and then closed the fork. `slangc` v2026.18.2 dies with
+in a local build directory settled the syntax and then closed the fork. `slangc` v2026.18.2 dies with
 0xC0000005 (`FAILED: [code=3221225477]`) on a task stage that either takes host data or touches the heap, and it
 does so with SIX LINES of shader:
 

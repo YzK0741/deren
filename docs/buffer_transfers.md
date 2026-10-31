@@ -102,8 +102,8 @@ build entry retains its own transfer-write-to-build-read barrier. No RHI ABI cha
 
 Separate batched uploads bypass the backend's initial-content cache: retain/share the returned
 `uploaded_geometry` to share an asset. Existing resource-chain destruction can still wait for device idle;
-this migration does not remove lifecycle-wide waits. The [consumer checkpoint](reviews/2026-10-25-subtilis-transfer-consumer.md)
-records local upload latency measurements, not frame-rate improvements.
+this migration does not remove lifecycle-wide waits. The local upload latency measurements behind it are
+not distributed with the repository, and they are not frame-rate improvements.
 
 ## Verification
 

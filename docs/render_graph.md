@@ -498,10 +498,8 @@ Recorders and explicit `retain(shared_owner)` objects join the existing GPU
 retention token. Store frame data at a stable address before resolving self-pointing
 spans; copying a span or capturing a raw pointer does not retain its owner. The
 runtime post adapter now uses this mechanism instead of global pass-index dispatch.
-The graph still does not submit or publish cross-frame state.
-
-See the [composition design](superpowers/specs/2026-10-16-render-graph-composition-design.md)
-and [implementation acceptance](reviews/2026-10-16-render-graph-composition.md).
+The graph still does not submit or publish cross-frame state. The composition design and the
+implementation acceptance record are maintainer material and are not distributed with this repository.
 
 ## First main-chain boundary
 
@@ -569,15 +567,14 @@ their required scopes explicitly.
 
 Material textures/IBL, per-mesh addresses, meshlet tables/atomic statistics, indirect
 commands and cluster producers still need separate declarations. The shared bundle
-does not claim to enumerate every resource the pass can access.
-See the [shared-input acceptance record](reviews/2026-10-16-render-graph-shared-inputs.md).
+does not claim to enumerate every resource the pass can access. The shared-input
+acceptance record is not distributed with this repository.
 
 During graph-owned deferred preparation the graph emits the surface/depth handoff
 itself; CPU frame preparation still runs. The graph emits the handoff, then
 checked deferred record_content records only LOAD/draw commands. Recording or
 preparation failure blocks submission; no second path is replayed after partial
-graph recording. See the [lighting acceptance record](reviews/2026-10-16-render-graph-lighting.md)
-and [geometry acceptance record](reviews/2026-10-16-render-graph-geometry.md).
+graph recording. The lighting and geometry acceptance records are not distributed with this repository.
 
 ## The visibility buffer's lanes (v0.5)
 

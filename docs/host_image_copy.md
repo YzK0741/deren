@@ -124,9 +124,9 @@ replaced on this driver - 31.8 -> 94.3 ms for DamagedHelmet, 130.5 -> 217.8 ms f
 1.66 GB/s), 68.3 -> 189.7 ms for the laevatain goo character. The shipped implementation submits and waits twice
 per call (one barrier before the host copy, one after), which is the leading explanation and is NOT what the
 staging path does (one command carrying every mip). The full reading, the pre-registered criteria and the
-counter-examples are in `build-release-clang64/deren-ab/rhi/host_copy_upload_measure.md`; the change shipped
-anyway because this repository's rule for a required extension is "present or a named startup failure", not
-"faster or a run-time choice".
+counter-examples were kept in a local measurement record that is not distributed with the repository; the
+change shipped anyway because this repository's rule for a required extension is "present or a named startup
+failure", not "faster or a run-time choice".
 
 ## The read-back through the contract (S2 batch 2)
 
@@ -164,7 +164,7 @@ renderer already shipped, and that check is the SHADOW GATE (plan 8.3):
 - The capture itself stays byte-identical: `check_render.ps1 -Full` reports all THIRTEEN capturing scenarios at the
   frozen pre-change hashes (deferred `972A31EC5FF55C87`, ..., laevatain_old_chain `190EB09D3E9FDCDA`). Its summary
   says `passed 2 / changed 12`, which is the STALE LOCAL BASELINE and not a pixel change - the hashes are the
-  criterion, exactly as `build-release-clang64/deren-ab/rhi/host_copy_upload_measure.md` records for the batch
+  criterion, exactly as the local measurement recorded for the batch
   before this one. `laevatain_no_sidecar` is the pre-existing red (`chars/laevatain.glb` is not in the tree).
 - NO validation line in any capturing scenario, and a window RESIZE is survivable: measured by resizing the GLFW
   window while the renderer ran, the surface went out of date, the swapchain was rebuilt (1080x960 -> 1028x694), the

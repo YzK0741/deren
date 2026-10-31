@@ -6,9 +6,9 @@ The name does not change existing APIs, configuration, environment variables or 
 
 > **Phase closed (2026-10-28).** The opt-in baseline includes low-resolution fallback residency,
 > asynchronous uploads, progressive mip demand, immutable source ownership/consuming import and
-> asynchronous feedback copy readback. Further feature expansion is deferred. See the
-> [phase closeout](reviews/2026-10-28-amnis-phase-closeout.md) for accepted scope, measured results,
-> known limits, deferred directions and the next renderer investigation.
+> asynchronous feedback copy readback. Further feature expansion is deferred. The phase closeout (accepted
+> scope, measured results, known limits, deferred directions and the next renderer investigation) is
+> maintainer material and is not distributed with this repository.
 
 ## Responsibility boundary
 
@@ -27,9 +27,9 @@ single subsystem switch or exclusive ownership of the renderer.
 |---|---|---|
 | Demand | GPU visibility feedback | Generate texture demand from visible materials. |
 | Scheduling | Asynchronous texture upload and texture prefetch | Prepare candidates in advance and publish completed uploads. |
-| Residency | Low-resolution fallback residency and full-texture upgrades | Two-tier residency; see [design](superpowers/specs/2026-10-27-progressive-textures-design.md). |
-| Residency | Screen mip demand feedback and progressive mip residency | Select intermediate mips and refine incrementally; see [design](superpowers/specs/2026-10-27-screen-mip-residency-design.md). |
-| Validation | Texture streaming benchmarks | Compare frame times, memory and images; see [three-mode results](benchmarks/2026-10-27-resource-memory-comparison.md). |
+| Residency | Low-resolution fallback residency and full-texture upgrades | Two-tier residency; the design record is not distributed. |
+| Residency | Screen mip demand feedback and progressive mip residency | Select intermediate mips and refine incrementally; the design record is not distributed. |
+| Validation | Texture streaming benchmarks | Compare frame times, memory and images; the three-mode results are not distributed. |
 
 ## Shared supporting infrastructure
 
@@ -37,8 +37,8 @@ These services support amnis and other renderer clients; they are not amnis-owne
 
 | Shared service | Scope and documentation |
 |---|---|
-| Lazy resources | Allocate and upload on demand; see [design](superpowers/specs/2026-10-26-lazy-resources-design.md). |
-| Resource unload | Release allocations when dependencies allow, preserving reload sources; see [design](superpowers/specs/2026-10-26-lazy-unload-design.md). |
+| Lazy resources | Allocate and upload on demand; the design record is not distributed. |
+| Resource unload | Release allocations when dependencies allow, preserving reload sources; the design record is not distributed. |
 | Resource ownership and synchronization | Retain generations until dependent work completes; see [managed resources](managed_resources.md) and [RHI standard](rhi_api_standard.md). |
 | GPU resource and vessel memory statistics | Shared allocation counters, not per-feature attribution; see [API guide](resource_memory_statistics.md). |
 
@@ -63,11 +63,10 @@ The progressive paths remain opt-in.
 CPU occlusion culling and dual-view preparation retain their technical names and must be
 identified as experiments; the amnis name alone does not imply they are enabled.
 Texture source sharing and post-import texture data cleanup are implemented CPU memory improvements;
-see [measurements and limits](benchmarks/2026-10-27-texture-source-memory.md).
-The remaining progressive-mip CPU cost against eager residency is isolated in the
-[amnis CPU/residency comparison](benchmarks/2026-10-27-amnis-isolation.md).
-That comparison predates [asynchronous feedback copy readback](benchmarks/2026-10-28-feedback-copy-readback.md),
-which reduces the measured full-frame cost by keeping GPU writes separate from CPU reads.
+the measurements and limits are not distributed with the repository.
+The remaining progressive-mip CPU cost against eager residency was isolated in a local amnis
+CPU/residency comparison. That comparison predates the asynchronous feedback copy readback described
+below, which reduces the measured full-frame cost by keeping GPU writes separate from CPU reads.
 
 ## Asynchronous feedback readback
 
@@ -80,7 +79,8 @@ but actual memory type selection and performance remain device dependent.
 
 The measured implementation adds 64 KiB of device-local live buffer allocation and about 196 KiB
 of total live resource allocation. VMA reserved host block capacity can grow separately (32 MiB in
-the captured run). See the linked report for full-frame timings, GPU tradeoffs and image limits.
+the captured run). The full-frame timings, GPU tradeoffs and image limits were kept in a local report
+that is not distributed with the repository.
 
 ## CPU source ownership
 

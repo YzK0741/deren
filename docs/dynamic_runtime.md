@@ -108,8 +108,8 @@ included. ABI 55 and older backends must be rebuilt with the host. See the RHI s
 ABI 55 extends `descriptor_space` with fixed shader-slot writes for image, buffer and acceleration-structure
 objects plus logical binding. Runtime no longer computes physical descriptor offsets or constructs address
 ranges for these writes; Vulkan resolves and validates them internally. The fixed profile is optional and
-queried separately from texture-group support. Old ABI 54 DLLs must be rebuilt. See the
-[checkpoint](reviews/2026-10-25-logical-descriptor-writes.md) and the RHI standard for update/lifetime rules.
+queried separately from texture-group support. Old ABI 54 DLLs must be rebuilt. The update/lifetime rules
+are stated in the RHI standard; the dated checkpoint record is not distributed with this repository.
 
 The root owns the device and exposes three borrowed public members with ordinary names:
 

@@ -50,3 +50,11 @@ __pycache__/
 /docs/superpowers/
 /docs/benchmarks/
 /docs/research/
+# Decompiled proprietary material: untracked reference input for local analysis only.
+# It must never be staged or committed.
+/docs/references/
+
+# BCP's extraction log is a by-product of scripts/tools/vendor_boost_graph.py, which writes it
+# into the output directory. The reproducibility record is headers.json (the SHA-256 manifest),
+# not the log.
+source/third_party/boost/bcp.log

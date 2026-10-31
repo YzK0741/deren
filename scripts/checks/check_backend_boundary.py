@@ -181,7 +181,7 @@ def find_tool(candidates) -> str | None:
 
 
 def same_artifact(left: str, right: str) -> bool:
-    # 路径别名和硬链接都不能把已知归档冒充成另一种消费者。
+    # A path alias or hard link must not disguise a known archive as another consumer.
     if os.path.normcase(os.path.realpath(left)) == os.path.normcase(os.path.realpath(right)):
         return True
     try:
@@ -521,7 +521,7 @@ def load_whitelist(path: str) -> dict | None:
             raise ValueError("inconsistent entries: every entry needs a symbol and a non-empty reason, "
                              "symbols are unique, and count matches")
         symbols = [e["symbol"] for e in entries]
-        return {"count": len(entries), "entries": entries, "symbols": symbols, "path": os.path.abspath(path)}
+        return {"count": len(entries), "entries": entries, "symbols": symbols, "path": path}
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise ValueError(f"invalid whitelist {path}: {error}") from error
 
@@ -598,7 +598,7 @@ def scan_backend_imports(repo_root: str, backend_modules: set[str], backend_file
 
 
 def write_json(path: str, data: dict) -> None:
-    """先写临时文件再替换，失败不能留下半份基线。"""
+    """Write through a temporary file so a failure cannot leave half a baseline."""
     parent = os.path.dirname(os.path.abspath(path))
     os.makedirs(parent, exist_ok=True)
     temporary = None
@@ -708,7 +708,7 @@ def main() -> int:
     engine_defined, _ = read_symbols(kit_archive, nm, defined=True)
     undefined, kit_members = read_symbols(kit_archive, nm, defined=False)
 
-    # 不只量引擎归档：main/chores 也可能直接引入后端依赖。
+    # Do not measure only the engine archive: main/chores can also import backend dependencies.
     from pathlib import Path
     build_path = Path(args.build_dir)
     application = []
@@ -727,7 +727,13 @@ def main() -> int:
     application.extend(explicit_app)
     application = list(dict.fromkeys(os.path.abspath(p) for p in application
                                     if not same_artifact(p, kit_archive)))
-    consumers = [{"file": os.path.abspath(kit_archive), "members": sorted(kit_members)}]
+    def display_path(path: str) -> str:
+        try:
+            return os.path.relpath(os.path.abspath(path), repo_root).replace(os.sep, "/")
+        except ValueError:
+            return os.path.basename(path)
+
+    consumers = [{"file": display_path(kit_archive), "members": sorted(kit_members)}]
     stale = []
     for path in [kit_archive, *application]:
         if backend_archive is not None and same_artifact(path, backend_archive):
@@ -737,17 +743,17 @@ def main() -> int:
             print(f"FAIL: consumer does not exist: {path}")
             return 1
         if backend_archive is not None and os.path.getmtime(path) < os.path.getmtime(backend_archive) - 300.0:
-            stale.append(path)
+            stale.append(display_path(path))
         if os.path.abspath(path) == os.path.abspath(kit_archive):
             continue
         consumer_defined, _ = read_symbols(path, nm, defined=True)
         consumer_undefined, members = read_symbols(path, nm, defined=False)
         engine_defined.update(consumer_defined)
-        consumers.append({"file": path, "members": sorted(members)})
+        consumers.append({"file": display_path(path), "members": sorted(members)})
         for symbol, sites in consumer_undefined.items():
             undefined[symbol].extend(f"{os.path.basename(path)}:{site}" for site in sites)
 
-    # 后端自己能定义的符号不是反向依赖；归档的不同成员会同时报告 D 和 U。
+    # Symbols the backend itself defines are not reverse dependencies; different archive members can report both D and U.
     reverse = sorted((set(backend_undefined) - set(defined)) & set(engine_defined))
     application_evidence = bool(explicit_app) or bool(main_objects and chores)
 
@@ -769,10 +775,12 @@ def main() -> int:
         "consumers": consumers,
         "reverse_boundary_symbols": reverse,
         "stale_consumers": stale,
-        "nm": os.path.abspath(nm),
+        "nm": os.path.basename(nm),
         "symbol_sources": cross,
-        "application_evidence": {"complete": application_evidence, "main_objects": main_objects,
-                                 "chores_archives": chores, "explicit_app_objects": explicit_app},
+        "application_evidence": {"complete": application_evidence,
+                                 "main_objects": [display_path(p) for p in main_objects],
+                                 "chores_archives": [display_path(p) for p in chores],
+                                 "explicit_app_objects": [display_path(p) for p in explicit_app]},
     }
 
     try:

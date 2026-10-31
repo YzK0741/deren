@@ -26,7 +26,7 @@ try {
     Write-Host "Git hooks enabled: core.hooksPath=.githooks" -ForegroundColor Green
     Write-Host "  pre-commit: requires the scripts/commit.ps1 checklist marker"
     Write-Host "  pre-merge-commit: rejects direct local merges"
-    Write-Host "  pre-push: rejects master/main and requires the local CI marker"
+    Write-Host "  pre-push: rejects master/main and requires the local-gate marker"
     Write-Host ""
     Write-Host "Use scripts/commit.ps1 and scripts/push.ps1; direct git commit/push will fail."
 }

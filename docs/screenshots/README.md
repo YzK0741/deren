@@ -20,10 +20,10 @@ are deliberate presentation choices; these two images are not an A/B material co
 
 The compressed [capture manifest](pbr-captures-2026-10-29.json.gz) retains the complete TOML,
 command, executable and final PNG hashes, resolved camera logs and HDR provenance for each image.
-To reproduce, extract a model's `config` string, adapt its absolute model/shader/HDR/output paths
-to your checkout, then run the current executable with `--config <file> --capture-frames 120`
-and the corresponding `--capture-camera=yaw,pitch,distance,target.x,target.y,target.z` above.
-The local originals and logs are under `tmp/readme-pbr-20261029/`. See
+Its paths are repository-relative. To reproduce, extract a model's `config` string, then run the
+current executable with `--config <file> --capture-frames 120` and the corresponding
+`--capture-camera=yaw,pitch,distance,target.x,target.y,target.z` above. The local originals and
+logs used for the capture are not distributed with the repository. See
 [environment lighting](../environment_lighting.md) for the pinned HDR fetch command.
 
 PNG compression is lossless: decoded bytes were checked against each original renderer PNG.
@@ -46,9 +46,9 @@ values, and a banded example would have to be captured on purpose.
 
 It was cropped from a 2560x1600 desktop screenshot (ShareX, 2026-10-02). The ImGui debug overlay, the window
 title bar and the Windows taskbar are cut away, leaving the render alone; the client-area edges were measured
-rather than guessed (`build-release-clang64/docs_review/toon_shot_final.py`, which finds the overlay's right
-edge from its text density and the taskbar's top edge from the first row that is dark across the whole
-width). Pixels inside the crop are the renderer's own; the crop was re-encoded with Pillow
+rather than guessed (the crop helper found the overlay's right edge from its text density and the taskbar's
+top edge from the first row that is dark across the whole width; that helper is not distributed with the
+repository). Pixels inside the crop are the renderer's own; the crop was re-encoded with Pillow
 (`optimize=True`) and NOT resampled.
 
 
@@ -56,9 +56,14 @@ width). Pixels inside the crop are the renderer's own; the crop was re-encoded w
 
 `GameToon.png` (1140x1030) is the current README character shot. It is a HAND-TAKEN desktop
 screenshot of the `game_toon` profile-on path rendering GameToon: captured skin/face, hair, cloth,
-eye and outline shader branches, the captured light rig and the viewer's display transform. The
-model and its Toon sidecar are checked in under `asset/laevatain/`; all rights to that asset belong
-to Hypergryph Network Technology Co., Ltd., see `asset/laevatain/LICENSE.md`.
+eye and outline shader branches, the captured light rig and the viewer's display transform. It is
+not a deterministic, reproducible capture like the two PBR helmet images above.
+
+The Laevatain model and its Toon sidecar are checked in under `asset/laevatain/` so the game-toon
+path can be exercised against the same source material; that inclusion is not a license grant and
+does not make this exact pose and frame reproducible. All rights to that asset belong to Hypergryph
+Network Technology Co., Ltd.; the repository grants no license for it, and redistribution or reuse
+is not granted. See `asset/laevatain/LICENSE.md`.
 
 It was cropped from a 2560x1494 desktop screenshot (2026-10-31). The ImGui debug overlay and the
 Windows taskbar are cut away, leaving the render alone. Pixels inside the crop are the renderer's

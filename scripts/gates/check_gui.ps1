@@ -1,11 +1,17 @@
 # Render the same scene with the GUI off and on. Initialization logs alone do not
 # prove that the overlay drew: a private, uninitialized GLFW copy produced no panel.
+# The model is an explicit input: the sample assets are not in this repository, so
+# there is no asset-relative default (and no maintainer-local absolute path).
 param(
     [string]$BuildDir = 'build-release-dyn-clang64',
-    [string]$Model = 'C:\Users\23530\Desktop\yzk\glTF-Sample-Assets\Models\DamagedHelmet\glTF\DamagedHelmet.gltf',
+    [Parameter(Mandatory = $true)]
+    [string]$Model,
     [int]$Frames = 40
 )
 $ErrorActionPreference = 'Stop'
+if (-not (Test-Path -LiteralPath $Model -PathType Leaf)) {
+    throw "model not found: $Model (pass -Model <path to a .gltf>, or check the path)"
+}
 $build = (Resolve-Path -LiteralPath $BuildDir).Path
 $exe = Join-Path $build 'deren.exe'
 $work = Join-Path $build 'gui-check'

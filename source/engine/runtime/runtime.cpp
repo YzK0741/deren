@@ -1097,9 +1097,9 @@ namespace deren::engine {
     }
 
     bool runtime::game_toon_active() const noexcept {
-        // The frame's own predicate, on `goo_toon_active`'s terms: the pipeline choice and any stage that has to
+        // The frame's own predicate: the pipeline choice and any stage that has to
         // stay silent under this model must ask the same question, or a knob on without a pipeline would silence
-        // the old rim and draw nothing.
+        // the article rim and draw nothing.
         std::shared_lock const lock(this->access_mutex);
         return this->game_toon_on && (this->mesh_pipelines.contains(game_toon_pipeline_name) || this->meshlet_pipelines.contains(game_toon_pipeline_name));
     }
@@ -1128,8 +1128,8 @@ namespace deren::engine {
         // THE GAME CHAIN'S DEPTH RIM IS THE TARGET, not the article's contour: this setter is the captured
         // GameToon profile-on chain's knob (its only caller is main's `[render] game_toon` block), and that chain
         // draws its own dedicated rim pass (`deren.engine.pass.game_toon_depth_rim`). The article's contour
-        // parameters and the Goo rim's stay where they are, so this call cannot retune either of the other chains'
-        // stages. The name is kept for the caller's sake: it still answers "the screen-space depth rim's shape".
+        // parameters stay where they are, so this call cannot retune the other chain's stage. The name is kept for
+        // the caller's sake: it still answers "the screen-space depth rim's shape".
         if (this->game_toon_depth_rim_pass[0] == nullptr) {
             return;
         }
@@ -1143,9 +1143,9 @@ namespace deren::engine {
         // `character_forward_frame` is COMPOSED, so no in-flight recording is touched.
         this->game_toon_on = enabled;
         if (enabled && !(this->mesh_pipelines.contains(game_toon_pipeline_name) || this->meshlet_pipelines.contains(game_toon_pipeline_name))) {
-            // The knob is on but there is no pipeline to draw with: say why. Like goo_toon's note, this is NOT a
+            // The knob is on but there is no pipeline to draw with: say why. This is NOT a
             // warning that the character stage is missing - with character_forward on, that stage still runs and
-            // draws with the previous model, which is a valid frame and a wrong experiment.
+            // draws with the article model, which is a valid frame and a wrong experiment.
             this->warn_missing_feature("game_toon", "the game-shader toon model has no effect: the game_toon pipeline was not created (see the startup log - it needs the mesh stage and the device's mesh shader feature), so the character stage draws with the previous chain");
         }
     }
@@ -2140,7 +2140,7 @@ namespace deren::engine {
             return false; // the candidate run does not fit the item table
         }
         // ---- M4 TASK 1: THE CAPTURE-ONLY SOFTWARE-RASTER WORKLOAD PROBE, ARMED BY `DEREN_SOFTWARE_RASTER_PROBE` ----
-        // WHY IT IS HERE AND WHY IT IS ENV-ONLY. The M4 hybrid producer (docs/superpowers/specs/2026-10-22-
+        // WHY IT IS HERE AND WHY IT IS ENV-ONLY. The M4 hybrid producer (historical design record
         // software-raster-design.md §3.1/§3.4) moves the cut run's subpixel clusters from the hardware raster to a
         // not-yet-existing software producer. Before any of that is built, Task 1 measures the UPPER BOUND of what
         // moving them out of the hardware raster can save: with the probe armed, EVERY recorded frame classifies the

@@ -63,7 +63,7 @@ mesh shaders fetching vertex/index data by device address, not a traditional ver
 | Transparent PBR | Geometry D; material textures G; camera/light F; shadow/cluster F; IBL G; current deformation F | Alpha blend into scene color I, hardware depth test against depth I | H+D+P, A |
 | Character forward | Geometry D; current deformation F; camera/light/head block F; material/toon lane/color/rig tables and textures G; toon lighting inputs incl. shadow/IBL as selected by shared helpers | Scene-color blend I and depth test; includes character-specific material shading | H+D+P, A |
 | Toon screen rim | G-buffer albedo/depth/material I; material/toon records G; camera/light F | Scene-color blend I | H+P, A |
-| Goo rim | G-buffer normal/depth/material I; material/toon color records G; camera/light F | Scene-color blend I | H+P, A |
+| Game toon depth rim | G-buffer albedo/depth/material I; material/toon color records G; camera/projection F (pushed) | Scene-color blend I | H+P, A |
 | RT shadow | G-buffer depth/normal I; camera/light F; TLAS F; mask-instance records F; MASK materials/textures G; any-hit vertex/index addresses D | Visibility storage image F; ray generation/miss/any-hit traversal | H+M+D+P; `TraceRay(mapped_tlas[frame_slot], ...)`, RWTexture2D output |
 | Gaussian preparation | Point/SH asset data, candidate ranges, camera/preparation parameters; per-frame keys/values/status/projected-cache buffers | Cull/project outputs, visible count, indirect draw args, sorting input buffers | D+P; raw-pointer reads/writes and atomics |
 | Gaussian sorting | Key/value and scratch buffers, element count | Sorted key/value buffers | RHI `gpu_sorting`; Vulkan VRDX push-descriptor compute path, followed by heap rebind |

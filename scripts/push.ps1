@@ -21,9 +21,9 @@ try {
 
     if (-not $Title) { $Title = $Branch }
 
-    Write-Host "Checking the CI marker for HEAD..." -ForegroundColor Cyan
+    Write-Host "Checking the local gate marker for HEAD..." -ForegroundColor Cyan
     & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "check-ci-marker.ps1")
-    if ($LASTEXITCODE -ne 0) { throw "push refused: CI marker is missing or stale" }
+    if ($LASTEXITCODE -ne 0) { throw "push refused: local gate marker is missing or stale" }
 
     $answer = Read-Host "Is the push complete? [y/N]"
     if ($answer -notin @("yes", "y")) {
@@ -43,7 +43,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "gh pr create failed" }
     }
 
-    Write-Host "Pushed $Branch. Merge only through a green PR." -ForegroundColor Green
+    Write-Host "Pushed $Branch. Open a PR; PR CI is the merge authority and the merge is a squash." -ForegroundColor Green
 }
 finally {
     Pop-Location

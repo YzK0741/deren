@@ -1,6 +1,17 @@
 name: ci
 
-# Build + headless tests on every push to master and every pull request.
+# Build + headless tests for every pull request, plus manual workflow_dispatch runs.
+#
+# THE MERGE CONTRACT: PR CI IS THE MERGE AUTHORITY. A pull request is merged only
+# after the jobs below are green, and it is merged with a SQUASH merge, so the
+# commit that lands on master has exactly the tree the PR run validated. master is
+# NOT rebuilt after the merge: there is no push trigger, and adding one back would
+# either duplicate every run or validate a different tree after the fact. To
+# re-check a branch (including master) by hand, use workflow_dispatch.
+#
+# CONCURRENCY IS PER REF: a new push to the same PR cancels the run it supersedes,
+# so a green run always describes the newest tree; runs on different refs never
+# cancel each other.
 #
 # Why MSYS2 clang64: the project is C++23 modules on clang + libc++, and the
 # STL module (source/vstd/vstd.cppm, a trimmed fork of the generated libc++ std module)
@@ -18,7 +29,7 @@ name: ci
 # SLANGC IS THE ONLY SHADER COMPILER, AND IT IS REQUIRED: every shader stage in this project is built from a
 # .slang source, and CMakeLists REFUSES to configure without slangc (`find_program(VR_SLANGC_EXECUTABLE ...)`
 # followed by FATAL_ERROR) since the GLSL fallback and the GLSL stage sources were both removed. MSYS2 has no
-# slang package (`pacman -Ss slang` matches nothing, measured), so both jobs install the pinned upstream
+# slang package (`pacman -Ss slang` matches nothing, measured), so the build and sanitizer jobs install the pinned upstream
 # release, verify its checksum, and then ASSERT that CMake found it (the configure step greps for the
 # `slangc:` line CMakeLists prints) - and `test_shader_sources` closes the other half of the same gap: it
 # compares the build's shader list against the two escape-hatch scripts and requires the MESH entries to be
@@ -26,9 +37,12 @@ name: ci
 # fails a job rather than a picture.
 
 on:
-  push:
-    branches: [master]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   posix-stacktrace:

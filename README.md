@@ -345,7 +345,7 @@ Measured reference device (this repository's development machine, and the hardwa
 #### Disk & data
 
 - Each build tree is **~3.2 GB** measured (a Release tree with all test targets, `build-release-clang64`). A clean configure+build needs that much free space plus the object/PDB growth of a Debug tree if you keep one too.
-- **Models are not in the repository**: the renderer is run against `.glb` files you put under `chars/` next to the executable (or point `model` in `config.toml` elsewhere). The character models used for the regression scenarios are tens of megabytes each. A scenario whose model file is absent fails at load with a panic naming the path — that is a missing input, not a rendering bug.
+- **Sample assets ship in `asset/`; the larger regression character models do not.** The default model is `asset/DamagedHelmet/DamagedHelmet.gltf`, and the README screenshots use the assets under `asset/` (see [`asset/README.md`](asset/README.md) for their separate terms). The character models used for some regression scenarios are tens of megabytes each and are not in the repository: put those `.glb` files under `chars/` next to the executable, or point `model` in `config.toml` elsewhere. A scenario whose model file is absent fails at load with a panic naming the path — that is a missing input, not a rendering bug.
 
 ### Manual build
 
@@ -486,4 +486,17 @@ sh source/shaders/compile_shaders.sh
 
 ## License
 
-[MIT](LICENSE) © 2026 YzK0741
+The engine source code is [MIT](LICENSE), copyright 2026 YzK0741.
+
+That MIT license does **not** cover the third-party sample assets under `asset/`. Each asset
+keeps its own terms, listed in [`asset/README.md`](asset/README.md) and in the notice beside it:
+
+- `asset/DamagedHelmet/` and `asset/FlightHelmet/`: see each folder's `LICENSE.md`.
+- `asset/flowers/`: NVIDIA's Bouquet of Flowers, CC BY 4.0; see
+  [`asset/flowers/README.md`](asset/flowers/README.md).
+- `asset/laevatain/`: the Laevatain / GameToon preview model and Toon sidecar, all rights
+  reserved by Hypergryph Network Technology Co., Ltd. The repository grants no license for
+  them: redistribution and reuse are not granted, and whether the files may be redistributed
+  at all is unresolved. See [`asset/laevatain/LICENSE.md`](asset/laevatain/LICENSE.md).
+
+Consult those notices before redistributing any file under `asset/`.

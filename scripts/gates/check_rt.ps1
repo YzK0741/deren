@@ -1,12 +1,18 @@
 # End-to-end RT acceptance: the MASK bake produces non-indexed triangles, a path
 # the small indexed acceleration-structure probe does not reach.
+# The model is an explicit input: the sample assets are not in this repository, so
+# there is no asset-relative default (and no maintainer-local absolute path).
 param(
     [string]$BuildDir = 'build-release-dyn-clang64',
-    [string]$Model = 'C:\Users\23530\Desktop\yzk\glTF-Sample-Assets\Models\Sponza\glTF\Sponza.gltf',
+    [Parameter(Mandatory = $true)]
+    [string]$Model,
     [int]$Frames = 40,
     [string]$Camera = '90,0,6.41,0,-18.548,0'
 )
 $ErrorActionPreference = 'Stop'
+if (-not (Test-Path -LiteralPath $Model -PathType Leaf)) {
+    throw "model not found: $Model (pass -Model <path to a .gltf>, or check the path)"
+}
 $build = (Resolve-Path -LiteralPath $BuildDir).Path
 $work = Join-Path $build 'rt-check'
 New-Item -ItemType Directory -Path $work -Force | Out-Null

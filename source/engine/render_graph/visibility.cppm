@@ -346,7 +346,7 @@ export namespace deren::engine::render_graph::visibility {
     }
 
     // ============================================================================================
-    // THE SOFTWARE RASTER'S LANE (M4 Task 2; docs/superpowers/specs/2026-10-22-software-raster-design.md
+    // THE SOFTWARE RASTER'S LANE (M4 Task 2; historical design record
     // §3.2/§4.2): the tiled compute pass that rasterizes the subpixel records into its own private depth/id
     // images, the resolve's two OPTIONAL reads of them (the candidate selection), and the depth-only merge that
     // writes min(hardware, software) back into the G-buffer depth.
