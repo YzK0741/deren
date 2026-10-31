@@ -164,7 +164,7 @@ static const uint heap_slots_gbuffer_velocity_storage = heap_slot_base + 1292u;
 /// term there, and the old path CLEARS it to zero before the G-buffer writes - see gbuffer_body.slang.
 static const uint heap_slots_scene_color_storage = heap_slot_base + 1300u;
 
-// ---- THE HZB OCCLUSION CULLING'S SIX TABLES (M3 phase A1; historical design record
+// ---- THE HZB OCCLUSION CULLING'S SIX TABLES (M3 phase A1; docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md
 // ---- §5.1). Appended after the used region's last slot, the rule every array that cannot move into a free window
 // ---- follows (see the note on the resolve's five outputs above).
 //
@@ -195,7 +195,7 @@ static const uint heap_slots_hzb_commands = heap_slot_base + 1313u;
 // deren.engine.render_layout::heap_slots; test_render_resources.cpp compares the two files (names AND values).
 // software_tiles is a per-FRAME array and is indexed with frame_slot * <lane stride>; sampled and storage image
 // descriptors are separate per-image arrays indexed with heap_image_index. See the software image declaration in
-// render_layout.cppm and historical design record §3.2/§4.2.
+// render_layout.cppm and docs/superpowers/specs/2026-10-22-software-raster-design.md §3.2/§4.2.
 static const uint heap_slots_software_depth = heap_slot_base + 1239u;
 static const uint heap_slots_software_id = heap_slot_base + 1314u;
 static const uint heap_slots_software_tiles = heap_slot_base + 1322u;

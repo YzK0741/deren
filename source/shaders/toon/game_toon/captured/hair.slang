@@ -108,7 +108,7 @@
 //     (`eadba1af4f-DIaZSo8d.js`) for `_StrokeMap` / `_StrokeOn` / `_StrokeScale` / `_Stroke` has ZERO hits, and
 //     the captured laevat hair material states `_StrokeOn = 0` and ships no `_StrokeMap` texture. The captured
 //     program therefore has no stroke term and this port applies none - which IS that `_StrokeOn = 0` state. (The
-//     GAME program's stroke is a different program - `the local decompiled reference shader tree (not distributed): hair_forward_spirv_decompiled.hlsl`.)
+//     GAME program's stroke is a different program - `docs/references/toon/hair_forward_spirv_decompiled.hlsl`.)
 //   * `_SplitNormalMap`: decoded from `toon_slot::split_normal` with the mesh TANGENT frame (see Q263 above); the
 //     only caveat is that the captured `.xy/.zw` dictionary comes from the viewer code (`readable:700-711`), not
 //     from a per-texel comparison, and a primitive with no TANGENT falls back to the derivative frame.
@@ -707,7 +707,7 @@ float3 captured_hair_shade(surface_sample s, float3 world_pos, float3 geo_normal
     // captured `M_actor_laevat_hair_01.json` states `_StrokeOn = 0` and ships no `_StrokeMap` texture, so the
     // captured program has no stroke term; this port applies none, which IS that `_StrokeOn = 0` state. (The
     // GAME program's stroke offset is a different program - see
-    // `the local decompiled reference shader tree (not distributed): hair_forward_spirv_decompiled.hlsl` - and is not the captured viewer.)
+    // `docs/references/toon/hair_forward_spirv_decompiled.hlsl` - and is not the captured viewer.)
 
     // ---- THE SATURATION LIFT (readable:1140-1145) ----
     //

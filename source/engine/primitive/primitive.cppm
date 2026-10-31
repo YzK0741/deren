@@ -631,14 +631,13 @@ namespace deren::engine {
         emotion = 7,        // `_EmotionMap`: the 2x2 expression atlas the face's own uv is read into
         split_normal = 8,   // `_SplitNormalMap` (`_UseSpecBumpMap`): TWO tangent-space normals packed in one map
         /**
-         * `_GooMatcap05`: THE REWRITTEN TOON CHAIN's iris ball, carried for the game chain's eye bridge (see
-         * `source/shaders/toon/game_toon/eye.slang`).
+         * `_GooMatcap05`: THE REWRITTEN TOON CHAIN's iris ball (see `source/shaders/toon/goo_toon.slang`).
          *
          * WHY IT IS NOT `matcap` ABOVE, which is the same KIND of map and the obvious lane to reuse: the two are
          * read by two different chains, and the old one GATES A WHOLE SHADING PATH on its lane -
          * `character_forward.slang` takes its eye block whenever `toon_indices.w != 0`, i.e. whenever the legacy
          * matcap lane is declared. Handing the Goo chain's ball to that lane would therefore switch the OLD eye
-         * path on for a material that had none, and "the article chain's frame is what it was" is the A/B this
+         * path on for a material that had none, and "with `goo_toon` off the frame is what it was" is the A/B this
          * rewrite is verified by. A lane of its own keeps the two chains' assets independent, and the cost is one
          * component of a buffer this enum's own note already says is cheap to extend.
          *
@@ -650,7 +649,7 @@ namespace deren::engine {
          *
          * `0` MEANS "DO NOT READ", the same contract as lanes 0..3 and the rest of this block.
          */
-        goo_matcap05 = 9, // `_GooMatcap05`: the Goo iris group's internal ball (the game chain's eye bridge reads it; see source/shaders/toon/game_toon/eye.slang)
+        goo_matcap05 = 9, // `_GooMatcap05`: the Goo iris group's internal ball (see source/shaders/toon/goo_toon.slang)
         /**
          * `_GooBaseRamp`: THE REWRITTEN TOON CHAIN's BASE / SKIN / CLOTH RAMP - the `_RD` image the Goo
          * reference's `RampSelect` resolves to for this material (spec `goo_step4_diffuse_spec.md` §2.4/§2.6).
@@ -673,13 +672,13 @@ namespace deren::engine {
          *
          * `0` MEANS "DO NOT READ", the same contract as every lane above; the shader's answer for it is the OLD
          * chain's diffuse (see `toon_diffuse`), which is what keeps a material that states no such row - and the
-         * whole asset under the article chain - exactly where it was.
+         * whole asset under `[render] goo_toon = false` - exactly where it was.
          *
          * LANE 10 IS INSIDE THE RECORD'S SECOND BLOCK (8..11), so it costs no third block and no third accessor -
          * which is why it is here and not at 12. It filled that block; THE STEP-7 LANES BELOW ARE THE ONES THAT
          * NEEDED THE THIRD BLOCK, and they are the reason `toon_lane_blocks` is now 3 (see the assertion below).
          */
-        goo_base_ramp = 10, // `_GooBaseRamp`: the `_RD` image `RampSelect` resolves to (read by the legacy Goo arm in source/shaders/toon/character_forward.slang)
+        goo_base_ramp = 10, // `_GooBaseRamp`: the `_RD` image `RampSelect` resolves to (see source/shaders/toon/goo_toon.slang)
         /**
          * `_GooFaceSDF`: THE FACE CONTAINER's OWN SHADOW TERMINATOR - `T_actor_common_female_face_01_SDF.png`.
          *
@@ -953,8 +952,7 @@ namespace deren::engine {
         /**
          * `_GooEyeBrightness` in `.x` / `.y`: THE REWRITTEN TOON CHAIN's two iris BRIGHTNESSES - the reference
          * group `Arknights: Endfield_PBRToon_irisBase`'s `Eyes brightness` and `Eyes HightLight brightness`
-         * sockets, preserved in the game chain's eye bridge (`source/shaders/toon/game_toon/eye.slang`), which are
-         * per MATERIAL in the Goo project (`1.5` and `10.0` on
+         * sockets (`source/shaders/toon/goo_toon.slang`), which are per MATERIAL in the Goo project (`1.5` and `10.0` on
          * Laevatain's iris) and are the factor its whole emission is scaled by. `.z` / `.w` are unused and
          * reserved.
          *
@@ -974,8 +972,8 @@ namespace deren::engine {
         /**
          * `_GooRimColour` in `.rgb`: THE REWRITTEN TOON CHAIN's OBJECT-SPACE RIM COLOUR - the reference group
          * `Arknights: Endfield_PBRToonBase`'s `Rim_Color` socket, which reaches the rim through the
-         * `Rim_Color` sub-group's `Rim_Color * Rim_ColorStrength` product. The legacy Goo rim that consumed it
-         * was removed with that chain. `.a` is unused and reserved.
+         * `Rim_Color` sub-group's `混合.017 = Rim_Color · Rim_ColorStrength` (see `source/shaders/toon/goo_toon.slang`).
+         * `.a` is unused and reserved.
          *
          * IT IS PER MATERIAL IN THE REFERENCE (`materials[...] :: 群组.00N.inputs[Rim_Color]`), it is a `color`
          * row, and the material record cannot take it - the same three facts that put every lane above here.
@@ -988,7 +986,7 @@ namespace deren::engine {
          * no row gets exactly what a material that calls the group without stating it gets in Goo. TEN of the
          * eleven `M_actor_laevat_*` materials are at that default; `M_actor_laevat_face_01` is the only
          * override, and it belongs to the FACE family, which this step does not port (see
-         * `source/shaders/toon/character_forward.slang`'s scope note and the spec's sections 5.10 and 9-U7).
+         * `source/shaders/toon/goo_toon.slang`'s scope note and the spec's §5.10/§9-U7).
          */
         goo_rim_colour = 7, // `_GooRimColour`: the Goo rim group's `Rim_Color` (`.rgb`; white = the group's default)
         /**
@@ -998,7 +996,7 @@ namespace deren::engine {
          *
          * WHY FOUR IN ONE LANE, and the reason is the enum's own rule rather than this step's convenience: they
          * are ONE mechanism's numbers, stated by the SAME material row (`群组.00N.inputs[...]` of one group
-         * instance) and consumed within one composition (the legacy Goo rim term, removed with that chain). A lane each would
+         * instance) and consumed within one composition (`source/shaders/toon/goo_toon.slang`'s rim term). A lane each would
          * be four carriers for one material's one statement, which is the arrangement this enum keeps refusing.
          *
          * `.x` / `.y` / `.z` ARE SCALARS WHOSE ZERO IS A REAL STATEMENT - `Rim_ColorStrength = 0.0` is how the
@@ -1018,7 +1016,7 @@ namespace deren::engine {
         /**
          * `_GooRimWidths` in `.x` / `.y`: THE REWRITTEN CHAIN's SCREEN-SPACE RIM WIDTHS - the reference group
          * `DepthRim`'s `Rim_width_X` / `Rim_width_Y` sockets, which is the pair the offset sample's camera-space
-         * displacement is built from (the legacy Goo rim that read it was removed with that chain). `.z` / `.w` are unused and reserved.
+         * displacement is built from (`source/shaders/toon/goo_rim.slang`). `.z` / `.w` are unused and reserved.
          *
          * IT IS A LANE OF ITS OWN RATHER THAN TWO MORE COMPONENTS ON `goo_rim_scalars`, and the reason is the
          * enum's own rule read the other way round: that lane's four components are the four scalars ONE
@@ -1183,7 +1181,7 @@ namespace deren::engine {
          * DIRECT SPECULAR MULTIPLIES ITSELF BY (`Vector Math.006 = Vector Math.005 * 转接点.042`, and `转接点.042`
          * is this socket - spec §5.4/§6.2). `.a` is unused and reserved.
          *
-         * THE SPEC'S SECTION 5.4 CLOSES STEP 4'S U7: this socket - a PER-MATERIAL
+         * THE SPEC'S §5.4 CLOSES `goo_toon_plan.md` §1.4 item 6 AND STEP 4'S U7: this socket - a PER-MATERIAL
          * constant, `[1.0, 0.9580051302909851, 0.9580051302909851]` on `body_01` and
          * `[1.0, 0.9577637910842896, 0.9577637910842896]` on every cloth - is authoritative for the DIRECT terms,
          * and Goo's `Shader Info.Ambient Lighting` is the PROBE DIFFUSE IRRADIANCE the IBL-diffuse term is built
@@ -1423,8 +1421,8 @@ namespace deren::engine {
          * (`RS Model`: 0 = `armA`, the 256x1 `_RS` sheet sampled at the Layer Weight's `u`; 1 = `armB`,
          * `_M ⊙ RS ColorTint`) and the stage takes the arm this component names. Before step 15 it was CARRIED
          * WITHOUT BEING HONOURED - the stage kept the base unchanged when `.z == 0.0` - which was the deliberate
-         * infidelity the `armA` port removes; the port site and its three stated limits are recorded in
-         * `toon_colour_lane::goo_rs_arm0` (the legacy Goo chain's RS block that held them was removed).
+         * infidelity the `armA` port removes; the port site and its three stated limits are in
+         * `source/shaders/toon/goo_toon.slang`'s RS block and `toon_colour_lane::goo_rs_arm0`.
          *
          * WHY IT IS A LANE AND NOT A CONSTANT: all three are per material. `Use RS_Eff?` is `1` on exactly three
          * of the 23 `PBRToonBase` instances in `gooblender/nodes.json`, and `RS Model` is `0` on one of those
@@ -1484,7 +1482,7 @@ namespace deren::engine {
          * `arm0`, which is what a material whose sidecar states no `_GooRSArm0` row must get. Note that is NOT
          * the same as the lane being absent: the lane exists and is written for every material, and a zeroed
          * `arm0` still passes through `armB`'s own LIGHTEN (`max(base, 0)`), which is why the outer gate stays
-         * `Use RS_Eff?` and only that - see the RS block's note above.
+         * `Use RS_Eff?` and only that - see the RS block's note in `source/shaders/toon/goo_toon.slang`.
          */
         goo_rs_arm0 = 29, // `_GooRSArm0`: `RS_Index` [x] / `RS Strength` [y] / `Layer weight Value` [z] / `Offset` [w]
         // Captured viewer profile: sixteen explicitly packed vec4 values; zero disables it.
@@ -1675,9 +1673,10 @@ namespace deren::engine {
                                                                                                                //
                                                                                                                // `(0, 0, 0, 0)` IS THE POINT HERE, not a placeholder: `.x` of lane 27 is `Use RS_Eff?`, and a material
                                                                                                                // whose sidecar states no `_GooRSScalars` row must read `Use = 0` so the stage's gate leaves its colour
-                                                                                                               // UNTOUCHED. The stage defaults to zero for exactly this reason: the legacy Goo chain's RS block
-                                                                                                               // left the colour untouched when `Use` was zero and performed NO floating-point operation at all,
-                                                                                                               // so this value is what made that identity BITWISE rather than approximate.
+                                                                                                               // UNTOUCHED. The stage defaults to zero for exactly this reason - see the `float3 rs_final = lit;` /
+                                                                                                               // `if (rs_use > 0.0f && ...)` pair in `source/shaders/toon/goo_toon.slang`, which performs NO floating-point
+                                                                                                               // operation at all when `Use` is zero, so this value is what makes that identity BITWISE rather than
+                                                                                                               // approximate.
                                                                                                                //
                                                                                                                // IT IS ONE OF THE `count` STATED ENTRIES RATHER THAN PART OF AN INITIALIZER TAIL, and
                                                                                                                // that is not tidiness either: what a value-initialised `deren::utility::vessel::array` tail holds depends on

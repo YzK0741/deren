@@ -155,8 +155,8 @@ export namespace deren::engine::render_layout {
 
     // NOT renamed, unlike the other members that round: `heap_slot_base` is a NAME CONTRACT with
     // source/shaders/heap_slot_constants.glsl, which declares the same constant under the same name, and
-    // source/tests/test_render_resources.cpp parses both files and requires the names AND the values to match.
-    // The C4458 that a lambda parameter of
+    // source/tests/test_render_resources.cpp parses both files and requires the names AND the values to match
+    // (source/tests/test_goo_toon_math.cpp greps this line by that name too). The C4458 that a lambda parameter of
     // this name caused in core.constructor.cppm is fixed THERE instead, by renaming the parameter - a local,
     // so the contract stays intact.
     inline constexpr uint32_t heap_slot_base = 16384; // 1 MiB / 64 B: the grid's slot 0
@@ -376,7 +376,7 @@ export namespace deren::engine::render_layout {
         static constexpr uint32_t gbuffer_velocity_storage = heap_slot_base + 1292u;
         static constexpr uint32_t scene_color_storage = heap_slot_base + 1300u;
         // ================================================================================================
-        // THE HZB OCCLUSION CULLING'S SIX TABLES (M3 phase A1, historical design record
+        // THE HZB OCCLUSION CULLING'S SIX TABLES (M3 phase A1, docs/superpowers/specs/2026-10-20-hzb-
         // occlusion-design.md §5.1). They are APPENDED after the used region's last slot (base + 1307) rather than
         // packed into a free window, the rule every new family above follows: growing an array in place would
         // renumber every array after it.
@@ -417,7 +417,7 @@ export namespace deren::engine::render_layout {
         /// draw reads; the buffer gains `buffer_flag::device_address` and this slot is only the descriptor's number.
         static constexpr uint32_t hzb_commands = heap_slot_base + 1313u;
 
-        // ---- THE SOFTWARE RASTER'S OWN SURFACE (M4 Task 2; historical design record
+        // ---- THE SOFTWARE RASTER'S OWN SURFACE (M4 Task 2; docs/superpowers/specs/2026-10-22-software-raster-
         //      design.md §3.2/§4.2). TWO R32_UINT images per swapchain image plus ONE host-written CSR tile-list
         //      buffer per frame lane.
         //

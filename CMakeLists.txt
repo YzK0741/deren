@@ -2166,6 +2166,12 @@ set(VR_SHADER_INCLUDES
     # `test_shader_sources` requires every `#include` found in source/shaders/ to be listed here, which is what would
     # have caught the omission: an unlisted include leaves STALE SPIR-V that nothing but a byte comparison sees.
     "${VR_SHADER_SRC_DIR}/toon/character_forward.slang"
+    # goo_toon.slang IS INCLUDED BY THE REWRITTEN CHAIN'S OWN STAGE, and it is listed here for the SAME reason
+    # character_forward.slang is one line above: `source/shaders/toon/goo_toon.slang` includes it for `toon_diffuse` (the old
+    # body every non-iris family is still shaded by), so editing it must rebuild `goo_toon.frag.spv` as well -
+    # otherwise the old chain's fix lands in one .spv and not the other, which is a difference between two stages
+    # that must agree, visible only as a byte comparison. See `goo_toon_pipeline_name`'s note for why the two
+    # stages share one body on purpose.
     # game_toon.slang IS THE GAME-SHADER MODEL'S STAGE and it is listed for the SAME reason
     # character_forward.slang is above: it includes the shared body (toon_diffuse and the surface
     # gather), so an edit to that body must rebuild game_toon.frag.spv as well. The stage is opt-in
@@ -2181,6 +2187,11 @@ set(VR_SHADER_INCLUDES
     "${VR_SHADER_SRC_DIR}/toon/game_toon/captured/hair.slang"
     "${VR_SHADER_SRC_DIR}/toon/game_toon/captured/skin_face.slang"
     "${VR_SHADER_SRC_DIR}/toon/game_toon/eye.slang"
+    # goo_rim.slang is THE REWRITTEN CHAIN'S THIRD STAGE and it is listed for the reason the two lines above are:
+    # it reads the same two shared tables those stages do (`toon_params.slang`'s family table and
+    # `material_record.slang`'s layout), so an edit to either must rebuild `goo_rim.frag.spv` as well - a stage left
+    # on stale SPIR-V would read a material record with different field offsets, which is a wrong texture or a
+    # wrong family rather than a build error.
 )
 # (THE GLSL STAGE LIST USED TO LIVE HERE: twenty-four names, glslc's input, kept in step with the sources by
 # hand. Every one of them is in source/reference/shaders/glsl.old/ now and built from Slang instead, so the list is gone -
@@ -2210,14 +2221,20 @@ set(VR_SLANG_SOURCES
     # by default, so none of the fourteen capture scenarios records it until a scenario turns it on - which is
     # what makes its landing behaviour-neutral.
     toon/character_forward.slang:main:fragment:character_forward.frag.spv
+    # goo_toon.slang is THE REWRITTEN TOON CHAIN's fragment stage: the same geometry, the same pass and the same
+    # frame as the entry above, with the shading model replaced by the one XIYAG's Goo node presets describe
+    # (see build-release-clang64/deren-ab/goo_toon_plan.md). ITS ENTRY IS `goo_toon_frag_main`, NOT `main`, for the
+    # reason `outline.slang`'s is: it INCLUDES character_forward.slang, which brings that file's own
+    # `[shader("fragment")] main` with it, and a plain `-entry main` then names an overload set that Slang refuses
+    # to resolve (E38000). It is selected at run time by `[render] goo_toon` - OFF by default, so none of the ten
+    # capture scenarios draws it, and its landing is behaviour-neutral until a run asks for it.
     # game_toon.slang is THE GAME-SHADER TOON MODEL's fragment stage. Same pass, same frame and same
-    # state as the entry above; only the fragment module differs, selected by `[render]
+    # state as the two entries above; only the fragment module differs, selected by `[render]
     # game_toon` (OFF by default). Its entry is `game_toon_frag_main`, not `main`, for the same reason
-    # `outline.slang`'s is: it includes character_forward.slang, which brings that file's own
+    # goo_toon's is: it includes character_forward.slang, which brings that file's own
     # `[shader("fragment")] main` with it, and a plain `-entry main` names an overload set Slang
-    # refuses (E38000). The entry dispatches per material family to the ported game-shader bodies in
-    # `toon/game_toon/`, with the captured variants behind `game_toon_profile_enabled`; the shared
-    # author body remains the fallback for the families that have no game port yet.
+    # refuses (E38000). PHASE 1 IS THE PLUMBING MILESTONE: the entry still calls the shared body, so
+    # selecting it draws the old chain's pixels while config/pipeline/GUI are proven.
     toon/game_toon.slang:game_toon_frag_main:fragment:game_toon.frag.spv
     # toon_screen_rim.slang is the toon stage's SECOND rim: a fullscreen additive contour from the depth,
     # gated by the SAME `character_forward` feature, so no capture scenario records it either.
@@ -2228,6 +2245,11 @@ set(VR_SLANG_SOURCES
     # It is gated at the post-graph lane by `runtime::game_toon_active()`, so no capture scenario records it
     # unless one selects the game-shader model.
     toon/game_toon_depth_rim.slang:main:fragment:game_toon_depth_rim.frag.spv
+    # goo_rim.slang is THE REWRITTEN CHAIN'S rim, and it is a stage of its own for the constraint its header
+    # records: the reference's rim is a PRODUCT of three attenuations and a screen-space depth factor, and the
+    # depth it samples is the character-forward stage's own ATTACHMENT - so the surface shader cannot compute it.
+    # It is gated by `[render] goo_toon` (through a name the chain owner composes), so, like the two entries above,
+    # no capture scenario records it until one turns the rewritten chain on.
     # overlay.slang is the article's TWO FRAMEBUFFER MULTIPLIES (an eye shadow and a hair shadow), drawn by the
     # `character_forward` stage's overlay group with the multiply blend and gated by that same feature - so, like
     # the two entries above, no capture scenario records it until one turns the toon stage on. It shares
@@ -2286,7 +2308,7 @@ set(VR_SLANG_SOURCES
     scene/visibility_resolve.slang:main:compute:visibility_resolve.comp.spv
     scene/visibility_feedback.slang:main:compute:visibility_feedback.comp.spv
     # software_visibility.slang / software_merge.slang are THE SOFTWARE RASTER'S TWO PASSES (M4 Task 2,
-    # historical design record): the tiled compute stage that writes the private
+    # docs/superpowers/specs/2026-10-22-software-raster-design.md): the tiled compute stage that writes the private
     # R32_UINT depth/id pair (one 8x8 workgroup per 16x16 CSR tile), and the depth-only fullscreen merge that folds it
     # into the frame's G-buffer depth with LESS_OR_EQUAL + depth write. Both build their own pipelines from these
     # modules through pass_context::shader, so they are registered (chores.cpp) as well as compiled; the merge file has

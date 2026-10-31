@@ -1,7 +1,7 @@
 /**
  * @file source/engine/pass/software_visibility.cppm
  * @defgroup engine_pass_software_visibility Software Visibility Pass
- * @brief the SOFTWARE RASTER's recording half (M4; historical design record
+ * @brief the SOFTWARE RASTER's recording half (M4; docs/superpowers/specs/2026-10-22-software-raster-
  *        design.md §3.2/§4.2): a heap-native compute pass that rasterizes the frame's subpixel records into two private
  *        R32_UINT images, tile by tile, one workgroup per 16x16 tile.
  *

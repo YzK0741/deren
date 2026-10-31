@@ -718,7 +718,7 @@ namespace deren::engine {
                                    // scene_end is the resolve), while the geometry path writes it immediately before
                                    // the geometry lane (so its interval is ~0 and the pass keeps its old slot).
                                    // MEASURED NEED: the "scene" bucket could not compare the two lanes - see
-                                   // historical development record
+                                   // docs/reviews/2026-10-18-visibility-buffer-ab.md
             hzb_build_end,
             hzb_recovery_end,
             visibility_recovery_end,
@@ -1153,7 +1153,7 @@ namespace deren::engine {
         bool software_capture_oracle_ok = true;
 
         // ================================================================================================
-        // THE HZB BUILD LANE (M3 phase A2, historical design record §4.1, §4.2,
+        // THE HZB BUILD LANE (M3 phase A2, docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md §4.1, §4.2,
         // §5.2, §10.2). Phase A BUILDS the max pyramid and its header from this frame's G-buffer depth and proves
         // them by readback; NOTHING culls against them yet (the cull pass and the survivor table are phase B), so
         // the lane cannot change a pixel - and it is default-OFF behind DEREN_HZB_BUILD, so with the gate unset
@@ -1207,7 +1207,7 @@ namespace deren::engine {
         deren::utility::vessel::array<float, 16> hzb_probe_proj = {};
         deren::utility::vessel::array<float, 3> hzb_probe_camera_pos = {};
         // ================================================================================================
-        // THE HZB CULL LANE (M3 phase B1, historical design record §4.3, §6,
+        // THE HZB CULL LANE (M3 phase B1, docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md §4.3, §6,
         // §9.1/§9.2, §10.3). It is the BUILD lane's consumer on the GPU: per-item workgroups test the host-selected
         // candidates against the HISTORY pyramid and write flags / the compacted survivor list / per-item counts /
         // the stats block. NOTHING CONSUMES ITS OUTPUT THIS PHASE - phase B2 swaps the visibility raster onto the
@@ -1372,12 +1372,13 @@ namespace deren::engine {
         bool character_forward_on = false;
         /**
          * WHICH TOON CHAIN THE CHARACTER STAGE DRAWS WITH, SECOND OPT-IN (see @ref game_toon_pipeline_name and
-         * `set_game_toon`): false = the chain written against the article (`character_forward.slang`), true = the
-         * game-shader model ported from the pinned MyZmdShaders sources (`game_toon.slang`).
+         * `set_game_toon`): true = the game-shader model ported from the pinned MyZmdShaders sources
+         * (`game_toon.slang`).
          *
-         * A MODEL SWITCH OF ITS OWN, NOT A REPLACEMENT FOR `character_forward_on`: the two answer "does the stage
-         * run" and "which reference does this run draw with" separately, so the cloth A/B can hold the stage and
-         * the article model fixed while only this one moves.
+         * THIRD MODEL, NOT A REPLACEMENT FOR `goo_toon_on`: the two answer "which reference does this run
+         * draw with" separately, and a run that sets both gets `game_toon` with a one-time diagnostic (see
+         * `make_character_forward_frame`) rather than two silently-ignored knobs. Keeping them separate is
+         * what lets the cloth A/B hold the stage and the old model fixed while only this one moves.
          */
         bool game_toon_on = false;
         // The two blend weights are NOT here any more: they are the TAA pass's own parameters now, set through
@@ -3557,8 +3558,8 @@ namespace deren::engine {
          * The captured viewer's hair/face contour is a depth-contour term; the renderer's game-shader chain owns a
          * DEDICATED sampled-depth pass for it (`deren.engine.pass.game_toon_depth_rim`, which the post graph records
          * only while `game_toon_active()`), and this setter configures THAT pass. The article's `toon_screen_rim`
-         * is deliberately not touched: this knob belongs to the game chain's profile, and retuning the article's
-         * stage from it would make two experiments one parameter.
+         * and the Goo chain's `goo_rim` are deliberately not touched: this knob belongs to the game chain's
+         * profile, and retuning another chain's stage from it would make two experiments one parameter.
          * `strength = 0` keeps the contour off.
          */
         void set_toon_screen_rim(float width, float scale, float strength, float r, float g, float b) noexcept;
@@ -3568,7 +3569,7 @@ namespace deren::engine {
         /**
          * @brief whether the GAME-SHADER model's pipeline exists, i.e. whether `game_toon` can select anything
          *
-         * Asked of the registry rather than of the knob: the pipeline needs the
+         * Asked of the registry rather than of the knob, exactly as `goo_toon_ready` is: the pipeline needs the
          * mesh stage, so a device without `VK_EXT_mesh_shader` registers none.
          */
         [[nodiscard]] bool game_toon_ready() const noexcept;
@@ -3576,9 +3577,9 @@ namespace deren::engine {
         /**
          * @brief whether THE GAME-SHADER MODEL IS THE ONE DRAWING this frame: `game_toon` on AND its pipeline there
          *
-         * The single-predicate rule the frame's name choice uses: `make_character_forward_frame` chooses the
-         * name with it, and a stage that must stay silent under the game model asks this rather than recomposing
-         * the two halves (a knob on without a pipeline must not silence the article rim and draw nothing).
+         * The same single-predicate rule as `goo_toon_active`: `make_character_forward_frame` chooses the name
+         * with it, and a stage that must stay silent under the new model asks this rather than recomposing the
+         * two halves (a knob on without a pipeline must not silence the old rim and draw nothing).
          */
         [[nodiscard]] bool game_toon_active() const noexcept;
 
@@ -4070,18 +4071,18 @@ namespace deren::engine {
          * @brief the name the GAME-SHADER TOON MODEL's fragment stage is registered under
          *        (`source/shaders/toon/game_toon.slang`)
          *
-         * THE SAME PASS, THE SAME FRAME AND THE SAME STATE AS `character_forward_pipeline_name`: this name
-         * differs in ONE thing - which `.spv` the fragment stage came from - so `[render] game_toon` swaps the
-         * shading model and nothing else. It is registered through the same `make_character_forward_pipeline`
-         * for the same reason `character_forward` is (one HDR target, depth compare EQUAL, depth write off),
-         * and the name is chosen between in `make_character_forward_frame`.
+         * THE SAME PASS, THE SAME FRAME AND THE SAME STATE AS `character_forward_pipeline_name` AND
+         * `goo_toon_pipeline_name`: this name differs in ONE thing - which `.spv` the fragment stage came from - so
+         * `[render] game_toon` swaps the shading model and nothing else. It is registered through the same
+         * `make_character_forward_pipeline` for the same reason `goo_toon` is (one HDR target, depth compare
+         * EQUAL, depth write off), and the name is chosen between in `make_character_forward_frame`.
          *
          * THE MODEL IS PORTED FROM `author_src`'s `ZmdToonMain.hlsl` family and verified against the original
          * cloth DXBC; the module is a plumbing milestone until the cloth branch lands (its entry still calls the
-         * shared body, so `game_toon` on reproduces the article chain's pixels).
+         * shared body, so `game_toon` on / `goo_toon` off reproduces the old chain's pixels).
          *
-         * OFF BY DEFAULT: a run that does not ask for it gets the article chain's frame, and the frame's name
-         * choice falls back to that chain when the game pipeline was not registered.
+         * PRECEDENCE WHEN BOTH MODEL KNOBS ARE ON: `game_toon` wins, with a one-time diagnostic from
+         * `make_character_forward_frame`; the two knobs stay separate so an A/B can move one at a time.
          */
         static constexpr std::string_view game_toon_pipeline_name = "game_toon";
 

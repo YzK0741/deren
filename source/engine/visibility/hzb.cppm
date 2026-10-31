@@ -2,7 +2,7 @@
  * @file source/engine/visibility/hzb.cppm
  * @defgroup engine_visibility_hzb HZB occlusion culling (the CPU reference)
  * @brief the CPU REFERENCE for the HZB (hierarchical Z-buffer) occlusion-culling design:
- *        historical design record §4.1, §5, §6, §9.2 and §10.1.
+ *        docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md §4.1, §5, §6, §9.2 and §10.1.
  *
  * WHY A MODULE OF ITS OWN, AND A PURE ONE. The HZB pipeline is built and consumed entirely ON THE GPU (a build
  * compute pass writes the max pyramid, a cull compute pass tests candidates against it and writes the compacted

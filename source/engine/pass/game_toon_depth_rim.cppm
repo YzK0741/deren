@@ -6,21 +6,20 @@
  * @defgroup engine_pass_game_toon_depth_rim Game Toon Depth-Rim Pass
  *
  * WHY IT EXISTS, SEPARATELY FROM `toon_screen_rim`: the article's contour is silenced whenever a REWRITTEN chain
- * is drawing (see `toon_screen_rim_pass::feature`), and the game-shader model - the rewritten chain left after
- * the legacy Goo chain was removed - has no such stage: its own rim is computed INLINE in the character
- * fragment while the captured viewer's hair/face contour is a DEPTH-CONTOUR term, which a fragment stage
- * cannot sample (the depth is its own attachment). The renderer already owns the
+ * is drawing (see `toon_screen_rim_pass::feature`), and the Goo chain has its own `goo_rim` stage. The third
+ * chain - the game-shader model ported from the pinned MyZmdShaders sources - has no such stage: its own rim is
+ * computed INLINE in the character fragment while the captured viewer's hair/face contour is a DEPTH-CONTOUR
+ * term, which a fragment stage cannot sample (the depth is its own attachment). The renderer already owns the
  * only legal way to read that depth: a fullscreen additive pass after the character stage and before the resolve,
  * with the depth SAMPLED and no depth attachment. This is that pass for the game chain, added as a SEPARATE
  * declaration rather than a mode of `toon_screen_rim`, because `feature_active` is asked once per NAME: "the
  * article's contour is off under the game chain" and "the game chain's contour is on" have to be two answers that
- * cannot drift apart. The legacy Goo chain made the same argument for a `goo_rim` declaration of its own; that
- * chain, and that rim, are gone.
+ * cannot drift apart, exactly the argument that made `goo_rim` a name of its own.
  *
- * THE LEGACY GOO RIM IS NOT A LIVE SIBLING: its product of three attenuations and a screen-space depth factor
- * recomposed from the G-buffer, with the Goo material table's colours, went with that chain. The game chain's
- * contour is the captured viewer's simple depth-contour term, and it takes its colour and shape from THIS pass's
- * parameters.
+ * WHY IT IS NOT `goo_rim` EITHER: the Goo chain's rim is a PRODUCT of three attenuations and a screen-space depth
+ * factor recomposed from the G-buffer, with the Goo material table's colours. The game chain's contour is the
+ * captured viewer's simple depth-contour term, and it takes its colour and shape from THIS pass's parameters.
+ * Sharing the stage would make the two chains' rim constants one lane.
  *
  * WHAT IT OWNS: its pipeline (ONE target, the scene colour, ADDITIVE blending, so the pass adds to the frame
  * instead of reading and rewriting it), the 48-byte push block, and the draw.

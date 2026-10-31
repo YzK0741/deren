@@ -5,10 +5,10 @@
 // decompiled from the game's Vulkan SMOL-V blocks (not the MyZmdShaders reconstruction that the first version
 // used):
 //
-//   cloth : module 5,164,112  (`shader_9371..._Vulkan_2`)   source `the local decompiled reference shader tree (not distributed): cloth_forward_readable.hlsl`
-//   hair  : module 2,252,796  (`shader_8fa556..._Vulkan_1`)  source `the local decompiled reference shader tree (not distributed): hair_forward_spirv_decompiled.hlsl`
-//   face  : module 1,758,400  (`shader_3e3d05..._Vulkan_0`)  source `the local decompiled reference shader tree (not distributed): face_forward_spirv_decompiled.hlsl`
-//   eye   : module 216,204    (`shader_e85249..._Vulkan_0`)  source `the local decompiled reference shader tree (not distributed): eye_forward_spirv_decompiled.hlsl`
+//   cloth : module 5,164,112  (`shader_9371..._Vulkan_2`)   source `docs/references/toon/cloth_forward_readable.hlsl`
+//   hair  : module 2,252,796  (`shader_8fa556..._Vulkan_1`)  source `docs/references/toon/hair_forward_spirv_decompiled.hlsl`
+//   face  : module 1,758,400  (`shader_3e3d05..._Vulkan_0`)  source `docs/references/toon/face_forward_spirv_decompiled.hlsl`
+//   eye   : module 216,204    (`shader_e85249..._Vulkan_0`)  source `docs/references/toon/eye_forward_spirv_decompiled.hlsl`
 //   skin  : module 1,012,976 (`shader_3e3d05..._Vulkan_0`), the original non-SDF skin variant.
 //
 // The shared deren lighting/shadow/IBL inputs stand in for Unity's globals (the approved "material only, keep

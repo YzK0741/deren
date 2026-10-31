@@ -1,7 +1,7 @@
 // THE HZB BUILD STAGE (M3 phase A2): builds the max pyramid of this frame's G-buffer depth, and writes the
 // header that records WHICH camera/extent built it.
 //
-// SPEC: historical design record §4.1 (the representation), §4.2 (this pass),
+// SPEC: docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md §4.1 (the representation), §4.2 (this pass),
 // §7.1 (the pseudo-code this file implements) and §10.2 (the readback that proves it). The design's phase A is
 // BUILD + VALIDATE ONLY: nothing culls against this pyramid yet, so the stage cannot change a pixel - it writes
 // `heap_slots_hzb_levels` and `heap_slots_hzb_header` and nothing else reads them this frame.
