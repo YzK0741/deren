@@ -8,9 +8,8 @@ archived records.
 
 > **Phase closed (2026-10-23).** The subtilis phase is closed. DAG+HZB is the accepted shipping path
 > (textured Bistro 10.44/5.64 ms far/near); the software-raster lane remains optional/default-off and will
-> not be optimized further (negative result, see the [headroom report](reviews/2026-10-23-software-raster-headroom.md)
-> and [final closeout](reviews/2026-10-23-subtilis-final-closeout.md)). M2 (GPU cut selection) and M5
-> (geometry streaming/paging) are deferred and not started.
+> not be optimized further (negative result; the supporting maintainer records are not distributed with
+> this repository). M2 (GPU cut selection) and M5 (geometry streaming/paging) are deferred and not started.
 
 > **GPU survivor routing (2026-10-23):** the opt-in `DEREN_SOFTWARE_RASTER_GPU=1` prototype is implemented and
 > now validated on one final build: HZB compaction classifies/reserves/emits the software list on the GPU, the
@@ -19,34 +18,32 @@ archived records.
 > the accepted planar fixture matches the CPU reference at up to 2 ULP depth, validation-enabled smokes
 > clean; the far textured recovery capture is excluded at a 1-pixel ID difference). A same-build three-round far/near
 > matrix shows GPU routing removes the CPU routing overhead (cut wall -0.63/-0.47 ms versus CPU routing) but no
-> stable whole-frame win over software-off DAG+HZB; software stays default-off and M4 is NOT accepted. See the
-> [routing checkpoint](reviews/2026-10-23-software-routing.md).
+> stable whole-frame win over software-off DAG+HZB; software stays default-off and M4 is NOT accepted.
+> The routing-checkpoint evidence is maintainer material and is not distributed with this repository.
 
 > **Triangle software prototype (2026-10-23):** an opt-in UE-inspired triangle producer reduces the
 > software pass from 2.33/0.18 ms to 0.10/0.09 ms (far/near). Same-build whole-frame medians are
 > 10.52/5.53 ms versus tiled software 11.84/5.86 ms and software-off DAG+HZB 10.31/5.46 ms.
 > This removes most GPU producer cost but does not establish stable net hybrid benefit; CPU routing
-> still costs more. Software remains default-off. See the [prototype report](reviews/2026-10-23-software-triangle-atomic.md).
+> still costs more. Software remains default-off; the prototype record is not distributed with this repository.
 
 > **CPU cost update (2026-10-23):** same-frame projection reuse reduces all-enabled CPU-active medians
 > from 10.39/10.00 ms to 9.07/8.29 ms (far/near); GPU time is effectively unchanged.
 > An affine GPU arithmetic experiment was rejected after an edge-coverage finding and no clear frame-time gain.
-> See [cost reduction results](reviews/2026-10-23-software-raster-cost.md).
+> The supporting cost record is not distributed with this repository.
 
 > **Corrected textured results (2026-10-23):** three rounds / 24 captures are complete.
 > DAG+HZB measures 10.44 ms far / 5.64 ms near; adding software raster measures 12.12 / 6.32 ms,
-> with higher CPU-active cost. Software remains experimental/default off. See the
-> [corrected acceptance and limitations](reviews/2026-10-23-subtilis-textured-acceptance.md).
+> with higher CPU-active cost. Software remains experimental/default off. The corrected acceptance
+> and its limitations are summarized here; the underlying maintainer records are not distributed.
 
 > **2026-10-23 validation correction:** GPU readback exposed three software-raster wiring defects
 > (sparse dispatch bounds, CSR frame stride, and mode push constants). They are fixed in the current
 > workspace. A full-DAG planar fixture now matches CPU coverage/IDs at 117,180 pixels, with at most
 > 2 ULP depth difference and identical GPU hashes across 8/9-frame captures. Earlier software-enabled
 > timings, including 5.22 ms / about 26x, were remeasured after these fixes and remain withdrawn; they are
-> not accepted performance evidence for the corrected renderer (see the
-> [M4 decision](reviews/2026-10-23-m4-decision.md) and
-> [headroom report](reviews/2026-10-23-software-raster-headroom.md)).
-> See [closeout checkpoint](reviews/2026-10-23-subtilis-closeout-checkpoint.md).
+> not accepted performance evidence for the corrected renderer. This is the M4 decision; the supporting
+> headroom and closeout records are maintainer material and are not distributed with this repository.
 
 subtilis is the renderer's **large-scene geometry optimization system**. Its runtime path combines
 hierarchical Cluster DAG LOD, HZB occlusion culling and the optional software-raster lane, using the shared
@@ -85,12 +82,13 @@ allocation/transfer/lifetime mechanisms remain shared infrastructure.
 >
 > The real converter-DAG Bistro matrix measures GPU -17.8%/-12.9% (far/near), parallel cut about 1.2ms,
 > at the cost of about +1.25s import-ready and +139MiB process peak working set. These are local results,
-> with inherited source-validator errors and slight near-image variation explicitly recorded in the
-> [runtime acceptance report](reviews/2026-10-21-object-lod.md). The older M1b numbers below remain historical.
+> with inherited source-validator errors and slight near-image variation; the dated runtime acceptance
+> record that first documented them is not distributed with this repository. The older M1b numbers below
+> remain historical.
 >
-> Tool entry: [tools/subtilis/README.md](../tools/subtilis/README.md); independent converter evidence:
-> [2026-10-21 converter report](reviews/2026-10-21-subtilis-converter.md). Dated plans/reports remain
-> authoritative for their own steps and are indexed below.
+> Tool entry: [tools/subtilis/README.md](../tools/subtilis/README.md). The independent converter
+> acceptance record and the dated plans are maintainer material and are not distributed with this
+> repository.
 
 ## 1. What it is
 
@@ -123,7 +121,7 @@ when the comparison matters):
 | Per-frame cut | `subtilis::prepare_item` uses the current model, frozen view/jittered projection and render extent; picks a complete run, or LOD0 on any fallback | `runtime.cpp` (`record_visibility_items`), `subtilis_selection.cppm`, `subtilis_dag_lod.cppm` (legacy: `subtilis_lod.cppm`) |
 | Publication | one run drives the visible record table, the resolve `draw_item` row, the raster push block and the indirect group count - no half-published metadata | `runtime.cpp`, `visibility.cppm` |
 | Raster/resolve | the visibility lane consumes the run exactly as it consumed host-culled LOD0 records | `source/shaders/scene/visibility.slang`, `visibility_resolve.slang` |
-| Occlusion (M3) | the HZB cull/recovery lanes treat the cut-selected records as their candidate set, so occlusion composes after LOD | `source/engine/pass/hzb_cull.*`, `hzb.slang`, `docs/reviews/2026-10-21-hzb-recovery.md` |
+| Occlusion (M3) | the HZB cull/recovery lanes treat the cut-selected records as their candidate set, so occlusion composes after LOD | `source/engine/pass/hzb_cull.*`, `hzb.slang` |
 
 **Strategy guard-rails.** MASK/BLEND materials, non-standard attribute offsets, exact-depth redraws (toon
 `character_forward`) and any unsupported view force the finest run; shadows and BLAS never consume the cut.
@@ -244,17 +242,18 @@ far and 132.93/5.94 = 22.4x near (across the visibility-buffer lane, capacity ex
 and HZB). The formerly quoted "132.93 / 5.22 = 25.5x, about 26x" software-enabled result is **withdrawn**:
 it predates the three software-raster wiring fixes, and the corrected same-build textured matrix (2026-10-23)
 measures DAG+HZB 10.44/5.64 ms versus DAG+HZB+software 12.12/6.32 ms - software raster is a net GPU cost on
-that scene and stays experimental/opt-in/default-off, not part of the accepted gain (see the
-[M4 decision](reviews/2026-10-23-m4-decision.md)). The DAG-only numbers are unaffected: near triangles
-3,626,626 -> 2,860,109 (-21.1%), GPU 21.17 -> 18.73 ms (-11.5%). Historical individual/pairwise rows are in
-the [render optimization report](reviews/2026-10-22-render-optimization-comparison.md).
+that scene and stays experimental/opt-in/default-off, not part of the accepted gain. This is the M4
+decision; the supporting record is not distributed with this repository. The DAG-only numbers are
+unaffected: near triangles 3,626,626 -> 2,860,109 (-21.1%), GPU 21.17 -> 18.73 ms (-11.5%). The
+historical individual/pairwise rows were kept in maintainer records that are not distributed with
+this repository.
 
 **Textured acceptance boundary.** The 4096-item contract was verified on the original unmerged
 hierarchy (2909 primitives -> 2906 visible items, no fallback) together with the 1024-slot texture array
 (516 runtime slots) and the PBR path. The corrected 2026-10-23 textured acceptance covers the
 visibility/DAG/DAG+HZB/software matrix and quantifies the OFF/ON edge differences (no pixel-identity claim);
-the original geometry-scene image differences above remain LOD edge differences. See the
-[corrected acceptance](reviews/2026-10-23-subtilis-textured-acceptance.md).
+the original geometry-scene image differences above remain LOD edge differences. The corrected acceptance
+is summarized here; its raw records are not distributed with this repository.
 
 ## 7. Tests and how to reproduce
 
@@ -267,14 +266,14 @@ the original geometry-scene image differences above remain LOD edge differences.
 - Offline converter: `tools/subtilis` builds the `DEREN_subtilis` asset (build/inspect/validate/export-cut;
   `--threads N` deterministic, `validate --full`, per-stage report). Its own tests are built from
   `tools/subtilis/CMakeLists.txt` (`ctest --test-dir build-subtilis`), separately from the engine CTest set;
-  measurement scripts live in `scripts/measure/` and the Task 8 acceptance record is
-  `docs/reviews/2026-10-21-subtilis-converter.md`.
+  measurement scripts live in `scripts/measure/`. The Task 8 acceptance record is maintainer material and
+  is not distributed with this repository.
 - Real-scene captures: `scripts/gates/capture.ps1 -Base <toml> -Camera ... -Frames ...` with
-  `subtilis = true`; the full OFF/ON matrix and raw logs are in the Bistro performance report
-  (`docs/reviews/2026-10-20-bistro-performance/`). The textured asset preparation/verification scripts are
+  `subtilis = true`; the full OFF/ON matrix and raw logs were kept in maintainer records that are not
+  distributed with this repository. The textured asset preparation/verification scripts are
   `scripts/measure/prepare_bistro_textures.py`, `convert_bistro_metalrough.py`, `verify_bistro_textured.py`.
-- Assets stay outside the repository (`D:/deren-assets/bistro`); the review directories carry the captured
-  evidence (webp/logs/json) that the numbers above come from.
+- The Bistro assets themselves stay outside the repository and are not distributed with it; the captured
+  evidence (webp/logs/json) behind the numbers above is not distributed either.
 
 ## 8. Known limits and open items
 
@@ -290,14 +289,15 @@ the original geometry-scene image differences above remain LOD edge differences.
    run to hardware. The 2026-10-22 Bistro smoke (1280x720, far camera, 8 frames, validation enabled)
    activated with 4,179 software clusters / 4,554 CSR entries and no validation messages; the same-pose OFF/ON
    captures differed at 18 pixels (mean absolute channel delta 0.0000098, max 6; bbox x=555..568, y=303..312). This is a smoke result, not the
-   CPU-vs-GPU fixture acceptance. The three-round Bistro GPU performance matrix is recorded in the
-   [render optimization report](reviews/2026-10-22-render-optimization-comparison.md); raw GPU depth/ID
-   readback and CPU-reference/repeat-capture checks now pass the planar fixture in the corrected acceptance
-      report. The M4 subpixel-share/HZB-headroom sweep then closed the ROI question (no stable net win; T1's no-HZB
+   CPU-vs-GPU fixture acceptance. The three-round Bistro GPU performance matrix, and the raw GPU depth/ID
+   readback and CPU-reference/repeat-capture checks that now pass the planar fixture, were recorded in
+   maintainer reports that are not distributed with this repository. The M4 subpixel-share/HZB-headroom
+   sweep then closed the ROI question (no stable net win; T1's no-HZB
    upper bound overestimated the shipping budget by ~3-5x); the software lane is now optional/default-off with
-   no further optimization planned (see the [headroom report](reviews/2026-10-23-software-raster-headroom.md)). The GPU survivor routing mode
-   (`DEREN_SOFTWARE_RASTER_GPU=1`) is implemented on top of this lane and validated as a prototype (see the routing
-   checkpoint): it removes the CPU routing overhead but does not establish a net hybrid win on the measured scene,
+   no further optimization planned (the headroom record is not distributed with this repository). The GPU survivor routing mode
+   (`DEREN_SOFTWARE_RASTER_GPU=1`) is implemented on top of this lane and validated as a prototype (the routing
+   checkpoint is not distributed with this repository): it removes the CPU routing overhead but does not
+   establish a net hybrid win on the measured scene,
    and the full-stage manifest/CSR/hardware/resolve/merge verifier is still not implemented - the capture-only
    checks validate the software producer/partition, not the resolve/merge chain.
 5. **M5 geometry streaming/paging** is not started. The DAG probe finds 23.28% of far and 5.37% of near selected clusters
@@ -310,49 +310,12 @@ the original geometry-scene image differences above remain LOD edge differences.
 
 ## 9. Document index
 
-The dated records below stay in the repository as the authoritative evidence for each step and are **not part
-of this manual** (the manual's reference chapters cover the API; this chapter is the feature overview). Paths
-are repository-relative.
-
-**Design (authoritative architecture):**
-- `docs/superpowers/specs/2026-10-18-subtilis-design.md` - the main design; sections 12-17 are the actually
-  implemented scope per step and supersede the earlier drafts where they conflict.
-- `docs/superpowers/specs/2026-10-20-subtilis-m1b-builder-design.md` (implemented),
-  `docs/superpowers/specs/2026-10-20-subtilis-m1b-upload-design.md` (implemented),
-  `docs/superpowers/specs/2026-10-20-subtilis-m1b-selection-design.md` (implemented).
-
-**Implementation plans:** `docs/superpowers/plans/2026-10-19-subtilis-m1a.md`,
-`docs/superpowers/plans/2026-10-20-subtilis-m1b-foundation.md`,
-`docs/superpowers/plans/2026-10-20-subtilis-m1b-builder.md`,
-`docs/superpowers/plans/2026-10-20-subtilis-m1b-upload.md`,
-`docs/superpowers/plans/2026-10-20-subtilis-m1b-selection.md`, plus the related
-`docs/superpowers/plans/2026-10-19-review-fixes-and-subtilis.md`.
-
-**Step acceptance records (chronological):**
-- `docs/reviews/2026-10-19-subtilis-m1a.md` - accepted; CTest 51/51 at the time.
-- `docs/reviews/2026-10-20-subtilis-m1b-foundation.md` - asset + cut reference; CTest 53/53.
-- `docs/reviews/2026-10-20-subtilis-m1b-builder.md` - meshoptimizer build; CTest 54/54, 70 builder checks.
-- `docs/reviews/2026-10-20-subtilis-m1b-upload.md` - generation/bind; CTest 55/55, 44 checks.
-- `docs/reviews/2026-10-20-subtilis-m1b-selection.md` - CPU cut in the frame; CTest 57/57.
-- `docs/reviews/2026-10-20-subtilis-selection-checkpoint.md` - historical pause note, superseded.
-
-**Runtime DAG design / implementation:**
-- [Runtime spec](superpowers/specs/2026-10-21-object-lod-runtime-design.md) and [plan](superpowers/plans/2026-10-21-object-lod-runtime.md).
-- [Runtime acceptance](reviews/2026-10-21-object-lod.md) and [implementation checkpoint](reviews/2026-10-22-object-lod-checkpoint.md).
-
-**Real-scene evidence:**
-- `docs/reviews/2026-10-20-bistro/README.md` - historical: the 1024-item build forced a whole-frame fallback,
-  so that round could not produce subtilis evidence; it is the baseline that motivated the capacity work.
-- `docs/reviews/2026-10-20-bistro-performance/README.md` - the OFF/ON numbers, the 6.6x capacity unlock, the
-  probes, the CPU-selection parallelization and the tuning experiments (negative results included).
-- `docs/reviews/2026-10-20-bistro-textured/README.md` - 2906 visible items, 516 texture slots, PBR channel
-  captures; textured OFF/ON was later covered by the corrected acceptance.
-- `docs/reviews/2026-10-21-hzb-recovery.md` - the M3 lane that consumes the cut records; measured
-  -78.6%/-61.6% GPU frame on moving Bistro views.
-- `docs/reviews/2026-10-21-subtilis-converter.md` - the separate CPU offline glTF DAG converter
-  (`tools/subtilis`): real-asset measurements, Khronos-validator and LOD0/cut evidence, independent CPU CI.
-
-**Consumers / adjacent manual pages:** the visibility-buffer lane (\ref md_docs_2visibility__buffer "The visibility buffer lane") and the mesh-shader path (\ref md_docs_2mesh__shaders "Mesh shaders"); the project README's feature list is repository-level.
+The design drafts, implementation plans, step acceptance records and benchmark ledgers this feature was
+developed against were maintainer working material. They are not tracked or distributed with this
+repository, so this chapter cites no record paths and makes no claim that they are present in the tree.
+The architecture and the measured conclusions those records established are summarized in this chapter;
+the consumer lanes are documented in the [visibility-buffer lane](visibility_buffer.md) and the
+[mesh-shader path](mesh_shaders.md), and the project README's feature list is repository-level.
 
 ## 10. Milestone status
 
@@ -365,9 +328,8 @@ are repository-relative.
 - M4 - software raster for sub-pixel clusters: **experimental/optional, default-off, NOT accepted**; closed
   2026-10-23. The runtime path (tiled plus opt-in triangle producer and opt-in GPU survivor routing) has
   correctness evidence, but same-build matrices show no stable whole-frame net win and the HZB-configuration
-  headroom sweep was unresolved. No further software-raster optimization is planned; see the
-  [headroom report](reviews/2026-10-23-software-raster-headroom.md) and
-  [final closeout](reviews/2026-10-23-subtilis-final-closeout.md).
+  headroom sweep was unresolved. No further software-raster optimization is planned; the headroom and
+  final-closeout records are maintainer material and are not distributed with this repository.
 - M5 - streaming/paging: **not started**.
 - asset pipeline - automatic import-time build + on-disk cache: **not implemented** (explicit legacy builder and offline payload import are available).
 - offline glTF cluster-DAG converter (`tools/subtilis`, `DEREN_subtilis` extension): **implemented and
@@ -378,5 +340,5 @@ are repository-relative.
 Immutable vertex/index uploads now use one buffer-transfer batch on capable owning cores, while keeping
 the public ready-on-return contract. Synchronous creation remains available for older/test backends and
 explicit comparisons. This affects asset upload latency, not per-frame raster performance. See the
-[transfer guide](buffer_transfers.md) for modes, ownership and cache limits, and the
-[consumer measurements](reviews/2026-10-25-subtilis-transfer-consumer.md) for the local comparison.
+[transfer guide](buffer_transfers.md) for modes, ownership and cache limits; the local consumer
+measurements are not distributed with this repository.

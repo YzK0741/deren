@@ -155,10 +155,10 @@ convenience.
 Acceptance for (a): two runs of one binary with a nonzero animation sweep produce one PNG hash
 (`Get-FileHash -Algorithm SHA256`), and the sweep actually deforms the mesh (the last two frames differ).
 
-**(b) There is no animated skinned or morphed asset.** Verified: the repository ships
-`asset/DamagedHelmet/DamagedHelmet.gltf` and nothing else. `build-release-clang64/gilberta.glb` is a static model -
-its GLB JSON chunk declares 1 mesh, 2 nodes, no `skins`, no `animations` and no extensions. The only
-skinned asset in the tree is the hand-written fixture `source/tests/fixtures/shared_skin_two_nodes.gltf`
+**(b) There is no animated skinned or morphed asset.** Verified: the repository's bundled glTF
+samples (`asset/DamagedHelmet`, `asset/FlightHelmet`, `asset/laevatain`) declare no skins and no
+animations. The external static model used for the earlier check (not distributed with the repository)
+declares 1 mesh, 2 nodes, no `skins`, no `animations` and no extensions. The only skinned asset in the tree is the hand-written fixture `source/tests/fixtures/shared_skin_two_nodes.gltf`
 (1 skin, 2 nodes, `JOINTS_0` / `WEIGHTS_0` / `inverseBindMatrices`) and it has **no animation channel**,
 so it cannot deform.
 

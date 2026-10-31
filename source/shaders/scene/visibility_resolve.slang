@@ -51,7 +51,7 @@
 // A compute thread has no derivatives, so the shared decode's fetches are EXPLICIT SampleLevel calls. v0 used
 // LOD 0 for all of them, which made a minified surface sample a sharper mip than the fragment path's
 // derivative-driven sampler - one of the two measured sources of the ON/OFF difference (see
-// docs/reviews/2026-10-18-visibility-buffer-ab.md). The LOD is now derived from the SAME quantity that
+// historical development record). The LOD is now derived from the SAME quantity that
 // approximate derivative is: this triangle's UV-per-pixel scale, `sqrt(|uv area| / |screen area in pixels|)`.
 // A per-pixel gradient and a per-triangle scale differ on a heavily foreshortened triangle, and the hardware's
 // anisotropic choice is not reproduced; what IS reproduced is the mip RANGE the fragment sampler lands in, which

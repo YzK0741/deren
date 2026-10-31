@@ -2,8 +2,8 @@
 
 This optional glTF primitive extension stores a shared-vertex cluster DAG.
 The standard primitive, including its original LOD0 indices, remains usable.
-Register a vendor prefix before public release. The full design is in
-[the design specification](../../superpowers/specs/2026-10-21-subtilis-gltf-design.md).
+Register a vendor prefix before public release. The maintainer design record behind this
+document is not distributed with this repository.
 
 The extension object has `version: 1`, `profile: "shared-vertices"`, and an
 integer `bufferView >= 0`. Add `DEREN_subtilis` to `extensionsUsed`, not
@@ -120,5 +120,6 @@ prefix. The existing visibility admission can refuse an entire frame.
 
 The default 1px target is configurable with `subtilis_error_px`; optional
 `subtilis_hysteresis=false` keeps reference selection deterministic by default.
-See [subtilis](../../subtilis.md) and the [runtime acceptance report](../../reviews/2026-10-21-object-lod.md)
-for lifecycle, configuration, source-asset limitations and measurement evidence.
+See [subtilis](../../subtilis.md) for lifecycle, configuration and source-asset limitations;
+the runtime acceptance record with the measurement evidence is maintainer material and is not
+distributed with this repository.

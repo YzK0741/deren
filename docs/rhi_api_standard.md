@@ -407,8 +407,7 @@ factories/contexts/root (section 3). Optional tier-2 extensions are out of scope
 here.
 
 Source of truth: `source/promise/rhi/rhi.api_core.cppm` (the contract), with
-`docs/dynamic_runtime.md`, `docs/resource_groups.md` and
-`docs/superpowers/specs/2026-10-24-render-operations-design.md` where they state
+`docs/dynamic_runtime.md` and `docs/resource_groups.md` where they state
 contract-level rules. Where a behaviour is stated only by one backend, the
 bullet says so and treats it as evidence, never as the rule.
 

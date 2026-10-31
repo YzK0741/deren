@@ -1,7 +1,7 @@
 """Independent check of the GPU-built HZB max pyramid and its header (M3 phase A2).
 
 WHAT IT IS FOR. `hzb_build.comp.spv` builds the max pyramid of the frame's G-buffer depth on the GPU
-(docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md §4.1/§4.2/§7.1), and the whole design rests on that
+(historical design record §4.1/§4.2/§7.1), and the whole design rests on that
 pyramid being EXACTLY the layout the host/CPU reference describes: level 0 = the depth image verbatim, level L =
 the 2x2 max of L-1 with the odd edge REPLICATED, levels packed contiguously in one buffer lane. A shader is
 validated by pictures, which cannot say which of a dozen formulas is the wrong one, so this script rebuilds the

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Audit the RHI concrete-identity mechanism (ABI 30 names + the contract-level validate-and-cast pair).
 
-The review record docs/reviews/2026-10-18-rhi-contract-concrete-validation.md quotes a table of "how many
+The review record historical development record quotes a table of "how many
 concrete-name checks exist, and where the remaining raw casts are". That table is easy to let drift by hand, so
 this script derives it from the CURRENT tree instead. It is an audit instrument, not a gate: the numbers are
 expected to move when the backend changes, and its output is what gets pasted into the record.

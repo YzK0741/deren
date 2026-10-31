@@ -23,25 +23,23 @@
 # Check mode runs every scenario TWICE and requires the two runs to agree before comparing against the
 # reference, so "flaky" is reported as flaky instead of as a regression.
 #
-#  3. WHICH SCENARIOS RUN: the DEFAULT run is the CORE set - five of the fourteen scenarios defined below,
+#  3. WHICH SCENARIOS RUN: the DEFAULT run is the CORE set - five of the thirteen scenarios defined below,
 #     one per pipeline family a wiring change can break - because every scenario is TWO runs (the
-#     determinism check below), so the full list costs 28 renders a round and the extra nine mostly
-#     answer questions the core five also answer. A core round is 5 x 2 = 10 renders. The nine that
-#     are `tier = "extra"` are still checked on demand: `-Full` runs all fourteen, `-Only <name>` runs one.
-#     They are worth naming here so the choice to skip them is deliberate: `deferred_taa_fxaa` is the
-#     AA stage, `deferred_ssao_off` and `shadow_single` vary one optional stage each,
-#     `metal_rough_glossy` / `glossy_motion` are the material sweep (the second one with a MOVING
-#     camera), and the four `laevatain_*` scenarios are the REWRITTEN TOON CHAIN's net - the chain on,
-#     the same chain at the BODY pose (the only pose whose frame the RS mechanism can move), the same
-#     chain on an asset whose per-material sidecar is MISSING (the fallback control), and the OLD
-#     chain on the first asset (the byte-identity criterion). Run `-Full` after a driver update or before
+#     determinism check below), so the full list costs 24 renders a round and the extra seven mostly
+#     answer questions the core five also answer. A core round is 5 x 2 = 10 renders. The seven that
+#     are `tier = "extra"` are still checked on demand: `-Full` runs all twelve legacy-path scenarios,
+#     `-Only <name>` runs one. They are worth naming here so the choice to skip them is deliberate:
+#     `deferred_taa_fxaa` is the AA stage, `deferred_ssao_off` and `shadow_single` vary one optional stage
+#     each, `metal_rough_glossy` / `glossy_motion` are the material sweep (the second one with a MOVING
+#     camera), `gaussian_splat` is the splat chain, and `laevatain_old_chain` records the OLD toon
+#     character chain on its sidecar-carrying asset. Run `-Full` after a driver update or before
 #     re-baselining, so no reference goes stale unwatched: -Update only re-baselines the scenarios it ran.
 #
 #  3b. WHAT NO SCENARIO CAN REACH, so nobody reads a green round as covering it (measured 2026-10-06): `bloom`
 #     has NO config key - `runtime.set_bloom` is called from the GUI binding, so only a human at a GUI can turn
 #     it on. (The stochastic punctual lighting chain that used to be the other blind spot was removed from the
 #     tree on 2026-10-17; its document survives with a REMOVED banner.) CONSEQUENCE: a change confined to bloom
-#     is witnessed by the OTHER fourteen hashes being unchanged, never by a capture.
+#     is witnessed by the OTHER hashes in the round being unchanged, never by a capture.
 
 #  4. WHICH BUILD IT RUNS: the Release build, and only the Release build. Pointed at a Debug or an
 #     ASan+UBSan build, two runs of one binary DIFFER - measured on TWO scenarios, `sponza` and
@@ -59,7 +57,7 @@
 #
 # Usage:
 #   pwsh -File scripts/gates/check_render.ps1                 # the CORE set (5 scenarios x 2 runs)
-#   pwsh -File scripts/gates/check_render.ps1 -Full           # all FIFTEEN legacy-path scenarios
+#   pwsh -File scripts/gates/check_render.ps1 -Full           # all TWELVE legacy-path scenarios
 #   pwsh -File scripts/gates/check_render.ps1 -Visibility     # the VISIBILITY-path reference scenario(s)
 #   pwsh -File scripts/gates/check_render.ps1 -Update         # accept the current output as reference
 #   pwsh -File scripts/gates/check_render.ps1 -Only deferred_taa_fxaa
@@ -67,18 +65,18 @@
 #
 # -Visibility is the ONE selection that runs a scenario whose frozen reference describes the VISIBILITY
 # buffer's lanes instead of the geometry lane (visibility-buffer plan v0.7). -Full deliberately does not run
-# them: a -Full round's verdict is "15/15 against docs/reviews/2026-10-17-render-graph-gate/legacy-hashes.txt",
+# them: a -Full round's verdict is "12/12 against historical development record",
 # and that file describes the old path. The visibility scenario's reference is
-# docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt, compared with
+# historical development record, compared with
 # `-Visibility -Compare <that file>`; the scenario config is the deferred one plus `visibility_buffer = true`,
 # so the two rounds' hashes on that scenario ARE the A/B on one frame.
 #
 # References live OUTSIDE the repository (they are machine-specific; committing them would be red for
 # everyone else and would tie every accepted change to a multi-megabyte commit). Override the location
-# with VR_RENDER_BASELINE_DIR. The three `laevatain_*` scenarios are seeded the same way as every other
+# with VR_RENDER_BASELINE_DIR. The `laevatain_old_chain` scenario is seeded the same way as every other
 # one - `-Update` copies the frame it just drew to `<baseDir>\<scenario>.png` - and there is no separate
-# seeding path for them; -List prints the directory. NOTE that their ASSETS do not live in the repository
-# either (see $charDir), so those three references are reproducible only on a machine that has the
+# seeding path for it; -List prints the directory. NOTE that its ASSET does not live in the repository
+# either (see $charDir), so that reference is reproducible only on a machine that has the
 # `chars\` assets under its build directory.
 
 param(
@@ -87,11 +85,11 @@ param(
     [switch]$Full,
     # run the VISIBILITY-path reference scenario(s) instead of the legacy-path selection (see the usage note:
     # their frozen hash describes the raster+resolve lanes, so they are a SECOND reference set, not part of the
-    # -Full 15/15 verdict).
+    # -Full 12/12 verdict).
     [switch]$Visibility,
     [string]$Only = "",
     [string]$BuildDir = "",
-    # THE STANDARD COMPARISON (G2): "" = none, "frozen" = the migration's fourteen frozen hashes, or a
+    # THE STANDARD COMPARISON (G2): "" = none, "frozen" = the frozen hash list, or a
     # PATH = another gate round's actual-hash file (how the two-tree phase was compared). The verdict it
     # prints is the one that means something; this script's own `changed`/exit 1 is about the stale local
     # reference set (see the note at the summary).
@@ -105,7 +103,7 @@ param(
     # @("visibility_buffer = true") for the visibility path's ON arm). They land after the pinned defaults and
     # before the scenario's own `extra` keys, so a scenario that names the same key wins (and the default line it
     # would have duplicated is suppressed). With the same cameras, models and frame counts a normal -Full round
-    # uses, one -ExtraConfig round is one A/B arm - which is how docs/reviews/2026-10-18-visibility-buffer-ab.md
+    # uses, one -ExtraConfig round is one A/B arm - which is how historical development record
     # was measured. Refused with -Update: an override that changes the picture must never be accepted as a
     # reference for the round that measures base behaviour.
     [string[]]$ExtraConfig = @()
@@ -147,21 +145,16 @@ $workDir = Join-Path $BuildDir "render-check"
 # scenario - the check below fails on a missing or unknown one, so adding a scenario means deciding
 # whether it earns a place in the default round rather than silently never running.
 #
-# THE FOUR `laevatain_*` SCENARIOS ARE ALL `extra`, and that is a decision this file owes a reason for:
-# they exist to put the REWRITTEN TOON CHAIN inside this gate (its landed steps were accepted by
-# hand-run A/B captures, which is not a net) and to hold the chain's two arms apart - the rewritten one on
-# the sidecar-carrying asset, the same chain on an asset with NO sidecar (the fallback control), the OLD
-# chain on the first asset (the byte-identity criterion), and the rewritten chain ONE POSE FURTHER IN, at
-# the body, where alone the two `_GooRSScalars` / `_GooRSTint` materials are drawn (see its own note).
-# The first three are one character at ONE pose, so they answer a question the core five do not; the fourth
-# exists because that one pose cannot see that mechanism at all. `-Full` is where they run, and
-# `-Only laevatain_goo_toon` runs one.
+# THE `laevatain_old_chain` SCENARIO IS `extra`, and that is a decision this file owes a reason for: it puts
+# the TOON CHARACTER STAGE inside this gate on a real character asset with its per-material sidecar present,
+# which is a question the core five do not answer. The selectable goo model it used to be paired against was
+# removed from the tree, so it is now the character stage's only capture: the OLD chain (the model selector
+# off) on the sidecar-carrying asset. `-Full` is where it runs, and `-Only laevatain_old_chain` runs it.
 # ---------------------------------------------------------------------------------------------
-# WHERE THE CHARACTER SCENARIOS' ASSETS COME FROM, and the reason it is derived rather than absolute: these
-# glbs and their `.toon.tsv` sidecars are LOCALLY AUTHORED assets that were never committed (the whole build
+# WHERE THE CHARACTER SCENARIO'S ASSET COMES FROM, and the reason it is derived rather than absolute: the glb
+# and its `.toon.tsv` sidecar are LOCALLY AUTHORED assets that were never committed (the whole build
 # directory is gitignored), so the only portable statement is "beside the build this script is gating".
-# `laevatain_goo.glb.toon.tsv` is the file that carries the per-material rows the rewritten toon chain reads;
-# `laevatain.glb` is the same character WITHOUT one, and that is what makes it the fallback's control.
+# `laevatain_goo.glb.toon.tsv` is the file that carries the per-material rows the toon character stage reads.
 $charDir = Join-Path $BuildDir "chars"
 
 $scenarios = @(
@@ -173,8 +166,8 @@ $scenarios = @(
     # i.e. the one scenario whose frozen hash describes the raster+resolve lanes instead of the geometry lane.
     # The SAME model/camera/frames as `deferred` and one key different, so the two rounds' hashes on this
     # scenario ARE the A/B on one frame. tier = "visibility" keeps it out of -Full on purpose: -Full's verdict
-    # is 15/15 against the legacy-path file, and this scenario's reference lives in
-    # docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt (`-Visibility -Compare <that file>`).
+    # is 12/12 against the legacy-path file, and this scenario's reference lives in
+    # historical development record (`-Visibility -Compare <that file>`).
     @{ name = "deferred_visibility"; desc = "deferred through the VISIBILITY raster+resolve lanes"; tier = "visibility";
        extra = @{ visibility_buffer = "true" } }
     @{ name = "deferred_taa_fxaa"; desc = "deferred + TAA + FXAA (the AA path)";         tier = "extra"; extra = @{ taa = "true"; fxaa = "true" } }
@@ -240,67 +233,25 @@ $scenarios = @(
        extra = @{ taa = "false" }
        model = "$repo\source\tests\fixtures\gaussian_ribbon.ply"
        camera = "0,0,4,0,0,0" }
-    # THE REWRITTEN TOON CHAIN ON A CHARACTER (`[render] character_forward` + `[render] goo_toon`), and the
-    # reason it exists is that the seven landed steps of that rewrite (iris / screen rim / base+skin+cloth+hair
-    # diffuse / specular / face - see goo_toon_plan.md) were accepted by a HAND-RUN A/B: capture the arm, capture
-    # the other arm, read the difference. That is not a net. This scenario is the same frame the A/B used, so
-    # from here on a change to that chain has to move a RECORDED reference or it is not a change.
+    # THE TOON CHARACTER STAGE ON A REAL CHARACTER (`[render] character_forward`), and the reason it is
+    # `extra` is that it renders a LOCALLY AUTHORED asset rather than a committed fixture (see $charDir).
     #
     # `character_forward = true` IS PART OF THE SCENARIO AND NOT AN OPTION: with it off no material is drawn
-    # through the character pipeline at all ([render] character_forward's own note), so `goo_toon` would select
-    # nothing and the frame would be the deferred one - a green scenario that measures the wrong thing. The pose
-    # is the A/B's own close pose, the one every step 2..7 reproduced exactly.
+    # through the character pipeline at all ([render] character_forward's own note), so the frame would be the
+    # deferred one - a green scenario that measures the wrong thing.
     #
-    # THE ASSET IS THE ONE THAT CARRIES THE DATA: `laevatain_goo.glb` and its `.toon.tsv` sidecar, whose rows are
-    # every per-material value the rewritten chain reads (the reference's own Goo node presets). It lives under
-    # the BUILD directory because it is a locally-authored asset, not a committed fixture - see the note on
-    # $charDir above - so a `-BuildDir` pointing elsewhere needs the same `chars\` beside it, and this scenario
-    # then fails loudly ("no screenshot" / exit code) rather than passing green against a frame it never drew.
-    @{ name = "laevatain_goo_toon"; desc = "the REWRITTEN toon chain on the goo character"; tier = "extra";
-       extra = @{ character_forward = "true"; goo_toon = "true" }
-       model = "$charDir\laevatain_goo.glb"
-       camera = "-30.3668,-14.3239,0.6,0.0,-0.57,0.0" }
-    # THE SAME ARM AT THE BODY POSE, and the reason is a MEASURED blind spot rather than a second opinion: the two
-    # materials whose sidecar rows carry `_GooRSScalars` / `_GooRSTint` (mechanism table #14, `RS EFF`) are
-    # `M_actor_laevat_cloth_02` and `M_actor_laevat_cloth_05`, and at the close pose above the chain draws NEITHER
-    # of them - the step-13 mask arms prove it: `s13fin_white_close_r1` vs `s13fin_black_close_r1` (a full-white
-    # `_M` vs a full-black `_M`) differ by 0 px there, so a change to the RS block could not move that reference.
-    # At this pose those materials ARE on screen and the chain responds: the same white-vs-black mask A/B moves
-    # 75 217 px (7.254726%, bbox x263..826 y549..959), and the shipped asset's real `_M` against a zeroed mask
-    # moves 2 686 px (0.259066%, bbox (294,553)-(809,959)). Both numbers are transcribed from
-    # `deren-ab/s13_v6_report.txt:14` / `:9` and were RECOMPUTED by the Lead from the on-disk frames
-    # `deren-ab/laevat/s13fin_{white,black,on}_body_r1.png` (the first draft of this comment misattributed the
-    # 2 686 to the white-vs-black pair; corrected 2026-10-01, see `deren-ab/goo_debt_lead_audit.md` §3-1).
-    # That is what this scenario adds to the gate - a RECORDED frame the RS mechanism can actually break.
-    @{ name = "laevatain_goo_toon_body"; desc = "the REWRITTEN toon chain at the BODY pose (the RS materials)"; tier = "extra";
-       extra = @{ character_forward = "true"; goo_toon = "true" }
-       model = "$charDir\laevatain_goo.glb"
-       camera = "0,0,2.4,0,-0.9,0" }
-    # THE FALLBACK ARM, and it is the negative control the chain's own contract asks for: `laevatain.glb` is the
-    # SAME character with NO `.toon.tsv` sidecar, so every per-material value the rewritten chain reads is
-    # ABSENT and the chain must come back to the reference's own socket defaults rather than guess (a zeroed or
-    # stale lane read as a value). The two assets are the same geometry and the same 11 materials, measured with
-    # this repository's own `deren-ab/glb_info.py`: the goo file adds only the extra IMAGES the sidecar's rows
-    # resolve, and a copy of it with no sidecar beside it renders THIS scenario's frame exactly (92473A82…), so
-    # the sidecar is the whole of the difference and not the textures.
+    # THE MODEL SELECTOR IS DELIBERATELY ABSENT: `[render] game_toon` defaults to false, and false is the OLD
+    # chain - the chain written against the author's article. The selectable goo model this scenario used to
+    # pin was removed from the tree, so there is no `goo_toon` key to write and none is written: a dead key
+    # would be ignored by the parser while the scenario reported success against a frame it never drew.
     #
-    # THE FALLBACK IS AN IDENTITY ON THIS ASSET, MEASURED: at this pose a sidecar-less `laevatain.glb` renders
-    # `12A0A363…` with `goo_toon = true` AND with `goo_toon = false` (×2, 60 frames) - i.e. with nothing to
-    # read the rewritten chain draws the old chain's frame, which is what "fall back rather than guess" means
-    # for a pixel. That is also what makes this scenario DO something: the goo arm above is NOT that frame, so
-    # a chain that went inert on the ASSET THAT HAS DATA is exactly what this pair detects.
-    @{ name = "laevatain_no_sidecar"; desc = "the same character WITHOUT a toon sidecar (fallback)"; tier = "extra";
-       extra = @{ character_forward = "true"; goo_toon = "true" }
-       model = "$charDir\laevatain.glb"
-       camera = "-30.3668,-14.3239,0.6,0.0,-0.57,0.0" }
-    # THE OLD CHAIN ON THE SAME CHARACTER at the same pose, which is the arm the four byte-identity anchors are
-    # taken on: `goo_toon = false` is the chain the rewrite must leave EXACTLY as it found it, so this scenario
-    # is the recorded version of that criterion (the anchors are hand-run captures, re-verified at this commit;
-    # this one runs in every -Full round). One variable separates it from `laevatain_goo_toon`: the chain.
-    # NOTE that it is NOT the identity against the scenario above - measured, the two differ - because the
-    # sidecar it reads is present, and that difference IS the rewrite's own output on a real character.
-    @{ name = "laevatain_old_chain"; desc = "the OLD toon chain on the same goo character"; tier = "extra";
-       extra = @{ character_forward = "true"; goo_toon = "false" }
+    # THE ASSET IS THE ONE THAT CARRIES THE DATA: `laevatain_goo.glb` and its `.toon.tsv` sidecar, whose rows
+    # are every per-material value the character stage reads. It lives under the BUILD directory because it is
+    # a locally-authored asset, not a committed fixture - see the note on $charDir above - so a `-BuildDir`
+    # pointing elsewhere needs the same `chars\` beside it, and this scenario then fails loudly ("no
+    # screenshot" / exit code) rather than passing green against a frame it never drew.
+    @{ name = "laevatain_old_chain"; desc = "the OLD toon chain on the laevatain character"; tier = "extra";
+       extra = @{ character_forward = "true" }
        model = "$charDir\laevatain_goo.glb"
        camera = "-30.3668,-14.3239,0.6,0.0,-0.57,0.0" }
 )
@@ -315,12 +266,16 @@ foreach ($s in $scenarios) {
         exit 1
     }
 }
+# HOW MANY SCENARIOS -Full RUNS: every defined scenario except the visibility-path reference set, which is a
+# second verdict (`-Visibility -Compare <file>`). Kept as a variable because the two messages below used
+# `$scenarios.Count`, which counts the visibility scenario too and therefore overstated the -Full round.
+$legacyCount = @($scenarios | Where-Object { $_.tier -ne "visibility" }).Count
 
 if ($List) {
     $coreCount = @($scenarios | Where-Object { $_.tier -eq "core" }).Count
     Write-Host "scenarios ($($scenarios.Count), of which $coreCount core - the default run):"
     foreach ($s in $scenarios) { "  {0,-26} {1,-6} {2}" -f $s.name, $s.tier, $s.desc }
-    Write-Host "`n  -Full runs all $($scenarios.Count); -Only <name> runs one whatever its tier"
+    Write-Host "`n  -Full runs all $legacyCount; -Only <name> runs one whatever its tier"
     Write-Host "`nreferences: $baseDir"
     exit 0
 }
@@ -497,37 +452,28 @@ $actualHashes = [ordered]@{}
 # ---- THE LOCAL ASSET PRECONDITION (G1): a missing asset tree is a NAMED FAILURE, not a hash -----------
 #
 # WHY THIS IS A PRECONDITION AND NOT A LINE IN THE REPORT, measured 2026-10-06 on the tree this script
-# was run in: the four `laevatain_*` scenarios render locally authored glbs/sidecars from `chars\` beside
-# the build tree, and the rewritten toon chain looks up its pre-integrated FGD LUT under
-# `deren-ab\gooblender\images\` - both GITIGNORED, so a fresh or second build tree does not have them.
-# What that produced was NOT an error: with `chars\` missing, four scenarios aborted ("failed to load
-# model" -> panic -> exit 0xC0000409), and with `chars\` present but `deren-ab\` missing, exactly the two
-# sidecar arms rendered WITHOUT the FGD LUT and reported a CHANGED HASH - which is byte-for-byte the same
-# REPORT as a rendering regression, and 2 of 14 is small enough to be read as noise. A report line would
+# was run in: `laevatain_old_chain` renders a locally authored glb and its `.toon.tsv` sidecar from
+# `chars\` beside the build tree - GITIGNORED, so a fresh or second build tree does not have them.
+# What that produced was NOT an error: with `chars\` missing, the scenario aborted ("failed to load
+# model" -> panic -> exit 0xC0000409), and with `chars\` present but the sidecar missing, the frame
+# rendered WITHOUT the per-material rows and reported a CHANGED HASH - which is byte-for-byte the same
+# REPORT as a rendering regression, and 1 of 12 is small enough to be read as noise. A report line would
 # be read after the verdict; the verdict would already be wrong. So the gate refuses to start.
 #
-# THE REQUIREMENTS ARE DECLARED PER SCENARIO, not derived from `model`/`extra`, and the fallback arm is
-# why: `laevatain_no_sidecar` runs the rewritten chain on `laevatain.glb`, whose `.toon.tsv` is
-# DELIBERATELY ABSENT (that absence IS the control). "Every goo_toon scenario needs its sidecar" would
-# demand a file the scenario exists to not have.
+# THE REQUIREMENTS ARE DECLARED PER SCENARIO, not derived from `model`/`extra`: the scenario's sidecar is
+# part of what its recorded frame measures, so its absence is a named failure rather than a different hash.
 $assetRequirements = @(
-    @{ scenarios = @("laevatain_goo_toon", "laevatain_goo_toon_body", "laevatain_old_chain");
+    @{ scenarios = @("laevatain_old_chain");
        path      = Join-Path $charDir "laevatain_goo.glb";
-       why       = "the goo character those three scenarios render" },
-    @{ scenarios = @("laevatain_goo_toon", "laevatain_goo_toon_body", "laevatain_old_chain");
+       why       = "the character the scenario renders" },
+    @{ scenarios = @("laevatain_old_chain");
        path      = Join-Path $charDir "laevatain_goo.glb.toon.tsv";
-       why       = "its per-material sidecar rows (the sidecar arm; the FALLBACK arm is a different scenario with none)" },
-    @{ scenarios = @("laevatain_no_sidecar");
-       path      = Join-Path $charDir "laevatain.glb";
-       why       = "the same character WITHOUT a sidecar (the fallback control)" },
-    @{ scenarios = @("laevatain_goo_toon", "laevatain_goo_toon_body", "laevatain_no_sidecar", "laevatain_old_chain");
-       path      = Join-Path $BuildDir "deren-ab\gooblender\images\PreIntegratedFGD_GGXDisneyDiffuse.png";
-       why       = "the goo FGD LUT the rewritten chain samples - without it those scenarios render a DIFFERENT picture and report a changed hash" }
+       why       = "its per-material sidecar rows the character stage reads" }
 )
 $selectedNames = @($scenarios | Where-Object {
     if ($onlyNames.Count -gt 0) { $onlyNames -contains $_.name }
     elseif ($Visibility) { $_.tier -eq "visibility" }
-    elseif ($Full) { $_.tier -ne "visibility" } # -Full is the legacy-path verdict, and that reference file is 15 hashes
+    elseif ($Full) { $_.tier -ne "visibility" } # -Full is the legacy-path verdict, and that reference file describes the legacy path
     else { $_.tier -eq "core" }
 } | ForEach-Object { $_.name })
 $missingAssets = @()
@@ -538,24 +484,20 @@ foreach ($requirement in $assetRequirements) {
     }
 }
 if ($missingAssets.Count -gt 0) {
-    # WHICH TREE, named: the two roots the requirements live under, so the fix is one sentence.
-    $missingTrees = @($missingAssets | ForEach-Object {
-        if ($_.path.StartsWith($charDir, [System.StringComparison]::OrdinalIgnoreCase)) { "chars\" }
-        else { "deren-ab\" }
-    } | Sort-Object -Unique)
+    # WHICH TREE, named: the root the requirements live under, so the fix is one sentence.
+    $missingTrees = @($missingAssets | ForEach-Object { "chars\" } | Sort-Object -Unique)
     Write-Host ""
     Write-Host "REFUSING TO RUN: $($missingAssets.Count) local asset(s) this selection needs are missing." -ForegroundColor Red
-    Write-Host "missing tree(s): $($missingTrees -join ', ')  (both are GITIGNORED local data, not repository content)" -ForegroundColor Red
+    Write-Host "missing tree(s): $($missingTrees -join ', ')  (GITIGNORED local data, not repository content)" -ForegroundColor Red
     foreach ($asset in $missingAssets) {
         Write-Host "  MISSING  $($asset.path)" -ForegroundColor Red
         Write-Host "           needed by: $($asset.why)"
     }
     Write-Host @"
-WHY THIS IS FATAL RATHER THAN A NOTE: without these files the scenarios that use them do not fail - they
-render a DIFFERENT picture (or abort), and the summary then says CHANGED for two of fourteen scenarios,
-which is exactly how a rendering regression reads. Fix it by putting the trees beside this build
-directory (`chars\` and `deren-ab\`, copied from the directory the migration's gates were baselined in),
-then run again.
+WHY THIS IS FATAL RATHER THAN A NOTE: without these files the scenario that uses them does not fail - it
+renders a DIFFERENT picture (or aborts), and the summary then says CHANGED for one of twelve scenarios,
+which is exactly how a rendering regression reads. Fix it by putting the tree beside this build
+directory (`chars\`, copied from the directory the migration's gates were baselined in), then run again.
 "@
     exit 1
 }
@@ -652,16 +594,16 @@ Write-Host "  actual hashes written to: $hashesFile"
 if ($ran -eq 0) { Write-Host "  ERROR: no scenario ran, so NOTHING was verified (check -Only / the scenario names)" -ForegroundColor Red; exit 1 }
 if ($missing -gt 0 -and -not $Compare) { Write-Host "  ERROR: $missing scenario(s) have no reference - run with -Update once to seed them" -ForegroundColor Red; exit 1 }
 # A default (core) round says so, because "changed : 0" over five scenarios is NOT the same statement as
-# "changed : 0" over all fourteen - the other nine only ran if -Full asked for them.
+# "changed : 0" over all twelve - the other seven only ran if -Full asked for them.
 if (-not $Full -and -not $Visibility -and $onlyNames.Count -eq 0 -and $skipped -gt 0) {
-    Write-Host "  note     : $($skipped) extra scenario(s) NOT run - `-Full runs all $($scenarios.Count)" -ForegroundColor DarkGray
+    Write-Host "  note     : $($skipped) extra scenario(s) NOT run - `-Full runs all $legacyCount" -ForegroundColor DarkGray
 }
 
 # ---- THE STANDARD COMPARISON (G2): the ACTUAL hashes, not this script's exit code --------------------
 #
 # WHY A SEPARATE VERDICT: everything above compares each frame against a reference captured earlier on
 # THIS machine, so a stale reference set makes `changed` (and this script's exit 1) the NORMAL answer on a
-# perfectly correct tree. The statement that means something is "the fourteen ACTUAL hashes are the ones
+# perfectly correct tree. The statement that means something is "the ACTUAL hashes are the ones
 # the migration's frozen list names" (or, while two trees existed, "the dynamic tree's are the control
 # tree's"). `scripts/diagnostics/compare_render_hashes.py` is that instrument, and `-Compare` runs it against the file
 # just written - so a gate round has ONE verdict that cannot be confused with "the references are old".
@@ -680,7 +622,7 @@ if ($Compare) {
     }
     Write-Host "  comparison: PASS (this is the verdict that matters; `changed` above is the stale local reference set)" -ForegroundColor Green
     # AND IT IS THE EXIT CODE: with -Compare the comparison REPLACES the reference-vs-frame verdict, so a
-    # round whose fourteen actual hashes are the ones the frozen list names exits 0 even though the local
+    # round whose actual hashes are the ones the frozen list names exits 0 even though the local
     # references are old (which is the normal state of this machine's reference set, and the reason this
     # script's own exit code has never been the gate's verdict).
     exit 0

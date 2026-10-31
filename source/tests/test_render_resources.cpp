@@ -60,7 +60,7 @@ namespace {
         .sampler = rr::sampler_hint::post,
         .stages = rr::stage_flag::compute,
     };
-    /// THE SOFTWARE RASTER'S SURFACE (M4 Task 2, docs/superpowers/specs/2026-10-22-software-raster-design.md
+    /// THE SOFTWARE RASTER'S SURFACE (M4 Task 2, historical design record
     /// §3.2/§4.2): two per-swapchain-image R32_UINT images and one CSR tile-list buffer per frame lane. It is a
     /// SEPARATE surface rather than two more `ids` entries precisely so an OFF frame allocates nothing, and every field
     /// below is a fact a later edit could silently widen - hence the checks, in the same spirit as the schema tests.

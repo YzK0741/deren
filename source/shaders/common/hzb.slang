@@ -5,7 +5,7 @@
 // `heap_slots_hzb_levels` buffer with `pyramid_words(extent)` and the headless test pins that formula; this
 // file is the shader's copy of the same recurrence, and a drift between the two is not a validation error -
 // it is a build pass writing level L to words the cull pass reads as level L-1, i.e. a wrong picture. The
-// spec (docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md §4.1) asks for exactly this note:
+// spec (historical design record §4.1) asks for exactly this note:
 //
 //   level 0  = the depth image verbatim (one NDC depth per pixel),
 //   level L  = 2x2 MAX of level L-1, width/height = ceil(previous / 2); the odd boundary REPLICATES its

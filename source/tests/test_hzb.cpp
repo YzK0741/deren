@@ -1,5 +1,5 @@
 // Headless unit tests: the HZB occlusion-culling CPU reference =================
-// This is the C++ half of the HZB design (docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md §6, §9.2,
+// This is the C++ half of the HZB design (historical design record §6, §9.2,
 // §10.1). The GPU build/cull passes mirror source/engine/visibility/hzb.cppm's formulas BY HAND (a shader cannot
 // import a C++ module), so these tests pin the formulas themselves, not a picture:
 //   1. the max-pyramid layout (level sizes, word offsets, word counts) against a brute-force ceil recurrence;

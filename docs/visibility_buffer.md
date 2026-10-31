@@ -1,9 +1,8 @@
 # The visibility buffer lane (experimental)
 
 **Status: implemented, experimental, off by default.** This page is the manual's description of the lane's
-current shape, its admission rules, its gate and its measured limits. The design record is
-`docs/superpowers/plans/2026-10-17-visibility-buffer.md`; the measurements and known differences are in
-`docs/reviews/2026-10-18-visibility-buffer-ab.md` (with the follow-up probe record beside it).
+current shape, its admission rules, its gate and its measured limits. The dated design, measurement and
+probe records behind it are maintainer working material and are not distributed with this repository.
 
 **The LOD above this lane is subtilis**: its screen-error cut chooses which cluster records this lane rasterizes
 (off by default). See [subtilis](subtilis.md) for the builder, the cut, the capacity contract and the measured
@@ -29,8 +28,8 @@ readback. Capture-only snapshots validate the hardware/software partition agains
 frame slots, closed-history fallback, forced budget exhaustion, nonzero recovery). The mode is default-off and its
 same-build performance matrix shows no stable whole-frame win over software-off DAG+HZB; the full-stage
 resolve/merge verifier remains unconnected. The mode is closed as an optional negative result and is not
-optimized further. See the [routing checkpoint](reviews/2026-10-23-software-routing.md) for the evidence and
-limitations and the [final closeout](reviews/2026-10-23-subtilis-final-closeout.md).
+optimized further. The evidence and limitations are summarized here; the routing-checkpoint and closeout
+records are not distributed with this repository.
 
 ## What it is
 
@@ -100,10 +99,10 @@ depth. The compute resolve does not re-run the cut-out test; a pixel with a vali
   off-path references are byte-for-byte unchanged.
 - A/B capture: run the capture harness with the switch appended, e.g.
   `pwsh scripts/gates/check_render.ps1 -Only deferred -ExtraConfig 'visibility_buffer = true'`.
-- Frozen reference for the on path: `docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt` (the
-  `deferred_visibility` scenario), checked with `-Visibility -Compare <file>`. The legacy frozen round remains
-  `docs/reviews/2026-10-17-render-graph-gate/legacy-hashes.txt` (15/15) and does not include the visibility
-  tier.
+- Frozen reference for the on path: a `deferred_visibility` hash file produced by the gate's `-Visibility`
+  mode and consumed with `-Compare <file>`. That reference and the legacy 15/15 render-graph round were kept
+  as maintainer artifacts and are not distributed with the repository. The legacy round does not include the
+  visibility tier.
 - Frame-to-frame A/B of the two producers: `scripts/measure/visibility_ab.py` over two capture directories.
 
 ## Known limits and cost
@@ -147,8 +146,8 @@ Configuration/scene changes follow the existing serialized frame boundary.
 This is whole-image GPU residency, not mip/page streaming. CPU decoded sources remain allocated.
 Logged payload counts distinguish total/pinned/physically ready bytes and deferred unloads; they do
 not measure VMA block release or process VRAM. Frame checkpoint and synchronous upload can cause
-substantial stalls. The option is default-off and not an FPS optimization. See the approved
-[design](superpowers/specs/2026-10-26-vbuffer-residency-design.md) and execution record beside it.
+substantial stalls. The option is default-off and not an FPS optimization. The approved design and its
+execution record are maintainer material and are not distributed with the repository.
 
 ## See also
 

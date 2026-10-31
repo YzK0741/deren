@@ -167,15 +167,12 @@ namespace deren::chores {
         // the other render toggles, and the overlay only offers it when the renderer registered the pipeline
         // (see render_start_demo::feature_available).
         bool character_forward = false;
-        // WHICH SHADING MODEL THAT STAGE DRAWS WITH (runtime::set_goo_toon): false = the old chain
-        // (`character_forward.slang`), true = the rewritten one (`goo_toon.slang`, see
-        // `runtime::goo_toon_pipeline_name`). A SECOND SWITCH RATHER THAN ONE, because the two answer different
-        // questions - whether the stage runs, and which model it runs - and the rewrite is verified by holding the
-        // first fixed and moving the second. Mirrored into the runtime every frame like the other render toggles.
-        // WHICH SHADING MODEL THAT STAGE DRAWS WITH, SECOND OPT-IN (runtime::set_game_toon): true = the
-        // game-shader model (`game_toon.slang`, see `runtime::game_toon_pipeline_name`). A THIRD MODEL beside
-        // the old chain and Goo, not a replacement; the two model switches are separate so the A/B can move one
-        // at a time. Mirrored into the runtime every frame like the other render toggles.
+        // WHICH SHADING MODEL THAT STAGE DRAWS WITH, SECOND OPT-IN (runtime::set_game_toon): false = the chain
+        // written against the article (`character_forward.slang`), true = the game-shader model
+        // (`game_toon.slang`, see `runtime::game_toon_pipeline_name`). A SWITCH OF ITS OWN RATHER THAN A MODE
+        // ON `character_forward`, because the two answer different questions - whether the stage runs, and which
+        // model it runs - and the game port is verified by holding the first fixed and moving the second.
+        // Mirrored into the runtime every frame like the other render toggles.
         bool game_toon = false;
         // Four editable punctual lights (the runtime supports a larger set): the gui rows below
         // edit these fields live (no per-widget callbacks), and main() pushes the enabled set to

@@ -316,19 +316,19 @@ namespace deren::engine {
         if (name == "character_forward") {
             // THE RUNTIME'S COMPOSED PREDICATE (the knob AND this frame's opaque leaf list, see
             // feature_facts::character_forward_pending) AND the pass being ready. This ONE gate answers for the
-            // SURFACE pass; the screen-space rim asks under its own name below, because the rewritten toon chain
-            // must not wear that contour as well as the Goo rim (see `toon_screen_rim_pass::feature`).
+            // SURFACE pass; the screen-space rim asks under its own name below, because the game chain must
+            // not wear the article's contour as well as its own depth rim (see `toon_screen_rim_pass::feature`).
             return facts.character_forward_pending && self.character_forward != nullptr && self.character_forward->ready();
         }
         if (name == "toon_screen_rim") {
             // THE SAME PREDICATE AS THE STAGE ABOVE PLUS "THE REWRITTEN CHAIN IS NOT THE ONE DRAWING" - and that
             // second half is the whole reason this is a name of its own.
             //
-            // WHY THE REWRITTEN CHAIN MUST SILENCE IT: this pass is a fullscreen ADDITIVE contour (the article's
-            // second rim, `toon_screen_rim.slang`), and the chain the rewrite follows has no such contour - its
-            // screen-space piece is `DepthRim`, which step 2 defers. Left running with `goo_toon` on, the frame
-            // would carry the article's contour AND the reference's rim, which is the same "two rims" defect
-            // step 2 suppresses inside `toon_diffuse`, one stage over.
+            // WHY THE GAME CHAIN MUST SILENCE IT: this pass is a fullscreen ADDITIVE contour (the article's
+            // second rim, `toon_screen_rim.slang`), and the game-shader chain has its own depth-contour rim
+            // instead. Left running with the game model on, the frame would carry the article's contour AND
+            // the game chain's rim, which is the same "two rims" defect step 2 suppresses inside
+            // `toon_diffuse`, one stage over.
             //
             // THE GAME-SHADER MODEL IS THE SECOND REFERENCE CHAIN and its inline rim (`ZmdToonMain.hlsl:343-370`)
             // is the author's own rim, so the article's contour must be off under it for the same "two rims"

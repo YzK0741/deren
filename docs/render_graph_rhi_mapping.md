@@ -2,8 +2,8 @@
 
 The converters and optional scoped recording capability are implemented. The graph is the only recording path
 now: since the 2026-10-17 cleanup every frame a build renders is graph-recorded, and the startup switches that
-used to select it (and the legacy chains they fell back to) are gone. See the
-[post-chain acceptance record](reviews/2026-10-16-render-graph-post.md) for current GPU evidence. This audit does
+used to select it (and the legacy chains they fell back to) are gone. The post-chain acceptance record was
+maintainer material and is not distributed with this repository. This audit does
 not imply that every subsystem's resources are declared to the graph.
 
 ## Frontend semantics and native layout are independent

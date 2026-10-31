@@ -7,7 +7,7 @@ The viewer loads trained Gaussian PLY assets and renders them through the normal
 Set the top-level `model` to a trained `.ply` file. The extension selects the loader: `.gltf` and `.glb` use the mesh importer; `.ply` uses the Gaussian loader. There is no separate Gaussian enable key. The loader contract is described in \ref md_docs_2gaussian__loader "Gaussian PLY loader".
 
 ```toml
-model = "gaussian-viewer/flowers/flowers_1/flowers_1.ply"
+model = "asset/flowers/flowers_1.ply"
 grid_side = 0
 [render]
 window_width = 1280
@@ -17,7 +17,7 @@ taa = false
 sun_direction = [0.0, 0.25, 1.0]
 ```
 
-NVIDIA's Bouquet of Flowers is the acceptance asset: 562,974 particles, SH degree 3, CC BY-SA 4.0, credited to Jean-Eudes Marvie. Fetch it with `scripts/assets/fetch_gaussian_viewer_asset.ps1`; the large asset is not committed. A missing or malformed file is reported at startup rather than presented as a successful blank scene.
+NVIDIA's Bouquet of Flowers is the acceptance asset: 562,974 particles, SH degree 3, CC BY 4.0, credited to Jean-Eudes Marvie. The cloud is committed at `asset/flowers/flowers_1.ply` (NVIDIA nvpro-samples `flowers_1.zip`, stored with Git LFS; run `git lfs pull` after cloning); see `asset/flowers/README.md` for attribution and terms. A missing or malformed file is reported at startup rather than presented as a successful blank scene.
 
 The camera is fitted to the cloud's conservative bounds. `--capture-camera` overrides the fit for reproducible images. The bouquet viewer aligns its local -Y flower face toward the configured sky sun while rotating about the bounds center. This is a placement convention for the bouquet, not automatic front-face detection for arbitrary assets. SH appearance includes captured lighting; changing the sky sun does not physically relight the cloud.
 
@@ -152,7 +152,7 @@ The resize helper also accepts `-RapidResize` for twenty actions and `-Camera` f
 
 The gray-band diagnosis compared healthy pre-post HDR with corrupted final PNGs, ruled out GUI draw submission and observed four unresolved Bloom passes at nonzero intensity. The runtime now searches both its legacy registry and the attached passes' named pipelines. Five early restored captures, a final early capture and twenty maximize/restore actions were clean, with full CTest 24/24 and independent review. Bloom now works as configured: 13 of 14 old frozen images change; omitting only Bloom addition in an isolated diagnostic matches all 14. References were not updated to conceal this intended visual change.
 
-Detailed measurements and historical investigations remain in the repository's `docs/reviews` records for GPU frame acceptance, projection cache acceptance, empty-scene resources, camera clears, resize synchronization and maximize/restore. Rejected hypotheses and withdrawn image-difference metrics are not current guidance and are not repeated in this chapter.
+Detailed measurements and historical investigations were kept in maintainer records that are not distributed with this repository, covering GPU frame acceptance, projection cache acceptance, empty-scene resources, camera clears, resize synchronization and maximize/restore. Rejected hypotheses and withdrawn image-difference metrics are not current guidance and are not repeated in this chapter.
 
 ## Current boundaries
 

@@ -78,8 +78,7 @@ and MSVC integration have not been executed locally.
 `boost/int128.hpp` and the `boost/int128/` headers are a separate pinned
 Boost.Int128 snapshot, folded into the same `boost/` include tree. Upstream:
 https://github.com/boostorg/int128, pinned Git revision
-`16f0b3374470e3821c10277775de18cf320cda45` (the revision measured in
-`docs/benchmarks/2026-10-28-private-morton-int128.md`). The headers and
+`16f0b3374470e3821c10277775de18cf320cda45`. The headers and
 `LICENSE_1_0.txt` are original Git blob bytes, with no local upstream patches;
 `int128-headers.json` records the SHA-256 of all 34 upstream files. The root
 Boost Software License 1.0 covers both sets. Preserve vendor bytes using the

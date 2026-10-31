@@ -2,7 +2,6 @@
 # (Folder-based vendoring replaces the previous extension whitelist, so project
 #  sources — cpp/cppm/headers/cmake/glsl — count naturally.)
 # Third-party code / assets
-std/** linguist-vendored
 source/third_party/** linguist-vendored
 # Preserve the upstream bytes checked by Boost's SHA-256 vendor manifest.
 source/third_party/boost/** -text
@@ -10,9 +9,8 @@ source/third_party/khronos_tonemapping/** -text
 source/third_party/meshoptimizer/** -text
 source/third_party/yyjson/** -text
 asset/** linguist-vendored
-# Non-code folders (docs, screenshots)
-docs/** linguist-vendored
-snapshot/** linguist-vendored
+# docs/ is project prose (Doxygen INPUT and reference documentation), so it is
+# first-party content and deliberately NOT marked linguist-vendored.
 # Shell scripts must keep LF endings in the working tree (core.autocrlf=true
 # would otherwise check them out as CRLF and break the shebang on POSIX).
 *.sh text eol=lf

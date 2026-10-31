@@ -4,7 +4,7 @@
  * @brief the HZB's producer: a heap-native compute stage that builds the max pyramid (one dispatch per level)
  *        and its header from this frame's G-buffer depth (M3 phase A2).
  *
- * SPEC: docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md §4.1, §4.2, §8.1, §11 phase A. Phase A is
+ * SPEC: historical design record §4.1, §4.2, §8.1, §11 phase A. Phase A is
  * BUILD + VALIDATE ONLY: the pass writes only `heap_slots_hzb_levels` and `heap_slots_hzb_header`, no other pass
  * reads them this frame, and nothing culls against them yet - so enabling it cannot change a pixel. That is the
  * acceptance gate (the capture must be byte-identical to the OFF run), and it is why the pass lands before the
