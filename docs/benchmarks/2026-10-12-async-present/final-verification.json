@@ -1,8 +1,0 @@
-{
-  "executable_sha256": "13dedf35d524e06bec3f2bc9731f501a1ac71b510818d94eee04c7426057ada9",
-  "backend_sha256": "e8dc2cb2f9f391860e66a5464c82b414a192257c99989ff3381ab35af36c7e98",
-  "source_delta_after_measurement": "Only typed extension identifier and comment count cleanup; frame algorithm unchanged.",
-  "complete_test_count": 24,
-  "native_checks": 1126,
-  "async_frame_checks": 22
-}

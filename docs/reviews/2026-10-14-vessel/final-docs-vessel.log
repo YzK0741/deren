@@ -1,9 +1,0 @@
-Test project C:/Users/23530/Desktop/yzk/deren/build-release-dyn-clang64
-    Start  5: test_vessel
-1/2 Test  #5: test_vessel ......................   Passed    0.22 sec
-    Start 20: test_docs
-2/2 Test #20: test_docs ........................   Passed    0.04 sec
-
-100% tests passed out of 2
-
-Total Test time (real) =   0.27 sec

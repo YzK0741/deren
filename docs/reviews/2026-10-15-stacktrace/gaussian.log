@@ -1,5 +1,0 @@
-PASS: CPU rendered 40 frames
-PASS: GPU rendered 40 frames
-Failed to find real location of C:\Users\23530\AppData\Local\Python\bin\python.exe
-{"channel_rmse_255": [0.004995657836784083, 0.007141306875417755, 0.00820209153542897], "maximum_channel_difference": 3.0, "differing_pixels": 104}
-{"channel_rmse_255": [0.004995657836784083, 0.007141306875417755, 0.00820209153542897], "maximum_channel_difference": 3.0, "differing_pixels": 104, "hdr_rmse": 3.0198767564246227e-05, "hdr_maximum_rgb_difference": 0.01416015625}

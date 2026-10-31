@@ -1,8 +1,0 @@
-test_descendants_die_on_timeout_and_parent_exit (__main__.BoundedSymbolizerTests.test_descendants_die_on_timeout_and_parent_exit) ... ok
-test_output_limit (__main__.BoundedSymbolizerTests.test_output_limit) ... ok
-test_success (__main__.BoundedSymbolizerTests.test_success) ... ok
-
-----------------------------------------------------------------------
-Ran 3 tests in 3.353s
-
-OK

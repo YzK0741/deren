@@ -1,5 +1,0 @@
-st::capture frames=0 operator_new_calls=1
-CaptureStackBackTrace frames=3 operator_new_calls=0
-requested_depth=2
-libunwind: 	pc not in table, pc=0x7FF604BD1F39
-libunwind: 	pc not in table, pc=0x7FF604BD2068

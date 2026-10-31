@@ -20,7 +20,6 @@ docs/latex/
 
 #runtime artifacts (flushed logs; the Dear ImGui layout file is no longer written - io.IniFilename is null - but it stays ignored so a stale one cannot be committed)
 debug.log
-!docs/reviews/**/debug.log
 debug.log.old
 deren-debug.log
 deren-debug.log.old
@@ -47,3 +46,7 @@ __pycache__/
 
 # Workspace scratch for measurement runs; durable evidence lives under D:/deren-assets, not the repo.
 /tmp/
+/docs/reviews/
+/docs/superpowers/
+/docs/benchmarks/
+/docs/research/

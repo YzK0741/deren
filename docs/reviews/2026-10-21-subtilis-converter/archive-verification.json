@@ -1,9 +1,0 @@
-{
- "schema": "subtilis-converter-archive-verification/1",
- "archive_root": "D:\\deren-assets\\2026-10-21-subtilis-converter",
- "file_count": 62,
- "total_bytes": 1409060280,
- "sha256_mismatches": 0,
- "method": "re-hashed every archived file against the manifest just written (Python hashlib.sha256, size check)",
- "local_scratch_removed_after_verification": true
-}
