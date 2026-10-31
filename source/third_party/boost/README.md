@@ -72,3 +72,36 @@ hooks terminate; normal graph cycle errors must not reach those hooks.
 Windows Clang64 Release and ASan/UBSan probes passed. A separate temporary C++
 module/client probe also passed without exposing Boost in the client. Linux
 and MSVC integration have not been executed locally.
+
+## Boost.Int128 headers
+
+`boost/int128.hpp` and the `boost/int128/` headers are a separate pinned
+Boost.Int128 snapshot, folded into the same `boost/` include tree. Upstream:
+https://github.com/boostorg/int128, pinned Git revision
+`16f0b3374470e3821c10277775de18cf320cda45` (the revision measured in
+`docs/benchmarks/2026-10-28-private-morton-int128.md`). The headers and
+`LICENSE_1_0.txt` are original Git blob bytes, with no local upstream patches;
+`int128-headers.json` records the SHA-256 of all 34 upstream files. The root
+Boost Software License 1.0 covers both sets. Preserve vendor bytes using the
+root `.gitattributes`.
+
+Reproduce and verify:
+
+```text
+python scripts/tools/vendor_boost_int128.py --source <upstream-checkout> --output <new-staging-directory>
+python scripts/tools/vendor_boost_int128.py --output source/third_party/boost --verify
+```
+
+The extractor reads pinned Git blobs rather than line-ending-converted working
+files, and rejects a different HEAD. Compare manifests before any update.
+`test_boost_int128_vendor` verifies the checked-in snapshot offline, including
+extra/missing headers. Builds never fetch dependencies.
+
+## Boost.Int128 integration boundary
+
+The standalone `boost_int128_headers` CMake target is private to
+`static_utility` and the private encoder test. Only `boost/int128/int128.hpp`
+is included by the private BVH helper, in the utility module's global fragment.
+There is no public `int128_t`/`uint128` alias and no Boost integer in the RHI or
+exported utility interface. The helper returns twelve bytes; BVH storage,
+quantization and byte-lexicographic sorting remain unchanged.

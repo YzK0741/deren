@@ -25,7 +25,8 @@ HEADERS = [
 def hashes(root):
     return {
         path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in sorted((root / "boost").rglob("*")) if path.is_file()
+        for path in sorted((root / "boost").rglob("*"))
+        if path.is_file() and path.name != "int128.hpp" and "int128" not in path.relative_to(root / "boost").parts
     }
 
 
