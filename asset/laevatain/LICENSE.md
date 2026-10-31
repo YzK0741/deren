@@ -2,11 +2,11 @@
 
 **Copyright © Hypergryph Network Technology Co., Ltd. All rights reserved.**
 
-**此资产一切权利归鹰角网络所有。**
+**All rights to this asset belong to Hypergryph Network Technology Co., Ltd.**
 
 The Laevatain / GameToon character model, its textures, the Toon material sidecar and
 all related game assets in this directory are the property of
-Hypergryph Network Technology Co., Ltd. (鹰角网络).
+Hypergryph Network Technology Co., Ltd.
 
 They are included here only so the rendered screenshots in this repository can be
 reproduced and so deren's game-toon profile path can be tested against its source
