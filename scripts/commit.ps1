@@ -34,9 +34,9 @@ try {
         }
     }
 
-    Ask-Required "feature 是否完整 (is the feature complete)"
-    Ask-Required "ci 是否本地通过 (has the local CI gate passed)"
-    Ask-Required "是否确保诚实 (is this commit honest, with no hidden WIP or untracked dependency)"
+    Ask-Required "Is the feature complete?"
+    Ask-Required "Has the local CI gate passed?"
+    Ask-Required "Is this commit honest, with no hidden WIP or untracked dependency?"
 
     if ($DryRun) {
         Write-Host ""

@@ -25,7 +25,7 @@ try {
     & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "check-ci-marker.ps1")
     if ($LASTEXITCODE -ne 0) { throw "push refused: CI marker is missing or stale" }
 
-    $answer = Read-Host "push 完备? [y/N]"
+    $answer = Read-Host "Is the push complete? [y/N]"
     if ($answer -notin @("yes", "y")) {
         throw "push cancelled"
     }

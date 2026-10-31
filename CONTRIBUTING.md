@@ -72,7 +72,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -Branch feature
 ```
 
 `push.ps1` refuses `master`/`main`, validates that `tmp/ci-pass.json` names the
-current HEAD and was generated after that commit, asks `push 完备? [y/N]`, and only
+current HEAD and was generated after that commit, asks `Is the push complete? [y/N]`, and only
 then pushes. `.githooks/pre-push` runs the same `check-ci-marker.ps1` validation, so
 a direct feature-branch push with a stale or missing marker is rejected.
 
