@@ -21,20 +21,17 @@ try {
 
     if (-not $Title) { $Title = $Branch }
 
-    Write-Host "Running the full local CI gate before push..." -ForegroundColor Cyan
-    & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-local-ci.ps1") -Mode Full
-    if ($LASTEXITCODE -ne 0) {
-        throw "push refused: local CI gate failed"
+    Write-Host "Checking the CI marker for HEAD..." -ForegroundColor Cyan
+    & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "check-ci-marker.ps1")
+    if ($LASTEXITCODE -ne 0) { throw "push refused: CI marker is missing or stale" }
+
+    $answer = Read-Host "Is the push complete? [y/N]"
+    if ($answer -notin @("yes", "y")) {
+        throw "push cancelled"
     }
 
-    $env:DEREN_LOCAL_CI_OK = "1"
-    try {
-        git push -u origin $Branch
-        if ($LASTEXITCODE -ne 0) { throw "git push failed" }
-    }
-    finally {
-        Remove-Item Env:DEREN_LOCAL_CI_OK -ErrorAction SilentlyContinue
-    }
+    git push -u origin $Branch
+    if ($LASTEXITCODE -ne 0) { throw "git push failed" }
 
     if ($CreatePr) {
         if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {

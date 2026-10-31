@@ -57,9 +57,12 @@ Use the checklist script, not `git commit` directly:
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\commit.ps1 -Message "toon: ..." -Paths source/shaders/toon/game_toon
 ```
 
-It stages the given paths, prints the staged diff, asks the three questions, runs
-the local gate, and only then commits. The `pre-commit` hook requires the
-checklist marker, so a bypass is visible in the shell history rather than silent.
+It stages the given paths, prints the staged diff, asks the three questions, creates
+the commit, then runs the local gate **against that commit**. On success the gate
+writes `tmp/ci-pass.json` with the commit SHA, tree SHA, commit time and a timestamp.
+If the gate fails, the commit is rolled back with `git reset --soft` and the staged
+changes stay in place. The `pre-commit` hook requires the checklist marker, so a
+bypass is visible in the shell history rather than silent.
 
 ## Pushing and merging
 
@@ -68,8 +71,15 @@ checklist marker, so a bypass is visible in the shell history rather than silent
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -Branch feature/my-change -CreatePr
 ```
 
-`push.ps1` refuses `master`/`main`, runs the full local gate, and sets the
-`DEREN_LOCAL_CI_OK` marker consumed by `.githooks/pre-push`.
+`push.ps1` refuses `master`/`main`, validates that `tmp/ci-pass.json` names the
+current HEAD and was generated after that commit, asks `Is the push complete? [y/N]`, and only
+then pushes. `.githooks/pre-push` runs the same `check-ci-marker.ps1` validation, so
+a direct feature-branch push with a stale or missing marker is rejected.
+
+The marker is local by design: CI cannot write a repository file without creating a
+second, unverified commit, and a committed marker would only assert itself. GitHub
+cannot see `tmp/ci-pass.json`; the server-side equivalent is the PR-only branch
+protection + required status checks described below. Never commit `tmp/ci-pass.json`.
 
 Enable the hooks once per clone:
 

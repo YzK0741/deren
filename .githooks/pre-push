@@ -10,9 +10,17 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     esac
 done
 
-if [ "$DEREN_LOCAL_CI_OK" != "1" ]; then
-    echo "push refused: the local CI gate marker is missing." >&2
-    echo "Run scripts/push.ps1 (it runs scripts/run-local-ci.ps1 before pushing), or run the gate and set DEREN_LOCAL_CI_OK=1 explicitly." >&2
+# The marker is written by scripts/commit.ps1 only after the local gate passes
+# on the committed HEAD. The pre-push hook re-runs the same validation so a
+# direct `git push` cannot skip the marker check.
+if ! command -v pwsh >/dev/null 2>&1; then
+    echo "push refused: pwsh is required to validate tmp/ci-pass.json" >&2
+    exit 1
+fi
+
+if ! pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/check-ci-marker.ps1; then
+    echo "push refused: CI marker is missing, stale, or does not match HEAD." >&2
+    echo "Run scripts/commit.ps1 (it commits and attests) or scripts/run-local-ci.ps1 -Mode Full on a clean HEAD." >&2
     exit 1
 fi
 
