@@ -663,7 +663,7 @@ target_sources(deren_engine
         source/engine/pass/gaussian_splatting.cppm
         source/engine/pass/character_forward.cppm
         source/engine/pass/toon_screen_rim.cppm
-        source/engine/pass/goo_rim.cppm
+        source/engine/pass/game_toon_depth_rim.cppm
         source/engine/pass/ray_traced_shadow.cppm
         source/engine/pass/mask_bake.cppm
         source/engine/pass/compute_skin.cppm
@@ -730,7 +730,7 @@ target_sources(deren_engine
         source/engine/pass/gaussian_splatting.cpp
         source/engine/pass/character_forward.cpp
         source/engine/pass/toon_screen_rim.cpp
-        source/engine/pass/goo_rim.cpp
+        source/engine/pass/game_toon_depth_rim.cpp
         source/engine/pass/ray_traced_shadow.cpp
         source/engine/pass/mask_bake.cpp
         source/engine/pass/compute_skin.cpp
@@ -1188,7 +1188,7 @@ option(VR_BUILD_TESTS "Build the headless unit tests" ON)
 # Standalone, pinned Boost.Int128 is a private implementation dependency of BVH only.
 add_library(boost_int128_headers INTERFACE)
 target_include_directories(boost_int128_headers SYSTEM INTERFACE
-        "${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/boost_int128/include")
+        "${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/boost")
 target_link_libraries(static_utility PRIVATE boost_int128_headers)
 
 add_library(boost_graph_headers INTERFACE)
@@ -1290,7 +1290,7 @@ if(VR_BUILD_TESTS)
                 --output "${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/boost" --verify)
     add_test(NAME test_boost_int128_vendor
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tools/vendor_boost_int128.py"
-                --output "${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/boost_int128" --verify)
+                --output "${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/boost" --verify)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         find_package(Threads REQUIRED)
         add_executable(stacktrace_posix_probe
@@ -1323,13 +1323,16 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_morton test_engine_outcome test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_progressive_texture test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb test_visibility_software test_visibility_software_pass test_visibility_merge_pass test_render_operations)
+    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_morton test_engine_outcome test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_docs test_dynamic_link test_vulkan_capabilities test_progressive_texture test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb test_visibility_software test_visibility_software_pass test_visibility_merge_pass test_render_operations)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
     # directory `ctest -j` made two of them read each other's files (measured: 18/19 in parallel, 19/19
     # serial). They cannot collide now.
 
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/source/tests/test_radiance_capture.cpp")
+        list(APPEND VR_TEST_TARGETS test_radiance_capture)
+    endif()
     foreach(test_target IN ITEMS ${VR_TEST_TARGETS})
         add_executable(${test_target} source/tests/${test_target}.cpp)
         target_link_libraries(${test_target} shared_utility vstd_lib)
@@ -1341,6 +1344,9 @@ if(VR_BUILD_TESTS)
     endforeach()
 
     target_link_libraries(test_morton boost_int128_headers)
+    if(TARGET test_radiance_capture)
+        target_link_libraries(test_radiance_capture deren_engine probe_backend_static)
+    endif()
     target_link_libraries(test_rhi_ownership promise)
     # The injection test's single entry point carries the local objects for every child mode; Debug+ASan
     # builds that frame above the Windows default 1 MiB reserve. Give this test executable room to run.
@@ -1381,13 +1387,6 @@ if(VR_BUILD_TESTS)
     # source/app/chores.cpp's load_shader calls) and compares them: one shader built by the build and not by the scripts is
     # the drift that test exists for, and it is the mesh path's CI gate (see the test's header).
     target_compile_definitions(test_shader_sources PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    # test_goo_toon_math evaluates the REWRITTEN toon chain's iris arithmetic (read out of the reference's own
-    # node graph) and checks the SOURCES' TEXT for the five places a new toon lane has to be spelled - the lane
-    # enum, the upload format table, the sidecar slot/flag names, the colour-row name and the two neutral tables.
-    # None of those is a compiler-checkable contract: a missing one reads another material's data rather than
-    # failing (see `deren::vulkan::toon_colour_lane`'s note on the dedup key). It reads those files, so it needs the
-    # source root and no library at all - like test_meshlet, it must run in CI, where there is no device.
-    target_compile_definitions(test_goo_toon_math PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     # test_docs parses the WRITTEN artifacts the manual and CI are built from - Doxyfile's INPUT, the
     # documents themselves, CMakeLists' VR_TEST_TARGETS and the workflow that mirrors it - so it needs
     # the source root and no library at all (see the test's header for the invariants).
@@ -2104,7 +2103,19 @@ set(VR_SHADER_INCLUDES
     # editing a family's parameters must rebuild every stage that read them, and a stage left on stale SPIR-V
     # would shade with the previous table - which looks like a tuning that did not take rather than like a
     # build error.
+    "${VR_SHADER_SRC_DIR}/scene/pbr.slang"
+    "${VR_SHADER_SRC_DIR}/post/game_toon_tonemap.h"
+    "${VR_SHADER_SRC_DIR}/toon/game_toon_math.h"
     "${VR_SHADER_SRC_DIR}/toon/toon_params.slang"
+    "${VR_SHADER_SRC_DIR}/toon/game_toon/face_diffuse.h"
+    "${VR_SHADER_SRC_DIR}/toon/game_toon/face_frame.h"
+    "${VR_SHADER_SRC_DIR}/toon/game_toon/face_rim.h"
+    "${VR_SHADER_SRC_DIR}/toon/game_toon/skin_material.h"
+    "${VR_SHADER_SRC_DIR}/toon/game_toon/game_toon_profile.h"
+    "${VR_SHADER_SRC_DIR}/toon/game_toon/captured/game_toon_lights.h"
+    "${VR_SHADER_SRC_DIR}/toon/game_toon/captured/encoding.h"
+    "${VR_SHADER_SRC_DIR}/toon/game_toon/captured/outline.slang"
+    "${VR_SHADER_SRC_DIR}/toon/reference_shape.h"
     "${VR_SHADER_SRC_DIR}/lighting/shading.slang"
     "${VR_SHADER_SRC_DIR}/lighting/sky.slang"
     # ibl_specular.slang is included by shading.slang, so it belongs here for the same reason the three above
@@ -2161,13 +2172,26 @@ set(VR_SHADER_INCLUDES
     # otherwise the old chain's fix lands in one .spv and not the other, which is a difference between two stages
     # that must agree, visible only as a byte comparison. See `goo_toon_pipeline_name`'s note for why the two
     # stages share one body on purpose.
-    "${VR_SHADER_SRC_DIR}/toon/goo_toon.slang"
+    # game_toon.slang IS THE GAME-SHADER MODEL'S STAGE and it is listed for the SAME reason
+    # character_forward.slang is above: it includes the shared body (toon_diffuse and the surface
+    # gather), so an edit to that body must rebuild game_toon.frag.spv as well. The stage is opt-in
+    # and OFF by default ([render] game_toon), so its landing is behaviour-neutral.
+    "${VR_SHADER_SRC_DIR}/toon/game_toon.slang"
+    # the per-family game-shader ports included by game_toon.slang; each edit must rebuild game_toon.frag.spv
+    "${VR_SHADER_SRC_DIR}/toon/game_toon/cloth.slang"
+    "${VR_SHADER_SRC_DIR}/toon/game_toon/hair.slang"
+    "${VR_SHADER_SRC_DIR}/toon/game_toon/face.slang"
+    "${VR_SHADER_SRC_DIR}/toon/game_toon/skin.slang"
+    "${VR_SHADER_SRC_DIR}/toon/game_toon/captured/eye.slang"
+    "${VR_SHADER_SRC_DIR}/toon/game_toon/captured/cloth.slang"
+    "${VR_SHADER_SRC_DIR}/toon/game_toon/captured/hair.slang"
+    "${VR_SHADER_SRC_DIR}/toon/game_toon/captured/skin_face.slang"
+    "${VR_SHADER_SRC_DIR}/toon/game_toon/eye.slang"
     # goo_rim.slang is THE REWRITTEN CHAIN'S THIRD STAGE and it is listed for the reason the two lines above are:
     # it reads the same two shared tables those stages do (`toon_params.slang`'s family table and
     # `material_record.slang`'s layout), so an edit to either must rebuild `goo_rim.frag.spv` as well - a stage left
     # on stale SPIR-V would read a material record with different field offsets, which is a wrong texture or a
     # wrong family rather than a build error.
-    "${VR_SHADER_SRC_DIR}/toon/goo_rim.slang"
 )
 # (THE GLSL STAGE LIST USED TO LIVE HERE: twenty-four names, glslc's input, kept in step with the sources by
 # hand. Every one of them is in source/reference/shaders/glsl.old/ now and built from Slang instead, so the list is gone -
@@ -2204,16 +2228,28 @@ set(VR_SLANG_SOURCES
     # `[shader("fragment")] main` with it, and a plain `-entry main` then names an overload set that Slang refuses
     # to resolve (E38000). It is selected at run time by `[render] goo_toon` - OFF by default, so none of the ten
     # capture scenarios draws it, and its landing is behaviour-neutral until a run asks for it.
-    toon/goo_toon.slang:goo_toon_frag_main:fragment:goo_toon.frag.spv
+    # game_toon.slang is THE GAME-SHADER TOON MODEL's fragment stage. Same pass, same frame and same
+    # state as the two entries above; only the fragment module differs, selected by `[render]
+    # game_toon` (OFF by default). Its entry is `game_toon_frag_main`, not `main`, for the same reason
+    # goo_toon's is: it includes character_forward.slang, which brings that file's own
+    # `[shader("fragment")] main` with it, and a plain `-entry main` names an overload set Slang
+    # refuses (E38000). PHASE 1 IS THE PLUMBING MILESTONE: the entry still calls the shared body, so
+    # selecting it draws the old chain's pixels while config/pipeline/GUI are proven.
+    toon/game_toon.slang:game_toon_frag_main:fragment:game_toon.frag.spv
     # toon_screen_rim.slang is the toon stage's SECOND rim: a fullscreen additive contour from the depth,
     # gated by the SAME `character_forward` feature, so no capture scenario records it either.
     toon/toon_screen_rim.slang:main:fragment:toon_screen_rim.frag.spv
+    # game_toon_depth_rim.slang is THE GAME CHAIN's rim: the same fullscreen additive depth-contour shape as
+    # toon_screen_rim.slang above, but family-independent and coloured by ITS OWN push block, because the game
+    # chain's profile-on contour is the captured viewer's hair/face rim rather than the article's family term.
+    # It is gated at the post-graph lane by `runtime::game_toon_active()`, so no capture scenario records it
+    # unless one selects the game-shader model.
+    toon/game_toon_depth_rim.slang:main:fragment:game_toon_depth_rim.frag.spv
     # goo_rim.slang is THE REWRITTEN CHAIN'S rim, and it is a stage of its own for the constraint its header
     # records: the reference's rim is a PRODUCT of three attenuations and a screen-space depth factor, and the
     # depth it samples is the character-forward stage's own ATTACHMENT - so the surface shader cannot compute it.
     # It is gated by `[render] goo_toon` (through a name the chain owner composes), so, like the two entries above,
     # no capture scenario records it until one turns the rewritten chain on.
-    toon/goo_rim.slang:main:fragment:goo_rim.frag.spv
     # overlay.slang is the article's TWO FRAMEBUFFER MULTIPLIES (an eye shadow and a hair shadow), drawn by the
     # `character_forward` stage's overlay group with the multiply blend and gated by that same feature - so, like
     # the two entries above, no capture scenario records it until one turns the toon stage on. It shares
@@ -2257,7 +2293,7 @@ set(VR_SLANG_SOURCES
     # to the clip position before the vertex is written (`build-release-clang64/deren-ab/outline_plan.md` ①). It is
     # the SAME FILE because the hull has to be skinned, morphed and placed by the same body as the surface it
     # outlines - a second copy of that body is how an outline detaches from a deforming character.
-    scene/pbr.slang:outline_mesh_main:mesh:outline.mesh.spv
+    toon/game_toon/captured/outline.slang:game_toon_outline_mesh_main:mesh:outline.mesh.spv
     # visibility.slang is THE VISIBILITY BUFFER's two stages (visibility-buffer v0.3): the mesh entry
     # rasterizes triangles and carries ONE FLAT PACKED ID per triangle, the fragment writes it into the
     # R32_UINT visibility target. The raster pass builds its pipeline from them, but the lane is CAPTURE-ONLY
@@ -2300,7 +2336,7 @@ set(VR_SLANG_SOURCES
     # overload set. One file with several distinctly-named entries is this repository's existing shape
     # (`post.slang`'s `frag_main`, `heap_probe.slang`'s three), and the .spv name - which is what the host loads
     # - is unaffected by the entry's name.
-    toon/outline.slang:frag_main:fragment:outline.frag.spv
+    toon/game_toon/captured/outline.slang:game_toon_outline_frag_main:fragment:outline.frag.spv
     # shadow.slang shares no body: the material table and the albedo fetch through the shim's accessors
     # (`material_at`, `heap_sample`), and the entry returns void because a depth-only stage has no output.
     # Its MESH entry reuses the same matrix-array accessors pbr.slang does, which is the point of the pair:
@@ -2454,6 +2490,12 @@ add_dependencies(test_subtilis_transfer deren_vulkan)
 # Opt-in device benchmark, not a headless test or part of the default build.
 if(VR_BUILD_TESTS)
     add_executable(bench_image_upload EXCLUDE_FROM_ALL source/tests/bench_image_upload.cpp source/tests/image_upload_bench_vma.cpp)
+    # CPU oracle for a standalone CUDA experiment; CUDA is not a project/build dependency.
+    # The oracle is an untracked scratch tool in some worktrees, so the opt-in target only exists when it does.
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/ibl_cuda_spike/cpu_reference.cpp")
+        add_executable(bench_ibl_cpu EXCLUDE_FROM_ALL tools/ibl_cuda_spike/cpu_reference.cpp)
+        target_link_libraries(bench_ibl_cpu PRIVATE deren_engine vstd_lib)
+    endif()
     target_include_directories(bench_image_upload PRIVATE source/third_party source/backends/vulkan/core/vma)
     target_link_libraries(bench_image_upload PRIVATE backend_loader promise static_utility vstd_lib vulkan_main_context Vulkan::Vulkan)
     add_dependencies(bench_image_upload deren_vulkan)

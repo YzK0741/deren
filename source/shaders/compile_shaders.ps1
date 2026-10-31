@@ -36,10 +36,10 @@ New-Item -ItemType Directory -Path $shaderOutDir -Force | Out-Null
 $slangSources = @(
     "scene/unlit.slang:main:fragment:unlit.frag.spv",
     "toon/character_forward.slang:main:fragment:character_forward.frag.spv",
-    "toon/goo_toon.slang:goo_toon_frag_main:fragment:goo_toon.frag.spv",
+        "toon/game_toon.slang:game_toon_frag_main:fragment:game_toon.frag.spv",
     "toon/toon_screen_rim.slang:main:fragment:toon_screen_rim.frag.spv",
-    "toon/goo_rim.slang:main:fragment:goo_rim.frag.spv",
-    "toon/overlay.slang:main:fragment:overlay.frag.spv",
+    "toon/game_toon_depth_rim.slang:main:fragment:game_toon_depth_rim.frag.spv",
+        "toon/overlay.slang:main:fragment:overlay.frag.spv",
     "post/fxaa.slang:main:fragment:fxaa.frag.spv",
     "post/upscale.slang:main:fragment:upscale.frag.spv",
     "post/post.slang:main:vertex:post.vert.spv",
@@ -55,7 +55,7 @@ $slangSources = @(
     "scene/pbr.slang:main:fragment:pbr.frag.spv",
     "scene/pbr.slang:mesh_main:mesh:pbr.mesh.spv",
     "scene/pbr.slang:meshlet_main:mesh:pbr.meshlet.spv",
-    "scene/pbr.slang:outline_mesh_main:mesh:outline.mesh.spv",
+    "toon/game_toon/captured/outline.slang:game_toon_outline_mesh_main:mesh:outline.mesh.spv",
     "scene/visibility.slang:mesh_main:mesh:visibility.mesh.spv",
     "scene/visibility.slang:main:fragment:visibility.frag.spv",
     # the visibility buffer's RESOLVE (v0.4b): the compute stage that turns the ids back into the five G-buffer
@@ -75,7 +75,7 @@ $slangSources = @(
     # THE HZB CULL STAGE (M3 phase B1): one 64-thread workgroup per item against the HISTORY pyramid. The cull pass
     # asks for this .spv by name; DEREN_HZB_BUILD + DEREN_HZB_CULL are the runtime gates.
     "scene/hzb_cull.slang:main:compute:hzb_cull.comp.spv",
-    "toon/outline.slang:frag_main:fragment:outline.frag.spv",
+    "toon/game_toon/captured/outline.slang:game_toon_outline_frag_main:fragment:outline.frag.spv",
     "lighting/shadow.slang:main:fragment:shadow.frag.spv",
     "lighting/shadow.slang:mesh_main:mesh:shadow.mesh.spv",
     "lighting/shadow.slang:meshlet_main:mesh:shadow.meshlet.spv",
