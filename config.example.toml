@@ -146,9 +146,10 @@ shadow_cascade_blend = 0.1
 # toon_shadow_softness: how wide the TOON chain's shadow lookup is, as a five-step ladder. It is written to
 # the character stage's light rig (`deren::vulkan::toon_rig`'s ninth lane) and read by exactly one call site - the
 # shadow lookup inside `toon_diffuse` (`shaders/character_forward.slang`). That body is SHARED: the same
-# file's entry point, `shaders/outline.slang` and `shaders/game_toon.slang` (which includes
-# `character_forward.slang` for the game-shader chain) all call it, so at 1..4 the wide lookup is compiled
-# into and used by those three stages. The deferred/PBR paths never see the value at all.
+# file's entry point, `shaders/outline.slang` and `shaders/goo_toon.slang` (which includes
+# `character_forward.slang` for the rewritten chain) all call it, so at 1..4 the wide lookup is compiled
+# into and used by those three stages. `shaders/goo_toon.slang`'s OWN shadow read (its `rs_shadow`, the bare
+# `calc_shadow`) is untouched by every level, and the deferred/PBR paths never see the value at all.
 # 0 = OFF, the default, and byte-identical to a run without the key: `calc_shadow_soft(0)` calls the shipped
 # `calc_shadow` and nothing else - the same 3x3 grid of hardware 2x2 comparison taps that the shipped comment
 # in `shaders/shading.glsl` already documents as a "4x4 texel footprint" (9 taps), not a new path.
@@ -438,16 +439,30 @@ software_raster_threshold_px = 1.0 # conservative projected-diameter cutoff for 
 # gltf_loader/toon_material_sidecar.cppm for the `.toon.tsv` the slots come from.
 character_forward = false
 
-# game_toon: WHICH SHADING MODEL the character stage above draws with. false = the chain written against
-# the author's article (`shaders/character_forward.slang`); true = the game-shader toon model ported from
-# the pinned MyZmdShaders author sources (commit 6507457; `ZmdToonMain.hlsl` and the family mains) and
-# registered as the `game_toon` pipeline (see deren::vulkan::runtime::game_toon_pipeline_name).
+# goo_toon: WHICH SHADING MODEL the character stage above draws with. false = the chain written against the
+# author's article (`shaders/character_forward.slang`); true = the REWRITTEN chain whose authority is XIYAG's
+# Goo node presets (`shaders/goo_toon.slang`, registered as the `goo_toon` pipeline - see
+# deren::vulkan::runtime::goo_toon_pipeline_name and build-release-clang64/deren-ab/goo_toon_plan.md).
 #
 # IT IS NOT A SECOND WAY TO TURN THE STAGE ON: with `character_forward` off this selects nothing at all. The two
-# are separate because they answer two questions - whether the stage runs, and which model it runs. The model is
-# migrated family by family; the first target is cloth, verified against the original cloth DXBC.
+# are separate because they answer two questions - whether the stage runs, and which model it runs - and the
+# rewrite is verified by holding the first fixed and moving only the second. The rewrite itself lands ONE
+# reference group at a time; today it carries the iris (`Arknights: Endfield_PBRToon_irisBase`, the two-layer
+# matcap) and every other family is still shaded by the old body, so `goo_toon` on this build moves the iris and
+# nothing else.
 #
 # OFF by default, so a run that does not ask for it gets the frame the old chain produces.
+goo_toon = false
+
+# game_toon: a THIRD shading model for the same character stage - the game-shader toon model ported from the
+# pinned MyZmdShaders author sources (commit 6507457; `ZmdToonMain.hlsl` and the family mains) and registered
+# as the `game_toon` pipeline (see deren::vulkan::runtime::game_toon_pipeline_name). Like `goo_toon` it is NOT a
+# second way to turn the stage on: `character_forward` is the stage switch and this only chooses the fragment
+# module. The model is migrated family by family; the first target is cloth, verified against the original cloth
+# DXBC. When both `game_toon` and `goo_toon` are on, `game_toon` wins (the frame's three-way selection makes that
+# explicit); a normal run asks for one model at a time.
+#
+# OFF by default, so a run that does not ask for it gets the frame the previous chain produces.
 game_toon = false
 
 # background_glb: A SECOND MODEL DRAWN AS THE FRAME'S STATIC SURROUND - the ground and the backdrop the

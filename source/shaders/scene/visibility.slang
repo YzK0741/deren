@@ -165,7 +165,7 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
             // out 1-2 ULP NEARER than the toon re-shading pipeline's on 184,782 pixels (17.8% of the frame, every one
             // nearer, u32-bit delta mostly 1), so the stage's EXACT depth-EQUAL test rejected every character
             // fragment and the whole-frame fallback was invented for it. With this nested form both stages' depth
-            // dumps are BIT-IDENTICAL (0 differing pixels) - see historical development record
+            // dumps are BIT-IDENTICAL (0 differing pixels) - see docs/reviews/2026-10-18-visibility-buffer-ab.md.
             // The difference is codegen: the precomputed-product form lets the compiler reassociate the matrix
             // chain `(world * view) * proj` differently than the nested form's evaluation order.
             o.position = mul(mul(float4(v.position, 1.0), push.model), mul(visibility_camera.view, visibility_camera.proj));

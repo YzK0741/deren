@@ -141,9 +141,9 @@ namespace deren::app_config {
         // BIT-IDENTICAL to the shipped run: the character chain's one shadow lookup is the same single 3x3
         // hardware PCF it always had. The value rides `deren::vulkan::toon_rig`'s ninth lane and
         // is read by the ONE shadow call site inside `toon_diffuse` in `source/shaders/toon/character_forward.slang` -
-        // a body that `source/shaders/toon/outline.slang` calls as well, so that stage carries the same code. The
-        // legacy Goo chain's own `calc_shadow` call (its `rs_shadow`) went with that chain, and at 0 the call
-        // site is the shipped `calc_shadow` itself. Float or integer; a non-integer is rounded,
+        // a body that `source/shaders/toon/goo_toon.slang` and `source/shaders/toon/outline.slang` call as well, so those stages
+        // carry the same code; `goo_toon.slang`'s OWN `calc_shadow` call (its `rs_shadow`) is untouched, and
+        // at 0 the call site is the shipped `calc_shadow` itself. Float or integer; a non-integer is rounded,
         // anything outside 0..4 is clamped, a NaN is read as 0, and each case is logged separately (see
         // `analyse_config`). THE PER-LEVEL COST IS NOT REPEATED HERE ON PURPOSE: it has been re-measured twice
         // and this comment went stale both times. The authority is the `toon_shadow_softness` block in
@@ -278,7 +278,7 @@ namespace deren::app_config {
          * THE VISIBILITY BUFFER ([render] visibility_buffer): the GPU-driven opaque path. A mesh-task raster
          * writes one packed triangle id per pixel and the frame's shared depth; a compute resolve turns the ids
          * back into the five G-buffer targets, and the deferred lighting stage then reads them exactly as it reads
-         * the fragment G-buffer's (see historical design record, v0.5).
+         * the fragment G-buffer's (see docs/superpowers/plans/2026-10-17-visibility-buffer.md, v0.5).
          *
          * OFF BY DEFAULT, and off is the historic frame: the old geometry lane records what it always did,
          * byte for byte - the capture gate's frozen references are the acceptance of that default.
@@ -304,15 +304,24 @@ namespace deren::app_config {
         // opaque surface in the scene is drawn by the character pipeline, which is what a character viewer
         // wants and what a scenario comparing against the pre-existing references must not have.
         bool character_forward = false;
-        // WHICH TOON CHAIN THAT STAGE DRAWS WITH, SECOND OPT-IN ([render] game_toon): false = the chain written
-        // against the author's article (`character_forward.slang`), true = the game-shader model ported from the
-        // pinned MyZmdShaders sources (`game_toon.slang`, see
-        // deren::vulkan::runtime::game_toon_pipeline_name). NOT a second way to turn the stage on: with
-        // `character_forward` off this selects nothing, which keeps "the game-shader model" and "the character
-        // stage exists" separable.
+        // WHICH TOON CHAIN THAT STAGE DRAWS WITH ([render] goo_toon): false = the chain written against the
+        // author's article (`character_forward.slang`), true = the rewritten one whose authority is XIYAG's Goo
+        // node presets (`goo_toon.slang`, see deren::vulkan::runtime::goo_toon_pipeline_name). NOT a second way to turn
+        // the stage on: with `character_forward` off this selects nothing, which is what keeps "the new shading
+        // model" and "the character stage exists" separable - the rewrite is verified by holding one and moving
+        // the other.
+        //
+        // OFF BY DEFAULT on the same terms as the flag above, and for a sharper reason: the rewrite lands one
+        // reference group at a time, so a run that does not ask for it must get the frame the old chain produces.
+        // WHICH TOON CHAIN THAT STAGE DRAWS WITH, SECOND OPT-IN ([render] game_toon): true = the game-shader
+        // model ported from the pinned MyZmdShaders sources (`game_toon.slang`, see
+        // deren::vulkan::runtime::game_toon_pipeline_name). A THIRD MODEL beside the old chain and Goo, not a
+        // replacement: `character_forward` still turns the stage on, and this only says which fragment module
+        // shades it.
         //
         // OFF BY DEFAULT on the same contract as the flag above: a run that does not ask for it must get the
-        // frame the article chain produces.
+        // frame the previous chain produces. When both model flags are on, `game_toon` wins (the frame's
+        // three-way choice is where that precedence lives); a normal run asks for one model at a time.
         bool game_toon = false;
         /**
          * THE FRAME'S STATIC SURROUND AS A SECOND MODEL ([render] background_glb): the path of a glTF/GLB

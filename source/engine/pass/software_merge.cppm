@@ -1,7 +1,7 @@
 /**
  * @file source/engine/pass/software_merge.cppm
  * @defgroup engine_pass_software_merge Software Merge Pass
- * @brief the SOFTWARE RASTER's depth-only merge (M4; historical design record
+ * @brief the SOFTWARE RASTER's depth-only merge (M4; docs/superpowers/specs/2026-10-22-software-
  *        raster-design.md §3.2/§5.2): one fullscreen depth-only graphics pass that folds the software image's depth
  *        into the frame's own G-buffer depth with LESS_OR_EQUAL + depth write, i.e. the write IS `min(hw, sw)`.
  *

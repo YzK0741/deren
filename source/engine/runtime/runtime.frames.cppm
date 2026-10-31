@@ -2515,19 +2515,19 @@ namespace deren::engine {
             std::shared_lock const lock(this->access_mutex);
             overlay_ready = this->mesh_pipelines.contains(overlay_pipeline_name) || this->meshlet_pipelines.contains(overlay_pipeline_name);
         }
-        // ---- WHICH SHADING MODEL THIS FRAME DRAWS WITH (see runtime::set_game_toon) ----
+        // ---- WHICH SHADING MODEL THIS FRAME DRAWS WITH (see runtime::set_goo_toon / set_game_toon) ----
         //
         // THE ONE PLACE THE NAMES ARE CHOSEN BETWEEN, and it is here rather than in the pass for the reason
-        // the name itself is handed over at all: the registry is the runtime's (see the note below). The
+        // the name itself is handed over at all: the registry is the runtime's (see the note below). Each
         // choice is made on TWO facts rather than one - the knob AND whether that pipeline exists - because a
         // name that was never registered would be reported by the session's bind callback as an unknown
-        // pipeline, once per frame; falling back to the article chain's name instead draws that chain, which is
-        // a valid frame whose only defect is that it is not the model that was asked for (and the setter says
-        // so, once, when the knob is turned on).
+        // pipeline, once per frame; falling back to the old name instead draws the old chain, which is a
+        // valid frame whose only defect is that it is not the experiment that was asked for (and the setters
+        // say so, once, when the knob is turned on).
         //
-        // THE CHOICE IS A TWO-WAY: `game_toon` selects the game-shader module, and everything else draws the
-        // chain written against the article. The character stage's own on/off switch is separate (see
-        // `set_character_forward`), so this expression only answers which fragment module shades the leaves.
+        // PRECEDENCE WHEN BOTH MODEL KNOBS ARE ON: `game_toon` wins, and the choice is written as an explicit
+        // three-way rather than a fold so a reader can see that the two knobs are not silently combined. A run
+        // asks for one model at a time; both-on is therefore a precedence rule, not a second feature.
         bool game_toon_ready = false;
         {
             std::shared_lock const lock(this->access_mutex);
@@ -2597,9 +2597,9 @@ namespace deren::engine {
             // the pass, because the registry is the runtime's: a pass asserting a string another module chose
             // would be a name with no owner.
             //
-            // ... AND IT IS THE ARTICLE CHAIN'S NAME OR THE GAME-SHADER CHAIN'S, decided above from
-            // `set_game_toon` and the registry: the pass draws whatever it is handed, so this one expression IS
-            // the whole of the model's opt-in on the host side.
+            // ... AND IT IS THE OLD NAME OR THE REWRITTEN CHAIN'S, decided above from `set_goo_toon` and the
+            // registry: the pass draws whatever it is handed, so this one expression IS the whole of the
+            // rewrite's opt-in on the host side.
             .pipeline_name = toon_pipeline_name,
             // ... and the overlay group's, on the same terms - empty when it was never built, which the pass
             // reads as "there is no overlay to draw" (see `overlay_ready` above).
@@ -2715,6 +2715,7 @@ namespace deren::engine {
         // ... and the GAME chain's depth rim, looked up by its own declaration name like every other stage: a chain
         // without one leaves it null, which the post-graph lane reads as "there is no pass here".
         this->game_toon_depth_rim_pass = {at("game_toon_depth_rim")};
+        this->game_toon_depth_rim_pass = {at("goo_rim")};
         this->gbuffer_debug_stage = {at("gbuffer-debug")};
         this->rt_shadow_pass = {at("rt_shadow")};
         this->deferred_pass = {at("deferred")};

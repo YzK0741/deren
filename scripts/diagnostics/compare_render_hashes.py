@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""compare_render_hashes.py - THE RENDER GATE'S REAL INSTRUMENT: the ACTUAL per-scenario hashes.
+"""compare_render_hashes.py - THE RENDER GATE'S REAL INSTRUMENT: the fourteen ACTUAL hashes.
 
 WHY THIS EXISTS, AND WHY IT IS NOT `check_render.ps1`'s EXIT CODE
     `scripts/gates/check_render.ps1` renders a fixed set of scenarios and compares each one against a
@@ -9,9 +9,9 @@ WHY THIS EXISTS, AND WHY IT IS NOT `check_render.ps1`'s EXIT CODE
     per-scenario hash it prints, compared against:
 
       * the OTHER TREE, while two build trees existed (the migration's development phase): the legacy
-        tree was the CONTROL, and the dynamic tree had to reproduce its hashes byte for byte
-        (matched all / mismatched 0 was the acceptance); or
-      * the FROZEN list, once only one configuration is left (S5, the flip): the values below,
+        tree was the CONTROL, and the dynamic tree had to reproduce its fourteen hashes byte for byte
+        (matched 14 / mismatched 0 was the acceptance); or
+      * the FROZEN list, once only one configuration is left (S5, the flip): the fourteen values below,
         which every batch of the migration has reproduced.
 
     Keeping the comparison in a script - rather than in a human's eyes - is the point: "the hashes look
@@ -28,8 +28,8 @@ USAGE
     # a standard gate run can ask check_render.ps1 to do this itself:
     pwsh -File scripts/gates/check_render.ps1 -Full -BuildDir build-release-dyn-clang64 -Compare-frozen
 
-    EXIT: 0 when every expected scenario matched, 1 otherwise (a missing scenario counts as a mismatch: a
-    scenario that did not run must never read as "unchanged").
+    EXIT: 0 when all fourteen matched, 1 otherwise (a missing scenario counts as a mismatch: a scenario
+    that did not run must never read as "unchanged").
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ import argparse
 import re
 import sys
 
-# THE FROZEN SET (the reference set the whole migration was gated against, reproduced by every
+# THE FROZEN FOURTEEN (the reference set the whole migration was gated against, reproduced by every
 # batch of it). They are also what `check_render.ps1`'s own references were built from, so a tree
 # that matches the frozen list matches the control tree the migration used.
 FROZEN = {
@@ -51,6 +51,9 @@ FROZEN = {
     "metal_rough_glossy": "A1AFBFB61DBFD104",
     "glossy_motion": "9F31E89BE38B771C",
     "deformation": "723569BA0D03640C",
+    "laevatain_goo_toon": "CF5A34D8DF6B6FFC",
+    "laevatain_goo_toon_body": "C3365CEEB8AD3723",
+    "laevatain_no_sidecar": "E9A2983BEB57D5C5",
     "laevatain_old_chain": "190EB09D3E9FDCDA",
 }
 
@@ -98,10 +101,10 @@ def main() -> int:
     parser.add_argument("--against", default="", metavar="OTHER",
                         help="the OTHER tree's gate output to compare against (the two-tree phase)")
     parser.add_argument("--frozen", action="store_true",
-                        help="compare against the FROZEN set (the one-configuration phase)")
+                        help="compare against the FROZEN fourteen (the one-configuration phase)")
     parser.add_argument("--quiet", action="store_true", help="only the verdict")
-    parser.add_argument("--expect", type=int, default=11, metavar="N",
-                        help="how many scenarios this round was SUPPOSED to render (default 11, the frozen "
+    parser.add_argument("--expect", type=int, default=14, metavar="N",
+                        help="how many scenarios this round was SUPPOSED to render (default 14, the frozen "
                              "set). A round that ran fewer is not a pass: a scenario that silently stopped "
                              "running would otherwise read as 'no change'. `check_render.ps1 -Compare` passes "
                              "the number of scenarios its selection actually attempted.")
@@ -116,7 +119,7 @@ def main() -> int:
 
     actual = parse(args.input)
     reference = parse(args.against) if args.against else dict(FROZEN)
-    label = f"against {args.against}" if args.against else "against the frozen set"
+    label = f"against {args.against}" if args.against else "against the frozen fourteen"
 
     matched = mismatched = 0
     if not args.quiet:
