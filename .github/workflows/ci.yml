@@ -46,6 +46,8 @@ concurrency:
 
 jobs:
   posix-stacktrace:
+    # SCOPE: this job compiles the POSIX DIAGNOSTICS layer only (three files, no CMake, no project
+    # build). It is NOT a POSIX build gate - see docs/compiler_tolerance.md "What is supported".
     # GitHub's default job limit is 360 minutes. This job compiles three files and runs two probes, so a
     # run near the limit means a wedged runner, not slow work; fail it instead of waiting.
     timeout-minutes: 15

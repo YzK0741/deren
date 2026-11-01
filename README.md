@@ -34,8 +34,9 @@ the taskbar were cropped away. See [`docs/screenshots/README.md`](docs/screensho
 
 The repo ships platform **setup** scripts plus unified Python **build / run / documentation** entry
 points under `scripts/build_helpers/` (Python 3.8+). Setup stays shell because it installs the toolchain that
-provides Python; the build/run/docs commands are identical on **Windows** (MSYS2 clang64) and **POSIX**
-(Linux / WSL / macOS).
+provides Python; the same entry points exist on **Windows** (MSYS2 clang64) and **POSIX** (Linux / WSL /
+macOS), but only Windows is built by CI - POSIX is source-tree support, not a verified configuration (see
+*Platform* below).
 
 Commit and CI rules are in [`CONTRIBUTING.md`](CONTRIBUTING.md); use `scripts/commit.ps1` and
 `scripts/push.ps1` rather than direct `git commit` / `git push`.
@@ -48,10 +49,11 @@ Commit and CI rules are in [`CONTRIBUTING.md`](CONTRIBUTING.md); use `scripts/co
 sh scripts/setup/windows.sh
 
 # POSIX: detect distro, install glfw/glm/toml++/Vulkan via apt/dnf/pacman/brew
+# (source-tree support only - no CI job builds the project on POSIX; see Platform)
 sh scripts/setup/posix.sh
 ```
 
-**Build / run / docs (both platforms)**
+**Build / run / docs (shared entry points; CI builds Windows only)**
 
 ```bash
 # configure + build Debug and Release
@@ -299,7 +301,14 @@ Related source docs (tracked in the repo):
 #### Platform
 
 - **Windows x64** is the shipped configuration: environment setup is `scripts/setup/windows.sh` (MSYS2), build/run use the Python entry points, Windows-only gates/probes live under `scripts/gates/`, and the Release build is the packaged runtime set described above (the executable plus the four first-party DLLs, `libc++.dll` and the compiled `source/shaders/`), so it runs on a machine with nothing installed but the GPU driver.
-- **POSIX (Linux / WSL / macOS)** builds through the `sh` scripts and the same CMake files. The **MSVC** branch is maintained but is not what the scripts or CI drive (see the *Toolchains* bullet above).
+- **POSIX (Linux / WSL / macOS)** is source-tree support, not a verified configuration. The `sh` scripts
+  and the same CMake files carry POSIX branches, but **no CI job configures or builds the project there**:
+  the only POSIX compilation in CI is the stacktrace diagnostics probe (`posix-stacktrace` in
+  `.github/workflows/ci.yml`, three files compiled directly, no CMake). Two known obstacles stand between
+  this tree and a POSIX build: the vendored `deren.vstd` module is byte-bound to MSYS2 clang64's libc++
+  (see `source/vstd/README.md`), and seven test translation units include `<windows.h>` unguarded. Treat
+  POSIX as experimental until a build job exists. The **MSVC** branch is maintained but is not what the
+  scripts or CI drive (see the *Toolchains* bullet above).
 - Measured reference platform: **Windows 11 build 26300, x64**, MSYS2 **clang64**.
 
 #### Toolchain
