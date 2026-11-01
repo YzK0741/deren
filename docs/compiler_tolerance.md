@@ -15,6 +15,14 @@ MSVC is a second configuration the BUILD FILES support but the scripts and CI do
 `scripts/build_helpers/build.py` requires `clang++` and `.github/workflows/ci.yml` installs MSYS2 clang64. The three
 cache variables an MSVC build needs are documented in the README rather than here.
 
+POSIX (Linux / WSL / macOS) is **not** a verified configuration either. `scripts/setup/posix.sh` and POSIX
+branches in the CMake files exist, but no CI job configures or builds the project on POSIX; the only POSIX
+compilation in CI is the stacktrace DIAGNOSTICS layer (`posix-stacktrace` in `.github/workflows/ci.yml`:
+three files compiled directly, no CMake, no project build). Two known obstacles stand between this tree and
+a POSIX build: the vendored `deren.vstd` module is byte-bound to MSYS2 clang64's libc++ (see
+`source/vstd/README.md`), and seven test translation units include `<windows.h>` unguarded. Treat POSIX as
+experimental until a build job exists; the README's Platform section states the same limit.
+
 Everything below about GCC is a MEASUREMENT, not a promise. The audit ran GCC 16.2 (MinGW, ucrt64) against the
 same tree: it now compiles all of it and links five of the test executables, and does not link the rest.
 Nothing in the build files supports that configuration yet, and this document is why nobody has to re-derive
