@@ -294,6 +294,13 @@ struct probe_address : rhi::device_address {
 struct upload_probe : rhi::api_core, rhi::resource_factory, rhi::command_context, rhi::frame_context {
     void release() noexcept override {
     }
+    [[nodiscard]] rhi::stage_time_map get_time_profiling() const override {
+        return {};
+    }
+    void record_stage_time(std::string_view, double) override {
+    }
+    void reset_time_profiling_window() override {
+    }
     bool supported = true;
     unsigned fail_at = 0, calls = 0, undersized_at = 0;
     int releases = 0;

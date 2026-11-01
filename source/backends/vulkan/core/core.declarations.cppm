@@ -36,6 +36,7 @@ module;
 #include <memory>
 #include <mutex>
 #include <span>
+#include <string>
 #include <string_view> // the CONCRETE implementation names are static string_views (ABI 30)
 #include <unordered_map>
 #include <unordered_set>
@@ -337,6 +338,10 @@ namespace deren::vulkan {
         // creation options this core was built with (window size, vsync); the window and the
         // swap chain honor them
         deren::promise::rhi::create_info create_options = {};
+        /// CPU/GPU stage timing shared with the host; the map is serialized by this mutex, and
+        /// get_time_profiling() returns a copy so a lock never escapes into the caller.
+        mutable std::mutex time_profiling_mutex;
+        deren::promise::rhi::stage_time_map time_profiling;
         /// THE ROOT'S OWN SHARED CONTROL (abi 44): the entry hands the root out as a
         /// `shared_object<api_core>`; frame-owned state keeps the root alive by locking this weak handle.
         deren::promise::rhi::shared_object<deren::promise::rhi::api_core>::weak self_owner;
@@ -346,6 +351,9 @@ namespace deren::vulkan {
         }
         /// DROP THE ROOT (abi 44): the last shared handle destroys the object the entry allocated.
         void release() noexcept override;
+        [[nodiscard]] deren::promise::rhi::stage_time_map get_time_profiling() const override;
+        void record_stage_time(std::string_view name, double milliseconds) override;
+        void reset_time_profiling_window() override;
 
         // ---- THE RECORDING SURFACE AND THE FRAME'S VIEWS --------------------------------------------
         //

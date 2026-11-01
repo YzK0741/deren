@@ -627,6 +627,7 @@ namespace deren::engine {
         deren::utility::vessel::vector<primitive const*> const& frame_leaves = this->frame_leaves_buffer;
         float const aspect = this->current_aspect;
         camera_ubo const& ubo = this->current_ubo;
+        auto const cull_started = std::chrono::steady_clock::now();
         deren::utility::vessel::vector<primitive const*> visible_leaves = this->frame_leaves_buffer; // fallback: no culling
         // THE CASTER SET, MINUS THE FRAME'S STATIC SURROUND (`primitive::environment`, i.e. the
         // `[render] background_glb` import - see `shadow_casters` in the class docs for why it must never
@@ -801,6 +802,7 @@ namespace deren::engine {
                                   return distance_to(a) > distance_to(b); // far first
                               });
         }
+        this->cpu_timings.add(deren::engine::profiling::cpu_phase::cull, std::chrono::steady_clock::now() - cull_started);
         return frame_status::proceed;
     }
 

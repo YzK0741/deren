@@ -5276,6 +5276,23 @@ namespace deren::vulkan {
         return rhi::error::ok;
     }
 
+    rhi::stage_time_map core::get_time_profiling() const {
+        std::lock_guard lock(this->time_profiling_mutex);
+        return this->time_profiling;
+    }
+
+    void core::record_stage_time(std::string_view const name, double const milliseconds) {
+        std::lock_guard lock(this->time_profiling_mutex);
+        auto [slot, inserted] = this->time_profiling.try_emplace(std::string(name));
+        slot->second.tick(milliseconds);
+    }
+
+    void core::reset_time_profiling_window() {
+        std::lock_guard lock(this->time_profiling_mutex);
+        for (auto& [name, info] : this->time_profiling) {
+            info.reset_window();
+        }
+    }
 } // namespace deren::vulkan
 
 namespace deren::vulkan {

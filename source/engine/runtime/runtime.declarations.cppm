@@ -828,6 +828,7 @@ namespace deren::engine {
         // A scope timer rather than manual marks: every phase function has early returns
         // (skipped/minimized/closed) that must still be measured, and an RAII object cannot miss one.
         deren::engine::profiling::cpu_phases cpu_timings;
+        static void cpu_stage_timing(void* context, std::string_view name, double milliseconds) noexcept;
         void collect_gpu_timings();
 
         /// THE FRAME RING'S FACE (abi 13): the borrowed view `rhi_face().frames->walk_frames()` answers - the
