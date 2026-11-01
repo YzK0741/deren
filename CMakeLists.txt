@@ -983,7 +983,7 @@ target_include_directories(deren_engine
 
 # THE APPLICATION (the runtime switch and the S1-S3 gate that used to wrap this are retired: see the
 # comment above `deren_engine`).
-add_executable(deren source/app/main.cpp source/app/startup_splash.cpp)
+add_executable(deren source/app/main.cpp source/app/toon_material.cpp source/app/startup_splash.cpp)
 if(WIN32)
     enable_language(RC)
     target_sources(deren PRIVATE source/app/resources/deren.rc)
@@ -1989,6 +1989,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     # *.cpp* wildcard the others use.
     file(GLOB_RECURSE PROJECT_FORMAT_SOURCES CONFIGURE_DEPENDS
             ${CMAKE_CURRENT_SOURCE_DIR}/source/app/main.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/source/app/toon_material.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/source/application_configuration/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/source/gltf_loader/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/source/utility/*.cpp*
