@@ -181,8 +181,11 @@ else()
             -Wextra
             -Werror
             -Wno-reserved-module-identifier
-            $<$<BOOL:${VR_DIAGNOSTICS}>:-g;-fno-omit-frame-pointer;-fno-optimize-sibling-calls;-funwind-tables;-fasynchronous-unwind-tables>
-            $<$<AND:$<CONFIG:Release>,$<BOOL:${VR_DIAGNOSTICS}>>:-O2>
+            # One spelling per flag: Debug already gets -g from CMake and its own frame pointer above,
+            # Release already gets -O3 from CMake. Diagnostics only ADD what those defaults do not cover.
+            $<$<AND:$<BOOL:${VR_DIAGNOSTICS}>,$<CONFIG:Release>>:-g>
+            $<$<AND:$<BOOL:${VR_DIAGNOSTICS}>,$<NOT:$<CONFIG:Debug>>>:-fno-omit-frame-pointer>
+            $<$<BOOL:${VR_DIAGNOSTICS}>:-fno-optimize-sibling-calls;-funwind-tables;-fasynchronous-unwind-tables>
     )
 endif()
 
