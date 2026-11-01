@@ -46,6 +46,9 @@ concurrency:
 
 jobs:
   posix-stacktrace:
+    # GitHub's default job limit is 360 minutes. This job compiles three files and runs two probes, so a
+    # run near the limit means a wedged runner, not slow work; fail it instead of waiting.
+    timeout-minutes: 15
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -67,6 +70,8 @@ jobs:
 
   build-and-test:
     name: Release build + ctest + Debug gate + clang-tidy
+    # Two full C++23-modules builds plus ctest; generous, but bounded (the default is 360 minutes).
+    timeout-minutes: 180
     runs-on: windows-latest
     defaults:
       run:
@@ -159,8 +164,11 @@ jobs:
       - name: clang-format (dry run, warnings are errors)
         run: cmake --build build --target clang-format-check
 
+      # -LE device: the GPU-labelled tests (CMakeLists' VR_DEVICE_TEST_TARGETS) are built here but only run
+      # on a machine with a device. Without one they answer exit 77, which CTest reports as Skipped; the
+      # local gate (scripts/run-local-ci.ps1) runs them for real.
       - name: Run headless unit tests
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure -LE device
 
       # SLANGC IS PASSED EXPLICITLY HERE TOO, for exactly the reason the Release step does it: the install
       # step exports VR_SLANGC but does NOT put it on PATH, so CMakeLists' `find_program` fails and configure
@@ -267,6 +275,8 @@ jobs:
 
   sanitizers:
     name: ASan + UBSan (headless tests)
+    # One build of the headless test list plus ctest under the sanitizers; bounded for the same reason.
+    timeout-minutes: 120
     runs-on: windows-latest
     defaults:
       run:
@@ -397,4 +407,6 @@ jobs:
         env:
           ASAN_OPTIONS: halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: ctest --test-dir build-asan --output-on-failure -E test_native_boundary_zero
+        # -LE device: this tree builds VR_TEST_TARGETS only, so the device-labelled tests have no executable
+        # here and CTest must not go looking for them (see CMakeLists' VR_DEVICE_TEST_TARGETS).
+        run: ctest --test-dir build-asan --output-on-failure -E test_native_boundary_zero -LE device
