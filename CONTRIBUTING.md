@@ -44,6 +44,18 @@ that came before it.
 8. **Squash before review.** A feature branch may have many WIP commits locally;
    the PR should contain coherent commits (or one squash commit), not a trail of
    "try again" commits.
+9. **Do not import outside patterns without precedent.** This tree has its own idioms
+   and they are not suggestions: modules split into `.cppm`/`.cpp` with the
+   `export import std` pattern, `vessel` containers instead of the C++ standard
+   library, plain classes with direct members rather than pimpl
+   (`source/backends/vulkan/graphical_user_interface/graphical_user_interface.cppm`
+   states this explicitly), and private app headers included after the module
+   imports (`source/app/environment_loader.hpp` shows the shape). Before introducing
+   a technique, abstraction or "standard practice" from elsewhere, find where this
+   repository already does it. If there is no precedent, ask instead of inventing
+   one; if the repository has a precedent, follow it rather than adding a second way
+   to do the same thing. The established design is the authority, not the newest
+   pattern that happens to work.
 
 ## Required local gate
 
