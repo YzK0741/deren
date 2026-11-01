@@ -2,7 +2,13 @@
 
 Import `deren.engine.render_graph` and link `render_graph_core`. This independent
 CPU library builds dependency and optional abstract synchronization plans. It creates no GPU resources, records no
-commands, and emits no RHI barriers. Existing production pass chains remain active.
+commands, and emits no RHI barriers.
+
+The graph is the production recording path, not a side library: since the 2026-10-17 cleanup `runtime`
+composes the main-view and post chains into one graph (`record_post_graph` / `finish_post_graph` in
+`source/engine/runtime/runtime.post_graph.cpp`) and the hand-ordered chains it replaced are gone - see
+[render_graph_rhi_mapping.md](render_graph_rhi_mapping.md). This document describes the CPU core itself:
+the layer that decides pass order and abstract barriers.
 
 Resources are created outside the graph, for example through resource clusters.
 The core accepts nonzero opaque `resource_identity { device, object }` values. These
