@@ -430,6 +430,12 @@ namespace deren::engine {
     static_assert(sizeof(light_ubo) == max_shadow_cascades * sizeof(glm::mat4) + 15 * sizeof(glm::vec4) + max_punctual_lights * sizeof(point_light));
     static_assert(sizeof(light_ubo) <= 16384, "the light UBO must stay inside the guaranteed maxUniformBufferRange (16 KB)");
     static_assert(sizeof(point_light) == 64);
+    // Byte-addressed GameToon light reads share this std140 wire layout.
+    static_assert(offsetof(light_ubo, punctual_lights) == 352);
+    static_assert(offsetof(point_light, position) == 0);
+    static_assert(offsetof(point_light, color) == 16);
+    static_assert(offsetof(point_light, spot_dir) == 32);
+    static_assert(offsetof(point_light, params) == 48);
 
     /**
      * @ingroup engine_primitive
