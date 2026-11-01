@@ -372,6 +372,11 @@ namespace deren::engine {
         }
     }
 
+    void runtime::cpu_stage_timing(void* const context, std::string_view const name, double const milliseconds) noexcept {
+        auto& self = *static_cast<runtime*>(context);
+        self.core_face.record_stage_time("cpu." + std::string(name), milliseconds);
+    }
+
     void runtime::collect_gpu_timings() {
         // 读归引擎: the backend LATCHED this slot's completed frame inside wait_and_acquire() (the
         // position that made the old read_gpu_timings call correct); the contract's profiler face
@@ -393,9 +398,11 @@ namespace deren::engine {
             if (profiler.get_stage_info(interval, nullptr, &duration_ns) != rhi::error::ok) {
                 break; // a read-back failure answers device_lost: report what measured, nothing fake
             }
-            this->gpu_timing_sum[interval] += static_cast<double>(duration_ns) * 1.0e-6;   // ns -> ms
-            this->gpu_timing_total[interval] += static_cast<double>(duration_ns) * 1.0e-6; // ns -> ms
-            sample[interval] = static_cast<double>(duration_ns) * 1.0e-6;
+            double const interval_ms = static_cast<double>(duration_ns) * 1.0e-6; // ns -> ms
+            this->gpu_timing_sum[interval] += interval_ms;
+            this->gpu_timing_total[interval] += interval_ms;
+            this->core_face.record_stage_time("gpu." + std::string(gpu_timing_labels[interval].name), interval_ms);
+            sample[interval] = interval_ms;
             ++measured;
         }
         this->gpu_timing_marks_measured = measured;

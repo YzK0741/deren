@@ -312,6 +312,8 @@ namespace deren::engine {
         // device root at all now, so it default-constructs its (empty) resource table. Naming it would be an
         // initializer for a member the list cannot reach - see filters.cppm's measured note.
 
+        this->cpu_timings.set_stage_callback(&runtime::cpu_stage_timing, this);
+
         // Two-tier texture streaming is opt-in; retain the synchronous GPU path as the default.
         this->progressive_textures = std::getenv("DEREN_PROGRESSIVE_TEXTURES") && std::string_view(std::getenv("DEREN_PROGRESSIVE_TEXTURES")) == "1";
         this->progressive_mips = progressive_textures && std::getenv("DEREN_PROGRESSIVE_MIPS") && std::string_view(std::getenv("DEREN_PROGRESSIVE_MIPS")) == "1";

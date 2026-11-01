@@ -1369,6 +1369,13 @@ namespace {
         void release() noexcept override {
             delete this;
         }
+        [[nodiscard]] rhi::stage_time_map get_time_profiling() const override {
+            return {};
+        }
+        void record_stage_time(std::string_view, double) override {
+        }
+        void reset_time_profiling_window() override {
+        }
         /// THE CONTRACT'S THIRD HANDSHAKE (abi 19), with a knob: the engine checks this against its
         /// own `rhi::abi_version`, and the injection test needs BOTH answers - the agreeing one and
         /// a deliberately stale one - to prove the check is the thing that fires. `make_core` below

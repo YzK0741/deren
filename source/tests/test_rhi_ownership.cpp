@@ -166,6 +166,13 @@ namespace {
         }
         void release() noexcept override {
         }
+        [[nodiscard]] rhi::stage_time_map get_time_profiling() const override {
+            return {};
+        }
+        void record_stage_time(std::string_view, double) override {
+        }
+        void reset_time_profiling_window() override {
+        }
         rhi::ability_bits abilities() const noexcept override {
             return {};
         }

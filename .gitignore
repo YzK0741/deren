@@ -83,3 +83,7 @@ source/third_party/boost/bcp.log
 /scripts/gates/local_reflection_probe.py
 /scripts/gates/radiance_capture.py
 /scripts/gates/toon_reference_shape.py
+
+# local release package output (model archives are build artifacts, not sources)
+/dist/
+/build-release-nodebug/
