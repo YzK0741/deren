@@ -2,6 +2,7 @@
 #include "../engine/lighting/cubemap_sampling.hpp"
 #include "../engine/lighting/environment_controls.hpp"
 #include "../engine/lighting/radiance_capture.hpp"
+#include "../engine/lighting/reflection_probe.hpp"
 #include "../shaders/toon/reference_shape.h"
 #include "vk_test.h"
 
@@ -355,6 +356,56 @@ namespace {
         }
         CHECK(cursor == prefiltered.size());
     }
+    // ---- reflection probe math (source/engine/lighting/reflection_probe.hpp) ----
+    // The probe answers "which way does this surface point's reflection land in the probe, and how much
+    // does it count". Both halves are pure functions over a box: the runtime validates a probe box at
+    // load and then calls lookup per fragment, so the reject cases must not be silently permissive.
+    void test_reflection_probe_math() {
+        using namespace deren::engine::probe_detail;
+        box probe;
+        probe.position = {0.f, 0.f, 0.f};
+        probe.minimum = {-1.f, -1.f, -1.f};
+        probe.maximum = {1.f, 1.f, 1.f};
+        probe.fade = 0.5f;
+        probe.gain = 1.f;
+        CHECK(valid(probe));
+
+        // the position must sit STRICTLY inside the box: on a wall or outside it is a loader error
+        box on_the_wall = probe;
+        on_the_wall.position = {1.f, 0.f, 0.f};
+        CHECK(!valid(on_the_wall));
+        box outside = probe;
+        outside.position = {2.f, 0.f, 0.f};
+        CHECK(!valid(outside));
+        box inverted = probe;
+        inverted.minimum = {2.f, -1.f, -1.f};
+        CHECK(!valid(inverted));
+        box bad_fade = probe;
+        bad_fade.fade = -1.f;
+        CHECK(!valid(bad_fade));
+        box bad_gain = probe;
+        bad_gain.gain = NAN;
+        CHECK(!valid(bad_gain));
+
+        // a lookup that cannot describe a reflection answers the null sample: a degenerate direction, a
+        // point outside the box, a non-finite point, or an invalid box
+        CHECK(lookup(probe, {0.f, 0.f, 0.f}, {0.f, 0.f, 0.f}).weight == 0.f);
+        CHECK(lookup(probe, {2.f, 0.f, 0.f}, {0.f, 0.f, -1.f}).weight == 0.f);
+        CHECK(lookup(probe, {NAN, 0.f, 0.f}, {0.f, 0.f, -1.f}).weight == 0.f);
+        CHECK(lookup(bad_gain, {0.f, 0.f, 0.f}, {0.f, 0.f, -1.f}).weight == 0.f);
+
+        // a valid lookup: a finite direction, and a weight that is a smoothstep of the distance to the
+        // nearest wall - 1 at the centre, 0 on the wall itself, 0.5 halfway to the centre
+        auto const centre = lookup(probe, {0.f, 0.f, 0.f}, {0.f, 0.f, -1.f});
+        CHECK(centre.weight == 1.f);
+        CHECK(std::isfinite(centre.direction.x) && std::isfinite(centre.direction.y) && std::isfinite(centre.direction.z));
+        auto const wall = lookup(probe, {1.f, 0.f, 0.f}, {0.f, 0.f, -1.f});
+        CHECK(wall.weight == 0.f);
+        CHECK(std::isfinite(wall.direction.x) && std::isfinite(wall.direction.y) && std::isfinite(wall.direction.z));
+        auto const halfway = lookup(probe, {0.75f, 0.f, 0.f}, {0.f, 0.f, -1.f});
+        CHECK(std::abs(halfway.weight - 0.5f) < 1e-6f);
+    }
+
 } // namespace
 
 // ---- ARROW-KEY CAMERA PAN (deren::engine::orbit_camera_pan_delta) ----
@@ -476,6 +527,7 @@ int32_t main() {
     test_brdf_lut_shape();
     test_prefiltered_environment_is_smooth();
     test_equirect_environment_axes();
+    test_reflection_probe_math();
     test_orbit_camera_pan();
     return deren::vk_test::finish("test_math");
 }
