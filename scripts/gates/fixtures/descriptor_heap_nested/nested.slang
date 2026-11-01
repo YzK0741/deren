@@ -1,0 +1,3 @@
+struct Light {float4 p;float4 c;float4 d;float4 q;};
+struct Data {float4 prefix[22]; Light lights[128];};
+[shader("fragment")] float4 main():SV_Target {DescriptorHandle<ConstantBuffer<Data>> buf=(DescriptorHandle<ConstantBuffer<Data>>)uint2(17412,0);Light pl=buf.lights[0];bool ok=all(abs(pl.p-float4(1.135,.942,.138,.194))<.0001)&&all(abs(pl.c-float4(13.5108,16.8156,18,3))<.0001);return ok?float4(.1,.5,.1,1):float4(.5,.1,.1,1);}

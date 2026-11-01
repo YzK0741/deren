@@ -14,9 +14,26 @@
 // Translated from `character.frag.readable.glsl:188-327`; mode 4 (fog) is the captured `mix` arm and
 // is left to the scene fog, exactly as the capture's `Q260` list is character-only.
 #ifndef __cplusplus
+// The current NVIDIA 617.42 descriptor-heap path drops the enclosing 352-byte
+// offset when reading nested light structs. Minimal Slang AND glslang shaders
+// reproduce it; both pass spirv-val, and GPU comparison matches buffer bytes
+// 0..63 instead of 352..415. Use byte-addressed reads of the same descriptor.
+// See docs/diagnostics/descriptor-heap-nested-light-read.md. The host pins the 352-byte
+// array offset, 64-byte stride and field offsets in primitive.cppm.
+// GPU regression: scripts/gates/game_toon_light_reads.py.
+static PunctualLight game_toon_load_light(uint index) {
+    const uint base = 352u + index * 64u;
+    PunctualLight light;
+    light.position = asfloat(heap_at<ByteAddressBuffer>(heap_light_slot).Load4(base));
+    light.color = asfloat(heap_at<ByteAddressBuffer>(heap_light_slot).Load4(base + 16u));
+    light.spot_dir = asfloat(heap_at<ByteAddressBuffer>(heap_light_slot).Load4(base + 32u));
+    light.params = asfloat(heap_at<ByteAddressBuffer>(heap_light_slot).Load4(base + 48u));
+    return light;
+}
+
 static float3 game_toon_add_lights(float3 colour, float3 N, float3 V, float3 P, float3 diffuse,
                                   float3 F0, float roughness) {
-    const int count = int(light_at(heap_light_slot).light_count.x);
+    const int count = clamp(int(light_at(heap_light_slot).light_count.x), 0, MAX_PUNCTUAL_LIGHTS);
     const float3 camera_axis = normalize(mul(camera_at(heap_camera_slot).view, float4(0.0, 0.0, 1.0, 0.0)).xyz);
     const float no_v = clamp(dot(N, V), 0.0, 1.0);
     const float a = max(roughness * roughness, 0.0078125);
@@ -25,7 +42,7 @@ static float3 game_toon_add_lights(float3 colour, float3 N, float3 V, float3 P, 
     const float diffuse_luma = dot(diffuse, float3(0.2126, 0.7152, 0.0722));
 
     for (int i = 0; i < count; ++i) {
-        const PunctualLight pl = light_at(heap_light_slot).punctual_lights[i];
+        const PunctualLight pl = game_toon_load_light(uint(i));
         const float mode = pl.color.w;
         const float npr_x = pl.spot_dir.w;
         const float npr_y = pl.position.w;
