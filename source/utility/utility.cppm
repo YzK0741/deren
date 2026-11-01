@@ -22,7 +22,7 @@
 //     so no template needs exporting. `panic` itself, `log_text` / `error_text` / `wait_log_all` and
 //     the memory allocation service come from deren.utility.shared - one per process.
 // 3.0.0: binary file reads require explicit bounds and return expected/file_error.
-// 2.0.0: RHI outcome policy moved to deren.engine.outcome.
+// 2.0.0: RHI outcome policy moved out of utility (the engine module that carried it was later deleted; see docs/error_handling.md).
 // 1.0.0: project containers use utility::vessel and PMR startup hooks are removed.
 // All vessel allocation/deallocation goes through the same shared_utility DLL.
 //

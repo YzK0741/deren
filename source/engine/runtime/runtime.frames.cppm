@@ -27,7 +27,6 @@ import deren.utility.shared;
 
 import :declarations;
 
-import deren.engine.outcome;
 import deren.engine.profiling;
 import deren.engine.pipelines;
 import deren.engine.render_resource;
@@ -147,26 +146,6 @@ namespace deren::engine {
         return rhi::shared_object<rhi::command_buffer>::borrow(*list);
     }
 
-    // THE FRAME OPEN'S CLASSIFIER (the error mechanism's verdict family): the one place that knows
-    // what an open failure MEANS for the frame loop. Success stays success; the two usually-fatal
-    // codes (a lost device, a dead host heap) become `fatal` - EXECUTED BY THE ENGINE, here in
-    // pace_and_acquire, because the backend only reports; everything else rides as `pass_failure`
-    // and the dispatch below decides skipped-vs-failed. A classifier that contradicts its outcome is
-    // a panic (the lying-classifier rule) - which is why this routes through a verdict instead of a
-    // bare if-chain on the code.
-    [[nodiscard]] inline deren::engine::outcome::verdict classify_acquire(deren::promise::rhi::frame_open_info const& open) noexcept {
-        using deren::engine::outcome::fatal;
-        using deren::engine::outcome::pass_failure;
-        using deren::engine::outcome::pass_success;
-        if (open.result.code == rhi::error::ok) {
-            return pass_success{};
-        }
-        if (open.result.code == rhi::error::device_lost || open.result.code == rhi::error::out_of_host_memory) {
-            return fatal{open.result};
-        }
-        return pass_failure{open.result}; // out_of_date -> skipped + rebuild; the rest -> acquire_failed
-    }
-
     frame_status runtime::pace_and_acquire() {
         this->cluster_retention_open = false;
         this->bloom_graph_error = rhi::error::ok;
@@ -240,19 +219,20 @@ namespace deren::engine {
         // backend's job; this aggregation is the engine's. It runs on EVERY path below, the skipped
         // ones included, exactly as the pre-acquire position did.
         this->collect_gpu_timings();
-        // THE CLASSIFIER IS THE ERROR MECHANISM WORKING (the verdict family, the error-mechanism
-        // batch): `fatal` is EXECUTED BY THE ENGINE - the backend only reported (device_lost,
-        // out_of_host_memory) - so a lost device ends the loop here instead of spinning acquire
-        // failures; out_of_date rebuilds and skips; everything else is the acquire_failed the caller
-        // already handles. This replaces the hand-written VkResult if-ladder.
-        deren::engine::outcome::verdict const decided = classify_acquire(open);
-        if (auto const* const fatal_case = std::get_if<deren::engine::outcome::fatal>(&decided)) {
-            deren::utility::panic(deren::utility::vessel::format("frame open is fatal ({}): {}", std::to_underlying(fatal_case->reason.code),
-                                                                 fatal_case->reason.message.empty() ? std::string_view{"no message"} : fatal_case->reason.message),
-                                  fatal_case->reason.where);
-        }
-        if (auto const* const failure = std::get_if<deren::engine::outcome::pass_failure>(&decided)) {
-            if (failure->failure.code == rhi::error::out_of_date) {
+        // THE OPEN'S POLICY, INLINE BECAUSE THERE IS ONE CALLER. The backend only REPORTS
+        // (device_lost, out_of_host_memory); deciding that a lost device ends the process is the
+        // engine's act, and so is rebuilding the swapchain on out_of_date. The removed
+        // deren.engine.outcome module existed to separate that classification from the mechanism, and
+        // this call site was its only production consumer: the separation cost more than it
+        // explained. docs/error_handling.md records the decision and what `panic` is allowed to mean.
+        rhi::error_info const& open_failure = open.result;
+        if (open_failure.code != rhi::error::ok) {
+            if (open_failure.code == rhi::error::device_lost || open_failure.code == rhi::error::out_of_host_memory) {
+                deren::utility::panic(deren::utility::vessel::format("frame open is fatal ({}): {}", std::to_underlying(open_failure.code),
+                                                                     open_failure.message.empty() ? std::string_view{"no message"} : open_failure.message),
+                                      open_failure.where);
+            }
+            if (open_failure.code == rhi::error::out_of_date) {
                 // e.g. the window was resized: rebuild the swapchain and let the caller retry on the
                 // next iteration - the same skip the zero-extent guard above returns.
                 deren::utility::log("swapchain out of date, recreating");
