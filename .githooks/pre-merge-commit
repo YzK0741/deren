@@ -2,6 +2,19 @@
 # Direct local merges into an integration branch are not allowed. Use a pull
 # request and squash merge on GitHub, so the branch only receives reviewed,
 # green commits.
+#
+# WIP channel (wip/*): a local merge INTO a wip branch is allowed - the same
+# branch-name rule .githooks/pre-commit and .githooks/pre-push use. Nothing on a
+# wip branch can land anywhere, so merging master into it is just local upkeep.
+# Merging while checked out on master or a release branch is still refused.
+branch=$(git symbolic-ref --short -q HEAD 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null)
+case "$branch" in
+    wip/*)
+        echo "wip channel: local merge allowed on '$branch' (never lands; promotion is a squash onto a feature branch)." >&2
+        exit 0
+        ;;
+esac
+
 if [ "$DEREN_ALLOW_MERGE" != "1" ]; then
     echo "merge refused: direct local merges are disabled; use a pull request." >&2
     exit 1

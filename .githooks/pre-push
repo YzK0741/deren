@@ -2,14 +2,18 @@
 # The pre-push protocol supplies one line per ref on stdin:
 #   <local ref> SP <local sha> SP <remote ref> SP <remote sha>
 #
-# Two rules:
+# Three rules:
 #   1. master/main are never pushed directly.
-#   2. The local gate marker (scripts/check-ci-marker.ps1) names the commit it
-#      verified. Push only that commit: a different local_sha has not been gated,
-#      even if HEAD has. A deletion (all-zero local_sha) publishes no tree.
+#   2. A deletion (all-zero local_sha) publishes no tree; it is allowed for any other ref.
+#   3. Everything under refs/heads/wip/* is the WIP CHANNEL: it is exempt from the local gate
+#      marker (no checklist, no local gate, no CI - ci.yml and subtilis-converter.yml skip
+#      wip/* refs, and scripts/push_wip.py is the cross-platform way to publish it). Every
+#      other ref is published only if its local_sha is the HEAD that the local gate marker
+#      (scripts/check-ci-marker.ps1) verified; a different local_sha has not been gated, even
+#      when HEAD has been.
 #
-# The marker is a LOCAL prerequisite, not proof that remote CI passed; PR CI is
-# the merge authority (CONTRIBUTING.md).
+# The marker is a LOCAL prerequisite, not proof that remote CI passed; PR CI is the merge
+# authority (CONTRIBUTING.md). Nothing on a wip branch is evidence of anything.
 
 head=$(git rev-parse --verify HEAD 2>/dev/null) || {
     echo "push refused: cannot resolve HEAD" >&2
@@ -32,6 +36,13 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     case "$local_sha" in
         *[!0]*) ;;
         *) continue ;;
+    esac
+
+    case "$remote_ref" in
+        refs/heads/wip/*)
+            echo "wip channel: publishing ${remote_ref#refs/heads/} without the local gate marker (no CI, never mergeable)." >&2
+            continue
+            ;;
     esac
 
     # Resolve annotated tags to the commit they name: the marker records commits.
