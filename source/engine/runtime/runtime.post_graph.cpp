@@ -42,33 +42,77 @@ namespace deren::engine {
     namespace graph = deren::engine::render_graph;
     namespace rhi = deren::promise::rhi;
     namespace {
+        // A LANE IS A SLOT IN `ios`/`passes` AND A NAMESPACE SHARED BY THE MAIN-VIEW AND POST CHAINS, so
+        // a lane index is claimed by exactly one pass for the whole frame. It used to be a bare unsigned
+        // kept in step by the comment table that used to sit here, and two collisions shipped silently
+        // before anyone saw a wrong frame: the visibility raster/resolve lanes first landed on the post
+        // chain's bloom-3 slot, then on the TAA resolve/copy slots - each mis-recorded another pass the
+        // moment the visibility passes stopped being pruned (measured: a bloom-3 begin_rendering in the
+        // wrong layout, then a transparent-black frame). The enum makes a lane a NAME, so `ios`/`passes`
+        // are sized and indexed by the compiler instead of by a hand-kept table, and `lane_slot()` is the only
+        // conversion between a lane and an array index.
+        //
+        // THE POST CHAIN OWNS 0..5 AND IS WALKED BY INDEX (the static_assert below guards that), every
+        // other lane is reached by name only.
+        enum class lane : std::uint8_t {
+            // the post chain: six contiguous lanes, ios[0..5]
+            bloom_0,
+            bloom_1,
+            bloom_2,
+            bloom_3,
+            post_composite,
+            post_resolve,
+            // the main view
+            deferred,
+            scene,
+            cluster,
+            shadow,
+            taa_resolve,
+            taa_history,
+            gbuffer_debug,
+            transparent,
+            character_forward,
+            toon_screen_rim,
+            goo_rim, // reserved: the table listed it, no pass installs it today
+            gaussian_splats,
+            rt_shadow,
+            visibility_raster,
+            visibility_resolve,
+            hzb_cull,
+            hzb_build,
+            hzb_recovery,
+            visibility_recovery,
+            software_visibility,
+            software_merge,
+            game_toon_depth_rim,
+            count
+        };
+        constexpr std::size_t lane_count = static_cast<std::size_t>(lane::count);
+        constexpr std::size_t lane_slot(lane l) noexcept {
+            return static_cast<std::size_t>(l);
+        }
+        // the post block's loops index 0..5: naming the conversion here keeps that assumption in one place
+        constexpr lane post_lane(std::size_t index) noexcept {
+            return static_cast<lane>(index);
+        }
+        static_assert(lane_slot(lane::bloom_0) == 0 && lane_slot(lane::post_resolve) == 5,
+                      "the post chain's six lanes must stay contiguous: its block walks ios[0..5] by index");
         struct post_recording_payload {
             pass::pass_host host{};
-            // THE LANE NUMBER IS A SLOT IN THESE ARRAYS, AND THE WHOLE FRAME IS ONE GRAPH: the main-view passes and
-            // the post chain share this payload, so a lane index is a NAMESPACE ACROSS BOTH. The assigned slots, as
-            // of visibility-buffer v0.4c (a lane collision is SILENT until the day the pass actually runs):
-            //   0..3 bloom levels      4 post composite      5 post resolve (fxaa/upscale)
-            //   6 deferred lighting    7 scene               8 cluster    9 shadow
-            //   10 TAA resolve         11 TAA history copy   12 gbuffer debug
-            //   13 transparent         14 character forward   15 toon screen rim   16 goo rim
-            //   17 gaussian splats     18 ray-traced shadow   19 VISIBILITY RASTER  20 VISIBILITY RESOLVE
-            //   21 reserved for the HZB CULL lane (phase B; kept free so that phase can append it without
-            //      renumbering), 22 HZB BUILD (M3 phase A2)
-            //   27 GAME TOON DEPTH RIM (the game chain's own contour, after 14 and before the resolve)
-            // THE VISIBILITY LANES ARE 19/20 BECAUSE THOSE ARE THE LAST FREE SLOTS. The first attempt shipped them at
-            // 3/4 (the post chain overwrote `passes[3]` with `post_bloom_3`) and the second at 10/11 (the TAA lane's
-            // two passes): both are harmless while the visibility passes are pruned, and both mis-record another pass
-            // the moment one runs - measured, first as a `post_bloom_3` begin_rendering in the wrong layout, then as
-            // the post composite recording the resolve pass instead of itself (a transparent-black frame).
-            std::array<pass::resolved_io, 28> ios;
-            std::array<pass::frame_pass*, 28> passes{};
-            rhi::error record(unsigned lane) const noexcept {
-                if (host.apply_behaviour) {
-                    host.apply_behaviour(host.context, *passes[lane], ios[lane]);
+            std::array<pass::resolved_io, lane_count> ios;
+            std::array<pass::frame_pass*, lane_count> passes{};
+            rhi::error record(lane l) const noexcept {
+                auto const index = lane_slot(l);
+                if (!passes[index]) { // a lane recorded before its pass was installed: refuse, do not dereference
+                    deren::utility::log("post graph: lane {} has no pass installed", static_cast<std::uint32_t>(index));
+                    return rhi::error::invalid_argument;
                 }
-                auto error = passes[lane]->record_content(ios[lane]);
+                if (host.apply_behaviour) {
+                    host.apply_behaviour(host.context, *passes[index], ios[index]);
+                }
+                auto error = passes[index]->record_content(ios[index]);
                 if (error != rhi::error::ok) { // which lane refused, and with what - one line, once per failure
-                    deren::utility::log("post graph: lane {} refused recording ({})", lane, static_cast<uint32_t>(error));
+                    deren::utility::log("post graph: lane {} refused recording ({})", static_cast<std::uint32_t>(index), static_cast<uint32_t>(error));
                 }
                 return error;
             }
@@ -624,13 +668,13 @@ namespace deren::engine {
                 }
                 pass::stage cluster_stage{.name = "cluster", .passes = this->cluster_pass};
                 this->prepare_stage(cluster_stage);
-                passes[8] = this->cluster_pass[0];
-                ios[8].push_block = host.push_block;
-                if (!passes[8] || !host.resolve || !host.resolve(host.context, *passes[8], ios[8]) || ios[8].list != commands.get()) {
+                passes[lane_slot(lane::cluster)] = this->cluster_pass[0];
+                ios[lane_slot(lane::cluster)].push_block = host.push_block;
+                if (!passes[lane_slot(lane::cluster)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::cluster)], ios[lane_slot(lane::cluster)]) || ios[lane_slot(lane::cluster)].list != commands.get()) {
                     return rhi::error::not_ready;
                 }
                 auto cluster_bound = build.bind_pass<graph::cluster::parameters>(
-                    cluster_added->pass, [payload](graph::cluster::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(8); });
+                    cluster_added->pass, [payload](graph::cluster::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(lane::cluster); });
                 if (!cluster_bound) {
                     return post_build_error(cluster_bound.error());
                 }
@@ -642,19 +686,19 @@ namespace deren::engine {
             if (this->graph_shadow_frame && shadow_cascades) {
                 pass::stage shadow_stage{.name = "shadow", .passes = this->shadow_pass};
                 this->prepare_stage(shadow_stage);
-                passes[9] = this->shadow_pass[0];
-                ios[9].push_block = host.push_block;
-                if (!passes[9] || !host.resolve || !host.resolve(host.context, *passes[9], ios[9]) || ios[9].list != commands.get() || ios[9].targets.empty()) {
+                passes[lane_slot(lane::shadow)] = this->shadow_pass[0];
+                ios[lane_slot(lane::shadow)].push_block = host.push_block;
+                if (!passes[lane_slot(lane::shadow)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::shadow)], ios[lane_slot(lane::shadow)]) || ios[lane_slot(lane::shadow)].list != commands.get() || ios[lane_slot(lane::shadow)].targets.empty()) {
                     return rhi::error::not_ready;
                 }
                 auto shadow_added = build.append([&](graph::builder& description) noexcept {
-                    return graph::shadow::append(description, {*shadow_cascades, static_cast<std::uint32_t>(ios[9].targets.size())});
+                    return graph::shadow::append(description, {*shadow_cascades, static_cast<std::uint32_t>(ios[lane_slot(lane::shadow)].targets.size())});
                 });
                 if (!shadow_added) {
                     return post_build_error(shadow_added.error());
                 }
                 auto shadow_bound = build.bind_pass<graph::shadow::parameters>(
-                    shadow_added->pass, [payload](graph::shadow::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(9); });
+                    shadow_added->pass, [payload](graph::shadow::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(lane::shadow); });
                 if (!shadow_bound) {
                     return post_build_error(shadow_bound.error());
                 }
@@ -812,15 +856,15 @@ namespace deren::engine {
                 std::array<pass::frame_pass*, 1> hzb_cull_stage_passes{this->hzb_cull.get()};
                 pass::stage hzb_cull_stage{.name = "hzb cull", .passes = hzb_cull_stage_passes};
                 this->prepare_stage(hzb_cull_stage);
-                passes[21] = this->hzb_cull.get();
-                ios[21].push_block = host.push_block;
-                if (!host.resolve || !host.resolve(host.context, *passes[21], ios[21]) || ios[21].list != commands.get()) {
+                passes[lane_slot(lane::hzb_cull)] = this->hzb_cull.get();
+                ios[lane_slot(lane::hzb_cull)].push_block = host.push_block;
+                if (!host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::hzb_cull)], ios[lane_slot(lane::hzb_cull)]) || ios[lane_slot(lane::hzb_cull)].list != commands.get()) {
                     return rhi::error::not_ready;
                 }
                 this->hzb_cull->set_frame(hzb_item_count, this->render_extent(), false, this->software_gpu_route_active_frame);
                 auto hzb_bound = build.bind_pass<hzb_cull_parameters>(
                     *hzb_cull_ref, [this, payload](hzb_cull_parameters const&, rhi::command_buffer& command_buffer, graph::execution::record_context const&) noexcept {
-                        auto const error = payload->record(21);
+                        auto const error = payload->record(lane::hzb_cull);
                         if (error != rhi::error::ok) {
                             return error;
                         }
@@ -915,10 +959,10 @@ namespace deren::engine {
                 }
                 pass::stage visibility_stage{.name = "visibility raster", .passes = this->visibility_pass};
                 this->prepare_stage(visibility_stage);
-                passes[19] = this->visibility_pass[0];
-                ios[19].push_block = host.push_block;
-                if (!passes[19] || !host.resolve || !host.resolve(host.context, *passes[19], ios[19]) || ios[19].list != commands.get() ||
-                    ios[19].targets.size() != 2) {
+                passes[lane_slot(lane::visibility_raster)] = this->visibility_pass[0];
+                ios[lane_slot(lane::visibility_raster)].push_block = host.push_block;
+                if (!passes[lane_slot(lane::visibility_raster)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::visibility_raster)], ios[lane_slot(lane::visibility_raster)]) || ios[lane_slot(lane::visibility_raster)].list != commands.get() ||
+                    ios[lane_slot(lane::visibility_raster)].targets.size() != 2) {
                     return rhi::error::not_ready;
                 }
                 this->visibility_raster->set_frame(this->make_visibility_frame());
@@ -930,7 +974,7 @@ namespace deren::engine {
                         // would call the raster "hzb cull"). `gpu_mark_through` is exactly that filler: a 0 ms
                         // interval when the lane did not run.
                         this->gpu_mark_through(gpu_mark_id::hzb_cull_end);
-                        auto error = payload->record(19);
+                        auto error = payload->record(lane::visibility_raster);
                         if (error != rhi::error::ok) {
                             return error;
                         }
@@ -967,9 +1011,9 @@ namespace deren::engine {
                     std::array<pass::frame_pass*, 1> hzb_stage_passes{this->hzb_build.get()};
                     pass::stage hzb_stage{.name = "hzb build", .passes = hzb_stage_passes};
                     this->prepare_stage(hzb_stage);
-                    passes[22] = this->hzb_build.get();
-                    ios[22].push_block = host.push_block;
-                    if (!host.resolve || !host.resolve(host.context, *passes[22], ios[22]) || ios[22].list != commands.get()) {
+                    passes[lane_slot(lane::hzb_build)] = this->hzb_build.get();
+                    ios[lane_slot(lane::hzb_build)].push_block = host.push_block;
+                    if (!host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::hzb_build)], ios[lane_slot(lane::hzb_build)]) || ios[lane_slot(lane::hzb_build)].list != commands.get()) {
                         return rhi::error::not_ready;
                     }
                     // THE BARRIER BUFFER THE PASS RECORDS ITS INTER-LEVEL ORDERING ON: the graph cannot see inside one
@@ -977,7 +1021,7 @@ namespace deren::engine {
                     this->hzb_build->set_hzb_levels(this->hzb_levels_buffer.get());
                     auto hzb_bound = build.bind_pass<hzb_build_parameters>(
                         *hzb_added, [this, payload](hzb_build_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
-                            auto const error = payload->record(22);
+                            auto const error = payload->record(lane::hzb_build);
                             if (error == rhi::error::ok) {
                                 this->hzb_recorded_this_frame = true; // the probe copies only a frame that actually built
                                 // THE PHASE-B SNAPSHOT IS TAKEN HERE, FROM THE FRAME THAT BUILT THE PYRAMID (§9.2): the
@@ -1021,15 +1065,15 @@ namespace deren::engine {
                 std::array<pass::frame_pass*, 1> recovery_stages{this->hzb_recovery.get()};
                 pass::stage recovery_stage{.name = "hzb recovery", .passes = recovery_stages};
                 this->prepare_stage(recovery_stage);
-                passes[23] = this->hzb_recovery.get();
-                ios[23].push_block = host.push_block;
-                if (!host.resolve || !host.resolve(host.context, *passes[23], ios[23]) || ios[23].list != commands.get()) {
+                passes[lane_slot(lane::hzb_recovery)] = this->hzb_recovery.get();
+                ios[lane_slot(lane::hzb_recovery)].push_block = host.push_block;
+                if (!host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::hzb_recovery)], ios[lane_slot(lane::hzb_recovery)]) || ios[lane_slot(lane::hzb_recovery)].list != commands.get()) {
                     return rhi::error::not_ready;
                 }
                 this->hzb_recovery->set_frame(hzb_item_count, this->render_extent(), true, this->software_gpu_route_active_frame);
                 auto recovery_bound = build.bind_pass<graph::visibility::hzb_recovery_parameters>(*recovery_added,
                                                                                                   [this, payload](graph::visibility::hzb_recovery_parameters const&, rhi::command_buffer& command_buffer, graph::execution::record_context const&) noexcept {
-                                                                                                      auto error = payload->record(23);
+                                                                                                      auto error = payload->record(lane::hzb_recovery);
                                                                                                       if (error == rhi::error::ok && this->hzb_cull_probe_active) {
                                                                                                           this->record_hzb_recovery_probe_copy(command_buffer);
                                                                                                       }
@@ -1053,15 +1097,15 @@ namespace deren::engine {
                 std::array<pass::frame_pass*, 1> load_stages{this->visibility_recovery.get()};
                 pass::stage load_stage{.name = "visibility recovery", .passes = load_stages};
                 this->prepare_stage(load_stage);
-                passes[24] = this->visibility_recovery.get();
-                ios[24].push_block = host.push_block;
-                if (!host.resolve || !host.resolve(host.context, *passes[24], ios[24]) || ios[24].list != commands.get() || ios[24].targets.size() != 2) {
+                passes[lane_slot(lane::visibility_recovery)] = this->visibility_recovery.get();
+                ios[lane_slot(lane::visibility_recovery)].push_block = host.push_block;
+                if (!host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::visibility_recovery)], ios[lane_slot(lane::visibility_recovery)]) || ios[lane_slot(lane::visibility_recovery)].list != commands.get() || ios[lane_slot(lane::visibility_recovery)].targets.size() != 2) {
                     return rhi::error::not_ready;
                 }
                 this->visibility_recovery->set_frame(this->make_visibility_frame(true));
                 auto load_bound = build.bind_pass<graph::visibility::raster_load_parameters>(load_added->pass,
                                                                                              [this, payload](graph::visibility::raster_load_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
-                                                                                                 auto error = payload->record(24);
+                                                                                                 auto error = payload->record(lane::visibility_recovery);
                                                                                                  if (error == rhi::error::ok) {
                                                                                                      this->gpu_mark(gpu_mark_id::visibility_recovery_end);
                                                                                                  }
@@ -1081,9 +1125,9 @@ namespace deren::engine {
                 std::array<pass::frame_pass*, 1> software_stage_passes{this->software_visibility.get()};
                 pass::stage software_stage{.name = "software visibility", .passes = software_stage_passes};
                 this->prepare_stage(software_stage);
-                passes[25] = this->software_visibility.get();
-                ios[25].push_block = {this, &runtime::push_software_block};
-                if (!passes[25] || !host.resolve || !host.resolve(host.context, *passes[25], ios[25]) || ios[25].list != commands.get()) {
+                passes[lane_slot(lane::software_visibility)] = this->software_visibility.get();
+                ios[lane_slot(lane::software_visibility)].push_block = {this, &runtime::push_software_block};
+                if (!passes[lane_slot(lane::software_visibility)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::software_visibility)], ios[lane_slot(lane::software_visibility)]) || ios[lane_slot(lane::software_visibility)].list != commands.get()) {
                     return rhi::error::not_ready;
                 }
                 auto software_added = build.append([&](graph::builder& description) noexcept {
@@ -1107,7 +1151,7 @@ namespace deren::engine {
                         auto const index = this->current_image_index;
                         this->software_visibility->set_frame_inputs(this->software_active_tile_count,
                                                                     this->software_depth_images[index].get(), this->software_id_images[index].get());
-                        auto const error = payload->record(25);
+                        auto const error = payload->record(lane::software_visibility);
                         if (error == rhi::error::ok) {
                             this->gpu_mark(gpu_mark_id::software_raster_end);
                         }
@@ -1186,16 +1230,16 @@ namespace deren::engine {
                 }
                 pass::stage resolve_stage{.name = "visibility resolve", .passes = this->visibility_resolve_stage};
                 this->prepare_stage(resolve_stage);
-                passes[20] = this->visibility_resolve_stage[0];
+                passes[lane_slot(lane::visibility_resolve)] = this->visibility_resolve_stage[0];
                 this->visibility_resolve->set_mip_feedback_slot(residency && progressive_mips ? render_layout::heap_slot_base + 1366 + frame_ring().position() : 0);
-                ios[20].push_block = host.push_block;
-                if (!passes[20] || !host.resolve || !host.resolve(host.context, *passes[20], ios[20]) || ios[20].list != commands.get()) {
+                ios[lane_slot(lane::visibility_resolve)].push_block = host.push_block;
+                if (!passes[lane_slot(lane::visibility_resolve)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::visibility_resolve)], ios[lane_slot(lane::visibility_resolve)]) || ios[lane_slot(lane::visibility_resolve)].list != commands.get()) {
                     return rhi::error::not_ready;
                 }
                 auto resolve_bound = build.bind_pass<graph::visibility::resolve_parameters>(
                     resolve_added->pass, [this, payload](graph::visibility::resolve_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
                         this->gpu_mark_through(gpu_mark_id::software_raster_end);
-                        auto error = payload->record(20);
+                        auto error = payload->record(lane::visibility_resolve);
                         if (error != rhi::error::ok) {
                             return error;
                         }
@@ -1230,15 +1274,15 @@ namespace deren::engine {
                     std::array<pass::frame_pass*, 1> merge_stage_passes{this->software_merge.get()};
                     pass::stage merge_stage{.name = "software merge", .passes = merge_stage_passes};
                     this->prepare_stage(merge_stage);
-                    passes[26] = this->software_merge.get();
-                    ios[26].push_block = host.push_block;
-                    if (!passes[26] || !host.resolve || !host.resolve(host.context, *passes[26], ios[26]) ||
-                        ios[26].list != commands.get() || ios[26].targets.size() != 1u) {
+                    passes[lane_slot(lane::software_merge)] = this->software_merge.get();
+                    ios[lane_slot(lane::software_merge)].push_block = host.push_block;
+                    if (!passes[lane_slot(lane::software_merge)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::software_merge)], ios[lane_slot(lane::software_merge)]) ||
+                        ios[lane_slot(lane::software_merge)].list != commands.get() || ios[lane_slot(lane::software_merge)].targets.size() != 1u) {
                         return rhi::error::not_ready;
                     }
                     auto merge_bound = build.bind_pass<graph::visibility::software_merge_parameters>(
                         merge_added->pass, [this, payload](graph::visibility::software_merge_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
-                            auto const error = payload->record(26);
+                            auto const error = payload->record(lane::software_merge);
                             if (error == rhi::error::ok) {
                                 this->gpu_mark(gpu_mark_id::software_merge_end);
                             }
@@ -1263,16 +1307,16 @@ namespace deren::engine {
                 }
                 pass::stage scene_stage{.name = "scene", .passes = this->scene_pass};
                 this->prepare_stage(scene_stage);
-                passes[7] = this->scene_pass[0];
-                ios[7].push_block = host.push_block;
-                if (!passes[7] || !host.resolve || !host.resolve(host.context, *passes[7], ios[7]) ||
-                    ios[7].list != commands.get() || ios[7].targets.size() != 6) {
+                passes[lane_slot(lane::scene)] = this->scene_pass[0];
+                ios[lane_slot(lane::scene)].push_block = host.push_block;
+                if (!passes[lane_slot(lane::scene)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::scene)], ios[lane_slot(lane::scene)]) ||
+                    ios[lane_slot(lane::scene)].list != commands.get() || ios[lane_slot(lane::scene)].targets.size() != 6) {
                     return rhi::error::not_ready;
                 }
                 std::array expected{this->gbuffer_images[0][index].get(), this->gbuffer_images[1][index].get(), this->gbuffer_images[2][index].get(),
                                     velocity.get(), scene_target_image, depth.get()};
                 for (unsigned i = 0; i < expected.size(); ++i) {
-                    if (ios[7].targets[i].image_handle != expected[i]) {
+                    if (ios[lane_slot(lane::scene)].targets[i].image_handle != expected[i]) {
                         return rhi::error::invalid_argument;
                     }
                 }
@@ -1286,7 +1330,7 @@ namespace deren::engine {
                                                                                        // always had ("scene" = this mark -> scene_end); the visibility slot reads ~0
                                                                                        this->gpu_mark(gpu_mark_id::visibility_raster_end);
                                                                                        this->gpu_mark_through(gpu_mark_id::software_raster_end);
-                                                                                       auto error = payload->record(7);
+                                                                                       auto error = payload->record(lane::scene);
                                                                                        if (error != rhi::error::ok) {
                                                                                            return error;
                                                                                        }
@@ -1305,9 +1349,9 @@ namespace deren::engine {
             if (this->graph_rt_frame && rt_visibility) {
                 pass::stage rt_stage{.name = "rt_shadow", .passes = this->rt_shadow_pass};
                 this->prepare_stage(rt_stage);
-                passes[18] = this->rt_shadow_pass[0];
-                ios[18].push_block = host.push_block;
-                if (!passes[18] || !host.resolve || !host.resolve(host.context, *passes[18], ios[18]) || ios[18].list != commands.get()) {
+                passes[lane_slot(lane::rt_shadow)] = this->rt_shadow_pass[0];
+                ios[lane_slot(lane::rt_shadow)].push_block = host.push_block;
+                if (!passes[lane_slot(lane::rt_shadow)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::rt_shadow)], ios[lane_slot(lane::rt_shadow)]) || ios[lane_slot(lane::rt_shadow)].list != commands.get()) {
                     return rhi::error::not_ready;
                 }
                 auto rt_added = build.append([&](graph::builder& description) noexcept {
@@ -1317,7 +1361,7 @@ namespace deren::engine {
                     return post_build_error(rt_added.error());
                 }
                 auto rt_bound = build.bind_pass<graph::rt_shadow::parameters>(
-                    rt_added->pass, [payload](graph::rt_shadow::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(18); });
+                    rt_added->pass, [payload](graph::rt_shadow::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(lane::rt_shadow); });
                 if (!rt_bound) {
                     return post_build_error(rt_bound.error());
                 }
@@ -1330,16 +1374,16 @@ namespace deren::engine {
                 lit = *appended;
                 pass::stage stage{.name = "deferred", .passes = this->deferred_pass};
                 this->prepare_stage(stage);
-                passes[6] = this->deferred_pass[0];
-                ios[6].push_block = host.push_block;
-                if (!passes[6] || !host.resolve || !host.resolve(host.context, *passes[6], ios[6]) ||
-                    ios[6].list != commands.get() || ios[6].targets.size() != 1 || ios[6].targets[0].image_handle != scene_target_image) {
+                passes[lane_slot(lane::deferred)] = this->deferred_pass[0];
+                ios[lane_slot(lane::deferred)].push_block = host.push_block;
+                if (!passes[lane_slot(lane::deferred)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::deferred)], ios[lane_slot(lane::deferred)]) ||
+                    ios[lane_slot(lane::deferred)].list != commands.get() || ios[lane_slot(lane::deferred)].targets.size() != 1 || ios[lane_slot(lane::deferred)].targets[0].image_handle != scene_target_image) {
                     return rhi::error::not_ready;
                 }
                 auto bound = build.bind_pass<graph::lighting::parameters>(lit->pass,
                                                                           [this, payload](graph::lighting::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
                                                                               this->gpu_mark_through(gpu_mark_id::software_merge_end);
-                                                                              auto error = payload->record(6);
+                                                                              auto error = payload->record(lane::deferred);
                                                                               if (error != rhi::error::ok) {
                                                                                   return error;
                                                                               }
@@ -1356,10 +1400,10 @@ namespace deren::engine {
                 // now; the frame loop's own HDR transition for this view belonged to the removed legacy path.
                 pass::stage debug_stage{.name = "gbuffer_debug", .passes = this->gbuffer_debug_stage};
                 this->prepare_stage(debug_stage);
-                passes[12] = this->gbuffer_debug_stage[0];
-                ios[12].push_block = host.push_block;
-                if (!passes[12] || !host.resolve || !host.resolve(host.context, *passes[12], ios[12]) || ios[12].list != commands.get() ||
-                    ios[12].targets.size() != 1 || ios[12].targets[0].image_handle != scene_target_image) {
+                passes[lane_slot(lane::gbuffer_debug)] = this->gbuffer_debug_stage[0];
+                ios[lane_slot(lane::gbuffer_debug)].push_block = host.push_block;
+                if (!passes[lane_slot(lane::gbuffer_debug)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::gbuffer_debug)], ios[lane_slot(lane::gbuffer_debug)]) || ios[lane_slot(lane::gbuffer_debug)].list != commands.get() ||
+                    ios[lane_slot(lane::gbuffer_debug)].targets.size() != 1 || ios[lane_slot(lane::gbuffer_debug)].targets[0].image_handle != scene_target_image) {
                     return rhi::error::not_ready;
                 }
                 auto debug_added = build.append([&](graph::builder& description) noexcept {
@@ -1369,7 +1413,7 @@ namespace deren::engine {
                     return post_build_error(debug_added.error());
                 }
                 auto debug_bound = build.bind_pass<graph::gbuffer_debug::parameters>(
-                    debug_added->pass, [payload](graph::gbuffer_debug::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(12); });
+                    debug_added->pass, [payload](graph::gbuffer_debug::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(lane::gbuffer_debug); });
                 if (!debug_bound) {
                     return post_build_error(debug_bound.error());
                 }
@@ -1418,10 +1462,10 @@ namespace deren::engine {
             if (this->gaussian_active()) {
                 pass::stage gaussian_stage{.name = "gaussian", .passes = this->gaussian_pass};
                 this->prepare_stage(gaussian_stage);
-                passes[17] = this->gaussian_pass[0];
-                ios[17].push_block = host.push_block;
-                if (!passes[17] || !host.resolve || !host.resolve(host.context, *passes[17], ios[17]) || ios[17].list != commands.get() ||
-                    ios[17].targets.size() != 2 || ios[17].targets[0].image_handle != scene_target_image || ios[17].targets[1].image_handle != depth.get()) {
+                passes[lane_slot(lane::gaussian_splats)] = this->gaussian_pass[0];
+                ios[lane_slot(lane::gaussian_splats)].push_block = host.push_block;
+                if (!passes[lane_slot(lane::gaussian_splats)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::gaussian_splats)], ios[lane_slot(lane::gaussian_splats)]) || ios[lane_slot(lane::gaussian_splats)].list != commands.get() ||
+                    ios[lane_slot(lane::gaussian_splats)].targets.size() != 2 || ios[lane_slot(lane::gaussian_splats)].targets[0].image_handle != scene_target_image || ios[lane_slot(lane::gaussian_splats)].targets[1].image_handle != depth.get()) {
                     return rhi::error::not_ready;
                 }
                 auto gaussian_added = build.append([&](graph::builder& description) noexcept {
@@ -1434,7 +1478,7 @@ namespace deren::engine {
                     gaussian_added->pass, [this, payload](graph::gaussian::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
                         // the pass's own GPU timing callback writes 7/8/9 INSIDE this record; the raster mark (10) is
                         // the zero-interval placeholder after it (or the whole 7..10 range when it did not record)
-                        auto const recorded = payload->record(17);
+                        auto const recorded = payload->record(lane::gaussian_splats);
                         this->gpu_mark_through(gpu_mark_id::gaussian_raster_end);
                         return recorded;
                     });
@@ -1448,10 +1492,10 @@ namespace deren::engine {
             if (this->active_features().transparent) {
                 pass::stage transparent_stage{.name = "transparent", .passes = this->transparent_pass};
                 this->prepare_stage(transparent_stage);
-                passes[13] = this->transparent_pass[0];
-                ios[13].push_block = host.push_block;
-                if (!passes[13] || !host.resolve || !host.resolve(host.context, *passes[13], ios[13]) || ios[13].list != commands.get() ||
-                    ios[13].targets.size() < 2 || ios[13].targets[0].image_handle != scene_target_image || ios[13].targets[1].image_handle != depth.get()) {
+                passes[lane_slot(lane::transparent)] = this->transparent_pass[0];
+                ios[lane_slot(lane::transparent)].push_block = host.push_block;
+                if (!passes[lane_slot(lane::transparent)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::transparent)], ios[lane_slot(lane::transparent)]) || ios[lane_slot(lane::transparent)].list != commands.get() ||
+                    ios[lane_slot(lane::transparent)].targets.size() < 2 || ios[lane_slot(lane::transparent)].targets[0].image_handle != scene_target_image || ios[lane_slot(lane::transparent)].targets[1].image_handle != depth.get()) {
                     return rhi::error::not_ready;
                 }
                 auto transparent_added = build.append([&](graph::builder& description) noexcept {
@@ -1462,7 +1506,7 @@ namespace deren::engine {
                 }
                 auto transparent_bound = build.bind_pass<graph::transparent::parameters>(
                     transparent_added->pass, [this, payload](graph::transparent::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
-                        auto const recorded = payload->record(13);
+                        auto const recorded = payload->record(lane::transparent);
                         this->gpu_mark_through(gpu_mark_id::transparent_end);
                         return recorded;
                     });
@@ -1477,10 +1521,10 @@ namespace deren::engine {
             if (this->feature_active("character_forward")) {
                 pass::stage character_stage{.name = "character_forward", .passes = this->character_forward_pass};
                 this->prepare_stage(character_stage);
-                passes[14] = this->character_forward_pass[0];
-                ios[14].push_block = host.push_block;
-                if (!passes[14] || !host.resolve || !host.resolve(host.context, *passes[14], ios[14]) || ios[14].list != commands.get() ||
-                    ios[14].targets.size() < 2 || ios[14].targets[0].image_handle != scene_target_image || ios[14].targets[1].image_handle != depth.get()) {
+                passes[lane_slot(lane::character_forward)] = this->character_forward_pass[0];
+                ios[lane_slot(lane::character_forward)].push_block = host.push_block;
+                if (!passes[lane_slot(lane::character_forward)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::character_forward)], ios[lane_slot(lane::character_forward)]) || ios[lane_slot(lane::character_forward)].list != commands.get() ||
+                    ios[lane_slot(lane::character_forward)].targets.size() < 2 || ios[lane_slot(lane::character_forward)].targets[0].image_handle != scene_target_image || ios[lane_slot(lane::character_forward)].targets[1].image_handle != depth.get()) {
                     return rhi::error::not_ready;
                 }
                 auto character_added = build.append([&](graph::builder& description) noexcept {
@@ -1490,7 +1534,7 @@ namespace deren::engine {
                     return post_build_error(character_added.error());
                 }
                 auto character_bound = build.bind_pass<graph::character_forward::parameters>(
-                    character_added->pass, [payload](graph::character_forward::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(14); });
+                    character_added->pass, [payload](graph::character_forward::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(lane::character_forward); });
                 if (!character_bound) {
                     return post_build_error(character_bound.error());
                 }
@@ -1498,10 +1542,10 @@ namespace deren::engine {
             if (this->feature_active("toon_screen_rim")) {
                 pass::stage toon_stage{.name = "toon_screen_rim", .passes = this->toon_screen_rim_pass};
                 this->prepare_stage(toon_stage);
-                passes[15] = this->toon_screen_rim_pass[0];
-                ios[15].push_block = host.push_block;
-                if (!passes[15] || !host.resolve || !host.resolve(host.context, *passes[15], ios[15]) || ios[15].list != commands.get() ||
-                    ios[15].targets.size() != 1 || ios[15].targets[0].image_handle != scene_target_image) {
+                passes[lane_slot(lane::toon_screen_rim)] = this->toon_screen_rim_pass[0];
+                ios[lane_slot(lane::toon_screen_rim)].push_block = host.push_block;
+                if (!passes[lane_slot(lane::toon_screen_rim)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::toon_screen_rim)], ios[lane_slot(lane::toon_screen_rim)]) || ios[lane_slot(lane::toon_screen_rim)].list != commands.get() ||
+                    ios[lane_slot(lane::toon_screen_rim)].targets.size() != 1 || ios[lane_slot(lane::toon_screen_rim)].targets[0].image_handle != scene_target_image) {
                     return rhi::error::not_ready;
                 }
                 auto toon_added = build.append([&](graph::builder& description) noexcept {
@@ -1511,7 +1555,7 @@ namespace deren::engine {
                     return post_build_error(toon_added.error());
                 }
                 auto toon_bound = build.bind_pass<graph::toon_screen_rim::parameters>(
-                    toon_added->pass, [payload](graph::toon_screen_rim::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(15); });
+                    toon_added->pass, [payload](graph::toon_screen_rim::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(lane::toon_screen_rim); });
                 if (!toon_bound) {
                     return post_build_error(toon_bound.error());
                 }
@@ -1531,10 +1575,10 @@ namespace deren::engine {
             if (this->game_toon_active() && this->character_forward_pass[0] != nullptr) {
                 pass::stage game_rim_stage{.name = "game_toon_depth_rim", .passes = this->game_toon_depth_rim_pass};
                 this->prepare_stage(game_rim_stage);
-                passes[27] = this->game_toon_depth_rim_pass[0];
-                ios[27].push_block = host.push_block;
-                if (!passes[27] || !host.resolve || !host.resolve(host.context, *passes[27], ios[27]) || ios[27].list != commands.get() ||
-                    ios[27].targets.size() != 1 || ios[27].targets[0].image_handle != scene_target_image) {
+                passes[lane_slot(lane::game_toon_depth_rim)] = this->game_toon_depth_rim_pass[0];
+                ios[lane_slot(lane::game_toon_depth_rim)].push_block = host.push_block;
+                if (!passes[lane_slot(lane::game_toon_depth_rim)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::game_toon_depth_rim)], ios[lane_slot(lane::game_toon_depth_rim)]) || ios[lane_slot(lane::game_toon_depth_rim)].list != commands.get() ||
+                    ios[lane_slot(lane::game_toon_depth_rim)].targets.size() != 1 || ios[lane_slot(lane::game_toon_depth_rim)].targets[0].image_handle != scene_target_image) {
                     return rhi::error::not_ready;
                 }
                 auto game_rim_added = build.append([&](graph::builder& description) noexcept {
@@ -1544,7 +1588,7 @@ namespace deren::engine {
                     return post_build_error(game_rim_added.error());
                 }
                 auto game_rim_bound = build.bind_pass<graph::toon_screen_rim::parameters>(
-                    game_rim_added->pass, [payload](graph::toon_screen_rim::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(27); });
+                    game_rim_added->pass, [payload](graph::toon_screen_rim::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(lane::game_toon_depth_rim); });
                 if (!game_rim_bound) {
                     return post_build_error(game_rim_bound.error());
                 }
@@ -1557,14 +1601,14 @@ namespace deren::engine {
             if (this->graph_taa_frame && taa_history) {
                 pass::stage taa_stage{.name = "taa", .passes = this->taa_pass};
                 this->prepare_stage(taa_stage);
-                passes[10] = this->taa_pass[0];
-                ios[10].push_block = host.push_block;
-                if (!passes[10] || !host.resolve || !host.resolve(host.context, *passes[10], ios[10]) || ios[10].list != commands.get()) {
+                passes[lane_slot(lane::taa_resolve)] = this->taa_pass[0];
+                ios[lane_slot(lane::taa_resolve)].push_block = host.push_block;
+                if (!passes[lane_slot(lane::taa_resolve)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::taa_resolve)], ios[lane_slot(lane::taa_resolve)]) || ios[lane_slot(lane::taa_resolve)].list != commands.get()) {
                     return rhi::error::not_ready;
                 }
-                passes[11] = this->taa_pass[0];
-                ios[11].push_block = host.push_block;
-                if (!host.resolve(host.context, *passes[11], ios[11]) || ios[11].list != commands.get()) {
+                passes[lane_slot(lane::taa_history)] = this->taa_pass[0];
+                ios[lane_slot(lane::taa_history)].push_block = host.push_block;
+                if (!host.resolve(host.context, *passes[lane_slot(lane::taa_history)], ios[lane_slot(lane::taa_history)]) || ios[lane_slot(lane::taa_history)].list != commands.get()) {
                     return rhi::error::not_ready;
                 }
                 auto resolve_added = build.append([&](graph::builder& description) noexcept {
@@ -1574,7 +1618,7 @@ namespace deren::engine {
                     return post_build_error(resolve_added.error());
                 }
                 auto resolve_bound = build.bind_pass<graph::taa::resolve_parameters>(
-                    resolve_added->pass, [payload](graph::taa::resolve_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(10); });
+                    resolve_added->pass, [payload](graph::taa::resolve_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(lane::taa_resolve); });
                 if (!resolve_bound) {
                     return post_build_error(resolve_bound.error());
                 }
@@ -1593,7 +1637,7 @@ namespace deren::engine {
                 }
                 auto copy_bound = build.bind_pass<graph::taa::copy_parameters>(
                     copy_added->pass, [this, payload](graph::taa::copy_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
-                        auto const recorded = static_cast<pass::taa_pass*>(payload->passes[11])->record_copy(payload->ios[11]);
+                        auto const recorded = static_cast<pass::taa_pass*>(payload->passes[lane_slot(lane::taa_history)])->record_copy(payload->ios[lane_slot(lane::taa_history)]);
                         this->gpu_mark_through(gpu_mark_id::taa_end);
                         return recorded;
                     });
@@ -1605,8 +1649,8 @@ namespace deren::engine {
         for (unsigned i = 0; i < 4; ++i) {
             passes[i] = this->bloom_pass[i];
         }
-        passes[4] = this->post_composite_stage[0];
-        passes[5] = settings.resolution == graph::post::resolve::fxaa ? this->fxaa_pass[0] : this->upscale_pass[0];
+        passes[lane_slot(lane::post_composite)] = this->post_composite_stage[0];
+        passes[lane_slot(lane::post_resolve)] = settings.resolution == graph::post::resolve::fxaa ? this->fxaa_pass[0] : this->upscale_pass[0];
         unsigned count = settings.resolution == graph::post::resolve::none ? 5 : 6;
         for (unsigned i = 0; i < count; ++i) {
             ios[i].push_block = host.push_block;
@@ -1639,7 +1683,7 @@ namespace deren::engine {
         }
         for (unsigned i = 0; i < 4; ++i) {
             auto bound = settings.bloom_enabled
-                             ? build.bind_pass<graph::post::bloom_parameters>(output->bloom[i], [payload, i](graph::post::bloom_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(i); })
+                             ? build.bind_pass<graph::post::bloom_parameters>(output->bloom[i], [payload, i](graph::post::bloom_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(post_lane(i)); })
                              : build.bind_pass<graph::post::clear_parameters>(output->bloom[i], [payload, i](graph::post::clear_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return clear_post_target(payload->ios[i]); });
             if (!bound) {
                 return post_build_error(bound.error());
@@ -1651,7 +1695,7 @@ namespace deren::engine {
                                                                                       // not run (debug-view frames, no lighting, disabled optional stages)
                                                                                       this->gpu_mark_through(gpu_mark_id::main_end);
                                                                                       this->gpu_mark(gpu_mark_id::bloom_end);
-                                                                                      return payload->record(4);
+                                                                                      return payload->record(lane::post_composite);
                                                                                   });
         if (!composite_bound) {
             return post_build_error(composite_bound.error());
@@ -1663,7 +1707,7 @@ namespace deren::engine {
                                                                                       if (upscale) {
                                                                                           this->gpu_mark(gpu_mark_id::fxaa_end);
                                                                                       }
-                                                                                      return payload->record(5);
+                                                                                      return payload->record(lane::post_resolve);
                                                                                   });
             if (!resolve_bound) {
                 return post_build_error(resolve_bound.error());
