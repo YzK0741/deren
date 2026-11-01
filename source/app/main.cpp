@@ -3062,10 +3062,17 @@ namespace {
             }
             return out;
         }
-        // THE SPECULAR RAMP LANE STILL GETS THE BAKED UNIT STEP, NOT THE MODEL'S IMAGE - see bake_unit_ramp for
-        // why a path that read the game's own ramps is a path this repository cannot carry, and note that the
-        // artist's switch above is still what decides WHETHER there is a ramp at all. Nothing has taught THIS
-        // lane to read the game's own atlas yet, and it is the one that still reads `.r` as a threshold.
+        // Captured GameToon reads this map's RGB tint, including its 2D hair-highlight palette.
+        // Keep the legacy threshold bake for materials outside that explicit profile.
+        if (lane == deren::engine::toon_slot::specular_ramp && model_tex != nullptr &&
+            toon_colour_callback(owner, material_name, deren::engine::toon_colour_lane::game_toon_0).x > 0.5f) {
+            out.data = std::span<uint8_t const>(model_tex->data.data(), model_tex->data.size());
+            out.width = model_tex->width;
+            out.height = model_tex->height;
+            out.mip_levels = 1;
+            out.valid = true;
+            return out;
+        }
         if (lane == deren::engine::toon_slot::specular_ramp && !state.baked_unit_ramp.empty()) {
             out.data = std::span<uint8_t const>(state.baked_unit_ramp.data(), state.baked_unit_ramp.size());
             out.width = state.ramp_width;

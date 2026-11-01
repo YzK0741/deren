@@ -2698,7 +2698,6 @@ namespace deren::engine {
         // ... and the GAME chain's depth rim, looked up by its own declaration name like every other stage: a chain
         // without one leaves it null, which the post-graph lane reads as "there is no pass here".
         this->game_toon_depth_rim_pass = {at("game_toon_depth_rim")};
-        this->game_toon_depth_rim_pass = {at("goo_rim")};
         this->gbuffer_debug_stage = {at("gbuffer-debug")};
         this->rt_shadow_pass = {at("rt_shadow")};
         this->deferred_pass = {at("deferred")};
