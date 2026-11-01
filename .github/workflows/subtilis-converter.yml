@@ -49,6 +49,10 @@ on:
 jobs:
   release-tests:
     name: Release + all standalone CPU tests
+    # WIP channel: backup-only branches (wip/*) run no CI at all; see CONTRIBUTING.md
+    # "The WIP channel". Same guard as every job in ci.yml; the `github.ref_name` half is
+    # inert here because this workflow has no workflow_dispatch (only a PR from wip/* reaches it).
+    if: ${{ !startsWith(github.head_ref || '', 'wip/') && !startsWith(github.ref_name || '', 'wip/') }}
     runs-on: windows-latest
     timeout-minutes: 60
     defaults:
@@ -109,6 +113,10 @@ jobs:
 
   sanitizers:
     name: ASan + UBSan (standalone CPU tests)
+    # WIP channel: backup-only branches (wip/*) run no CI at all; see CONTRIBUTING.md
+    # "The WIP channel". Same guard as every job in ci.yml; the `github.ref_name` half is
+    # inert here because this workflow has no workflow_dispatch (only a PR from wip/* reaches it).
+    if: ${{ !startsWith(github.head_ref || '', 'wip/') && !startsWith(github.ref_name || '', 'wip/') }}
     runs-on: windows-latest
     timeout-minutes: 90
     defaults:

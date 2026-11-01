@@ -13,6 +13,11 @@ name: ci
 # so a green run always describes the newest tree; runs on different refs never
 # cancel each other.
 #
+# THE WIP CHANNEL IS NOT VALIDATED HERE: a branch named `wip/*` is backup-only (see
+# CONTRIBUTING.md "The WIP channel"). Every job below carries an `if:` that skips wip/*
+# refs, so such a branch produces no check - locally or remotely - and a PR opened from
+# one can never satisfy the required checks. Gates run only on the release path.
+#
 # Why MSYS2 clang64: the project is C++23 modules on clang + libc++, and the
 # STL module (source/vstd/vstd.cppm, a trimmed fork of the generated libc++ std module)
 # is tied to that toolchain - the only environment that guarantees a
@@ -46,6 +51,8 @@ concurrency:
 
 jobs:
   posix-stacktrace:
+    # WIP channel: backup-only branches (wip/*) run no CI at all; see "THE WIP CHANNEL" above.
+    if: ${{ !startsWith(github.head_ref || '', 'wip/') && !startsWith(github.ref_name || '', 'wip/') }}
     # SCOPE: this job compiles the POSIX DIAGNOSTICS layer only (three files, no CMake, no project
     # build). It is NOT a POSIX build gate - see docs/compiler_tolerance.md "What is supported".
     # GitHub's default job limit is 360 minutes. This job compiles three files and runs two probes, so a
@@ -72,6 +79,8 @@ jobs:
 
   build-and-test:
     name: Release build + ctest + Debug gate + clang-tidy
+    # WIP channel: backup-only branches (wip/*) run no CI at all; see "THE WIP CHANNEL" above.
+    if: ${{ !startsWith(github.head_ref || '', 'wip/') && !startsWith(github.ref_name || '', 'wip/') }}
     # Two full C++23-modules builds plus ctest; generous, but bounded (the default is 360 minutes).
     timeout-minutes: 180
     runs-on: windows-latest
@@ -105,6 +114,12 @@ jobs:
         run: |
           python --version
           python source/tests/test_clang_tidy_driver.py
+
+      - name: Check the WIP CI guard
+        # The WIP channel must produce no CI run (see "THE WIP CHANNEL" above): every job in
+        # both workflows carries the `wip/*` guard, and this step fails the release PR when a
+        # new job forgets it - the same "the comment is checked, not trusted" shape as test_docs.
+        run: python scripts/checks/check_wip_ci_guard.py
 
       - name: Install slangc (pinned Slang release)
         shell: pwsh
@@ -276,6 +291,8 @@ jobs:
 
   sanitizers:
     name: ASan + UBSan (headless tests)
+    # WIP channel: backup-only branches (wip/*) run no CI at all; see "THE WIP CHANNEL" above.
+    if: ${{ !startsWith(github.head_ref || '', 'wip/') && !startsWith(github.ref_name || '', 'wip/') }}
     # One build of the headless test list plus ctest under the sanitizers; bounded for the same reason.
     timeout-minutes: 120
     runs-on: windows-latest

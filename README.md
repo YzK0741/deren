@@ -39,7 +39,9 @@ macOS), but only Windows is built by CI - POSIX is source-tree support, not a ve
 *Platform* below).
 
 Commit and CI rules are in [`CONTRIBUTING.md`](CONTRIBUTING.md); use `scripts/commit.ps1` and
-`scripts/push.ps1` rather than direct `git commit` / `git push`.
+`scripts/push.ps1` rather than direct `git commit` / `git push`. Unfinished work can be backed up
+on a `wip/*` branch with `python scripts/push_wip.py` (cross-platform; no local gate, no CI job
+runs for it, never merged - see [the WIP channel](CONTRIBUTING.md#the-wip-channel-wip)).
 
 **Setup**
 
