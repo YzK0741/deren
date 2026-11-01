@@ -1,0 +1,6 @@
+# Folder-backed asset catalogue. Run deren with --asset-library asset (or set
+# [paths] asset_library = "asset") to select an entry by id.
+version = 1
+default = "damaged-helmet"
+scan_depth = 1
+ignore = []

@@ -9,6 +9,32 @@ Models and Gaussian clouds are stored one folder per asset. The renderer's defau
 `asset/laevatain/laevatain_game_toon_preview.glb`; the Gaussian screenshot uses
 `asset/flowers/flowers_1.ply`.
 
+## Asset library
+
+This directory is also a folder-backed asset catalogue. Each asset folder carries an
+`asset.toml` manifest with a stable `id`, a display `name`, a `type` (`pbr`, `toon`, `unlit`
+or `gaussian`), the `model` path relative to the folder, and optional `sidecar`, `license`,
+`thumbnail` and `tags` keys. Optional `[toon]`, `[environment]` and `[camera]` tables declare
+asset-specific rendering data. A manifest path must stay inside its asset folder; absolute
+paths and `..` are rejected.
+
+`library.toml` at this root sets the catalogue policy: `default` names the id used when no
+asset is requested, `scan_depth` bounds the folder walk, and `ignore` lists folder prefixes to
+skip.
+
+```sh
+# start the catalogue's default asset
+deren --asset-library asset
+
+# start one catalogue entry
+deren --asset-library asset --asset flight-helmet
+```
+
+A positional model path still wins over `--asset`, and `--asset` wins over a `model` value
+from `config.toml`; `[paths] asset_library` and the top-level `asset` key are the config-file
+equivalents. `[toon] game_toon` is explicit manifest metadata: it never switches the
+experimental game-toon path on by itself.
+
 | Folder | Contents | Terms |
 | --- | --- | --- |
 | `DamagedHelmet/` | Khronos DamagedHelmet sample (glTF, textures, license) | See `DamagedHelmet/LICENSE.md` |

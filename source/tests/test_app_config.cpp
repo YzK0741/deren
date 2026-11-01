@@ -478,6 +478,32 @@ namespace {
         CHECK(settings.grid_side == 3);
     }
 
+    /// THE ASSET OPTIONS ARE OPTIONS, NOT POSITIONALS: `--asset-library` and `--asset` must be
+    /// consumed wherever they appear, so an existing `model` / `grid side` invocation keeps its
+    /// meaning. Their spellings with `=` are accepted for the same reason `--config=` is.
+    void test_resolve_from_argv_asset_options() {
+        char const* argv[] = {"vk_test", "--asset-library", "catalogue", "--asset=character", "Models/tri.gltf", "3"};
+        deren::app_config::app_settings const settings =
+            deren::app_config::resolve_from_argv(6, argv, VR_TEST_SOURCE_DIR "/source/tests/fixtures/config_full.toml");
+        CHECK(settings.paths.asset_library == "catalogue");
+        CHECK(settings.asset == "character");
+        CHECK(settings.model == "Models/tri.gltf");
+        CHECK(settings.grid_side == 3);
+
+        // --asset outranks the FILE's model, while a positional model outranks --asset (checked above).
+        char const* asset_only[] = {"vk_test", "--asset", "character"};
+        deren::app_config::app_settings const asset_settings =
+            deren::app_config::resolve_from_argv(3, asset_only, VR_TEST_SOURCE_DIR "/source/tests/fixtures/config_full.toml");
+        CHECK(asset_settings.asset == "character");
+        CHECK(asset_settings.model.empty());
+
+        std::ofstream("asset-config.toml") << "asset = \"file-id\"\n[paths]\nasset_library = \"file-library\"\n";
+        deren::app_config::app_settings const from_file = deren::app_config::load_settings("asset-config.toml");
+        CHECK(from_file.asset == "file-id");
+        CHECK(from_file.paths.asset_library == "file-library");
+        std::filesystem::remove("asset-config.toml");
+    }
+
     /// THE EXTENSION IS WHAT PICKS THE LOADER, and the cases below are the ones a viewer would otherwise get
     /// wrong: a Gaussian `.ply` must not reach the glTF importer, an extension spelled in capitals is still that
     /// extension, and a path whose extension this build cannot read must be reported rather than defaulted - a
@@ -546,6 +572,7 @@ int32_t main() {
     test_toon_shadow_softness_ladder_is_sanitized();
     test_area_light_derivation_matches_the_reference_package();
     test_resolve_from_argv_merges_config_and_positional();
+    test_resolve_from_argv_asset_options();
     test_model_format_follows_the_extension();
     return deren::vk_test::finish("test_app_config");
 }

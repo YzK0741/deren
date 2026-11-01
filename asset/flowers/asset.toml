@@ -1,0 +1,6 @@
+id = "flowers"
+name = "Flowers"
+type = "gaussian"
+model = "flowers_1.ply"
+license = "license_cc_by_4.0.html"
+tags = ["gaussian", "sample"]

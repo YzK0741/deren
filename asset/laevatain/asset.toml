@@ -1,0 +1,11 @@
+id = "laevatain"
+name = "Laevatain"
+type = "toon"
+model = "laevatain_game_toon_preview.glb"
+sidecar = "laevatain_game_toon_preview.glb.toon.tsv"
+license = "LICENSE.md"
+tags = ["toon", "game-toon", "sample"]
+
+[toon]
+game_toon = true
+profile = "game_toon"

@@ -1,0 +1,6 @@
+id = "damaged-helmet"
+name = "Damaged Helmet"
+type = "pbr"
+model = "DamagedHelmet.gltf"
+license = "LICENSE.md"
+tags = ["pbr", "sample"]

@@ -36,11 +36,13 @@ import deren.utility;
  * @code
  * # top level: model to load
  * model = "gltf_model/DamagedHelmet.gltf"
+ * asset = ""        # asset-library id to load when model is empty; --asset overrides it
  * grid_side = 0     # > 1 enables the instancing stress grid (0 = off)
  *
  * [paths]
  * shaders_dir = ""  # shader SPIR-V dir (empty = auto-locate "shaders/" upward)
  * model_dir   = ""  # default model dir used when model is empty (auto-locate gltf_model/)
+ * asset_library = "" # root of the folder-backed asset catalogue (empty = no library)
  * screenshot_dir = ""  # base directory for F12 screenshots (empty = current working directory)
  *
  * [render]
@@ -93,6 +95,7 @@ namespace deren::app_config {
     export struct path_settings {
         deren::utility::vessel::string shaders_dir = {};    // shader SPIR-V dir (empty = auto-locate "shaders/" upward)
         deren::utility::vessel::string model_dir = {};      // default model dir used when model is empty (auto-locate gltf_model/ if empty)
+        deren::utility::vessel::string asset_library = {};  // asset-library root (empty = no catalogue; --asset-library overrides)
         deren::utility::vessel::string screenshot_dir = {}; // F12 screenshot base directory (empty = current working directory)
     };
 
@@ -611,6 +614,9 @@ namespace deren::app_config {
         // WHICH LOADER READS IT COMES FROM ITS EXTENSION (see model_format_of): .gltf/.glb is the scene
         // importer's, .ply a Gaussian splat cloud, and anything else is reported rather than defaulted.
         deren::utility::vessel::string model = {};
+        // asset-library id to load when `model` is empty ([--asset] overrides the file). The id is
+        // resolved after the library root is scanned, so this field never carries a path.
+        deren::utility::vessel::string asset = {};
         int32_t grid_side = 0; // > 1 enables the instancing stress grid
         path_settings paths = {};
         render_settings render = {};
@@ -680,8 +686,9 @@ namespace deren::app_config {
      * @ingroup app_config
      * @brief resolve the effective startup settings from argv: a `--config <path>` argument picks
      *        the config file (default: "config.toml" in the working directory if present), then
-     *        positional argv values (with `--config <path>` consumed as an option) override the
-     *        file: positional[0] = model path, positional[1] = grid side (numeric)
+     *        positional argv values (with `--config <path>`, `--asset-library <dir>` and
+     *        `--asset <id>` consumed as options) override the file: positional[0] = model path,
+     *        positional[1] = grid side (numeric)
      * @return the merged settings (see app_settings notes for the "not specified" semantics)
      */
     export app_settings resolve_from_argv(int32_t argc, char const* const* argv);
