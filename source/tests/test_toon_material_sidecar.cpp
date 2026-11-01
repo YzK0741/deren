@@ -264,8 +264,8 @@ namespace {
 
     void test_a_second_rs_sheet_is_only_another_slot_row() {
         // S4 (step 15's `RS_Index`): THE SECOND `_RS` SHEET NEEDS NO NEW FIELD, NO WHITELIST AND NO PARSER
-        // BRANCH - and that is a claim about the READER, which is why it is executable here. `toon_material.cpp`
-        // reads the second sheet by the LITERAL name `_GooRSSheet1` rather than through the lane vocabulary (`toon_lane[]`
+        // BRANCH - and that is a claim about the READER, which is why it is executable here. `main.cpp` reads the
+        // second sheet by the LITERAL name `_GooRSSheet1` rather than through the lane vocabulary (`toon_lane[]`
         // is sized by `toon_slot::count`, and a 17th entry there is the route
         // `goo_step15_lane_rs_index_spec.md` §9.4 rejects), so the ONLY thing that makes the second sheet
         // reachable at all is that a `slot` row is a name-to-name mapping with no fixed vocabulary.
@@ -364,7 +364,7 @@ namespace {
         // IT LIVES HERE rather than in a test of its own because it is a contract between the host's sidecar
         // LANE bake and the stage that reads that lane, which is what this test is about - and because a test
         // target of its own would have to be mirrored into VR_TEST_TARGETS, the workflow and the docs.
-        std::ifstream host_file{VR_TEST_SOURCE_DIR "/source/app/toon_material.cpp"};
+        std::ifstream host_file{VR_TEST_SOURCE_DIR "/source/app/main.cpp"};
         std::ifstream shader_file{VR_TEST_SOURCE_DIR "/source/shaders/toon/character_forward.slang"};
         CHECK(host_file.good());
         CHECK(shader_file.good());
@@ -537,7 +537,7 @@ namespace {
         std::ifstream shader_file{VR_TEST_SOURCE_DIR "/source/shaders/toon/character_forward.slang"};
         std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/source/engine/primitive/primitive.cppm"};
         std::ifstream runtime_file{VR_TEST_SOURCE_DIR "/source/engine/runtime/runtime.constructor.cppm"};
-        std::ifstream host_file{VR_TEST_SOURCE_DIR "/source/app/toon_material.cpp"};
+        std::ifstream host_file{VR_TEST_SOURCE_DIR "/source/app/main.cpp"};
         CHECK(shader_file.good());
         CHECK(primitive_file.good());
         CHECK(runtime_file.good());
@@ -659,7 +659,7 @@ namespace {
         // ... AND THE HOST'S OWN ROW TABLE, which is the name the lookup asks the loader with: `_ParallaxScale`
         // reaching the whitelist but not this table would import the row and never ask for it.
         CHECK(host.find("\"_ParallaxScale\",") != deren::utility::vessel::string::npos);
-        CHECK(host.find("extras_float_of(self.scenes, material_name, toon_colour_row[lane_index])") != deren::utility::vessel::string::npos);
+        CHECK(host.find("extras_float_of(state.scenes, material_name, toon_colour_row[lane_index])") != deren::utility::vessel::string::npos);
     }
 
     /// THE MATERIAL DEDUP KEY CARRIES EVERYTHING THE MATERIAL RECORD DOES NOT - the two texture lane blocks AND
@@ -745,11 +745,11 @@ namespace {
     /// lane's neutral `-1.0` for every material - both body materials (which state `0.7999999523162842`) and all
     /// five cloths (which state `1.0`) alike. That is the entire defect, and the two assertions below are its two
     /// halves: the row IS reachable by the accessor the fix uses, and it was NOT reachable by the one the host
-    /// used. If the second assertion ever stops holding, the branch in `toon_material.cpp` becomes redundant rather than
+    /// used. If the second assertion ever stops holding, the branch in `main.cpp` becomes redundant rather than
     /// load-bearing and this test is the line that says so out loud.
     ///
     /// THE HONEST CEILING: the test binary cannot call the lambda that reads it - `toon_colour` lives in
-    /// `toon_material.cpp` and this target does not link the application. The branch's EXISTENCE, its accessor and its
+    /// `main.cpp` and this target does not link the application. The branch's EXISTENCE, its accessor and its
     /// POSITION before the generic `others` path are pinned as text in `test_goo_toon_math.cpp`'s `(c11)` block,
     /// and the shader's `< 0` contract is pinned there too; what could not be pinned anywhere else is this
     /// routing, which is why it is a case of its own.
@@ -799,7 +799,7 @@ namespace {
     ///  (a) THE ENUM VALUE AND THE BLOCK COUNT. A lane added to `toon_slot` without the block raise writes into a
     ///      block no accessor names; the shader then reads 0 - the Q326-absent arm - for every material, which is a
     ///      uniform hull and not a crash.
-    ///  (b) THE APPLICATION'S VOCABULARY ROW. `toon_material.cpp` resolves a slot row only through `toon_lane[]`; a lane
+    ///  (b) THE APPLICATION'S VOCABULARY ROW. `main.cpp` resolves a slot row only through `toon_lane[]`; a lane
     ///      missing there resolves no texture BEFORE the flag is even asked (the module's own note records this).
     ///      The flag is the sidecar's `_EnableOutlineMask`, which is a REAL game property - not this port's
     ///      `_Use<Slot>` invention - because the captured viewer emits `#ifdef Q326` from it.
@@ -814,7 +814,7 @@ namespace {
     void test_the_outline_mask_lane_is_wired_end_to_end() {
         std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/source/engine/primitive/primitive.cppm"};
         std::ifstream constructor_file{VR_TEST_SOURCE_DIR "/source/engine/runtime/runtime.constructor.cppm"};
-        std::ifstream app_file{VR_TEST_SOURCE_DIR "/source/app/toon_material.cpp"};
+        std::ifstream app_file{VR_TEST_SOURCE_DIR "/source/app/main.cpp"};
         std::ifstream outline_file{VR_TEST_SOURCE_DIR "/source/shaders/toon/game_toon/captured/outline.slang"};
         CHECK(primitive_file.good());
         CHECK(constructor_file.good());
