@@ -69,7 +69,7 @@ namespace deren::engine::render_graph {
             void string(std::string_view text) {
                 raw("\"");
                 for (std::size_t i = 0; i < text.size();) {
-                    auto c = static_cast<unsigned char>(text[i]);
+                    auto c = static_cast<uint8_t>(text[i]);
                     if (c < 0x80) {
                         ++i;
                         switch (c) {
@@ -100,7 +100,7 @@ namespace deren::engine::render_graph {
                         }
                         continue;
                     }
-                    unsigned width = 0;
+                    uint32_t width = 0;
                     if (c >= 0xc2 && c <= 0xdf) {
                         width = 2;
                     } else if (c >= 0xe0 && c <= 0xef) {
@@ -109,11 +109,11 @@ namespace deren::engine::render_graph {
                         width = 4;
                     }
                     bool valid = width && width <= text.size() - i;
-                    for (unsigned j = 1; valid && j < width; ++j) {
-                        valid = (static_cast<unsigned char>(text[i + j]) & 0xc0) == 0x80;
+                    for (uint32_t j = 1; valid && j < width; ++j) {
+                        valid = (static_cast<uint8_t>(text[i + j]) & 0xc0) == 0x80;
                     }
                     if (valid) {
-                        auto second = static_cast<unsigned char>(text[i + 1]);
+                        auto second = static_cast<uint8_t>(text[i + 1]);
                         valid = !(c == 0xe0 && second < 0xa0) && !(c == 0xed && second >= 0xa0) && !(c == 0xf0 && second < 0x90) && !(c == 0xf4 && second >= 0x90);
                     }
                     if (valid) {
@@ -151,7 +151,7 @@ namespace deren::engine::render_graph {
                 constexpr std::array names{"vertex_shader", "fragment_shader", "compute_shader", "color_output", "depth_stencil", "transfer", "vertex_input", "draw_indirect", "task_shader", "mesh_shader"};
                 raw("[");
                 bool first = true;
-                for (unsigned bit = 0; bit < names.size(); ++bit) {
+                for (uint32_t bit = 0; bit < names.size(); ++bit) {
                     if (static_cast<uint32_t>(value) & (1U << bit)) {
                         if (!first) {
                             raw(",");

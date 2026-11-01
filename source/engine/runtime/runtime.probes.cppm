@@ -90,7 +90,7 @@ namespace deren::engine {
         // sampler CONSTRUCTED at the use site from a sampler in the sampler heap, and its parameters delivered by
         // vkCmdPushDataEXT. It runs in its own command buffer at scene setup, which is what makes it isolated -
         // the mask bake looked isolated too and turned out to record into the frame's own buffer.
-        rhi::api_core& vk = this->vulkan_core;
+        rhi::api_core& vk = this->core_face;
         // Slot 0 of the sampler heap is the texture sampler: the first of the six core::create_samplers makes, in
         // the order source/shaders/heap_slots.glsl names (the contract test compares that order, and the host has no
         // per-sampler constant because it keeps them as a list).
@@ -109,7 +109,7 @@ namespace deren::engine {
         // THE CONTRACT OWNS IT (unique_object releases the reference on every path out of this function,
         // including the two early returns below), and `mapped()` is the byte view `create_buffer` threw away
         // for everything that is not host-visible.
-        rhi::unique_object<rhi::buffer> answer{this->vulkan_core.resources->create_buffer(rhi::buffer_desc{
+        rhi::unique_object<rhi::buffer> answer{this->core_face.resources->create_buffer(rhi::buffer_desc{
             .size = 16u,
             .usage = rhi::buffer_usage::storage_coherent,
             .flags = rhi::to_bits(rhi::buffer_flag::device_address),
@@ -195,7 +195,7 @@ namespace deren::engine {
         // the two log lines compare the two pipeline kinds directly, and the mesh one is what proves a mesh
         // pipeline can be created heap-natively (the heap flag, a NULL layout) and dispatched with
         // vkCmdDrawMeshTasksEXT at all.
-        rhi::api_core& vk = this->vulkan_core;
+        rhi::api_core& vk = this->core_face;
         std::span<uint8_t const> const vertex_code = this->registered_shader(mesh_shader ? "heap_probe.mesh.spv" : "heap_probe.vert.spv");
         std::span<uint8_t const> const fragment_code = this->registered_shader("heap_probe.frag.spv");
         if (!contract_descriptor_ready(vk) || vertex_code.empty() || fragment_code.empty()) {

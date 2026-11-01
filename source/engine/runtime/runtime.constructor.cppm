@@ -228,7 +228,7 @@ namespace deren::engine {
          * TWO REFUSALS, BOTH FATAL, AND THE ENGINE IS THE ONE THAT EXECUTES THEM (the startup rule this path
          * already follows - the backend reports, the engine decides):
          *
-         *   1. AN EMPTY `shared_ptr`. `vulkan_core` is a REFERENCE, not a maybe-root, because everything below
+         *   1. AN EMPTY `shared_ptr`. `core_face` is a REFERENCE, not a maybe-root, because everything below
          *      is written against a device that EXISTS; "no root" cannot be represented here and must not be
          *      papered over with a null dereference somewhere in the frame loop. The loader has already
          *      reported WHY (its own named diagnosis), so this panic is the consumption side saying "and the
@@ -241,7 +241,7 @@ namespace deren::engine {
          *      NUMBERS: which side is stale is the first thing a reader needs.
          *
          * IT RUNS IN THE MEMBER-INITIALISER LIST, before the constructor body and before any member that is
-         * built FROM the root (`vulkan_core` itself, the pass filter, every resource): a check that ran later
+         * built FROM the root (`core_face` itself, the pass filter, every resource): a check that ran later
          * would already have used it.
          */
         [[nodiscard]] rhi::api_core& require_core(rhi::shared_object<rhi::api_core> const& core) {
@@ -278,7 +278,7 @@ namespace deren::engine {
     rhi::api_core& runtime::rhi_face() const noexcept {
         // §18's rule in one line: the interface reference of the SAME object. Before the flip the
         // vtable points into this archive; after it, into the DLL - the call sites cannot tell.
-        return this->vulkan_core;
+        return this->core_face;
     }
 
     // THE ONE CONSTRUCTION ENTRY (batch ⑥): the APPLICATION acquires the device root
@@ -289,7 +289,7 @@ namespace deren::engine {
     // and builds the renderer from it.
     //
     // AN EMPTY ROOT IS REFUSED LOUDLY rather than tolerated, which is the invariant the reference member
-    // `vulkan_core` has always implied: the engine's startup path decides what a failed acquisition means
+    // `core_face` has always implied: the engine's startup path decides what a failed acquisition means
     // (main.cpp reports and exits), and this constructor is where "there is no root" stops being
     // representable.
     runtime::runtime(rhi::shared_object<rhi::api_core> core, deren::promise::rhi::create_info const& options)
@@ -304,7 +304,7 @@ namespace deren::engine {
 
     runtime::runtime(deren::promise::rhi::create_info const& options, rhi::shared_object<rhi::api_core> shared_core, float const clamped_render_scale)
         : core_owner{std::move(shared_core)}
-        , vulkan_core{require_core(this->core_owner)}
+        , core_face{require_core(this->core_owner)}
         , create_options{options}
         , render_scale{clamped_render_scale}
         , filtered_core{core_owner} {
@@ -471,7 +471,7 @@ namespace deren::engine {
         // buffers or publishing resources, even when no geometry was imported.
     }
 
-    // The destructor body runs before member destruction, so vulkan_core (and the VkDevice it
+    // The destructor body runs before member destruction, so core_face (and the VkDevice it
     // holds) is still alive here: destroying cached pipelines in this order is guaranteed safe,
     // independent of future member reordering. Members then destruct in reverse declaration
     // order with pipelines already empty. The SCENE TREE is caller-owned (set_scene): the caller
@@ -487,7 +487,7 @@ namespace deren::engine {
         // Wait for the GPU to finish BEFORE releasing anything below: the last submitted frame
         // may still be executing and destroying in-use resources would violate VUIDs (~core()
         // also waits, but that runs after this body — too late for the VMA frees here).
-        this->vulkan_core.wait_idle();
+        this->core_face.wait_idle();
         if (this->pending_present.valid()) {
             rhi::error const result = this->pending_present.get();
             if (result != rhi::error::ok && result != rhi::error::out_of_date) {
@@ -523,13 +523,13 @@ namespace deren::engine {
         // remains of each extracted pass's GPU material is the PASS's, released by its own destructor.
 
         // Shared scene resources: views/samplers/buffers/images are RAII and free
-        // themselves as this runtime's members destruct (after this body; vulkan_core, which
+        // themselves as this runtime's members destruct (after this body; core_face, which
         // owns the vma allocator, is declared first and destructs last, so every vk_buffer /
         // vk_image still has a live allocator when it releases).
 
         // Shut the debug overlay down explicitly while the VkDevice is still alive (its ImGui
         // Vulkan backend owns device resources); member destruction would also run it before
-        // vulkan_core, but doing it here keeps the order obvious.
+        // core_face, but doing it here keeps the order obvious.
         // THE PLUGIN IS RELEASED HERE TOO (plan X2): dropping the last reference destroys the overlay inside
         // `deren_gui_vulkan.dll`, the image that allocated it - and it has to happen while the device is
         // alive, which is why this is explicit rather than left to member order.
@@ -635,7 +635,7 @@ namespace deren::engine {
             auto upload = std::make_shared<deren::utility::vessel::vector<std::byte> const>(desc.initial_bytes.begin(), desc.initial_bytes.end());
             request.initial_data = std::shared_ptr<std::byte const>{upload, upload->data()};
             request.initial_data_size = upload->size();
-            request.initialization_key = std::make_shared<int const>(0);
+            request.initialization_key = std::make_shared<int32_t const>(0);
         }
         desc.initial_bytes = {};
         request.image = desc;
@@ -684,7 +684,7 @@ namespace deren::engine {
         request.buffer = {.size = bytes.size(), .usage = rhi::buffer_usage::storage_coherent, .flags = flags};
         request.initial_data = std::shared_ptr<std::byte const>{upload, upload->data()};
         request.initial_data_size = upload->size();
-        request.initialization_key = std::make_shared<int const>(0);
+        request.initialization_key = std::make_shared<int32_t const>(0);
         provider.configure(std::span{&request, 1});
         if (chain->prepare_resources(core_owner, {}) != rhi::error::ok) {
             return {};
@@ -1223,7 +1223,7 @@ namespace deren::engine {
         //
         // THE FACTORY IS CALLED THROUGH THE CONTRACT INTERFACE, and that is a boundary rule rather than a
         // preference: `rhi_face()` is the `rhi::api_core&` the whole engine speaks, so this emits no backend
-        // symbol (a call on the concrete `core` would join the boundary worklist). `vulkan_core` IS that
+        // symbol (a call on the concrete `core` would join the boundary worklist). `core_face` IS that
         // object, but naming it as the interface is what keeps the call site inside the rule.
         rhi::api_core& face = this->rhi_face();
         this->secondary_command_buffers.reserve(this->frame_ring().slot_count());
@@ -1906,15 +1906,15 @@ namespace deren::engine {
     } // namespace
 
     void runtime::publish_camera_bindings() {
-        write_heap_scene_buffer(this->vulkan_core, this->camera_buffers, deren::engine::render_layout::heap_slots::scene_camera,
+        write_heap_scene_buffer(this->core_face, this->camera_buffers, deren::engine::render_layout::heap_slots::scene_camera,
                                 sizeof(camera_ubo), rhi::descriptor_type::storage_buffer);
     }
 
     void runtime::publish_deformation_bindings() {
-        write_heap_scene_buffer(this->vulkan_core, this->motion_buffers, deren::engine::render_layout::heap_slots::previous_transforms, pass::scene_deformation_pass::sizes[0], rhi::descriptor_type::storage_buffer);
-        write_heap_scene_buffer(this->vulkan_core, this->skin_buffers, deren::engine::render_layout::heap_slots::skin_matrices, pass::scene_deformation_pass::sizes[1], rhi::descriptor_type::storage_buffer);
-        write_heap_scene_buffer(this->vulkan_core, this->skin_buffers_previous, deren::engine::render_layout::heap_slots::skin_matrices_previous, pass::scene_deformation_pass::sizes[2], rhi::descriptor_type::storage_buffer);
-        write_heap_scene_buffer(this->vulkan_core, this->morph_buffers, deren::engine::render_layout::heap_slots::morph_data, pass::scene_deformation_pass::sizes[3], rhi::descriptor_type::storage_buffer);
+        write_heap_scene_buffer(this->core_face, this->motion_buffers, deren::engine::render_layout::heap_slots::previous_transforms, pass::scene_deformation_pass::sizes[0], rhi::descriptor_type::storage_buffer);
+        write_heap_scene_buffer(this->core_face, this->skin_buffers, deren::engine::render_layout::heap_slots::skin_matrices, pass::scene_deformation_pass::sizes[1], rhi::descriptor_type::storage_buffer);
+        write_heap_scene_buffer(this->core_face, this->skin_buffers_previous, deren::engine::render_layout::heap_slots::skin_matrices_previous, pass::scene_deformation_pass::sizes[2], rhi::descriptor_type::storage_buffer);
+        write_heap_scene_buffer(this->core_face, this->morph_buffers, deren::engine::render_layout::heap_slots::morph_data, pass::scene_deformation_pass::sizes[3], rhi::descriptor_type::storage_buffer);
     }
 
     void runtime::publish_scene_table_bindings() {
@@ -2219,8 +2219,8 @@ namespace deren::engine {
     }
 
     void runtime::publish_cluster_bindings() {
-        write_heap_scene_buffer(this->vulkan_core, this->cluster_count_buffers, deren::engine::render_layout::heap_slots::cluster_counts, static_cast<std::uint64_t>(deren::engine::max_cluster_count) * sizeof(uint32_t), rhi::descriptor_type::storage_buffer);
-        write_heap_scene_buffer(this->vulkan_core, this->cluster_index_buffers, deren::engine::render_layout::heap_slots::cluster_indices, static_cast<std::uint64_t>(deren::engine::max_cluster_count) * deren::engine::cluster_light_capacity * sizeof(uint32_t), rhi::descriptor_type::storage_buffer);
+        write_heap_scene_buffer(this->core_face, this->cluster_count_buffers, deren::engine::render_layout::heap_slots::cluster_counts, static_cast<std::uint64_t>(deren::engine::max_cluster_count) * sizeof(uint32_t), rhi::descriptor_type::storage_buffer);
+        write_heap_scene_buffer(this->core_face, this->cluster_index_buffers, deren::engine::render_layout::heap_slots::cluster_indices, static_cast<std::uint64_t>(deren::engine::max_cluster_count) * deren::engine::cluster_light_capacity * sizeof(uint32_t), rhi::descriptor_type::storage_buffer);
     }
 
     void runtime::create_cluster_buffers() {
@@ -2235,18 +2235,18 @@ namespace deren::engine {
         // through a StorageBuffer-class pointer, so a rhi::descriptor_type::uniform_buffer here made the Slang
         // G-buffer read a zero camera matrix (velocity NaN, motion channel black) while glslc's Uniform read of
         // the same slot worked. See docs/slang_migration.md, "the storage class that has to match".
-        write_heap_scene_buffer(this->vulkan_core, this->camera_buffers, deren::engine::render_layout::heap_slots::scene_camera, sizeof(camera_ubo), rhi::descriptor_type::storage_buffer);
+        write_heap_scene_buffer(this->core_face, this->camera_buffers, deren::engine::render_layout::heap_slots::scene_camera, sizeof(camera_ubo), rhi::descriptor_type::storage_buffer);
         // ... and the rest of the per-frame arrays, from the same place and with the SAME sizes the scene block
         // writes them with (see prepare_scene_resources's write_buffer_binding calls): motion (binding 13), skin (9) and
         // morph (10), each a two-slot array whose slot is the frame's. Bound here rather than in the per-slot loop
         // because a heap descriptor is an ADDRESS: the buffers are allocated once, so their addresses do not
         // change per frame, and only the CONTENTS are rewritten (see the per-frame slot rule in runtime.cppm).
-        write_heap_scene_buffer(this->vulkan_core, this->motion_buffers, deren::engine::render_layout::heap_slots::previous_transforms, static_cast<std::uint64_t>(deren::engine::scene_motion_capacity) * sizeof(glm::mat4), rhi::descriptor_type::storage_buffer);
-        write_heap_scene_buffer(this->vulkan_core, this->skin_buffers, deren::engine::render_layout::heap_slots::skin_matrices, static_cast<std::uint64_t>(deren::engine::scene_skin_capacity) * sizeof(glm::mat4), rhi::descriptor_type::storage_buffer);
+        write_heap_scene_buffer(this->core_face, this->motion_buffers, deren::engine::render_layout::heap_slots::previous_transforms, static_cast<std::uint64_t>(deren::engine::scene_motion_capacity) * sizeof(glm::mat4), rhi::descriptor_type::storage_buffer);
+        write_heap_scene_buffer(this->core_face, this->skin_buffers, deren::engine::render_layout::heap_slots::skin_matrices, static_cast<std::uint64_t>(deren::engine::scene_skin_capacity) * sizeof(glm::mat4), rhi::descriptor_type::storage_buffer);
         // ... and the previous-frame twin of the skin block, whose CONTENTS advance_motion_deformations()
         // rewrites per frame slot - so it is registered here, from the same size, for the same reason.
-        write_heap_scene_buffer(this->vulkan_core, this->skin_buffers_previous, deren::engine::render_layout::heap_slots::skin_matrices_previous, static_cast<std::uint64_t>(deren::engine::scene_skin_capacity) * sizeof(glm::mat4), rhi::descriptor_type::storage_buffer);
-        write_heap_scene_buffer(this->vulkan_core, this->morph_buffers, deren::engine::render_layout::heap_slots::morph_data, static_cast<std::uint64_t>(deren::engine::scene_morph_capacity) * sizeof(float), rhi::descriptor_type::storage_buffer);
+        write_heap_scene_buffer(this->core_face, this->skin_buffers_previous, deren::engine::render_layout::heap_slots::skin_matrices_previous, static_cast<std::uint64_t>(deren::engine::scene_skin_capacity) * sizeof(glm::mat4), rhi::descriptor_type::storage_buffer);
+        write_heap_scene_buffer(this->core_face, this->morph_buffers, deren::engine::render_layout::heap_slots::morph_data, static_cast<std::uint64_t>(deren::engine::scene_morph_capacity) * sizeof(float), rhi::descriptor_type::storage_buffer);
         // THE INSTANCE TRANSFORM TABLE (set 0 binding 6) is the odd one: a SINGLE buffer rather than one per frame
         // slot (see runtime.cppm's member), so it takes ONE grid slot instead of a two-slot array - which is what
         // heap_slots::instance_transforms reserved. Written from the same size the scene block gives it.
@@ -2284,7 +2284,7 @@ namespace deren::engine {
             // core::make_depth_array_view uses - this slot's image, the depth format, a 2D-array view and the DEPTH
             // aspect (a colour aspect here would be a validation error, not a wrong picture). Which slot it
             // occupies is the frame's, matching shadow_images[slot].
-            if (!write_heap_grid_image(this->vulkan_core, deren::engine::render_layout::heap_slots::shadow_map + static_cast<uint32_t>(slot), &shadow_image)) {
+            if (!write_heap_grid_image(this->core_face, deren::engine::render_layout::heap_slots::shadow_map + static_cast<uint32_t>(slot), &shadow_image)) {
                 deren::utility::log("descriptor heap: the shadow map for frame slot {} did not reach grid slot {}", slot, deren::engine::render_layout::heap_slots::shadow_map + static_cast<uint32_t>(slot));
             }
 
@@ -2449,7 +2449,7 @@ namespace deren::engine {
             return;
         }
         this->rhi_face().wait_idle();
-        if (!write_heap_grid_image(this->vulkan_core, deren::engine::render_layout::heap_slots::post_lut, created.first.get())) {
+        if (!write_heap_grid_image(this->core_face, deren::engine::render_layout::heap_slots::post_lut, created.first.get())) {
             deren::utility::log("descriptor heap: post_lut publication refused; keeping the previous LUT");
             return;
         }
@@ -2496,7 +2496,7 @@ namespace deren::engine {
             return;
         }
         this->rhi_face().wait_idle();
-        if (!write_heap_grid_image(this->vulkan_core, deren::engine::render_layout::heap_slots::goo_fgd_lut, created.first.get())) {
+        if (!write_heap_grid_image(this->core_face, deren::engine::render_layout::heap_slots::goo_fgd_lut, created.first.get())) {
             deren::utility::log("descriptor heap: goo_fgd publication refused; keeping the previous LUT");
             return;
         }

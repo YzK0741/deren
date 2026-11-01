@@ -46,27 +46,27 @@ namespace deren::engine::gaussian_splatting {
             if (asset.sh_degree > 3 || asset.geometry.size() != asset.sh.size()) {
                 return failure(error_code::invalid_argument, "invalid packed count or SH degree");
             }
-            for (unsigned axis = 0; axis < 3; ++axis) {
+            for (uint32_t axis = 0; axis < 3; ++axis) {
                 if (!std::isfinite(asset.bounds_min[axis]) || !std::isfinite(asset.bounds_max[axis]) || asset.bounds_min[axis] > asset.bounds_max[axis]) {
                     return failure(error_code::invalid_argument, "invalid packed bounds");
                 }
             }
             deren::utility::vessel::array<float, 6> bounds{};
             bool first = true;
-            unsigned const used = 3 * (asset.sh_degree + 1) * (asset.sh_degree + 1);
+            uint32_t const used = 3 * (asset.sh_degree + 1) * (asset.sh_degree + 1);
             for (std::size_t i = 0; i < asset.geometry.size(); ++i) {
                 auto const& g = asset.geometry[i];
                 auto const& sh = asset.sh[i];
                 if (!finite_lane(g.center_opacity) || !finite_lane(g.covariance_x) || !finite_lane(g.covariance_yz) || g.center_opacity[3] < 0 || g.center_opacity[3] > 1 || g.covariance_x[3] != 0 || g.covariance_yz[3] != 0 || !positive_semidefinite(g)) {
                     return failure(error_code::invalid_argument, "invalid packed geometry");
                 }
-                for (unsigned k = 0; k < 48; ++k) {
+                for (uint32_t k = 0; k < 48; ++k) {
                     if (!std::isfinite(sh.coefficients[k]) || (k >= used && sh.coefficients[k] != 0)) {
                         return failure(error_code::invalid_argument, "invalid packed SH");
                     }
                 }
                 deren::utility::vessel::array<double, 3> const variances = {g.covariance_x[0], g.covariance_yz[0], g.covariance_yz[2]};
-                for (unsigned axis = 0; axis < 3; ++axis) {
+                for (uint32_t axis = 0; axis < 3; ++axis) {
                     if (g.center_opacity[axis] < asset.bounds_min[axis] || g.center_opacity[axis] > asset.bounds_max[axis]) {
                         return failure(error_code::invalid_argument, "packed bounds exclude center");
                     }
@@ -130,7 +130,7 @@ namespace deren::engine::gaussian_splatting {
         result->count = static_cast<std::uint32_t>(asset.geometry.size());
         result->degree = asset.sh_degree;
         result->bytes = *size;
-        for (unsigned i = 0; i < 3; ++i) {
+        for (uint32_t i = 0; i < 3; ++i) {
             result->minimum[i] = (*bounds)[i];
             result->maximum[i] = (*bounds)[i + 3];
         }

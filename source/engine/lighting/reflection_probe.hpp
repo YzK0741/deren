@@ -1,6 +1,7 @@
 #pragma once
 #include "radiance_capture.hpp"
 #include <array>
+#include <cstdint>
 #include <vector>
 #include <optional>
 #include <glm/glm.hpp>
@@ -10,7 +11,7 @@ namespace deren::engine::probe_detail {
 struct box { glm::vec3 position{},minimum{},maximum{}; float fade=.5f,gain=1; };
 inline bool valid(box const& b) {
  if(!std::isfinite(b.fade)||!std::isfinite(b.gain)||b.fade<0||b.gain<0)return false;
- for(int i=0;i<3;++i) if(!std::isfinite(b.position[i])||!std::isfinite(b.minimum[i])||!std::isfinite(b.maximum[i])||b.minimum[i]>=b.position[i]||b.position[i]>=b.maximum[i])return false;
+ for(int32_t i=0;i<3;++i) if(!std::isfinite(b.position[i])||!std::isfinite(b.minimum[i])||!std::isfinite(b.maximum[i])||b.minimum[i]>=b.position[i]||b.position[i]>=b.maximum[i])return false;
  return true;
 }
 struct sample {glm::vec3 direction{};float weight=0;};
@@ -18,7 +19,7 @@ inline sample lookup(box const& b,glm::vec3 p,glm::vec3 r) {
  if(!valid(b))return {};
  float length=glm::length(r);if(!std::isfinite(length)||length<1e-8f)return {};
  r/=length;float t=std::numeric_limits<float>::max(),distance=t,fade=b.fade;
- for(int i=0;i<3;++i) {
+ for(int32_t i=0;i<3;++i) {
   if(!std::isfinite(p[i])||p[i]<b.minimum[i]||p[i]>b.maximum[i])return {};
   distance=std::min(distance,std::min(p[i]-b.minimum[i],b.maximum[i]-p[i]));
   fade=std::min(fade,(b.maximum[i]-b.minimum[i])*.5f);
@@ -30,7 +31,7 @@ inline sample lookup(box const& b,glm::vec3 p,glm::vec3 r) {
 }
 struct asset {uint32_t size=0,mips=0;std::vector<uint8_t> half;};
 inline std::optional<asset> decode(std::span<std::byte const> bytes) {
- auto u32=[&](size_t o){uint32_t v=0;for(unsigned i=0;i<4;++i)v|=uint32_t(std::to_integer<uint8_t>(bytes[o+i]))<<(i*8);return v;};
+ auto u32=[&](size_t o){uint32_t v=0;for(uint32_t i=0;i<4;++i)v|=uint32_t(std::to_integer<uint8_t>(bytes[o+i]))<<(i*8);return v;};
  auto u64=[&](size_t o){return uint64_t(u32(o))|(uint64_t(u32(o+4))<<32);};
  if(bytes.size()<32||u32(0)!=0x31425244||u32(4)!=1)return {};
  asset a;a.size=u32(8);a.mips=u32(12);

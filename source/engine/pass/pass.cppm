@@ -230,7 +230,7 @@ export namespace deren::engine::pass {
          *
          * WHY A PASS NEEDS THIS, measured rather than anticipated: a pass that owns per-image state has to name
          * EACH IMAGE's views while it records - and `own` only carries the CURRENT frame's handles. The host
-         * reaches into the core for this (`vulkan_core.gi_images[i]` and friends); a pass
+         * reaches into the core for this (`core_face.gi_images[i]` and friends); a pass
          * cannot - the failure mode this guards against is reaching an image that belongs to another generation.
          */
         deren::utility::vessel::array<std::span<deren::promise::rhi::image_view* const>, max_own_bindings> own_per_image = {};

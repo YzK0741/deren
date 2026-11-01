@@ -44,12 +44,12 @@ namespace deren::engine {
                 if (!feedback_zero_source)
                     return rhi::error::operation_failed;
             }
-            for (unsigned slot = 0; slot < 2; ++slot) {
+            for (uint32_t slot = 0; slot < 2; ++slot) {
                 if (!feedback_pipeline || !make_feedback(sizeof(texture_residency::feedback), texture_feedback_slots[slot], texture_feedback_readback_slots[slot]))
                     return rhi::error::operation_failed;
             }
             auto* descriptors = rhi::query_extension<rhi::descriptor_space>(rhi_face());
-            for (unsigned slot = 0; slot < 2; ++slot) {
+            for (uint32_t slot = 0; slot < 2; ++slot) {
                 auto result = descriptors ? descriptors->write_buffer({.slot = feedback_slot + slot, .resource = texture_feedback_slots[slot].get(), .size = sizeof(texture_residency::feedback)}) : rhi::error::unsupported;
                 if (result != rhi::error::ok)
                     return result;
@@ -362,7 +362,7 @@ namespace deren::engine {
                     ++target_ready;
             }
             rhi::image const* previous = nullptr;
-            for (unsigned slot = 0; slot < 2; ++slot) {
+            for (uint32_t slot = 0; slot < 2; ++slot) {
                 auto const& bank = texture_bank_images[slot];
                 auto* image = i < bank.size() ? bank[i].get() : nullptr;
                 if (image && image != entry.fallback.get() && image != entry.high.get() && image != previous)

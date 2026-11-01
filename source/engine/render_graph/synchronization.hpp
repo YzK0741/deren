@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 // Internal single-queue CPU synchronization model; no native/RHI masks.
 namespace deren::engine::render_graph::detail {
     inline uint32_t bits(pipeline_stage value) noexcept {
@@ -129,7 +130,7 @@ namespace deren::engine::render_graph::detail {
                                                pass == invalid_index ? deren::utility::vessel::string{} : graph.passes[pass].name,
                                                graph.resources[resource].name, std::move(range)});
         };
-        deren::utility::vessel::vector<unsigned char> needed(graph.resources.size(), 0);
+        deren::utility::vessel::vector<uint8_t> needed(graph.resources.size(), 0);
         deren::utility::vessel::vector<uint32_t> extra_image_stages(graph.resources.size(), 0);
         for (auto p : graph.execution_order)
             for (auto const& access : graph.passes[p].accesses) {

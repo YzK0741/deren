@@ -437,7 +437,7 @@ namespace deren::engine::gaussian_splatting {
         auto p = particle({0, 0.05f, 0}, {0.3f, 1.5f, 0.7f}, {0.10f, 0.26f, 0.06f});
         p.rotation = {0.9238795f, 0, 0, 0.3826834f};
         for (std::size_t i = 3; i < p.sh.size(); ++i) {
-            p.sh[i] = static_cast<float>(static_cast<int>(i % 7) - 3) * 0.025f;
+            p.sh[i] = static_cast<float>(static_cast<int32_t>(i % 7) - 3) * 0.025f;
         }
         transformed.particles = {particle({40, 0, 0}, {1, 0, 0}, {0.1f, 0.1f, 0.1f}), p};
         auto transformed_asset = make_raster_asset(core, std::move(transformed));

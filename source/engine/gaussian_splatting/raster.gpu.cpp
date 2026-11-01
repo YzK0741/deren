@@ -29,7 +29,7 @@ namespace deren::engine::gaussian_splatting {
         /// @note MEASURED, not assumed: this cloud is 562,974 splats and the per-splat pass below spent 240 ms of a
         ///       334 ms frame on ONE thread (the sort took the other 94 ms), which is the 3 fps the panel showed.
         [[nodiscard]] std::size_t raster_worker_count(std::size_t const count) noexcept {
-            unsigned const hardware = std::thread::hardware_concurrency();
+            uint32_t const hardware = std::thread::hardware_concurrency();
             std::size_t const workers = std::min<std::size_t>(hardware == 0u ? 1u : hardware, 16u);
             return count < 8192u ? 1u : workers;
         }

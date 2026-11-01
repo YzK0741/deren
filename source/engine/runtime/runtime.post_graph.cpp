@@ -271,7 +271,7 @@ namespace deren::engine {
                 ++it;
             }
         }
-        auto retain = [&](unsigned family, unsigned pending, graph::resource_state& state) -> lease {
+        auto retain = [&](uint32_t family, uint32_t pending, graph::resource_state& state) -> lease {
             auto generation = this->output_resource_views[family].find(pass::output_targets_pass::ids[family]);
             if (!generation || generation->device.get() != this->core_owner.get() || index >= generation->objects.size()) {
                 return {};
@@ -354,7 +354,7 @@ namespace deren::engine {
         if (this->taa_active() && index < this->taa_history_initialized.size()) {
             this->taa_history_initialized[index] = true;
         }
-        for (unsigned i = 0; i < 4; ++i) {
+        for (uint32_t i = 0; i < 4; ++i) {
             auto level = retain(9 + i, i, level_states[i]);
             if (!level || level.get() != this->bloom_images[i][index].get()) {
                 return rhi::error::not_ready;
@@ -424,7 +424,7 @@ namespace deren::engine {
             }
             graph::lighting::inputs lighting_inputs{};
             lighting_inputs.color = scene_target;
-            for (unsigned i = 0; i < 3; ++i) {
+            for (uint32_t i = 0; i < 3; ++i) {
                 graph::resource_state state{};
                 auto surface = retain(1 + i, graph::invalid_index, state);
                 if (!surface || surface.get() != this->gbuffer_images[i][index].get()) {
@@ -591,7 +591,7 @@ namespace deren::engine {
                 shared_import{&this->scene_table_resource_views[9], id::visibility_items, 0, this->visibility_items_buffer.get(), mesh,
                               graph::memory_access::read, "visibility items"}};
             std::array<graph::buffer_ref, 13> shared_refs;
-            for (unsigned i = 0; i < shared_imports.size(); ++i) {
+            for (uint32_t i = 0; i < shared_imports.size(); ++i) {
                 auto const& entry = shared_imports[i];
                 auto generation = entry.resources->find(entry.resource);
                 if (!generation || generation->device.get() != this->core_owner.get() || entry.instance >= generation->objects.size()) {
@@ -1315,7 +1315,7 @@ namespace deren::engine {
                 }
                 std::array expected{this->gbuffer_images[0][index].get(), this->gbuffer_images[1][index].get(), this->gbuffer_images[2][index].get(),
                                     velocity.get(), scene_target_image, depth.get()};
-                for (unsigned i = 0; i < expected.size(); ++i) {
+                for (uint32_t i = 0; i < expected.size(); ++i) {
                     if (ios[lane_slot(lane::scene)].targets[i].image_handle != expected[i]) {
                         return rhi::error::invalid_argument;
                     }
@@ -1646,13 +1646,13 @@ namespace deren::engine {
                 }
             }
         }
-        for (unsigned i = 0; i < 4; ++i) {
+        for (uint32_t i = 0; i < 4; ++i) {
             passes[i] = this->bloom_pass[i];
         }
         passes[lane_slot(lane::post_composite)] = this->post_composite_stage[0];
         passes[lane_slot(lane::post_resolve)] = settings.resolution == graph::post::resolve::fxaa ? this->fxaa_pass[0] : this->upscale_pass[0];
-        unsigned count = settings.resolution == graph::post::resolve::none ? 5 : 6;
-        for (unsigned i = 0; i < count; ++i) {
+        uint32_t count = settings.resolution == graph::post::resolve::none ? 5 : 6;
+        for (uint32_t i = 0; i < count; ++i) {
             ios[i].push_block = host.push_block;
             if (!passes[i] || !host.resolve || !host.resolve(host.context, *passes[i], ios[i]) ||
                 ios[i].list != commands.get() || ios[i].targets.size() != 1) {
@@ -1681,7 +1681,7 @@ namespace deren::engine {
         if (!output) {
             return post_build_error(output.error());
         }
-        for (unsigned i = 0; i < 4; ++i) {
+        for (uint32_t i = 0; i < 4; ++i) {
             auto bound = settings.bloom_enabled
                              ? build.bind_pass<graph::post::bloom_parameters>(output->bloom[i], [payload, i](graph::post::bloom_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(post_lane(i)); })
                              : build.bind_pass<graph::post::clear_parameters>(output->bloom[i], [payload, i](graph::post::clear_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return clear_post_target(payload->ios[i]); });

@@ -70,7 +70,7 @@ namespace deren::engine {
         // just been captured (measured: 14/14 scenarios came back "no screenshot produced"). What is
         // checked instead is what actually has to hold: a frame image with an extent, and a backend slot
         // that is mapped and large enough.
-        rhi::api_core& device = this->vulkan_core;
+        rhi::api_core& device = this->core_face;
         // THE SAME IMAGE AND THE SAME SLOT THE COPY USED. `frame_image()` answers for the image the last
         // acquire returned - the copy was recorded into THAT frame's command buffer, and by the time the
         // caller asks the frame has been submitted - and the read-back slot is the backend's own,

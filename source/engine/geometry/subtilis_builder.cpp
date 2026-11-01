@@ -92,7 +92,7 @@ namespace deren::engine::subtilis {
             XXH3_64bits_reset(&state);
             auto word = [&](std::uint64_t value) {
                 std::array<std::uint8_t, 8> bytes{};
-                for (unsigned i = 0; i < 8; ++i) {
+                for (uint32_t i = 0; i < 8; ++i) {
                     bytes[i] = static_cast<std::uint8_t>(value >> (i * 8));
                 }
                 XXH3_64bits_update(&state, bytes.data(), bytes.size());
@@ -181,7 +181,7 @@ namespace deren::engine::subtilis {
             }
             for (std::size_t i = 0; i < result.indices.size(); ++i) {
                 auto const& p = result.positions[result.indices[i]];
-                for (unsigned axis = 0; axis < 3; ++axis) {
+                for (uint32_t axis = 0; axis < 3; ++axis) {
                     low[axis] = i ? std::min(low[axis], double(p[axis])) : p[axis];
                     high[axis] = i ? std::max(high[axis], double(p[axis])) : p[axis];
                 }
@@ -199,14 +199,14 @@ namespace deren::engine::subtilis {
         std::array<double, 3> hi{};
         for (std::size_t i = 0; i < indices.size(); ++i) {
             auto const& position = data.positions[indices[i]];
-            for (unsigned axis = 0; axis < 3; ++axis) {
+            for (uint32_t axis = 0; axis < 3; ++axis) {
                 double v = position[axis];
                 lo[axis] = i ? std::min(lo[axis], v) : v;
                 hi[axis] = i ? std::max(hi[axis], v) : v;
             }
         }
         std::array<float, 3> center{};
-        for (unsigned axis = 0; axis < 3; ++axis) {
+        for (uint32_t axis = 0; axis < 3; ++axis) {
             center[axis] = static_cast<float>(lo[axis] / 2 + hi[axis] / 2);
         }
         double radius = 0;
