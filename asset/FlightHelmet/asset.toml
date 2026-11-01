@@ -1,0 +1,6 @@
+id = "flight-helmet"
+name = "Flight Helmet"
+type = "pbr"
+model = "FlightHelmet.gltf"
+license = "LICENSE.md"
+tags = ["pbr", "sample"]

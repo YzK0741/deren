@@ -40,6 +40,11 @@ namespace deren::app_config {
                 settings.model = *value;
             }
         }
+        if (toml::node const* node = table.get("asset")) {
+            if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
+                settings.asset = *value;
+            }
+        }
         if (toml::node const* node = table.get("grid_side")) {
             if (std::optional<int64_t> const value = node->value<int64_t>()) {
                 settings.grid_side = static_cast<int32_t>(*value);
@@ -55,6 +60,11 @@ namespace deren::app_config {
             if (toml::node const* node = paths->get("model_dir")) {
                 if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
                     settings.paths.model_dir = *value;
+                }
+            }
+            if (toml::node const* node = paths->get("asset_library")) {
+                if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
+                    settings.paths.asset_library = *value;
                 }
             }
 
@@ -814,10 +824,13 @@ namespace deren::app_config {
     }
 
     app_settings resolve_from_argv(int32_t const argc, char const* const* const argv, deren::utility::vessel::string const& default_config_path) {
-        // 1. Collect the non-option positional arguments (--config <path> / --config=<path> is
-        //    consumed as an option, not a positional), so model/grid positions stay stable
-        //    regardless of where --config appears.
+        // 1. Collect the non-option positional arguments (--config <path> / --config=<path>,
+        //    --asset-library <dir> / --asset-library=<dir> and --asset <id> / --asset=<id> are
+        //    consumed as options, not positionals), so model/grid positions stay stable regardless
+        //    of where an option appears.
         deren::utility::vessel::string config_path = default_config_path;
+        std::optional<std::string> asset_library_override;
+        std::optional<std::string> asset_override;
         deren::utility::vessel::vector<std::string_view> positional;
         for (int32_t i = 1; i < argc; ++i) {
             std::string_view const arg(argv[i]);
@@ -832,6 +845,26 @@ namespace deren::app_config {
                 config_path = deren::utility::vessel::string(arg.substr(9));
                 continue;
             }
+            if (arg == "--asset-library") {
+                if (i + 1 < argc) {
+                    asset_library_override = argv[++i];
+                }
+                continue;
+            }
+            if (arg.starts_with("--asset-library=")) {
+                asset_library_override = std::string(arg.substr(16));
+                continue;
+            }
+            if (arg == "--asset") {
+                if (i + 1 < argc) {
+                    asset_override = argv[++i];
+                }
+                continue;
+            }
+            if (arg.starts_with("--asset=")) {
+                asset_override = std::string(arg.substr(8));
+                continue;
+            }
             positional.push_back(arg);
         }
 
@@ -842,10 +875,22 @@ namespace deren::app_config {
         } else if (!config_path.empty()) {
             deren::utility::log("app_config: config file '{}' not found, using defaults", config_path);
         }
+        // command-line options override the file but not the positional model/grid slots below
+        if (asset_library_override) {
+            settings.paths.asset_library = *asset_library_override;
+        }
+        if (asset_override) {
+            settings.asset = *asset_override;
+        }
 
         // 2. Positional argv overrides the file: [0] = model, [1] = grid side (numeric).
         if (!positional.empty() && !positional[0].empty()) {
             settings.model = deren::utility::vessel::string(positional[0]);
+        } else if (asset_override) {
+            // A command-line --asset is a model selector too, and argv outranks the file: without
+            // this, a config.toml that still names `model` would silently win and --asset would be
+            // dead. A positional model above still takes precedence over --asset.
+            settings.model.clear();
         }
         if (positional.size() > 1 && !positional[1].empty()) {
             deren::utility::vessel::string const arg(positional[1]);

@@ -18,6 +18,7 @@ module;
 module deren.chores;
 import deren.utility.shared;
 
+import deren.asset_library;
 import deren.promise.gui;
 import deren.engine.gaussian_splatting.probe;
 
@@ -65,6 +66,44 @@ namespace deren::chores {
             }
         } else if (!settings.model.empty()) {
             config.model_path = settings.model;
+        }
+        // 3b. Asset library: only consulted when no explicit model won above, so the documented
+        //     precedence holds (--model / configured model > --asset > configured asset > library
+        //     default > the old model_dir/DamagedHelmet fallback). A library is never a silent
+        //     opt-in for the experimental toon path: the manifest's [toon] game_toon flag is
+        //     metadata here, not a render-mode switch.
+        if (config.model_path.empty() && (!settings.asset.empty() || !settings.paths.asset_library.empty())) {
+            if (settings.paths.asset_library.empty()) {
+                deren::utility::panic(std::source_location::current(),
+                                      "asset '{}' was requested but [paths] asset_library is empty (pass --asset-library <dir>).",
+                                      settings.asset);
+            }
+            deren::asset_library::asset_library const library =
+                deren::asset_library::asset_library::scan(settings.paths.asset_library);
+            if (!library.valid()) {
+                deren::utility::panic(std::source_location::current(), "cannot use asset library '{}': {}",
+                                      settings.paths.asset_library, library.error());
+            }
+            for (std::string const& warning : library.warnings()) {
+                deren::utility::log("asset library: {}", warning);
+            }
+            deren::asset_library::asset_entry const* selected = nullptr;
+            if (!settings.asset.empty()) {
+                selected = library.find(settings.asset);
+                if (selected == nullptr) {
+                    deren::utility::panic(std::source_location::current(),
+                                          "asset '{}' is not in the library at '{}'.", settings.asset,
+                                          settings.paths.asset_library);
+                }
+            } else {
+                selected = library.default_asset();
+                if (selected == nullptr) {
+                    deren::utility::panic(std::source_location::current(), "asset library '{}' has no default asset.",
+                                          settings.paths.asset_library);
+                }
+            }
+            config.model_path = selected->model.string();
+            deren::utility::log("asset library: selected '{}' ({})", selected->id, config.model_path);
         }
         if (config.model_path.empty() && !settings.paths.model_dir.empty()) {
             config.model_path = (std::filesystem::path(settings.paths.model_dir) / "DamagedHelmet" / "DamagedHelmet.gltf").string();

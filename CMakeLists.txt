@@ -411,6 +411,26 @@ endif()
 # the header (checked: no other source in the tree includes toml++), so PRIVATE is enough.
 target_compile_definitions(app_config PRIVATE TOML_EXCEPTIONS=0)
 
+# The folder-backed asset catalogue: a pure-CPU manifest scanner (no Vulkan, no engine dependency),
+# so it can be unit-tested and used by the startup path before any device exists. It reads the same
+# toml++ headers as app_config and must select the same non-exception API for the same reason.
+add_library(asset_library STATIC)
+
+target_sources(asset_library
+    PUBLIC
+        FILE_SET CXX_MODULES
+        FILES
+        source/asset_library/asset_library.cppm
+
+    PRIVATE
+        source/asset_library/asset_library.cpp
+)
+
+if(VR_TOMLPP_INCLUDE_DIR)
+    target_include_directories(asset_library SYSTEM PRIVATE "${VR_TOMLPP_INCLUDE_DIR}")
+endif()
+target_compile_definitions(asset_library PRIVATE TOML_EXCEPTIONS=0)
+
 # The portable engine owns scene storage, animation, render passes and the runtime.
 # Graphics implementations live in source/backends/vulkan and are loaded by the
 # engine through the RHI/GUI contracts, without linking their import libraries.
@@ -1060,6 +1080,11 @@ target_link_libraries(app_config
         vstd_lib
 )
 
+target_link_libraries(asset_library
+        static_utility
+        vstd_lib
+)
+
 # Demo bootstrap chores (root-level module, next to source/app/main.cpp): main's startup-config analysis
 # (analyse_config: config-file + argv merge, source/shaders/model location) and shader-loading /
 # pipeline helpers, kept out of main.cpp. Split like the other modules: source/app/chores.cppm
@@ -1083,6 +1108,7 @@ target_sources(chores
 
 target_link_libraries(chores
         app_config
+        asset_library
         deren_engine
         static_utility
         vstd_lib
@@ -1320,7 +1346,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_morton test_vessel test_stacktrace test_math test_profiling test_filters test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_docs test_dynamic_link test_vulkan_capabilities test_progressive_texture test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb test_visibility_software test_visibility_software_pass test_visibility_merge_pass test_render_operations)
+    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_asset_library test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_morton test_vessel test_stacktrace test_math test_profiling test_filters test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_docs test_dynamic_link test_vulkan_capabilities test_progressive_texture test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb test_visibility_software test_visibility_software_pass test_visibility_merge_pass test_render_operations)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1395,6 +1421,10 @@ if(VR_BUILD_TESTS)
 
     target_link_libraries(test_app_config
             app_config
+            vstd_lib
+    )
+    target_link_libraries(test_asset_library
+            asset_library
             vstd_lib
     )
     target_link_libraries(test_utility
