@@ -247,7 +247,7 @@ namespace deren::engine {
         [[nodiscard]] rhi::api_core& require_core(rhi::shared_object<rhi::api_core> const& core) {
             if (core == nullptr) {
                 deren::utility::panic(std::source_location::current(),
-                                      "runtime: no device root was handed over (an empty shared_ptr<api_core>) - the "
+                                      "environment: runtime: no device root was handed over (an empty shared_ptr<api_core>) - the "
                                       "loader (deren.engine.backend_loader::load_api_core) reports why it failed");
             }
             runtime_detail::verify_contract_version(*core);
@@ -269,7 +269,7 @@ namespace deren::engine {
         std::uint32_t const reported = core.api_version();
         if (reported != rhi::abi_version) {
             deren::utility::panic(std::source_location::current(),
-                                  "runtime: the device root reports abi {} but this executable compiled abi {} - the two "
+                                  "contract violation: runtime: the device root reports abi {} but this executable compiled abi {} - the two "
                                   "halves disagree about the contract, so no call on it can be made safely",
                                   reported, rhi::abi_version);
         }
@@ -402,7 +402,7 @@ namespace deren::engine {
         // array on the first frame. Checked once, at construction, before anything uses the arrays.
         if (this->frame_ring().slot_count() != rhi::max_frames_in_flight) {
             deren::utility::panic(std::source_location::current(),
-                                  "runtime: the backend's frame ring is {} slots but rhi::max_frames_in_flight promises {} - "
+                                  "contract violation: runtime: the backend's frame ring is {} slots but rhi::max_frames_in_flight promises {} - "
                                   "the engine's per-slot arrays are sized by the contract's number",
                                   this->frame_ring().slot_count(),
                                   rhi::max_frames_in_flight);
@@ -440,7 +440,7 @@ namespace deren::engine {
         this->init_recording_resources();
         // Scene tables must exist before default material/neutral toon values and animation setup write them.
         if (this->prepare_managed_resources(true) != rhi::error::ok) {
-            deren::utility::panic("managed scene setup resources could not be prepared");
+            deren::utility::panic("environment: managed scene setup resources could not be prepared");
         }
 
         // Shared legacy scene resources: white fallback texture and scene tables/deformation buffers
@@ -712,7 +712,7 @@ namespace deren::engine {
         this->owned_textures.push_back(std::move(white.first));
         this->owned_texture_views.push_back(std::move(white.second));
         if (!static_cast<bool>(this->owned_textures.back()) || !static_cast<bool>(this->owned_texture_views.back())) {
-            deren::utility::panic("failed to create the white fallback texture");
+            deren::utility::panic("environment: failed to create the white fallback texture");
         }
         // NO NATIVE VIEW CACHE (the `texture_array_views` vector that stood here is GONE): its elements were
         // never read - every use was `.size()`, which is `owned_texture_views.size()`, and the two pushes were
@@ -1138,7 +1138,7 @@ namespace deren::engine {
             primitive_create_info const default_material = {};
             material_id const default_index = this->register_material(default_material);
             if (default_index.value != 0) {
-                deren::utility::panic("default material must occupy table index 0");
+                deren::utility::panic("contract violation: default material must occupy table index 0");
             }
         }
     }
@@ -1304,7 +1304,7 @@ namespace deren::engine {
     void runtime::create_render_chain_targets() {
         // Constructor setup creates outputs only; configuration-dependent scene resources stay lazy.
         if (this->prepare_managed_resources(this->light_buffers.empty()) != rhi::error::ok) {
-            deren::utility::panic("failed to prepare output targets");
+            deren::utility::panic("environment: failed to prepare output targets");
         }
 
         // All scene/post/ray targets are now passchain-owned. Only the furnace environment
@@ -1329,7 +1329,7 @@ namespace deren::engine {
         this->furnace_cube_image = std::move(furnace.first);
         this->furnace_cube_view = std::move(furnace.second);
         if (!this->furnace_cube_image || !this->furnace_cube_view) {
-            deren::utility::panic("failed to create the furnace environment cube");
+            deren::utility::panic("environment: failed to create the furnace environment cube");
         }
     }
 
@@ -1857,7 +1857,7 @@ namespace deren::engine {
 
     void runtime::create_shadow_resources() {
         if (this->prepare_managed_resources() != rhi::error::ok) {
-            deren::utility::panic("failed to prepare pass resources");
+            deren::utility::panic("environment: failed to prepare pass resources");
         }
     }
 
@@ -2685,7 +2685,7 @@ namespace deren::engine {
                 auto suffix = progressive_texture::mip_range(tex.width, tex.height, full_levels, low_mip);
                 if (progressive_mips && suffix) {
                     if (suffix->offset + suffix->bytes > tex.data.size_bytes())
-                        deren::utility::panic("invalid source mip suffix");
+                        deren::utility::panic("contract violation: invalid source mip suffix");
                     low.extent.width = suffix->width;
                     low.extent.height = suffix->height;
                     low.mip_levels = suffix->levels;
@@ -2696,7 +2696,7 @@ namespace deren::engine {
                                                                   std::max(1u, tex.width >> low_mip), std::max(1u, tex.height >> low_mip), texture_format == rhi::image_format::rgba8_srgb)
                                   : progressive_texture::fallback(std::span(tex.data.data(), tex.data.size_bytes()), tex.width, tex.height, texture_format == rhi::image_format::rgba8_srgb);
                     if (!reduced)
-                        deren::utility::panic("invalid progressive texture source");
+                        deren::utility::panic("contract violation: invalid progressive texture source");
                     low.extent.width = reduced->width;
                     low.extent.height = reduced->height;
                     low.mip_levels = 1;
@@ -2726,8 +2726,17 @@ namespace deren::engine {
                 auto source = share_texture_source(tex);
                 image_info.initial_bytes = {};
                 auto lazy = rhi_face().resources->create_lazy_image({.resource = image_info, .data = source});
-                if (!lazy)
-                    deren::utility::panic("failed to create streamed material texture");
+                if (!lazy) {
+                    // MEMORY EXHAUSTION IS UNRECOVERABLE BY POLICY (docs/error_handling.md): a host OOM
+                    // fast-panics because there is no allocation left to report with; a device OOM panics
+                    // with the code, because the host side can still write the message and crash log.
+                    if (lazy.error() == rhi::error::out_of_host_memory) {
+                        deren::utility::fast_panic("environment: failed to create streamed material texture: host memory exhausted");
+                    }
+                    deren::utility::panic(deren::utility::vessel::format("environment: failed to create streamed material texture (error {})",
+                                                                         static_cast<std::uint32_t>(lazy.error())),
+                                          std::source_location::current());
+                }
                 if (streamed_textures.size() < owned_textures.size())
                     streamed_textures.resize(owned_textures.size());
                 rhi::shared_object<rhi::lazy_image> object(std::move(*lazy));
@@ -2747,7 +2756,7 @@ namespace deren::engine {
             tex_range.layer_count = 0;
             tex_range.mip_count = 0;
             if (!static_cast<bool>(this->owned_textures.back()) || !static_cast<bool>(this->owned_texture_views.back())) {
-                deren::utility::panic("failed to create material texture");
+                deren::utility::panic("environment: failed to create material texture");
             }
             // THE INDEX IS THE VIEW JUST APPENDED (see where the white element sets `white_texture_index` the
             // same way): the native cache that used to be counted here held the same views in the same order, so
@@ -2794,7 +2803,7 @@ namespace deren::engine {
                     full.initial_bytes = std::as_bytes(std::span(*entry.source));
                     entry.high = rhi::shared_object<rhi::image>(rhi_face().resources->create_image(full));
                     if (!entry.high)
-                        deren::utility::panic("failed to create pinned full texture");
+                        deren::utility::panic("environment: failed to create pinned full texture");
                     owned_textures[id] = entry.high;
                     entry.resident_mip = 0;
                     entry.resident_bytes = entry.bytes;
@@ -2804,7 +2813,7 @@ namespace deren::engine {
                 range.layer_count = 0;
                 auto* pinned_image = entry.source ? entry.high.get() : entry.image.get();
                 if (!contract_write_descriptor_image(rhi_face(), render_layout::heap_slots::textures + id, *pinned_image, range, rhi::descriptor_type::sampled_image))
-                    deren::utility::panic("failed to publish pinned scene texture");
+                    deren::utility::panic("environment: failed to publish pinned scene texture");
                 streamed_textures[id].published = true;
             }
         }

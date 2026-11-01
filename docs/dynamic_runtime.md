@@ -30,14 +30,17 @@ Explicit generic printing APIs and command-line diagnostic tools retain their no
 ## Utility and engine error policy
 
 `deren.utility` (module interface 3.0.0) and `deren.utility.shared` have no RHI dependency.
-Generic assertions, logging, allocation and panic remain in utility. RHI-specific outcome policy
-belongs to `deren.engine.outcome`, provided by `engine_outcome_core`.
+Generic assertions, logging, allocation and panic remain in utility. RHI failure types
+(`deren::promise::rhi::error`, `error_info`) belong to the contract; engine code that names them
+imports `deren.promise.rhi` explicitly, so a utility-only consumer never needs the renderer contract.
 
-Consumers of the former `deren::utility::{result, verdict, pass_success, pass_failure, fatal,
-propagate, enforce}` must import `deren.engine.outcome` and use `deren::engine::outcome::` instead.
-Code naming RHI types also imports `deren.promise.rhi` explicitly. No compatibility re-export is
-provided, so a utility-only consumer does not need the renderer contract. Classification, error
-rewriting and fatal behavior are unchanged; this source interface change does not alter the RHI ABI.
+A `deren.engine.outcome` module briefly carried `result`, `verdict`, `propagate` and `enforce` for
+classifying RHI failures. It was deleted once its only production consumer was measured: the
+frame-open path in `runtime.frames.cppm` separated a classifier from a mechanism with exactly one
+caller, and the `verdict` vocabulary had no second user. That path now applies its policy inline
+(fatal -> panic, out_of_date -> rebuild and skip, anything else -> acquire_failed), and code that
+needs a value-or-error answer writes `std::expected<T, deren::promise::rhi::error_info>` directly.
+[error_handling.md](error_handling.md) records the policy that remains.
 
 Utility source interface 3.0.0 also replaces optional/unbounded binary reads with
 `read_binary_to_vector(path, max_bytes)` and `read_binary_to_string(path, max_bytes)`, both returning

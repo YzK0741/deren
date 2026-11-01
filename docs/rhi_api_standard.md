@@ -68,8 +68,9 @@ RFC 2119 sense.
 - Error meanings: `invalid_argument` = caller error, no native work; `not_ready` = no frame/recording or the
   handle no longer holds a reference; `unsupported` = a capability/format/mechanism this backend does not
   serve, refused by name rather than dropped; `operation_failed` = backend failure without a more precise
-  channel; `device_lost`/`out_of_device_memory`/`out_of_host_memory` are device conditions; `timeout` and
-  `out_of_date` are retryable; `initialization_failed` is creation failure.
+  channel; `device_lost`/`out_of_device_memory`/`out_of_host_memory` are fatal device conditions (the engine
+  terminates: `panic`, or `fast_panic` for a host OOM where no allocation is left to report with); `timeout`
+  and `out_of_date` are retryable; `initialization_failed` is creation failure.
 - A deferred-recording backend MUST validate the complete pending batch before replay; a deferred error latches
   the recording as non-executable and MUST NOT submit a partial recording.
 - Abilities and extensions are the only way to ask "can you do X". `api_core::abilities()` reports bits;

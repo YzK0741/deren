@@ -19,7 +19,7 @@ class UtilityBoundaryTests(unittest.TestCase):
         links = re.findall(r"target_link_libraries\(static_utility\s+(.*?)\)", cmake, re.S)
         self.assertTrue(links)
         for link in links:
-            self.assertNotRegex(link, r"\b(?:promise|rhi_sync_contract|deren_engine|engine_outcome_core)\b")
+            self.assertNotRegex(link, r"\b(?:promise|rhi_sync_contract|deren_engine)\b")
 
 
 if __name__ == "__main__":

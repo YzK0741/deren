@@ -246,7 +246,7 @@ include(cmake/deren_asset_dependencies.cmake)
 # DEPENDENCY DIRECTION: static_utility MAY depend on shared_utility (it formats text and calls the
 # sink); the reverse is FORBIDDEN - the shared module writes its own file routes instead of calling this
 # module's `println`; logging/fatal routes have no console fallback. Neither utility target imports or links the RHI contract;
-# the contract depends on shared_utility. RHI outcome policy belongs to engine_outcome_core.
+# the contract depends on shared_utility. RHI failure types (`error`, `error_info`) belong to the contract.
 #
 # `dynamic_link` STAYS ON THE STATIC SIDE FOR A LOAD-BEARING REASON: it is the key that loads the
 # backend, so putting it in the process-wide library would build a bootstrap chain ("the executable
@@ -611,11 +611,6 @@ set(VR_APP_EXE deren)
 set(VR_FULL_API_MODULES source/engine/render_start_demo/render_start_demo.cppm)
 set(VR_FULL_API_SOURCES source/engine/render_start_demo/render_start_demo.cpp)
 
-add_library(engine_outcome_core STATIC)
-target_sources(engine_outcome_core PUBLIC FILE_SET CXX_MODULES FILES
-    source/engine/outcome/outcome.cppm)
-target_link_libraries(engine_outcome_core PUBLIC static_utility promise)
-
 add_library(resource_cluster_core STATIC)
 target_sources(resource_cluster_core PUBLIC FILE_SET CXX_MODULES FILES
     source/engine/resource_cluster/resource_cluster.cppm)
@@ -936,7 +931,6 @@ target_link_libraries(deren_assets
 # parsed deren::gltf::scenes down to the runtime at the call site.
 target_link_libraries(deren_engine
         PUBLIC
-        engine_outcome_core
         resource_cluster_core
         buffer_transfer_core
         gaussian_loader
@@ -1323,7 +1317,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_morton test_engine_outcome test_vessel test_stacktrace test_math test_profiling test_filters test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_docs test_dynamic_link test_vulkan_capabilities test_progressive_texture test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb test_visibility_software test_visibility_software_pass test_visibility_merge_pass test_render_operations)
+    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_morton test_vessel test_stacktrace test_math test_profiling test_filters test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_docs test_dynamic_link test_vulkan_capabilities test_progressive_texture test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb test_visibility_software test_visibility_software_pass test_visibility_merge_pass test_render_operations)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1400,8 +1394,6 @@ if(VR_BUILD_TESTS)
             app_config
             vstd_lib
     )
-    target_link_libraries(test_engine_outcome engine_outcome_core)
-
     target_link_libraries(test_utility
             static_utility
             glm::glm
@@ -2026,7 +2018,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     # root-level module source feeding both the format stamp and a target that depends on other
     # format-listed targets makes ninja see a cycle; format source/app/chores.cppm manually with
     # 'clang-format -i source/app/chores.cppm' - same style, just not automatic)
-    foreach(_tgt shared_utility static_utility engine_outcome_core backend_loader promise rhi_sync_contract app_config deren_vulkan vulkan_constant_init vulkan_synchronization renderer_layout vulkan_error_tables deren_engine deren_assets resource_cluster_core render_graph_core render_graph_rhi render_graph_execute render_graph_compose render_graph_bloom render_graph_post render_graph_lighting render_graph_geometry ${VR_APP_EXE})
+    foreach(_tgt shared_utility static_utility backend_loader promise rhi_sync_contract app_config deren_vulkan vulkan_constant_init vulkan_synchronization renderer_layout vulkan_error_tables deren_engine deren_assets resource_cluster_core render_graph_core render_graph_rhi render_graph_execute render_graph_compose render_graph_bloom render_graph_post render_graph_lighting render_graph_geometry ${VR_APP_EXE})
         add_dependencies(${_tgt} clang-format)
     endforeach()
 

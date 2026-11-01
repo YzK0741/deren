@@ -4563,13 +4563,13 @@ namespace deren::engine {
          */
         [[nodiscard]] scene_tree::scene& get_scene() noexcept {
             if (this->bound_scene == nullptr) {
-                deren::utility::panic("runtime::get_scene() called before set_scene() bound a scene");
+                deren::utility::panic("contract violation: runtime::get_scene() called before set_scene() bound a scene");
             }
             return *this->bound_scene;
         }
         [[nodiscard]] scene_tree::scene const& get_scene() const noexcept {
             if (this->bound_scene == nullptr) {
-                deren::utility::panic("runtime::get_scene() called before set_scene() bound a scene");
+                deren::utility::panic("contract violation: runtime::get_scene() called before set_scene() bound a scene");
             }
             return *this->bound_scene;
         }
@@ -4755,7 +4755,7 @@ namespace deren::engine {
             requires scene_node_iterator<NI> && scene_drawable_iterator<DI>
         scene_import_result import_scene(NI nfirst, NI nlast, DI dfirst, DI dlast, glm::vec3 const& offset, bool const environment = false) {
             if (this->bound_scene == nullptr) {
-                deren::utility::panic("runtime::import_scene() called before set_scene() bound a scene");
+                deren::utility::panic("contract violation: runtime::import_scene() called before set_scene() bound a scene");
             }
             scene_import_result result = {};
             result.import_instance = this->bound_scene->next_import_instance++;
@@ -4861,7 +4861,7 @@ namespace deren::engine {
             // returns the created primitive or nullptr if the pipeline is missing
             auto const attach_leaf = [&](scene_tree::scene_node& node, DI& drawable) -> primitive* {
                 if (!(drawable != dlast)) {
-                    deren::utility::panic(std::source_location::current(), "drawable stream ended before the node tree did");
+                    deren::utility::panic(std::source_location::current(), "internal invariant: drawable stream ended before the node tree did");
                 }
                 primitive_create_info info = {};
                 fill_info(drawable, info);
@@ -4914,7 +4914,7 @@ namespace deren::engine {
                     ancestors.assign(1, &this->bound_scene->roots.back());
                 } else {
                     if (ancestors.size() != depth) {
-                        deren::utility::panic(std::source_location::current(), "node tree stream: broken ancestor stack");
+                        deren::utility::panic(std::source_location::current(), "internal invariant: node tree stream: broken ancestor stack");
                     }
                     scene_tree::scene_node* const parent = ancestors[depth - 1];
                     parent->children.push_back(std::move(node));
@@ -4926,7 +4926,7 @@ namespace deren::engine {
                 std::size_t const drawable_count = nfirst.get_drawable_count();
                 for (std::size_t i = 0; i < drawable_count; ++i) {
                     if (attach_leaf(*current, dfirst) == nullptr) {
-                        deren::utility::panic(std::source_location::current(), "failed to import drawable (pipeline 'pbr' missing)");
+                        deren::utility::panic(std::source_location::current(), "environment: failed to import drawable (pipeline 'pbr' missing)");
                     }
                 }
             }

@@ -47,7 +47,8 @@
 //
 // The dependency direction is one-way and enforced by this file's contents: `deren.utility` may
 // depend on this module, and this module depends on NOTHING of it - it does not even import
-// `deren.promise.rhi`; RHI outcome policy lives in `deren.engine.outcome`.
+// `deren.promise.rhi`; RHI failure types and the policy for them stay out of here (see
+// docs/error_handling.md).
 // ============================================================================
 module;
 
@@ -103,8 +104,9 @@ namespace deren::utility {
      *       directly to deren-crash.log, then briefly waits for an existing ordinary log prefix.
      *       File writes are best effort; no console fallback, async logger initialization or lock
      *       acquisition occurs here. Kernel I/O and symbolization have separate limits.
-     *     - `fatal` from a classified outcome is EXECUTED by the engine, not by the backend (see
-     *       `deren::engine::outcome::enforce`): the backend reports, the engine panics here
+     *     - a failure the backend only REPORTS (a lost device, exhausted host memory) is turned into
+     *       a panic by the ENGINE, not by the backend: the backend answers an error code, and the
+     *       engine decides that the process ends here (see docs/error_handling.md)
      */
     export [[noreturn]] void panic(std::string_view msg = "",
                                    std::source_location source_location = std::source_location::current()) noexcept;
