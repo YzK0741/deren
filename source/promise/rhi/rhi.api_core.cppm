@@ -40,6 +40,7 @@
 // ============================================================================
 module;
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -2193,12 +2194,8 @@ export namespace deren::promise::rhi {
             double const delta = ms - this->mean_ms;
             this->mean_ms += delta / static_cast<double>(this->samples);
             this->m2_ms2 += delta * (ms - this->mean_ms);
-            if (ms < this->min_ms) {
-                this->min_ms = ms;
-            }
-            if (ms > this->max_ms) {
-                this->max_ms = ms;
-            }
+            this->min_ms = std::min(ms, this->min_ms);
+            this->max_ms = std::max(ms, this->max_ms);
         }
 
         [[nodiscard]] double stddev_ms() const noexcept {

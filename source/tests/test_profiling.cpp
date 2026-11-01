@@ -36,7 +36,8 @@ namespace {
         CHECK(cpu_phase_names.size() == index_of(cpu_phase::count));
         CHECK(cpu_phase_names[index_of(cpu_phase::pace)] == std::string_view{"pace"});
         CHECK(cpu_phase_names[index_of(cpu_phase::submit)] == std::string_view{"submit"});
-        // the four SUB-phases carry the marker the total's exclusion rule reads
+        // the five SUB-phases carry the marker the total's exclusion rule reads
+        CHECK(cpu_phase_names[index_of(cpu_phase::cull)].ends_with("*"));
         CHECK(cpu_phase_names[index_of(cpu_phase::cluster)].ends_with("*"));
         CHECK(cpu_phase_names[index_of(cpu_phase::shadow)].ends_with("*"));
         CHECK(cpu_phase_names[index_of(cpu_phase::submit_queue)].ends_with("*"));
@@ -47,7 +48,7 @@ namespace {
                 ++marked;
             }
         }
-        CHECK(marked == 4u);
+        CHECK(marked == 5u);
         // ... and a full phase must NOT carry it, or the total would silently drop it
         CHECK(!cpu_phase_names[index_of(cpu_phase::scene)].ends_with("*"));
         CHECK(!cpu_phase_names[index_of(cpu_phase::post)].ends_with("*"));
