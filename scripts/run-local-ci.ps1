@@ -1,7 +1,9 @@
 param(
     [ValidateSet("Fast", "Full")]
     [string]$Mode = "Full",
-    [string]$BuildDir = "build-release-dyn-clang64",
+    # Empty = "the Release tree scripts/build_helpers/build.py produced" (resolved below);
+    # pass a path to override.
+    [string]$BuildDir = "",
     [switch]$NoMarker
 )
 
@@ -17,16 +19,43 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 Push-Location $repo
 try {
-    if (-not (Test-Path (Join-Path $repo $BuildDir))) {
-        throw "build directory not found: $BuildDir (configure/build first)"
+    # WHICH BUILD TREE. The old default was a hand-made directory name (`build-release-dyn-clang64`)
+    # that no documented command creates, so a fresh clone that had just run
+    # `python scripts/build_helpers/build.py --type Release` got "build directory not found".
+    # Default to what that builder produces - build-<config>-clang64 on Windows, build-<config> on
+    # POSIX (scripts/build_helpers/common.py) - and then to the hand-made tree this checkout uses.
+    # -BuildDir always wins, and a path that does not exist is still reported by name.
+    $releaseCandidates = @("build-release-clang64", "build-release", "build-release-dyn-clang64")
+    if (-not $BuildDir) {
+        $BuildDir = @($releaseCandidates | Where-Object { Test-Path -LiteralPath (Join-Path $repo $_) })[0]
+    }
+    if (-not $BuildDir) {
+        throw ("no Release build tree found (looked for: {0}). Configure and build one first:`n    python scripts/build_helpers/build.py --type Release`nor pass -BuildDir <path>." -f ($releaseCandidates -join ", "))
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $repo $BuildDir))) {
+        throw ("build directory not found: {0} (run python scripts/build_helpers/build.py --type Release, or pass -BuildDir <path>)" -f $BuildDir)
     }
 
-    function Invoke-Step([string]$Name, [scriptblock]$Body) {
+    # THE GATE'S TRANSCRIPT. Every step's output is tee'd into tmp/local-gate.log, and the marker
+    # records that file's SHA-256: a hand-written marker with the right JSON fields used to pass
+    # check-ci-marker.ps1, and now it also needs the log this run actually produced. This is
+    # tamper-EVIDENT, not tamper-proof (the same user can write both files) - which is why the
+    # marker still says "local prerequisite" and PR CI remains the merge authority.
+    $gateLog = Join-Path $repo "tmp/local-gate.log"
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $gateLog) | Out-Null
+    Set-Content -LiteralPath $gateLog -Value "" -Encoding utf8
+
+    # THE FIRST ARGUMENT IS THE MARKER'S GATE ID, not the display name: check-ci-marker.ps1 requires
+    # every gate id it reads from tmp/local-gate-pass.json to appear as a `== id ==` header in this log,
+    # so the two spellings cannot drift apart. The title is only for the console.
+    function Invoke-Step([string]$Id, [string]$Title, [scriptblock]$Body) {
         Write-Host ""
-        Write-Host "== $Name ==" -ForegroundColor Cyan
-        & $Body
+        Write-Host "== $Title ==" -ForegroundColor Cyan
+        Add-Content -LiteralPath $gateLog -Value "" -Encoding utf8
+        Add-Content -LiteralPath $gateLog -Value "== $Id ==" -Encoding utf8
+        & $Body 2>&1 | Tee-Object -FilePath $gateLog -Append
         if ($LASTEXITCODE -ne 0) {
-            throw "$Name failed (exit $LASTEXITCODE)"
+            throw "$Title failed (exit $LASTEXITCODE); the step output is in tmp/local-gate.log ($Id)"
         }
     }
 
@@ -61,16 +90,16 @@ try {
     Write-Host "Local gate ($Mode): Release build, backend-boundary ratchet, ctest, clang-format$(if ($Mode -eq 'Full') { ', clang-tidy' })" -ForegroundColor DarkGray
     Write-Host "Not covered here: Debug compile gate, ASan/UBSan, POSIX stacktrace (remote CI only)" -ForegroundColor DarkGray
 
-    Invoke-Step "git diff --cached --check" { git diff --cached --check }
+    Invoke-Step "git-diff-check" "git diff --cached --check" { git diff --cached --check }
 
-    Invoke-Step "Release build" { cmake --build $BuildDir --parallel 8 }
+    Invoke-Step "release-build" "Release build" { cmake --build $BuildDir --parallel 8 }
 
     # Cheap because the Release build above already produced the archives and the
     # DLL this reads; the CI job runs the same target for the same reason.
-    Invoke-Step "backend boundary ratchet" { cmake --build $BuildDir --target check-backend-boundary }
+    Invoke-Step "backend-boundary" "backend boundary ratchet" { cmake --build $BuildDir --target check-backend-boundary }
 
-    # CTest's radiance test writes through TEMP; the system TEMP is not always
-    # writable in this workspace, so pin it inside the repository.
+    # Some tests write through TEMP; the system TEMP is not always writable in
+    # this workspace, so pin it inside the repository.
     $tempDir = Join-Path $repo "tmp/ci-temp"
     New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
     $oldTemp = $env:TEMP
@@ -78,14 +107,14 @@ try {
     $env:TEMP = $tempDir
     $env:TMP = $tempDir
     try {
-        Invoke-Step "CTest" { ctest --test-dir $BuildDir --output-on-failure }
+        Invoke-Step "ctest" "CTest" { ctest --test-dir $BuildDir --output-on-failure }
     }
     finally {
         $env:TEMP = $oldTemp
         $env:TMP = $oldTmp
     }
 
-    Invoke-Step "clang-format-check" { cmake --build $BuildDir --target clang-format-check }
+    Invoke-Step "clang-format-check" "clang-format-check" { cmake --build $BuildDir --target clang-format-check }
 
     if ($Mode -eq "Full") {
         # Parse the same list the CI job uses instead of maintaining a second one.
@@ -98,11 +127,8 @@ try {
         if ($tidyFiles.Count -eq 0) {
             throw "TIDY_FILES list is empty"
         }
-        Write-Host ""
-        Write-Host "== clang-tidy ($($tidyFiles.Count) files) ==" -ForegroundColor Cyan
-        & python scripts/tools/run_clang_tidy.py --build-dir $BuildDir @tidyFiles
-        if ($LASTEXITCODE -ne 0) {
-            throw "clang-tidy failed (exit $LASTEXITCODE)"
+        Invoke-Step "clang-tidy" "clang-tidy ($($tidyFiles.Count) files)" {
+            & python scripts/tools/run_clang_tidy.py --build-dir $BuildDir @tidyFiles
         }
     }
 
@@ -134,6 +160,10 @@ try {
         $buildId = ([System.IO.Path]::GetRelativePath($repo, (Resolve-Path -LiteralPath $BuildDir).Path) -replace '\\', '/')
         $gates = @("release-build", "backend-boundary", "ctest", "clang-format-check")
         if ($Mode -eq "Full") { $gates += "clang-tidy" }
+        # The transcript is the evidence behind the claim: the marker names the file and its hash, and
+        # check-ci-marker.ps1 re-hashes it and requires each gate's header to be in it.
+        $logHash = (Get-FileHash -LiteralPath $gateLog -Algorithm SHA256).Hash.ToLowerInvariant()
+        $logBytes = (Get-Item -LiteralPath $gateLog).Length
         $marker = [ordered]@{
             commit = $commit
             tree = $tree
@@ -145,11 +175,15 @@ try {
             not_covered = @("debug-compile", "asan-ubsan", "posix-stacktrace")
             working_tree_clean = $true
             untracked_checked = $true
+            log_file = "tmp/local-gate.log"
+            log_sha256 = $logHash
+            log_bytes = $logBytes
         }
         $markerPath = Join-Path $repo "tmp/local-gate-pass.json"
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $markerPath) | Out-Null
         $marker | ConvertTo-Json -Depth 4 | Set-Content -Path $markerPath -Encoding utf8
         Write-Host "Local gate marker written: $markerPath" -ForegroundColor DarkGray
+        Write-Host "Evidence log: $gateLog (sha256 $logHash)" -ForegroundColor DarkGray
     }
 
     Write-Host ""

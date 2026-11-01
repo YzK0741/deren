@@ -44,6 +44,32 @@ try {
             throw "local gate marker does not record the '$required' gate; re-run the gate on this commit"
         }
     }
+    # THE GATE'S TRANSCRIPT: the marker is a claim, and this is the evidence that the run it claims
+    # actually happened. A hand-written JSON with the right fields used to pass; it now also has to
+    # match a log the gate produced, gate header by gate header. Deliberate fraud is not the threat
+    # model (the same user can write both files) - an accidental or forgotten marker is.
+    if (-not $marker.log_file -or -not $marker.log_sha256) {
+        throw "local gate marker carries no gate log (it predates the log); re-run scripts/run-local-ci.ps1 -Mode Full on this commit"
+    }
+    $logPath = if ([System.IO.Path]::IsPathRooted($marker.log_file)) { $marker.log_file } else { Join-Path $repo $marker.log_file }
+    if (-not (Test-Path -LiteralPath $logPath)) {
+        throw ("the gate log named by the marker does not exist: {0}; re-run the gate" -f $marker.log_file)
+    }
+    $actualBytes = (Get-Item -LiteralPath $logPath).Length
+    if ([int64]$marker.log_bytes -ne $actualBytes) {
+        throw ("the gate log is {0} byte(s) but the marker recorded {1}; the log changed after the gate wrote it, so re-run the gate" -f $actualBytes, $marker.log_bytes)
+    }
+    $actualHash = (Get-FileHash -LiteralPath $logPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualHash -ne $marker.log_sha256) {
+        throw "the gate log's SHA-256 does not match the marker; the log changed after the gate wrote it, so re-run the gate"
+    }
+    $logText = Get-Content -LiteralPath $logPath -Raw
+    foreach ($gate in $recordedGates) {
+        if ($logText -notmatch [regex]::Escape("== $gate ==")) {
+            throw ("the gate log does not contain the '{0}' step the marker claims; re-run the gate" -f $gate)
+        }
+    }
+
     if (-not $marker.build_dir) {
         throw "local gate marker does not name the build directory; re-run the gate on this commit"
     }
