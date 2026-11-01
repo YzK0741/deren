@@ -24,11 +24,12 @@ try {
     git update-index --chmod=+x .githooks/pre-commit .githooks/pre-merge-commit .githooks/pre-push 2>$null
 
     Write-Host "Git hooks enabled: core.hooksPath=.githooks" -ForegroundColor Green
-    Write-Host "  pre-commit: requires the scripts/commit.ps1 checklist marker"
+    Write-Host "  pre-commit: requires the scripts/commit.ps1 checklist marker (wip/* branches are exempt)"
     Write-Host "  pre-merge-commit: rejects direct local merges"
-    Write-Host "  pre-push: rejects master/main and requires the local-gate marker"
+    Write-Host "  pre-push: rejects master/main and requires the local-gate marker (wip/* refs are exempt)"
     Write-Host ""
-    Write-Host "Use scripts/commit.ps1 and scripts/push.ps1; direct git commit/push will fail."
+    Write-Host "Release channel: scripts/commit.ps1 and scripts/push.ps1; direct git commit/push will fail."
+    Write-Host "WIP channel: wip/* branches only; publish with 'python scripts/push_wip.py' (no local gate, no CI, never merged)."
 }
 finally {
     Pop-Location

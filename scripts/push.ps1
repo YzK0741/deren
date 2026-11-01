@@ -14,6 +14,12 @@ try {
         throw "refusing to push to $Branch; use a feature branch and a pull request"
     }
 
+    # Case-sensitive on purpose: the hooks and the CI guard match 'wip/' exactly, and a
+    # 'WIP/foo' branch is not on the WIP channel (it would run CI like a release branch).
+    if ($Branch -cmatch '^wip/') {
+        throw "refusing to push $Branch through the release channel; wip branches are published with 'python scripts/push_wip.py' (no local gate, no CI, never merged)"
+    }
+
     $current = (git branch --show-current).Trim()
     if ($current -ne $Branch) {
         throw "current branch is '$current', not '$Branch'; check it out before pushing"

@@ -1,10 +1,29 @@
 #!/bin/sh
-# Every commit must go through scripts/commit.ps1, which sets this marker only
-# after the three checklist answers; the script then runs the local gate against
-# the new commit and rolls it back if the gate fails.
+# Two commit channels, both defined by the BRANCH NAME so neither can be reached by accident:
+#
+#   * release channel: every commit goes through scripts/commit.ps1, which runs the
+#     three-question checklist and then the local gate AGAINST the new commit, rolling the
+#     commit back if the gate fails. The hook refuses a bare `git commit` because
+#     DEREN_CHECKLIST_OK is not set; the script sets it around its own commit.
+#
+#   * WIP channel (wip/*): deliberately looser. Unfinished work is committed freely here - no
+#     checklist, no local gate marker, no CI (ci.yml and subtilis-converter.yml skip wip/* refs)
+#     - because nothing on a wip branch can be merged. Publishing goes through .githooks/pre-push,
+#     and the cross-platform way to do it is scripts/push_wip.py (see CONTRIBUTING.md "The WIP channel").
+# symbolic-ref, not `rev-parse --abbrev-ref`: on an unborn branch (the first commit of a fresh
+# wip branch) rev-parse reports HEAD, which would send that commit down the release path.
+branch=$(git symbolic-ref --short -q HEAD 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null)
+case "$branch" in
+    wip/*)
+        echo "wip channel: checklist skipped on '$branch' (not mergeable; no local gate, no CI)." >&2
+        exit 0
+        ;;
+esac
+
 if [ "$DEREN_CHECKLIST_OK" != "1" ]; then
     echo "commit refused: use scripts/commit.ps1 so the completeness/gate-readiness/honesty checklist runs." >&2
     echo "A direct 'git commit' is not allowed; the checklist marker was not set." >&2
+    echo "Unfinished work belongs on a wip/* branch, where the checklist is skipped by design." >&2
     exit 1
 fi
 exit 0
