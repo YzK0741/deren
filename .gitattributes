@@ -17,3 +17,9 @@ asset/** linguist-vendored
 .githooks/* text eol=lf
 asset/laevatain/*.glb filter=lfs diff=lfs merge=lfs -text
 asset/flowers/*.ply filter=lfs diff=lfs merge=lfs -text
+# README SCREENSHOTS STAY IN PLAIN GIT, deliberately. They are hand-picked presentation assets
+# referenced from README.md (and copied by the docs build), they are refreshed rarely, and each is
+# 0.3-1 MB: a Git LFS pointer would have to be resolved by every consumer of those files (README
+# rendering, a plain checkout, the docs build) for a history cost of a few megabytes. The two large
+# MODEL assets above are the ones that go to LFS. `-text` keeps their bytes unnormalized.
+docs/screenshots/** -text
