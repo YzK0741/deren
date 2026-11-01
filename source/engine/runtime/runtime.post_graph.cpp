@@ -1572,7 +1572,7 @@ namespace deren::engine {
             // SAME TOPOLOGY AS `toon_screen_rim` (target preserve-write, depth/albedo sampled reads), so it reuses
             // that adapter: the node's label says "toon screen rim" in the graph's diagnostics, but the RECORDED
             // pass is this lane's own (a different pass object with its own pipeline and colour).
-            if (this->game_toon_active() && this->character_forward_pass[0] != nullptr) {
+            if (this->game_toon_active() && this->character_forward_pass[0] != nullptr && this->game_toon_depth_rim_pass[0] != nullptr) {
                 pass::stage game_rim_stage{.name = "game_toon_depth_rim", .passes = this->game_toon_depth_rim_pass};
                 this->prepare_stage(game_rim_stage);
                 passes[lane_slot(lane::game_toon_depth_rim)] = this->game_toon_depth_rim_pass[0];

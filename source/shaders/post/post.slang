@@ -75,6 +75,7 @@ struct PostPush
 #define heap_post_source_slot (pc.post_source_slot)
 
 #include "post/pbr_neutral.slang"
+#include "post/game_toon_tonemap.h"
 
 /// @brief ACES filmic tonemapping (Narkowicz fit)
 /// @param color linear HDR colour, already multiplied by the exposure scale
@@ -207,7 +208,10 @@ float4 frag_main([[vk::location(0)]] float2 v_uv : TEXCOORD0) : SV_Target
     // ambient and the IBL.
     color += bloom * pc.bloom_intensity;
     color *= pc.exposure;
-    color = pc.tone_mapping > 0.5 ? pbr_neutral_tone_mapping(max(color, float3(0.0))) : aces_tone_mapping(color);
+    if (pc.tone_mapping > 1.5)
+        color = game_toon_tone_mapping(color);
+    else
+        color = pc.tone_mapping > 0.5 ? pbr_neutral_tone_mapping(max(color, float3(0.0))) : aces_tone_mapping(color);
     // Display encoding: normally the sRGB swapchain attachment does it (pc.encode_gamma == 0); this path
     // only exists so a UNORM swapchain still gets correct output.
     if (pc.encode_gamma > 0.5)
