@@ -12,7 +12,7 @@ new code is expected to follow, and the gaps between the two.
 | `std::expected<void, deren::utility::vessel::string>` | the engine's internal workhorse: the pipeline builders in `runtime`, the mask-bake and compute-skin jobs, the acceleration-structure build, the resource-schema validation, the glTF sidecars, `utility::write_png` | 26 declarations plus their definitions |
 | `std::expected<T, deren::promise::rhi::error_info>` | the code-bearing answer, written directly - there is no alias or wrapper module for it any more. `error_info` carries the code, the backend's message and its source location | intended for APIs whose callers must classify; not started in production |
 | `bool` / `frame_status` | the frame loop's coarse result: `proceed`, `skipped`, `closed`, and one status per failed verb. Used where the caller's action (continue, yield, exit) is all that matters | the frame loop |
-| `panic` / `fast_panic` | "stop now": log the message and the raw stack, then terminate | 38 sites in `source/engine` |
+| `panic` / `fast_panic` | "stop now": log the message and the raw stack, then terminate | 41 sites in `source/engine` |
 
 ## The policy
 
@@ -61,7 +61,7 @@ SECOND classifier with a DIFFERENT policy exists, because then the vocabulary ha
 
 ## Gaps
 
-- **42 reason-tagged panic sites** (35 `panic`, 7 `fast_panic`), each its own policy decision. Every
+- **41 reason-tagged panic sites** (34 `panic`, 7 `fast_panic`), each its own policy decision. Every
   message starts with `environment:`, `contract violation:`, or `internal invariant:`, so a crash log
   classifies itself; "which startup failures end the process?" still needs reading them (or grepping
   the tags), because there is no single funnel.
@@ -81,7 +81,7 @@ SECOND classifier with a DIFFERENT policy exists, because then the vocabulary ha
 | --- | --- |
 | failure types live in the contract | yes: `rhi::error` and `error_info` |
 | one classification mechanism | deleted as unused; the policy is inline at the one call site |
-| environment fatals behind one funnel | not done: 42 panic sites, each message tagged with its category |
+| environment fatals behind one funnel | not done: 41 panic sites, each message tagged with its category |
 | code-bearing answers for classify-able APIs | not started: 26 string-only declarations |
 | `out_of_device_memory` / `out_of_host_memory` | decided: unrecoverable - `panic` for a device OOM (the host can report), `fast_panic` for a host OOM |
 
