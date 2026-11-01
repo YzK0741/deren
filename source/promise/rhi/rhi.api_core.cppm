@@ -41,11 +41,15 @@
 module;
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <expected> // std::expected: `image::get_content()` answers the bytes OR the named reason
+#include <limits>
+#include <map>
 #include <optional>
-#include <span>        // std::span: buffer::mapped() hands the caller the bytes of a host-visible buffer
+#include <span> // std::span: buffer::mapped() hands the caller the bytes of a host-visible buffer
+#include <string>
 #include <string_view> // std::string_view: gpu_profiler's stage names ride the boundary as views
 #include <vector>      // deren::utility::vessel::vector: the CONTENT `image::get_content()` returns
 
@@ -2173,6 +2177,49 @@ export namespace deren::promise::rhi {
         }
     };
 
+    /// One measured CPU/GPU stage: latest sample, window average, and a stable volatility.
+    /// All members are plain values; api_core serializes access to the owning map.
+    struct stage_time_info {
+        double last_ms = 0.0;
+        double mean_ms = 0.0;
+        double m2_ms2 = 0.0;
+        double min_ms = std::numeric_limits<double>::infinity();
+        double max_ms = 0.0;
+        std::uint64_t samples = 0;
+
+        void tick(double const ms) noexcept {
+            this->last_ms = ms;
+            ++this->samples;
+            double const delta = ms - this->mean_ms;
+            this->mean_ms += delta / static_cast<double>(this->samples);
+            this->m2_ms2 += delta * (ms - this->mean_ms);
+            if (ms < this->min_ms) {
+                this->min_ms = ms;
+            }
+            if (ms > this->max_ms) {
+                this->max_ms = ms;
+            }
+        }
+
+        [[nodiscard]] double stddev_ms() const noexcept {
+            return this->samples < 2 ? 0.0 : std::sqrt(this->m2_ms2 / static_cast<double>(this->samples - 1));
+        }
+
+        [[nodiscard]] double volatility() const noexcept {
+            return this->samples == 0 || this->mean_ms == 0.0 ? 0.0 : this->stddev_ms() / this->mean_ms;
+        }
+
+        void reset_window() noexcept {
+            this->mean_ms = 0.0;
+            this->m2_ms2 = 0.0;
+            this->min_ms = std::numeric_limits<double>::infinity();
+            this->max_ms = 0.0;
+            this->samples = 0;
+        }
+    };
+
+    using stage_time_map = std::map<std::string, stage_time_info, std::less<>>;
+
     /// Device ownership, capabilities and global control. Public subviews borrow the same core.
     /// Derived constructors bind fully constructed interface implementations before publication.
     struct api_core : object {
@@ -2191,6 +2238,13 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual main_context* main_context() noexcept {
             return nullptr;
         }
+
+        /// A copy of the timing map, taken under the backend's lock.
+        [[nodiscard]] virtual stage_time_map get_time_profiling() const = 0;
+        /// Record one CPU or GPU stage sample under the backend's lock.
+        virtual void record_stage_time(std::string_view name, double milliseconds) = 0;
+        /// Clear the rolling window statistics, keeping each stage's latest sample.
+        virtual void reset_time_profiling_window() = 0;
 
     protected:
         void bind_views(resource_factory& resource, command_context& command, frame_context& frame) noexcept {

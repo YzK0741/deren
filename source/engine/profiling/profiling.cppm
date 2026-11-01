@@ -38,6 +38,7 @@ namespace deren::engine::profiling {
     export enum class cpu_phase : uint32_t {
         pace,
         begin,
+        cull, // sub-phase of begin: scene-tree walk + frustum/BVH cull + visible split
         scene,
         cluster, // sub-phase of scene
         shadow,  // sub-phase of scene
@@ -50,7 +51,7 @@ namespace deren::engine::profiling {
 
     /// phase names in cpu_phase order; the trailing '*' marks a sub-phase (see cpu_phase)
     export constexpr deren::utility::vessel::array<std::string_view, static_cast<std::size_t>(cpu_phase::count)> cpu_phase_names = {
-        "pace", "begin", "scene", "cluster*", "shadow*", "post", "submit", "submit-queue*", "present*"};
+        "pace", "begin", "cull*", "scene", "cluster*", "shadow*", "post", "submit", "submit-queue*", "present*"};
 
     /**
      * @brief the rolling window of measured CPU frame phases
@@ -64,6 +65,14 @@ namespace deren::engine::profiling {
     export class cpu_phases {
     public:
         static constexpr uint32_t window_length = 60;
+
+        /// optional sink called with the phase name and elapsed milliseconds on every end(); the
+        /// runtime forwards it into api_core::record_stage_time() so CPU stages share the backend's map.
+        using stage_callback = void (*)(void* context, std::string_view name, double milliseconds);
+        void set_stage_callback(stage_callback callback, void* context) noexcept {
+            this->stage_sink = callback;
+            this->stage_context = context;
+        }
 
         /// "[render] gpu_timings" also gates the CPU phases: one switch for "measure this frame"
         void set_enabled(bool const on) noexcept {
@@ -88,7 +97,11 @@ namespace deren::engine::profiling {
             if (index >= this->frame.size()) {
                 return;
             }
-            this->frame[index] += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+            double const elapsed_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+            this->frame[index] += elapsed_ms;
+            if (this->stage_sink != nullptr) {
+                this->stage_sink(this->stage_context, cpu_phase_names[index], elapsed_ms);
+            }
             if (phase != cpu_phase::submit) {
                 return; // one fold per frame, at the phase that ends it
             }
@@ -147,6 +160,8 @@ namespace deren::engine::profiling {
         deren::utility::vessel::array<double, static_cast<std::size_t>(cpu_phase::count)> sum = {};   // the window being accumulated
         uint32_t window_frames = 0;
         deren::utility::vessel::string report_label = {};
+        stage_callback stage_sink = nullptr;
+        void* stage_context = nullptr;
     };
 
     /**
