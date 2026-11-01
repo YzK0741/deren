@@ -463,8 +463,8 @@ export namespace deren::promise::rhi {
         out_of_date = 13,           ///< the swapchain/target expired: rebuild it and retry, skipping this frame
         surface_lost = 14,          ///< the window/surface is gone: rebuild it; if the window closed, exit the loop
         timeout = 15,               ///< a wait or a query ran out of time: retryable, or degrade and carry on
-        out_of_device_memory = 16,  ///< device memory exhausted: RECOVERABLE - free resources and retry
-        out_of_host_memory = 17,    ///< host memory exhausted: usually fatal
+        out_of_device_memory = 16,  ///< device memory exhausted: UNRECOVERABLE - the engine panics (the host is healthy, so the message and crash log can still be written)
+        out_of_host_memory = 17,    ///< host memory exhausted: UNRECOVERABLE - the engine fast-panics (no allocation is left to write a message or run the crash machinery)
         initialization_failed = 18, ///< creation failed and no code above names the cause: report and exit
     };
 
@@ -503,8 +503,11 @@ export namespace deren::promise::rhi {
         // The api zone is "the device/window/frame state refused or deferred the call": a lost
         // device, an expired swapchain, a gone surface, a wait that ran out, memory the device or
         // host no longer has - and `not_ready`, which is the same family (the frame pipeline is
-        // simply not there yet). The caller's move in every one of these is retry / rebuild /
-        // degrade, not "fix the arguments" and not "report a backend bug".
+        // simply not there yet). Most of these mean retry / rebuild / degrade, not "fix the
+        // arguments" and not "report a backend bug". THE TWO MEMORY CODES ARE THE EXCEPTION: memory
+        // exhaustion is UNRECOVERABLE by the engine's policy, which terminates - `panic` for a device
+        // OOM (the host can still format a message and write the crash log) and `fast_panic` for a
+        // host OOM (there is no allocation left to do either). See docs/error_handling.md.
         case error::not_ready:
         case error::device_lost:
         case error::out_of_date:

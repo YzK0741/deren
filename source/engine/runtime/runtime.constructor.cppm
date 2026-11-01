@@ -2726,8 +2726,17 @@ namespace deren::engine {
                 auto source = share_texture_source(tex);
                 image_info.initial_bytes = {};
                 auto lazy = rhi_face().resources->create_lazy_image({.resource = image_info, .data = source});
-                if (!lazy)
-                    deren::utility::panic("failed to create streamed material texture");
+                if (!lazy) {
+                    // MEMORY EXHAUSTION IS UNRECOVERABLE BY POLICY (docs/error_handling.md): a host OOM
+                    // fast-panics because there is no allocation left to report with; a device OOM panics
+                    // with the code, because the host side can still write the message and crash log.
+                    if (lazy.error() == rhi::error::out_of_host_memory) {
+                        deren::utility::fast_panic("failed to create streamed material texture: host memory exhausted");
+                    }
+                    deren::utility::panic(deren::utility::vessel::format("failed to create streamed material texture (error {})",
+                                                                         static_cast<std::uint32_t>(lazy.error())),
+                                          std::source_location::current());
+                }
                 if (streamed_textures.size() < owned_textures.size())
                     streamed_textures.resize(owned_textures.size());
                 rhi::shared_object<rhi::lazy_image> object(std::move(*lazy));

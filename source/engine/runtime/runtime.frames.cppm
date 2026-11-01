@@ -219,15 +219,18 @@ namespace deren::engine {
         // backend's job; this aggregation is the engine's. It runs on EVERY path below, the skipped
         // ones included, exactly as the pre-acquire position did.
         this->collect_gpu_timings();
-        // THE OPEN'S POLICY, INLINE BECAUSE THERE IS ONE CALLER. The backend only REPORTS
-        // (device_lost, out_of_host_memory); deciding that a lost device ends the process is the
-        // engine's act, and so is rebuilding the swapchain on out_of_date. The removed
-        // deren.engine.outcome module existed to separate that classification from the mechanism, and
-        // this call site was its only production consumer: the separation cost more than it
-        // explained. docs/error_handling.md records the decision and what `panic` is allowed to mean.
+        // THE OPEN'S POLICY, INLINE BECAUSE THERE IS ONE CALLER. The backend only REPORTS; deciding
+        // that a lost device or exhausted memory ends the process is the engine's act, and so is
+        // rebuilding the swapchain on out_of_date. MEMORY EXHAUSTION IS UNRECOVERABLE BY POLICY: a
+        // device OOM panics (the host can still format the message and write the crash log), a host
+        // OOM fast-panics (there is no allocation left to report with). docs/error_handling.md
+        // records the decision.
         rhi::error_info const& open_failure = open.result;
         if (open_failure.code != rhi::error::ok) {
-            if (open_failure.code == rhi::error::device_lost || open_failure.code == rhi::error::out_of_host_memory) {
+            if (open_failure.code == rhi::error::out_of_host_memory) {
+                deren::utility::fast_panic("frame open: host memory exhausted");
+            }
+            if (open_failure.code == rhi::error::device_lost || open_failure.code == rhi::error::out_of_device_memory) {
                 deren::utility::panic(deren::utility::vessel::format("frame open is fatal ({}): {}", std::to_underlying(open_failure.code),
                                                                      open_failure.message.empty() ? std::string_view{"no message"} : open_failure.message),
                                       open_failure.where);
@@ -3471,8 +3474,17 @@ namespace deren::engine {
         }
         rhi::error const submitted = this->rhi_face().frames->submit();
         if (submitted != rhi::error::ok) {
-            // The contract's answer names WHAT failed (device_lost, out_of_*_memory, ...) - the
-            // information the old `!= VK_SUCCESS` test threw away.
+            // The contract's answer names WHAT failed - the information the old `!= VK_SUCCESS` test
+            // threw away. MEMORY EXHAUSTION IS UNRECOVERABLE BY POLICY (docs/error_handling.md): a
+            // host OOM fast-panics because there is no allocation left to report with, a device OOM
+            // panics because the host can still write the message and crash log.
+            if (submitted == rhi::error::out_of_host_memory) {
+                deren::utility::fast_panic("frame submit: host memory exhausted");
+            }
+            if (submitted == rhi::error::out_of_device_memory) {
+                deren::utility::panic(deren::utility::vessel::format("frame submit: device memory exhausted"),
+                                      std::source_location::current());
+            }
             deren::utility::log("runtime: frame submit was refused ({})", static_cast<std::uint32_t>(submitted));
             return frame_status::submit_failed;
         }

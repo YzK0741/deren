@@ -17,9 +17,9 @@ new code is expected to follow, and the gaps between the two.
 ## The policy
 
 1. **The contract boundary answers `rhi::error`.** No engine type crosses that boundary; the backend
-   only reports. Its comments are the source of truth for which codes are recoverable
-   (`out_of_date`, `out_of_device_memory`), fatal (`device_lost`, `out_of_host_memory`), or a caller
-   mistake (`invalid_argument`).
+   only reports. Its comments are the source of truth: `out_of_date` and `timeout` are retryable,
+   `surface_lost` means rebuild (and possibly exit), `device_lost` and BOTH memory codes are fatal, and
+   `invalid_argument` is a caller mistake.
 2. **A failure a caller must CLASSIFY answers `std::expected<T, rhi::error_info>`.** A failure a
    caller only REPORTS may keep the string-only expected. Do not invent a third representation: the
    two expected forms differ by whether the code is available, which is exactly the difference in what
@@ -30,10 +30,15 @@ new code is expected to follow, and the gaps between the two.
 4. **`panic` is for programming errors only**: a caller that violated the subsystem's contract
    (`get_scene()` before `set_scene()`, a material table that must start with the default material, a
    stream that ends early). Those are not environment-dependent and the message is the contract.
-5. **Environment-caused fatals are not programming errors.** A required pipeline that cannot be
-   created at startup, a lost device, exhausted host memory: today these also go through `panic`, with
-   a message naming the resource. A single funnel for them is listed as a gap below, not as done.
-6. **A refusal is not a pass.** A test that cannot exercise its subject returns
+5. **Memory exhaustion is UNRECOVERABLE by decision.** A device OOM (`out_of_device_memory`) panics:
+   the host side is healthy, so the message and the crash log can still be written. A host OOM
+   (`out_of_host_memory`) fast-panics: there is no allocation left to format a message or run the
+   crash machinery. No recovery path is planned for either, and code that can SEE the code classifies
+   it that way - the frame open, frame submit and lazy-image creation sites do exactly this.
+6. **Environment fatals that are not memory exhaustion are not programming errors either.** A
+   required pipeline that cannot be created at startup, a lost device: these go through `panic`
+   today, with a message naming the resource. A single funnel for them is a gap below, not done.
+7. **A refusal is not a pass.** A test that cannot exercise its subject returns
    `deren::vk_test::skip_code` (77) and CTest reports Skipped, so green always means the assertions
    ran (see `source/tests/vk_test.h`).
 
@@ -58,8 +63,11 @@ SECOND classifier with a DIFFERENT policy exists, because then the vocabulary ha
 
 - **38 panic sites**, each its own policy decision. "Which startup failures end the process?" cannot
   be answered from one place; it needs reading them.
-- **`out_of_device_memory` is documented RECOVERABLE and has no recovery path.** In practice a failed
-  allocation during construction is a panic, so a recoverable code behaves as a fatal one.
+- **Memory exhaustion rarely reaches a decision point.** The contract's resource factories answer
+  nullptr on failure, so the managed-resource layer can only answer `initialization_failed` and the
+  caller panics with `failed to create X`. The sites that DO have the code (`create_lazy_image`, the
+  frame open, frame submit) classify it explicitly (panic vs fast_panic); a message that names the
+  resource but not the code is still the normal case.
 - **The string-only expected carries no code** (26 declarations), so recovery options are invisible
   at the point where the failure is produced.
 - **No single crash hook.** The fatal path is a good place for crash reporting - the raw-stack
@@ -73,7 +81,7 @@ SECOND classifier with a DIFFERENT policy exists, because then the vocabulary ha
 | one classification mechanism | deleted as unused; the policy is inline at the one call site |
 | environment fatals behind one funnel | not done: 38 panic sites |
 | code-bearing answers for classify-able APIs | not started: 26 string-only declarations |
-| recovery for `out_of_device_memory` | not designed |
+| `out_of_device_memory` / `out_of_host_memory` | decided: unrecoverable - `panic` for a device OOM (the host can report), `fast_panic` for a host OOM |
 
 ## Rules for new code
 
