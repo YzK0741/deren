@@ -7,7 +7,7 @@ Where a rule has exceptions, the exception list is the reason.
 
 **A module name says what the module IS, in full words.** No abbreviations.
 
-The tree has 110 modules. These keep a short spelling, and each one is a NAME rather than an abbreviation:
+The tree has 116 modules (136 interface units, counting interface partitions). These keep a short spelling, and each one is a NAME rather than an abbreviation:
 
 | keeps | why |
 | --- | --- |

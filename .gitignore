@@ -58,3 +58,28 @@ __pycache__/
 # into the output directory. The reproducibility record is headers.json (the SHA-256 manifest),
 # not the log.
 source/third_party/boost/bcp.log
+
+# Local scratch that the review left in the working tree: editor state, measurement logs, experiment
+# trees and the ad-hoc gate/probe scripts they drive. None of it is a required build or test
+# dependency - the only tracked reference is CMakeLists' opt-in `if(EXISTS ...)` guard for
+# tools/ibl_cuda_spike, which simply skips that benchmark when the tree is absent - and the local gate
+# marker treats an untracked file as a dependency the repository does not contain. Ignoring it keeps
+# that rule meaningful instead of moving files around. A tool that becomes part of the project moves
+# OUT of this block and gets a real home under scripts/ or tools/.
+/.vscode/
+/*.log
+/child_output.txt
+/configs/
+/--negative-workers/
+/--zero-workers/
+/tools/face_proximity/
+/tools/game_shader_audit/
+/tools/game_shader_replay/
+/tools/ibl_cuda_spike/
+/tools/prepare_toon_reference.py
+/tools/reference_toon_probe/
+/tools/smolv_probe/
+/scripts/gates/check_emissive_occlusion.py
+/scripts/gates/local_reflection_probe.py
+/scripts/gates/radiance_capture.py
+/scripts/gates/toon_reference_shape.py

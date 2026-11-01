@@ -260,6 +260,108 @@ namespace {
         return targets;
     }
 
+    /// the `test_*` executables CMakeLists creates with a literal name (the VR_TEST_TARGETS loop's
+    /// `add_executable(${test_target} ...)` is not a name and is not matched).
+    deren::utility::vessel::set<deren::utility::vessel::string> literal_test_executables(deren::utility::vessel::string const& cmake_text) {
+        deren::utility::vessel::set<deren::utility::vessel::string> targets;
+        deren::utility::vessel::istringstream stream(cmake_text);
+        deren::utility::vessel::string line;
+        while (std::getline(stream, line)) {
+            std::size_t const at = line.find("add_executable(");
+            if (at == deren::utility::vessel::string::npos) {
+                continue;
+            }
+            std::size_t const start = at + deren::utility::vessel::string("add_executable(").size();
+            std::size_t end = start;
+            while (end < line.size() && line[end] != ' ' && line[end] != ')') {
+                ++end;
+            }
+            deren::utility::vessel::string const name = line.substr(start, end - start);
+            if (name.find("test_") == 0u) {
+                targets.insert(name);
+            }
+        }
+        return targets;
+    }
+
+    /// the device lane's targets: CMakeLists' `set(VR_DEVICE_TEST_TARGETS ...)` list (one item per line).
+    deren::utility::vessel::set<deren::utility::vessel::string> device_test_targets(deren::utility::vessel::string const& cmake_text) {
+        deren::utility::vessel::set<deren::utility::vessel::string> targets;
+        deren::utility::vessel::istringstream stream(cmake_text);
+        deren::utility::vessel::string line;
+        bool in_list = false;
+        while (std::getline(stream, line)) {
+            if (!in_list) {
+                in_list = line.find("set(VR_DEVICE_TEST_TARGETS") != deren::utility::vessel::string::npos;
+                if (!in_list) {
+                    continue;
+                }
+            }
+            std::size_t token = line.find("test_");
+            while (token != deren::utility::vessel::string::npos) {
+                std::size_t end = token;
+                while (end < line.size()) {
+                    char const c = line[end];
+                    if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
+                        ++end;
+                    } else {
+                        break;
+                    }
+                }
+                targets.insert(line.substr(token, end - token));
+                token = line.find("test_", end);
+            }
+            if (line.find("set(VR_DEVICE_TEST_TARGETS") == deren::utility::vessel::string::npos &&
+                line.find(')') != deren::utility::vessel::string::npos) {
+                break;
+            }
+        }
+        return targets;
+    }
+
+    /// the relative targets a document's `](...)` links and images point at, with fenced code blocks removed:
+    /// a link inside a ``` sample is a sample, not a promise that the file exists.
+    deren::utility::vessel::vector<deren::utility::vessel::string> markdown_link_targets(deren::utility::vessel::string const& text) {
+        deren::utility::vessel::vector<deren::utility::vessel::string> targets;
+        deren::utility::vessel::istringstream stream(text);
+        deren::utility::vessel::string line;
+        bool in_fence = false;
+        while (std::getline(stream, line)) {
+            if (line.rfind("```", 0) == 0 || line.rfind("~~~", 0) == 0) {
+                in_fence = !in_fence;
+                continue;
+            }
+            if (in_fence) {
+                continue;
+            }
+            std::size_t at = 0;
+            while ((at = line.find("](", at)) != deren::utility::vessel::string::npos) {
+                std::size_t const start = at + 2u;
+                std::size_t end = start;
+                while (end < line.size() && line[end] != ')' && line[end] != ' ' && line[end] != '\t') {
+                    ++end;
+                }
+                if (end > start) {
+                    targets.push_back(line.substr(start, end - start));
+                }
+                at = end;
+            }
+        }
+        return targets;
+    }
+
+    /// true when a link target is not a path inside the repository: an anchor, or any scheme-qualified target
+    /// (`https:`, `mailto:`, ... - a colon before the first slash).
+    bool is_external_link(deren::utility::vessel::string const& target) {
+        if (target.empty() || target[0] == '#') {
+            return true;
+        }
+        std::size_t const colon = target.find(':');
+        std::size_t const slash = target.find('/');
+        return colon != deren::utility::vessel::string::npos &&
+               (slash == deren::utility::vessel::string::npos || colon < slash);
+    }
+
     bool is_exception(deren::utility::vessel::string const& name) {
         for (exception_entry const& entry : not_in_manual) {
             if (name == entry.name) {
@@ -436,6 +538,65 @@ int32_t main() {
         for (deren::utility::vessel::string const& target : built) {
             CHECK_MSG(registered.contains(target), ("the CI workflow builds a test target CMake does not register: " + target).c_str());
         }
+    }
+
+    // ---- 7. every literal test executable CMakeLists creates is registered, headless or device ----
+    //
+    // The failure this exists for is not hypothetical: `add_executable(test_radiance_capture)` sat behind an
+    // `if(EXISTS ...)` guard, the source was dropped, and the suite silently became one test smaller with no
+    // failure anywhere. A test executable is now either on the headless list, on the device lane's list, or a
+    // named exception - never invisible.
+    {
+        deren::utility::vessel::string const cmake_text = read_text((root / "CMakeLists.txt").string());
+        deren::utility::vessel::set<deren::utility::vessel::string> const device = device_test_targets(cmake_text);
+        CHECK_MSG(!device.empty(), "CMakeLists' VR_DEVICE_TEST_TARGETS parses as the device lane's list");
+        deren::utility::vessel::set<deren::utility::vessel::string> const literal = literal_test_executables(cmake_text);
+        CHECK_MSG(literal.size() >= 7u, "CMakeLists' literal `add_executable(test_*)` lines parse");
+        deren::utility::vessel::set<deren::utility::vessel::string> registered = vr_test_targets(cmake_text);
+        for (deren::utility::vessel::string const& target : device) {
+            registered.insert(target);
+        }
+        // The boundary spike is report-shaped rather than pass/fail: CMakeLists says so where it is created,
+        // and it stays outside both lists on purpose. Named here so that is a recorded decision.
+        registered.insert("test_backend_boundary_spike");
+        for (deren::utility::vessel::string const& target : literal) {
+            CHECK_MSG(registered.contains(target),
+                      ("CMakeLists creates a test executable that is in neither VR_TEST_TARGETS nor VR_DEVICE_TEST_TARGETS: " + target).c_str());
+        }
+    }
+
+    // ---- 8. every document link points at a file the repository contains ----
+    //
+    // The measured failure: docs/render_resource_inventory.md linked
+    // `reviews/2026-10-14-shared-assets.md`, a path under a deliberately gitignored directory, so the link
+    // was dead in every clone while the document claimed a complete audit. Links inside fenced code blocks
+    // are skipped (they are samples); anchors and external targets are skipped.
+    {
+        std::size_t checked_links = 0;
+        for (auto const& file : std::filesystem::directory_iterator(docs)) {
+            if (!file.is_regular_file() || file.path().extension() != ".md") {
+                continue;
+            }
+            deren::utility::vessel::string const text = read_text(file.path().string());
+            for (deren::utility::vessel::string const& target : markdown_link_targets(text)) {
+                if (is_external_link(target)) {
+                    continue;
+                }
+                deren::utility::vessel::string path = target;
+                std::size_t const hash = path.find('#');
+                if (hash != deren::utility::vessel::string::npos) {
+                    path.resize(hash);
+                }
+                if (path.empty()) {
+                    continue;
+                }
+                ++checked_links;
+                std::filesystem::path const resolved = (file.path().parent_path() / std::filesystem::path(path.c_str())).lexically_normal();
+                CHECK_MSG(std::filesystem::exists(resolved),
+                          ("a document links a file that is not in the repository: " + target + " (in docs/" + file.path().filename().string().c_str() + ")").c_str());
+            }
+        }
+        CHECK_MSG(checked_links >= 20u, "the documents' relative links were actually checked");
     }
 
     for (auto const* file : {"source/engine/runtime/runtime.cpp", "source/engine/runtime/runtime.constructor.cppm",

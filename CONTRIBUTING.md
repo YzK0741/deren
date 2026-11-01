@@ -36,8 +36,8 @@ that came before it.
    make the Actions page look better. The fix is the process, not cosmetics.
 6. **No untracked-file dependencies.** A build or test may only reference files
    that are committed. The CI failure mode we hit repeatedly was a target or
-   `#include` pointing at an untracked scratch file. This is enforced: the local
-   gate marker refuses to be written, and `scripts/check-ci-marker.ps1` refuses to
+   `#include` pointing at an untracked scratch file. The local gate enforces it:
+   the marker refuses to be written, and `scripts/check-ci-marker.ps1` refuses to
    validate it, while any untracked file outside generated output exists.
 7. **One logical change per commit.** Keep refactors, asset moves, vendor updates
    and behaviour changes separate when they can be reviewed independently.
@@ -52,6 +52,10 @@ Run from the repository root:
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-local-ci.ps1 -Mode Full
 ```
+
+The build tree is auto-detected the same way the build helper names it
+(`build-release-clang64` on Windows, `build-release` on POSIX), falling back to this
+checkout's hand-made `build-release-dyn-clang64`; pass `-BuildDir <path>` to override.
 
 This is a **local gate, not a CI pass**. It is a strict subset of the remote
 workflow that can run on a Windows checkout:
@@ -86,10 +90,19 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\commit.ps1 -Message "too
 It stages the given paths, prints the staged diff, asks the three questions, creates
 the commit, then runs the local gate **against that commit**. On success the gate
 writes `tmp/local-gate-pass.json` with the commit SHA, tree SHA, commit time, mode,
-the gates that actually ran, the gates that did not, and a timestamp. If the gate
+the gates that actually ran, the gates that did not, a timestamp, and the SHA-256 of
+`tmp/local-gate.log` (the transcript every step's output was tee'd into). If the gate
 fails, the commit is rolled back with `git reset --soft` and the staged changes stay
-in place. The `pre-commit` hook requires the checklist marker, so a bypass is
-visible in the shell history rather than silent.
+in place.
+
+The `pre-commit` hook refuses `git commit` unless `commit.ps1` set its checklist
+variable. That is a guard against forgetting the checklist, not a lock: `git commit
+--no-verify` skips it, and the variable can be set by hand. What `push.ps1` and the
+`pre-push` hook actually validate is the marker: it must name HEAD, its tree must
+match, and its gate log must exist with the recorded SHA-256 and carry every gate's
+header. That makes a forgotten or hand-written marker fail loudly - it is evidence a
+run happened, tamper-evident against accident rather than against a maintainer who
+deliberately writes both files, which is why PR CI remains the merge authority.
 
 ## Pushing and merging
 

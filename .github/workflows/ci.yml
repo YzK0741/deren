@@ -46,6 +46,9 @@ concurrency:
 
 jobs:
   posix-stacktrace:
+    # GitHub's default job limit is 360 minutes. This job compiles three files and runs two probes, so a
+    # run near the limit means a wedged runner, not slow work; fail it instead of waiting.
+    timeout-minutes: 15
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -67,6 +70,8 @@ jobs:
 
   build-and-test:
     name: Release build + ctest + Debug gate + clang-tidy
+    # Two full C++23-modules builds plus ctest; generous, but bounded (the default is 360 minutes).
+    timeout-minutes: 180
     runs-on: windows-latest
     defaults:
       run:
@@ -159,8 +164,11 @@ jobs:
       - name: clang-format (dry run, warnings are errors)
         run: cmake --build build --target clang-format-check
 
+      # -LE device: the GPU-labelled tests (CMakeLists' VR_DEVICE_TEST_TARGETS) are built here but only run
+      # on a machine with a device. Without one they answer exit 77, which CTest reports as Skipped; the
+      # local gate (scripts/run-local-ci.ps1) runs them for real.
       - name: Run headless unit tests
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure -LE device
 
       # SLANGC IS PASSED EXPLICITLY HERE TOO, for exactly the reason the Release step does it: the install
       # step exports VR_SLANGC but does NOT put it on PATH, so CMakeLists' `find_program` fails and configure
@@ -267,6 +275,8 @@ jobs:
 
   sanitizers:
     name: ASan + UBSan (headless tests)
+    # One build of the headless test list plus ctest under the sanitizers; bounded for the same reason.
+    timeout-minutes: 120
     runs-on: windows-latest
     defaults:
       run:
@@ -370,7 +380,7 @@ jobs:
         # anchors resolving, fences balanced, quoted heap slots declared).
         run: >-
           cmake --build build-asan --target
-          test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_morton test_engine_outcome test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar
+          test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_morton test_engine_outcome test_vessel test_stacktrace test_math test_profiling test_filters test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar
           test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_docs
           test_dynamic_link test_vulkan_capabilities test_progressive_texture test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_acceleration_structures test_hzb test_visibility_software test_visibility_software_pass test_visibility_merge_pass test_render_operations
 
@@ -397,4 +407,6 @@ jobs:
         env:
           ASAN_OPTIONS: halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: ctest --test-dir build-asan --output-on-failure -E test_native_boundary_zero
+        # -LE device: this tree builds VR_TEST_TARGETS only, so the device-labelled tests have no executable
+        # here and CTest must not go looking for them (see CMakeLists' VR_DEVICE_TEST_TARGETS).
+        run: ctest --test-dir build-asan --output-on-failure -E test_native_boundary_zero -LE device

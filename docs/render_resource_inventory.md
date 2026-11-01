@@ -115,8 +115,8 @@ addresses are publication methods for that resource, not independent lifetime ow
 
 ## Production ownership audit
 
-The production pass/shared-resource migration is complete; see
-[final audit and validation](reviews/2026-10-14-shared-assets.md). Remaining direct allocation calls
+The production pass/shared-resource migration is complete; the final audit and validation record is
+maintainer material and is not distributed with this repository. Remaining direct allocation calls
 serve diagnostic probes or HDR capture readback; old generic buffer helpers have no production callers.
 Presentation images remain borrowed from backend frame ownership, with explicitly owned views.
 Backend AS/micromap storage/scratch and descriptor-heap services stay inside their RHI owners. Legacy

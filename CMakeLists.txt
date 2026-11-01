@@ -1323,16 +1323,17 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_morton test_engine_outcome test_vessel test_stacktrace test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_docs test_dynamic_link test_vulkan_capabilities test_progressive_texture test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb test_visibility_software test_visibility_software_pass test_visibility_merge_pass test_render_operations)
+    set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_ownership test_utility test_morton test_engine_outcome test_vessel test_stacktrace test_math test_profiling test_filters test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_docs test_dynamic_link test_vulkan_capabilities test_progressive_texture test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb test_visibility_software test_visibility_software_pass test_visibility_merge_pass test_render_operations)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
     # directory `ctest -j` made two of them read each other's files (measured: 18/19 in parallel, 19/19
     # serial). They cannot collide now.
 
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/source/tests/test_radiance_capture.cpp")
-        list(APPEND VR_TEST_TARGETS test_radiance_capture)
-    endif()
+    # NO CONDITIONAL TEST TARGETS. A test whose add_executable sits behind `if(EXISTS ...)` disappears from
+    # CTest silently when its source file is gone - measured: `test_radiance_capture` was dropped in
+    # d770719f and the guard outlived it, so the suite was one test smaller and nothing anywhere said so.
+    # A target that is meant to exist is declared unconditionally; a missing source is then a configure error.
     foreach(test_target IN ITEMS ${VR_TEST_TARGETS})
         add_executable(${test_target} source/tests/${test_target}.cpp)
         target_link_libraries(${test_target} shared_utility vstd_lib)
@@ -1344,9 +1345,6 @@ if(VR_BUILD_TESTS)
     endforeach()
 
     target_link_libraries(test_morton boost_int128_headers)
-    if(TARGET test_radiance_capture)
-        target_link_libraries(test_radiance_capture deren_engine probe_backend_static)
-    endif()
     target_link_libraries(test_rhi_ownership promise)
     # The injection test's single entry point carries the local objects for every child mode; Debug+ASan
     # builds that frame above the Windows default 1 MiB reserve. Give this test executable room to run.
@@ -1416,6 +1414,10 @@ if(VR_BUILD_TESTS)
             deren_engine
             vstd_lib
     )
+    # deren.engine.profiling and deren.engine.filters (the pass-side table; user_filter needs a device and
+    # is not exercised) are pure CPU, so both tests ride deren_engine for the same reason test_math does.
+    target_link_libraries(test_profiling deren_engine vstd_lib)
+    target_link_libraries(test_filters deren_engine promise vstd_lib)
     # deren.engine.render_resource is pure CPU on purpose (its own enums, no Vulkan type): the invariants it exists
     # for - usage is a subset of the schema, kind and access fit, a pass's own bindings are contiguous, a pool
     # count is derivable - are checkable WITHOUT a device, which is the only way they can be checked in CI.
@@ -2486,6 +2488,38 @@ add_dependencies(test_buffer_transfer deren_vulkan)
 add_executable(test_subtilis_transfer source/tests/test_subtilis_transfer.cpp)
 target_link_libraries(test_subtilis_transfer deren_engine backend_loader static_utility vstd_lib)
 add_dependencies(test_subtilis_transfer deren_vulkan)
+
+# ---- THE DEVICE LANE'S TESTS -------------------------------------------------------------------------
+#
+# These are built by the default build but are NOT headless tests: they want a Vulkan device (and some of
+# them load deren_vulkan.dll / the GUI plugin). Before this block they were invisible - built and never run
+# by anything - and a run without `--with-device` answered a PASS after asserting nothing. CTest now knows
+# them: `ctest -N` names them, the `device` label lets the GPU-less CI jobs exclude them with `-LE device`,
+# and a machine WITH a device (the local gate) runs them for real. SKIP_RETURN_CODE makes "could not run"
+# read as Skipped rather than a PASS: the tests return deren::vk_test::skip_code (77) when they decline.
+#
+# The boundary spike (test_backend_boundary_spike) stays OUT of this list on purpose: it is a report-shaped
+# spike, not a pass/fail test, and source/tests/test_docs.cpp allowlists it by name so it cannot be forgotten.
+set(VR_DEVICE_TEST_TARGETS
+    test_runtime_dyn
+    test_texture_group
+    test_resource_group
+    test_submission_completion
+    test_buffer_transfer
+    test_subtilis_transfer
+    test_gui_plugin
+)
+foreach(device_target IN ITEMS ${VR_DEVICE_TEST_TARGETS})
+    if(TARGET ${device_target})
+        add_test(NAME ${device_target} COMMAND $<TARGET_FILE:${device_target}>)
+        file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run/${device_target}")
+        set_tests_properties(${device_target} PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run/${device_target}"
+            TIMEOUT 600
+            LABELS device
+            SKIP_RETURN_CODE 77)
+    endif()
+endforeach()
 
 # Opt-in device benchmark, not a headless test or part of the default build.
 if(VR_BUILD_TESTS)
