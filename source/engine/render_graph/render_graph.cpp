@@ -20,7 +20,7 @@ namespace deren::engine::render_graph {
             auto current = next_incarnation.load(std::memory_order_relaxed);
             for (;;) {
                 if (current == std::numeric_limits<uint64_t>::max()) {
-                    deren::utility::fast_panic("render graph incarnation exhausted");
+                    deren::utility::fast_panic("internal invariant: render graph incarnation exhausted");
                 }
                 if (next_incarnation.compare_exchange_weak(current, current + 1, std::memory_order_relaxed)) {
                     return current;

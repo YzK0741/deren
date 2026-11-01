@@ -61,8 +61,10 @@ SECOND classifier with a DIFFERENT policy exists, because then the vocabulary ha
 
 ## Gaps
 
-- **38 panic sites**, each its own policy decision. "Which startup failures end the process?" cannot
-  be answered from one place; it needs reading them.
+- **42 reason-tagged panic sites** (35 `panic`, 7 `fast_panic`), each its own policy decision. Every
+  message starts with `environment:`, `contract violation:`, or `internal invariant:`, so a crash log
+  classifies itself; "which startup failures end the process?" still needs reading them (or grepping
+  the tags), because there is no single funnel.
 - **Memory exhaustion rarely reaches a decision point.** The contract's resource factories answer
   nullptr on failure, so the managed-resource layer can only answer `initialization_failed` and the
   caller panics with `failed to create X`. The sites that DO have the code (`create_lazy_image`, the
@@ -79,7 +81,7 @@ SECOND classifier with a DIFFERENT policy exists, because then the vocabulary ha
 | --- | --- |
 | failure types live in the contract | yes: `rhi::error` and `error_info` |
 | one classification mechanism | deleted as unused; the policy is inline at the one call site |
-| environment fatals behind one funnel | not done: 38 panic sites |
+| environment fatals behind one funnel | not done: 42 panic sites, each message tagged with its category |
 | code-bearing answers for classify-able APIs | not started: 26 string-only declarations |
 | `out_of_device_memory` / `out_of_host_memory` | decided: unrecoverable - `panic` for a device OOM (the host can report), `fast_panic` for a host OOM |
 
@@ -90,5 +92,8 @@ SECOND classifier with a DIFFERENT policy exists, because then the vocabulary ha
 - A new call site classifies the code and keeps the ACTION there (rebuild, skip, fail): policy does
   not belong inside a shared helper.
 - A new `panic` is only for a contract violation, and its message names the contract it enforces.
+- Every fatal message starts with one of three tags - `environment:`, `contract violation:`, or
+  `internal invariant:` (host-OOM `fast_panic` messages included) - so a crash log classifies itself
+  without reading the code.
 - Do not log-and-continue on a failure whose result is used; do not fold a failure into a default.
 - When a test cannot reach its subject, skip (exit code 77) rather than assert nothing.

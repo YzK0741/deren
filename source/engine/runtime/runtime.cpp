@@ -77,7 +77,7 @@ namespace deren::engine {
             rhi::device_capabilities* const capabilities = rhi::query_extension<rhi::device_capabilities>(face);
             if (capabilities == nullptr) {
                 deren::utility::panic(std::source_location::current(),
-                                      "runtime: the backend does not serve device_capabilities, so the graphics queue's family cannot be asked for");
+                                      "contract violation: runtime: the backend does not serve device_capabilities, so the graphics queue's family cannot be asked for");
             }
             return capabilities->graphics_queue_family();
         }
@@ -536,7 +536,7 @@ namespace deren::engine {
         // named panic (the app's own order guarantees it, and `debug_gui_wants_mouse` above is the guarded path
         // every frame-time caller uses).
         if (this->debug_overlay == nullptr) {
-            deren::utility::panic(std::source_location::current(), "runtime::debug_gui() was called before enable_debug_gui() brought the plugin up");
+            deren::utility::panic(std::source_location::current(), "contract violation: runtime::debug_gui() was called before enable_debug_gui() brought the plugin up");
         }
         return *this->debug_overlay;
     }

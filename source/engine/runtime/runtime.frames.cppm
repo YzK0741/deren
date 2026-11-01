@@ -62,7 +62,7 @@ namespace deren::engine {
     // of failure this migration is removing.
     [[nodiscard]] rhi::buffer_desc make_buffer_desc(std::uint64_t const size, rhi::buffer_usage const usage, rhi::buffer_flags const flags, std::span<std::byte const> const initial_bytes) noexcept {
         if (initial_bytes.size() > size) {
-            deren::utility::panic(std::source_location::current(), "buffer descriptor: {} initial bytes for a {} B buffer", initial_bytes.size(), size);
+            deren::utility::panic(std::source_location::current(), "contract violation: buffer descriptor: {} initial bytes for a {} B buffer", initial_bytes.size(), size);
         }
         return rhi::buffer_desc{
             .size = size,
@@ -83,7 +83,7 @@ namespace deren::engine {
         // path out, which is the whole reason the type exists.
         output = rhi::unique_object<rhi::buffer>{static_cast<rhi::api_core&>(device).resources->create_buffer(make_buffer_desc(initial_bytes.size(), usage, flags, initial_bytes))};
         if (!output) {
-            deren::utility::panic(std::source_location::current(), "failed to create {}", what);
+            deren::utility::panic(std::source_location::current(), "environment: failed to create {}", what);
         }
         if (mapped != nullptr) {
             *mapped = output->mapped().data();
@@ -228,10 +228,10 @@ namespace deren::engine {
         rhi::error_info const& open_failure = open.result;
         if (open_failure.code != rhi::error::ok) {
             if (open_failure.code == rhi::error::out_of_host_memory) {
-                deren::utility::fast_panic("frame open: host memory exhausted");
+                deren::utility::fast_panic("environment: frame open: host memory exhausted");
             }
             if (open_failure.code == rhi::error::device_lost || open_failure.code == rhi::error::out_of_device_memory) {
-                deren::utility::panic(deren::utility::vessel::format("frame open is fatal ({}): {}", std::to_underlying(open_failure.code),
+                deren::utility::panic(deren::utility::vessel::format("environment: frame open is fatal ({}): {}", std::to_underlying(open_failure.code),
                                                                      open_failure.message.empty() ? std::string_view{"no message"} : open_failure.message),
                                       open_failure.where);
             }
@@ -322,7 +322,7 @@ namespace deren::engine {
         this->current_inv_view_proj = glm::inverse(this->current_ubo.proj * this->current_ubo.view);
         // ... and only now is the frame's camera UBO complete: upload it.
         if (this->upload_scene_constant(frame_slot, render_resource::resource_id::camera_ubo, std::as_bytes(std::span(&this->current_ubo, 1))) != rhi::error::ok) {
-            deren::utility::panic("managed camera constants: upload to completed slot failed");
+            deren::utility::panic("environment: managed camera constants: upload to completed slot failed");
         }
         // Same for the light UBO: copy the CPU-side light_state into THIS slot's own light
         // buffer. The slot was just paced (its previous submission completed) and the other
@@ -380,7 +380,7 @@ namespace deren::engine {
                                                             static_cast<float>(this->render_extent().height));
             }
             if (this->upload_scene_constant(frame_slot, render_resource::resource_id::light_ubo, std::as_bytes(std::span(&this->light_state, 1))) != rhi::error::ok) {
-                deren::utility::panic("managed light constants: upload to completed slot failed");
+                deren::utility::panic("environment: managed light constants: upload to completed slot failed");
             }
         }
         // Reset managed scratch after the completed-slot wait and after updating this frame's light facts.
@@ -389,7 +389,7 @@ namespace deren::engine {
         std::span<render_resource::resource_id const> const preserved = this->active_features().clustered ? std::span<render_resource::resource_id const>{} : std::span<render_resource::resource_id const>{preserved_counts};
         if ((this->frame_chain != nullptr && this->frame_chain->begin_frame(frame_slot, preserved) != rhi::error::ok) ||
             this->shared_resource_fallback.begin_frame(frame_slot, preserved) != rhi::error::ok) {
-            deren::utility::panic("managed resources: acquired frame slot is outside the prepared resource set");
+            deren::utility::panic("internal invariant: managed resources: acquired frame slot is outside the prepared resource set");
         }
         // THE HEAD FRAME RIDES THE SAME SLOT RULE, and for the same reason: it can change every frame on a model
         // whose head turns, so the paced slot gets its own copy and a frame in flight keeps reading the one it
@@ -397,7 +397,7 @@ namespace deren::engine {
         // this is where that value reaches the GPU, exactly as the light's does.
         if (this->head_buffers.size() > static_cast<std::size_t>(frame_slot)) {
             if (this->upload_scene_constant(frame_slot, render_resource::resource_id::head_ubo, std::as_bytes(std::span(&this->head_state, 1))) != rhi::error::ok) {
-                deren::utility::panic("managed head constants: upload to completed slot failed");
+                deren::utility::panic("environment: managed head constants: upload to completed slot failed");
             }
         }
         // Remember the paced slot: the caller's per-frame host writes (set_skin_matrices /
@@ -469,7 +469,7 @@ namespace deren::engine {
         deren::engine::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::begin};
         rhi::api_core& vk = this->vulkan_core; // the heap calls below take the contract face itself, not a native handle
         if (this->bound_scene == nullptr) {
-            deren::utility::panic("runtime::begin_recording() called before set_scene() bound a scene");
+            deren::utility::panic("contract violation: runtime::begin_recording() called before set_scene() bound a scene");
         }
         // THIS FRAME's resources, in the declaration's vocabulary: published before anything resolves, because
         // the per-swapchain-image views are this generation's, an alias (`scene_color`) is decided per frame, and
@@ -1619,7 +1619,7 @@ namespace deren::engine {
                 // cannot draw the scene at all. Saying so here, once, with the reason, is the whole of the fallback
                 // that is left - and it happens BEFORE any pass is created.
                 deren::utility::panic(std::source_location::current(),
-                                      "mesh shaders are required and this device does not offer them: {} (docs/mesh_shaders.md step 4)",
+                                      "environment: mesh shaders are required and this device does not offer them: {} (docs/mesh_shaders.md step 4)",
                                       this->mesh_shaders_unavailable_reason);
             }
             deren::utility::log("mesh shaders: REQUIRED and available - every geometry stage is dispatched (push block {} B, within {} B shader parameter capacity)",
@@ -3387,7 +3387,7 @@ namespace deren::engine {
         // out-of-range read, a clamp or a wrap.
         if (this->current_image_index >= rhi::max_swapchain_images) {
             deren::utility::panic(std::source_location::current(),
-                                  "runtime: the acquired image index {} is at or past rhi::max_swapchain_images ({}) - "
+                                  "internal invariant: runtime: the acquired image index {} is at or past rhi::max_swapchain_images ({}) - "
                                   "the per-image arrays are sized by the contract's bound, so this is a broken invariant "
                                   "rather than something to clamp",
                                   this->current_image_index,
@@ -3479,10 +3479,10 @@ namespace deren::engine {
             // host OOM fast-panics because there is no allocation left to report with, a device OOM
             // panics because the host can still write the message and crash log.
             if (submitted == rhi::error::out_of_host_memory) {
-                deren::utility::fast_panic("frame submit: host memory exhausted");
+                deren::utility::fast_panic("environment: frame submit: host memory exhausted");
             }
             if (submitted == rhi::error::out_of_device_memory) {
-                deren::utility::panic(deren::utility::vessel::format("frame submit: device memory exhausted"),
+                deren::utility::panic(deren::utility::vessel::format("environment: frame submit: device memory exhausted"),
                                       std::source_location::current());
             }
             deren::utility::log("runtime: frame submit was refused ({})", static_cast<std::uint32_t>(submitted));

@@ -166,7 +166,7 @@ export namespace deren::engine {
         buffer_transfer_service& operator=(buffer_transfer_service const&) = delete;
         ~buffer_transfer_service() noexcept {
             if (drain(UINT64_MAX) != transfer_rhi::error::ok)
-                deren::utility::fast_panic("buffer transfer final drain failed");
+                deren::utility::fast_panic("environment: buffer transfer final drain failed");
         }
         [[nodiscard]] buffer_transfer_batch make_batch() const {
             return buffer_transfer_batch(core);
