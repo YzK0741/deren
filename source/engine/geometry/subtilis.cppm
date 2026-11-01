@@ -48,11 +48,11 @@ export namespace deren::engine::subtilis {
                 return true;
             }
         }
-        for (unsigned plane = 0; plane < 6; ++plane) {
-            unsigned axis = plane / 2;
+        for (uint32_t plane = 0; plane < 6; ++plane) {
+            uint32_t axis = plane / 2;
             double sign = (plane & 1u) ? -1. : 1.;
             std::array<double, 4> equation{};
-            for (unsigned column = 0; column < 4; ++column) {
+            for (uint32_t column = 0; column < 4; ++column) {
                 equation[column] = plane == 4 ? double(clip[column * 4 + 2]) : double(clip[column * 4 + 3]) + sign * double(clip[column * 4 + axis]);
             }
             double distance = equation[0] * center[0] + equation[1] * center[1] + equation[2] * center[2] + equation[3];

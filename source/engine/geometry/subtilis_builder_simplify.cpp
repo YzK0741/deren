@@ -54,10 +54,10 @@ namespace deren::engine::subtilis::builder_detail {
             original_ids.erase(std::unique(original_ids.begin(), original_ids.end()), original_ids.end());
             vector<std::array<float, 3>> positions(original_ids.size());
             vector<std::array<float, 5>> attributes(original_ids.size());
-            vector<unsigned char> locks(original_ids.size(), 0);
+            vector<uint8_t> locks(original_ids.size(), 0);
             for (std::size_t i = 0; i < original_ids.size(); ++i) {
                 auto id = original_ids[i];
-                for (unsigned axis = 0; axis < 3; ++axis) {
+                for (uint32_t axis = 0; axis < 3; ++axis) {
                     positions[i][axis] = static_cast<float>((double(data.positions[id][axis]) - data.origin[axis]) / data.scale);
                 }
                 attributes[i] = data.attributes[id];
@@ -84,8 +84,8 @@ namespace deren::engine::subtilis::builder_detail {
             auto count = meshopt_simplifyWithAttributes(simplified.data(), local_indices.data(), local_indices.size(), positions[0].data(), positions.size(), 3 * sizeof(float),
                                                         attributes[0].data(), 5 * sizeof(float), weights.data(), weights.size(), locks.data(),
                                                         target_triangles * 3, options.max_error, meshopt_SimplifyLockBorder | meshopt_SimplifyErrorAbsolute, &step_error);
-            int arithmetic_errors = std::fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW);
-            int restored = std::fesetenv(&environment);
+            int32_t arithmetic_errors = std::fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW);
+            int32_t restored = std::fesetenv(&environment);
             if (arithmetic_errors || restored != 0) {
                 return std::unexpected(rejection::topology);
             }
@@ -110,7 +110,7 @@ namespace deren::engine::subtilis::builder_detail {
             std::size_t limit = meshopt_buildMeshletsBound(count, 255, meshlet_max_triangles);
             vector<meshopt_Meshlet> meshlets(limit);
             vector<std::uint32_t> vertices(count);
-            vector<unsigned char> triangles(count);
+            vector<uint8_t> triangles(count);
             auto cluster_count = meshopt_buildMeshlets(meshlets.data(), vertices.data(), triangles.data(), simplified.data(), count,
                                                        positions[0].data(), positions.size(), 3 * sizeof(float), 255, meshlet_max_triangles, 0);
             if (!cluster_count || cluster_count >= previous_records) {
@@ -165,7 +165,7 @@ namespace deren::engine::subtilis::builder_detail {
         auto topology = analyze_topology(data);
         vector<std::array<float, 3>> positions(data.positions.size());
         for (auto id : data.indices) {
-            for (unsigned axis = 0; axis < 3; ++axis) {
+            for (uint32_t axis = 0; axis < 3; ++axis) {
                 positions[id][axis] = static_cast<float>((double(data.positions[id][axis]) - data.origin[axis]) / data.scale);
             }
         }

@@ -17,11 +17,11 @@ namespace deren::engine::radiance_detail {
     }
     // RH cameras retain normal culling. Mirroring X converts readback to canonical cubemap UVs.
     // Source/output must be disjoint; alpha is a storage lane, not captured coverage.
-    inline bool canonicalize_face(std::span<float const> source,int size,std::span<float> output) noexcept {
+    inline bool canonicalize_face(std::span<float const> source,int32_t size,std::span<float> output) noexcept {
         if(size<1 || size>512 || source.size()!=std::size_t(size)*size*4 || output.size()!=source.size() || source.data()==output.data())return false;
-        for(int y=0;y<size;++y)for(int x=0;x<size;++x) {
+        for(int32_t y=0;y<size;++y)for(int32_t x=0;x<size;++x) {
             auto in=(std::size_t(y)*size+size-1-x)*4,out=(std::size_t(y)*size+x)*4;
-            for(unsigned c=0;c<3;++c) {
+            for(uint32_t c=0;c<3;++c) {
                 float value=source[in+c];
                 if(!std::isfinite(value) || value<0 || value>65504)return false;
                 output[out+c]=value;

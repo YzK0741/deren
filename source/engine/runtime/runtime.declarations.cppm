@@ -338,7 +338,7 @@ namespace deren::engine {
          */
         rhi::shared_object<rhi::api_core> core_owner;
         /// the alias every method and member keeps using: it IS `*core_owner`, and owns nothing of its own
-        rhi::api_core& vulkan_core;
+        rhi::api_core& core_face;
 
         /**
          * THE CREATION STRUCTURE THIS RUNTIME WAS BUILT FROM, kept because TWO of its fields are the
@@ -2416,9 +2416,9 @@ namespace deren::engine {
          * INITIALIZED HERE from the device root this class already holds, and that is not a style choice: the
          * constructor's init list has to follow DECLARATION order, and this member is declared before
          * `pass_resources` - so an entry there would be a reorder warning (`-Werror`) for a dependency that is
-         * real but does not need the list to express it (`vulkan_core` is declared above everything).
+         * real but does not need the list to express it (`core_face` is declared above everything).
          */
-        ray_tracing::structure_set structures{this->vulkan_core, this->core_owner};
+        ray_tracing::structure_set structures{this->core_face, this->core_owner};
         // The alphaMode MASK bake (see source/shaders/geometry/mask_bake.slang): ONE JOB OBJECT owns its pipeline
         // (vulkan.pass.mask_bake_job), because it is not a frame pass at all -
         // it runs once, inside the same command buffer as the bottom level builds it feeds, and its input is
@@ -2579,7 +2579,7 @@ namespace deren::engine {
         // F1 edge detection for the overlay toggle (true while the key is held, so one press
         // toggles exactly once - see poll_events)
         bool gui_toggle_down = false;
-        // filtered view over vulkan_core, exposed via operator-> (external code never sees the raw core)
+        // filtered view over core_face, exposed via operator-> (external code never sees the raw core)
         user_filter filtered_core;
         /**
          * THE PASS FILTER (deren.engine.filters): the view a pass's create step is handed, which is how the
@@ -3119,7 +3119,7 @@ namespace deren::engine {
          * second options structure).
          *
          * IT REFUSES AN EMPTY ROOT AND A DISAGREEING CONTRACT LOUDLY, as the first thing it does
-         * (require_core in runtime.constructor.cppm): `vulkan_core` is a reference because everything here
+         * (require_core in runtime.constructor.cppm): `core_face` is a reference because everything here
          * is written against a device that exists, and the object's own `api_core::api_version()` is
          * checked against `rhi::abi_version` before any member is built from it. Both are PANICS with the
          * numbers in the message: there is no recoverable path from either (a different version means the

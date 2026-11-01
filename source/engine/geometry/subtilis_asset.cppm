@@ -105,9 +105,9 @@ export namespace deren::engine::subtilis {
             asset result;
             result.clusters_.assign(input.clusters.begin(), input.clusters.end());
             result.groups_.reserve(input.groups.size());
-            deren::utility::vessel::vector<unsigned char> cluster_owner(input.clusters.size(), 0);
-            deren::utility::vessel::vector<unsigned char> parent(input.groups.size(), 0);
-            deren::utility::vessel::vector<unsigned char> root_seen(input.groups.size(), 0);
+            deren::utility::vessel::vector<uint8_t> cluster_owner(input.clusters.size(), 0);
+            deren::utility::vessel::vector<uint8_t> parent(input.groups.size(), 0);
+            deren::utility::vessel::vector<uint8_t> root_seen(input.groups.size(), 0);
             deren::utility::vessel::vector<cluster_range> finest;
             for (std::size_t i = 0; i < input.groups.size(); ++i) {
                 auto const& g = input.groups[i];
@@ -124,7 +124,7 @@ export namespace deren::engine::subtilis {
                 std::array<double, 3> hi{};
                 bool first = true;
                 auto extend = [&](bounding_sphere const& b) {
-                    for (unsigned axis = 0; axis < 3; ++axis) {
+                    for (uint32_t axis = 0; axis < 3; ++axis) {
                         double min = b.center[axis] - b.radius;
                         double max = b.center[axis] + b.radius;
                         if (first) {
@@ -167,7 +167,7 @@ export namespace deren::engine::subtilis {
                 validated_group node{};
                 node.record = g;
                 node.worst_cut = std::max(g.coarse.count, static_cast<std::uint32_t>(children_budget));
-                for (unsigned axis = 0; axis < 3; ++axis) {
+                for (uint32_t axis = 0; axis < 3; ++axis) {
                     node.bounds.center[axis] = lo[axis] / 2 + hi[axis] / 2;
                 }
                 auto enclose = [&](bounding_sphere const& b) {

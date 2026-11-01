@@ -231,7 +231,7 @@ export namespace deren::engine::render_graph {
         std::shared_ptr<void const> value_;
         void const* type_ = nullptr;
         template <typename T>
-        inline static unsigned char type_key = 0;
+        inline static uint8_t type_key = 0;
         template <typename T>
         static parameter_snapshot make(T value) {
             parameter_snapshot result;

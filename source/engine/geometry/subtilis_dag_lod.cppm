@@ -18,7 +18,7 @@ export namespace deren::engine::subtilis {
         }
     };
     namespace dag_lod_detail {
-        inline int projection_type(std::array<float, 16> const& p) {
+        inline int32_t projection_type(std::array<float, 16> const& p) {
             if (!lod_detail::finite(p) || p[0] <= 0 || p[5] == 0 || p[1] != 0 || p[2] != 0 || p[3] != 0 || p[4] != 0 || p[6] != 0 || p[7] != 0 || p[14] >= 0)
                 return 0;
             if (p[11] == -1 && p[15] == 0 && p[10] <= -1 && p[12] == 0 && p[13] == 0)
@@ -29,9 +29,9 @@ export namespace deren::engine::subtilis {
         }
         inline double scale_bound(lod_detail::matrix const& m) {
             double one = 0, inf = 0;
-            for (unsigned i = 0; i < 3; ++i) {
+            for (uint32_t i = 0; i < 3; ++i) {
                 double col = 0, row = 0;
-                for (unsigned j = 0; j < 3; ++j) {
+                for (uint32_t j = 0; j < 3; ++j) {
                     col += std::abs(m[i * 4 + j]);
                     row += std::abs(m[j * 4 + i]);
                 }

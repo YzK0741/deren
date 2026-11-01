@@ -201,7 +201,7 @@ namespace deren::engine::ray_tracing {
         request.life = managed::lifetime::scene;
         request.micromap = {.triangle_count = triangle_count, .data_stride = data_stride, .format = rhi::micromap_format::four_state};
         request.micromap_data = upload;
-        request.initialization_key = std::make_shared<int const>(0);
+        request.initialization_key = std::make_shared<int32_t const>(0);
         structure_set::micromap_resource out;
         out.resources = std::make_shared<pass::pass_chain>();
         auto& provider = out.resources->emplace<pass::resource_storage_pass>();

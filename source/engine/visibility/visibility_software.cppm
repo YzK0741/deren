@@ -861,7 +861,7 @@ export namespace deren::engine::visibility::software {
     /// Capture-only independent coverage oracle. HW must equal the stable primary/recovery survivors
     /// after subtracting actual SW IDs; duplicates, missing candidates and temporary flags are refused.
     [[nodiscard]] inline bool validate_gpu_partition(std::span<tile_entry const> software, std::span<gpu_partition_item const> items) {
-        std::array<int, visibility::id_item_capacity> lookup{};
+        std::array<int32_t, visibility::id_item_capacity> lookup{};
         lookup.fill(-1);
         deren::utility::vessel::vector<deren::utility::vessel::vector<std::uint8_t>> masks(items.size());
         for (std::size_t i = 0u; i < items.size(); ++i) {
@@ -874,7 +874,7 @@ export namespace deren::engine::visibility::software {
             for (auto flag : item.flags)
                 if (flag != 0u && flag != 1u && flag != 3u)
                     return false;
-            lookup[item.item_index] = static_cast<int>(i);
+            lookup[item.item_index] = static_cast<int32_t>(i);
             masks[i].resize(item.candidates.size(), 0u);
         }
         for (auto const& entry : software) {

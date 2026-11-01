@@ -75,7 +75,11 @@
 #
 # References live OUTSIDE the repository (they are machine-specific; committing them would be red for
 # everyone else and would tie every accepted change to a multi-megabyte commit). Override the location
-# with VR_RENDER_BASELINE_DIR. The three `laevatain_*` scenarios are seeded the same way as every other
+# with DEREN_BASELINE_DIR; VR_RENDER_BASELINE_DIR is accepted as the older spelling of the same switch.
+# The sample models four scenarios draw from are local data too, named by `-ModelRoot` or
+# DEREN_MODEL_ROOT (the glTF-Sample-Assets `Models/` directory): without it the preflight refuses by
+# name instead of each scenario reporting "failed to load model".
+# The three `laevatain_*` scenarios are seeded the same way as every other
 # one - `-Update` copies the frame it just drew to `<baseDir>\<scenario>.png` - and there is no separate
 # seeding path for them; -List prints the directory. NOTE that their ASSETS do not live in the repository
 # either (see $charDir), so those three references are reproducible only on a machine that has the
@@ -96,7 +100,15 @@ param(
     # prints is the one that means something; this script's own `changed`/exit 1 is about the stale local
     # reference set (see the note at the summary).
     [string]$Compare = "",
-    [string]$Model = "C:\Users\23530\Desktop\yzk\glTF-Sample-Assets\Models\DamagedHelmet\glTF\DamagedHelmet.gltf",
+    # THE SAMPLE-ASSET ROOT: the glTF-Sample-Assets `Models/` directory the generic scenarios draw from.
+    # It is local data like `chars\`, not repository content, so it is named by a parameter or an
+    # environment variable instead of a hard-coded home path: `-ModelRoot` or `DEREN_MODEL_ROOT`. When it
+    # is not set, the scenarios that need it fail the asset preflight by name (see $assetRequirements)
+    # rather than each one reporting "failed to load model".
+    [string]$ModelRoot = $env:DEREN_MODEL_ROOT,
+    # THE DEFAULT SCENARIO MODEL: derived from -ModelRoot below; pass -Model to override one path for a
+    # one-off run.
+    [string]$Model = "",
     [int]$Frames = 40,
     [string]$Camera = "35,20,7,0,-1.6,0",
     [int]$Width = 1080,
@@ -130,7 +142,10 @@ if (-not (Test-Path $exe)) { Write-Error "no executable at $exe - build first (-
 # both spellings mean the same run.
 $BuildDir = (Resolve-Path $BuildDir).Path
 
-$baseDir = if ($env:DEREN_BASELINE_DIR) { $env:DEREN_BASELINE_DIR } else { Join-Path $env:LOCALAPPDATA "deren\baseline" }
+# The baseline override accepts the documented name and the spelling the code read before it was
+# documented: a machine that exported either one keeps working.
+$baselineFromEnv = if ($env:DEREN_BASELINE_DIR) { $env:DEREN_BASELINE_DIR } elseif ($env:VR_RENDER_BASELINE_DIR) { $env:VR_RENDER_BASELINE_DIR } else { "" }
+$baseDir = if ($baselineFromEnv) { $baselineFromEnv } else { Join-Path $env:LOCALAPPDATA "deren\baseline" }
 $workDir = Join-Path $BuildDir "render-check"
 
 # ---------------------------------------------------------------------------------------------
@@ -164,6 +179,17 @@ $workDir = Join-Path $BuildDir "render-check"
 # `laevatain.glb` is the same character WITHOUT one, and that is what makes it the fallback's control.
 $charDir = Join-Path $BuildDir "chars"
 
+# THE DEFAULT MODEL, resolved once: an explicit -Model wins; otherwise it is the helmet under -ModelRoot.
+# An unset root leaves this empty on purpose - the preflight below turns that into one named refusal.
+if (-not $Model -and $ModelRoot) { $Model = Join-Path $ModelRoot "DamagedHelmet\glTF\DamagedHelmet.gltf" }
+
+# A sample model path, or the bare relative path when no root is configured (the preflight refuses before
+# any scenario runs, so the relative form is never rendered).
+function Resolve-SampleModel([string]$relative) {
+    if ($ModelRoot) { return (Join-Path $ModelRoot $relative) }
+    return $relative
+}
+
 $scenarios = @(
     # `deferred` overrides NOTHING, so its reference IS the compiled defaults - the frame a stock
     # `config.toml` renders. Every other scenario is that frame plus the one difference its name claims,
@@ -186,7 +212,7 @@ $scenarios = @(
     # only OPAQUE/MASK. AlphaBlendModeTest carries one of each alphaMode (OPAQUE / MASK at two cutoffs
     # / BLEND) plus a decal, so this also covers the G-buffer's MASK discard path.
     @{ name = "transparent_blend"; desc = "deferred + an alphaMode BLEND material"; tier = "core"; extra = @{}
-       model = "C:\Users\23530\Desktop\yzk\glTF-Sample-Assets\Models\AlphaBlendModeTest\glTF\AlphaBlendModeTest.gltf"
+       model = (Resolve-SampleModel "AlphaBlendModeTest\glTF\AlphaBlendModeTest.gltf")
        camera = "0,5,12.4,0,-4.511,0" }
     # The heavy scene, and the only asset here whose interior exercises the cascaded shadows, the
     # clustered lights and the IBL together. The camera is pinned EXPLICITLY rather than left to
@@ -197,7 +223,7 @@ $scenarios = @(
     # hard way while adding object motion vectors). Sponza is a heavy load - 69 textures, ~150k
     # triangles - so this is the slow scenario.
     @{ name = "sponza";            desc = "Sponza interior, the heavy scene";           tier = "core";  extra = @{ taa = "false" }
-       model = "C:\Users\23530\Desktop\yzk\glTF-Sample-Assets\Models\Sponza\glTF\Sponza.gltf"
+       model = (Resolve-SampleModel "Sponza\glTF\Sponza.gltf")
        camera = "90,0,6.41,0,-18.548,0" }
     # THE MATERIAL SWEEP, the one asset that makes a material response visible: a grid from smooth metal
     # (a mirror) to rough dielectric, so a specular or BRDF change is a shape of the response rather than a
@@ -205,7 +231,7 @@ $scenarios = @(
     # Invoke-Scenario).
     @{ name = "metal_rough_glossy"; desc = "the material/roughness sweep";              tier = "extra";
        extra = @{ taa = "false"; camera_fit = "'exterior'" }
-       model = "C:\Users\23530\Desktop\yzk\glTF-Sample-Assets\Models\MetalRoughSpheres\glTF\MetalRoughSpheres.gltf"
+       model = (Resolve-SampleModel "MetalRoughSpheres\glTF\MetalRoughSpheres.gltf")
        camera = "" }
     # THE ONLY SCENARIO WHOSE CAMERA MOVES, and it is here because everything else was still: with a fixed
     # camera every reprojection in the renderer is exercised in the trivial case, so TAA's history, the
@@ -216,7 +242,7 @@ $scenarios = @(
     # `metal_rough_glossy` on purpose, so the moving and still frames of one scene can be compared.
     @{ name = "glossy_motion"; desc = "the material sweep, CAMERA MOVING";              tier = "extra";
        extra = @{ taa = "false"; camera_fit = "'exterior'" }
-       model = "C:\Users\23530\Desktop\yzk\glTF-Sample-Assets\Models\MetalRoughSpheres\glTF\MetalRoughSpheres.gltf"
+       model = (Resolve-SampleModel "MetalRoughSpheres\glTF\MetalRoughSpheres.gltf")
        camera = ""
        sweep = "0.5" }
     # THE ONE SCENARIO WHOSE MESH DEFORMS, and it captures the MOTION CHANNEL rather than a shaded frame:
@@ -513,16 +539,40 @@ $actualHashes = [ordered]@{}
 $assetRequirements = @(
     @{ scenarios = @("laevatain_goo_toon", "laevatain_goo_toon_body", "laevatain_old_chain");
        path      = Join-Path $charDir "laevatain_goo.glb";
-       why       = "the goo character those three scenarios render" },
+       why       = "the goo character those three scenarios render";
+       root      = "chars" },
     @{ scenarios = @("laevatain_goo_toon", "laevatain_goo_toon_body", "laevatain_old_chain");
        path      = Join-Path $charDir "laevatain_goo.glb.toon.tsv";
-       why       = "its per-material sidecar rows (the sidecar arm; the FALLBACK arm is a different scenario with none)" },
+       why       = "its per-material sidecar rows (the sidecar arm; the FALLBACK arm is a different scenario with none)";
+       root      = "chars" },
     @{ scenarios = @("laevatain_no_sidecar");
        path      = Join-Path $charDir "laevatain.glb";
-       why       = "the same character WITHOUT a sidecar (the fallback control)" },
+       why       = "the same character WITHOUT a sidecar (the fallback control)";
+       root      = "chars" },
     @{ scenarios = @("laevatain_goo_toon", "laevatain_goo_toon_body", "laevatain_no_sidecar", "laevatain_old_chain");
        path      = Join-Path $BuildDir "deren-ab\gooblender\images\PreIntegratedFGD_GGXDisneyDiffuse.png";
-       why       = "the goo FGD LUT the rewritten chain samples - without it those scenarios render a DIFFERENT picture and report a changed hash" }
+       why       = "the goo FGD LUT the rewritten chain samples - without it those scenarios render a DIFFERENT picture and report a changed hash";
+       root      = "deren-ab" },
+    # THE SAMPLE MODELS live outside the build tree (they are the glTF-Sample-Assets set), named by
+    # -ModelRoot / DEREN_MODEL_ROOT. Declared here for the same reason as the trees above: a missing model
+    # must be ONE named refusal, not a per-scenario "failed to load model" that the summary reports as
+    # CHANGED - which is exactly how a rendering regression reads.
+    @{ scenarios = @($scenarios | Where-Object { -not $_.ContainsKey('model') } | ForEach-Object { $_.name });
+       path      = $Model;
+       why       = "the default helmet model every scenario without its own model key draws (path from -ModelRoot / DEREN_MODEL_ROOT)";
+       root      = "sample" },
+    @{ scenarios = @("transparent_blend");
+       path      = (Resolve-SampleModel "AlphaBlendModeTest\glTF\AlphaBlendModeTest.gltf");
+       why       = "the alphaMode BLEND material the transparent scenario renders";
+       root      = "sample" },
+    @{ scenarios = @("sponza");
+       path      = (Resolve-SampleModel "Sponza\glTF\Sponza.gltf");
+       why       = "the heavy interior scene";
+       root      = "sample" },
+    @{ scenarios = @("metal_rough_glossy", "glossy_motion");
+       path      = (Resolve-SampleModel "MetalRoughSpheres\glTF\MetalRoughSpheres.gltf");
+       why       = "the material/roughness sweep both of those scenarios render";
+       root      = "sample" }
 )
 $selectedNames = @($scenarios | Where-Object {
     if ($onlyNames.Count -gt 0) { $onlyNames -contains $_.name }
@@ -533,29 +583,34 @@ $selectedNames = @($scenarios | Where-Object {
 $missingAssets = @()
 foreach ($requirement in $assetRequirements) {
     if (@($requirement.scenarios | Where-Object { $selectedNames -contains $_ }).Count -eq 0) { continue }
-    if (-not (Test-Path -LiteralPath $requirement.path)) {
-        $missingAssets += @{ path = $requirement.path; why = $requirement.why }
+    if ([string]::IsNullOrEmpty($requirement.path) -or -not (Test-Path -LiteralPath $requirement.path)) {
+        $missingAssets += @{ path = $requirement.path; why = $requirement.why; root = $requirement.root }
     }
 }
 if ($missingAssets.Count -gt 0) {
-    # WHICH TREE, named: the two roots the requirements live under, so the fix is one sentence.
+    # WHICH TREE, named: the roots the requirements live under, so the fix is one sentence.
     $missingTrees = @($missingAssets | ForEach-Object {
-        if ($_.path.StartsWith($charDir, [System.StringComparison]::OrdinalIgnoreCase)) { "chars\" }
-        else { "deren-ab\" }
+        switch ($_.root) {
+            "chars" { "chars\" }
+            "deren-ab" { "deren-ab\" }
+            default { "the glTF-Sample-Assets tree (-ModelRoot / DEREN_MODEL_ROOT)" }
+        }
     } | Sort-Object -Unique)
     Write-Host ""
     Write-Host "REFUSING TO RUN: $($missingAssets.Count) local asset(s) this selection needs are missing." -ForegroundColor Red
-    Write-Host "missing tree(s): $($missingTrees -join ', ')  (both are GITIGNORED local data, not repository content)" -ForegroundColor Red
+    Write-Host "missing tree(s): $($missingTrees -join ', ')  (all are GITIGNORED local data, not repository content)" -ForegroundColor Red
     foreach ($asset in $missingAssets) {
-        Write-Host "  MISSING  $($asset.path)" -ForegroundColor Red
+        $shown = if ($asset.path) { $asset.path } else { "(no -ModelRoot / DEREN_MODEL_ROOT configured)" }
+        Write-Host "  MISSING  $shown" -ForegroundColor Red
         Write-Host "           needed by: $($asset.why)"
     }
     Write-Host @"
 WHY THIS IS FATAL RATHER THAN A NOTE: without these files the scenarios that use them do not fail - they
 render a DIFFERENT picture (or abort), and the summary then says CHANGED for two of fourteen scenarios,
-which is exactly how a rendering regression reads. Fix it by putting the trees beside this build
-directory (`chars\` and `deren-ab\`, copied from the directory the migration's gates were baselined in),
-then run again.
+which is exactly how a rendering regression reads. Fix it by putting the two build-local trees beside
+this build directory (`chars\` and `deren-ab\`, copied from the directory the migration's gates were
+baselined in), pointing `-ModelRoot` (or setting DEREN_MODEL_ROOT) at the glTF-Sample-Assets `Models/`
+directory for the sample-model scenarios, then run again.
 "@
     exit 1
 }

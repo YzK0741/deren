@@ -503,7 +503,7 @@ namespace deren::engine {
         // THE OVERLAY OWNS ITS RECORDING (gui abi 5): the runtime creates its two mergeable targets and the
         // plugin records ImGui into one per frame; the recorded segment is executed by the frame right after the
         // final-writer pass's instance ends (dynamic rendering; the backend is initialized with it).
-        rhi::api_core& vk = this->vulkan_core;
+        rhi::api_core& vk = this->core_face;
         deren::gui::create_info info = {};
         info.api = deren::gui::api_type::vulkan;
         info.window = static_cast<GLFWwindow*>(this->create_options.native_window);
@@ -2105,7 +2105,7 @@ namespace deren::engine {
             subtilis::visible_run run = {};
             subtilis::reservation space = {};
             std::uint32_t item_index = 0;
-            unsigned input_count = 0, selected_count = 0, fallback_count = 0;
+            uint32_t input_count = 0, selected_count = 0, fallback_count = 0;
             std::uint64_t input_triangles = 0, selected_triangles = 0;
             double cut_us = 0;
             // M4 Task 1's capture-only workload probe: this item's split at 1.0 px (only touched while the env probe is
@@ -2343,7 +2343,7 @@ namespace deren::engine {
                 view.selection.target_error_px = this->subtilis_error_px;
                 subtilis::item_policy const policy{this->material_flags_of(leaf), exact_depth_redraw && !leaf.environment};
                 plan.software_allowed = subtilis::coarse_allowed(leaf, policy);
-                plan.run = subtilis::prepare_item(leaf, policy, view, selected, published, [this](unsigned base, std::span<meshlet const> records) { return runtime::meshlet_culled_write(this, base, std::as_bytes(records)); }, histories.empty() ? nullptr : &histories[index], this->subtilis_view_epoch);
+                plan.run = subtilis::prepare_item(leaf, policy, view, selected, published, [this](uint32_t base, std::span<meshlet const> records) { return runtime::meshlet_culled_write(this, base, std::as_bytes(records)); }, histories.empty() ? nullptr : &histories[index], this->subtilis_view_epoch);
                 plan.input_count = plan.space.count;
                 if (this->gpu_timings_enabled)
                     plan.cut_us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - cut_started).count();
@@ -2998,12 +2998,12 @@ namespace deren::engine {
             this->visibility_recovery_draws.reserve(count);
         }
         struct range_totals {
-            unsigned input_count = 0, selected_count = 0, fallback_count = 0;
+            uint32_t input_count = 0, selected_count = 0, fallback_count = 0;
             std::uint64_t input_triangles = 0, selected_triangles = 0;
             std::uint32_t candidates = 0;
             deren::utility::vessel::vector<visibility_recovery_draw> recovery;
         };
-        unsigned input_count = 0, selected_count = 0, fallback_count = 0;
+        uint32_t input_count = 0, selected_count = 0, fallback_count = 0;
         std::uint64_t input_triangles = 0, selected_triangles = 0;
         auto record_range = [&](rhi::command_recorder& target, std::uint32_t const begin, std::uint32_t const end,
                                 range_totals& totals) -> bool {
@@ -3574,7 +3574,7 @@ namespace deren::engine {
                 request.buffer = {.size = bytes[i].size(), .usage = i == 0 ? rhi::buffer_usage::vertex : rhi::buffer_usage::index, .flags = geometry_flags};
                 request.initial_data = std::shared_ptr<std::byte const>{upload, upload->data()};
                 request.initial_data_size = bytes[i].size();
-                request.initialization_key = std::make_shared<int const>(0);
+                request.initialization_key = std::make_shared<int32_t const>(0);
             }
             provider.configure(requests);
             auto const admit = [&](managed::resource_snapshot const& snapshot) {

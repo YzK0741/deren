@@ -113,7 +113,7 @@ namespace deren::engine {
     }
 
     std::uintptr_t runtime::buffer_address(rhi::buffer const& buffer) const noexcept {
-        return deren::engine::buffer_address(this->vulkan_core, buffer);
+        return deren::engine::buffer_address(this->core_face, buffer);
     }
 
     bool runtime::write_heap_buffer(rhi::buffer const& buffer, uint32_t const slot, std::uint64_t const size, rhi::descriptor_type const type) const {
@@ -467,7 +467,7 @@ namespace deren::engine {
 
     frame_status runtime::begin_recording() {
         deren::engine::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::begin};
-        rhi::api_core& vk = this->vulkan_core; // the heap calls below take the contract face itself, not a native handle
+        rhi::api_core& vk = this->core_face; // the heap calls below take the contract face itself, not a native handle
         if (this->bound_scene == nullptr) {
             deren::utility::panic("contract violation: runtime::begin_recording() called before set_scene() bound a scene");
         }
@@ -3303,7 +3303,7 @@ namespace deren::engine {
     }
     frame_status runtime::end_recording() {
         deren::engine::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::post};
-        rhi::api_core& vk = this->vulkan_core;
+        rhi::api_core& vk = this->core_face;
         if (!this->frame_command_buffer()) {
             return frame_status::end_recording_failed; // no frame is open: there is nothing to close
         }

@@ -59,9 +59,9 @@ namespace deren::engine::gaussian_splatting {
             double const y = p.rotation[2] / length;
             double const z = p.rotation[3] / length;
             deren::utility::vessel::array<deren::utility::vessel::array<double, 3>, 3> const rotation = {{{1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)}, {2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)}, {2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)}}};
-            auto entry = [&](unsigned i, unsigned j) {
+            auto entry = [&](uint32_t i, uint32_t j) {
                 double result = 0;
-                for (unsigned k = 0; k < 3; ++k) {
+                for (uint32_t k = 0; k < 3; ++k) {
                     double const scale = p.scale[k];
                     result += rotation[i][k] * rotation[j][k] * scale * scale;
                 }
@@ -77,7 +77,7 @@ namespace deren::engine::gaussian_splatting {
         }
         std::expected<deren::utility::vessel::array<float, 6>, foundation_error> support_bounds(deren::gaussian::particle const& p, deren::utility::vessel::array<double, 6> const& cov) {
             deren::utility::vessel::array<float, 6> result{};
-            constexpr deren::utility::vessel::array<unsigned, 3> diagonals = {0, 3, 5};
+            constexpr deren::utility::vessel::array<uint32_t, 3> diagonals = {0, 3, 5};
             for (glm::length_t i = 0; i < 3; ++i) {
                 double const radius = 3 * std::sqrt(cov[diagonals[i]]);
                 double const low = static_cast<double>(p.center[i]) - radius;
@@ -124,13 +124,13 @@ namespace deren::engine::gaussian_splatting {
             }
             axes[i] /= lengths[i];
         }
-        for (unsigned i = 1; i < 3; ++i) {
+        for (uint32_t i = 1; i < 3; ++i) {
             if (std::abs(lengths[i] - lengths[0]) > 1e-5 * std::max(lengths[i], lengths[0])) {
                 return invalid("non-uniform scale is unsupported");
             }
         }
         for (glm::length_t i = 0; i < 3; ++i) {
-            for (unsigned j = i + 1; j < 3; ++j) {
+            for (uint32_t j = i + 1; j < 3; ++j) {
                 if (std::abs(glm::dot(axes[i], axes[j])) > 1e-5) {
                     return invalid("shear is unsupported");
                 }
@@ -160,7 +160,7 @@ namespace deren::engine::gaussian_splatting {
         /// MEASURED, not assumed: on this cloud (562,974 splats, 16 cores) the sort still spent 93 ms of a 127 ms
         /// frame on ONE thread after the per-splat pass had been moved onto every core (240 ms -> 33 ms).
         [[nodiscard]] std::size_t sort_worker_count(std::size_t const count) noexcept {
-            unsigned const hardware = std::thread::hardware_concurrency();
+            uint32_t const hardware = std::thread::hardware_concurrency();
             std::size_t const workers = std::min<std::size_t>(hardware == 0u ? 1u : hardware, 16u);
             return count < 16384u ? 1u : workers;
         }
@@ -391,7 +391,7 @@ namespace deren::engine::gaussian_splatting {
             record.covariance_x = {static_cast<float>(cov[0]), static_cast<float>(cov[1]), static_cast<float>(cov[2]), 0};
             record.covariance_yz = {static_cast<float>(cov[3]), static_cast<float>(cov[4]), static_cast<float>(cov[5]), 0};
             sh_record sh{};
-            unsigned const used = 3 * (input.sh_degree + 1) * (input.sh_degree + 1);
+            uint32_t const used = 3 * (input.sh_degree + 1) * (input.sh_degree + 1);
             std::copy_n(p.sh.begin(), used, sh.coefficients.begin());
             result.geometry.push_back(record);
             result.sh.push_back(sh);

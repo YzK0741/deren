@@ -28,7 +28,7 @@ namespace deren::engine::subtilis {
         double maximum_squared = 0.0;
         for (std::uint32_t t = 0u; t < record.index_count; t += 3u) {
             std::array<std::array<float, 3>, 3> p{};
-            for (unsigned c = 0u; c < 3u; ++c) {
+            for (uint32_t c = 0u; c < 3u; ++c) {
                 auto const index = static_cast<std::int64_t>(indices[static_cast<std::size_t>(record.first_index) + t + c]) + record.base_vertex;
                 if (index < 0 || static_cast<std::uint64_t>(index) >= vertices.size() / stride) {
                     return invalid;
@@ -40,9 +40,9 @@ namespace deren::engine::subtilis {
                     }
                 }
             }
-            for (unsigned c = 0u; c < 3u; ++c) {
+            for (uint32_t c = 0u; c < 3u; ++c) {
                 double squared = 0.0;
-                for (unsigned axis = 0u; axis < 3u; ++axis) {
+                for (uint32_t axis = 0u; axis < 3u; ++axis) {
                     double const delta = static_cast<double>(p[c][axis]) - p[(c + 1u) % 3u][axis];
                     squared += delta * delta;
                 }

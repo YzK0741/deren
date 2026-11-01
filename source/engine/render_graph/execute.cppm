@@ -307,7 +307,7 @@ export namespace deren::engine::render_graph::execution {
                     auto const callback_us = std::chrono::duration<double, std::micro>(callback_done - barrier_done).count();
                     auto const& name = state->graph.passes[pass].name;
                     std::fprintf(stderr, "record graph: pass '%.*s' barrier %.1f us | callback %.1f us\n",
-                                 static_cast<int>(name.size()), name.data(), barrier_us, callback_us);
+                                 static_cast<int32_t>(name.size()), name.data(), barrier_us, callback_us);
                 }
                 if (error != rhi::error::ok) {
                     return error;
