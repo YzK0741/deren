@@ -159,7 +159,7 @@ int main(int argc, char** argv) {
         timed |= std::string_view(argv[i]) == "--benchmark";
     }
     if (!device && !timed)
-        return deren::vk_test::finish("test_subtilis_transfer (device skipped)");
+        return deren::vk_test::skip("test_subtilis_transfer", "--with-device and --benchmark were both absent: the device lane did not run");
     rhi::create_info desc{};
     desc.window_width = desc.window_height = 64;
     desc.window_visible = false;

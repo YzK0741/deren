@@ -30,7 +30,7 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i)
         device |= std::string_view(argv[i]) == "--with-device";
     if (!device)
-        return deren::vk_test::finish("test_buffer_transfer (device skipped)");
+        return deren::vk_test::skip("test_buffer_transfer", "--with-device was not passed: the device lane did not run");
     rhi::create_info desc{};
     desc.window_width = desc.window_height = 64;
     desc.window_visible = false;

@@ -71,6 +71,18 @@ namespace deren::vk_test {
         write_line("[{}] {} checks, {} failed -> {}", test_name, checks(), failed, failed == 0 ? "PASS" : "FAIL");
         return failed == 0 ? 0 : 1;
     }
+
+    /// The exit code CTest reads as "this test did not run": CMakeLists marks a device test SKIP_RETURN_CODE 77,
+    /// so one that could not build its subject (no Vulkan device, a missing asset or tool) reports Skipped
+    /// instead of PASS. A test that declines its subject and then passes 0 checks is the silent green this
+    /// exists to prevent.
+    inline constexpr int32_t skip_code = 77;
+
+    /** @brief print why the subject never ran and return the code CTest reports as Skipped */
+    inline int32_t skip(char const* test_name, char const* reason) {
+        write_line("[{}] SKIPPED: {}", test_name, reason);
+        return skip_code;
+    }
 } // namespace deren::vk_test
 
 // A check's condition is materialized in a local and the `if` tests THAT, rather than testing the expression inline

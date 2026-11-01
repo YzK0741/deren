@@ -1330,9 +1330,10 @@ if(VR_BUILD_TESTS)
     # directory `ctest -j` made two of them read each other's files (measured: 18/19 in parallel, 19/19
     # serial). They cannot collide now.
 
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/source/tests/test_radiance_capture.cpp")
-        list(APPEND VR_TEST_TARGETS test_radiance_capture)
-    endif()
+    # NO CONDITIONAL TEST TARGETS. A test whose add_executable sits behind `if(EXISTS ...)` disappears from
+    # CTest silently when its source file is gone - measured: `test_radiance_capture` was dropped in
+    # d770719f and the guard outlived it, so the suite was one test smaller and nothing anywhere said so.
+    # A target that is meant to exist is declared unconditionally; a missing source is then a configure error.
     foreach(test_target IN ITEMS ${VR_TEST_TARGETS})
         add_executable(${test_target} source/tests/${test_target}.cpp)
         target_link_libraries(${test_target} shared_utility vstd_lib)
@@ -1344,9 +1345,6 @@ if(VR_BUILD_TESTS)
     endforeach()
 
     target_link_libraries(test_morton boost_int128_headers)
-    if(TARGET test_radiance_capture)
-        target_link_libraries(test_radiance_capture deren_engine probe_backend_static)
-    endif()
     target_link_libraries(test_rhi_ownership promise)
     # The injection test's single entry point carries the local objects for every child mode; Debug+ASan
     # builds that frame above the Windows default 1 MiB reserve. Give this test executable room to run.
@@ -2486,6 +2484,38 @@ add_dependencies(test_buffer_transfer deren_vulkan)
 add_executable(test_subtilis_transfer source/tests/test_subtilis_transfer.cpp)
 target_link_libraries(test_subtilis_transfer deren_engine backend_loader static_utility vstd_lib)
 add_dependencies(test_subtilis_transfer deren_vulkan)
+
+# ---- THE DEVICE LANE'S TESTS -------------------------------------------------------------------------
+#
+# These are built by the default build but are NOT headless tests: they want a Vulkan device (and some of
+# them load deren_vulkan.dll / the GUI plugin). Before this block they were invisible - built and never run
+# by anything - and a run without `--with-device` answered a PASS after asserting nothing. CTest now knows
+# them: `ctest -N` names them, the `device` label lets the GPU-less CI jobs exclude them with `-LE device`,
+# and a machine WITH a device (the local gate) runs them for real. SKIP_RETURN_CODE makes "could not run"
+# read as Skipped rather than a PASS: the tests return deren::vk_test::skip_code (77) when they decline.
+#
+# The boundary spike (test_backend_boundary_spike) stays OUT of this list on purpose: it is a report-shaped
+# spike, not a pass/fail test, and source/tests/test_docs.cpp allowlists it by name so it cannot be forgotten.
+set(VR_DEVICE_TEST_TARGETS
+    test_runtime_dyn
+    test_texture_group
+    test_resource_group
+    test_submission_completion
+    test_buffer_transfer
+    test_subtilis_transfer
+    test_gui_plugin
+)
+foreach(device_target IN ITEMS ${VR_DEVICE_TEST_TARGETS})
+    if(TARGET ${device_target})
+        add_test(NAME ${device_target} COMMAND $<TARGET_FILE:${device_target}>)
+        file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run/${device_target}")
+        set_tests_properties(${device_target} PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run/${device_target}"
+            TIMEOUT 600
+            LABELS device
+            SKIP_RETURN_CODE 77)
+    endif()
+endforeach()
 
 # Opt-in device benchmark, not a headless test or part of the default build.
 if(VR_BUILD_TESTS)
