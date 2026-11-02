@@ -139,7 +139,15 @@ namespace deren::vulkan::gui {
     // ---- panel management ----
 
     debug_panel& gui_content::add_panel(deren::utility::vessel::string title) {
-        this->panels.push_back(std::make_unique<debug_panel>(std::move(title)));
+        auto panel = std::make_unique<debug_panel>(std::move(title));
+        // The first panel keeps ImGui's own initial placement. Every later panel would otherwise be
+        // placed on that same corner (no .ini survives a run), hiding the panel below it, so lay
+        // them out in a row instead: 400 px covers the default 380 px panel plus a readable gap.
+        uint32_t const slot = this->panel_registrations++;
+        if (slot > 0) {
+            panel->set_default_position(60.0f + 400.0f * static_cast<float>(slot), 60.0f);
+        }
+        this->panels.push_back(std::move(panel));
         return *this->panels.back();
     }
 
@@ -237,7 +245,16 @@ namespace deren::vulkan::gui {
         this->default_height = height;
     }
 
+    void debug_panel::set_default_position(float const x, float const y) noexcept {
+        this->default_x = x;
+        this->default_y = y;
+        this->has_default_position = true;
+    }
+
     void debug_panel::draw() {
+        if (this->has_default_position) {
+            ImGui::SetNextWindowPos(ImVec2(this->default_x, this->default_y), ImGuiCond_FirstUseEver);
+        }
         if (this->default_width > 0.0f && this->default_height > 0.0f) {
             ImGui::SetNextWindowSize(ImVec2(this->default_width, this->default_height), ImGuiCond_FirstUseEver);
         }

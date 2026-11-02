@@ -226,6 +226,17 @@ namespace deren::vulkan::gui {
          */
         void set_default_size(float width, float height) noexcept;
 
+        /**
+         * @ingroup vulkan_gui
+         * @brief set the panel's first-use window position
+         *
+         * The overlay disables ImGui .ini persistence, so every panel otherwise asks ImGui for the
+         * same initial corner and a second panel lands exactly on top of the first. gui_content
+         * spaces newly registered panels in a row to the right; a later user move wins because the
+         * position is applied with ImGuiCond_FirstUseEver.
+         */
+        void set_default_position(float x, float y) noexcept;
+
         /** @brief draw the ImGui window and all widgets (called by gui_content::record) */
         void draw();
 
@@ -235,6 +246,9 @@ namespace deren::vulkan::gui {
         bool is_open = true;
         float default_width = 0.0f;  // 0 = auto-size
         float default_height = 0.0f; // 0 = auto-size
+        float default_x = 0.0f;      // first-use position assigned by gui_content::add_panel
+        float default_y = 0.0f;
+        bool has_default_position = false;
     };
 
     /**
@@ -336,5 +350,8 @@ namespace deren::vulkan::gui {
         bool active = false;
         // frames in flight captured at init() (the backend's min-image hint on recreation)
         uint32_t frames_in_flight = 2;
+        // registration count: new panels start one column to the right (no .ini exists to remember
+        // where a panel was, and stacking every panel on the same corner hides all but the top)
+        uint32_t panel_registrations = 0;
     };
 } // namespace deren::vulkan::gui
