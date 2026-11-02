@@ -2018,11 +2018,11 @@ namespace deren::engine {
         // scene_changed() after every structural change or the BVH/cull_visible can outlive a
         // destroyed leaf.
         //
-        // Known limitation (documented, accepted): the BVH bounds are the STATIC local AABBs
-        // captured at upload/import. Skinned/morphed vertices can move far outside that box
-        // (see set_skin_matrices / morph_scratch), so such a primitive may be frustum-culled
-        // even while its deformed geometry is on screen. Conservative animation rigs stay
-        // inside the authored bounds; culling can also be disabled (frustum_culling = false).
+        // Static bounds only: the BVH bounds are the local AABBs captured at upload/import, so a
+        // skinned/morphed primitive is never inserted into it. `deforming()` leaves are always
+        // added to the visible set instead (see frame construction): their vertices can move far
+        // outside the bind-pose box without the node matrix changing. Culling can also be disabled
+        // (frustum_culling = false).
         std::optional<deren::utility::bvh<primitive>> cull_bvh = std::nullopt;
         bool bvh_dirty = true;                                              // scene structure/transforms changed -> rebuild
         deren::utility::vessel::vector<primitive const*> cull_visible = {}; // last culled result (main-pass set)

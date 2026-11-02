@@ -2193,6 +2193,18 @@ namespace deren::engine {
         bool has_bounds = false;
 
         /**
+         * @brief whether this primitive's vertices can move without its node matrix changing
+         *
+         * A skinned or morphed draw is deformed in the vertex shader, so `local_aabb_*` describes
+         * the bind pose, not what the draw will cover. Frustum culling must keep such a primitive
+         * visible: its static bounds can be behind the camera while the deformed geometry is on
+         * screen. This is the same predicate `runtime` uses when it records a leaf as deforming.
+         */
+        [[nodiscard]] bool deforming() const noexcept {
+            return this->push.skin_base != 0u || this->push.morph_targets != 0u;
+        }
+
+        /**
          * @brief transform the local AABB by the primitive's current world matrix (push.model,
          *        written by update_world -> set_world) into a world-space AABB
          * @return world AABB; {0,0,0}..{0,0,0} when has_bounds == false

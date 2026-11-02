@@ -663,7 +663,7 @@ namespace deren::engine {
                 deren::utility::vessel::vector<deren::utility::aabb_box<primitive>> boxes;
                 boxes.reserve(frame_leaves.size());
                 for (primitive const* leaf : frame_leaves) {
-                    if (leaf->has_bounds) {
+                    if (leaf->has_bounds && !leaf->deforming()) {
                         auto const [wmin, wmax] = leaf->world_aabb();
                         boxes.push_back(deren::utility::aabb_box<primitive>{.min = wmin, .max = wmax, .extra_data = const_cast<primitive*>(leaf)});
                     }
@@ -684,9 +684,10 @@ namespace deren::engine {
                 // camera moved or the scene changed: re-run frustum cull against the current BVH
                 deren::utility::vessel::vector<primitive const*> visible;
                 visible.reserve(frame_leaves.size());
-                // leaves without bounds (instanced etc.) are always drawn
+                // leaves without static bounds (instanced etc.) and deforming leaves are always drawn:
+                // a skin/morph can move geometry anywhere without changing the model matrix or bind AABB
                 for (primitive const* leaf : frame_leaves) {
-                    if (!leaf->has_bounds) {
+                    if (!leaf->has_bounds || leaf->deforming()) {
                         visible.push_back(leaf);
                     }
                 }
