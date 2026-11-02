@@ -636,6 +636,71 @@ namespace deren::app_config {
                     read_vec3(*source, "position", object.position);
                     read_vec3(*source, "rotation", object.rotation);
                     read_vec3(*source, "scale", object.scale);
+                    if (toml::node const* node = source->get("visible")) {
+                        if (std::optional<bool> const value = node->value<bool>()) {
+                            object.visible = *value;
+                        }
+                    }
+                    if (toml::node const* node = source->get("cast_shadow")) {
+                        if (std::optional<bool> const value = node->value<bool>()) {
+                            object.cast_shadow = *value;
+                        }
+                    }
+                    if (toml::node const* node = source->get("pipeline")) {
+                        if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
+                            if (*value == "default") {
+                                object.pipeline = 0;
+                            } else if (*value == "pbr") {
+                                object.pipeline = 1;
+                            } else if (*value == "unlit") {
+                                object.pipeline = 2;
+                            } else {
+                                deren::utility::log("app_config: [[scene.objects]] entry {} has unknown pipeline '{}' (default | pbr | unlit), using default",
+                                                    settings.scene.objects.size(), *value);
+                            }
+                        }
+                    }
+                    if (toml::node const* node = source->get("environment")) {
+                        if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
+                            object.environment = *value;
+                        }
+                    }
+                    if (toml::node const* node = source->get("material_override")) {
+                        if (std::optional<bool> const value = node->value<bool>()) {
+                            object.material_override = *value;
+                        }
+                    }
+                    read_vec3(*source, "tint", object.tint);
+                    if (toml::node const* node = source->get("metallic_scale")) {
+                        if (std::optional<double> const value = node->value<double>()) {
+                            object.metallic_scale = static_cast<float>(*value);
+                        }
+                    }
+                    if (toml::node const* node = source->get("roughness_scale")) {
+                        if (std::optional<double> const value = node->value<double>()) {
+                            object.roughness_scale = static_cast<float>(*value);
+                        }
+                    }
+                    if (toml::node const* node = source->get("emissive_scale")) {
+                        if (std::optional<double> const value = node->value<double>()) {
+                            object.emissive_scale = static_cast<float>(*value);
+                        }
+                    }
+                    if (toml::node const* node = source->get("animation")) {
+                        if (std::optional<int64_t> const value = node->value<int64_t>()) {
+                            object.animation = static_cast<int32_t>(*value);
+                        }
+                    }
+                    if (toml::node const* node = source->get("animation_speed")) {
+                        if (std::optional<double> const value = node->value<double>()) {
+                            object.animation_speed = static_cast<float>(*value);
+                        }
+                    }
+                    if (toml::node const* node = source->get("animation_playing")) {
+                        if (std::optional<bool> const value = node->value<bool>()) {
+                            object.animation_playing = *value;
+                        }
+                    }
                     bool sanitised = false;
                     for (float& component : object.position) {
                         if (!std::isfinite(component)) {
@@ -661,14 +726,43 @@ namespace deren::app_config {
                             component = std::clamp(component, 0.01f, 1000.0f);
                         }
                     }
+                    for (float& component : object.tint) {
+                        if (!std::isfinite(component)) {
+                            component = 1.0f;
+                            sanitised = true;
+                        } else {
+                            component = std::clamp(component, 0.0f, 4.0f);
+                        }
+                    }
+                    auto const sanitise_scale = [&sanitised](float& value) {
+                        if (!std::isfinite(value)) {
+                            value = 1.0f;
+                            sanitised = true;
+                        } else {
+                            value = std::clamp(value, 0.0f, 10.0f);
+                        }
+                    };
+                    sanitise_scale(object.metallic_scale);
+                    sanitise_scale(object.roughness_scale);
+                    sanitise_scale(object.emissive_scale);
+                    if (!std::isfinite(object.animation_speed)) {
+                        object.animation_speed = 1.0f;
+                        sanitised = true;
+                    } else {
+                        object.animation_speed = std::clamp(object.animation_speed, 0.0f, 8.0f);
+                    }
+                    object.animation = std::clamp(object.animation, 0, 255);
+                    object.pipeline = std::clamp(object.pipeline, 0, 2);
                     if (sanitised) {
                         deren::utility::log("app_config: [[scene.objects]] entry {} had non-finite/out-of-range transform components, sanitised", settings.scene.objects.size());
                     }
-                    deren::utility::log("app_config: scene object {} '{}' position [{:.3f}, {:.3f}, {:.3f}], rotation [{:.1f}, {:.1f}, {:.1f}] deg, scale [{:.3f}, {:.3f}, {:.3f}]",
+                    deren::utility::log("app_config: scene object {} '{}' position [{:.3f}, {:.3f}, {:.3f}], rotation [{:.1f}, {:.1f}, {:.1f}] deg, scale [{:.3f}, {:.3f}, {:.3f}], visible {}, cast_shadow {}, pipeline {}, environment '{}', material_override {}, animation {}, speed {:.2f}, playing {}",
                                         settings.scene.objects.size(), object.name,
                                         object.position[0], object.position[1], object.position[2],
                                         object.rotation[0], object.rotation[1], object.rotation[2],
-                                        object.scale[0], object.scale[1], object.scale[2]);
+                                        object.scale[0], object.scale[1], object.scale[2],
+                                        object.visible, object.cast_shadow, object.pipeline, object.environment, object.material_override,
+                                        object.animation, object.animation_speed, object.animation_playing);
                     settings.scene.objects.push_back(object);
                 }
             }

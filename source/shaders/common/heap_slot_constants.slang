@@ -132,9 +132,17 @@ static const uint heap_slots_goo_fgd_lut = heap_slot_base + 1266u;
 static const uint heap_slots_mask_instances = heap_slot_base + 1042u;
 // frame-invariant images the shading stage samples
 static const uint heap_slots_local_probe = heap_slot_base + 1364u;
+// environment slot 0, the scene-wide IBL (bindings 2-3 of the scene block)
 static const uint heap_slots_env_cube = heap_slot_base + 1044u;
 static const uint heap_slots_irradiance_cube = heap_slot_base + 1045u;
 static const uint heap_slots_brdf_lut = heap_slot_base + 1046u;
+// THE CUSTOM ENVIRONMENT SLOTS (1..3), appended after `local_probe` (1364) and the software raster's last family
+// (software_route_arguments occupies 1356..1363). Each is a prefiltered cube + irradiance pair; the BRDF LUT above is
+// shared. A per-object material record carries the slot in flags bits 10..11, so the material can pick its own sky
+// without a per-leaf draw or a named pipeline.
+static const uint heap_slots_custom_env_cube = heap_slot_base + 1365u;
+static const uint heap_slots_custom_irradiance_cube = heap_slot_base + 1369u;
+static const uint heap_environment_capacity = 4u;
 // per swapchain image: the shadow map, the ray-traced visibility, and every G-buffer/post image
 static const uint heap_slots_shadow_map = heap_slot_base + 1047u;
 static const uint heap_slots_rt_visibility = heap_slot_base + 1055u;

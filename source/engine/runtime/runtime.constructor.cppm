@@ -2357,7 +2357,15 @@ namespace deren::engine {
         return true;
     }
     bool runtime::set_ibl(ibl_input const& info) {
-        if (!info.env_size || !info.env_mip_count || !info.irr_size || !info.lut_size) {
+        return this->set_ibl(0u, info);
+    }
+
+    bool runtime::set_ibl(uint32_t const environment_slot, ibl_input const& info) {
+        namespace layout = deren::engine::render_layout;
+        if (environment_slot >= layout::heap_environment_capacity) {
+            return false;
+        }
+        if (!info.env_size || !info.env_mip_count || !info.irr_size) {
             return false;
         }
         deren::utility::vessel::vector<rhi::shared_object<rhi::image>> images;
@@ -2379,6 +2387,52 @@ namespace deren::engine {
             return true;
         };
         using render_resource::resource_id;
+        if (environment_slot != 0u) {
+            // A CUSTOM SLOT NEEDS ONLY THE ENVIRONMENT PAIR: the BRDF LUT is slot 0's and is shared by every
+            // material, so the caller may pass it empty here.
+            if (!upload(resource_id::ibl_env, info.prefiltered_env, info.env_size, info.env_mip_count, rhi::image_format::r16g16b16a16_sfloat, true) ||
+                !upload(resource_id::ibl_irradiance, info.irradiance, info.irr_size, 1, rhi::image_format::r16g16b16a16_sfloat, true)) {
+                deren::utility::log("IBL slot {}: environment images could not be prepared; keeping the previous environment", environment_slot);
+                return false;
+            }
+            auto& stored = this->custom_ibl_slots[environment_slot - 1u];
+            deren::utility::vessel::array<uint32_t, 2> const slots{layout::heap_slots::custom_env_cube + environment_slot - 1u,
+                                                                   layout::heap_slots::custom_irradiance_cube + environment_slot - 1u};
+            auto const write = [&](size_t index, rhi::image const& image) {
+                return contract_write_descriptor_image(this->rhi_face(), slots[index], image,
+                                                       rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image);
+            };
+            this->rhi_face().wait_idle();
+            size_t written = 0;
+            for (; written < slots.size(); ++written) {
+                if (!write(written, *images[written])) {
+                    break;
+                }
+            }
+            if (written != slots.size()) {
+                bool restored = stored.images.size() == slots.size();
+                for (size_t i = 0; i < written; ++i) {
+                    if (stored.images.size() <= i || !stored.images[i] || !write(i, *stored.images[i])) {
+                        restored = false;
+                    }
+                }
+                if (written && !restored) {
+                    for (auto const& image : images) {
+                        this->failed_shared_publication.push_back(image);
+                    }
+                }
+                this->shared_heap_ready = this->shared_heap_ready && restored;
+                deren::utility::log("IBL slot {}: descriptor publication failed; previous bindings restored: {}", environment_slot, restored);
+                return false;
+            }
+            stored.images = std::move(images);
+            stored.views = std::move(views);
+            this->shared_heap_ready = true;
+            return true;
+        }
+        if (!info.lut_size) {
+            return false;
+        }
         if (!upload(resource_id::ibl_env, info.prefiltered_env, info.env_size, info.env_mip_count, rhi::image_format::r16g16b16a16_sfloat, true) ||
             !upload(resource_id::ibl_irradiance, info.irradiance, info.irr_size, 1, rhi::image_format::r16g16b16a16_sfloat, true) ||
             !upload(resource_id::brdf_lut, info.brdf_lut, info.lut_size, 1, rhi::image_format::r16g16_sfloat, false)) {
@@ -3146,6 +3200,78 @@ namespace deren::engine {
             deren::utility::log("toon: material {} -> family {} (1=base 2=skin 3=face 4=hair 5=eye 6=cloth)", material_index, record.toon_family);
         }
         return material_id{material_index};
+    }
+
+    material_id runtime::clone_material(material_id const source, glm::vec3 const tint, float const metallic_scale, float const roughness_scale, float const emissive_scale, bool const unlit, uint32_t const environment_slot) {
+        if (this->material_mapped == nullptr || source.value >= this->material_count) {
+            return source;
+        }
+        if (this->material_count >= deren::engine::material_capacity) {
+            if (!this->material_overflow_logged) {
+                this->material_overflow_logged = true;
+                deren::utility::log("material table capacity ({}) exceeded - per-object material override keeps the shared material", deren::engine::material_capacity);
+            }
+            return source;
+        }
+        material_record record = static_cast<material_record const*>(this->material_mapped)[source.value];
+        record.base_color_factor.x *= tint.x;
+        record.base_color_factor.y *= tint.y;
+        record.base_color_factor.z *= tint.z;
+        record.metallic_factor *= metallic_scale;
+        record.roughness_factor *= roughness_scale;
+        record.emissive_factor.x *= emissive_scale;
+        record.emissive_factor.y *= emissive_scale;
+        record.emissive_factor.z *= emissive_scale;
+        if (unlit) {
+            record.flags |= 512u;
+        } else {
+            record.flags &= ~512u;
+        }
+        record.flags = (record.flags & ~(3u << 10u)) | ((environment_slot & 3u) << 10u);
+        uint32_t const material_index = this->material_count++;
+        if (this->material_texture_edges.size() <= material_index) {
+            this->material_texture_edges.resize(material_index + 1);
+        }
+        if (source.value < this->material_texture_edges.size()) {
+            this->material_texture_edges[material_index] = this->material_texture_edges[source.value];
+        }
+        std::memcpy(static_cast<uint8_t*>(this->material_mapped) + static_cast<size_t>(material_index) * sizeof(material_record), &record, sizeof(record));
+        if (this->toon_lane_mapped != nullptr) {
+            for (std::size_t block = 0; block < deren::engine::toon_lane_blocks; ++block) {
+                static_cast<glm::uvec4*>(this->toon_lane_mapped)[static_cast<std::size_t>(material_index) * deren::engine::toon_lane_blocks + block] =
+                    static_cast<glm::uvec4 const*>(this->toon_lane_mapped)[static_cast<std::size_t>(source.value) * deren::engine::toon_lane_blocks + block];
+            }
+        }
+        if (this->toon_colour_mapped != nullptr) {
+            for (std::size_t lane = 0; lane < static_cast<std::size_t>(deren::engine::toon_colour_lane::count); ++lane) {
+                static_cast<glm::vec4*>(this->toon_colour_mapped)[static_cast<std::size_t>(material_index) * static_cast<std::size_t>(deren::engine::toon_colour_lane::count) + lane] =
+                    static_cast<glm::vec4 const*>(this->toon_colour_mapped)[static_cast<std::size_t>(source.value) * static_cast<std::size_t>(deren::engine::toon_colour_lane::count) + lane];
+            }
+        }
+        deren::utility::log("material {} cloned from {} for a per-object override", material_index, source.value);
+        return material_id{material_index};
+    }
+
+    void runtime::update_material_override(material_id const target, material_id const source, glm::vec3 const tint, float const metallic_scale, float const roughness_scale, float const emissive_scale, bool const unlit, uint32_t const environment_slot) {
+        if (this->material_mapped == nullptr || target.value >= this->material_count || source.value >= this->material_count) {
+            return;
+        }
+        material_record record = static_cast<material_record const*>(this->material_mapped)[source.value];
+        record.base_color_factor.x *= tint.x;
+        record.base_color_factor.y *= tint.y;
+        record.base_color_factor.z *= tint.z;
+        record.metallic_factor *= metallic_scale;
+        record.roughness_factor *= roughness_scale;
+        record.emissive_factor.x *= emissive_scale;
+        record.emissive_factor.y *= emissive_scale;
+        record.emissive_factor.z *= emissive_scale;
+        if (unlit) {
+            record.flags |= 512u;
+        } else {
+            record.flags &= ~512u;
+        }
+        record.flags = (record.flags & ~(3u << 10u)) | ((environment_slot & 3u) << 10u);
+        std::memcpy(static_cast<uint8_t*>(this->material_mapped) + static_cast<size_t>(target.value) * sizeof(material_record), &record, sizeof(record));
     }
 
 } // namespace deren::engine

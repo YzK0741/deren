@@ -628,8 +628,10 @@ namespace deren::app_config {
      * The model named by `model`/`asset` is imported once PER ENTRY, so every object shares the same
      * geometry, materials and animations. `position` is in world metres relative to the character's
      * ground anchor (the point the single-object path already calls the scene origin), `rotation` is
-     * Y/X/Z Euler degrees applied in that order, and `scale` is uniform per axis. This is the seed of
-     * scene composition: a typed object list, not a general node editor.
+     * Y/X/Z Euler degrees applied in that order, and `scale` is uniform per axis. `visible` and
+     * `cast_shadow` are per-object draw filters, `pipeline` selects the pass default / pbr / unlit
+     * pipeline for this object, and the `material_*` fields opt into per-object material multipliers.
+     * This is the seed of scene composition: a typed object list, not a general node editor.
      *
      * ONLY the PBR path consumes this list in v1. The captured GameToon character stage and
      * `character_forward` derive their head basis from the first imported rig in world space, so main()
@@ -641,6 +643,31 @@ namespace deren::app_config {
         deren::utility::vessel::array<float, 3> position = {0.0f, 0.0f, 0.0f};
         deren::utility::vessel::array<float, 3> rotation = {0.0f, 0.0f, 0.0f}; // degrees, Y then X then Z
         deren::utility::vessel::array<float, 3> scale = {1.0f, 1.0f, 1.0f};
+        bool visible = true;
+        bool cast_shadow = true;
+        // 0 = the pass default, 1 = pbr, 2 = unlit. The named pipelines are the ones the demo registers;
+        // an object may only choose among them, not name an arbitrary pipeline.
+        int32_t pipeline = 0;
+        // Per-object material multipliers. Disabled means "use the shared imported material unchanged",
+        // so an untouched scene still shares one record per material. When enabled, main() clones the
+        // object's materials and applies these multipliers to the clone only.
+        bool material_override = false;
+        deren::utility::vessel::array<float, 3> tint = {1.0f, 1.0f, 1.0f};
+        float metallic_scale = 1.0f;
+        float roughness_scale = 1.0f;
+        float emissive_scale = 1.0f;
+        // Per-object environment HDR. `environment` is the config spelling (a file name or path; empty =
+        // the scene-wide environment); main resolves it into the environment list and stores the row in
+        // `environment_index` for the live combo. `environment_slot` is the runtime IBL slot the material
+        // record names (0 = scene-wide, 1..3 = a custom slot); both are runtime state, not re-read from TOML.
+        deren::utility::vessel::string environment = {};
+        int32_t environment_index = 0;
+        uint32_t environment_slot = 0;
+        // Phase 2 per-object playback. Each placement owns its own animation controller, so these
+        // select that placement's clip/clock independently of every other object.
+        int32_t animation = 0;         // playable-clip index (0 = the first channel-bearing clip)
+        float animation_speed = 1.0f;  // playback-rate multiplier (1 = real time, 0 = frozen)
+        bool animation_playing = true; // false leaves the pose at the current time
     };
 
     /// `[scene]`: the object list. An EMPTY list means the historic single-object path, unchanged.

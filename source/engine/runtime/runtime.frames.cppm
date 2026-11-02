@@ -629,16 +629,18 @@ namespace deren::engine {
         camera_ubo const& ubo = this->current_ubo;
         auto const cull_started = std::chrono::steady_clock::now();
         deren::utility::vessel::vector<primitive const*> visible_leaves = this->frame_leaves_buffer; // fallback: no culling
-        // THE CASTER SET, MINUS THE FRAME'S STATIC SURROUND (`primitive::environment`, i.e. the
-        // `[render] background_glb` import - see `shadow_casters` in the class docs for why it must never
-        // cast). Written once here and used at every place the list is filled, because the caster set is
+        // THE CASTER SET, MINUS the frame's static surround (`primitive::environment`, i.e. the
+        // `[render] background_glb` import) and minus leaves an object opted out of casting
+        // (`primitive::casts_shadow`). See `shadow_casters` in the class docs for why environment must never
+        // cast. Written once here and used at every place the list is filled, because the caster set is
         // built in four different branches below and a filter applied at three of them is a bug waiting for
         // the fourth.
-        auto const fill_shadow_casters = [this](deren::utility::vessel::vector<primitive const*> const& source) {
+        auto const casts_shadow = [](primitive const& leaf) { return !leaf.environment && leaf.casts_shadow; };
+        auto const fill_shadow_casters = [this, &casts_shadow](deren::utility::vessel::vector<primitive const*> const& source) {
             this->shadow_casters.clear();
             this->shadow_casters.reserve(source.size());
             for (primitive const* const leaf : source) {
-                if (!leaf->environment) {
+                if (casts_shadow(*leaf)) {
                     this->shadow_casters.push_back(leaf);
                 }
             }
@@ -773,7 +775,7 @@ namespace deren::engine {
                     // not in the static BVH, so add every deforming leaf to the heavy-scene caster
                     // set instead of dropping it with the camera-culled result.
                     for (primitive const* const leaf : frame_leaves) {
-                        if (leaf->deforming() && !leaf->environment) {
+                        if (leaf->deforming() && casts_shadow(*leaf)) {
                             this->shadow_casters.push_back(leaf);
                         }
                     }
@@ -787,7 +789,7 @@ namespace deren::engine {
                             this->shadow_casters.reserve(this->shadow_casters.size() + in_light.size());
                             for (auto const* node : in_light) {
                                 primitive const* const leaf = node->extra_data;
-                                if (!leaf->environment) {
+                                if (casts_shadow(*leaf)) {
                                     this->shadow_casters.push_back(leaf);
                                 }
                             }

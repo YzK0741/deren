@@ -366,6 +366,7 @@ namespace deren::engine {
         camera_ubo ubo;
         ubo.view = glm::lookAt(eye, target, glm::vec3(0.0f, 1.0f, 0.0f));
         ubo.proj = proj;
+        ubo.view_proj_unjittered = proj * ubo.view;
         ubo.camera_pos = eye;
         return ubo;
     }

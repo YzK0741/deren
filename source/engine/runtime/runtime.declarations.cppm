@@ -538,6 +538,16 @@ namespace deren::engine {
         // scene-wide IBL (bindings 2-4): prefiltered env / irradiance / BRDF LUT, uploaded once
         deren::utility::vessel::vector<rhi::shared_object<rhi::image_view>> ibl_views = {};
         deren::utility::vessel::vector<rhi::shared_object<rhi::image>> ibl_images = {};
+        /**
+         * THE CUSTOM ENVIRONMENT SLOTS' IMAGES (1..3): one env + irradiance pair each, kept alive here for the
+         * same reason slot 0's are - the heap holds a DESCRIPTOR, and an image the host lets go of leaves that
+         * descriptor pointing at freed memory. `set_ibl(slot, ...)` replaces one slot's pair atomically.
+         */
+        struct custom_ibl_slot {
+            deren::utility::vessel::vector<rhi::shared_object<rhi::image>> images = {};
+            deren::utility::vessel::vector<rhi::shared_object<rhi::image_view>> views = {};
+        };
+        deren::utility::vessel::array<custom_ibl_slot, 3> custom_ibl_slots = {};
         // THE ARTICLE'S POST LUT (`ZmdLutPost.shader`'s `_LutTex`) IS ITS OWN IMAGE, kept alive here for the same
         // reason the IBL's three are: the heap holds a DESCRIPTOR, and an image the host lets go of leaves that
         // descriptor pointing at nothing. Uploaded once by `set_post_lut`, which the application calls with a baked
@@ -2690,6 +2700,38 @@ namespace deren::engine {
          */
         std::unique_ptr<primitive> create_primitive(std::string_view pipeline_name, primitive_create_info const& info);
 
+    public:
+        /**
+         * @ingroup runtime
+         * @brief append a COPY of @p source's material record with per-object factors applied, for the live
+         *        object editor.
+         *
+         * The source row keeps its textures, alpha cut-off, flags and toon lanes; only the PBR factors move:
+         * `base_color_factor.rgb *= tint`, `metallic_factor *= metallic_scale`,
+         * `roughness_factor *= roughness_scale`, `emissive_factor.rgb *= emissive_scale`. The clone does NOT
+         * enter `material_slot_cache` (the cache key is the imported record, not this override), so calling
+         * this once per edit is correct and calling it every frame would leak table rows.
+         * @param unlit sets flags bit9, the deferred stage's per-material unlit switch.
+         * @param environment_slot stores the per-object IBL slot in flags bits10..11 (0 = scene-wide, 1..3 =
+         *        custom); values outside 0..3 are clamped.
+         *
+         * @return the new material id, or @p source when the table is not mapped/full or @p source is
+         *         out of range - a refused override must leave the object drawable rather than crash.
+         * @note material registration is only valid before the first frame or while the runtime is idle, like
+         *       create_primitive(); the object editor applies an edit before the frame's acquire.
+         */
+        [[nodiscard]] material_id clone_material(material_id source, glm::vec3 tint, float metallic_scale, float roughness_scale, float emissive_scale, bool unlit = false, uint32_t environment_slot = 0u);
+
+        /**
+         * @ingroup runtime
+         * @brief rewrite an EXISTING clone created by clone_material() from its base row plus the current
+         *        per-object factors. This is what a live material slider calls: it updates in place instead of
+         *        appending a table row per frame.
+         * @note @p target and @p source are both validated; an out-of-range pair is ignored.
+         */
+        void update_material_override(material_id target, material_id source, glm::vec3 tint, float metallic_scale, float roughness_scale, float emissive_scale, bool unlit = false, uint32_t environment_slot = 0u);
+
+    private:
         /**
          * @ingroup runtime
          * @brief begin the frame's rendering on the given command buffer: clears the color
@@ -4632,6 +4674,19 @@ namespace deren::engine {
          *       IBL swaps need wait_idle() first.
          */
         bool set_ibl(ibl_input const& info);
+        /**
+         * @ingroup runtime
+         * @brief upload one environment slot: 0 rewrites the scene-wide IBL, 1..3 write a per-object custom
+         *        environment's prefiltered cube and irradiance pair
+         *
+         * A custom slot does not need the BRDF LUT (slot 0's is shared), so its @p info may leave `brdf_lut`
+         * and `lut_size` empty. Slot 0 still requires all three inputs. The heap slots are rewritten, so the
+         * same idle requirement as the slot-0 overload applies: call before the first frame or after
+         * wait_idle().
+         * @return false when the slot is out of range, the input is incomplete, or the upload failed; the
+         *         previous contents of that slot stay valid on failure.
+         */
+        bool set_ibl(uint32_t environment_slot, ibl_input const& info);
         bool set_local_probe(std::span<uint8_t const> half, uint32_t size, uint32_t mips, glm::vec3 position, glm::vec3 minimum, glm::vec3 maximum, float fade, float gain);
         void disable_local_probe() noexcept {
             light_state.probe_max_enabled.w = 0;
@@ -4687,9 +4742,13 @@ namespace deren::engine {
          * @ingroup runtime
          * @brief like set_skin_matrices() but into an explicit slot buffer (used for setup-time
          *        uploads that must be visible to every slot, e.g. the identity block before the
-         *        render loop starts)
+         *        render loop starts), optionally at a block offset so several animation
+         *        controllers can own disjoint regions of the same skin buffer
          */
-        void set_skin_matrices(std::span<glm::mat4 const> matrices, uint32_t slot);
+        void set_skin_matrices(std::span<glm::mat4 const> matrices, uint32_t slot, uint32_t base = 0);
+
+        /** @brief set_skin_matrices() into the paced slot at a block offset (animation regions) */
+        void set_skin_matrices_at(std::span<glm::mat4 const> matrices, uint32_t base);
 
         /**
          * @ingroup runtime

@@ -89,7 +89,9 @@ namespace {
         backend callbacks() {
             return {.scene = &tree,
                     .morph_scratch_active = [this] { return scratch[slot].data(); },
-                    .set_skin_matrices_active = [this](std::span<glm::mat4 const> m) { matrices.assign(m.begin(), m.end()); },
+                    .set_skin_matrices_active = [this](std::span<glm::mat4 const> m, uint32_t base) {
+                        if (matrices.size() < base + m.size()) matrices.resize(base + m.size(), glm::mat4(0.0f));
+                        std::ranges::copy(m, matrices.begin() + base); },
                     .morph_scratch_slot = [this](uint32_t s) { return scratch[s].data(); },
                     .set_skin_matrices_slot = [](std::span<glm::mat4 const>, uint32_t) {},
                     .scene_changed = [this] { ++scene_changes; },
@@ -107,6 +109,37 @@ namespace {
             }
         }
     };
+
+    void test_two_controllers_drive_two_imports_independently() {
+        controller_host h;
+        h.add_node(0, 0.0f);
+        h.add_node(0, 10.0f);
+        h.tree.roots[0].import_instance = 1;
+        h.tree.roots[1].import_instance = 2;
+        test_node model;
+        test_source src;
+        src.node_by_source.emplace(0, &model);
+        // One asset clip, two placements: each controller must sample it with its own clock.
+        src.animations.push_back({"move", {{{0.0f, 1.0f}, {0.0f, 0.0f, 0.0f, 10.0f, 0.0f, 0.0f}, 3, interpolation::linear}}, {{channel_path::translation, 0, 0}}});
+        controller first;
+        controller second;
+        first.init(src, h.callbacks(), glm::vec3(0.0f), 1, 4, 0);
+        second.init(src, h.callbacks(), glm::vec3(0.0f), 2, 4 + first.skin_block_count(), first.morph_float_count());
+        first.set_time(0.25f);
+        second.set_time(0.75f);
+        first.update(0.0f);
+        second.update(0.0f);
+        CHECK(std::fabs(h.tree.roots[0].local[3].x - 2.5f) < 1e-4f);
+        CHECK(std::fabs(h.tree.roots[1].local[3].x - 7.5f) < 1e-4f);
+        // Pause only the second: the first keeps moving while the second's pose stays put.
+        second.set_playing(false);
+        first.set_playing(true);
+        first.update(0.1f);
+        second.update(0.1f);
+        CHECK(h.tree.roots[0].local[3].x > 2.5f);
+        CHECK(std::fabs(h.tree.roots[1].local[3].x - 7.5f) < 1e-4f);
+        first.set_playing(false);
+    }
 
     void test_controller_does_not_animate_other_assets_or_synthetic_leaves() {
         controller_host h;
@@ -850,6 +883,7 @@ namespace {
 } // namespace
 
 int32_t main() {
+    test_two_controllers_drive_two_imports_independently();
     test_controller_does_not_animate_other_assets_or_synthetic_leaves();
     test_controller_reports_only_actual_transform_changes();
     test_controller_morph_history_follows_frames_across_slots();

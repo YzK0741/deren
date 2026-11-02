@@ -140,8 +140,18 @@ export namespace deren::app {
         // the widgets deliberately write the same structs the config produced, so the GUI and the
         // TOML describe one scene rather than two. Edits are runtime-only; nothing is written back.
         deren::utility::vessel::vector<deren::app_config::scene_object_settings>* scene_objects = nullptr;
+        // One controller per object (phase 2), aligned with scene_objects; null when the historic
+        // single-object path runs. The names are captured once at setup for the per-object clip combo.
+        deren::utility::vessel::vector<deren::engine::animation::controller*>* object_animations = nullptr;
+        deren::utility::vessel::vector<deren::utility::vessel::vector<deren::utility::vessel::string>> object_animation_names = {};
+        // Per-object environment combo items: "Scene default" followed by environment_names, so index 0 keeps
+        // the object on the scene-wide IBL and 1..N pick an HDR from the same list the global combo uses.
+        deren::utility::vessel::vector<deren::utility::vessel::string> object_environment_names = {};
         std::int32_t selected_object = -1;         // -1 = nothing selected
         bool scene_object_transform_dirty = false; // set by any object widget, consumed by main
+        // Re-opens the "scene object" panel after the user closed it, so clicking an object in the
+        // viewport always brings its editor back. Empty when the panel was not built.
+        std::function<void()> reopen_object_panel = {};
     };
 
     /**
