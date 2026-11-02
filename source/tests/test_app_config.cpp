@@ -100,6 +100,8 @@ namespace {
         // fixture: the THIRD toon model was PARSED, not merely defaulted - the same trap the `taa` comment
         // records: a parser that silently drops the key still passes a defaults-only test.
         CHECK(settings.render.game_toon);
+        // fixture: three copies is the non-default that proves the number was parsed, not defaulted
+        CHECK(settings.render.game_toon_copies == 3);
         // the frame's static surround (`[render] background_glb`): a STRING key, so unlike the boolean
         // switches above this CHECK cannot pass by accident - an empty compiled default would read back as
         // "" and the comparison would fail
@@ -504,6 +506,21 @@ namespace {
         std::filesystem::remove("asset-config.toml");
     }
 
+    /// MULTIPLE GAME-TOON CHARACTERS ARE AN OPTION, NOT A POSITIONAL: `--game-toon-copies` overrides the
+    /// file's `[render] game_toon_copies` and both `--flag value` and `--flag=value` are accepted.
+    void test_resolve_from_argv_game_toon_copies() {
+        char const* with_space[] = {"vk_test", "--game-toon-copies", "2"};
+        deren::app_config::app_settings const from_space =
+            deren::app_config::resolve_from_argv(3, with_space, VR_TEST_SOURCE_DIR "/source/tests/fixtures/config_full.toml");
+        CHECK(from_space.render.game_toon_copies == 2);
+        CHECK(from_space.model == "Models/tri.gltf");
+
+        char const* with_equals[] = {"vk_test", "--game-toon-copies=4"};
+        deren::app_config::app_settings const from_equals =
+            deren::app_config::resolve_from_argv(2, with_equals, VR_TEST_SOURCE_DIR "/source/tests/fixtures/config_full.toml");
+        CHECK(from_equals.render.game_toon_copies == 4);
+    }
+
     /// THE EXTENSION IS WHAT PICKS THE LOADER, and the cases below are the ones a viewer would otherwise get
     /// wrong: a Gaussian `.ply` must not reach the glTF importer, an extension spelled in capitals is still that
     /// extension, and a path whose extension this build cannot read must be reported rather than defaulted - a
@@ -573,6 +590,7 @@ int32_t main() {
     test_area_light_derivation_matches_the_reference_package();
     test_resolve_from_argv_merges_config_and_positional();
     test_resolve_from_argv_asset_options();
+    test_resolve_from_argv_game_toon_copies();
     test_model_format_follows_the_extension();
     return deren::vk_test::finish("test_app_config");
 }

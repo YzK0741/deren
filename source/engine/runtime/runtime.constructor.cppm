@@ -1652,9 +1652,9 @@ namespace deren::engine {
         }
         if (head_changed) {
             auto& owner = missing_head ? fallback : *this->frame_chain;
-            head_ubo initial{}; // usable fallback axes, not an all-zero head basis
+            deren::utility::vessel::array<head_ubo, max_game_toon_characters> initial{}; // usable fallback axes, not an all-zero head basis
             for (uint32_t slot = 0; slot < context.frame_slots; ++slot) {
-                auto const copied = owner.write_frame_buffer(slot, resource_id::head_ubo, std::as_bytes(std::span(&initial, 1)));
+                auto const copied = owner.write_frame_buffer(slot, resource_id::head_ubo, std::as_bytes(std::span(initial.data(), initial.size())));
                 if (copied != rhi::error::ok) {
                     return copied;
                 }
@@ -2312,7 +2312,7 @@ namespace deren::engine {
             // frame, so each slot needs its own copy.
             if (contract_descriptor_ready(this->rhi_face())) {
                 std::uint32_t const head_slot = deren::engine::render_layout::heap_slots::scene_head + slot;
-                if (!this->write_heap_buffer(*this->head_buffers[static_cast<std::size_t>(slot)], deren::engine::render_layout::heap_slots::scene_head + slot, sizeof(head_ubo), rhi::descriptor_type::storage_buffer)) {
+                if (!this->write_heap_buffer(*this->head_buffers[static_cast<std::size_t>(slot)], deren::engine::render_layout::heap_slots::scene_head + slot, sizeof(head_ubo) * max_game_toon_characters, rhi::descriptor_type::storage_buffer)) {
                     deren::utility::log("descriptor heap: the head frame did not fit slot {}'s block at logical slot {}", slot, head_slot);
                 }
             }

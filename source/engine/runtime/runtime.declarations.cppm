@@ -1813,10 +1813,15 @@ namespace deren::engine {
         deren::utility::vessel::vector<render_resource::instances::borrowed<rhi::buffer>> light_buffers = {};
         render_resource::instances::resource_snapshot light_resource_view;
         light_ubo light_state = {};
-        // THE HEAD FRAME (scene block slot 749), the same per-frame-slot arrangement as the light UBO above and
+        // THE HEAD FRAMES (scene block slot 749), the same per-frame-slot arrangement as the light UBO above and
         // for the same reason: on a model whose head TURNS these three vectors change every frame, so a frame in
-        // flight must not read a buffer the next frame is rewriting. `head_state` is the CPU-side value and
-        // `set_head_basis` is the only thing that writes it; pace_and_acquire copies it into the paced slot.
+        // flight must not read a buffer the next frame is rewriting. `head_states` is the CPU-side value and
+        // `set_head_basis` is the only thing that writes it; pace_and_acquire copies the whole array into the paced
+        // slot.
+        //
+        // ONE ENTRY PER GAME-TOON CHARACTER: the character stage draws a list of leaves, so a single frame-wide head
+        // frame would shade every character's face against the first character's head. A character's index is
+        // carried in the high bits of its primitives' push flags; entry 0 is the single-character path.
         //
         // IT IS INITIALISED TO THE REFERENCE'S FALLBACK FRAME rather than to zeros, which is what a scene that
         // never calls set_head_basis gets: zero vectors would reach the sigmoid's `atan2` and produce NaNs, i.e.
@@ -1824,7 +1829,7 @@ namespace deren::engine {
         deren::utility::vessel::vector<render_resource::instances::borrowed<rhi::buffer>> head_buffers = {};
         render_resource::instances::resource_snapshot head_resource_view;
         deren::utility::vessel::array<render_resource::instances::resource_snapshot, pass::output_targets_pass::resource_count> output_resource_views;
-        head_ubo head_state = {};
+        deren::utility::vessel::array<head_ubo, max_game_toon_characters> head_states = {};
         // linear exposure scale applied before tonemapping; copied into light_state.light_count.y
         // (the light UBO's first unused lane) right before the per-frame UBO upload, and pushed to
         // the shading stages apply through the scene layout's push-constant range (see
@@ -3807,6 +3812,9 @@ namespace deren::engine {
          */
         void set_toon_rig(toon_rig const& rig) noexcept;
         void set_head_basis(head_ubo const& basis) noexcept;
+        /// publish one character's head frame; `index` must be < `max_game_toon_characters`. The one-argument
+        /// overload above is the index-0 shorthand that keeps every single-character caller unchanged.
+        void set_head_basis(uint32_t index, head_ubo const& basis) noexcept;
         /**
          * @ingroup runtime
          * @brief the current exposure scale (see set_exposure)
@@ -4754,7 +4762,8 @@ namespace deren::engine {
          */
         template <class NI, class DI>
             requires scene_node_iterator<NI> && scene_drawable_iterator<DI>
-        scene_import_result import_scene(NI nfirst, NI nlast, DI dfirst, DI dlast, glm::vec3 const& offset, bool const environment = false) {
+        scene_import_result import_scene(NI nfirst, NI nlast, DI dfirst, DI dlast, glm::vec3 const& offset, bool const environment = false,
+                                         uint32_t const character_index = 0u) {
             if (this->bound_scene == nullptr) {
                 deren::utility::panic("contract violation: runtime::import_scene() called before set_scene() bound a scene");
             }
@@ -4870,6 +4879,9 @@ namespace deren::engine {
                 // leaf it creates (see the argument's note). It is a property of the CALL and not of the
                 // drawable, which is why the loader has nothing to say about it.
                 info.environment = environment;
+                // WHICH GAME-TOON CHARACTER OWNS THIS LEAF: stamped on every primitive this call creates so the
+                // shader can index that character's head frame. Zero is the single-character path.
+                info.character_index = character_index;
                 ++drawable;
                 ++result.primitive_count;
                 std::unique_ptr<primitive> created = this->create_primitive("pbr", info);

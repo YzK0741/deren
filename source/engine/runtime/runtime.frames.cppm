@@ -391,12 +391,12 @@ namespace deren::engine {
             this->shared_resource_fallback.begin_frame(frame_slot, preserved) != rhi::error::ok) {
             deren::utility::panic("internal invariant: managed resources: acquired frame slot is outside the prepared resource set");
         }
-        // THE HEAD FRAME RIDES THE SAME SLOT RULE, and for the same reason: it can change every frame on a model
+        // THE HEAD FRAMES RIDE THE SAME SLOT RULE, and for the same reason: they can change every frame on a model
         // whose head turns, so the paced slot gets its own copy and a frame in flight keeps reading the one it
-        // started with. `head_state` is only ever written by set_head_basis, which is an arbitrary-time call -
-        // this is where that value reaches the GPU, exactly as the light's does.
+        // started with. `head_states` is only ever written by set_head_basis, which is an arbitrary-time call -
+        // this is where those values reach the GPU, exactly as the light's does.
         if (this->head_buffers.size() > static_cast<std::size_t>(frame_slot)) {
-            if (this->upload_scene_constant(frame_slot, render_resource::resource_id::head_ubo, std::as_bytes(std::span(&this->head_state, 1))) != rhi::error::ok) {
+            if (this->upload_scene_constant(frame_slot, render_resource::resource_id::head_ubo, std::as_bytes(std::span(this->head_states.data(), this->head_states.size()))) != rhi::error::ok) {
                 deren::utility::panic("environment: managed head constants: upload to completed slot failed");
             }
         }

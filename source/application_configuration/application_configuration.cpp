@@ -337,6 +337,11 @@ namespace deren::app_config {
                     settings.render.game_toon = *value;
                 }
             }
+            if (toml::node const* node = render->get("game_toon_copies")) {
+                if (std::optional<int64_t> const value = node->value<int64_t>()) {
+                    settings.render.game_toon_copies = static_cast<int32_t>(*value);
+                }
+            }
             // THE STATIC SURROUND'S SECOND MODEL ([render] background_glb): an empty string is the default and
             // means "this frame has no background model", which keeps every recorded reference valid. The path
             // is NOT touched here - `main.cpp` resolves a relative one against the executable's directory,
@@ -831,6 +836,7 @@ namespace deren::app_config {
         deren::utility::vessel::string config_path = default_config_path;
         std::optional<std::string> asset_library_override;
         std::optional<std::string> asset_override;
+        std::optional<int64_t> game_toon_copies_override;
         deren::utility::vessel::vector<std::string_view> positional;
         for (int32_t i = 1; i < argc; ++i) {
             std::string_view const arg(argv[i]);
@@ -865,6 +871,29 @@ namespace deren::app_config {
                 asset_override = std::string(arg.substr(8));
                 continue;
             }
+            if (arg == "--game-toon-copies") {
+                if (i + 1 < argc) {
+                    char* end = nullptr;
+                    long const parsed = std::strtol(argv[++i], &end, 10);
+                    if (end != argv[i] && *end == '\0') {
+                        game_toon_copies_override = static_cast<int64_t>(parsed);
+                    } else {
+                        deren::utility::log("app_config: ignoring non-numeric --game-toon-copies value '{}'", argv[i]);
+                    }
+                }
+                continue;
+            }
+            if (arg.starts_with("--game-toon-copies=")) {
+                std::string const text(arg.substr(19));
+                char* end = nullptr;
+                long const parsed = std::strtol(text.c_str(), &end, 10);
+                if (end != text.c_str() && *end == '\0') {
+                    game_toon_copies_override = static_cast<int64_t>(parsed);
+                } else {
+                    deren::utility::log("app_config: ignoring non-numeric --game-toon-copies value '{}'", text);
+                }
+                continue;
+            }
             positional.push_back(arg);
         }
 
@@ -881,6 +910,9 @@ namespace deren::app_config {
         }
         if (asset_override) {
             settings.asset = *asset_override;
+        }
+        if (game_toon_copies_override) {
+            settings.render.game_toon_copies = static_cast<int32_t>(std::clamp<int64_t>(*game_toon_copies_override, 1, 64));
         }
 
         // 2. Positional argv overrides the file: [0] = model, [1] = grid side (numeric).
