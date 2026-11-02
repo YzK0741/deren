@@ -27,6 +27,7 @@
 // pattern has.
 
 #include "common/heap_access.slang"
+#include "common/material_record.slang" // per-object unlit: the material record's flag bit lives here
 #include "lighting/sky.slang"
 
 struct DeferredPush
@@ -167,15 +168,19 @@ float4 main([[vk::location(0)]] float2 v_uv : TEXCOORD0, float4 sv_position : SV
     }
 
     const float4 albedo_metallic = gbuffer_texel(heap_at<Texture2D<float4>>(heap_slots_gbuffer_albedo + heap_image_index), v_uv);
-    // "unlit" render mode: the forward path draws this geometry with the flat unlit pipeline, so the
-    // deferred path must produce the same thing - the base color with no lighting, no shadows, no IBL and
-    // no AO (the sky above is still the shared sky, exactly as on the forward path).
-    if (pc.unlit > 0.5)
+    const float4 material = gbuffer_texel(heap_at<Texture2D<float4>>(heap_slots_gbuffer_material + heap_image_index), v_uv);
+    // "unlit": the base color with no lighting, no shadows, no IBL and no AO (the sky above is still the
+    // shared sky). TWO SOURCES, because the mode is global on the forward path and per-object here: the pass's
+    // push flag is the whole-frame [render] unlit setting, while the G-buffer's material id leads back to the
+    // material record whose bit9 is the per-object choice. The record is the only per-pixel place the choice
+    // can live: this stage shades a fullscreen triangle and has no draw of its own to bind a pipeline for.
+    const uint material_id = uint(round(material.r * 255.0)) | (uint(round(material.g * 255.0)) << 8u);
+    const Material surface_material = material_at(heap_slots_materials, material_id);
+    if (pc.unlit > 0.5 || (surface_material.flags & 512u) != 0u)
     {
         return float4(albedo_metallic.rgb, 1.0);
     }
     const float4 normal_roughness = gbuffer_texel(heap_at<Texture2D<float4>>(heap_slots_gbuffer_normal + heap_image_index), v_uv);
-    const float4 material = gbuffer_texel(heap_at<Texture2D<float4>>(heap_slots_gbuffer_material + heap_image_index), v_uv);
 
     shade_input si;
     si.pixel = int2(sv_position.xy); // the cluster grid's tile coordinate (see shade_input)
@@ -189,6 +194,10 @@ float4 main([[vk::location(0)]] float2 v_uv : TEXCOORD0, float4 sv_position : SV
     // ambient (diffuse and specular) and never the direct sun.
     si.ao = material.b * ssao_occlusion(v_uv, depth, si.normal, sv_position.xy);
     si.emissive = float3(0.0);
+    // THE PER-OBJECT ENVIRONMENT: material flags bits 10..11 select one of the four IBL slots the application
+    // published. The slot index rides the material record for the same reason bit9 does - this stage is a
+    // fullscreen pass, so a material is the only per-pixel place an object's choice can live.
+    si.environment = (surface_material.flags >> 10u) & 3u;
     // Ray-traced sun visibility, or NEGATIVE to keep the cascaded shadow maps: the flag is the light UBO's,
     // and it is only ever set when that pass ran and the device has ray queries - so a frame with rt_shadows
     // off samples nothing that does not exist and shades exactly as it did before.

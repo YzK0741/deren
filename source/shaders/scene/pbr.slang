@@ -69,6 +69,7 @@ float4 main(
     si.shadow_override = -1.0;
     si.punctual_visibility = float4(1.0, 1.0, 1.0, 1.0); // no depth-march pass on the forward path
     // The forward path adds the diffuse ambient itself; the deferred path leaves it to the resolve.
+    si.environment = 0u; // the forward path has no per-pixel material record; it always uses the global IBL
 
     const float out_alpha = ((s.flags & 32u) != 0u) ? s.alpha : 1.0;
     return float4(shade_surface(si), out_alpha);

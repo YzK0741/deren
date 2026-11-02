@@ -36,20 +36,32 @@
 ///       host writes exactly six samplers: the env reads were reaching an UNWRITTEN slot, which the grid
 ///       contract test now fails on (see tests/test_render_resources.cpp). A cube map's addressing mode is
 ///       ignored at face edges, so the texture sampler's repeat costs nothing here.
+float ibl_specular_lod(float roughness, uint environment) {
+    return roughness * float(max(env_cube_levels(environment) - 1, 0));
+}
+
 float ibl_specular_lod(float roughness) {
-    return roughness * float(max(env_cube_levels() - 1, 0));
+    return ibl_specular_lod(roughness, 0u);
 }
 
 /// @brief one sample of the prefiltered environment: the radiance arriving from @p reflection
+float3 ibl_specular_sample(float3 reflection, float lod, uint environment) {
+    return environment_specular_sample(reflection, lod, environment);
+}
+
 float3 ibl_specular_sample(float3 reflection, float lod) {
-    return environment_specular_sample(reflection, lod);
+    return ibl_specular_sample(reflection, lod, 0u);
 }
 
 /// @brief Prefiltered GGX environment radiance for a reflection ray, at the mip that matches
 ///        @p roughness
-float3 ibl_specular_radiance(float3 n, float3 v, float roughness) {
+float3 ibl_specular_radiance(float3 n, float3 v, float roughness, uint environment) {
     const float3 reflection = normalize(reflect(-v, n));
-    return ibl_specular_sample(reflection, ibl_specular_lod(roughness));
+    return ibl_specular_sample(reflection, ibl_specular_lod(roughness, environment), environment);
+}
+
+float3 ibl_specular_radiance(float3 n, float3 v, float roughness) {
+    return ibl_specular_radiance(n, v, roughness, 0u);
 }
 
 /// @brief Single-scatter plus multi-scatter-compensated Fresnel weights from the BRDF LUT

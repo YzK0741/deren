@@ -172,18 +172,39 @@ float4 heap_sample_lod0(uint texture_index, float2 uv)
 
 // ---- THE IBL FETCHES (the GLSL definitions live in ibl_specular.slang) ----
 
+/// heap slot of a prefiltered environment: slot 0 is the scene-wide IBL, 1..3 the custom per-object slots
+uint env_cube_slot(uint environment)
+{
+    return environment == 0u ? heap_slots_env_cube : heap_slots_custom_env_cube + environment - 1u;
+}
+
+uint irradiance_cube_slot(uint environment)
+{
+    return environment == 0u ? heap_slots_irradiance_cube : heap_slots_custom_irradiance_cube + environment - 1u;
+}
+
 /// the prefiltered chain's mip count, QUERIED from the texture rather than hardcoded
-int env_cube_levels()
+int env_cube_levels(uint environment)
 {
     uint width, height, levels;
-    heap_at<TextureCube<float4>>(heap_slots_env_cube).GetDimensions(0u, width, height, levels);
+    heap_at<TextureCube<float4>>(env_cube_slot(environment)).GetDimensions(0u, width, height, levels);
     return int(levels);
 }
 
+int env_cube_levels()
+{
+    return env_cube_levels(0u);
+}
+
 /// one sample of the prefiltered environment at an explicit mip (GLSL's `textureLod`)
+float3 env_cube_sample_lod(float3 dir, float lod, uint environment)
+{
+    return heap_at<TextureCube<float4>>(env_cube_slot(environment)).SampleLevel(heap_at<SamplerState>(heap_sampler_texture), dir, lod).rgb;
+}
+
 float3 env_cube_sample_lod(float3 dir, float lod)
 {
-    return heap_at<TextureCube<float4>>(heap_slots_env_cube).SampleLevel(heap_at<SamplerState>(heap_sampler_texture), dir, lod).rgb;
+    return env_cube_sample_lod(dir, lod, 0u);
 }
 
 /// the BRDF integration LUT's `.rg` at a (ndotv, roughness) point
@@ -204,7 +225,12 @@ float shadow_sample(uint slot, float2 tap, int cascade, float depth)
 }
 
 /// the diffuse ambient: the irradiance map at the world normal
+float3 irradiance_sample(float3 n, uint environment)
+{
+    return heap_at<TextureCube<float4>>(irradiance_cube_slot(environment)).Sample(heap_at<SamplerState>(heap_sampler_texture), n).rgb;
+}
+
 float3 irradiance_sample(float3 n)
 {
-    return heap_at<TextureCube<float4>>(heap_slots_irradiance_cube).Sample(heap_at<SamplerState>(heap_sampler_texture), n).rgb;
+    return irradiance_sample(n, 0u);
 }

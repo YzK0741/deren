@@ -56,6 +56,7 @@ namespace deren::engine::scene_tree {
         copy.local = this->local;
         copy.source_index = this->source_index;
         copy.import_instance = this->import_instance;
+        copy.visible = this->visible;
         copy.children.reserve(this->children.size());
         for (scene_node const& child : this->children) {
             copy.children.push_back(child.clone());

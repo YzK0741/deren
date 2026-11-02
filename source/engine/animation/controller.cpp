@@ -165,6 +165,14 @@ namespace deren::engine::animation {
         return this->skin_readers.size();
     }
 
+    uint32_t controller::skin_block_count() const noexcept {
+        return this->skin_blocks_used;
+    }
+
+    std::size_t controller::morph_float_count() const noexcept {
+        return this->morph_floats_used;
+    }
+
     std::optional<glm::mat4> controller::joint_world(std::size_t const rig_index, std::size_t const joint_index) const noexcept {
         if (rig_index >= this->skin_readers.size() || this->skin_readers[rig_index] == deren::engine::scene_tree::no_source_index) {
             return std::nullopt;
@@ -231,6 +239,14 @@ namespace deren::engine::animation {
 
     void controller::set_playing(bool const playing) noexcept {
         this->playing_flag = playing;
+    }
+
+    void controller::set_speed(float const speed) noexcept {
+        this->playback_speed = std::clamp(speed, 0.0f, 16.0f);
+    }
+
+    float controller::speed() const noexcept {
+        return this->playback_speed;
     }
 
     bool controller::is_playing() const noexcept {
@@ -325,7 +341,7 @@ namespace deren::engine::animation {
         //    runtime's shared task pool while light ones stay on this thread.
         if (this->active != nullptr) {
             if (this->playing_flag) {
-                this->time += dt_seconds;
+                this->time += dt_seconds * this->playback_speed;
                 if (this->time >= this->duration) {
                     this->time = std::fmod(this->time, this->duration);
                 }
@@ -412,8 +428,15 @@ namespace deren::engine::animation {
             };
             deren::utility::vessel::vector<glm::mat4>& matrices = this->skin_matrices_scratch;
             matrices.clear();
-            matrices.reserve(4 + (this->skin_rigs.size() * 8));
-            matrices.insert(matrices.end(), {glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f)});
+            // The shared identity block (indices 0-3) is written by the first controller only: a
+            // later controller uploads its joint blocks at its own region base, so it must not
+            // prepend the identity block (that would overwrite the preceding region).
+            bool const owns_identity_block = this->skin_region_base == 4;
+            std::size_t const prefix = owns_identity_block ? 4 : 0;
+            matrices.reserve(prefix + (this->skin_rigs.size() * 8));
+            for (std::size_t i = 0; i < prefix; ++i) {
+                matrices.push_back(glm::mat4(1.0f));
+            }
             for (skin_rig const& rig : this->skin_rigs) {
                 // Cancel this mesh instance's world transform before the shader applies it.
                 glm::mat4 const mesh_world_inv = glm::inverse(this->skin_mesh_world_cache.at(rig.mesh_node));
@@ -421,7 +444,7 @@ namespace deren::engine::animation {
                     matrices.push_back(mesh_world_inv * world_of(rig.s.joints[j]) * rig.s.inverse_bind[j]);
                 }
             }
-            this->host.set_skin_matrices_active(matrices);
+            this->host.set_skin_matrices_active(matrices, owns_identity_block ? 0u : this->skin_region_base);
             // per-second report data: first rig's LAST joint world x-axis (rotations change it,
             // unlike the joint's position which stays fixed under rotation-only animations)
             this->skin_debug_valid = false;

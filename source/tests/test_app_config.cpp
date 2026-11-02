@@ -556,9 +556,31 @@ namespace {
         CHECK(parsed.scene.objects[0].rotation[0] == 15.0f);
         CHECK(parsed.scene.objects[0].rotation[2] == -10.0f);
         CHECK(parsed.scene.objects[0].scale[0] == 0.75f);
+        CHECK(parsed.scene.objects[0].visible);
+        CHECK(!parsed.scene.objects[0].cast_shadow);
+        CHECK(parsed.scene.objects[0].pipeline == 1);
+        CHECK(parsed.scene.objects[0].material_override);
+        CHECK(parsed.scene.objects[0].environment == "studio.hdr");
+        CHECK(parsed.scene.objects[0].environment_index == 0);
+        CHECK(parsed.scene.objects[0].environment_slot == 0u);
+        CHECK(parsed.scene.objects[1].environment.empty());
+        CHECK(parsed.scene.objects[0].tint[1] == 0.5f);
+        CHECK(parsed.scene.objects[0].metallic_scale == 0.0f);
+        CHECK(parsed.scene.objects[0].roughness_scale == 2.0f);
+        CHECK(parsed.scene.objects[0].emissive_scale == 0.5f);
+        CHECK(parsed.scene.objects[0].animation == 2);
+        CHECK(parsed.scene.objects[0].animation_speed == 0.5f);
+        CHECK(!parsed.scene.objects[0].animation_playing);
         CHECK(parsed.scene.objects[1].name == "right");
         CHECK(parsed.scene.objects[1].rotation[1] == 180.0f);
         CHECK(parsed.scene.objects[1].scale[2] == 1.25f);
+        CHECK(!parsed.scene.objects[1].visible);
+        CHECK(parsed.scene.objects[1].cast_shadow);
+        CHECK(parsed.scene.objects[1].pipeline == 2);
+        CHECK(!parsed.scene.objects[1].material_override);
+        CHECK(parsed.scene.objects[1].animation == 0);
+        CHECK(parsed.scene.objects[1].animation_speed == 1.0f);
+        CHECK(parsed.scene.objects[1].animation_playing);
 
         // The three sanitisation outcomes are distinct on purpose: non-finite placement/rotation becomes
         // 0, a non-finite scale becomes 1, and a finite scale is clamped to a positive range (0/negative
@@ -569,6 +591,15 @@ namespace {
                                                        "position = [nan, 0.0, 0.0]\n"
                                                        "rotation = [inf, 0.0, 0.0]\n"
                                                        "scale = [0.0, -1.0, nan]\n"
+                                                       "tint = [nan, 9.0, -1.0]\n"
+                                                       "metallic_scale = nan\n"
+                                                       "roughness_scale = -4.0\n"
+                                                       "emissive_scale = 99.0\n"
+                                                       "animation = -3\n"
+                                                       "animation_speed = nan\n"
+                                                       "animation_playing = \"yes\"\n"
+                                                       "pipeline = \"bogus\"\n"
+                                                       "visible = \"yes\"\n"
                                                        "[[scene.objects]]\n"
                                                        "position = [1.0, 2.0]\n"
                                                        "[[scene.objects]]\n"
@@ -580,6 +611,17 @@ namespace {
         CHECK(sanitised.scene.objects[0].scale[0] == 0.01f);
         CHECK(sanitised.scene.objects[0].scale[1] == 0.01f);
         CHECK(sanitised.scene.objects[0].scale[2] == 1.0f);
+        CHECK(sanitised.scene.objects[0].tint[0] == 1.0f);
+        CHECK(sanitised.scene.objects[0].tint[1] == 4.0f);
+        CHECK(sanitised.scene.objects[0].tint[2] == 0.0f);
+        CHECK(sanitised.scene.objects[0].metallic_scale == 1.0f);
+        CHECK(sanitised.scene.objects[0].roughness_scale == 0.0f);
+        CHECK(sanitised.scene.objects[0].emissive_scale == 10.0f);
+        CHECK(sanitised.scene.objects[0].animation == 0);
+        CHECK(sanitised.scene.objects[0].animation_speed == 1.0f);
+        CHECK(sanitised.scene.objects[0].animation_playing);
+        CHECK(sanitised.scene.objects[0].pipeline == 0);
+        CHECK(sanitised.scene.objects[0].visible);
         CHECK(sanitised.scene.objects[1].position[0] == 0.0f && sanitised.scene.objects[1].position[1] == 0.0f);
         CHECK(sanitised.scene.objects[2].name.empty());
         std::filesystem::remove("scene-objects-invalid.toml");
