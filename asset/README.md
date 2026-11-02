@@ -41,13 +41,15 @@ experimental game-toon path on by itself.
 | `FlightHelmet/` | Khronos FlightHelmet sample (glTF, textures, license) | CC0-1.0, see `FlightHelmet/LICENSE.md` |
 | `flowers/` | NVIDIA Bouquet of Flowers Gaussian splat cloud | CC BY 4.0, see `flowers/README.md` |
 | `laevatain/` | Laevatain / GameToon preview model and Toon sidecar | **All rights reserved by Hypergryph Network Technology Co., Ltd.** — see `laevatain/LICENSE.md` |
+| `tangtang/` | Tangtang / GameToon preview model and Toon sidecar | **All rights reserved by Hypergryph Network Technology Co., Ltd.** — see `tangtang/LICENSE.md` |
 
-`laevatain/*.glb` and `flowers/*.ply` are stored with Git LFS. After cloning, install
+`laevatain/*.glb`, `tangtang/*.glb` and `flowers/*.ply` are stored with Git LFS. After cloning, install
 `git-lfs` and run `git lfs pull` if the assets were not fetched automatically.
 
-The Laevatain asset is included only so deren's game-toon profile path can be exercised
-against the same source material as the repository's hand-captured GameToon screenshot.
-Its presence in this repository is not a license grant: redistribution, commercial use,
-modification and reuse are not granted, and whether the files may be redistributed at all
-as part of the repository is unresolved. Do not redistribute them without authorization
-from the rights holder. See `laevatain/LICENSE.md`.
+The Laevatain and Tangtang assets are included only so deren's game-toon profile path can be
+exercised against the same source material as the repository's hand-captured GameToon
+screenshot. Their presence in this repository is not a license grant: redistribution,
+commercial use, modification and reuse are not granted, and whether the files may be
+redistributed at all as part of the repository is unresolved. Do not redistribute them
+without authorization from the rights holder. See `laevatain/LICENSE.md` and
+`tangtang/LICENSE.md`.
