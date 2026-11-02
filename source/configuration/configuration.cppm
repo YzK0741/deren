@@ -39,6 +39,10 @@ import deren.utility;
  * asset = ""        # asset-library id to load when model is empty; --asset overrides it
  * grid_side = 0     # > 1 enables the instancing stress grid (0 = off)
  *
+ * # [scene] objects = the SAME loaded model placed more than once (PBR path only). An absent/empty
+ * # list keeps the historic single-object import. Each entry may carry name, position, rotation
+ * # (Y/X/Z degrees) and scale; see config.example.toml for the full block.
+ *
  * [paths]
  * shaders_dir = ""  # shader SPIR-V dir (empty = auto-locate "shaders/" upward)
  * model_dir   = ""  # default model dir used when model is empty (auto-locate gltf_model/)
@@ -617,6 +621,36 @@ namespace deren::app_config {
         deren::utility::vessel::array<float, 3> position = {0, 0, 0}, minimum = {-1, -1, -1}, maximum = {1, 1, 1};
         float fade = .5f, gain = 1;
     };
+    /**
+     * @ingroup app_config
+     * @brief ONE entry of `[[scene.objects]]`: a per-instance placement of the loaded model.
+     *
+     * The model named by `model`/`asset` is imported once PER ENTRY, so every object shares the same
+     * geometry, materials and animations. `position` is in world metres relative to the character's
+     * ground anchor (the point the single-object path already calls the scene origin), `rotation` is
+     * Y/X/Z Euler degrees applied in that order, and `scale` is uniform per axis. This is the seed of
+     * scene composition: a typed object list, not a general node editor.
+     *
+     * ONLY the PBR path consumes this list in v1. The captured GameToon character stage and
+     * `character_forward` derive their head basis from the first imported rig in world space, so main()
+     * rejects `[[scene.objects]]` together with either of them rather than rendering a plausible but
+     * wrong frame. The GameToon X staging (`game_toon_copies`) remains its own path.
+     */
+    export struct scene_object_settings {
+        deren::utility::vessel::string name = {};
+        deren::utility::vessel::array<float, 3> position = {0.0f, 0.0f, 0.0f};
+        deren::utility::vessel::array<float, 3> rotation = {0.0f, 0.0f, 0.0f}; // degrees, Y then X then Z
+        deren::utility::vessel::array<float, 3> scale = {1.0f, 1.0f, 1.0f};
+    };
+
+    /// `[scene]`: the object list. An EMPTY list means the historic single-object path, unchanged.
+    export struct scene_settings {
+        deren::utility::vessel::vector<scene_object_settings> objects = {};
+    };
+
+    /// Upper bound on `[[scene.objects]]`; the importer creates one full hierarchy per entry.
+    export inline constexpr std::size_t max_scene_objects = 16;
+
     export struct app_settings {
         // model file (empty = locate default via paths.model_dir; "ask" opens the platform's own file
         // dialog at startup - see wants_model_dialog, which is the only thing that may interpret it).
@@ -630,6 +664,7 @@ namespace deren::app_config {
         path_settings paths = {};
         render_settings render = {};
         lighting_settings lighting = {};
+        scene_settings scene = {};
         reflection_probe_settings reflection_probe = {};
         toon_settings toon = {};
         gui_settings gui = {};

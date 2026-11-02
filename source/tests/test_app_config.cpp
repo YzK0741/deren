@@ -148,6 +148,7 @@ namespace {
         CHECK(!settings.render.game_toon);
         // default: NO background model - the frame is the one import it always was (see the key's note)
         CHECK(settings.render.background_glb.empty());
+        CHECK(settings.scene.objects.empty());       // default: the historic single-object import
         CHECK(settings.render.shadow_cascades == 3); // default: three cascades
         CHECK(settings.render.shadow_cascade_blend > 0.09f && settings.render.shadow_cascade_blend < 0.11f);
         CHECK(settings.render.clustered_lights); // default: the cluster pass runs
@@ -197,6 +198,7 @@ namespace {
         CHECK(settings.lighting.area_light_irradiance);
         CHECK(settings.lighting.area_light_shadow);
         CHECK(settings.lighting.area_light_softness == 0.0f);
+        CHECK(settings.scene.objects.empty()); // example documents the block but ships it commented out
         CHECK(settings.gui.show);
     }
 
@@ -540,6 +542,60 @@ namespace {
         // Nothing is opened, so a path that does not exist still classifies - the caller checks existence.
         CHECK(model_format_of("/nonexistent/flowers.ply") == model_format::gaussian_ply);
     }
+    /// `[[scene.objects]]` is an ORDERED list of placements for the one loaded model. The parse must keep
+    /// the order, the four fields and their exact numbers, because main() imports one hierarchy per entry
+    /// and derives the camera fit from all of them.
+    void test_scene_objects_parse_and_sanitise() {
+        using deren::app_config::load_settings;
+        using deren::app_config::max_scene_objects;
+        auto const parsed = load_settings(VR_TEST_SOURCE_DIR "/source/tests/fixtures/config_scene_objects.toml");
+        CHECK(parsed.scene.objects.size() == 2);
+        CHECK(parsed.scene.objects[0].name == "left");
+        CHECK(parsed.scene.objects[0].position[0] == -1.5f);
+        CHECK(parsed.scene.objects[0].position[2] == 0.25f);
+        CHECK(parsed.scene.objects[0].rotation[0] == 15.0f);
+        CHECK(parsed.scene.objects[0].rotation[2] == -10.0f);
+        CHECK(parsed.scene.objects[0].scale[0] == 0.75f);
+        CHECK(parsed.scene.objects[1].name == "right");
+        CHECK(parsed.scene.objects[1].rotation[1] == 180.0f);
+        CHECK(parsed.scene.objects[1].scale[2] == 1.25f);
+
+        // The three sanitisation outcomes are distinct on purpose: non-finite placement/rotation becomes
+        // 0, a non-finite scale becomes 1, and a finite scale is clamped to a positive range (0/negative
+        // would collapse or mirror the object). A wrong-arity vector keeps its default instead of
+        // mixing config components with defaults.
+        std::ofstream("scene-objects-invalid.toml") << "[[scene.objects]]\n"
+                                                       "name = \"bad\"\n"
+                                                       "position = [nan, 0.0, 0.0]\n"
+                                                       "rotation = [inf, 0.0, 0.0]\n"
+                                                       "scale = [0.0, -1.0, nan]\n"
+                                                       "[[scene.objects]]\n"
+                                                       "position = [1.0, 2.0]\n"
+                                                       "[[scene.objects]]\n"
+                                                       "name = 7\n";
+        auto const sanitised = load_settings("scene-objects-invalid.toml");
+        CHECK(sanitised.scene.objects.size() == 3);
+        CHECK(sanitised.scene.objects[0].position[0] == 0.0f);
+        CHECK(sanitised.scene.objects[0].rotation[0] == 0.0f);
+        CHECK(sanitised.scene.objects[0].scale[0] == 0.01f);
+        CHECK(sanitised.scene.objects[0].scale[1] == 0.01f);
+        CHECK(sanitised.scene.objects[0].scale[2] == 1.0f);
+        CHECK(sanitised.scene.objects[1].position[0] == 0.0f && sanitised.scene.objects[1].position[1] == 0.0f);
+        CHECK(sanitised.scene.objects[2].name.empty());
+        std::filesystem::remove("scene-objects-invalid.toml");
+
+        // The list is capped because every entry builds a full retained hierarchy.
+        {
+            std::ofstream out("scene-objects-capped.toml");
+            for (std::size_t i = 0; i < max_scene_objects + 4; ++i) {
+                out << "[[scene.objects]]\nname = \"o" << i << "\"\n";
+            }
+        }
+        auto const capped = load_settings("scene-objects-capped.toml");
+        CHECK(capped.scene.objects.size() == max_scene_objects);
+        CHECK(capped.scene.objects.back().name == "o15");
+        std::filesystem::remove("scene-objects-capped.toml");
+    }
 } // namespace
 
 int32_t main() {
@@ -592,5 +648,6 @@ int32_t main() {
     test_resolve_from_argv_asset_options();
     test_resolve_from_argv_game_toon_copies();
     test_model_format_follows_the_extension();
+    test_scene_objects_parse_and_sanitise();
     return deren::vk_test::finish("test_app_config");
 }

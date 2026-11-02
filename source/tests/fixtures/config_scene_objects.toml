@@ -1,0 +1,11 @@
+[[scene.objects]]
+name = "left"
+position = [-1.5, 0.0, 0.25]
+rotation = [15.0, 0.0, -10.0]
+scale = [0.75, 0.75, 0.75]
+
+[[scene.objects]]
+name = "right"
+position = [1.5, 0.5, -0.25]
+rotation = [-15.0, 180.0, 10.0]
+scale = [1.25, 1.25, 1.25]
