@@ -153,6 +153,10 @@ export namespace deren::app {
         };
         deren::utility::vessel::vector<deren::utility::vessel::vector<object_pipeline_option>> object_pipeline_options = {};
         deren::utility::vessel::vector<std::int32_t> object_pipeline_choice = {};
+        // Aligned with scene_objects. Gaussian clouds are staged by the splat path and have no
+        // environment/material override or skeletal animation; showing those widgets would let the
+        // operator edit state that the renderer ignores.
+        deren::utility::vessel::vector<bool> object_is_gaussian = {};
         // Per-object environment combo items: "Scene default" followed by environment_names, so index 0 keeps
         // the object on the scene-wide IBL and 1..N pick an HDR from the same list the global combo uses.
         deren::utility::vessel::vector<deren::utility::vessel::string> object_environment_names = {};

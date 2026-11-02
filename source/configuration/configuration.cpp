@@ -1097,7 +1097,10 @@ namespace deren::app_config {
             settings.asset = *asset_override;
         }
         if (game_toon_copies_override) {
-            settings.render.game_toon_copies = static_cast<int32_t>(std::clamp<int64_t>(*game_toon_copies_override, 1, 64));
+            // The engine's head-state array is 16 slots (`max_game_toon_characters`); clamp at the
+            // command-line boundary too, so `--game-toon-copies 40` is not accepted as a value that
+            // main then silently rewrites.
+            settings.render.game_toon_copies = static_cast<int32_t>(std::clamp<int64_t>(*game_toon_copies_override, 1, 16));
         }
 
         // 2. Positional argv overrides the file: [0] = model, [1] = grid side (numeric).

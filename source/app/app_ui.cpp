@@ -267,6 +267,13 @@ namespace deren::app {
             for (std::size_t i = 0; i < bindings.scene_objects->size(); ++i) {
                 deren::app_config::scene_object_settings& object = (*bindings.scene_objects)[i];
                 auto const selected = [&bindings, i] { return bindings.selected_object == static_cast<std::int32_t>(i); };
+                // The splat stage owns a cloud's look; environment/material and skeletal-animation
+                // widgets would edit state that path never reads. Treat an unpopulated flag as mesh
+                // so the historic single-object panel keeps its old layout.
+                auto const is_gaussian = [&bindings, i] {
+                    return i < bindings.object_is_gaussian.size() && bindings.object_is_gaussian[i];
+                };
+                auto const selected_mesh = [selected, is_gaussian] { return selected() && !is_gaussian(); };
                 object_panel.add_vec3("  position", &object.position[0], 0.05f, mark_dirty).set_visible_when(selected);
                 object_panel.add_vec3("  rotation", &object.rotation[0], 1.0f, mark_dirty).set_visible_when(selected);
                 object_panel.add_vec3("  scale", &object.scale[0], 0.01f, mark_dirty).set_visible_when(selected);
@@ -297,26 +304,26 @@ namespace deren::app {
                                        object.environment_slot = 0; // the scene-wide IBL until the custom slot is ready
                                        mark_dirty();
                                    })
-                        .set_visible_when(selected);
+                        .set_visible_when(selected_mesh);
                 }
-                object_panel.add_checkbox("  material override", &object.material_override, [mark_dirty](bool) { mark_dirty(); }).set_visible_when(selected);
-                object_panel.add_vec3("  tint", &object.tint[0], 0.01f, mark_dirty)
-                    .set_visible_when([&bindings, &object, i] { return bindings.selected_object == static_cast<std::int32_t>(i) && object.material_override; });
+                object_panel.add_checkbox("  material override", &object.material_override, [mark_dirty](bool) { mark_dirty(); }).set_visible_when(selected_mesh);
+                auto const material_override_visible = [selected_mesh, &object] { return selected_mesh() && object.material_override; };
+                object_panel.add_vec3("  tint", &object.tint[0], 0.01f, mark_dirty).set_visible_when(material_override_visible);
                 object_panel.add_slider("  metallic", &object.metallic_scale, 0.0f, 4.0f, [mark_dirty](float) { mark_dirty(); })
-                    .set_visible_when([&bindings, &object, i] { return bindings.selected_object == static_cast<std::int32_t>(i) && object.material_override; });
+                    .set_visible_when(material_override_visible);
                 object_panel.add_slider("  roughness", &object.roughness_scale, 0.0f, 4.0f, [mark_dirty](float) { mark_dirty(); })
-                    .set_visible_when([&bindings, &object, i] { return bindings.selected_object == static_cast<std::int32_t>(i) && object.material_override; });
+                    .set_visible_when(material_override_visible);
                 object_panel.add_slider("  emissive", &object.emissive_scale, 0.0f, 4.0f, [mark_dirty](float) { mark_dirty(); })
-                    .set_visible_when([&bindings, &object, i] { return bindings.selected_object == static_cast<std::int32_t>(i) && object.material_override; });
+                    .set_visible_when(material_override_visible);
                 // Phase 2: this placement's own clock. The clip combo is drawn only when this
                 // object has more than one channel-bearing clip; index 0 is always valid.
                 object_panel.add_slider("  speed", &object.animation_speed, 0.0f, 8.0f, [mark_dirty](float) { mark_dirty(); })
-                    .set_visible_when(selected);
-                object_panel.add_checkbox("  playing", &object.animation_playing, [mark_dirty](bool) { mark_dirty(); }).set_visible_when(selected);
+                    .set_visible_when(selected_mesh);
+                object_panel.add_checkbox("  playing", &object.animation_playing, [mark_dirty](bool) { mark_dirty(); }).set_visible_when(selected_mesh);
                 if (bindings.object_animation_names.size() > i && bindings.object_animation_names[i].size() > 1) {
                     object_panel
                         .add_combo("  clip", bindings.object_animation_names[i], &object.animation, [mark_dirty](std::int32_t) { mark_dirty(); })
-                        .set_visible_when(selected);
+                        .set_visible_when(selected_mesh);
                 }
             }
         }

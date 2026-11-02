@@ -1,18 +1,17 @@
 # Multi-pipeline objects: Phase A and Phase B implementation
 
-Status: Phase A and Phase B are implemented on `feat/multi-type-assets`
-(working tree, not yet committed); the full local gate passes. Phase C is not
-started.
+Status: Phase A and Phase B are integrated on `master` (PR #28); the full
+local gate passed before the squash merge. Phase C is not started.
 
 This document records the per-object rendering-path design and the Phase A/B
 implementation. The three pre-Phase-A gates were answered: raise the character
-cap to 16, land Phase A first, and keep the uncommitted per-object asset work
-as the base. Phase B (multiple Gaussian objects) was approved separately by the
-user after Phase A. Neither phase authorizes a commit, push, or Phase C.
+cap to 16, land Phase A first, and keep the per-object asset work as the base.
+Phase B (multiple Gaussian objects) was approved separately by the user after
+Phase A. Phase C still needs its own design and review.
 
 ## 0. Base state
 
-The working tree already contains an uncommitted per-object asset feature:
+The committed base already contains the per-object asset feature:
 
 - `scene_object_settings` accepts `model` or `asset` per object.
 - Distinct glTF files are deduplicated, loaded into an asset pool, grounded on a
@@ -21,9 +20,8 @@ The working tree already contains an uncommitted per-object asset feature:
 - Before Phase A, the feature was PBR-only when assets were mixed; Phase A
   removes that restriction for `game_toon` objects.
 
-This proposal keeps that work as the base and overlays pipeline routing on top
-of it. Any review of this plan must review both layers together before either is
-committed.
+The committed implementation keeps that work as the base and overlays pipeline
+routing on top of it. Phase A and Phase B were reviewed and merged together.
 
 ## 1. Goal
 
@@ -240,6 +238,13 @@ Every scene object gets a slot at import, not only the objects that start as
 GameToon, so the object panel can switch `pipeline` live without making an
 object read another character's head frame.
 
+A per-object `pipeline = "game_toon"` is itself the opt-in for the character
+stage; the global `[render] character_forward` switch is not a prerequisite. The
+captured tone curve and hair-rim lane follow the effective GameToon selection
+while that stage is active. Each object publishes its head basis from its own
+asset rig and placement, so rotation and scale move the face frame with the
+rendered character.
+
 ### 5.5 Per-asset toon sidecar
 
 Before Phase A, the app loaded one sidecar for the default model and dropped it
@@ -371,8 +376,7 @@ its own scenes and exposes that asset's clip list.
 - [x] Verify PBR + unlit + two GameToon characters in one capture.
 - [x] Verify that a GameToon object works while the global `[render] game_toon`
   switch is off.
-- [x] Complete the CI-equivalent gate before commit (the gate passes; the
-  changes are still uncommitted and no push has been made).
+- [x] Complete the CI-equivalent gate before commit (passed; merged as PR #28).
 
 ### Phase B: Gaussian objects (implemented)
 
@@ -491,9 +495,8 @@ The three pre-implementation gates were answered:
 
 1. **Character cap.** Raise it to 16, matching `max_scene_objects`.
 2. **Scope.** Land Phase A first; Gaussian objects stay a separate round.
-3. **Base.** Keep the uncommitted per-object asset work and overlay Phase A on
-   it.
-4. **Phase B.** Approved by the user after Phase A; it adds Gaussian objects but
-   does not authorize a commit or push.
+3. **Base.** Keep the per-object asset work and overlay Phase A on it.
+4. **Phase B.** Approved by the user after Phase A; it added Gaussian objects
+   and was merged with Phase A in PR #28.
 
-Phase A does not authorize a commit, a push, or the full CI gate.
+Phase A and Phase B are complete; Phase C remains a separate design round.
