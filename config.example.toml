@@ -38,6 +38,32 @@ grid_side = 0
 # The captured GameToon/character_forward stages are single-rig features and
 # reject this list in v1 (their head basis is derived from one world-space rig).
 #
+# Each entry can also override how that object is drawn:
+#   visible       - false skips the object's subtree in both the colour and shadow passes
+#   cast_shadow   - false keeps the object lit normally but out of the shadow map
+#   pipeline      - "default", "pbr" or "unlit". The deferred scene path shades every opaque leaf
+#                   through its G-buffer stage, so "default" and "pbr" both mean the ordinary lit
+#                   surface; "unlit" is carried per object as a material flag (bit9) that the deferred
+#                   stage reads back through the G-buffer's material id and draws as flat base colour.
+#   environment   - HDR file name or path for THIS object's image-based lighting. Empty/"Scene
+#                   default" follows the scene-wide environment; otherwise the engine keeps up to
+#                   three additional IBL sets resident and routes this object to the matching one
+#                   (four including the scene's). A fifth distinct selection falls back to the
+#                   scene-wide environment rather than growing the descriptor heap.
+#   material_override - clone this object's materials so the multipliers below affect only it:
+#                       tint [r,g,b] (linear multiplier), metallic_scale, roughness_scale,
+#                       emissive_scale. The shared imported material is never modified.
+#   animation     - this object's clip index (0 = the first channel-bearing animation)
+#   animation_speed - playback-rate multiplier (1 = real time, 0 = frozen)
+#   animation_playing - false leaves the pose at its current time
+# These are independent per object: each entry gets its own animation controller and
+# its own clock, so two copies can play different clips at different speeds.
+#
+# While the debug overlay is open, clicking an object in the viewport selects it
+# and its placement/draw settings appear in a separate "scene object" panel. Those
+# edits are applied live but are RUNTIME-ONLY: they are never written back to this
+# file, so a restart returns to the values below.
+#
 # [scene]
 # objects = []   # alternative spelling; do not also use [[scene.objects]]
 #
@@ -46,12 +72,25 @@ grid_side = 0
 # position = [-1.5, 0.0, 0.0]
 # rotation = [0.0, 0.0, 0.0]
 # scale = [1.0, 1.0, 1.0]
+# visible = true
+# cast_shadow = true
+# pipeline = "default"
+# environment = ""   # e.g. "studio.hdr"; empty = the scene-wide [lighting] environment_hdr
+# material_override = false
+# tint = [1.0, 1.0, 1.0]
+# metallic_scale = 1.0
+# roughness_scale = 1.0
+# emissive_scale = 1.0
+# animation = 0
+# animation_speed = 1.0
+# animation_playing = true
 #
 # [[scene.objects]]
 # name = "right"
 # position = [1.5, 0.0, 0.0]
 # rotation = [0.0, 180.0, 0.0]
 # scale = [1.0, 1.0, 1.0]
+# pipeline = "unlit"
 
 # ---- [paths] resource directories (empty = auto-locate) ----
 [paths]

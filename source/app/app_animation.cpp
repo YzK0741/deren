@@ -23,8 +23,8 @@ namespace deren::app {
         backend.morph_scratch_slot = [&runtime](std::uint32_t const slot) -> float* {
             return static_cast<float*>(runtime.morph_scratch(slot));
         };
-        backend.set_skin_matrices_active = [&runtime](std::span<glm::mat4 const> matrices) {
-            runtime.set_skin_matrices(matrices);
+        backend.set_skin_matrices_active = [&runtime](std::span<glm::mat4 const> matrices, std::uint32_t const base) {
+            runtime.set_skin_matrices_at(matrices, base);
         };
         backend.set_skin_matrices_slot = [&runtime](std::span<glm::mat4 const> matrices, std::uint32_t const slot) {
             runtime.set_skin_matrices(matrices, slot);

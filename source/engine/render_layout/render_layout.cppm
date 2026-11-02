@@ -163,6 +163,9 @@ export namespace deren::engine::render_layout {
     // 1324 slots are in use: the last is `software_tiles`' second frame lane (base + 1323), so the grid has 724
     // free slots after the used region - and the texture run at the front is what grew to 1024.
     inline constexpr uint32_t heap_slot_count = 3072; // second 1024-texture bank starts at offset 2048
+    /// Environment slot 0 is the scene-wide IBL; slots 1..3 are per-object custom HDRs. The slot index is the
+    /// value `material_record::flags` bits 10..11 carry, so the shader and this cap must agree.
+    inline constexpr uint32_t heap_environment_capacity = 4;
     inline constexpr uint32_t heap_texture_bank_stride = 2048;
     inline constexpr uint32_t heap_image_capacity = 8; // per-swapchain-image arrays (3-4 images in practice)
     /// The SAMPLER heap is a second grid with its own base, and it cannot share the resource one: the API caps
@@ -298,10 +301,25 @@ export namespace deren::engine::render_layout {
         static constexpr uint32_t morph_data = heap_slot_base + 1040u;     // binding 10, per frame slot
         static constexpr uint32_t mask_instances = heap_slot_base + 1042u; // binding 17, per frame slot
         static constexpr uint32_t local_probe = heap_slot_base + 1364u;
-        static constexpr uint32_t env_cube = heap_slot_base + 1044u;        // binding 2
-        static constexpr uint32_t irradiance_cube = heap_slot_base + 1045u; // binding 3
-        static constexpr uint32_t brdf_lut = heap_slot_base + 1046u;        // binding 4
-        static constexpr uint32_t shadow_map = heap_slot_base + 1047u;      // binding 8, per image
+        static constexpr uint32_t env_cube = heap_slot_base + 1044u;        // binding 2, environment slot 0
+        static constexpr uint32_t irradiance_cube = heap_slot_base + 1045u; // binding 3, environment slot 0
+        static constexpr uint32_t brdf_lut = heap_slot_base + 1046u;        // binding 4, shared by every slot
+        /**
+         * @brief the CUSTOM environment slots (1..3), each a prefiltered cube + irradiance pair
+         *
+         * A per-object `[[scene.objects]]` entry can select its own HDR; slot 0 is the scene-wide IBL above and
+         * the three custom slots are what the application fills for objects that chose a different one. The
+         * material record carries the slot in flags bits 10..11, and the deferred stage picks the descriptor by
+         * that index - so the shader needs ONE PAIR OF SLOT BASES, not one pair per environment.
+         *
+         * 1365..1372 is the free window after `local_probe` (1364) and the software raster's last family
+         * (`software_route_arguments` occupies 1356..1363). Appending here rather than moving `env_cube` keeps
+         * every existing descriptor number, including the global environment the deferred stage reads when a
+         * material names slot 0.
+         */
+        static constexpr uint32_t custom_env_cube = heap_slot_base + 1365u;        // slots 1..3 are +0..+2
+        static constexpr uint32_t custom_irradiance_cube = heap_slot_base + 1369u; // slots 1..3 are +0..+2
+        static constexpr uint32_t shadow_map = heap_slot_base + 1047u;             // binding 8, per image
         /** @brief the ray-traced visibility image, sampled by the lighting stage */
         static constexpr uint32_t rt_visibility = heap_slot_base + 1055u; // binding 15, per image
         /**
@@ -473,6 +491,8 @@ export namespace deren::engine::render_layout {
     // The software raster has sampled and storage descriptor runs for each image, plus its per-frame CSR lanes.
     static_assert(heap_slots::software_route_arguments + heap_image_capacity <= heap_slot_base + heap_slot_count - 1u,
                   "the highest used slot must stay inside the grid");
+    static_assert(heap_slots::custom_irradiance_cube + (heap_environment_capacity - 2u) <= heap_slot_base + heap_slot_count - 1u,
+                  "the custom environment slots must stay inside the grid");
     // THE SOFTWARE FAMILIES' SPACING IS THE GRID'S, and these are the contract. `software_depth` sits in the range
     // the visibility work RESERVED (1239..1246, one per-image run) and `software_id` follows the HZB tables, so the
     // two are NOT adjacent - only the id family and the tile-list lane are. The checks are the run's end (the depth

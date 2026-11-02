@@ -1862,7 +1862,7 @@ namespace deren::engine {
         float metallic_factor = 1.0f;
         float roughness_factor = 1.0f;
         float normal_scale = 1.0f;
-        uint32_t flags = 0; // bit0: normal map, bit1: occlusion map, bit2: emissive map, bit3: double-sided, bit4: alphaMode MASK, bit5: alphaMode BLEND, bit6: the EYE-DARK overlay, bit7: the HAIR-SHADOW overlay, bit8: the author's toon TRANSPARENT variant (see toon_inputs::alpha_blend)
+        uint32_t flags = 0; // bit0: normal map, bit1: occlusion map, bit2: emissive map, bit3: double-sided, bit4: alphaMode MASK, bit5: alphaMode BLEND, bit6: the EYE-DARK overlay, bit7: the HAIR-SHADOW overlay, bit8: the author's toon TRANSPARENT variant (see toon_inputs::alpha_blend), bit9: unlit shading for this material, bits10..11: the IBL environment slot (0 = scene-wide, 1..3 = per-object custom; the deferred stage reads them back through the G-buffer's material id)
                             // (bits 6 and 7 are the article's two overlay channels - see `overlay_kind` in
                             // gltf_loader and the note in register_material: the overlay fragment stage branches
                             // on them because the two masks compute different multipliers from the same inputs)
@@ -2185,6 +2185,14 @@ namespace deren::engine {
          * are built from primitives, before any shader could read a lane.
          */
         bool environment = false;
+
+        /**
+         * PER-OBJECT SHADOW FILTER: false keeps this leaf out of the shadow-caster list while it still draws
+         * in the visible pass. Default true preserves the historic "everything visible casts" behaviour.
+         * Set it per placement by walking that object's leaves; the frame builder reads it once when it
+         * fills the caster list, so a runtime edit needs runtime::scene_changed() like any other leaf change.
+         */
+        bool casts_shadow = true;
 
         /// which GameToon character owns this leaf; copied into the high bits of `push.flags` at creation. See
         /// `primitive_create_info::character_index`.

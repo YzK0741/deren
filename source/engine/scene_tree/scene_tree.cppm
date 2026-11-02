@@ -108,6 +108,9 @@ namespace deren::engine::scene_tree {
         std::size_t source_index = no_source_index;
         // Zero is reserved for manually assembled scenes; each import has a distinct identity.
         uint64_t import_instance = 0;
+        // runtime draw filter: a hidden node's primitive leaf and its whole subtree are skipped by
+        // visit_primitives(), so it disappears from both the visible pass and shadow-caster collection.
+        bool visible = true;
         deren::utility::vessel::vector<scene_node> children = {};
         std::unique_ptr<primitive> primitive_leaf = {}; // null for transform-only nodes
 
@@ -216,6 +219,9 @@ namespace deren::engine::scene_tree {
      */
     export template <class F>
     void visit_primitives(scene_node const& node, glm::mat4 const& parent_world, F&& visit) {
+        if (!node.visible) {
+            return; // hidden nodes hide their whole subtree, including shadow-caster collection
+        }
         glm::mat4 const world = parent_world * node.local;
         if (node.primitive_leaf) {
             visit(node, world);

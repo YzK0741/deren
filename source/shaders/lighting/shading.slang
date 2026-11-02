@@ -154,11 +154,17 @@ float3 environment_direction(float3 dir) {
     float4 e = light_at(heap_light_slot).environment;
     return float3(e.x * dir.x - e.y * dir.z, dir.y, e.y * dir.x + e.x * dir.z);
 }
+float3 environment_specular_sample(float3 dir, float lod, uint environment) {
+    return env_cube_sample_lod(environment_direction(dir), lod, environment) * light_at(heap_light_slot).environment.z;
+}
 float3 environment_specular_sample(float3 dir, float lod) {
-    return env_cube_sample_lod(environment_direction(dir), lod) * light_at(heap_light_slot).environment.z;
+    return environment_specular_sample(dir, lod, 0u);
+}
+float3 environment_irradiance(float3 dir, uint environment) {
+    return irradiance_sample(environment_direction(dir), environment) * light_at(heap_light_slot).environment.z;
 }
 float3 environment_irradiance(float3 dir) {
-    return irradiance_sample(environment_direction(dir)) * light_at(heap_light_slot).environment.z;
+    return environment_irradiance(dir, 0u);
 }
 float3 environment_background_color(float3 dir) {
     float mode = light_at(heap_light_slot).environment.w;
@@ -720,8 +726,12 @@ float3 evaluate_direct_light(float3 n, float3 v, float3 base_color, float metall
 /// @brief IBL: split-sum approximation (ported from glTF-Sample-Renderer's ibl.glsl); the ambient
 ///        always uses this fixed GGX model, independent of the BRDF presets above
 /// Diffuse ambient: irradiance map lookup by the world normal
+float3 get_diffuse_light(float3 n, uint environment) {
+    return environment_irradiance(n, environment);
+}
+
 float3 get_diffuse_light(float3 n) {
-    return environment_irradiance(n);
+    return get_diffuse_light(n, 0u);
 }
 
 // The specular half - get_specular_sample / get_ibl_ggx_fresnel / get_ibl_radiance_ggx - is
@@ -854,6 +864,10 @@ struct shade_input {
     float shadow_override;
     // per-light visibility weights for the punctual path; the forward path fills them with 1
     float4 punctual_visibility;
+    // WHICH ENVIRONMENT SLOT THIS SURFACE SAMPLES: 0 = the scene-wide IBL, 1..3 = a per-object HDR. The deferred
+    // stage takes it from the G-buffer material record's flags bits 10..11; the forward and toon paths leave it 0,
+    // so their IBL is exactly the global one they had before.
+    uint environment;
 };
 
 /**
@@ -913,8 +927,8 @@ float3 shade_surface(shade_input s) {
     }
 
     // ---- IBL (split-sum): diffuse irradiance + prefiltered specular ----
-    float3 ibl_diffuse = get_diffuse_light(s.normal);
-    float3 ibl_specular = ibl_specular_radiance(s.normal, v, s.roughness);
+    float3 ibl_diffuse = get_diffuse_light(s.normal, s.environment);
+    float3 ibl_specular = ibl_specular_radiance(s.normal, v, s.roughness, s.environment);
     float3 fresnel_ibl = ibl_specular_fresnel(s.normal, v, s.roughness, f0, 1.0);
 
     // Metals have no diffuse term: diffuse ambient is scaled by (1 - metallic),

@@ -276,8 +276,8 @@ namespace deren::engine::animation {
         deren::engine::scene_tree::scene* scene = nullptr; // tree to animate (nullptr = not bound)
 
         // ---- per-frame (active slot) access, used by update() ----
-        std::function<float*()> morph_scratch_active;                             // host-visible morph scratch of the paced slot
-        std::function<void(std::span<glm::mat4 const>)> set_skin_matrices_active; // upload skin matrices to the paced slot
+        std::function<float*()> morph_scratch_active;                                       // host-visible morph scratch of the paced slot
+        std::function<void(std::span<glm::mat4 const>, uint32_t)> set_skin_matrices_active; // upload skin matrices at a block offset into the paced slot
 
         // ---- setup-time (explicit slot) access, used by init() ----
         std::function<float*(uint32_t)> morph_scratch_slot;                               // morph scratch of one frame slot
@@ -316,16 +316,27 @@ namespace deren::engine::animation {
          *        (animated roots must re-apply it, like import_scene did)
          * @param import_instance identity returned by import_scene; when omitted, a scene
          *        with one import identity is inferred (including manually assembled identity zero)
+         * @param skin_region_base first skin-matrix block this controller may use (4 for the first
+         *        controller, after the shared identity block; later controllers pass their own
+         *        disjoint region so several controllers can drive one runtime skin buffer)
+         * @param morph_region_base first morph-buffer float this controller may use (0 for the
+         *        first controller; later controllers pass their own disjoint region)
          * @note call before the first frame, or only while the host is idle (no frame in
          *       flight) - this writes scene buffers/descriptors like make_primitive() does.
          * @note a template: the definition is in this interface so any TU that imports the
          *       module can instantiate it at the call site with a concrete source type.
          */
         template <source S>
-        void init(S const& scenes, backend const& host, glm::vec3 const& import_shift, uint64_t const import_instance = std::numeric_limits<uint64_t>::max()) {
+        void init(S const& scenes, backend const& host, glm::vec3 const& import_shift, uint64_t const import_instance = std::numeric_limits<uint64_t>::max(),
+                  uint32_t const skin_region_base = 4, uint32_t const morph_region_base = 0) {
             this->host = host;
             this->import_shift = import_shift;
             this->import_id = import_instance;
+            this->skin_region_base = skin_region_base;
+            this->morph_region_base = morph_region_base;
+            this->skin_blocks_used = 0;
+            this->morph_floats_used = 0;
+            this->playback_speed = 1.0f;
             if (import_instance == std::numeric_limits<uint64_t>::max()) {
                 std::optional<uint64_t> inferred;
                 bool ambiguous = false;
@@ -443,7 +454,7 @@ namespace deren::engine::animation {
             // ---- skin rigs: resolve each exported skin that drives an imported mesh ----
             if (!scenes.skins.empty()) {
                 this->skin_readers.assign(scenes.skins.size(), deren::engine::scene_tree::no_source_index);
-                uint32_t next_block = 4; // identity block occupies indices 0-3
+                uint32_t next_block = this->skin_region_base; // identity block occupies indices 0-3
                 for (std::size_t skin_id = 0; skin_id < scenes.skins.size(); ++skin_id) {
                     auto const& loader_skin = scenes.skins[skin_id];
                     // EVERY source node referencing this skin that is present in the tree - not the first
@@ -499,6 +510,7 @@ namespace deren::engine::animation {
                         this->skin_readers[skin_id] = first_mesh_rig;
                     }
                 }
+                this->skin_blocks_used = next_block - this->skin_region_base;
                 // wanted set for the per-frame world collection: every accepted rig's mesh node +
                 // every joint it references (deduplicated; fixed after this init pass)
                 for (skin_rig const& rig : this->skin_rigs) {
@@ -519,7 +531,7 @@ namespace deren::engine::animation {
                     this->skin_world_cache.emplace_back(); // placeholder; rewritten every frame
                 }
                 if (!skin_rigs.empty()) {
-                    deren::utility::log("skinning: {} skin rig(s) active ({} joint matrix block(s) + identity block)", this->skin_rigs.size(), next_block - 4);
+                    deren::utility::log("skinning: {} skin rig(s) active ({} joint matrix block(s) + identity block)", this->skin_rigs.size(), next_block - this->skin_region_base);
                     this->skin_debug_name = deren::utility::vessel::string(display_name(this->skin_rigs.front().s.name));
                 }
             }
@@ -632,11 +644,11 @@ namespace deren::engine::animation {
                         }
                         sparse_offsets[verts] = entries;
                         std::size_t const entry_floats = static_cast<std::size_t>(entries) * 7u;
-                        if (total_floats + weight_floats + offset_floats + entry_floats > deren::engine::scene_morph_capacity) {
+                        if (this->morph_region_base + total_floats + weight_floats + offset_floats + entry_floats > deren::engine::scene_morph_capacity) {
                             deren::utility::log("morph: scene morph buffer capacity exceeded, remaining primitives skipped");
                             break;
                         }
-                        float* dst = morph_scratch_mem + total_floats;
+                        float* dst = morph_scratch_mem + this->morph_region_base + total_floats;
                         deren::utility::vessel::vector<float> rig_defaults;
                         rig_defaults.reserve(target_count);
                         for (uint32_t t = 0; t < target_count; ++t) {
@@ -675,8 +687,8 @@ namespace deren::engine::animation {
                                 *dst++ = dnrm.z;
                             }
                         }
-                        this->morph_rigs.push_back(morph_rig{leaves[i], verts, target_count, static_cast<uint32_t>(total_floats), source, rig_defaults, rig_defaults});
-                        leaves[i]->push.morph_base = static_cast<uint32_t>(total_floats);
+                        this->morph_rigs.push_back(morph_rig{leaves[i], verts, target_count, static_cast<uint32_t>(this->morph_region_base + total_floats), source, rig_defaults, rig_defaults});
+                        leaves[i]->push.morph_base = static_cast<uint32_t>(this->morph_region_base + total_floats);
                         leaves[i]->push.morph_targets = target_count;
                         leaves[i]->push.morph_vertices = verts;
                         total_floats += weight_floats + offset_floats + entry_floats;
@@ -684,13 +696,14 @@ namespace deren::engine::animation {
                 }
                 if (!this->morph_rigs.empty()) {
                     deren::utility::log("morph: baked {} morphable primitive(s) into the scene morph buffer ({} floats)", this->morph_rigs.size(), total_floats);
-                    // duplicate the baked blocks (contiguous [0, total_floats)) into every other
-                    // frame slot's morph buffer: deltas are static, only the per-frame weight
-                    // rewrites target the active slot's buffer
+                    this->morph_floats_used = total_floats;
+                    // duplicate the baked blocks (contiguous [region_base, region_base + total_floats))
+                    // into every other frame slot's morph buffer: deltas are static, only the
+                    // per-frame weight rewrites target the active slot's buffer
                     for (uint32_t slot = 1; slot < deren::promise::rhi::max_frames_in_flight; ++slot) {
                         float* const other = this->host.morph_scratch_slot(slot);
                         if (other != nullptr) {
-                            std::memcpy(other, morph_scratch_mem, total_floats * sizeof(float));
+                            std::memcpy(other + this->morph_region_base, morph_scratch_mem + this->morph_region_base, total_floats * sizeof(float));
                         }
                     }
                 }
@@ -724,6 +737,12 @@ namespace deren::engine::animation {
         /** @brief skin index range; joint_world returns nothing for unused or rejected skins */
         [[nodiscard]] std::size_t skin_rig_count() const noexcept;
 
+        /** @brief skin-matrix blocks this controller allocated in its region (for partitioning
+         *         several controllers over one runtime skin buffer) */
+        [[nodiscard]] uint32_t skin_block_count() const noexcept;
+        /** @brief morph-buffer floats this controller allocated in its region */
+        [[nodiscard]] std::size_t morph_float_count() const noexcept;
+
         /** @brief number of channel-bearing clips (the combo lists these) */
         [[nodiscard]] std::size_t playable_count() const noexcept;
         /** @brief display name of playable @p index ("<unnamed>" when the glTF has none) */
@@ -741,6 +760,10 @@ namespace deren::engine::animation {
         void select(std::size_t index);
         /** @brief pause/resume the clock (sampling keeps running while paused) */
         void set_playing(bool playing) noexcept;
+        /** @brief playback-rate multiplier applied to the clock (1 = real time, 0 = frozen) */
+        void set_speed(float speed) noexcept;
+        /** @brief current playback-rate multiplier */
+        [[nodiscard]] float speed() const noexcept;
         /** @brief whether the clock advances each update() */
         [[nodiscard]] bool is_playing() const noexcept;
         /** @brief scrub to @p t seconds and pause (mirrors the gui time-slider behavior: the
@@ -810,6 +833,10 @@ namespace deren::engine::animation {
         backend host; // injected host surface (scene + callbacks); scene == nullptr when unbound
         glm::vec3 import_shift{};
         uint64_t import_id = 0;
+        uint32_t skin_region_base = 4;     // first skin block owned by this controller
+        uint32_t skin_blocks_used = 0;     // blocks allocated by init() in that region
+        uint32_t morph_region_base = 0;    // first morph float owned by this controller
+        std::size_t morph_floats_used = 0; // floats allocated by init() in that region
         // whether this scene's animation is heavy enough to fan sampling out over the backend's
         // shared task pool (many channels over many sources): decided in init(), used by update()
         bool parallel_sampling = false;
@@ -834,6 +861,7 @@ namespace deren::engine::animation {
         /// there). Not `is_playing` either - that name belongs to the is_playing() accessor below
         /// (MSVC C2365 / clang "redefinition as different kind of symbol").
         bool playing_flag = true;
+        float playback_speed = 1.0f;
         std::size_t debug_source = std::numeric_limits<std::size_t>::max();
         glm::vec3 debug_translation{};
         deren::utility::vessel::string debug_node_name = {};

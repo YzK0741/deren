@@ -1325,7 +1325,7 @@ namespace deren::engine {
                 // geometry that cannot cast anything the camera sees. Leaving it out keeps the fit on the
                 // subject - the ground still RECEIVES the subject's shadow wherever that (unchanged) fit
                 // covers it, which is the only thing the surround is here for.
-                if (leaf->environment) {
+                if (leaf->environment || !leaf->casts_shadow) {
                     continue;
                 }
                 glm::vec3 wmin = {};
@@ -3896,27 +3896,35 @@ namespace deren::engine {
     }
 
     void runtime::set_skin_matrices(std::span<glm::mat4 const> const matrices) {
-        this->set_skin_matrices(matrices, this->active_slot);
+        this->set_skin_matrices(matrices, this->active_slot, 0);
     }
 
-    void runtime::set_skin_matrices(std::span<glm::mat4 const> const matrices, uint32_t const slot) {
+    void runtime::set_skin_matrices_at(std::span<glm::mat4 const> const matrices, uint32_t const base) {
+        this->set_skin_matrices(matrices, this->active_slot, base);
+    }
+
+    void runtime::set_skin_matrices(std::span<glm::mat4 const> const matrices, uint32_t const slot, uint32_t const base) {
         if (slot >= this->skin_mapped.size() || slot >= this->skin_current.size() || this->skin_mapped[slot] == nullptr) {
             return;
         }
-        std::size_t const bytes = std::min(matrices.size_bytes(), static_cast<std::size_t>(deren::engine::scene_skin_capacity) * sizeof(glm::mat4));
+        std::size_t const capacity = static_cast<std::size_t>(deren::engine::scene_skin_capacity);
+        if (base >= capacity) {
+            return;
+        }
+        std::size_t const bytes = std::min(matrices.size_bytes(), (capacity - base) * sizeof(glm::mat4));
         auto& current = this->skin_current[slot];
         std::size_t const count = bytes / sizeof(glm::mat4);
-        if (current.size() < count) {
-            current.resize(count, glm::mat4(0.0f));
+        std::size_t const end = static_cast<std::size_t>(base) + count;
+        if (current.size() < end) {
+            current.resize(end, glm::mat4(0.0f));
         }
         if (bytes != 0) {
-            std::memcpy(current.data(), matrices.data(), bytes);
-            std::memcpy(this->skin_mapped[slot], matrices.data(), bytes);
+            std::memcpy(current.data() + base, matrices.data(), bytes);
+            std::memcpy(static_cast<glm::mat4*>(this->skin_mapped[slot]) + base, matrices.data(), bytes);
         }
-        // Content fingerprint of this upload: the only per-frame signal that a skinned caster moved
-        // (its push.model is constant, the pose lives in these matrices). XXH3 rather than a byte
-        // loop - 1.3 us for an 840-joint rig against 43.7 us, and this runs on every frame.
-        this->skin_matrix_hash = deren::utility::xxh3_64bits({reinterpret_cast<uint8_t const*>(matrices.data()), bytes});
+        // Content fingerprint of the WHOLE slot buffer: several controllers may write disjoint
+        // regions, so hashing only this upload would miss another controller's movement.
+        this->skin_matrix_hash = deren::utility::xxh3_64bits({reinterpret_cast<uint8_t const*>(current.data()), current.size() * sizeof(glm::mat4)});
     }
 
     void* runtime::morph_scratch() noexcept {

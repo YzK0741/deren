@@ -41,6 +41,7 @@ import deren.engine.animation;
 import deren.engine.animation.mmd_motion; // VMD (MMD motion) parsing, retargeting and clip baking      // animation::controller: glTF playback / skinning / morphs on the runtime tree
 import deren.engine.math;
 import deren.engine.scene_tree; // scene storage + GPU primitives (was vulkan.model)
+import deren.engine.primitive;  // per-object pipeline / shadow / material-override fields on a leaf
 // the backend-creation contract (create_info): what this app hands the runtime below
 import deren.promise.rhi;
 #include "environment_loader.hpp"
@@ -746,23 +747,29 @@ int main(int argc, char** argv) {
     deren::utility::vessel::vector<glm::mat4> object_transforms;
     glm::vec3 scene_focus = scene_sink;
     float scene_fit_radius = scene_radius;
+    glm::vec3 const object_anchor(0.0f, scene_floor_y, 0.0f);
+    // ONE definition of a placement, used both for the import-time wrapper and for the live gui
+    // edits below. Keeping the matrix here rather than in each caller is what makes a dragged
+    // scale continue to grow the object out of its ground anchor.
+    auto const make_object_transform = [object_anchor](deren::app_config::scene_object_settings const& object) {
+        glm::mat4 transform = glm::translate(glm::mat4(1.0f), glm::vec3(object.position[0], object.position[1], object.position[2]));
+        transform = glm::translate(transform, object_anchor);
+        transform = glm::rotate(transform, glm::radians(object.rotation[0]), glm::vec3(0.0f, 1.0f, 0.0f));
+        transform = glm::rotate(transform, glm::radians(object.rotation[1]), glm::vec3(1.0f, 0.0f, 0.0f));
+        transform = glm::rotate(transform, glm::radians(object.rotation[2]), glm::vec3(0.0f, 0.0f, 1.0f));
+        transform = glm::scale(transform, glm::vec3(object.scale[0], object.scale[1], object.scale[2]));
+        transform = glm::translate(transform, -object_anchor);
+        return transform;
+    };
     if (use_scene_objects) {
         if (settings.render.character_forward || settings.render.game_toon) {
             deren::utility::panic(std::source_location::current(),
                                   "[[scene.objects]] currently places the PBR path only; disable character_forward/game_toon or remove the object list");
         }
-        glm::vec3 const object_anchor(0.0f, scene_floor_y, 0.0f);
         object_transforms.reserve(settings.scene.objects.size());
         for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
             deren::app_config::scene_object_settings const& object = settings.scene.objects[index];
-            glm::mat4 transform = glm::translate(glm::mat4(1.0f), glm::vec3(object.position[0], object.position[1], object.position[2]));
-            transform = glm::translate(transform, object_anchor);
-            transform = glm::rotate(transform, glm::radians(object.rotation[0]), glm::vec3(0.0f, 1.0f, 0.0f));
-            transform = glm::rotate(transform, glm::radians(object.rotation[1]), glm::vec3(1.0f, 0.0f, 0.0f));
-            transform = glm::rotate(transform, glm::radians(object.rotation[2]), glm::vec3(0.0f, 0.0f, 1.0f));
-            transform = glm::scale(transform, glm::vec3(object.scale[0], object.scale[1], object.scale[2]));
-            transform = glm::translate(transform, -object_anchor);
-            object_transforms.push_back(transform);
+            object_transforms.push_back(make_object_transform(object));
             deren::utility::log("scene: object {} '{}' position [{:.3f}, {:.3f}, {:.3f}], rotation [{:.1f}, {:.1f}, {:.1f}] deg, scale [{:.3f}, {:.3f}, {:.3f}]",
                                 index, object.name,
                                 object.position[0], object.position[1], object.position[2],
@@ -1075,6 +1082,18 @@ int main(int argc, char** argv) {
     deren::engine::scene_import_result imported = {};
     uint32_t total_primitive_count = 0;
     uint32_t total_material_count = 0;
+    // Indices into scene.roots, NOT pointers: every later import appends roots and can reallocate
+    // the vector, while the index of an already-appended wrapper stays valid.
+    deren::utility::vessel::vector<std::size_t> object_root_indices;
+    // Parallel to object_root_indices: the object's leaves and their material rows. `base_materials`
+    // never changes (so an override can be recomputed from the imported material), while
+    // `override_materials` is zero until the object first enables its material override.
+    deren::utility::vessel::vector<deren::utility::vessel::vector<deren::engine::primitive*>> object_leaves;
+    deren::utility::vessel::vector<deren::utility::vessel::vector<deren::engine::material_id>> object_base_materials;
+    deren::utility::vessel::vector<deren::utility::vessel::vector<deren::engine::material_id>> object_override_materials;
+    // One animation controller per placement (phase 2): each is bound to that import's
+    // import_instance and owns a disjoint skin/morph region of the runtime's shared buffers.
+    deren::utility::vessel::vector<uint64_t> object_import_instances;
     auto const wrap_imported_roots = [&scene](std::size_t const first_root, deren::utility::vessel::string const& name, glm::mat4 const& placement) {
         deren::engine::scene_tree::scene_node wrapper = {};
         wrapper.node_name = name;
@@ -1102,12 +1121,28 @@ int main(int argc, char** argv) {
         }
         total_primitive_count += copy_result.primitive_count;
         total_material_count += copy_result.material_count;
+        object_import_instances.push_back(copy_result.import_instance);
         if (use_scene_objects) {
             deren::app_config::scene_object_settings const& object = settings.scene.objects[index];
             deren::utility::vessel::string const wrapper_name = object.name.empty() ? deren::utility::vessel::string("object") : object.name;
             wrap_imported_roots(first_root, wrapper_name, object_transforms[index]);
-            deren::utility::log("scene: object {} '{}' imported - {} primitives, {} new materials",
-                                index, wrapper_name, copy_result.primitive_count, copy_result.material_count);
+            object_root_indices.push_back(scene.roots.size() - 1);
+            object_leaves.emplace_back();
+            object_base_materials.emplace_back();
+            object_override_materials.emplace_back();
+            deren::utility::vessel::vector<deren::engine::primitive*>& leaves = object_leaves.back();
+            deren::engine::scene_tree::visit_primitives(scene.roots.back(), glm::mat4(1.0f), [&leaves](deren::engine::scene_tree::scene_node const& node, glm::mat4 const&) {
+                // import_scene creates every drawable through runtime::create_primitive(), whose
+                // implementation is deren::engine::primitive; the cast states that contract once here.
+                leaves.push_back(static_cast<deren::engine::primitive*>(node.primitive_leaf.get()));
+            });
+            object_base_materials.back().reserve(leaves.size());
+            for (deren::engine::primitive const* leaf : leaves) {
+                object_base_materials.back().push_back(leaf->push.material_index);
+            }
+            object_override_materials.back().resize(leaves.size(), deren::engine::material_id{});
+            deren::utility::log("scene: object {} '{}' imported - {} primitives, {} new materials (import instance {})",
+                                index, wrapper_name, copy_result.primitive_count, copy_result.material_count, copy_result.import_instance);
         } else if (game_toon_copies > 1) {
             deren::utility::log("game_toon: copy {} (character index {}) imported at X {:.3f} - {} primitives, {} new materials",
                                 index, character_index, game_toon_copy_offsets[index], copy_result.primitive_count, copy_result.material_count);
@@ -1117,6 +1152,55 @@ int main(int argc, char** argv) {
         // The wrappers are structural edits after import_scene() already marked the tree dirty; mark it
         // again so the BVH and any derived scene state see the final hierarchy.
         runtime.scene_changed();
+    }
+    // LIVE GUI EDITS: rewrite only the wrapper's local matrix and re-dirty the scene. The children
+    // (the imported model) are untouched, so materials, skinning and the first object's animation
+    // keep running exactly as before. main calls this after a widget raised the dirty flag.
+    auto const apply_scene_object_settings = [&] {
+        std::size_t const count = std::min({object_root_indices.size(), object_leaves.size(), settings.scene.objects.size()});
+        for (std::size_t index = 0; index < count; ++index) {
+            deren::app_config::scene_object_settings const& object = settings.scene.objects[index];
+            deren::engine::scene_tree::scene_node& wrapper = scene.roots[object_root_indices[index]];
+            wrapper.local = make_object_transform(object);
+            wrapper.visible = object.visible;
+            deren::utility::vessel::vector<deren::engine::primitive*>& leaves = object_leaves[index];
+            deren::utility::vessel::vector<deren::engine::material_id>& bases = object_base_materials[index];
+            deren::utility::vessel::vector<deren::engine::material_id>& overrides = object_override_materials[index];
+            // THE DEFERRED PATH HAS NO PER-LEAF DRAW, so `pipeline_name` cannot carry this choice: the G-buffer
+            // pass refuses an explicitly named pipeline (it cannot know the stage writes G-buffer targets) and
+            // the frame is skipped. The choice is encoded in the material record instead - bit9 is "unlit" -
+            // and the deferred stage reads it back through the G-buffer's material id. Default and pbr both
+            // shade through that same deferred surface; only unlit changes it.
+            bool const unlit = object.pipeline == 2;
+            // A custom environment is a per-object material fact too, so choosing one also requires the clone.
+            bool const override_material = object.material_override || unlit || object.environment_slot != 0u;
+            glm::vec3 const tint = object.material_override ? glm::vec3(object.tint[0], object.tint[1], object.tint[2]) : glm::vec3(1.0f);
+            float const metallic_scale = object.material_override ? object.metallic_scale : 1.0f;
+            float const roughness_scale = object.material_override ? object.roughness_scale : 1.0f;
+            float const emissive_scale = object.material_override ? object.emissive_scale : 1.0f;
+            for (std::size_t leaf_index = 0; leaf_index < leaves.size(); ++leaf_index) {
+                deren::engine::primitive& leaf = *leaves[leaf_index];
+                leaf.pipeline_name = {};
+                leaf.casts_shadow = object.cast_shadow;
+                if (!override_material) {
+                    // Turning the override off restores the imported material; the clone stays allocated
+                    // for a later re-enable rather than churning a table row per toggle.
+                    leaf.push.material_index = bases[leaf_index];
+                    overrides[leaf_index] = {};
+                    continue;
+                }
+                if (overrides[leaf_index].value == 0) {
+                    overrides[leaf_index] = runtime.clone_material(bases[leaf_index], tint, metallic_scale, roughness_scale, emissive_scale, unlit, object.environment_slot);
+                } else {
+                    runtime.update_material_override(overrides[leaf_index], bases[leaf_index], tint, metallic_scale, roughness_scale, emissive_scale, unlit, object.environment_slot);
+                }
+                leaf.push.material_index = overrides[leaf_index];
+            }
+        }
+        runtime.scene_changed();
+    };
+    if (use_scene_objects) {
+        apply_scene_object_settings();
     }
     deren::utility::log("imported {} primitives ({} new materials) across {} object placement(s)", total_primitive_count, total_material_count, import_count);
     runtime.log_scene_tree();
@@ -1415,13 +1499,68 @@ int main(int argc, char** argv) {
             scenes->animations.push_back(std::move(converted));
         }
     }
-    animation.init(*scenes, deren::app::make_animation_backend(runtime), scene_import_shift, imported.import_instance);
+    // ONE CONTROLLER PER PLACEMENT. Every controller is bound to its own import_instance and
+    // writes into a disjoint skin-matrix / morph region, so objects can play different clips at
+    // different speeds. The first controller stays the process-wide `animation` handle (the toon
+    // stage's head basis and the diagnostic lines read it).
+    std::vector<std::unique_ptr<deren::engine::animation::controller>> extra_animations;
+    deren::utility::vessel::vector<deren::engine::animation::controller*> object_animations;
+    uint32_t next_skin_block = 4; // block 0-3 is the shared identity block
+    std::size_t next_morph_float = 0;
+    animation.init(*scenes, deren::app::make_animation_backend(runtime), scene_import_shift, imported.import_instance, next_skin_block, next_morph_float);
+    next_skin_block += animation.skin_block_count();
+    next_morph_float += animation.morph_float_count();
+    object_animations.push_back(&animation);
+    if (use_scene_objects) {
+        for (std::size_t index = 1; index < object_import_instances.size(); ++index) {
+            auto controller = std::make_unique<deren::engine::animation::controller>();
+            controller->init(*scenes, deren::app::make_animation_backend(runtime), scene_import_shift, object_import_instances[index], next_skin_block, next_morph_float);
+            next_skin_block += controller->skin_block_count();
+            next_morph_float += controller->morph_float_count();
+            object_animations.push_back(controller.get());
+            extra_animations.push_back(std::move(controller));
+        }
+    }
+    // Clip names for the per-object combo (captured once: the scene's clip list is fixed after init).
+    deren::utility::vessel::vector<deren::utility::vessel::vector<deren::utility::vessel::string>> object_animation_names;
+    object_animation_names.reserve(object_animations.size());
+    for (deren::engine::animation::controller* const controller : object_animations) {
+        deren::utility::vessel::vector<deren::utility::vessel::string> names;
+        names.reserve(controller->playable_count());
+        for (std::size_t clip = 0; clip < controller->playable_count(); ++clip) {
+            names.emplace_back(controller->playable_name(clip));
+        }
+        object_animation_names.push_back(std::move(names));
+    }
+    if (use_scene_objects) {
+        for (std::size_t index = 0; index < settings.scene.objects.size() && index < object_animation_names.size(); ++index) {
+            auto& wanted = settings.scene.objects[index].animation;
+            wanted = object_animation_names[index].empty() ? 0 : std::clamp(wanted, 0, static_cast<int32_t>(object_animation_names[index].size()) - 1);
+        }
+    }
+    auto const apply_object_animation_settings = [&settings, &object_animations] {
+        if (!settings.scene.objects.size()) {
+            return;
+        }
+        for (std::size_t index = 0; index < object_animations.size() && index < settings.scene.objects.size(); ++index) {
+            deren::engine::animation::controller& controller = *object_animations[index];
+            deren::app_config::scene_object_settings const& object = settings.scene.objects[index];
+            if (controller.playable_count() > 0 && controller.current() != static_cast<std::size_t>(object.animation)) {
+                controller.select(static_cast<std::size_t>(object.animation));
+            }
+            controller.set_speed(object.animation_speed);
+            controller.set_playing(object.animation_playing);
+        }
+    };
+    apply_object_animation_settings();
     // [render] animation_time >= 0 PINS the pose: playback is wall-clock driven, so two captures of an
     // animated scene differ unless the time is fixed - and this is also what makes such a scene usable in
     // a measurement or a regression scenario at all. scrub() is the overlay's time slider, so the pose is a
     // function of the value alone; a negative value (the default) plays as always.
     if (settings.render.animation_time >= 0.0f) {
-        animation.set_time(settings.render.animation_time);
+        for (deren::engine::animation::controller* const controller : object_animations) {
+            controller->set_time(settings.render.animation_time);
+        }
         deren::utility::log("animation: pinned at {:.2f}s by [render] animation_time (playback is wall-clock driven, so captures of an animated scene are only reproducible this way)", settings.render.animation_time);
         if (capture.animation_seconds_per_frame != 0.0f) {
             deren::utility::log("capture: --capture-animation-sweep is IGNORED - [render] animation_time pins the pose, so the clock never advances (set animation_time = -1 to play)");
@@ -1544,6 +1683,13 @@ int main(int argc, char** argv) {
     gui.ssao_samples = static_cast<float>(settings.render.ssao_samples);
     gui.anim_playing = animation.is_playing(); // play checkbox initial state
     gui.current_camera = current_camera;       // combo selection (the pose seeded above)
+    // The object editor edits the SAME vector the config produced; the scene object panel is only
+    // built when this pointer is non-null (the historic single-object path leaves it null).
+    if (use_scene_objects) {
+        gui.scene_objects = &settings.scene.objects;
+        gui.object_animations = &object_animations;
+        gui.object_animation_names = std::move(object_animation_names);
+    }
 
     // ---- authored (glTF) punctual lights -> the editable gui light slots ----
     // KHR_lights_punctual lights load straight into the gui slots (up to
@@ -1644,7 +1790,158 @@ int main(int argc, char** argv) {
     int32_t requested_environment = applied_environment;
     std::future<prepared_environment> environment_job;
     gui.environment_status = "Environment ready";
+    // PER-OBJECT ENVIRONMENT SELECTION: the combo's first row is the scene-wide IBL, so an object that names no
+    // HDR follows the global environment exactly as before. A configured `environment` string is resolved here,
+    // once the discovered list exists, by path OR by file name (the combo shows names).
+    gui.object_environment_names.push_back("Scene default");
+    for (deren::utility::vessel::string const& name : gui.environment_names) {
+        gui.object_environment_names.push_back(name);
+    }
+    for (deren::app_config::scene_object_settings& object : settings.scene.objects) {
+        if (object.environment.empty()) {
+            object.environment_index = 0;
+            continue;
+        }
+        auto const found = std::ranges::find_if(environment_paths, [&object](std::filesystem::path const& path) {
+            return !path.empty() && (deren::utility::vessel::string(path.string()) == object.environment ||
+                                     deren::utility::vessel::string(path.filename().string()) == object.environment);
+        });
+        if (found == environment_paths.end()) {
+            deren::utility::log("scene object '{}': environment '{}' was not found; using the scene-wide environment", object.name, object.environment);
+            object.environment_index = 0;
+        } else {
+            object.environment_index = static_cast<std::int32_t>(std::distance(environment_paths.begin(), found)) + 1;
+            deren::utility::log("scene object '{}': environment '{}' -> row {}", object.name, object.environment, object.environment_index);
+        }
+    }
+    // The three custom IBL slots (1..3) are filled one at a time; a selection beyond them falls back to slot 0.
+    // `custom_environment_indices[slot - 1]` is the environment-list row that slot holds, or -1 when free.
+    deren::utility::vessel::array<std::int32_t, 3> custom_environment_indices{-1, -1, -1};
+    struct custom_environment_job_state {
+        std::future<prepared_environment> job = {};
+        std::int32_t environment_index = -1;
+    };
+    deren::utility::vessel::array<custom_environment_job_state, 3> custom_environment_jobs = {};
+    // A HDR that fails to decode or upload is remembered, so the per-frame slot assignment does not relaunch it.
+    deren::utility::vessel::vector<std::int32_t> failed_custom_environments;
+    auto const launch_custom_environment = [&](std::uint32_t slot, std::int32_t environment_index) {
+        std::size_t const row = static_cast<std::size_t>(slot - 1u);
+        custom_environment_indices[row] = environment_index;
+        custom_environment_jobs[row].environment_index = environment_index;
+        custom_environment_jobs[row].job = std::async(std::launch::async, [path = environment_paths[static_cast<std::size_t>(environment_index - 1)], sun_direction, env_size, env_mip_count, irr_size, scale = settings.lighting.environment_intensity] {
+            return prepare_environment(path, sun_direction, env_size, env_mip_count, irr_size, scale);
+        });
+        deren::utility::log("environment slot {}: preparing '{}' for a per-object override", slot, gui.environment_names[static_cast<std::size_t>(environment_index - 1)]);
+    };
+    auto const assign_custom_environment_slot = [&](deren::app_config::scene_object_settings& object) {
+        if (object.environment_index <= 0 || static_cast<std::size_t>(object.environment_index) > environment_paths.size()) {
+            return std::uint32_t{0};
+        }
+        if (std::ranges::find(failed_custom_environments, object.environment_index) != failed_custom_environments.end()) {
+            return std::uint32_t{0};
+        }
+        for (std::size_t slot = 0; slot < custom_environment_indices.size(); ++slot) {
+            if (custom_environment_indices[slot] == object.environment_index) {
+                return static_cast<std::uint32_t>(slot + 1u);
+            }
+        }
+        for (std::size_t slot = 0; slot < custom_environment_indices.size(); ++slot) {
+            if (custom_environment_indices[slot] == -1) {
+                launch_custom_environment(static_cast<std::uint32_t>(slot + 1u), object.environment_index);
+                return std::uint32_t{0};
+            }
+        }
+        return std::uint32_t{0};
+    };
+    for (deren::app_config::scene_object_settings& object : settings.scene.objects) {
+        object.environment_slot = assign_custom_environment_slot(object);
+    }
     deren::app::setup_gui(runtime, use_gui, settings, gui, animation, gui_camera_names, seed_orbit_from_camera);
+
+    // ---- CLICK PICKING for the scene object editor --------------------------------------------
+    // The runtime's orbit camera is the only camera in the interactive path, so the ray is built
+    // from the same make_orbit_camera_ubo() the frame uses. The per-object AABB is the source
+    // model's box transformed by the CURRENT placement; transforming the ray into that object's
+    // local space avoids rebuilding eight world corners per click. The projection flips Y for
+    // Vulkan (primitive.cpp: proj[1][1] *= -1), so pixel row 0 maps to ndc_y -1 and the bottom
+    // row maps to +1.
+    auto const pick_scene_object = [&](double const cursor_x, double const cursor_y) -> std::int32_t {
+        if (!use_scene_objects) {
+            return -1;
+        }
+        int32_t window_width = 0;
+        int32_t window_height = 0;
+        int32_t framebuffer_width = 0;
+        int32_t framebuffer_height = 0;
+        glfwGetWindowSize(window.window, &window_width, &window_height);
+        glfwGetFramebufferSize(window.window, &framebuffer_width, &framebuffer_height);
+        if (window_width <= 0 || window_height <= 0 || framebuffer_width <= 0 || framebuffer_height <= 0) {
+            return -1;
+        }
+        float const pixel_x = static_cast<float>(cursor_x) * static_cast<float>(framebuffer_width) / static_cast<float>(window_width);
+        float const pixel_y = static_cast<float>(cursor_y) * static_cast<float>(framebuffer_height) / static_cast<float>(window_height);
+        float const aspect = static_cast<float>(framebuffer_width) / static_cast<float>(framebuffer_height);
+        deren::engine::camera_ubo const camera = deren::engine::make_orbit_camera_ubo(
+            runtime.camera.yaw, runtime.camera.pitch, runtime.camera.distance,
+            runtime.camera.target, scene_fit_radius, aspect);
+        glm::mat4 const inverse_view_proj = glm::inverse(camera.proj * camera.view);
+        float const ndc_x = 2.0f * pixel_x / static_cast<float>(framebuffer_width) - 1.0f;
+        float const ndc_y = 2.0f * pixel_y / static_cast<float>(framebuffer_height) - 1.0f;
+        auto const unproject = [&](float const z) {
+            glm::vec4 const point = inverse_view_proj * glm::vec4(ndc_x, ndc_y, z, 1.0f);
+            return glm::vec3(point) / point.w;
+        };
+        glm::vec3 const ray_origin = unproject(0.0f);
+        glm::vec3 const ray_far = unproject(1.0f);
+        glm::vec3 const ray_direction = glm::normalize(ray_far - ray_origin);
+        glm::vec3 const local_min = bounds.min + scene_import_shift;
+        glm::vec3 const local_max = bounds.max + scene_import_shift;
+        auto const intersect_box = [&](glm::vec3 const& origin, glm::vec3 const& direction, glm::vec3 const& box_min, glm::vec3 const& box_max, float& hit_t) {
+            float t_min = 0.0f;
+            float t_max = 1.0e30f;
+            for (int32_t axis = 0; axis < 3; ++axis) {
+                if (glm::abs(direction[axis]) < 1.0e-8f) {
+                    if (origin[axis] < box_min[axis] || origin[axis] > box_max[axis]) {
+                        return false;
+                    }
+                    continue;
+                }
+                float const inverse_direction = 1.0f / direction[axis];
+                float t0 = (box_min[axis] - origin[axis]) * inverse_direction;
+                float t1 = (box_max[axis] - origin[axis]) * inverse_direction;
+                if (t0 > t1) {
+                    float const swap = t0;
+                    t0 = t1;
+                    t1 = swap;
+                }
+                t_min = std::max(t_min, t0);
+                t_max = std::min(t_max, t1);
+                if (t_min > t_max) {
+                    return false;
+                }
+            }
+            hit_t = t_min;
+            return t_max > 0.0f;
+        };
+        std::int32_t best_object = -1;
+        float best_t = 1.0e30f;
+        for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
+            glm::mat4 const object_to_world = make_object_transform(settings.scene.objects[index]);
+            glm::mat4 const world_to_object = glm::inverse(object_to_world);
+            glm::vec3 const local_origin = glm::vec3(world_to_object * glm::vec4(ray_origin, 1.0f));
+            glm::vec3 const local_direction = glm::vec3(world_to_object * glm::vec4(ray_direction, 0.0f));
+            float hit_t = 0.0f;
+            if (intersect_box(local_origin, local_direction, local_min, local_max, hit_t) && hit_t < best_t) {
+                best_t = hit_t;
+                best_object = static_cast<std::int32_t>(index);
+            }
+        }
+        return best_object;
+    };
+    bool pick_mouse_was_down = false;
+    bool pick_pending = false;
+    double pick_press_x = 0.0;
+    double pick_press_y = 0.0;
 
     // Per-frame cheap clock: stamp() once per presented frame on this (the frame owner) thread,
     // so any other thread can read the current frame time as a plain atomic load. Animation /
@@ -1771,6 +2068,94 @@ int main(int argc, char** argv) {
             continue;
         }
         runtime.recreate_if_minimized();
+        // PER-OBJECT ENVIRONMENTS: a custom slot becomes readable only after its async prepare finishes, and a
+        // slot upload rewrites heap descriptors - so it happens here, between frames, like the global switch.
+        bool object_environment_changed = false;
+        if (use_scene_objects) {
+            for (std::size_t slot = 0; slot < custom_environment_jobs.size(); ++slot) {
+                custom_environment_job_state& pending = custom_environment_jobs[slot];
+                if (!pending.job.valid() || pending.job.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+                    continue;
+                }
+                prepared_environment prepared = pending.job.get();
+                pending.job = std::future<prepared_environment>{};
+                std::int32_t const environment_index = pending.environment_index;
+                pending.environment_index = -1;
+                std::uint32_t const environment_slot = static_cast<std::uint32_t>(slot + 1u);
+                bool const published = prepared.error.empty() && runtime.set_ibl(environment_slot, deren::engine::ibl_input{
+                                                                                                       .prefiltered_env = prepared.environment, .irradiance = prepared.irradiance, .env_size = uint32_t(env_size), .env_mip_count = uint32_t(env_mip_count), .irr_size = uint32_t(irr_size)});
+                if (!published) {
+                    custom_environment_indices[slot] = -1;
+                    if (std::ranges::find(failed_custom_environments, environment_index) == failed_custom_environments.end()) {
+                        failed_custom_environments.push_back(environment_index);
+                    }
+                    deren::utility::log("environment slot {}: {}; objects fall back to the scene-wide environment", environment_slot,
+                                        prepared.error.empty() ? "upload failed" : prepared.error);
+                } else {
+                    app_renderer.reset_temporal_history();
+                    deren::utility::log("environment slot {}: '{}' ready for per-object use", environment_slot,
+                                        gui.environment_names[static_cast<std::size_t>(environment_index - 1)]);
+                    for (deren::app_config::scene_object_settings& object : settings.scene.objects) {
+                        if (object.environment_index == environment_index) {
+                            object.environment_slot = environment_slot;
+                            object_environment_changed = true;
+                        }
+                    }
+                }
+            }
+            for (deren::app_config::scene_object_settings& object : settings.scene.objects) {
+                std::uint32_t const desired = assign_custom_environment_slot(object);
+                if (desired != object.environment_slot) {
+                    object.environment_slot = desired;
+                    object_environment_changed = true;
+                }
+            }
+        }
+        // A widget edited app_settings.scene.objects on the previous frame; rewrite the one wrapper
+        // each object lives under. This runs BEFORE pace_and_acquire(), whose update_world walk
+        // publishes the locals into the draw list, and scene_changed() re-dirties the BVH/culling
+        // that a moved object invalidates.
+        if (use_scene_objects && (gui.scene_object_transform_dirty || object_environment_changed)) {
+            apply_scene_object_settings();
+            apply_object_animation_settings();
+            gui.scene_object_transform_dirty = false;
+        }
+        // Click picking: select on RELEASE and only when the press-to-release travel is small, so
+        // an orbit drag does not change the selection. The overlay owns clicks that start or end
+        // over a panel (the same wants_mouse gate the runtime's camera callbacks use).
+        if (use_gui && use_scene_objects) {
+            bool const mouse_down = glfwGetMouseButton(window.window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+            double cursor_x = 0.0;
+            double cursor_y = 0.0;
+            glfwGetCursorPos(window.window, &cursor_x, &cursor_y);
+            if (mouse_down && !pick_mouse_was_down && !runtime.debug_gui_wants_mouse()) {
+                pick_pending = true;
+                pick_press_x = cursor_x;
+                pick_press_y = cursor_y;
+            }
+            if (!mouse_down && pick_mouse_was_down && pick_pending) {
+                double const dx = cursor_x - pick_press_x;
+                double const dy = cursor_y - pick_press_y;
+                if (dx * dx + dy * dy <= 25.0 && !runtime.debug_gui_wants_mouse()) {
+                    std::int32_t const hit = pick_scene_object(cursor_x, cursor_y);
+                    // Clicking an object brings its editor back even when that object is already
+                    // selected, which is the only way to recover a panel the user closed.
+                    if (hit >= 0 && gui.reopen_object_panel) {
+                        gui.reopen_object_panel();
+                    }
+                    if (hit != gui.selected_object) {
+                        gui.selected_object = hit;
+                        if (hit >= 0 && static_cast<std::size_t>(hit) < settings.scene.objects.size()) {
+                            deren::utility::log("scene: selected object {} '{}'", hit, settings.scene.objects[static_cast<std::size_t>(hit)].name);
+                        } else {
+                            deren::utility::log("scene: object selection cleared");
+                        }
+                    }
+                }
+                pick_pending = false;
+            }
+            pick_mouse_was_down = mouse_down;
+        }
         // Upload only between frames. set_ibl waits for prior submissions and rolls back failed writes.
         if (environment_job.valid() && environment_job.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
             auto prepared = environment_job.get();
@@ -1855,7 +2240,9 @@ int main(int argc, char** argv) {
         float const dt = capture.animation_seconds_per_frame != 0.0f
                              ? capture.animation_seconds_per_frame
                              : static_cast<float>(std::min(frame_clock.delta_seconds(), 0.25));
-        animation.update(dt);
+        for (deren::engine::animation::controller* const controller : object_animations) {
+            controller->update(dt);
+        }
         // ---- THE HEAD FRAME FOLLOWS THE BONE, published here because this is where the pose exists ----
         //
         // IT LANDS ONE FRAME LATE, and that is a consequence of the per-frame-slot arrangement rather than an

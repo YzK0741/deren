@@ -133,6 +133,25 @@ export namespace deren::app {
         float ssao_radius = 0.5f;
         float ssao_intensity = 1.0f;
         float ssao_samples = 8.0f; // slider value; main rounds it into the runtime call
+        // LIVE SCENE-OBJECT EDITING ([scene.objects]). The vector is OWNED BY main's app_settings
+        // (stable for the whole run because the config loader never resizes it after startup), and
+        // this pointer is null when the historic single-object path is running. main applies the
+        // edited values to the matching wrapper nodes once per frame when the dirty flag is set -
+        // the widgets deliberately write the same structs the config produced, so the GUI and the
+        // TOML describe one scene rather than two. Edits are runtime-only; nothing is written back.
+        deren::utility::vessel::vector<deren::app_config::scene_object_settings>* scene_objects = nullptr;
+        // One controller per object (phase 2), aligned with scene_objects; null when the historic
+        // single-object path runs. The names are captured once at setup for the per-object clip combo.
+        deren::utility::vessel::vector<deren::engine::animation::controller*>* object_animations = nullptr;
+        deren::utility::vessel::vector<deren::utility::vessel::vector<deren::utility::vessel::string>> object_animation_names = {};
+        // Per-object environment combo items: "Scene default" followed by environment_names, so index 0 keeps
+        // the object on the scene-wide IBL and 1..N pick an HDR from the same list the global combo uses.
+        deren::utility::vessel::vector<deren::utility::vessel::string> object_environment_names = {};
+        std::int32_t selected_object = -1;         // -1 = nothing selected
+        bool scene_object_transform_dirty = false; // set by any object widget, consumed by main
+        // Re-opens the "scene object" panel after the user closed it, so clicking an object in the
+        // viewport always brings its editor back. Empty when the panel was not built.
+        std::function<void()> reopen_object_panel = {};
     };
 
     /**
@@ -155,6 +174,9 @@ export namespace deren::app {
      *        added here — setup_gui prepends it); empty disables the camera selector
      * @param on_camera_selected called with the combo index (0 = orbit, i = camera_names[i-1])
      *        when the user picks a camera; empty when the selector is not shown
+     * @note when gui_bindings::scene_objects is set, setup_gui also adds a "scene object" panel
+     *       whose rows only appear for the selected object; main owns selection (see its click
+     *       pick) and applies the edited transforms
      * @note the overlay's glTF-side data (authored camera list, orbit seeding) stays in main:
      *       app_ui only ever sees display names and a callback, never glTF types
      */
