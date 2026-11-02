@@ -2154,6 +2154,11 @@ namespace deren::engine {
          */
         uint32_t overlay_kind = 0;
 
+        /// this leaf's material family (`deren::gltf::toon_family`; 0 == none), mirrored from
+        /// `primitive_create_info::toon_family` so the character-forward eye prepass can select family 5
+        /// without a GPU readback.
+        uint32_t toon_family = 0;
+
         /**
          * THE MATERIAL'S OUTLINE WIDTH (`toon_colour_lane::outline_edge`'s `.w`, i.e. the game's
          * `_OutlineWidth`), mirrored onto the primitive so the FRAME can decide which leaves the ① outline

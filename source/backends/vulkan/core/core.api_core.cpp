@@ -1736,7 +1736,17 @@ namespace deren::vulkan {
         }
 
         VkSampleCountFlagBits const samples = static_cast<VkSampleCountFlagBits>(desc.sample_count);
-        VkCompareOp const compare = desc.compare == rhi::depth_compare::equal ? VK_COMPARE_OP_EQUAL : VK_COMPARE_OP_LESS_OR_EQUAL;
+        VkCompareOp const compare = [&desc] {
+            switch (desc.compare) {
+            case rhi::depth_compare::less_or_equal:
+                return VK_COMPARE_OP_LESS_OR_EQUAL;
+            case rhi::depth_compare::equal:
+                return VK_COMPARE_OP_EQUAL;
+            case rhi::depth_compare::greater:
+                return VK_COMPARE_OP_GREATER;
+            }
+            return VK_COMPARE_OP_LESS_OR_EQUAL;
+        }();
         if (desc.first_stage == rhi::shader_stage::mesh) {
             // the full overload takes the compare op; the simple one the mesh spelling routes through
             // carries the same default. Routed here because the mesh stage REPLACES the vertex stage.

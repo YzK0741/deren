@@ -1179,6 +1179,7 @@ export namespace deren::promise::rhi {
     enum class depth_compare : std::uint32_t {
         less_or_equal = 0,
         equal = 1,
+        greater = 2, // appended for the character-forward eye depth prepass; existing values keep their numbers
     };
 
     /// ONE STAGE OF A RAY-TRACING PIPELINE (appended with the ray-tracing spelling, abi 21).

@@ -2564,6 +2564,16 @@ namespace deren::engine {
         }
         std::string_view const toon_pipeline_name =
             (this->game_toon_on && game_toon_ready) ? game_toon_pipeline_name : character_forward_pipeline_name;
+        // THE EYE PREPASS FOLLOWS THE SAME CHOICE: the game-toon and character-forward pipelines each have a
+        // matching GREATER-depth prepass built from their own fragment module. It is optional - a missing
+        // prepass is the frame that existed before the eye fix - so name absence is passed through as empty.
+        std::string_view const eye_prepass_name =
+            (this->game_toon_on && game_toon_ready) ? game_toon_eye_prepass_pipeline_name : character_forward_eye_prepass_pipeline_name;
+        bool eye_prepass_ready = false;
+        {
+            std::shared_lock const lock(this->access_mutex);
+            eye_prepass_ready = this->mesh_pipelines.contains(eye_prepass_name) || this->meshlet_pipelines.contains(eye_prepass_name);
+        }
         // DOES THE OUTLINE PIPELINE EXIST? Asked on exactly the same terms as the overlay one above, and for the
         // same reason: an empty name is the pass's documented "draw no outline", whereas a name that resolves to
         // nothing would be reported by the session's bind callback as "unknown pipeline" - a log line per frame
@@ -2630,6 +2640,8 @@ namespace deren::engine {
             // registry: the pass draws whatever it is handed, so this one expression IS the whole of the
             // rewrite's opt-in on the host side.
             .pipeline_name = toon_pipeline_name,
+            // ... and the eye prepass's, empty when it was never built; the pass then keeps the pre-fix frame.
+            .eye_prepass_pipeline_name = eye_prepass_ready ? eye_prepass_name : std::string_view{},
             // ... and the overlay group's, on the same terms - empty when it was never built, which the pass
             // reads as "there is no overlay to draw" (see `overlay_ready` above).
             .overlay_pipeline_name = overlay_ready ? overlay_pipeline_name : std::string_view{},

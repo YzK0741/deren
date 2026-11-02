@@ -117,6 +117,17 @@ export namespace deren::engine::pass {
          */
         std::string_view pipeline_name = {};
         /**
+         * The EYE DEPTH PREPASS pipeline (`game_toon_eye_prepass` / `character_forward_eye_prepass`).
+         *
+         * It is drawn BEFORE `leaves`, against the same depth attachment, with depth compare GREATER and
+         * depth write on, and only over eye-family leaves. Its GREATER test writes the eye's depth only where
+         * the eye is behind the surface already recorded - the face plate that hides the lower iris - and
+         * leaves nearer hair/eyelashes untouched. The normal EQUAL pass then draws the iris at that depth.
+         *
+         * EMPTY MEANS NO PREPASS: the frame then behaves exactly as it did before this stage existed.
+         */
+        std::string_view eye_prepass_pipeline_name = {};
+        /**
          * The pipeline the OVERLAY group binds, on the same terms (`overlay_pipeline_name` in the runtime).
          *
          * EMPTY MEANS THE OVERLAY GROUP IS NOT DRAWN, and that is the honest answer rather than a fallback: the

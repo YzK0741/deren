@@ -93,6 +93,29 @@ namespace deren::engine::pass {
         }
 
         render_environment env = this->pass_frame.make_environment(this->pass_frame.owner, io.cmd, /*gbuffer=*/false);
+
+        // ---- THE EYE DEPTH PREPASS, BEFORE ANY SURFACE ----
+        //
+        // The asset separates the iris from the face. The iris sits a little BEHIND the face plate, which is
+        // exactly the case the game's pre-Z/stencil eye path covers; this pass has no stencil attachment. The
+        // prepass therefore draws the eye family with depth compare GREATER and depth write ON: where the eye
+        // is behind what is already in the depth buffer (the face plate), it replaces that depth with the
+        // eye's; where hair or an eyelash is nearer, GREATER fails and the nearer surface keeps both its depth
+        // and its occlusion. The normal EQUAL pass below then draws the iris at the published depth, while the
+        // face plate fails its equality test at those pixels. The face, hair and overlays after this block are
+        // otherwise untouched.
+        if (!this->pass_frame.eye_prepass_pipeline_name.empty()) {
+            env.default_name = this->pass_frame.eye_prepass_pipeline_name;
+            env.set_depth_write(true); // the prepass publishes depth; each eye leaf's draw() also asks for it
+            for (primitive const* const leaf : this->pass_frame.leaves) {
+                if (leaf->toon_family == 5u) { // deren::gltf::toon_family::eye
+                    leaf->draw(env);
+                }
+            }
+            env.set_depth_write(false);
+            env.depth_write_locked = true;
+        }
+
         // THE TWO THINGS THIS PASS STATES ABOUT ITSELF, neither of which the renderer could know:
         //
         //   WHICH PIPELINE. Every primitive's draw() calls `bind_default()`, so a session's default name is
