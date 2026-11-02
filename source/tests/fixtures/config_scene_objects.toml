@@ -1,5 +1,6 @@
 [[scene.objects]]
 name = "left"
+model = "gltf_model/DamagedHelmet.gltf"
 position = [-1.5, 0.0, 0.25]
 rotation = [15.0, 0.0, -10.0]
 scale = [0.75, 0.75, 0.75]
@@ -18,6 +19,7 @@ animation_playing = false
 
 [[scene.objects]]
 name = "right"
+asset = "helmet"
 position = [1.5, 0.5, -0.25]
 rotation = [-15.0, 180.0, 10.0]
 scale = [1.25, 1.25, 1.25]
@@ -25,3 +27,15 @@ visible = false
 cast_shadow = true
 pipeline = "unlit"
 material_override = false
+
+[[scene.objects]]
+name = "toon"
+model = "chars/laevatain_preview.glb"
+position = [0.0, 0.0, -1.0]
+pipeline = "game_toon"
+
+[[scene.objects]]
+name = "cloud"
+model = "asset/laevatain/bouquet.ply"
+position = [2.0, 0.0, 1.0]
+pipeline = "gaussian"

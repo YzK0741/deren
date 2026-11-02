@@ -331,7 +331,7 @@ namespace deren::app_config {
         // three-way choice is where that precedence lives); a normal run asks for one model at a time.
         bool game_toon = false;
         /**
-         * HOW MANY COPIES OF THE GAME-TOON CHARACTER TO STAGE ([render] game_toon_copies, 1..4).
+         * HOW MANY COPIES OF THE GAME-TOON CHARACTER TO STAGE ([render] game_toon_copies, 1..16).
          *
          * The character stage already draws a list of leaves; what this exercises is the per-character head
          * frame, so every copy is the SAME imported model at a different X offset with its own head basis. One
@@ -621,32 +621,45 @@ namespace deren::app_config {
         deren::utility::vessel::array<float, 3> position = {0, 0, 0}, minimum = {-1, -1, -1}, maximum = {1, 1, 1};
         float fade = .5f, gain = 1;
     };
+    /// @brief the `pipeline = "gaussian"` value: a .ply cloud drawn by the shared splat stage
+    export inline constexpr int32_t scene_object_pipeline_gaussian = 4;
+
     /**
      * @ingroup app_config
-     * @brief ONE entry of `[[scene.objects]]`: a per-instance placement of the loaded model.
+     * @brief ONE entry of `[[scene.objects]]`: a per-instance placement of an asset.
      *
-     * The model named by `model`/`asset` is imported once PER ENTRY, so every object shares the same
-     * geometry, materials and animations. `position` is in world metres relative to the character's
-     * ground anchor (the point the single-object path already calls the scene origin), `rotation` is
-     * Y/X/Z Euler degrees applied in that order, and `scale` is uniform per axis. `visible` and
-     * `cast_shadow` are per-object draw filters, `pipeline` selects the pass default / pbr / unlit
-     * pipeline for this object, and the `material_*` fields opt into per-object material multipliers.
-     * This is the seed of scene composition: a typed object list, not a general node editor.
+     * `model`/`asset` name the object's model; entries naming the same file share one decoded scene
+     * (geometry, textures, materials) while each placement still gets its own import and animation
+     * controller. `position` is in world metres relative to the object's ground anchor (the point the
+     * single-object path already calls the scene origin), `rotation` is Y/X/Z Euler degrees applied in
+     * that order, and `scale` is per axis. `visible` and `cast_shadow` are per-object draw filters,
+     * `pipeline` selects the pass default / pbr / unlit / game_toon / gaussian path for this object,
+     * and the `material_*` fields opt into per-object material multipliers. This is the seed of scene
+     * composition: a typed object list, not a general node editor.
      *
-     * ONLY the PBR path consumes this list in v1. The captured GameToon character stage and
-     * `character_forward` derive their head basis from the first imported rig in world space, so main()
-     * rejects `[[scene.objects]]` together with either of them rather than rendering a plausible but
-     * wrong frame. The GameToon X staging (`game_toon_copies`) remains its own path.
+     * `pbr`, `unlit` and `default` objects stay on the deferred path and never enter the character stage.
+     * `game_toon` objects are routed to the character-forward stage; each such object gets its own
+     * character index, up to `max_game_toon_characters`. `gaussian` objects are .ply clouds and are
+     * staged together in the shared splat pass. The historic GameToon X staging (`game_toon_copies`)
+     * remains its own path when the object list is empty.
      */
     export struct scene_object_settings {
         deren::utility::vessel::string name = {};
+        // Per-object asset reference. `model` is a file path (same rules as the top-level `model`);
+        // `asset` is an id in `[paths] asset_library`. At most ONE may be non-empty; both empty means
+        // "the model the scene already loaded" (the historic behaviour). This is startup-only: the
+        // asset is resolved and imported once, and a config edit takes effect on the next run.
+        deren::utility::vessel::string model = {};
+        deren::utility::vessel::string asset = {};
         deren::utility::vessel::array<float, 3> position = {0.0f, 0.0f, 0.0f};
         deren::utility::vessel::array<float, 3> rotation = {0.0f, 0.0f, 0.0f}; // degrees, Y then X then Z
         deren::utility::vessel::array<float, 3> scale = {1.0f, 1.0f, 1.0f};
         bool visible = true;
         bool cast_shadow = true;
-        // 0 = the pass default, 1 = pbr, 2 = unlit. The named pipelines are the ones the demo registers;
-        // an object may only choose among them, not name an arbitrary pipeline.
+        // 0 = the pass default, 1 = pbr, 2 = unlit, 3 = game_toon, 4 = gaussian. The named pipelines are
+        // the ones the demo registers; an object may only choose among them, not name an arbitrary pipeline.
+        // `pbr`, `unlit` and `default` stay on the deferred path; `game_toon` is re-shaded by the character
+        // stage, and `gaussian` draws a .ply cloud in the shared splat stage.
         int32_t pipeline = 0;
         // Per-object material multipliers. Disabled means "use the shared imported material unchanged",
         // so an untouched scene still shares one record per material. When enabled, main() clones the
@@ -677,6 +690,11 @@ namespace deren::app_config {
 
     /// Upper bound on `[[scene.objects]]`; the importer creates one full hierarchy per entry.
     export inline constexpr std::size_t max_scene_objects = 16;
+
+    /// Upper bound on DISTINCT assets in one scene. Objects may share an asset (one load, many
+    /// imports), but every distinct file keeps its decoded scenes, textures and materials resident,
+    /// so the pool is capped independently of the placement count.
+    export inline constexpr std::size_t max_scene_assets = 8;
 
     export struct app_settings {
         // model file (empty = locate default via paths.model_dir; "ask" opens the platform's own file

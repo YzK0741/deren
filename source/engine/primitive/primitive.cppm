@@ -264,10 +264,27 @@ namespace deren::engine {
      * The character stage already draws a LIST of leaves; what was single was the head frame, because the scene
      * constant block had room for one `head_ubo` per frame slot. A scene can now import that many characters, each
      * with its own index written into the high bits of `material_push_constants::flags`, and the shader indexes the
-     * per-frame array. Four is a policy, not a hardware limit: enough for the composition use case, small enough
-     * that a frame slot's head array stays a few hundred bytes.
+     * per-frame array. Sixteen matches `max_scene_objects`, and the shader's character index is 8 bits wide, so the
+     * CPU-side array and descriptor range are the only storage that grow: 16 * 64 = 1024 bytes per frame slot.
      */
-    export constexpr uint32_t max_game_toon_characters = 4;
+    export constexpr uint32_t max_game_toon_characters = 16;
+
+    /**
+     * @ingroup engine_primitive
+     * @brief which shading stage owns this leaf's pixels
+     *
+     * `deferred` leaves write the G-buffer and are shaded by the deferred lighting pass. `character` leaves also
+     * write the G-buffer (they own its depth) but are re-shaded by the character-forward stage, which is where the
+     * GameToon chain lives. `splat` is reserved for Gaussian-splat objects; the stage does not consume it yet.
+     *
+     * THIS IS A LIST-BUILDING FACT, not a material-record lane: the frame builder decides which leaves each pass
+     * receives before any shader runs, exactly as it does for `environment` and `overlay_kind`.
+     */
+    export enum class shading_path : std::uint8_t {
+        deferred = 0,
+        character = 1,
+        splat = 2,
+    };
 
     /**
      * @ingroup engine_primitive
@@ -2185,6 +2202,15 @@ namespace deren::engine {
          * are built from primitives, before any shader could read a lane.
          */
         bool environment = false;
+
+        /**
+         * WHICH SHADING STAGE OWNS THIS LEAF (see `deren::engine::shading_path`).
+         *
+         * Default `deferred`, i.e. the ordinary G-buffer + deferred-lighting path. The host sets `character` on the
+         * leaves of a GameToon object and on the historic single-character path; the character-forward stage then
+         * re-shades exactly those leaves and nothing else. `splat` is reserved for the Gaussian stage.
+         */
+        shading_path path = shading_path::deferred;
 
         /**
          * PER-OBJECT SHADOW FILTER: false keeps this leaf out of the shadow-caster list while it still draws

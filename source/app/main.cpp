@@ -433,6 +433,59 @@ int main(int argc, char** argv) {
     bool const gaussian_only = model_format == deren::app_config::model_format::gaussian_ply;
     auto load_future = gaussian_only ? std::future<std::expected<deren::gltf::scenes, deren::gltf::error_code>>{}
                                      : deren::gltf::load_model_async(model_path, {settings.render.subtilis});
+    // MULTI-TYPE SCENES: every distinct per-object model loads in PARALLEL with the default one. The
+    // paths are already resolved by app_config (object_model_paths), so this block only dedupes by
+    // normalized path - two placements naming one file share a single load, textures and materials.
+    struct additional_model_load {
+        deren::utility::vessel::string path;
+        std::size_t slot = 0;
+        std::future<std::expected<deren::gltf::scenes, deren::gltf::error_code>> future;
+        // A Gaussian asset is read synchronously into this box: it has no glTF scene to load in
+        // parallel, and its device tables cannot be created until the runtime exists.
+        std::optional<deren::gaussian::asset> cloud = std::nullopt;
+    };
+    deren::utility::vessel::vector<additional_model_load> additional_model_loads;
+    deren::utility::vessel::vector<std::size_t> object_asset_slot;
+    deren::utility::vessel::vector<deren::utility::vessel::string> asset_paths{model_path};
+    if (!settings.scene.objects.empty()) {
+        auto const path_key = [](std::string_view path) {
+            return std::filesystem::absolute(std::filesystem::path(path)).lexically_normal().generic_string();
+        };
+        deren::utility::vessel::vector<std::string> asset_keys{path_key(model_path)};
+        object_asset_slot.reserve(config.object_model_paths.size());
+        for (deren::utility::vessel::string const& path : config.object_model_paths) {
+            std::string const key = path_key(path);
+            auto const found = std::find(asset_keys.begin(), asset_keys.end(), key);
+            if (found != asset_keys.end()) {
+                object_asset_slot.push_back(static_cast<std::size_t>(std::distance(asset_keys.begin(), found)));
+                continue;
+            }
+            std::size_t const slot = asset_paths.size();
+            object_asset_slot.push_back(slot);
+            asset_keys.push_back(key);
+            asset_paths.push_back(path);
+            if (deren::app_config::model_format_of(path) == deren::app_config::model_format::gaussian_ply) {
+                additional_model_load load;
+                load.path = path;
+                load.slot = slot;
+                auto cloud = deren::gaussian::load_ply(path);
+                if (!cloud) {
+                    deren::utility::panic(std::source_location::current(),
+                                          "failed to load the gaussian splat cloud '{}': error code {} at byte {}",
+                                          path, static_cast<int32_t>(cloud.error().code), cloud.error().byte_offset);
+                }
+                load.cloud = std::move(*cloud);
+                additional_model_loads.push_back(std::move(load));
+            } else {
+                additional_model_load load;
+                load.path = path;
+                load.slot = slot;
+                load.future = deren::gltf::load_model_async(path, {settings.render.subtilis});
+                additional_model_loads.push_back(std::move(load));
+            }
+        }
+        deren::utility::log("scene: {} placement(s) reference {} distinct model file(s)", config.object_model_paths.size(), asset_paths.size());
+    }
 
     // 5. THE APPLICATION ACQUIRES THE DEVICE ROOT, THEN BUILDS THE RENDERER FROM IT (batch ⑥). Three
     //    steps, in this order, and the split is the point: the loader is the app's decision (which
@@ -552,6 +605,9 @@ int main(int argc, char** argv) {
     //    scene: the import, the material resolve, the toon lookup and the animation state below then all work over
     //    nothing, rather than each needing a branch of its own.
     deren::gltf::scenes const no_model{};
+    // A Gaussian placement has no glTF scene, but the animation controller still needs a scene to bind
+    // against (zero clips, zero skins). This empty scene is that anchor.
+    deren::gltf::scenes empty_object_scenes{};
     auto scenes = gaussian_only ? std::expected<deren::gltf::scenes, deren::gltf::error_code>{no_model} : load_future.get();
     if (!scenes) {
         deren::utility::panic(std::source_location::current(), "failed to load model '{}': error code {}", model_path, static_cast<int32_t>(scenes.error()));
@@ -578,6 +634,7 @@ int main(int argc, char** argv) {
     std::shared_ptr<deren::engine::gaussian_splatting::raster_asset const> gaussian_asset = {};
     glm::vec3 gaussian_min = glm::vec3(0.0f);
     glm::vec3 gaussian_max = glm::vec3(0.0f);
+    glm::mat4 gaussian_model{1.0f};
     if (gaussian_only) {
         auto cloud = deren::gaussian::load_ply(model_path);
         if (!cloud) {
@@ -613,7 +670,7 @@ int main(int argc, char** argv) {
             gaussian_rotation = glm::rotate(gaussian_rotation, glm::radians(180.0f), glm::vec3{1.0f, 0.0f, 0.0f});
         }
         glm::vec3 const gaussian_center = (gaussian_min + gaussian_max) * 0.5f;
-        glm::mat4 const gaussian_model = glm::translate(glm::mat4{1.0f}, gaussian_center) * gaussian_rotation * glm::translate(glm::mat4{1.0f}, -gaussian_center);
+        gaussian_model = glm::translate(glm::mat4{1.0f}, gaussian_center) * gaussian_rotation * glm::translate(glm::mat4{1.0f}, -gaussian_center);
         runtime.set_gaussian_asset(gaussian_asset, gaussian_model);
         glm::vec3 const gaussian_world_front = glm::vec3{gaussian_rotation * glm::vec4{gaussian_front, 0.0f}};
         deren::utility::log("gaussian: local -Y flower face aligned toward sky sun ({:.4f}, {:.4f}, {:.4f}), direction agreement {:.6f}",
@@ -639,6 +696,83 @@ int main(int argc, char** argv) {
         deren::utility::log("gaussian: rendering the cloud without mesh geometry");
     } else {
         bounds = deren::gltf::log_scene_diagnostics(*scenes);
+    }
+
+    // THE ASSET POOL: one decoded scene per distinct model file, shared by every placement that names
+    // it. Slot 0 is the default model loaded above; slots 1.. own their scenes here. Bounds are the
+    // asset's own (before its import shift), which is what lets each placement be fitted and grounded
+    // independently instead of reusing the first asset's box.
+    struct scene_asset_entry {
+        deren::utility::vessel::string path;
+        deren::gltf::scenes* scenes = nullptr; // pool-owned; material resolution may consume texture pixels
+        deren::utility::vessel::vector<deren::gltf::resolved_material>* materials = nullptr;
+        deren::gltf::scene_bounds bounds = {};
+        glm::vec3 import_shift = glm::vec3(0.0f);
+        // The sidecar belongs to THIS asset. Its lookup state is baked once and installed immediately before the
+        // asset's materials are imported, so two GameToon assets never resolve each other's material names.
+        std::optional<deren::toon::sidecar> sidecar = std::nullopt;
+        toon_lookup_state lookup = {};
+        // A Gaussian asset has no glTF scene or materials. Its cloud is the drawable, its bounds are the
+        // source cloud's AABB, and `cloud_placement` is the local flower-face alignment the single-cloud
+        // path already applies; a placement multiplies its object transform in front of it.
+        std::shared_ptr<deren::engine::gaussian_splatting::raster_asset const> cloud = {};
+        glm::mat4 cloud_placement{1.0f};
+        [[nodiscard]] bool is_gaussian() const noexcept {
+            return this->cloud != nullptr;
+        }
+    };
+    deren::utility::vessel::vector<scene_asset_entry> scene_assets(asset_paths.size());
+    scene_assets[0].path = model_path;
+    scene_assets[0].scenes = &*scenes;
+    scene_assets[0].bounds = bounds;
+    scene_assets[0].cloud = gaussian_asset;
+    scene_assets[0].cloud_placement = gaussian_model;
+    deren::utility::vessel::vector<std::unique_ptr<deren::gltf::scenes>> extra_scene_storage;
+    extra_scene_storage.reserve(additional_model_loads.size());
+    for (additional_model_load& load : additional_model_loads) {
+        scene_asset_entry& entry = scene_assets[load.slot];
+        entry.path = load.path;
+        if (load.cloud.has_value()) {
+            // The source bounds must be read before the cloud moves into the runtime asset.
+            deren::gaussian::asset const& source = *load.cloud;
+            glm::vec3 const cloud_min{source.bounds_min[0], source.bounds_min[1], source.bounds_min[2]};
+            glm::vec3 const cloud_max{source.bounds_max[0], source.bounds_max[1], source.bounds_max[2]};
+            auto uploaded = runtime.create_gaussian_asset(std::move(*load.cloud));
+            if (!uploaded) {
+                deren::utility::panic(std::source_location::current(),
+                                      "failed to upload the gaussian splat cloud '{}': error code {}",
+                                      load.path, static_cast<int32_t>(uploaded.error().code));
+            }
+            entry.cloud = *uploaded;
+            entry.bounds.valid = true;
+            entry.bounds.min = cloud_min;
+            entry.bounds.max = cloud_max;
+            // Same local alignment as the single-cloud path: the viewer bouquet's flower faces local -Y.
+            glm::vec3 const front{0.0f, -1.0f, 0.0f};
+            glm::vec3 const sun = glm::normalize(glm::vec3{sun_direction[0], sun_direction[1], sun_direction[2]});
+            glm::vec3 const axis = glm::cross(front, sun);
+            float const cosine = glm::clamp(glm::dot(front, sun), -1.0f, 1.0f);
+            glm::mat4 rotation{1.0f};
+            if (glm::dot(axis, axis) > 1.0e-8f) {
+                rotation = glm::rotate(rotation, std::acos(cosine), glm::normalize(axis));
+            } else if (cosine < 0.0f) {
+                rotation = glm::rotate(rotation, glm::radians(180.0f), glm::vec3{1.0f, 0.0f, 0.0f});
+            }
+            glm::vec3 const center = (cloud_min + cloud_max) * 0.5f;
+            entry.cloud_placement = glm::translate(glm::mat4{1.0f}, center) * rotation * glm::translate(glm::mat4{1.0f}, -center);
+            deren::utility::log("gaussian: object asset '{}' - {} splats, bounds ({:.2f}, {:.2f}, {:.2f})..({:.2f}, {:.2f}, {:.2f})",
+                                load.path, entry.cloud->source().particles.size(),
+                                cloud_min.x, cloud_min.y, cloud_min.z, cloud_max.x, cloud_max.y, cloud_max.z);
+            continue;
+        }
+        auto loaded = load.future.get();
+        if (!loaded) {
+            deren::utility::panic(std::source_location::current(), "failed to load scene asset '{}': error code {}",
+                                  load.path, static_cast<int32_t>(loaded.error()));
+        }
+        extra_scene_storage.push_back(std::make_unique<deren::gltf::scenes>(std::move(*loaded)));
+        entry.scenes = extra_scene_storage.back().get();
+        entry.bounds = deren::gltf::log_scene_diagnostics(*entry.scenes);
     }
     // ---- MULTIPLE GAME-TOON CHARACTERS, v1: THE SAME CHARACTER, REPEATED ----
     //
@@ -732,12 +866,22 @@ int main(int argc, char** argv) {
     // below is expressed as a delta around that same point.
     glm::vec3 const scene_import_shift = -scene_center + scene_sink;
 
-    // 8c. SIMPLE MULTI-OBJECT ([scene.objects]): the SAME loaded model is imported once per entry and
-    //     each import is wrapped in a synthetic parent node carrying its placement. The wrapper is what
-    //     keeps the model's own root transforms intact, and it is also the reason animation still drives
-    //     only the first import in v1 (see animation.init() below). The placement pivots on the
-    //     character's ground anchor, so `scale` grows a character out of the floor rather than out of
-    //     its bounding-box centre, and `position` is a world-space offset from that anchor.
+    // Every asset is grounded on the SAME floor: its bounding box is moved to XZ origin and its
+    // bottom edge to scene_floor_y. The default asset reproduces the historic shift exactly; a
+    // differently sized model no longer inherits the first asset's radius.
+    for (scene_asset_entry& asset : scene_assets) {
+        glm::vec3 const center = (asset.bounds.min + asset.bounds.max) * 0.5f;
+        // Ground by the AABB's BOTTOM, not by centre + diagonal radius: the diagonal radius is not the
+        // half-height, so the old expression happened to work only for a cube. For the single asset this
+        // reproduces the historic `-centre + (0, -radius, 0)` exactly, because `scene_floor_y` was derived
+        // from that same asset's bottom edge.
+        asset.import_shift = glm::vec3(-center.x, scene_floor_y - asset.bounds.min.y, -center.z);
+    }
+    // 8c. SIMPLE MULTI-OBJECT ([scene.objects]): each entry imports ITS OWN asset (or the default
+    //     model when the entry names none) and wraps that import in a synthetic parent node carrying
+    //     its placement. The wrapper keeps the model's own root transforms intact. The placement
+    //     pivots on the object's ground anchor, so `scale` grows an object out of the floor rather
+    //     than out of its bounding-box centre, and `position` is a world-space offset from that anchor.
     //
     //     The captured GameToon/character_forward stages derive a head basis from the first imported rig
     //     in world space. A wrapper would move the rendered head without moving that basis, so the two
@@ -762,10 +906,6 @@ int main(int argc, char** argv) {
         return transform;
     };
     if (use_scene_objects) {
-        if (settings.render.character_forward || settings.render.game_toon) {
-            deren::utility::panic(std::source_location::current(),
-                                  "[[scene.objects]] currently places the PBR path only; disable character_forward/game_toon or remove the object list");
-        }
         object_transforms.reserve(settings.scene.objects.size());
         for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
             deren::app_config::scene_object_settings const& object = settings.scene.objects[index];
@@ -783,12 +923,19 @@ int main(int argc, char** argv) {
         glm::vec3 minimum = {};
         glm::vec3 maximum = {};
         bool first_corner = true;
-        for (glm::mat4 const& transform : object_transforms) {
+        for (std::size_t index = 0; index < object_transforms.size(); ++index) {
+            glm::mat4 const& transform = object_transforms[index];
+            scene_asset_entry const& asset = scene_assets[object_asset_slot[index]];
             for (int32_t corner = 0; corner < 8; ++corner) {
-                glm::vec3 const source = glm::vec3((corner & 1) != 0 ? bounds.max.x : bounds.min.x,
-                                                   (corner & 2) != 0 ? bounds.max.y : bounds.min.y,
-                                                   (corner & 4) != 0 ? bounds.max.z : bounds.min.z) +
-                                         scene_import_shift;
+                glm::vec3 source = glm::vec3((corner & 1) != 0 ? asset.bounds.max.x : asset.bounds.min.x,
+                                             (corner & 2) != 0 ? asset.bounds.max.y : asset.bounds.min.y,
+                                             (corner & 4) != 0 ? asset.bounds.max.z : asset.bounds.min.z);
+                if (asset.is_gaussian()) {
+                    // The cloud's local flower-face rotation is part of its drawn model, so fit the
+                    // camera around the rotated box rather than the source AABB.
+                    source = glm::vec3(asset.cloud_placement * glm::vec4(source, 1.0f));
+                }
+                source += asset.import_shift;
                 glm::vec3 const placed = glm::vec3(transform * glm::vec4(source, 1.0f));
                 if (first_corner) {
                     minimum = placed;
@@ -825,16 +972,33 @@ int main(int argc, char** argv) {
     //     no sidecar at all (the normal case for a model that is not a character), a slot whose flag is off,
     //     and a slot that is ON while the model has no such image - which is the case a consumer must handle by
     //     leaving the feature off rather than by substituting something.
-    std::optional<deren::toon::sidecar> toon_sidecar = {}; // kept in scope: the import below is what consumes it
-    {
-        auto const sidecar = deren::toon::load_sidecar(model_path);
+    // A sidecar names lanes by MATERIAL NAME and belongs to ONE asset. Load one per distinct asset;
+    // the import loop installs that asset's lookup immediately before its own materials are created.
+    for (scene_asset_entry& asset : scene_assets) {
+        if (asset.is_gaussian() || !asset.scenes) {
+            continue; // a Gaussian cloud has no materials and no sidecar
+        }
+        auto const sidecar = deren::toon::load_sidecar(asset.path);
         if (!sidecar.has_value()) {
-            deren::utility::log("toon sidecar: NOT READ - {}", sidecar.error());
+            deren::utility::log("toon sidecar: NOT READ for '{}' - {}", asset.path, sidecar.error());
         } else if (sidecar->empty()) {
-            deren::utility::log("toon sidecar: none beside '{}' (the normal case for a model that is not a character)", model_path);
+            deren::utility::log("toon sidecar: none beside '{}' (the normal case for a model that is not a character)", asset.path);
         } else {
-            toon_sidecar = *sidecar;
-            log_toon_sidecar(*scenes, *toon_sidecar);
+            asset.sidecar = *sidecar;
+            log_toon_sidecar(*asset.scenes, *asset.sidecar);
+        }
+    }
+    // An explicit `pipeline = "game_toon"` object must have its OWN sidecar: falling back to another
+    // asset's material table by name would be a guess, and the character would shade with the wrong lanes.
+    for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
+        if (settings.scene.objects[index].pipeline != 3) {
+            continue;
+        }
+        std::size_t const asset_index = object_asset_slot[index];
+        if (!scene_assets[asset_index].sidecar.has_value()) {
+            deren::utility::panic(std::source_location::current(),
+                                  "[[scene.objects]] entry {} requests pipeline 'game_toon' but '{}' has no toon sidecar",
+                                  index, scene_assets[asset_index].path);
         }
     }
 
@@ -851,15 +1015,48 @@ int main(int argc, char** argv) {
     auto lut_future = deren::engine::generate_brdf_lut_async(lut_size);
     // Raw decoded pixels are only needed after resolution by a toon sidecar; otherwise move them into
     // the generated mip chains so the import peak does not retain both copies.
-    auto resolve_future = deren::gltf::resolve_materials_async(*scenes, !toon_sidecar);
+    auto resolve_future = deren::gltf::resolve_materials_async(*scenes, !scene_assets[0].sidecar.has_value());
 
     deren::utility::vessel::vector<float> const prefiltered = prefilter_future.get();
     deren::utility::vessel::vector<float> const irradiance = irradiance_future.get();
     deren::utility::vessel::vector<float> const brdf_lut = lut_future.get();
     auto materials = resolve_future.get();
-    if (!toon_sidecar) {
+    // Resolve the extra assets' materials in parallel, then point each pool entry at its own slice.
+    // An asset without a sidecar consumes its raw pixels into the mip chains exactly like a PBR
+    // import, so those pixels can be released as soon as its resolve future has delivered.
+    deren::utility::vessel::vector<std::future<deren::utility::vessel::vector<deren::gltf::resolved_material>>> extra_material_futures;
+    deren::utility::vessel::vector<std::size_t> extra_material_slots;
+    extra_material_futures.reserve(scene_assets.size() - 1);
+    extra_material_slots.reserve(scene_assets.size() - 1);
+    for (std::size_t index = 1; index < scene_assets.size(); ++index) {
+        if (!scene_assets[index].scenes) {
+            continue; // no glTF materials for a Gaussian cloud
+        }
+        extra_material_futures.push_back(deren::gltf::resolve_materials_async(*scene_assets[index].scenes,
+                                                                              !scene_assets[index].sidecar.has_value()));
+        extra_material_slots.push_back(index);
+    }
+    deren::utility::vessel::vector<deren::utility::vessel::vector<deren::gltf::resolved_material>> extra_materials;
+    extra_materials.reserve(extra_material_futures.size());
+    for (auto& future : extra_material_futures) {
+        extra_materials.push_back(future.get());
+    }
+    scene_assets[0].materials = &materials;
+    for (std::size_t index = 1; index < scene_assets.size(); ++index) {
+        scene_assets[index].materials = nullptr;
+    }
+    for (std::size_t index = 0; index < extra_material_slots.size(); ++index) {
+        scene_assets[extra_material_slots[index]].materials = &extra_materials[index];
+    }
+    if (!scene_assets[0].sidecar.has_value()) {
         auto released = deren::gltf::release_texture_pixels(*scenes);
         deren::utility::log("import memory: released {} B of decoded texture pixels; resolved mip owners remain valid", released);
+    }
+    for (std::size_t index = 1; index < scene_assets.size(); ++index) {
+        if (scene_assets[index].scenes && !scene_assets[index].sidecar.has_value()) {
+            auto released = deren::gltf::release_texture_pixels(*scene_assets[index].scenes);
+            deren::utility::log("import memory: released {} B of decoded texture pixels for '{}'", released, scene_assets[index].path);
+        }
     }
     auto const stage2_done = std::chrono::steady_clock::now();
     deren::utility::log("  IBL (prefilter/irradiance/BRDF LUT) + material resolve, parallel wall: {:.1f} ms", std::chrono::duration<double, std::milli>(stage2_done - stage2_start).count());
@@ -1056,29 +1253,31 @@ int main(int argc, char** argv) {
                             runtime.camera.target.z);
     };
 
-    deren::gltf::scene_node_iterator const node_first = scenes->nodes_begin();
-    deren::gltf::scene_node_iterator const node_last;
-    deren::gltf::drawable_iterator const scene_last;
     if (probe.enabled)
         deren::utility::log("radiance world position ({},{},{}), scene import shift ({},{},{})", probe.position.x, probe.position.y, probe.position.z, scene_import_shift.x, scene_import_shift.y, scene_import_shift.z);
 
     // THE TOON LOOKUP joins the loader's sidecar/extras data with the runtime's lookup contract. Its
     // tables, procedural bakes and three callbacks are defined after main(), at the end of this file;
     // the state lives here so it outlives every material import that reads through it.
-    toon_lookup_state toon_state{.sidecar = toon_sidecar.has_value() ? &*toon_sidecar : nullptr, .scenes = &*scenes};
-    bake_toon_textures(toon_state);
-    runtime.set_toon_lookup(deren::engine::runtime::toon_lookup{.owner = &toon_state, .texture = toon_texture_callback, .colour = toon_colour_callback, .scalar = toon_scalar_callback});
+    for (scene_asset_entry& asset : scene_assets) {
+        if (asset.is_gaussian() || !asset.scenes) {
+            continue; // no material lookup for a cloud
+        }
+        asset.lookup.sidecar = asset.sidecar.has_value() ? &*asset.sidecar : nullptr;
+        asset.lookup.scenes = asset.scenes;
+        bake_toon_textures(asset.lookup);
+    }
 
     // ---- THE TOON CHARACTER STAGE: the head frame, the captured viewer face frame and the light rig ----
     // Resolved once here (before the import) and published before the frame loop; the loop re-publishes the
     // head basis from the rig/joint/face-frame this returns - see prepare_character_stage() at the file end.
     character_stage const stage = prepare_character_stage(runtime, settings, *scenes, model_path);
 
-    // ONE IMPORT PER PLACEMENT. `[[scene.objects]]` reuses the same drawable/material stream; the historic
+    // ONE IMPORT PER PLACEMENT. Each placement borrows ITS asset's drawable/material stream; the historic
     // GameToon X-staging path is the fallback when the list is empty, so both keep their own offsets and
-    // character indices. `materials` stays alive until every import has finished: the drawable stream
-    // borrows it, and the runtime registers material records during the import. The FIRST import's result
-    // is what animation.init() below uses (in v1 animation drives the first object only).
+    // character indices. The resolved materials stay alive until every import has finished: their drawable
+    // streams borrow them, and the runtime registers material records during the import. The FIRST import's
+    // result is what animation.init() below binds the first object's controller to.
     deren::engine::scene_import_result imported = {};
     uint32_t total_primitive_count = 0;
     uint32_t total_material_count = 0;
@@ -1106,16 +1305,79 @@ int main(int argc, char** argv) {
         scene.roots.push_back(std::move(wrapper));
     };
     std::size_t const import_count = use_scene_objects ? settings.scene.objects.size() : static_cast<std::size_t>(game_toon_copies);
+    std::size_t character_count = 0;
+    if (use_scene_objects) {
+        for (deren::app_config::scene_object_settings const& object : settings.scene.objects) {
+            if (object.pipeline == 3) {
+                ++character_count;
+            }
+        }
+        if (character_count > deren::engine::max_game_toon_characters) {
+            deren::utility::panic(std::source_location::current(),
+                                  "[[scene.objects]] requests {} GameToon object(s), but max_game_toon_characters is {}",
+                                  character_count, deren::engine::max_game_toon_characters);
+        }
+    }
+    // An object that explicitly asks for `pipeline = "game_toon"` is the opt-in; the global knob stays
+    // the default for the historic single-character path, not a prerequisite for the object list.
+    bool const has_game_toon_object = use_scene_objects && character_count > 0;
+    std::vector<glm::vec3> character_head_offsets;
+    character_head_offsets.reserve(use_scene_objects ? settings.scene.objects.size() : game_toon_copies);
     for (std::size_t index = 0; index < import_count; ++index) {
-        glm::vec3 copy_shift = scene_import_shift;
+        scene_asset_entry& asset = use_scene_objects ? scene_assets[object_asset_slot[index]] : scene_assets[0];
+        glm::vec3 copy_shift = asset.import_shift;
         uint32_t character_index = 0;
         if (!use_scene_objects) {
             copy_shift += glm::vec3(game_toon_copy_offsets[index], 0.0f, 0.0f);
             character_index = static_cast<uint32_t>(index);
+        } else {
+            // Every placement gets a head slot, not only the GameToon ones: the object panel can switch
+            // `pipeline` at runtime, and a slot assigned only at import would otherwise leave a newly
+            // switched object reading another character's head frame.
+            character_index = static_cast<uint32_t>(index);
+            character_head_offsets.push_back(glm::vec3(settings.scene.objects[index].position[0],
+                                                       settings.scene.objects[index].position[1],
+                                                       settings.scene.objects[index].position[2]));
         }
         std::size_t const first_root = scene.roots.size();
-        deren::gltf::drawable_iterator copy_first(*scenes, materials);
-        deren::engine::scene_import_result const copy_result = runtime.import_scene(node_first, node_last, copy_first, scene_last, copy_shift, false, character_index);
+        if (asset.is_gaussian()) {
+            // A cloud contributes no mesh scene, so it is not imported. It still gets an empty wrapper
+            // in the object list: the panel, picking and the live transform all key off that slot.
+            if (index == 0) {
+                imported = {};
+            }
+            object_import_instances.push_back(0);
+            if (use_scene_objects) {
+                deren::app_config::scene_object_settings const& object = settings.scene.objects[index];
+                deren::utility::vessel::string const wrapper_name = object.name.empty() ? deren::utility::vessel::string("object") : object.name;
+                wrap_imported_roots(first_root, wrapper_name, object_transforms[index]);
+                object_root_indices.push_back(scene.roots.size() - 1);
+                object_leaves.emplace_back();
+                object_base_materials.emplace_back();
+                object_override_materials.emplace_back();
+                deren::utility::log("scene: object {} '{}' staged as a gaussian cloud ({} splats, no mesh import)",
+                                    index, wrapper_name, asset.cloud->source().particles.size());
+            }
+            continue;
+        }
+        deren::gltf::scene_node_iterator const copy_node_first = asset.scenes->nodes_begin();
+        deren::gltf::scene_node_iterator const copy_node_last;
+        deren::gltf::drawable_iterator const copy_first(*asset.scenes, *asset.materials);
+        deren::gltf::drawable_iterator const copy_scene_last;
+        runtime.set_toon_lookup(deren::engine::runtime::toon_lookup{.owner = &asset.lookup,
+                                                                    .texture = toon_texture_callback,
+                                                                    .colour = toon_colour_callback,
+                                                                    .scalar = toon_scalar_callback});
+        deren::engine::scene_import_result const copy_result = runtime.import_scene(copy_node_first, copy_node_last, copy_first, copy_scene_last, copy_shift, false, character_index);
+        if (!use_scene_objects) {
+            for (std::size_t root = first_root; root < scene.roots.size(); ++root) {
+                deren::engine::scene_tree::visit_primitives(scene.roots[root], glm::mat4(1.0f),
+                                                            [](deren::engine::scene_tree::scene_node const& node, glm::mat4 const&) {
+                                                                static_cast<deren::engine::primitive*>(node.primitive_leaf.get())->path =
+                                                                    deren::engine::shading_path::character;
+                                                            });
+            }
+        }
         if (index == 0) {
             imported = copy_result;
         }
@@ -1148,20 +1410,48 @@ int main(int argc, char** argv) {
                                 index, character_index, game_toon_copy_offsets[index], copy_result.primitive_count, copy_result.material_count);
         }
     }
+    // The lookup belongs to the asset whose materials are being registered; the background import below
+    // must not inherit the last character asset's sidecar by material name.
+    runtime.set_toon_lookup(deren::engine::runtime::toon_lookup{});
     if (use_scene_objects) {
         // The wrappers are structural edits after import_scene() already marked the tree dirty; mark it
         // again so the BVH and any derived scene state see the final hierarchy.
         runtime.scene_changed();
     }
     // LIVE GUI EDITS: rewrite only the wrapper's local matrix and re-dirty the scene. The children
-    // (the imported model) are untouched, so materials, skinning and the first object's animation
-    // keep running exactly as before. main calls this after a widget raised the dirty flag.
+    // (the imported model) are untouched, so materials, skinning and each object's animation keep
+    // running exactly as before. main calls this after a widget raised the dirty flag.
     auto const apply_scene_object_settings = [&] {
         std::size_t const count = std::min({object_root_indices.size(), object_leaves.size(), settings.scene.objects.size()});
         for (std::size_t index = 0; index < count; ++index) {
-            deren::app_config::scene_object_settings const& object = settings.scene.objects[index];
+            deren::app_config::scene_object_settings& object = settings.scene.objects[index];
+            scene_asset_entry const& asset = scene_assets[object_asset_slot[index]];
+            // A cloud has no mesh pipeline and a mesh asset has no splats. The object panel now offers
+            // only the values the asset supports; this guard remains the last line of defence against a
+            // stale choice and refuses a mismatch rather than silently drawing nothing.
+            if (asset.is_gaussian() && object.pipeline != deren::app_config::scene_object_pipeline_gaussian) {
+                deren::utility::log("scene object {}: '{}' is a gaussian cloud; keeping pipeline 'gaussian'",
+                                    index, asset.path);
+                object.pipeline = deren::app_config::scene_object_pipeline_gaussian;
+            } else if (!asset.is_gaussian() && object.pipeline == deren::app_config::scene_object_pipeline_gaussian) {
+                deren::utility::log("scene object {}: '{}' is a mesh asset; pipeline 'gaussian' needs a .ply cloud, keeping deferred",
+                                    index, asset.path);
+                object.pipeline = 0;
+            }
+            // The startup validation rejects a configured game_toon object without a sidecar. The object
+            // panel can still switch one at runtime; refuse that switch rather than shading it with another
+            // asset's lanes.
+            if (object.pipeline == 3 && !scene_assets[object_asset_slot[index]].sidecar.has_value()) {
+                deren::utility::log("scene object {}: game_toon needs a sidecar for '{}'; keeping the deferred path",
+                                    index, scene_assets[object_asset_slot[index]].path);
+                object.pipeline = 0;
+            }
             deren::engine::scene_tree::scene_node& wrapper = scene.roots[object_root_indices[index]];
             wrapper.local = make_object_transform(object);
+            // A cloud has no mesh node to follow: stage_gaussian_clouds() reads object_transforms.
+            // Keep that cached matrix in step with the wrapper so GUI position/rotation/scale edits
+            // affect splats as well as mesh leaves.
+            object_transforms[index] = wrapper.local;
             wrapper.visible = object.visible;
             deren::utility::vessel::vector<deren::engine::primitive*>& leaves = object_leaves[index];
             deren::utility::vessel::vector<deren::engine::material_id>& bases = object_base_materials[index];
@@ -1178,9 +1468,11 @@ int main(int argc, char** argv) {
             float const metallic_scale = object.material_override ? object.metallic_scale : 1.0f;
             float const roughness_scale = object.material_override ? object.roughness_scale : 1.0f;
             float const emissive_scale = object.material_override ? object.emissive_scale : 1.0f;
+            bool const character_object = object.pipeline == 3;
             for (std::size_t leaf_index = 0; leaf_index < leaves.size(); ++leaf_index) {
                 deren::engine::primitive& leaf = *leaves[leaf_index];
                 leaf.pipeline_name = {};
+                leaf.path = character_object ? deren::engine::shading_path::character : deren::engine::shading_path::deferred;
                 leaf.casts_shadow = object.cast_shadow;
                 if (!override_material) {
                     // Turning the override off restores the imported material; the clone stays allocated
@@ -1199,9 +1491,41 @@ int main(int argc, char** argv) {
         }
         runtime.scene_changed();
     };
+    // ONE splat stage, N clouds: clear and re-add the whole list before the frame snapshots it. The
+    // top-level cloud owns the empty-object-list path; with scene objects, their placements are the
+    // authority and the same cloud named twice is staged once per placement.
+    auto const gaussian_stage_active = [&] {
+        if (!use_scene_objects) {
+            return static_cast<bool>(gaussian_asset);
+        }
+        for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
+            if (settings.scene.objects[index].visible && scene_assets[object_asset_slot[index]].is_gaussian()) {
+                return true;
+            }
+        }
+        return false;
+    };
+    auto const stage_gaussian_clouds = [&] {
+        runtime.clear_gaussian_assets();
+        if (!use_scene_objects) {
+            if (gaussian_asset) {
+                runtime.add_gaussian_asset(gaussian_asset, gaussian_model, 0u);
+            }
+            return;
+        }
+        for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
+            scene_asset_entry const& asset = scene_assets[object_asset_slot[index]];
+            if (!asset.is_gaussian() || !settings.scene.objects[index].visible) {
+                continue;
+            }
+            glm::mat4 const model = object_transforms[index] * glm::translate(glm::mat4{1.0f}, asset.import_shift) * asset.cloud_placement;
+            runtime.add_gaussian_asset(asset.cloud, model, static_cast<std::uint64_t>(index) + 1u);
+        }
+    };
     if (use_scene_objects) {
         apply_scene_object_settings();
     }
+    stage_gaussian_clouds();
     deren::utility::log("imported {} primitives ({} new materials) across {} object placement(s)", total_primitive_count, total_material_count, import_count);
     runtime.log_scene_tree();
     decltype(materials){}.swap(materials); // streaming/lazy resources retain their shared immutable sources
@@ -1209,12 +1533,15 @@ int main(int argc, char** argv) {
     // Publish one head frame to every staged character: the copies differ only by their X offset, and a centre
     // that is known (`center.w > 0.5`) must move with the copy or its face sphere points at another copy's head.
     auto const publish_head_basis = [&](deren::engine::head_ubo const& basis) {
-        for (uint32_t copy = 0; copy < game_toon_copies; ++copy) {
+        std::size_t const slots = use_scene_objects ? character_head_offsets.size() : static_cast<std::size_t>(game_toon_copies);
+        for (std::size_t slot = 0; slot < slots; ++slot) {
             deren::engine::head_ubo copy_basis = basis;
             if (copy_basis.center.w > 0.5f) {
-                copy_basis.center.x += game_toon_copy_offsets[copy];
+                glm::vec3 const offset = use_scene_objects ? character_head_offsets[slot]
+                                                           : glm::vec3(game_toon_copy_offsets[slot], 0.0f, 0.0f);
+                copy_basis.center += glm::vec4(offset, 0.0f);
             }
-            runtime.set_head_basis(copy, copy_basis);
+            runtime.set_head_basis(static_cast<uint32_t>(slot), copy_basis);
         }
     };
 
@@ -1507,14 +1834,28 @@ int main(int argc, char** argv) {
     deren::utility::vessel::vector<deren::engine::animation::controller*> object_animations;
     uint32_t next_skin_block = 4; // block 0-3 is the shared identity block
     std::size_t next_morph_float = 0;
-    animation.init(*scenes, deren::app::make_animation_backend(runtime), scene_import_shift, imported.import_instance, next_skin_block, next_morph_float);
+    // Per-asset animation: a controller samples the loader scene the placement was imported from,
+    // so two objects with different GLBs each see their own clip list and node numbering.
+    auto const object_scenes = [&](std::size_t index) -> deren::gltf::scenes& {
+        if (!use_scene_objects) {
+            return *scenes;
+        }
+        deren::gltf::scenes* const asset_scenes = scene_assets[object_asset_slot[index]].scenes;
+        return asset_scenes ? *asset_scenes : empty_object_scenes;
+    };
+    auto const object_shift = [&](std::size_t index) -> glm::vec3 {
+        return use_scene_objects ? scene_assets[object_asset_slot[index]].import_shift : scene_import_shift;
+    };
+    uint64_t const first_import_instance =
+        use_scene_objects ? object_import_instances.front() : imported.import_instance;
+    animation.init(object_scenes(0), deren::app::make_animation_backend(runtime), object_shift(0), first_import_instance, next_skin_block, next_morph_float);
     next_skin_block += animation.skin_block_count();
     next_morph_float += animation.morph_float_count();
     object_animations.push_back(&animation);
     if (use_scene_objects) {
         for (std::size_t index = 1; index < object_import_instances.size(); ++index) {
             auto controller = std::make_unique<deren::engine::animation::controller>();
-            controller->init(*scenes, deren::app::make_animation_backend(runtime), scene_import_shift, object_import_instances[index], next_skin_block, next_morph_float);
+            controller->init(object_scenes(index), deren::app::make_animation_backend(runtime), object_shift(index), object_import_instances[index], next_skin_block, next_morph_float);
             next_skin_block += controller->skin_block_count();
             next_morph_float += controller->morph_float_count();
             object_animations.push_back(controller.get());
@@ -1531,6 +1872,12 @@ int main(int argc, char** argv) {
             names.emplace_back(controller->playable_name(clip));
         }
         object_animation_names.push_back(std::move(names));
+    }
+    if (use_scene_objects) {
+        for (std::size_t index = 0; index < object_animation_names.size() && index < settings.scene.objects.size(); ++index) {
+            scene_asset_entry const& asset = scene_assets[object_asset_slot[index]];
+            deren::utility::log("scene: object {} '{}' asset '{}' - {} playable clip(s)", index, settings.scene.objects[index].name, asset.path, object_animation_names[index].size());
+        }
     }
     if (use_scene_objects) {
         for (std::size_t index = 0; index < settings.scene.objects.size() && index < object_animation_names.size(); ++index) {
@@ -1660,7 +2007,7 @@ int main(int argc, char** argv) {
     // ... AND THE GAME-SHADER MODEL, on the same load-bearing copy's terms: the frame loop mirrors the binding
     // into the runtime, so a config value that never reached the binding would be overwritten by its default
     // on the first frame (`runtime::set_game_toon`).
-    gui.game_toon = settings.render.game_toon;
+    gui.game_toon = settings.render.game_toon || has_game_toon_object;
     gui.exposure = settings.render.exposure;
     gui.tone_mapping = settings.render.tone_mapping;
     gui.environment_rotation = settings.lighting.environment_rotation;
@@ -1689,6 +2036,43 @@ int main(int argc, char** argv) {
         gui.scene_objects = &settings.scene.objects;
         gui.object_animations = &object_animations;
         gui.object_animation_names = std::move(object_animation_names);
+        // PIPELINE CHOICES ARE PER ASSET, not a global five-item list: a cloud has only the splat
+        // stage, a mesh has the three deferred paths, and game_toon is added only when that asset
+        // shipped a sidecar. The combo widget binds an index, so main builds the filtered list and
+        // the initial index here; app_ui maps the chosen index back to the pipeline value.
+        gui.object_pipeline_options.clear();
+        gui.object_pipeline_choice.clear();
+        for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
+            deren::app_config::scene_object_settings& object = settings.scene.objects[index];
+            scene_asset_entry const& asset = scene_assets[object_asset_slot[index]];
+            gui.object_pipeline_options.push_back({});
+            deren::utility::vessel::vector<deren::app::gui_bindings::object_pipeline_option>& options = gui.object_pipeline_options.back();
+            if (asset.is_gaussian()) {
+                options.push_back({deren::app_config::scene_object_pipeline_gaussian, "gaussian"});
+            } else {
+                options.push_back({0, "default"});
+                options.push_back({1, "pbr"});
+                options.push_back({2, "unlit"});
+                if (asset.sidecar.has_value()) {
+                    options.push_back({3, "game_toon"});
+                }
+            }
+            std::int32_t choice = 0;
+            bool found = false;
+            for (std::size_t option = 0; option < options.size(); ++option) {
+                if (options[option].value == object.pipeline) {
+                    choice = static_cast<std::int32_t>(option);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found && !options.empty()) {
+                // The startup sanitisation above normally prevents this; keeping the widget and the
+                // object in sync here is the last line of defence against an invalid config value.
+                object.pipeline = options.front().value;
+            }
+            gui.object_pipeline_choice.push_back(choice);
+        }
     }
 
     // ---- authored (glTF) punctual lights -> the editable gui light slots ----
@@ -1894,8 +2278,6 @@ int main(int argc, char** argv) {
         glm::vec3 const ray_origin = unproject(0.0f);
         glm::vec3 const ray_far = unproject(1.0f);
         glm::vec3 const ray_direction = glm::normalize(ray_far - ray_origin);
-        glm::vec3 const local_min = bounds.min + scene_import_shift;
-        glm::vec3 const local_max = bounds.max + scene_import_shift;
         auto const intersect_box = [&](glm::vec3 const& origin, glm::vec3 const& direction, glm::vec3 const& box_min, glm::vec3 const& box_max, float& hit_t) {
             float t_min = 0.0f;
             float t_max = 1.0e30f;
@@ -1926,10 +2308,35 @@ int main(int argc, char** argv) {
         std::int32_t best_object = -1;
         float best_t = 1.0e30f;
         for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
+            scene_asset_entry const& asset = scene_assets[object_asset_slot[index]];
             glm::mat4 const object_to_world = make_object_transform(settings.scene.objects[index]);
             glm::mat4 const world_to_object = glm::inverse(object_to_world);
             glm::vec3 const local_origin = glm::vec3(world_to_object * glm::vec4(ray_origin, 1.0f));
             glm::vec3 const local_direction = glm::vec3(world_to_object * glm::vec4(ray_direction, 0.0f));
+            // Bounds are the ASSET's own, shifted by the asset's import shift; the placement matrix is
+            // inverted above. This also gives a cloud a clickable box, since it has no mesh primitives.
+            // A cloud is drawn through its local flower-face rotation, so bound the ROTATED box.
+            glm::vec3 local_min = asset.bounds.min;
+            glm::vec3 local_max = asset.bounds.max;
+            if (asset.is_gaussian()) {
+                bool first_corner = true;
+                for (int32_t corner = 0; corner < 8; ++corner) {
+                    glm::vec3 const source((corner & 1) != 0 ? asset.bounds.max.x : asset.bounds.min.x,
+                                           (corner & 2) != 0 ? asset.bounds.max.y : asset.bounds.min.y,
+                                           (corner & 4) != 0 ? asset.bounds.max.z : asset.bounds.min.z);
+                    glm::vec3 const rotated = glm::vec3(asset.cloud_placement * glm::vec4(source, 1.0f));
+                    if (first_corner) {
+                        local_min = rotated;
+                        local_max = rotated;
+                        first_corner = false;
+                    } else {
+                        local_min = glm::min(local_min, rotated);
+                        local_max = glm::max(local_max, rotated);
+                    }
+                }
+            }
+            local_min += asset.import_shift;
+            local_max += asset.import_shift;
             float hit_t = 0.0f;
             if (intersect_box(local_origin, local_direction, local_min, local_max, hit_t) && hit_t < best_t) {
                 best_t = hit_t;
@@ -1959,7 +2366,7 @@ int main(int argc, char** argv) {
     // from); what is left HERE is where the camera looks. THE CLOUD IS THE SCENE ON THIS PATH, so the camera takes
     // the cloud's own centre and a distance that holds two and a half of its radii - and because this runs BEFORE
     // the capture-camera override below, an explicit --capture-camera still wins over it.
-    if (gaussian_only) {
+    if (gaussian_only && !use_scene_objects) {
         runtime.camera.target = (gaussian_min + gaussian_max) * 0.5f;
         runtime.camera.distance = glm::length(gaussian_max - gaussian_min) * 0.5f * 2.5f;
     }
@@ -2120,6 +2527,9 @@ int main(int argc, char** argv) {
             apply_object_animation_settings();
             gui.scene_object_transform_dirty = false;
         }
+        // A cloud's placement is a frame input, not a scene node: restage every frame so a dragged
+        // object and the shared sort see the same list.
+        stage_gaussian_clouds();
         // Click picking: select on RELEASE and only when the press-to-release travel is small, so
         // an orbit drag does not change the selection. The overlay owns clicks that start or end
         // over a panel (the same wants_mouse gate the runtime's camera callbacks use).
@@ -2427,7 +2837,9 @@ int main(int argc, char** argv) {
         app_renderer.set_gbuffer_channel(gui.gbuffer_channel);
         // TAA (the engine's anti-aliasing): mirrored like the other render toggles. The jitter
         // follows automatically - it is applied to the projection when TAA is active.
-        app_renderer.set_taa(gui.taa_enabled, gui.taa_blend_static, gui.taa_blend_min);
+        // A splat is not resampled by the temporal resolve, so TAA is off while any cloud is staged;
+        // the user's toggle is kept for the mesh-only case.
+        app_renderer.set_taa(gui.taa_enabled && !gaussian_stage_active(), gui.taa_blend_static, gui.taa_blend_min);
 
         // Order matters for the M5/M6 mirrors: their availability checks read the state the lines
         // above just set (the debug view replaces the lighting stage, clustered lighting only exists

@@ -839,7 +839,7 @@ namespace deren::engine {
                 // ... AND THE TOON CHARACTER STAGE'S SUBSET, which is the opaque leaves minus the frame's
                 // static surround: the character chain re-shades the same surfaces the scene pass drew, and
                 // the background is the one thing in the frame that is NOT a subject (see `frame_character`).
-                if (!m->transparent && !m->environment) {
+                if (!m->transparent && !m->environment && m->path == shading_path::character) {
                     this->frame_character.push_back(m);
                 }
             }
@@ -1538,7 +1538,9 @@ namespace deren::engine {
     bool runtime::taa_active() const noexcept {
         // TAA is
         // the engine's answer to aliasing: a 1x G-buffer cannot be multisampled, so there is no MSAA to fall back on.
-        return this->taa_on && this->pass_ready("taa") && this->deferred_lit_active();
+        // A splat cloud is not resampled by the temporal resolve, so it must not be jittered by it either:
+        // the stage disables TAA while any cloud is staged, exactly as the Gaussian design requires.
+        return this->taa_on && this->pass_ready("taa") && this->deferred_lit_active() && !this->gaussian_active();
     }
 
     bool runtime::set_taa_enabled(bool const enabled) noexcept {
@@ -2403,20 +2405,33 @@ namespace deren::engine {
         };
     }
 
+    void runtime::clear_gaussian_assets() noexcept {
+        this->gaussian_instances.clear();
+    }
+
+    void runtime::add_gaussian_asset(std::shared_ptr<gaussian_splatting::raster_asset const> asset, glm::mat4 const& model, std::uint64_t stable_id) noexcept {
+        if (!asset) {
+            return;
+        }
+        // THE ASSET IS KEPT BY THE INSTANCE, not by a runtime-wide pointer: different objects may stage
+        // clouds of different assets, and prepare_raster_frame() reads the asset per instance.
+        this->gaussian_instances.push_back(gaussian_splatting::raster_instance{
+            .asset = std::move(asset),
+            .model = model,
+            .stable_id = stable_id,
+        });
+    }
+
     void runtime::set_gaussian_asset(std::shared_ptr<gaussian_splatting::raster_asset const> asset, glm::mat4 const& model) noexcept {
-        this->gaussian_asset = std::move(asset);
         this->gaussian_instances.clear();
         this->gaussian_gpu_unavailable = false;
         this->gaussian_path_reported = false;
-        if (this->gaussian_asset) {
+        if (asset) {
+            std::size_t const particles = asset->source().particles.size();
             // The application supplies the cloud's placement; CPU and GPU preparation share this instance.
-            this->gaussian_instances.push_back(gaussian_splatting::raster_instance{
-                .asset = this->gaussian_asset,
-                .model = model,
-                .stable_id = 0u,
-            });
+            this->add_gaussian_asset(std::move(asset), model, 0u);
             deren::utility::log("gaussian: the cloud is set for every frame that follows ({} instance(s), {} particle(s))",
-                                this->gaussian_instances.size(), this->gaussian_asset->source().particles.size());
+                                this->gaussian_instances.size(), particles);
         } else {
             deren::utility::log("gaussian: the cloud was cleared; the splat stage now records nothing");
         }
@@ -2426,14 +2441,14 @@ namespace deren::engine {
         if (auto const* mode = std::getenv("DEREN_GAUSSIAN_PATH"); mode && std::string_view{mode} == "gpu") {
             return {};
         }
-        if (!this->gaussian_path_reported && this->gaussian_asset) {
+        if (!this->gaussian_path_reported && !this->gaussian_instances.empty()) {
             deren::utility::log("gaussian path: CPU");
             this->gaussian_path_reported = true;
         }
         // THIS SLOT'S SNAPSHOT, and the slot is the ring's position - which is the only index under which retaining
         // one snapshot per frame is correct (see the member's note: the swapchain image index is NOT it).
         std::shared_ptr<gaussian_splatting::raster_frame>& slot = this->gaussian_frames[static_cast<std::size_t>(this->frame_ring().position()) % this->gaussian_frames.size()];
-        if (!this->gaussian_asset) {
+        if (this->gaussian_instances.empty()) {
             slot.reset();
             return {};
         }
@@ -2479,7 +2494,7 @@ namespace deren::engine {
                 deren::utility::log("gaussian GPU frame {} skipped: {} numeric errors", stats.frame_id, stats.errors);
             }
         }
-        if (!this->gaussian_asset) {
+        if (this->gaussian_instances.empty()) {
             slot.reset();
             return {};
         }
@@ -2608,7 +2623,7 @@ namespace deren::engine {
             // just re-shaded - with no re-shaded surface under it a hull would be an unlit shell over the
             // background. The material gate already excludes it (`outline_width` is 0 for the ground and the
             // backdrop), and stating it here keeps the rule in one place rather than in the asset.
-            if (!leaf->environment && leaf->outline_width > 0.0f) {
+            if (!leaf->environment && leaf->path == shading_path::character && leaf->outline_width > 0.0f) {
                 this->frame_outline.push_back(leaf);
             }
         }

@@ -633,6 +633,16 @@ namespace deren::app_config {
                             object.name = *value;
                         }
                     }
+                    if (toml::node const* node = source->get("model")) {
+                        if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
+                            object.model = *value;
+                        }
+                    }
+                    if (toml::node const* node = source->get("asset")) {
+                        if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
+                            object.asset = *value;
+                        }
+                    }
                     read_vec3(*source, "position", object.position);
                     read_vec3(*source, "rotation", object.rotation);
                     read_vec3(*source, "scale", object.scale);
@@ -654,8 +664,12 @@ namespace deren::app_config {
                                 object.pipeline = 1;
                             } else if (*value == "unlit") {
                                 object.pipeline = 2;
+                            } else if (*value == "game_toon") {
+                                object.pipeline = 3;
+                            } else if (*value == "gaussian") {
+                                object.pipeline = 4;
                             } else {
-                                deren::utility::log("app_config: [[scene.objects]] entry {} has unknown pipeline '{}' (default | pbr | unlit), using default",
+                                deren::utility::log("app_config: [[scene.objects]] entry {} has unknown pipeline '{}' (default | pbr | unlit | game_toon | gaussian), using default",
                                                     settings.scene.objects.size(), *value);
                             }
                         }
@@ -752,12 +766,12 @@ namespace deren::app_config {
                         object.animation_speed = std::clamp(object.animation_speed, 0.0f, 8.0f);
                     }
                     object.animation = std::clamp(object.animation, 0, 255);
-                    object.pipeline = std::clamp(object.pipeline, 0, 2);
+                    object.pipeline = std::clamp(object.pipeline, 0, 4);
                     if (sanitised) {
                         deren::utility::log("app_config: [[scene.objects]] entry {} had non-finite/out-of-range transform components, sanitised", settings.scene.objects.size());
                     }
-                    deren::utility::log("app_config: scene object {} '{}' position [{:.3f}, {:.3f}, {:.3f}], rotation [{:.1f}, {:.1f}, {:.1f}] deg, scale [{:.3f}, {:.3f}, {:.3f}], visible {}, cast_shadow {}, pipeline {}, environment '{}', material_override {}, animation {}, speed {:.2f}, playing {}",
-                                        settings.scene.objects.size(), object.name,
+                    deren::utility::log("app_config: scene object {} '{}' model '{}' asset '{}' position [{:.3f}, {:.3f}, {:.3f}], rotation [{:.1f}, {:.1f}, {:.1f}] deg, scale [{:.3f}, {:.3f}, {:.3f}], visible {}, cast_shadow {}, pipeline {}, environment '{}', material_override {}, animation {}, speed {:.2f}, playing {}",
+                                        settings.scene.objects.size(), object.name, object.model, object.asset,
                                         object.position[0], object.position[1], object.position[2],
                                         object.rotation[0], object.rotation[1], object.rotation[2],
                                         object.scale[0], object.scale[1], object.scale[2],

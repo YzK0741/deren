@@ -144,6 +144,15 @@ export namespace deren::app {
         // single-object path runs. The names are captured once at setup for the per-object clip combo.
         deren::utility::vessel::vector<deren::engine::animation::controller*>* object_animations = nullptr;
         deren::utility::vessel::vector<deren::utility::vessel::vector<deren::utility::vessel::string>> object_animation_names = {};
+        // Per-object pipeline choices. The combo binds an INDEX, so the visible list is filtered to the
+        // pipelines that the object's asset supports and the callback maps the index back to the value.
+        // Aligned with scene_objects; filled by main before setup_gui.
+        struct object_pipeline_option {
+            std::int32_t value = 0;
+            deren::utility::vessel::string name = {};
+        };
+        deren::utility::vessel::vector<deren::utility::vessel::vector<object_pipeline_option>> object_pipeline_options = {};
+        deren::utility::vessel::vector<std::int32_t> object_pipeline_choice = {};
         // Per-object environment combo items: "Scene default" followed by environment_names, so index 0 keeps
         // the object on the scene-wide IBL and 1..N pick an HDR from the same list the global combo uses.
         deren::utility::vessel::vector<deren::utility::vessel::string> object_environment_names = {};
