@@ -727,7 +727,81 @@ int main(int argc, char** argv) {
     // Sink the model so it sits near the world horizon (y = 0) and move the camera target with it:
     // the camera then orbits/looks at the model's position instead of the scene origin.
     glm::vec3 const scene_sink(0.0f, -character_radius, 0.0f);
-    runtime.camera.target = scene_sink;
+    // The single-object import always moves the asset's bounds centre to scene_sink; every placement
+    // below is expressed as a delta around that same point.
+    glm::vec3 const scene_import_shift = -scene_center + scene_sink;
+
+    // 8c. SIMPLE MULTI-OBJECT ([scene.objects]): the SAME loaded model is imported once per entry and
+    //     each import is wrapped in a synthetic parent node carrying its placement. The wrapper is what
+    //     keeps the model's own root transforms intact, and it is also the reason animation still drives
+    //     only the first import in v1 (see animation.init() below). The placement pivots on the
+    //     character's ground anchor, so `scale` grows a character out of the floor rather than out of
+    //     its bounding-box centre, and `position` is a world-space offset from that anchor.
+    //
+    //     The captured GameToon/character_forward stages derive a head basis from the first imported rig
+    //     in world space. A wrapper would move the rendered head without moving that basis, so the two
+    //     features are refused together instead of producing a plausible but wrong frame; the GameToon
+    //     X-staging path (`game_toon_copies`) remains separate and unchanged.
+    bool const use_scene_objects = !settings.scene.objects.empty();
+    deren::utility::vessel::vector<glm::mat4> object_transforms;
+    glm::vec3 scene_focus = scene_sink;
+    float scene_fit_radius = scene_radius;
+    if (use_scene_objects) {
+        if (settings.render.character_forward || settings.render.game_toon) {
+            deren::utility::panic(std::source_location::current(),
+                                  "[[scene.objects]] currently places the PBR path only; disable character_forward/game_toon or remove the object list");
+        }
+        glm::vec3 const object_anchor(0.0f, scene_floor_y, 0.0f);
+        object_transforms.reserve(settings.scene.objects.size());
+        for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
+            deren::app_config::scene_object_settings const& object = settings.scene.objects[index];
+            glm::mat4 transform = glm::translate(glm::mat4(1.0f), glm::vec3(object.position[0], object.position[1], object.position[2]));
+            transform = glm::translate(transform, object_anchor);
+            transform = glm::rotate(transform, glm::radians(object.rotation[0]), glm::vec3(0.0f, 1.0f, 0.0f));
+            transform = glm::rotate(transform, glm::radians(object.rotation[1]), glm::vec3(1.0f, 0.0f, 0.0f));
+            transform = glm::rotate(transform, glm::radians(object.rotation[2]), glm::vec3(0.0f, 0.0f, 1.0f));
+            transform = glm::scale(transform, glm::vec3(object.scale[0], object.scale[1], object.scale[2]));
+            transform = glm::translate(transform, -object_anchor);
+            object_transforms.push_back(transform);
+            deren::utility::log("scene: object {} '{}' position [{:.3f}, {:.3f}, {:.3f}], rotation [{:.1f}, {:.1f}, {:.1f}] deg, scale [{:.3f}, {:.3f}, {:.3f}]",
+                                index, object.name,
+                                object.position[0], object.position[1], object.position[2],
+                                object.rotation[0], object.rotation[1], object.rotation[2],
+                                object.scale[0], object.scale[1], object.scale[2]);
+        }
+
+        // Fit the camera and the shadow frustum around ALL placements, not the source asset alone. The
+        // transformed AABB is deliberately conservative (eight corners of the source world AABB per
+        // placement); it only has to be large enough, and an exact box would not change the framing.
+        glm::vec3 minimum = {};
+        glm::vec3 maximum = {};
+        bool first_corner = true;
+        for (glm::mat4 const& transform : object_transforms) {
+            for (int32_t corner = 0; corner < 8; ++corner) {
+                glm::vec3 const source = glm::vec3((corner & 1) != 0 ? bounds.max.x : bounds.min.x,
+                                                   (corner & 2) != 0 ? bounds.max.y : bounds.min.y,
+                                                   (corner & 4) != 0 ? bounds.max.z : bounds.min.z) +
+                                         scene_import_shift;
+                glm::vec3 const placed = glm::vec3(transform * glm::vec4(source, 1.0f));
+                if (first_corner) {
+                    minimum = placed;
+                    maximum = placed;
+                    first_corner = false;
+                } else {
+                    minimum = glm::min(minimum, placed);
+                    maximum = glm::max(maximum, placed);
+                }
+            }
+        }
+        scene_focus = (minimum + maximum) * 0.5f;
+        scene_fit_radius = std::max(glm::length(maximum - minimum) * 0.5f, 1.0e-3f);
+        deren::utility::log("scene: {} object placement(s), fitted bounds [{:.3f}, {:.3f}, {:.3f}] .. [{:.3f}, {:.3f}, {:.3f}] (fit radius {:.3f})",
+                            settings.scene.objects.size(),
+                            minimum.x, minimum.y, minimum.z,
+                            maximum.x, maximum.y, maximum.z,
+                            scene_fit_radius);
+    }
+    runtime.camera.target = scene_focus;
 
     // 8b. THE TOON MATERIAL SIDECAR, RESOLVED AGAINST THIS MODEL'S OWN IMAGES.
     //
@@ -951,14 +1025,14 @@ int main(int argc, char** argv) {
             runtime.camera.pitch = 0.0f;
             runtime.camera.distance = std::min(half_extent.x, half_extent.z) * 0.7f;
         } else {
-            runtime.camera.distance = scene_radius * 2.75f;
+            runtime.camera.distance = scene_fit_radius * 2.75f;
         }
         deren::utility::log("initial camera: fit={} yaw {:.1f} deg, pitch {:.1f} deg, distance {:.2f} (scene radius {:.2f}, ground half-extent {:.2f} x {:.2f})",
                             settings.render.camera_fit,
                             glm::degrees(runtime.camera.yaw),
                             glm::degrees(runtime.camera.pitch),
                             runtime.camera.distance,
-                            scene_radius,
+                            scene_fit_radius,
                             half_extent.x,
                             half_extent.z);
     }
@@ -978,7 +1052,6 @@ int main(int argc, char** argv) {
     deren::gltf::scene_node_iterator const node_first = scenes->nodes_begin();
     deren::gltf::scene_node_iterator const node_last;
     deren::gltf::drawable_iterator const scene_last;
-    glm::vec3 const scene_import_shift = -scene_center + scene_sink;
     if (probe.enabled)
         deren::utility::log("radiance world position ({},{},{}), scene import shift ({},{},{})", probe.position.x, probe.position.y, probe.position.z, scene_import_shift.x, scene_import_shift.y, scene_import_shift.z);
 
@@ -994,28 +1067,58 @@ int main(int argc, char** argv) {
     // head basis from the rig/joint/face-frame this returns - see prepare_character_stage() at the file end.
     character_stage const stage = prepare_character_stage(runtime, settings, *scenes, model_path);
 
-    // ONE IMPORT PER COPY, each with its own X offset and character index. `materials` stays alive until every copy
-    // has been imported: the drawable stream borrows it, and the runtime registers material records during the
-    // import. The FIRST copy's result is what animation.init() below uses - animation drives the original rig, and
-    // the copies are static repetitions of its imported pose in v1.
+    // ONE IMPORT PER PLACEMENT. `[[scene.objects]]` reuses the same drawable/material stream; the historic
+    // GameToon X-staging path is the fallback when the list is empty, so both keep their own offsets and
+    // character indices. `materials` stays alive until every import has finished: the drawable stream
+    // borrows it, and the runtime registers material records during the import. The FIRST import's result
+    // is what animation.init() below uses (in v1 animation drives the first object only).
     deren::engine::scene_import_result imported = {};
     uint32_t total_primitive_count = 0;
     uint32_t total_material_count = 0;
-    for (uint32_t copy = 0; copy < game_toon_copies; ++copy) {
-        glm::vec3 const copy_shift = scene_import_shift + glm::vec3(game_toon_copy_offsets[copy], 0.0f, 0.0f);
+    auto const wrap_imported_roots = [&scene](std::size_t const first_root, deren::utility::vessel::string const& name, glm::mat4 const& placement) {
+        deren::engine::scene_tree::scene_node wrapper = {};
+        wrapper.node_name = name;
+        wrapper.local = placement;
+        wrapper.children.reserve(scene.roots.size() - first_root);
+        for (std::size_t index = first_root; index < scene.roots.size(); ++index) {
+            wrapper.children.push_back(std::move(scene.roots[index]));
+        }
+        scene.roots.resize(first_root);
+        scene.roots.push_back(std::move(wrapper));
+    };
+    std::size_t const import_count = use_scene_objects ? settings.scene.objects.size() : static_cast<std::size_t>(game_toon_copies);
+    for (std::size_t index = 0; index < import_count; ++index) {
+        glm::vec3 copy_shift = scene_import_shift;
+        uint32_t character_index = 0;
+        if (!use_scene_objects) {
+            copy_shift += glm::vec3(game_toon_copy_offsets[index], 0.0f, 0.0f);
+            character_index = static_cast<uint32_t>(index);
+        }
+        std::size_t const first_root = scene.roots.size();
         deren::gltf::drawable_iterator copy_first(*scenes, materials);
-        deren::engine::scene_import_result const copy_result = runtime.import_scene(node_first, node_last, copy_first, scene_last, copy_shift, false, copy);
-        if (copy == 0) {
+        deren::engine::scene_import_result const copy_result = runtime.import_scene(node_first, node_last, copy_first, scene_last, copy_shift, false, character_index);
+        if (index == 0) {
             imported = copy_result;
         }
         total_primitive_count += copy_result.primitive_count;
         total_material_count += copy_result.material_count;
-        if (game_toon_copies > 1) {
+        if (use_scene_objects) {
+            deren::app_config::scene_object_settings const& object = settings.scene.objects[index];
+            deren::utility::vessel::string const wrapper_name = object.name.empty() ? deren::utility::vessel::string("object") : object.name;
+            wrap_imported_roots(first_root, wrapper_name, object_transforms[index]);
+            deren::utility::log("scene: object {} '{}' imported - {} primitives, {} new materials",
+                                index, wrapper_name, copy_result.primitive_count, copy_result.material_count);
+        } else if (game_toon_copies > 1) {
             deren::utility::log("game_toon: copy {} (character index {}) imported at X {:.3f} - {} primitives, {} new materials",
-                                copy, copy, game_toon_copy_offsets[copy], copy_result.primitive_count, copy_result.material_count);
+                                index, character_index, game_toon_copy_offsets[index], copy_result.primitive_count, copy_result.material_count);
         }
     }
-    deren::utility::log("imported {} primitives ({} new materials) across {} character copy/copies", total_primitive_count, total_material_count, game_toon_copies);
+    if (use_scene_objects) {
+        // The wrappers are structural edits after import_scene() already marked the tree dirty; mark it
+        // again so the BVH and any derived scene state see the final hierarchy.
+        runtime.scene_changed();
+    }
+    deren::utility::log("imported {} primitives ({} new materials) across {} object placement(s)", total_primitive_count, total_material_count, import_count);
     runtime.log_scene_tree();
     decltype(materials){}.swap(materials); // streaming/lazy resources retain their shared immutable sources
 
@@ -1084,7 +1187,7 @@ int main(int argc, char** argv) {
     // 12. Enable directional shadow mapping over the imported scene: the shadow frustum frames
     //      the sphere around where the primitives actually sit (they were translated by the import
     //      offset above, so their world-space center is scene_sink) with their original radius
-    runtime.enable_shadows(scene_sink, scene_radius);
+    runtime.enable_shadows(scene_focus, scene_fit_radius);
     // apply the config shadow toggle now that the shadow maps exist (turning it off clears them)
     if (!settings.render.shadow) {
         runtime.set_shadow_enabled(false);
@@ -1107,13 +1210,13 @@ int main(int argc, char** argv) {
         for (int32_t i = 0; i < total; ++i) {
             float const t = static_cast<float>(i) / static_cast<float>(total);
             float const angle = t * 6.2831853f * 3.0f; // three turns around the scene
-            float const radius = scene_radius * settings.lighting.demo_light_radius;
+            float const radius = scene_fit_radius * settings.lighting.demo_light_radius;
             deren::engine::punctual_light light = {};
-            light.position = scene_sink + glm::vec3(std::cos(angle) * radius, scene_radius * (t - 0.5f), std::sin(angle) * radius);
+            light.position = scene_focus + glm::vec3(std::cos(angle) * radius, scene_fit_radius * (t - 0.5f), std::sin(angle) * radius);
             // hue cycle: a warm/cool strip of colors makes the per-cluster lists visible as color
             light.color = glm::vec3(0.5f + 0.5f * std::cos(angle), 0.5f + 0.5f * std::cos(angle + 2.094f), 0.5f + 0.5f * std::cos(angle + 4.188f));
             light.intensity = 12.0f;
-            light.range = scene_radius * settings.lighting.demo_light_range; // finite range: what the cluster sphere test culls on
+            light.range = scene_fit_radius * settings.lighting.demo_light_range; // finite range: what the cluster sphere test culls on
             demo_lights.push_back(light);
         }
         deren::utility::log("demo lights: {} procedural punctual lights around the scene (clustered light stress)", total);

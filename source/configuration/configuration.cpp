@@ -597,6 +597,83 @@ namespace deren::app_config {
             }
         }
 
+        if (toml::table const* scene = table.get_as<toml::table>("scene")) {
+            // `[[scene.objects]]`: an ordered list of placements for the ONE loaded model. Absent or empty
+            // keeps the historic single-object import; the list is capped because each entry builds a full
+            // retained hierarchy and draws its own submeshes.
+            if (toml::array const* objects = scene->get_as<toml::array>("objects")) {
+                auto const read_vec3 = [](toml::table const& source, char const* key, deren::utility::vessel::array<float, 3>& target) {
+                    if (toml::node const* node = source.get(key)) {
+                        if (toml::array const* values = node->as_array(); values != nullptr && values->size() == target.size()) {
+                            deren::utility::vessel::array<float, 3> parsed = target;
+                            for (std::size_t i = 0; i < values->size(); ++i) {
+                                std::optional<double> const component = (*values)[i].value<double>();
+                                if (!component.has_value()) {
+                                    return; // a partly numeric vector is not a vector: keep the default
+                                }
+                                parsed[i] = static_cast<float>(*component);
+                            }
+                            target = parsed;
+                        }
+                    }
+                };
+                for (toml::node const& element : *objects) {
+                    if (static_cast<std::size_t>(settings.scene.objects.size()) >= max_scene_objects) {
+                        deren::utility::log("app_config: more than {} [[scene.objects]] entries, ignoring the rest", max_scene_objects);
+                        break;
+                    }
+                    toml::table const* source = element.as_table();
+                    if (source == nullptr) {
+                        deren::utility::log("app_config: [[scene.objects]] entry {} is not a table, ignored", settings.scene.objects.size());
+                        continue;
+                    }
+                    scene_object_settings object = {};
+                    if (toml::node const* node = source->get("name")) {
+                        if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
+                            object.name = *value;
+                        }
+                    }
+                    read_vec3(*source, "position", object.position);
+                    read_vec3(*source, "rotation", object.rotation);
+                    read_vec3(*source, "scale", object.scale);
+                    bool sanitised = false;
+                    for (float& component : object.position) {
+                        if (!std::isfinite(component)) {
+                            component = 0.0f;
+                            sanitised = true;
+                        } else {
+                            component = std::clamp(component, -1.0e5f, 1.0e5f);
+                        }
+                    }
+                    for (float& component : object.rotation) {
+                        if (!std::isfinite(component)) {
+                            component = 0.0f;
+                            sanitised = true;
+                        } else {
+                            component = std::clamp(component, -3.6e4f, 3.6e4f);
+                        }
+                    }
+                    for (float& component : object.scale) {
+                        if (!std::isfinite(component)) {
+                            component = 1.0f;
+                            sanitised = true;
+                        } else {
+                            component = std::clamp(component, 0.01f, 1000.0f);
+                        }
+                    }
+                    if (sanitised) {
+                        deren::utility::log("app_config: [[scene.objects]] entry {} had non-finite/out-of-range transform components, sanitised", settings.scene.objects.size());
+                    }
+                    deren::utility::log("app_config: scene object {} '{}' position [{:.3f}, {:.3f}, {:.3f}], rotation [{:.1f}, {:.1f}, {:.1f}] deg, scale [{:.3f}, {:.3f}, {:.3f}]",
+                                        settings.scene.objects.size(), object.name,
+                                        object.position[0], object.position[1], object.position[2],
+                                        object.rotation[0], object.rotation[1], object.rotation[2],
+                                        object.scale[0], object.scale[1], object.scale[2]);
+                    settings.scene.objects.push_back(object);
+                }
+            }
+        }
+
         // Sanity-clamp numeric settings: negative/absurd values would break window/swapchain
         // creation or reserve huge buffers. Non-positive window sizes fall back to the defaults;
         // grid_side is capped (the instancing stress reserves side*side transforms).

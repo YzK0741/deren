@@ -26,6 +26,33 @@ model = "asset/DamagedHelmet/DamagedHelmet.gltf"
 #   instanced grid (single instanced draw call stress test; 0 = off)
 grid_side = 0
 
+# ---- [scene] simple multi-object placement (PBR path only) ----
+# An EMPTY or absent list keeps the historic single-object import. Each
+# [[scene.objects]] entry imports the SAME loaded model a second time, so every
+# entry shares geometry, materials and animation. Names are for the log and
+# scene tree only; positions are world metres from the character's ground
+# anchor; rotation is Y/X/Z Euler degrees applied in that order; scale is per
+# axis and pivots on that same ground anchor (a character grows out of the
+# floor, not out of its bounding-box centre). At most 16 entries.
+#
+# The captured GameToon/character_forward stages are single-rig features and
+# reject this list in v1 (their head basis is derived from one world-space rig).
+#
+# [scene]
+# objects = []   # alternative spelling; do not also use [[scene.objects]]
+#
+# [[scene.objects]]
+# name = "left"
+# position = [-1.5, 0.0, 0.0]
+# rotation = [0.0, 0.0, 0.0]
+# scale = [1.0, 1.0, 1.0]
+#
+# [[scene.objects]]
+# name = "right"
+# position = [1.5, 0.0, 0.0]
+# rotation = [0.0, 180.0, 0.0]
+# scale = [1.0, 1.0, 1.0]
+
 # ---- [paths] resource directories (empty = auto-locate) ----
 [paths]
 # shaders_dir: shader SPIR-V directory. Empty = find "shaders/" upward from cwd.
