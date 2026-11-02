@@ -657,6 +657,13 @@ namespace deren::engine {
             };
             this->camera_moved = key != this->camera_key || this->camera_override_changed;
             this->camera_override_changed = false;
+            // A pose change moves skinned geometry without touching the camera key or the BVH,
+            // so the cached visible set must be rebuilt when the uploaded joint block changes.
+            bool const skin_changed = this->skin_matrix_hash != this->cull_skin_hash;
+            std::span<glm::mat4 const> const skin_matrices =
+                this->active_slot < this->skin_current.size()
+                    ? std::span<glm::mat4 const>(this->skin_current[this->active_slot].data(), this->skin_current[this->active_slot].size())
+                    : std::span<glm::mat4 const>{};
 
             if (scene_changed_this_frame || !this->cull_bvh.has_value()) {
                 // scene changed: rebuild the BVH from current world AABBs (and drop stale leaves)
@@ -680,28 +687,56 @@ namespace deren::engine {
                 this->bvh_dirty = false;
             }
 
-            if (this->camera_moved || scene_changed_this_frame || this->cull_visible.empty()) {
-                // camera moved or the scene changed: re-run frustum cull against the current BVH
+            if (this->camera_moved || scene_changed_this_frame || skin_changed || this->cull_visible.empty()) {
+                // camera, scene or pose moved: re-run the cull against the current static BVH
                 deren::utility::vessel::vector<primitive const*> visible;
                 visible.reserve(frame_leaves.size());
-                // leaves without static bounds (instanced etc.) and deforming leaves are always drawn:
-                // a skin/morph can move geometry anywhere without changing the model matrix or bind AABB
+                // The cull frustum is built from the UNJITTERED view-projection: a jittered one
+                // would re-cull (and occasionally flicker a leaf in or out) on every TAA frame.
+                deren::utility::frustum const view_frustum = deren::utility::make_frustum(ubo.view_proj_unjittered);
                 for (primitive const* leaf : frame_leaves) {
-                    if (!leaf->has_bounds || leaf->deforming()) {
+                    if (!leaf->has_bounds) {
+                        // no single world bound (e.g. an instanced primitive): always visible
+                        visible.push_back(leaf);
+                        continue;
+                    }
+                    if (!leaf->deforming()) {
+                        continue; // already represented in the static BVH
+                    }
+                    if (leaf->push.morph_targets != 0u) {
+                        // Morph-only leaves have no joint block. Their displacement is unbounded
+                        // without a CPU morph pass, so keep the conservative always-visible rule.
+                        visible.push_back(leaf);
+                        continue;
+                    }
+                    if (leaf->skin_joint_count == 0u || skin_matrices.size() < static_cast<std::size_t>(leaf->push.skin_base) + leaf->skin_joint_count) {
+                        // The pose upload has not reached this block yet: drawing it is cheaper
+                        // than risking a missing body for one frame.
+                        visible.push_back(leaf);
+                        continue;
+                    }
+                    auto const [posed_min, posed_max] = leaf->skinned_world_aabb(skin_matrices);
+                    if (view_frustum.in(posed_min, posed_max)) {
                         visible.push_back(leaf);
                     }
                 }
                 if (this->cull_bvh.has_value()) {
-                    // the cull frustum is built from the UNJITTERED view-projection: a jittered one
-                    // would re-cull (and occasionally flicker a leaf in or out) on every TAA frame
-                    deren::utility::frustum const view_frustum = deren::utility::make_frustum(ubo.view_proj_unjittered);
                     auto const inside = this->cull_bvh->frustum_cull(view_frustum);
                     for (auto const* node : inside) {
                         visible.push_back(node->extra_data);
                     }
+                } else {
+                    // no static tree exists (empty scene or only dynamic leaves): the bounded
+                    // static leaves still have to draw, since no BVH test covers them.
+                    for (primitive const* leaf : frame_leaves) {
+                        if (leaf->has_bounds && !leaf->deforming()) {
+                            visible.push_back(leaf);
+                        }
+                    }
                 }
                 this->cull_visible = std::move(visible);
                 this->camera_key = key;
+                this->cull_skin_hash = this->skin_matrix_hash;
 
                 // ---- Shadow caster set (see shadow_casters in the class docs) ----
                 // Built only when the camera moved or the scene changed (reusing the cached
@@ -734,6 +769,14 @@ namespace deren::engine {
                                             full_scene_shadow_leaf_limit);
                     }
                     fill_shadow_casters(this->cull_visible);
+                    // A skinned caster can be just off-screen yet still cast into the view. It is
+                    // not in the static BVH, so add every deforming leaf to the heavy-scene caster
+                    // set instead of dropping it with the camera-culled result.
+                    for (primitive const* const leaf : frame_leaves) {
+                        if (leaf->deforming() && !leaf->environment) {
+                            this->shadow_casters.push_back(leaf);
+                        }
+                    }
                     if (this->cull_bvh.has_value()) {
                         // every cascade's frustum: a caster that only shadows the far range must still
                         // be drawn, so the union over the cascades is the exact caster set (a cull per
@@ -749,9 +792,9 @@ namespace deren::engine {
                                 }
                             }
                         }
-                        std::ranges::sort(this->shadow_casters);
-                        this->shadow_casters.erase(std::ranges::unique(this->shadow_casters).begin(), this->shadow_casters.end());
                     }
+                    std::ranges::sort(this->shadow_casters);
+                    this->shadow_casters.erase(std::ranges::unique(this->shadow_casters).begin(), this->shadow_casters.end());
                 }
             }
             visible_leaves = this->cull_visible;

@@ -36,6 +36,7 @@ module;
 #include <cstddef> // offsetof (layout guard below)
 #include <glm/glm.hpp>
 #include <memory>
+#include <span>
 #include <utility>
 
 export module deren.engine.primitive;
@@ -2192,13 +2193,19 @@ namespace deren::engine {
         glm::vec3 local_aabb_max = glm::vec3(0.0f);
         bool has_bounds = false;
 
+        /// number of joint matrices in this primitive's skin block; 0 = unskinned. Set by the
+        /// animation controller together with `push.skin_base`, so the cull can union the bind
+        /// box through every joint and get a conservative bound for the posed geometry.
+        uint32_t skin_joint_count = 0u;
+
         /**
          * @brief whether this primitive's vertices can move without its node matrix changing
          *
          * A skinned or morphed draw is deformed in the vertex shader, so `local_aabb_*` describes
-         * the bind pose, not what the draw will cover. Frustum culling must keep such a primitive
-         * visible: its static bounds can be behind the camera while the deformed geometry is on
-         * screen. This is the same predicate `runtime` uses when it records a leaf as deforming.
+         * the bind pose, not what the draw will cover. The cull keeps such a primitive out of the
+         * static BVH; a skinned primitive gets a conservative posed bound from
+         * `skinned_world_aabb`, while a morph-only primitive (no joint matrices) stays always
+         * visible.
          */
         [[nodiscard]] bool deforming() const noexcept {
             return this->push.skin_base != 0u || this->push.morph_targets != 0u;
@@ -2224,6 +2231,35 @@ namespace deren::engine {
                 glm::vec4 const world = this->push.model * glm::vec4(corner, 1.0f);
                 wmin = glm::min(wmin, glm::vec3(world));
                 wmax = glm::max(wmax, glm::vec3(world));
+            }
+            return {wmin, wmax};
+        }
+
+        /**
+         * @brief conservative world AABB of a skinned primitive for the current joint block
+         *
+         * Every vertex is a convex blend of the same local position through up to four joints, so
+         * the union of the bind box transformed by ALL joints in the block contains every possible
+         * blended position. The joint matrices are object-local (the animation controller already
+         * folds the mesh's inverse world into them), hence `push.model * joint` before taking the
+         * bounds. `matrices` is the runtime's current CPU copy of the uploaded skin block and must
+         * cover `push.skin_base + skin_joint_count`.
+         */
+        [[nodiscard]] std::pair<glm::vec3, glm::vec3> skinned_world_aabb(std::span<glm::mat4 const> const matrices) const noexcept {
+            glm::vec3 wmin = glm::vec3(std::numeric_limits<float>::infinity());
+            glm::vec3 wmax = glm::vec3(-std::numeric_limits<float>::infinity());
+            for (uint32_t joint = 0; joint < this->skin_joint_count; ++joint) {
+                glm::mat4 const skin_world = this->push.model * matrices[static_cast<std::size_t>(this->push.skin_base) + joint];
+                for (int32_t i = 0; i < 8; ++i) {
+                    glm::vec3 const corner{
+                        (i & 1) ? this->local_aabb_max.x : this->local_aabb_min.x,
+                        (i & 2) ? this->local_aabb_max.y : this->local_aabb_min.y,
+                        (i & 4) ? this->local_aabb_max.z : this->local_aabb_min.z,
+                    };
+                    glm::vec4 const world = skin_world * glm::vec4(corner, 1.0f);
+                    wmin = glm::min(wmin, glm::vec3(world));
+                    wmax = glm::max(wmax, glm::vec3(world));
+                }
             }
             return {wmin, wmax};
         }

@@ -2018,14 +2018,15 @@ namespace deren::engine {
         // scene_changed() after every structural change or the BVH/cull_visible can outlive a
         // destroyed leaf.
         //
-        // Static bounds only: the BVH bounds are the local AABBs captured at upload/import, so a
-        // skinned/morphed primitive is never inserted into it. `deforming()` leaves are always
-        // added to the visible set instead (see frame construction): their vertices can move far
-        // outside the bind-pose box without the node matrix changing. Culling can also be disabled
-        // (frustum_culling = false).
+        // Static bounds only in the BVH: its boxes are the local AABBs captured at upload/import,
+        // so a skinned/morphed primitive is never inserted into it. A skinned leaf is tested
+        // separately against a conservative posed bound (skin matrices unioned over its joint
+        // block); a morph-only leaf has no such bound and stays always visible. The posed result
+        // is cached like the camera result but is invalidated when skin_matrix_hash changes.
         std::optional<deren::utility::bvh<primitive>> cull_bvh = std::nullopt;
         bool bvh_dirty = true;                                              // scene structure/transforms changed -> rebuild
         deren::utility::vessel::vector<primitive const*> cull_visible = {}; // last culled result (main-pass set)
+        uint64_t cull_skin_hash = 0;                                        // skin pose cull_visible was built against
         // camera identity for result reuse: yaw, pitch, distance, target.xyz (7 floats)
         deren::utility::vessel::array<float, 7> camera_key = {};
         bool camera_moved = true; // camera key differs from the last cull frame
