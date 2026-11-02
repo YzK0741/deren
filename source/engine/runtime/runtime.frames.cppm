@@ -2632,7 +2632,7 @@ namespace deren::engine {
             .outline_leaves = this->frame_outline,
             .make_environment = &runtime::make_scene_environment,
             .owner = this,
-            // The name the pipeline was registered under (chores.cpp). Handed over rather than hardcoded in
+            // The name the pipeline was registered under (app_pipelines.cpp). Handed over rather than hardcoded in
             // the pass, because the registry is the runtime's: a pass asserting a string another module chose
             // would be a name with no owner.
             //

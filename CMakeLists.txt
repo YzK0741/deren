@@ -629,10 +629,8 @@ set(VR_RUNTIME_PRIVATE_SOURCES
     source/engine/runtime/runtime.cpp
 )
 # The two places the app owns, named once so the target lists below read the same everywhere.
-set(VR_FULL_API_TARGETS deren chores)
+set(VR_FULL_API_TARGETS deren app_support)
 set(VR_APP_EXE deren)
-set(VR_FULL_API_MODULES source/engine/render_start_demo/render_start_demo.cppm)
-set(VR_FULL_API_SOURCES source/engine/render_start_demo/render_start_demo.cpp)
 
 add_library(resource_cluster_core STATIC)
 target_sources(resource_cluster_core PUBLIC FILE_SET CXX_MODULES FILES
@@ -704,7 +702,6 @@ target_sources(deren_engine
         source/engine/pass/hzb_build.cppm
         source/engine/pass/hzb_cull.cppm
         source/engine/pass/chain.cppm
-        ${VR_FULL_API_MODULES}
         source/engine/profiling/profiling.cppm
         source/engine/shadow_fit/shadow_fit.cppm
         source/engine/acceleration_structure/acceleration_structure.cppm
@@ -767,7 +764,6 @@ target_sources(deren_engine
         source/engine/pass/software_merge.cpp
         source/engine/pass/hzb_build.cpp
         source/engine/pass/hzb_cull.cpp
-        ${VR_FULL_API_SOURCES}
         source/engine/shadow_fit/shadow_fit.cpp
         source/engine/acceleration_structure/acceleration_structure.cpp
         source/engine/ray_tracing/ray_tracing.cpp
@@ -1085,28 +1081,30 @@ target_link_libraries(asset_library
         vstd_lib
 )
 
-# Demo bootstrap chores (root-level module, next to source/app/main.cpp): main's startup-config analysis
-# (analyse_config: config-file + argv merge, source/shaders/model location) and shader-loading /
-# pipeline helpers, kept out of main.cpp. Split like the other modules: source/app/chores.cppm
-# (export import std pattern) declares, source/app/chores.cpp implements. Demo/application layer only -
-# these helpers know about app_config (settings), the runtime (deren.engine.runtime) and utility
-# log/panic, never about glTF.
-#
-# `chores` takes `runtime&` and therefore names the full runtime API - which is exactly what the ONE
-# runtime now serves (its S1-S3 gate retired with the legacy runtime: see `deren_engine`'s comment).
-add_library(chores STATIC)
-
-target_sources(chores
+# Application-level support modules. The renderer's pass wiring lives here, not in deren_engine:
+# the engine records whatever chain it is handed, while this target owns the chain this app builds.
+# This is the former `chores` target split into focused modules: startup config, pipeline setup,
+# the renderer, the debug GUI, the animation backend and the instancing stress helper.
+add_library(app_support STATIC)
+target_sources(app_support
     PUBLIC
         FILE_SET CXX_MODULES
         FILES
-        source/app/chores.cppm
-
+        source/app/app_config.cppm
+        source/app/app_pipelines.cppm
+        source/app/app_renderer.cppm
+        source/app/app_ui.cppm
+        source/app/app_animation.cppm
+        source/app/app_instancing.cppm
     PRIVATE
-        source/app/chores.cpp
+        source/app/app_config.cpp
+        source/app/app_pipelines.cpp
+        source/app/app_renderer.cpp
+        source/app/app_ui.cpp
+        source/app/app_animation.cpp
+        source/app/app_instancing.cpp
 )
-
-target_link_libraries(chores
+target_link_libraries(app_support
         app_config
         asset_library
         deren_engine
@@ -1118,7 +1116,7 @@ target_link_libraries(${PROJECT_NAME}
         backend_loader   # source/app/main.cpp calls load_api_core(): the app owns the acquisition (batch ⑥)
         static_utility
         deren_engine
-        chores
+        app_support
         # AUTO-IMPORT, and it is the opposite rule from the two graphics plugins, which are resolved
         # BY NAME at run time and are not in this link line at all (see the add_dependencies below).
         # Linking deren_assets' import library is what makes the image load before main. Its banner
@@ -1337,7 +1335,7 @@ if(VR_BUILD_TESTS)
     set_tests_properties(test_backend_boundary PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run"
         ENVIRONMENT "TMP=${CMAKE_CURRENT_BINARY_DIR}/test-run;TEMP=${CMAKE_CURRENT_BINARY_DIR}/test-run")
-    # 完整产品先构建，再量 main/chores/引擎归档，避免半构建产生假性下降。
+    # 完整产品先构建，再量 main/app_support/引擎归档，避免半构建产生假性下降。
     add_custom_target(check-backend-boundary
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/checks/check_backend_boundary.py"
                 --build-dir "${CMAKE_CURRENT_BINARY_DIR}"
@@ -1405,7 +1403,7 @@ if(VR_BUILD_TESTS)
     # sources of truth (see the last block of that test): both are text, neither is generated from the other.
     target_compile_definitions(test_render_resources PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     # test_shader_sources parses the FOUR places a .spv is named (VR_SLANG_SOURCES, the two compile scripts, and
-    # source/app/chores.cpp's load_shader calls) and compares them: one shader built by the build and not by the scripts is
+    # source/app/app_config.cpp's and app_pipelines.cpp's shader registration) and compares them: one shader built by the build and not by the scripts is
     # the drift that test exists for, and it is the mesh path's CI gate (see the test's header).
     target_compile_definitions(test_shader_sources PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     # test_docs parses the WRITTEN artifacts the manual and CI are built from - Doxyfile's INPUT, the
@@ -2022,6 +2020,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     # *.cpp* wildcard the others use.
     file(GLOB_RECURSE PROJECT_FORMAT_SOURCES CONFIGURE_DEPENDS
             ${CMAKE_CURRENT_SOURCE_DIR}/source/app/main.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/source/app/app_*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/source/application_configuration/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/source/gltf_loader/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/source/utility/*.cpp*
@@ -2047,11 +2046,11 @@ if(CLANG_FORMAT_EXECUTABLE)
 
     add_custom_target(clang-format DEPENDS "${CLANG_FORMAT_STAMP}")
 
-    # Format all project targets before compiling (chores is deliberately NOT in this list: a
-    # root-level module source feeding both the format stamp and a target that depends on other
-    # format-listed targets makes ninja see a cycle; format source/app/chores.cppm manually with
-    # 'clang-format -i source/app/chores.cppm' - same style, just not automatic)
-    foreach(_tgt shared_utility static_utility backend_loader promise rhi_sync_contract app_config deren_vulkan vulkan_constant_init vulkan_synchronization renderer_layout vulkan_error_tables deren_engine deren_assets resource_cluster_core render_graph_core render_graph_rhi render_graph_execute render_graph_compose render_graph_bloom render_graph_post render_graph_lighting render_graph_geometry ${VR_APP_EXE})
+    # Format all project targets before compiling. The app support modules are part of the glob now:
+    # the old root-level `chores` module needed a manual clang-format because its source fed both the
+    # format stamp and a target that depended on other format-listed targets. Splitting it into
+    # source/app/app_*.cpp* removed that cycle.
+    foreach(_tgt shared_utility static_utility backend_loader promise rhi_sync_contract app_config deren_vulkan vulkan_constant_init vulkan_synchronization renderer_layout vulkan_error_tables deren_engine deren_assets resource_cluster_core render_graph_core render_graph_rhi render_graph_execute render_graph_compose render_graph_bloom render_graph_post render_graph_lighting render_graph_geometry app_support ${VR_APP_EXE})
         add_dependencies(${_tgt} clang-format)
     endforeach()
 
@@ -2338,7 +2337,7 @@ set(VR_SLANG_SOURCES
     # docs/superpowers/specs/2026-10-22-software-raster-design.md): the tiled compute stage that writes the private
     # R32_UINT depth/id pair (one 8x8 workgroup per 16x16 CSR tile), and the depth-only fullscreen merge that folds it
     # into the frame's G-buffer depth with LESS_OR_EQUAL + depth write. Both build their own pipelines from these
-    # modules through pass_context::shader, so they are registered (chores.cpp) as well as compiled; the merge file has
+    # modules through pass_context::shader, so they are registered (app_pipelines.cpp) as well as compiled; the merge file has
     # TWO entries. Task 2 lands the entry points; Task 3 fills the tiled walk and the SV_Depth value.
     scene/software_visibility.slang:main:compute:software_visibility.comp.spv
     scene/software_visibility_atomic.slang:main:compute:software_visibility_atomic.comp.spv

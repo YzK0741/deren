@@ -1,4 +1,4 @@
-// The demo's implementation: the two callbacks the runtime asks for, and nothing else. Every branch below is a
+// The application renderer's implementation: the two callbacks the runtime asks for, and nothing else. Every branch below is a
 // STAGE of this application's frame - the same names the runtime's frame loop uses for its stage structs - and what
 // it does is hand that stage's passes the frames only the runtime can build (its own recording machinery, and the
 // leaf lists/camera it owns). The per-stage ORDERING RULES that used to run here are the composed graph's now: it
@@ -6,21 +6,23 @@
 
 module;
 
-#include <cstddef>
 #include <glm/glm.hpp>
-#include <string_view>
 // NO VULKAN HEADER: this demo hands passes their frames and runs the frame's ordering rules - every value it
 // touches is the contract's or the renderer's own.
 
-module deren.engine.render_start_demo;
+module deren.app.renderer;
 
+import deren.vstd;
 import deren.utility;
 import deren.engine.pass.visibility_raster;  // the visibility buffer's raster pass
 import deren.engine.pass.visibility_resolve; // ... and its consumer, the compute resolve
 
-namespace deren::engine {
+namespace deren::app {
 
-    std::size_t render_start_demo::attach(runtime& self) noexcept {
+    using deren::engine::runtime;
+    namespace pass = deren::engine::pass;
+
+    std::size_t app_renderer::attach(runtime& self) noexcept {
         this->runtime_owner = &self;
         // ---- THE CHAIN, CONSTRUCTED HERE ----
         // The same passes the renderer used to construct for itself, in the order their create step must run in (the
@@ -117,7 +119,7 @@ namespace deren::engine {
             // rendering bug. NO FORMAT ARGUMENT, and that is not a style choice: `deren::utility::log` with one crashes
             // THIS translation unit's code generation (clang 22.1.8, `EmitBuiltinNewDeleteCall` - a toolchain bug
             // this branch has seen twice).
-            deren::utility::log("render_start_demo: a pass this demo wires is missing from the chain - it is not fed a frame and will not record");
+            deren::utility::log("app_renderer: a pass this demo wires is missing from the chain - it is not fed a frame and will not record");
         }
         // ---- AND HAND IT OVER ----
         // `set_pass_chain` binds this chain into the runtime's own frame structure (the stage sequence, the marks,
@@ -145,8 +147,8 @@ namespace deren::engine {
         return found;
     }
 
-    void render_start_demo::prepare(void* const owner, runtime::frame_services const& services, std::string_view const stage) {
-        render_start_demo& self = *static_cast<render_start_demo*>(owner);
+    void app_renderer::prepare(void* const owner, runtime::frame_services const& services, std::string_view const stage) {
+        app_renderer& self = *static_cast<app_renderer*>(owner);
         // THE FLAT RENDER MODE is the one fact the renderer's policy reads about a pass it no longer holds: a
         // screen-space effect is pointless on such a frame. Published per stage because it is one bool the app
         // can flip between frames.
@@ -190,8 +192,8 @@ namespace deren::engine {
         }
     }
 
-    void render_start_demo::collect(void* const owner, std::string_view const stage, runtime::frame_results& out) {
-        render_start_demo& self = *static_cast<render_start_demo*>(owner);
+    void app_renderer::collect(void* const owner, std::string_view const stage, runtime::frame_results& out) {
+        app_renderer& self = *static_cast<app_renderer*>(owner);
         if (stage == "gaussian") {
             out.gaussian_record_error = self.gaussian ? self.gaussian->last_error() : deren::promise::rhi::error::ok;
             return;
@@ -209,12 +211,12 @@ namespace deren::engine {
     // The CLAMPS travel with the values (they are the same fact), which is why the argument for each of them now
     // lives in the pass that owns it rather than in the setter below.
 
-    void render_start_demo::reset_temporal_history() noexcept {
+    void app_renderer::reset_temporal_history() noexcept {
         if (this->taa)
             this->taa->reset_history();
     }
 
-    void render_start_demo::set_taa(bool const enabled, float const blend_static, float const blend_min) noexcept {
+    void app_renderer::set_taa(bool const enabled, float const blend_static, float const blend_min) noexcept {
         bool const turned_on = this->runtime_owner != nullptr && this->runtime_owner->set_taa_enabled(enabled);
         if (this->taa == nullptr) {
             return;
@@ -227,18 +229,18 @@ namespace deren::engine {
         }
     }
 
-    void render_start_demo::set_gbuffer_channel(int32_t const channel) noexcept {
+    void app_renderer::set_gbuffer_channel(std::int32_t const channel) noexcept {
         if (this->gbuffer_debug_pass != nullptr) {
             this->gbuffer_debug_pass->set_channel(channel);
         }
     }
 
-    void render_start_demo::set_radiance_capture(bool enabled) noexcept {
+    void app_renderer::set_radiance_capture(bool enabled) noexcept {
         if (this->deferred)
             this->deferred->set_radiance_capture(enabled);
     }
 
-    void render_start_demo::set_unlit(bool const unlit) noexcept {
+    void app_renderer::set_unlit(bool const unlit) noexcept {
         if (this->deferred != nullptr) {
             this->deferred->set_unlit(unlit);
         }
@@ -249,7 +251,7 @@ namespace deren::engine {
         }
     }
 
-    void render_start_demo::set_upscale_filter(std::string_view const name) noexcept {
+    void app_renderer::set_upscale_filter(std::string_view const name) noexcept {
         // ONE MAPPING from the config's spelling to the pass's filter, here and nowhere else. EASU is the
         // fallback for an empty or unrecognised value, and the unrecognised case is LOGGED rather than silently
         // absorbed: a config key that appears to select a filter while the frame is produced by another one is
@@ -258,14 +260,14 @@ namespace deren::engine {
         if (name == "linear") {
             filter = pass::upscale_filter::linear;
         } else if (!name.empty() && name != "easu") {
-            deren::utility::log("render_start_demo: [render] upscale = \"{}\" is not a filter this renderer has (linear, easu); using easu", name);
+            deren::utility::log("app_renderer: [render] upscale = \"{}\" is not a filter this renderer has (linear, easu); using easu", name);
         }
         if (this->upscale != nullptr) {
             this->upscale->set_filter(filter);
         }
     }
 
-    void render_start_demo::set_ssao(bool const enabled, float const radius, float const intensity, uint32_t const samples) noexcept {
+    void app_renderer::set_ssao(bool const enabled, float const radius, float const intensity, std::uint32_t const samples) noexcept {
         // CPU-side only (the same rule as the other render-mode knobs): the values are pushed with the lighting stage
         // each frame, so they are safe to change mid-run. THE VALUES AND THEIR CLAMPS ARE THE PASS'S (see
         // deferred_pass::set_ssao); the diagnostic below is about the SESSION rather than about the pass, which is
@@ -285,8 +287,8 @@ namespace deren::engine {
     // hands over, and `this->pass_ready("name")` became a question to the typed reference this demo found - so the
     // composition is unchanged and the two inputs it is made of now sit on their own sides of the seam.
 
-    bool render_start_demo::feature_active(void* const owner, runtime::feature_facts const& facts, std::string_view const name) {
-        render_start_demo& self = *static_cast<render_start_demo*>(owner);
+    bool app_renderer::feature_active(void* const owner, runtime::feature_facts const& facts, std::string_view const name) {
+        app_renderer& self = *static_cast<app_renderer*>(owner);
         // the composed answers, each read by more than one branch below
         bool const gbuffer_debug = facts.gbuffer_debug && facts.gbuffer_pipeline && self.gbuffer_debug_pass != nullptr && self.gbuffer_debug_pass->ready();
         bool const shaded_scene = !gbuffer_debug && self.deferred != nullptr && self.deferred->ready() && facts.gbuffer_pipeline;
@@ -394,11 +396,11 @@ namespace deren::engine {
         return false;
     }
 
-    bool render_start_demo::feature_available(void* const owner, runtime::feature_facts const& facts, std::string_view const name) {
+    bool app_renderer::feature_available(void* const owner, runtime::feature_facts const& facts, std::string_view const name) {
         // "CAN this feature run at all this session", which the overlay's menu and `log_feature_status()` ask - the
         // different question from `feature_active` above, and the one whose absent branch was a bound bug (the SSAO
         // group was never offered because `deferred` answered false).
-        render_start_demo& self = *static_cast<render_start_demo*>(owner);
+        app_renderer& self = *static_cast<app_renderer*>(owner);
         if (name == "gbuffer-debug") {
             return facts.gbuffer_pipeline && self.gbuffer_debug_pass != nullptr && self.gbuffer_debug_pass->ready();
         }
@@ -437,9 +439,9 @@ namespace deren::engine {
 
     // =================================================================================================
 
-    void render_start_demo::recreated([[maybe_unused]] void* const owner) {
+    void app_renderer::recreated([[maybe_unused]] void* const owner) {
         // This demo keeps no descriptor family of its own: every pass in the chain retires its own, which the
         // record step does through recreate_stage, so there is nothing left here to reset.
     }
 
-} // namespace deren::engine
+} // namespace deren::app

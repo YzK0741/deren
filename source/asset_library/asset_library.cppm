@@ -12,8 +12,6 @@
 // ============================================================================
 module;
 
-#include <cstdint>
-
 export module deren.asset_library;
 export import deren.utility.shared;
 export import deren.vstd;
@@ -115,7 +113,7 @@ namespace deren::asset_library {
         // asks for the captured game-toon path.
         bool game_toon = false;
         std::string toon_profile;
-        std::optional<int32_t> tone_mapping; // 0..2, same meaning as [render] tone_mapping
+        std::optional<std::int32_t> tone_mapping; // 0..2, same meaning as [render] tone_mapping
         std::filesystem::path environment_hdr; // empty when absent or unreadable
         std::optional<std::array<float, 6>> camera_pose; // yaw, pitch, distance, target xyz
     };

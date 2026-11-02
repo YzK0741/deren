@@ -250,8 +250,10 @@ you are free to recombine or rewire them.
 - `deren.gltf_loader` - pure-CPU glTF/GLB loading: meshes, keyframe animation, skins, morph
   targets, cameras and punctual lights (KHR_lights_punctual); world-AABB + loader
   diagnostics
-- `deren.chores` - demo bootstrap helpers for main(): startup config analysis (config + argv
-  merge, source/shaders/model location), pipeline setup, instancing stress grid, shader loading
+- `deren.app.config` / `deren.app.pipelines` / `deren.app.renderer` / `deren.app.ui` /
+  `deren.app.animation` / `deren.app.instancing` - the demo application split into focused modules:
+  startup config analysis and shader loading, pipeline setup, the renderer pass chain, the debug GUI,
+  the animation backend and the instancing stress grid
 - `deren.utility` - log/panic, handle distribution, thread pool (deren.utility:thread_pool), BVH, data
   blocks, frame_clock, and the `vessel` containers' mimalloc-backed allocator (`memory::allocator`)
   Binary file readers require an explicit `max_bytes` payload limit and return
@@ -270,7 +272,7 @@ Modular composition is the point, not a side effect:
   whose data satisfies the structural `source` concept (it imports no loader and no
   `deren.engine.runtime`);
 - `deren.vulkan.core` / `deren.engine.runtime` are a configurable facade (`create_info`, granular
-  per-frame phase calls) - the demo entry point (`main.cpp` + `deren.chores`) is a thin glue layer
+  per-frame phase calls) - the demo entry point (`main.cpp` + `deren.app.*`) is a thin glue layer
   on top and can be replaced wholesale.
 
 Use the modules as-is to extend this renderer (new pass / primitive strategy / loader) or
@@ -278,7 +280,7 @@ link only the ones you need into your own project.
 
 Module reference is grouped under the `vulkan_core`, `runtime`,
 `engine_scene_tree`, `engine_render_environment`, `engine_render_resource`,
-`engine_pass`, `engine_animation`, `vulkan_gui`, `engine_math`, `gltf_loader`, `chores`,
+`engine_pass`, `engine_animation`, `vulkan_gui`, `engine_math`, `gltf_loader`, `app_startup`, `app_pipelines`, `app_renderer`, `app_ui`, `app_animation`, `app_instancing`,
 `utility` and `app_config` groups; the GLSL / Slang shaders are collected under the
 `shaders` group (see the shader reference page for the pass chain, the shared scene set and
 the conventions).
