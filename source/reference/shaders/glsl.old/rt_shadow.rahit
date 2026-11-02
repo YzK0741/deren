@@ -47,7 +47,7 @@
  *  - they are lifted anyway, and that is the point: this stage must not rest on a driver over-invoking a stage
  *    that two declarations say must not run. A conforming driver would skip it and the cut would silently do
  *    nothing - the worst kind of failure, because the frame would still look like a shadow. The ray flag is
- *    gone from `rt_shadow.rgen`, and `vulkan/acceleration_structure/acceleration_structure.cpp` no longer sets
+ *    gone from `rt_shadow.rgen`, and `vulkan/acceleration_structure/acceleration.cpp` no longer sets
  *    the geometry flag.
  *
  * WHAT IT COSTS: three vertex fetches and one texture fetch per hit on a MASK material (not per pixel - the

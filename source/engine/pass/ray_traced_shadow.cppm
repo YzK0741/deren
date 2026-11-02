@@ -85,7 +85,7 @@
  * byte-identically with and without the stage.
  *
  * ORDERING NOTE: it needs no `gl_RayFlagsOpaqueEXT` (see `rt_shadow.rgen`) and no `VK_GEOMETRY_OPAQUE_BIT_KHR` (see
- * source/engine/acceleration_structure/acceleration_structure.cppm): both would DECLARE that no any-hit shader may run,
+ * source/engine/acceleration/acceleration.cppm): both would DECLARE that no any-hit shader may run,
  * which is the opposite of what this stage is for. Neither flag was observed to actually suppress the stage on
  * this device - measured, three arms - but relying on a driver over-invoking it would be relying on the wrong
  * thing.

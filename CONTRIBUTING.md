@@ -56,7 +56,7 @@ that came before it.
    and they are not suggestions: modules split into `.cppm`/`.cpp` with the
    `export import std` pattern, `vessel` containers instead of the C++ standard
    library, plain classes with direct members rather than pimpl
-   (`source/backends/vulkan/graphical_user_interface/graphical_user_interface.cppm`
+   (`source/backends/vulkan/gui/gui.cppm`
    states this explicitly), and private app headers included after the module
    imports (`source/app/environment_loader.hpp` shows the shape). Before introducing
    a technique, abstraction or "standard practice" from elsewhere, find where this

@@ -26,7 +26,7 @@ export import deren.vstd;
 import deren.utility;
 
 /**
- * @file application_configuration.cppm
+ * @file configuration.cppm
  * @defgroup app_config Application Startup Config
  * @brief load deren startup settings from a TOML file, merged with command-line
  *        arguments (`--config <path>` overrides the default file; explicit argv values for the

@@ -203,7 +203,7 @@ jobs:
           # source/utility/BVH/bvh.cpp sat in this list after the module renames moved them to .cppm, and
           # clang-tidy's "no such file or directory" kept master red while every other gate passed.
           # A hand-maintained list that can go stale silently is a failure mode of its own.
-          # app_config is the TARGET name; its sources live in source/application_configuration/ (the dir was
+          # app_config is the TARGET name; its sources live in source/configuration/ (the dir was
           # renamed and this list was not).
           TIDY_FILES="source/engine/geometry/subtilis.cppm \
             source/engine/geometry/subtilis_asset.cppm \
@@ -228,8 +228,8 @@ jobs:
             source/engine/gaussian_splatting/probe.cpp \
             source/engine/pass/gaussian_splatting.cppm \
             source/engine/pass/gaussian_splatting.cpp \
-            source/application_configuration/application_configuration.cppm \
-            source/application_configuration/application_configuration.cpp \
+            source/configuration/configuration.cppm \
+            source/configuration/configuration.cpp \
             source/asset_library/asset_library.cppm \
             source/asset_library/asset_library.cpp \
             source/utility/data_block.cppm source/utility/utility.cppm source/utility/utility.cpp source/utility/file_io.cpp \

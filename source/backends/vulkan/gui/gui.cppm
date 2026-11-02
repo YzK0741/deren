@@ -19,7 +19,7 @@ module;
 // (warning C5202 "global module fragment can contain only preprocessing directives", which /WX
 // turns into an error), and an #include is exactly what the fragment is for. Every other unit of
 // this project that touches GLFWwindow* includes it here too, and the type is the real one either
-// way (glfw3.h is already included by graphical_user_interface.cpp).
+// way (glfw3.h is already included by gui.cpp).
 #include <GLFW/glfw3.h>
 
 export module deren.vulkan.graphical_user_interface;
@@ -27,7 +27,7 @@ export import deren.utility.shared;
 export import deren.vstd;
 
 /**
- * @file graphical_user_interface.cppm
+ * @file gui.cppm
  * @defgroup vulkan_gui Vulkan Debug GUI
  * @brief Dear ImGui integration for the vulkan runtime: owns the ImGui context, the GLFW +
  *        Vulkan backends and the backend's per-frame render-buffer ring, and exposes a small
@@ -78,7 +78,7 @@ namespace deren::vulkan::gui {
      *        "for each widget: widget->draw()" — new controls only add a subclass
      *        (same pattern as scene_tree::primitive / normal_draw_primitive).
      * @note draw() is called once per frame inside debug_panel::draw(); implementations call
-     *       the ImGui API directly (see graphical_user_interface.cpp)
+     *       the ImGui API directly (see gui.cpp)
      */
     export class widget {
     public:
@@ -221,7 +221,7 @@ namespace deren::vulkan::gui {
          *        so a later resize within this session overrides it
          * @param width,height desired default size; pass 0 for either to keep ImGui's auto-size
          * @note nothing outlives the run: the overlay disables ImGui's .ini persistence
-         *       (io.IniFilename = nullptr in graphical_user_interface.cpp), so these values are the size at the start of
+         *       (io.IniFilename = nullptr in gui.cpp), so these values are the size at the start of
          *       every run and there is no file for a user resize to come back from
          */
         void set_default_size(float width, float height) noexcept;
@@ -249,7 +249,7 @@ namespace deren::vulkan::gui {
     export class gui_content {
     public:
         gui_content() noexcept = default;
-        ~gui_content(); // shuts the overlay down (see graphical_user_interface.cpp); safe on a default-constructed object
+        ~gui_content(); // shuts the overlay down (see gui.cpp); safe on a default-constructed object
         gui_content(gui_content const&) = delete;
         gui_content& operator=(gui_content const&) = delete;
 

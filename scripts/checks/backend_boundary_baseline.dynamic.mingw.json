@@ -26,8 +26,8 @@
     {
       "file": "build-release-dyn-clang64/libderen_engine.a",
       "members": [
-        "acceleration_structure.cpp.obj",
-        "acceleration_structure.cppm.obj",
+        "acceleration.cpp.obj",
+        "acceleration.cppm.obj",
         "bindings.cppm.obj",
         "chain.cppm.obj",
         "character_forward.cpp.obj",
@@ -49,8 +49,8 @@
         "geometry_buffer_debug.cppm.obj",
         "goo_rim.cpp.obj",
         "goo_rim.cppm.obj",
-        "graphical_user_interface.cpp.obj",
-        "graphical_user_interface.cppm.obj",
+        "gui.cpp.obj",
+        "gui.cppm.obj",
         "mask_bake.cpp.obj",
         "mask_bake.cppm.obj",
         "math.cpp.obj",

@@ -385,10 +385,10 @@ target_sources(app_config
     PUBLIC
         FILE_SET CXX_MODULES
         FILES
-        source/application_configuration/application_configuration.cppm
+        source/configuration/configuration.cppm
 
     PRIVATE
-        source/application_configuration/application_configuration.cpp
+        source/configuration/configuration.cpp
 )
 
 if(VR_TOMLPP_INCLUDE_DIR)
@@ -399,7 +399,7 @@ endif()
 # toml++/impl/preprocessor.hpp): exceptions OFF gives parse_result a type with operator bool and
 # error(), exceptions ON makes parse_result an alias of toml::table and gives the parse functions a
 # different return type. The product code is written against the non-exception API ("parsed" /
-# "parsed.error().description()" in application_configuration.cpp), and clang64 gets that mode for
+# "parsed.error().description()" in configuration.cpp), and clang64 gets that mode for
 # free because the project compiles with -fno-exceptions.
 #
 # MSVC does NOT detect it: /EHsc is deliberate there (see the dialect table above - there is no
@@ -407,7 +407,7 @@ endif()
 # BOTH translation units of this target would fail to compile against it. State the mode instead of
 # inferring it, here rather than in a source file, so the module interface and the implementation are
 # guaranteed to agree: they must, because toml::parse_result is otherwise one type in
-# application_configuration.cppm and another in application_configuration.cpp. Only this target sees
+# configuration.cppm and another in configuration.cpp. Only this target sees
 # the header (checked: no other source in the tree includes toml++), so PRIVATE is enough.
 target_compile_definitions(app_config PRIVATE TOML_EXCEPTIONS=0)
 
@@ -704,7 +704,7 @@ target_sources(deren_engine
         source/engine/pass/chain.cppm
         source/engine/profiling/profiling.cppm
         source/engine/shadow_fit/shadow_fit.cppm
-        source/engine/acceleration_structure/acceleration_structure.cppm
+        source/engine/acceleration/acceleration.cppm
         source/engine/ray_tracing/ray_tracing.cppm
         source/engine/scene_tree/scene_tree.cppm
         source/engine/meshlet/meshlet.cppm
@@ -765,7 +765,7 @@ target_sources(deren_engine
         source/engine/pass/hzb_build.cpp
         source/engine/pass/hzb_cull.cpp
         source/engine/shadow_fit/shadow_fit.cpp
-        source/engine/acceleration_structure/acceleration_structure.cpp
+        source/engine/acceleration/acceleration.cpp
         source/engine/ray_tracing/ray_tracing.cpp
         source/engine/scene_tree/scene_tree.cpp
         source/engine/primitive/primitive.cpp
@@ -874,7 +874,7 @@ target_include_directories(stb_vendored
 # Dear ImGui (vendored under source/third_party/imgui, see the sources there): the Vulkan + GLFW
 # backends are compiled as plain C++ (imgui is not a module and does not follow the project's
 # -Werror policy — upstream code triggers warnings we do not own). No clang-format: the
-# PROJECT_FORMAT_SOURCES glob only covers main/source/application_configuration/source/gltf_loader/source/utility/
+# PROJECT_FORMAT_SOURCES glob only covers main/source/configuration/source/gltf_loader/source/utility/
 # engine/backends/tests/promise, never vendored third-party code.
 add_library(imgui STATIC)
 
@@ -1776,7 +1776,7 @@ add_dependencies(deren deren_gui_vulkan)
 #
 # WHAT LIVES HERE: the vendored ImGui sources (through the `imgui` static library, PRIVATE) and the whole
 # `deren.vulkan.graphical_user_interface` module, plus the C entry that adapts the module's overlay to the
-# `deren::gui::overlay` boundary (source/backends/vulkan/graphical_user_interface/gui_dll.cpp). THE DLL IS WHAT LINKS
+# `deren::gui::overlay` boundary (source/backends/vulkan/gui/gui_dll.cpp). THE DLL IS WHAT LINKS
 # `vulkan-1`: the host resolves `deren_make_gui` by NAME through its loader and links nothing of this target,
 # so `deren.exe` stops importing vulkan-1.dll - every one of those imports came from
 # `imgui_impl_vulkan.cpp`, which is compiled in here.
@@ -1795,10 +1795,10 @@ target_sources(deren_gui_vulkan
         PUBLIC
         FILE_SET CXX_MODULES
         FILES
-        source/backends/vulkan/graphical_user_interface/graphical_user_interface.cppm
+        source/backends/vulkan/gui/gui.cppm
         PRIVATE
-        source/backends/vulkan/graphical_user_interface/graphical_user_interface.cpp
-        source/backends/vulkan/graphical_user_interface/gui_dll.cpp
+        source/backends/vulkan/gui/gui.cpp
+        source/backends/vulkan/gui/gui_dll.cpp
 )
 # The project's compile options are not repeated here either - the sweep near the end of this file
 # covers this DLL like every other first-party target; only the boundary macros are target-specific.
@@ -1901,7 +1901,7 @@ endif()
 # `static_cast<size_t>(log10(val))`, and for a float in (0, 1) - e.g. the DEFAULT
 # `clear_color = [0.02, 0.02, 0.03]` - log10 is negative, so the cast is UB
 # ("-1.69897 is outside the range of representable values of type 'unsigned long long'",
-# toml++/impl/toml_formatter.inl:94). It is reachable from application_configuration.cpp:29 alone, which dumps every
+# toml++/impl/toml_formatter.inl:94). It is reachable from configuration.cpp:29 alone, which dumps every
 # key of the loaded file into the log. Upstream's bug, not this project's - and it fires from a
 # default config value, so it is not a corner case.
 #
@@ -2021,7 +2021,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     file(GLOB_RECURSE PROJECT_FORMAT_SOURCES CONFIGURE_DEPENDS
             ${CMAKE_CURRENT_SOURCE_DIR}/source/app/main.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/source/app/app_*.cpp*
-            ${CMAKE_CURRENT_SOURCE_DIR}/source/application_configuration/*.cpp*
+            ${CMAKE_CURRENT_SOURCE_DIR}/source/configuration/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/source/gltf_loader/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/source/utility/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/source/backends/vulkan/*.cpp*

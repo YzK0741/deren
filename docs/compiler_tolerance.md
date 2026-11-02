@@ -65,7 +65,7 @@ define it, which is why the clang64 build never saw this.
 
 ### A `std::unique_ptr` over a forward-declared type needs no in-class initializer
 
-`source/engine/acceleration_structure/acceleration_structure.cppm` holds two `std::unique_ptr<entry_points>` whose
+`source/engine/acceleration/acceleration.cppm` holds two `std::unique_ptr<entry_points>` whose
 type is only forward-declared there (the definition is in the .cpp), which is the ordinary pImpl shape. Both had
 `= {}`, and **libstdc++ instantiates `~unique_ptr<entry_points>` at that default member initializer itself**,
 stopping on `default_delete`'s `static_assert(sizeof(_Tp)>0)`; libc++ does not. Declaring the destructor out of
