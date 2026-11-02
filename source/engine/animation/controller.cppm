@@ -472,10 +472,13 @@ namespace deren::engine::animation {
                                 continue;
                             }
                             uint32_t const block_base = next_block;
-                            next_block += static_cast<uint32_t>(loader_skin.joints.size());
-                            auto const assign_block = [block_base](auto&& self, deren::engine::scene_tree::scene_node& node) -> void {
+                            uint32_t const joint_count = static_cast<uint32_t>(loader_skin.joints.size());
+                            next_block += joint_count;
+                            auto const assign_block = [block_base, joint_count](auto&& self, deren::engine::scene_tree::scene_node& node) -> void {
                                 if (node.primitive_leaf != nullptr) {
-                                    static_cast<deren::engine::primitive*>(node.primitive_leaf.get())->push.skin_base = block_base;
+                                    auto* const leaf = static_cast<deren::engine::primitive*>(node.primitive_leaf.get());
+                                    leaf->push.skin_base = block_base;
+                                    leaf->skin_joint_count = joint_count;
                                 }
                                 for (deren::engine::scene_tree::scene_node& child : node.children) {
                                     if (child.source_index == deren::engine::scene_tree::no_source_index) {

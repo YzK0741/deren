@@ -327,6 +327,13 @@ namespace deren::chores {
             if (!character_result) {
                 deren::utility::log("WARNING: the character-forward pipeline was not created ({}); the toon character stage will draw nothing", character_result.error());
             }
+            // THE EYE DEPTH PREPASS: same stages, GREATER depth compare and opaque blending (see
+            // runtime::make_eye_prepass_pipeline). Its absence is not fatal - the pass reads an empty name as
+            // "no prepass" and draws the frame that existed before the eye fix.
+            auto const character_eye_result = runtime.make_eye_prepass_pipeline("character_forward_eye_prepass", character_fragment_code, character_mesh_code, character_meshlet_code);
+            if (!character_eye_result) {
+                deren::utility::log("WARNING: the character-forward eye prepass was not created ({}); eyes keep the old depth behavior", character_eye_result.error());
+            }
         }
 
         {
@@ -351,6 +358,10 @@ namespace deren::chores {
             auto const game_result = runtime.make_character_forward_pipeline("game_toon", game_fragment_code, game_mesh_code, game_meshlet_code);
             if (!game_result) {
                 deren::utility::log("WARNING: the game toon pipeline was not created ({}); [render] game_toon will draw the previous chain", game_result.error());
+            }
+            auto const game_eye_result = runtime.make_eye_prepass_pipeline("game_toon_eye_prepass", game_fragment_code, game_mesh_code, game_meshlet_code);
+            if (!game_eye_result) {
+                deren::utility::log("WARNING: the game toon eye prepass was not created ({}); eyes keep the old depth behavior", game_eye_result.error());
             }
         }
 

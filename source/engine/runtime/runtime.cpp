@@ -784,6 +784,56 @@ namespace deren::engine {
         return {};
     }
 
+    std::expected<void, deren::utility::vessel::string> runtime::make_eye_prepass_pipeline(std::string_view const pipeline_name,
+                                                                                           std::span<uint8_t const> const fragment_shader_code,
+                                                                                           std::span<uint8_t const> const mesh_vertex_shader_code,
+                                                                                           std::span<uint8_t const> const meshlet_shader_code) {
+        using fail = std::unexpected<deren::utility::vessel::string>;
+        if (fragment_shader_code.empty()) {
+            return fail(deren::utility::vessel::string("eye prepass pipeline '") + deren::utility::vessel::string(pipeline_name) + "': no fragment stage was given");
+        }
+        bool const want_mesh = !mesh_vertex_shader_code.empty() && this->evaluate_mesh_shaders(nullptr);
+        {
+            std::unique_lock const lock(this->access_mutex);
+            if (this->mesh_pipelines.contains(pipeline_name) || this->meshlet_pipelines.contains(pipeline_name)) {
+                return fail(deren::utility::vessel::string("pipeline '") + deren::utility::vessel::string(pipeline_name) + "' already exists");
+            }
+        }
+        if (!want_mesh) {
+            return fail(deren::utility::vessel::string("eye prepass pipeline '") + deren::utility::vessel::string(pipeline_name) + "' has no mesh stage");
+        }
+        std::optional<pipelines::pipeline_handle> mesh_result = std::nullopt;
+        {
+            auto built = this->build_toon_family_pipeline(mesh_vertex_shader_code, fragment_shader_code,
+                                                          rhi::blend_mode::opaque, rhi::depth_compare::greater,
+                                                          "eye prepass pipeline");
+            if (!built) {
+                return fail("eye prepass pipeline '" + deren::utility::vessel::string(pipeline_name) + "': the mesh stage was refused (" + deren::utility::vessel::string(built.error()) + ")");
+            }
+            mesh_result = std::move(*built);
+        }
+        std::optional<pipelines::pipeline_handle> meshlet_result = std::nullopt;
+        if (!meshlet_shader_code.empty()) {
+            auto built = this->build_toon_family_pipeline(meshlet_shader_code, fragment_shader_code,
+                                                          rhi::blend_mode::opaque, rhi::depth_compare::greater,
+                                                          "eye prepass meshlet pipeline");
+            if (built) {
+                meshlet_result = std::move(*built);
+            } else {
+                deren::utility::log("eye prepass pipeline '{}': no meshlet form ({}), so its leaves stay on the mesh pipeline", pipeline_name, built.error());
+            }
+        }
+        {
+            std::unique_lock const lock(this->access_mutex);
+            this->mesh_pipelines.emplace(pipeline_name, std::move(*mesh_result));
+            deren::utility::log("SUCCESS: eye prepass pipeline '{}' created (one HDR target, opaque blend, depth compare GREATER, depth write per draw)", pipeline_name);
+            if (meshlet_result.has_value()) {
+                this->meshlet_pipelines.emplace(pipeline_name, std::move(*meshlet_result));
+            }
+        }
+        return {};
+    }
+
     std::expected<void, deren::utility::vessel::string> runtime::make_overlay_pipeline(std::string_view const pipeline_name,
                                                                                        std::span<uint8_t const> const fragment_shader_code,
                                                                                        std::span<uint8_t const> const mesh_vertex_shader_code,
@@ -3724,6 +3774,7 @@ namespace deren::engine {
         // overlay pass and by nothing else, so this has to be known while the lists are being split rather than
         // when a draw is recorded.
         result->overlay_kind = info.overlay_kind;
+        result->toon_family = info.toon_family;
         // ... AND THIS LEAF'S OUTLINE WIDTH, for the same list-building reason: the frame has to know which
         // leaves the ① outline group draws BEFORE any draw is recorded, and the material's `_OutlineWidth` is
         // otherwise only in the GPU colour-lane table (`deren::engine::render_layout::heap_slots::toon_colours`) where the frame cannot

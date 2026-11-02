@@ -281,7 +281,7 @@ Related source docs (tracked in the repo):
 │                            #   gaussian/ - documented in-source and grouped under the Doxygen "shaders"
 │                            #   group. The retired GLSL stage sources and the shared GLSL bodies they were
 │                            #   built on are archived under source/reference/shaders/
-├── asset/                    # Models/clouds, one folder per asset: DamagedHelmet/, FlightHelmet/, flowers/, laevatain/
+├── asset/                    # Models/clouds, one folder per asset: DamagedHelmet/, FlightHelmet/, flowers/, laevatain/, tangtang/
 ├── docs/                    # Usage guides, screenshots/ + reference shaders; Doxygen HTML is generated on demand (gitignored)
 ├── scripts/                 # build_helpers/ (cross-platform Python build/run/docs), setup/ (platform
 │                            #   environment setup), gates/ (Windows capture/render/device probes), measure/
@@ -509,5 +509,8 @@ keeps its own terms, listed in [`asset/README.md`](asset/README.md) and in the n
   reserved by Hypergryph Network Technology Co., Ltd. The repository grants no license for
   them: redistribution and reuse are not granted, and whether the files may be redistributed
   at all is unresolved. See [`asset/laevatain/LICENSE.md`](asset/laevatain/LICENSE.md).
+- `asset/tangtang/`: the Tangtang / GameToon preview model and Toon sidecar, under the same
+  Hypergryph notice and the same unresolved redistribution status. See
+  [`asset/tangtang/LICENSE.md`](asset/tangtang/LICENSE.md).
 
 Consult those notices before redistributing any file under `asset/`.

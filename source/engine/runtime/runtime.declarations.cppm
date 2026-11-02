@@ -2018,14 +2018,15 @@ namespace deren::engine {
         // scene_changed() after every structural change or the BVH/cull_visible can outlive a
         // destroyed leaf.
         //
-        // Known limitation (documented, accepted): the BVH bounds are the STATIC local AABBs
-        // captured at upload/import. Skinned/morphed vertices can move far outside that box
-        // (see set_skin_matrices / morph_scratch), so such a primitive may be frustum-culled
-        // even while its deformed geometry is on screen. Conservative animation rigs stay
-        // inside the authored bounds; culling can also be disabled (frustum_culling = false).
+        // Static bounds only in the BVH: its boxes are the local AABBs captured at upload/import,
+        // so a skinned/morphed primitive is never inserted into it. A skinned leaf is tested
+        // separately against a conservative posed bound (skin matrices unioned over its joint
+        // block); a morph-only leaf has no such bound and stays always visible. The posed result
+        // is cached like the camera result but is invalidated when skin_matrix_hash changes.
         std::optional<deren::utility::bvh<primitive>> cull_bvh = std::nullopt;
         bool bvh_dirty = true;                                              // scene structure/transforms changed -> rebuild
         deren::utility::vessel::vector<primitive const*> cull_visible = {}; // last culled result (main-pass set)
+        uint64_t cull_skin_hash = 0;                                        // skin pose cull_visible was built against
         // camera identity for result reuse: yaw, pitch, distance, target.xyz (7 floats)
         deren::utility::vessel::array<float, 7> camera_key = {};
         bool camera_moved = true; // camera key differs from the last cull frame
@@ -3450,6 +3451,28 @@ namespace deren::engine {
 
         /**
          * @ingroup runtime
+         * @brief register the CHARACTER-FORWARD EYE DEPTH PREPASS pipeline under @p pipeline_name
+         *
+         * THE SAME GEOMETRY AND FRAGMENT STAGES AS make_character_forward_pipeline, and exactly TWO states
+         * differ: the blend is OPAQUE (the prepass paints the eye it is about to paint again) and the depth
+         * test is GREATER rather than EQUAL. GREATER is what keeps the prepass from breaking occlusion: it
+         * writes the eye's depth only where the eye is BEHIND the surface already in the buffer (the face
+         * plate that hides the lower iris), and fails where something nearer - a fringe of hair or an
+         * eyelash - is already there. The normal EQUAL pass then draws the iris at the depth the prepass
+         * published, while the face plate fails its own equality test at those pixels.
+         *
+         * The pass draws only leaves whose `toon_family` is 5 (eye). An empty registry entry means "no
+         * prepass", i.e. the frame this renderer produced before the eye fix - which is what the pass reads
+         * from an empty name.
+         */
+        std::expected<void, deren::utility::vessel::string> make_eye_prepass_pipeline(
+            std::string_view pipeline_name,
+            std::span<uint8_t const> fragment_shader_code,
+            std::span<uint8_t const> mesh_vertex_shader_code,
+            std::span<uint8_t const> meshlet_shader_code = {});
+
+        /**
+         * @ingroup runtime
          * @brief register the OVERLAY (multiply) pipeline under @p pipeline_name
          *
          * THE THIRD ENTRY POINT OF THE SAME SHAPE, and the third set of states: `make_pipeline` builds the
@@ -4048,6 +4071,9 @@ namespace deren::engine {
          */
         static constexpr std::string_view character_forward_pipeline_name = "character_forward";
 
+        /// the eye depth prepass that runs before `character_forward`; see `make_eye_prepass_pipeline`
+        static constexpr std::string_view character_forward_eye_prepass_pipeline_name = "character_forward_eye_prepass";
+
         /**
          * @brief the name the OVERLAY (multiply) pipeline is registered under, which the character-forward
          *        pass binds for its overlay group
@@ -4094,6 +4120,9 @@ namespace deren::engine {
          * `make_character_forward_frame`; the two knobs stay separate so an A/B can move one at a time.
          */
         static constexpr std::string_view game_toon_pipeline_name = "game_toon";
+
+        /// the eye depth prepass that runs before `game_toon`; see `make_eye_prepass_pipeline`
+        static constexpr std::string_view game_toon_eye_prepass_pipeline_name = "game_toon_eye_prepass";
 
         /**
          * @ingroup runtime
