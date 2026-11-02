@@ -44,6 +44,7 @@ visibility_texture_streaming = true
 software_raster = true
 software_raster_threshold_px = 2.0
 game_toon = true
+game_toon_copies = 3
 subtilis = true
 subtilis_error_px = 2.0
 subtilis_hysteresis = true

@@ -258,6 +258,18 @@ namespace deren::engine {
 
     /**
      * @ingroup engine_primitive
+     * @brief how many GameToon characters can carry their own head frame in one frame
+     *
+     * The character stage already draws a LIST of leaves; what was single was the head frame, because the scene
+     * constant block had room for one `head_ubo` per frame slot. A scene can now import that many characters, each
+     * with its own index written into the high bits of `material_push_constants::flags`, and the shader indexes the
+     * per-frame array. Four is a policy, not a hardware limit: enough for the composition use case, small enough
+     * that a frame slot's head array stays a few hundred bytes.
+     */
+    export constexpr uint32_t max_game_toon_characters = 4;
+
+    /**
+     * @ingroup engine_primitive
      * @brief the TOON LIGHT RIG's global numbers (scene block slot 750), written once from the application's config
      *
      * WHAT BELONGS HERE, AND THE BOUNDARY IS THE POINT: a FAMILY's numbers live in `source/shaders/toon/toon_params.slang`,
@@ -1791,6 +1803,16 @@ namespace deren::engine {
         bool environment = false;
 
         /**
+         * WHICH GAME-TOON CHARACTER THIS PRIMITIVE BELONGS TO, for the shader's per-character head frame.
+         *
+         * The character stage draws many leaves with one pipeline, so a frame-wide `head_ubo` cannot describe two
+         * characters with different faces. Each import names its character, `create_primitive` carries the index
+         * into the high bits of `push.flags`, and the shader selects `head_frame_at(...)[character_index]`. Zero is
+         * the single-character path and produces exactly the old flag word.
+         */
+        uint32_t character_index = 0u;
+
+        /**
          * THE TOON TEXTURE INPUTS, filled by whoever installs a `toon_lookup` - the application, which is the
          * layer that reads the sidecar (see `runtime::set_toon_lookup`). Empty and flagless for a model with no
          * sidecar, which is every model that is not a character; then every lane points at the white fallback
@@ -2157,6 +2179,10 @@ namespace deren::engine {
          * are built from primitives, before any shader could read a lane.
          */
         bool environment = false;
+
+        /// which GameToon character owns this leaf; copied into the high bits of `push.flags` at creation. See
+        /// `primitive_create_info::character_index`.
+        uint32_t character_index = 0u;
 
         // local-space AABB of this primitive's geometry (model space, i.e. before push.model);
         // filled by the runtime when the geometry is uploaded. has_bounds == false means "no

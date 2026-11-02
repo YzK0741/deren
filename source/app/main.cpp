@@ -634,6 +634,47 @@ int main(int argc, char** argv) {
     } else {
         bounds = deren::gltf::log_scene_diagnostics(*scenes);
     }
+    // ---- MULTIPLE GAME-TOON CHARACTERS, v1: THE SAME CHARACTER, REPEATED ----
+    //
+    // The engine draws a LIST of character leaves; what used to be single was the head frame. This app-side half
+    // stages N copies of the SAME loaded model, each imported with its own character index and X offset, so the
+    // per-character head frame is exercised on real geometry. Distinct models and scene composition are later
+    // stages. The option is ignored unless the GameToon chain is on, and one copy is the shipping path.
+    uint32_t game_toon_copies = 1;
+    deren::utility::vessel::vector<float> game_toon_copy_offsets;
+    float const character_radius = glm::length(bounds.max - bounds.min) * 0.5f;
+    if (settings.render.game_toon && !gaussian_only) {
+        int32_t requested = settings.render.game_toon_copies;
+        if (requested < 1) {
+            requested = 1;
+        }
+        if (requested > static_cast<int32_t>(deren::engine::max_game_toon_characters)) {
+            deren::utility::log("game_toon: {} copies requested, clamping to the engine's {} character slots", requested, deren::engine::max_game_toon_characters);
+            requested = static_cast<int32_t>(deren::engine::max_game_toon_characters);
+        }
+        game_toon_copies = static_cast<uint32_t>(requested);
+        if (game_toon_copies > 1) {
+            float const width = bounds.max.x - bounds.min.x;
+            float const radius = character_radius;
+            float spacing = std::max(width * 1.25f, radius * 0.75f);
+            if (!(spacing > 1e-4f)) {
+                spacing = 1.0f;
+            }
+            float const span = static_cast<float>(game_toon_copies - 1u) * spacing;
+            bounds.min.x -= span * 0.5f;
+            bounds.max.x += span * 0.5f;
+            for (uint32_t copy = 0; copy < game_toon_copies; ++copy) {
+                game_toon_copy_offsets.push_back((static_cast<float>(copy) - 0.5f * static_cast<float>(game_toon_copies - 1u)) * spacing);
+            }
+            deren::utility::log("game_toon: staging {} copies of '{}' along X, spacing {:.3f} (scene radius now {:.3f})",
+                                game_toon_copies, model_path, spacing, glm::length(bounds.max - bounds.min) * 0.5f);
+        }
+    } else if (settings.render.game_toon_copies > 1) {
+        deren::utility::log("game_toon: ignoring game_toon_copies = {} because the GameToon chain is off", settings.render.game_toon_copies);
+    }
+    if (game_toon_copy_offsets.empty()) {
+        game_toon_copy_offsets.push_back(0.0f);
+    }
     glm::vec3 const scene_center = bounds.min * 0.5f + bounds.max * 0.5f;
     float const scene_radius = glm::length(bounds.max - bounds.min) * 0.5f;
 
@@ -655,7 +696,7 @@ int main(int argc, char** argv) {
     //     that existed before these keys did.
     //     The `deren::utility::vessel::array` is not decoration: `application_configuration` deliberately does not depend on glm
     //     (the derivation is unit-tested there), so this is the one place the scene's origin crosses over.
-    float const scene_floor_y = bounds.min.y - scene_center.y - scene_radius;
+    float const scene_floor_y = bounds.min.y - scene_center.y - character_radius;
     deren::app_config::area_light_derived const area_light =
         deren::app_config::derive_area_light(settings.lighting, deren::utility::vessel::array<float, 3>{0.0f, scene_floor_y, 0.0f});
     // `world_centre - scene_origin`, i.e. the emitter's direction FROM the author's origin, normalised by the
@@ -680,7 +721,7 @@ int main(int argc, char** argv) {
 
     // Sink the model so it sits near the world horizon (y = 0) and move the camera target with it:
     // the camera then orbits/looks at the model's position instead of the scene origin.
-    glm::vec3 const scene_sink(0.0f, -scene_radius, 0.0f);
+    glm::vec3 const scene_sink(0.0f, -character_radius, 0.0f);
     runtime.camera.target = scene_sink;
 
     // 8b. THE TOON MATERIAL SIDECAR, RESOLVED AGAINST THIS MODEL'S OWN IMAGES.
@@ -931,7 +972,6 @@ int main(int argc, char** argv) {
 
     deren::gltf::scene_node_iterator const node_first = scenes->nodes_begin();
     deren::gltf::scene_node_iterator const node_last;
-    deren::gltf::drawable_iterator scene_first(*scenes, materials);
     deren::gltf::drawable_iterator const scene_last;
     glm::vec3 const scene_import_shift = -scene_center + scene_sink;
     if (probe.enabled)
@@ -949,11 +989,42 @@ int main(int argc, char** argv) {
     // head basis from the rig/joint/face-frame this returns - see prepare_character_stage() at the file end.
     character_stage const stage = prepare_character_stage(runtime, settings, *scenes, model_path);
 
-    deren::engine::scene_import_result const imported = runtime.import_scene(node_first, node_last, scene_first, scene_last, scene_import_shift);
-    deren::utility::log("imported {} primitives ({} new materials)", imported.primitive_count, imported.material_count);
+    // ONE IMPORT PER COPY, each with its own X offset and character index. `materials` stays alive until every copy
+    // has been imported: the drawable stream borrows it, and the runtime registers material records during the
+    // import. The FIRST copy's result is what animation.init() below uses - animation drives the original rig, and
+    // the copies are static repetitions of its imported pose in v1.
+    deren::engine::scene_import_result imported = {};
+    uint32_t total_primitive_count = 0;
+    uint32_t total_material_count = 0;
+    for (uint32_t copy = 0; copy < game_toon_copies; ++copy) {
+        glm::vec3 const copy_shift = scene_import_shift + glm::vec3(game_toon_copy_offsets[copy], 0.0f, 0.0f);
+        deren::gltf::drawable_iterator copy_first(*scenes, materials);
+        deren::engine::scene_import_result const copy_result = runtime.import_scene(node_first, node_last, copy_first, scene_last, copy_shift, false, copy);
+        if (copy == 0) {
+            imported = copy_result;
+        }
+        total_primitive_count += copy_result.primitive_count;
+        total_material_count += copy_result.material_count;
+        if (game_toon_copies > 1) {
+            deren::utility::log("game_toon: copy {} (character index {}) imported at X {:.3f} - {} primitives, {} new materials",
+                                copy, copy, game_toon_copy_offsets[copy], copy_result.primitive_count, copy_result.material_count);
+        }
+    }
+    deren::utility::log("imported {} primitives ({} new materials) across {} character copy/copies", total_primitive_count, total_material_count, game_toon_copies);
     runtime.log_scene_tree();
-    scene_first = deren::gltf::drawable_iterator{};
     decltype(materials){}.swap(materials); // streaming/lazy resources retain their shared immutable sources
+
+    // Publish one head frame to every staged character: the copies differ only by their X offset, and a centre
+    // that is known (`center.w > 0.5`) must move with the copy or its face sphere points at another copy's head.
+    auto const publish_head_basis = [&](deren::engine::head_ubo const& basis) {
+        for (uint32_t copy = 0; copy < game_toon_copies; ++copy) {
+            deren::engine::head_ubo copy_basis = basis;
+            if (copy_basis.center.w > 0.5f) {
+                copy_basis.center.x += game_toon_copy_offsets[copy];
+            }
+            runtime.set_head_basis(copy, copy_basis);
+        }
+    };
 
     // 12b. THE FRAME'S STATIC SURROUND, when the config names one ([render] background_glb): the SAME
     //      importer runs a SECOND time into the SAME scene tree, flagged as environment. The flag is the
@@ -1076,23 +1147,28 @@ int main(int argc, char** argv) {
             // FogLight_1: captured `npr:"fog"`; the last active character-only light in the rig.
             {{0.0134f, 1.0117f, -1.3375f}, {0.0f, 0.0f, 1.0f}, {0.2166f, 0.2166f, 0.2603f}, 0.4f, 1.5f, true, 86.6636f, 81.1457f, 4.0f, 0.7f, 1.0f, 0.0f, 0.0f},
         };
-        for (captured_light const& c : captured) {
-            deren::engine::punctual_light light = {};
-            light.position = glm::vec3(c.p[0], c.p[1], c.p[2]);
-            light.spot_direction = glm::vec3(c.f[0], c.f[1], c.f[2]);
-            light.color = glm::vec3(c.c[0], c.c[1], c.c[2]);
-            light.intensity = c.intensity;
-            light.range = c.range;
-            light.spot = c.spot;
-            if (c.spot) {
-                light.spot_outer_cos = std::cos(glm::radians(c.outer_deg) * 0.5f);
-                light.spot_inner_cos = std::cos(glm::radians(c.inner_deg) * 0.5f);
+        uint32_t pushed_lights = 0;
+        for (uint32_t copy = 0; copy < game_toon_copies; ++copy) {
+            for (captured_light const& c : captured) {
+                deren::engine::punctual_light light = {};
+                // The captured positions are authored around the character; each copy moves its rig with it.
+                light.position = glm::vec3(c.p[0], c.p[1], c.p[2]) + glm::vec3(game_toon_copy_offsets[copy], 0.0f, 0.0f);
+                light.spot_direction = glm::vec3(c.f[0], c.f[1], c.f[2]);
+                light.color = glm::vec3(c.c[0], c.c[1], c.c[2]);
+                light.intensity = c.intensity;
+                light.range = c.range;
+                light.spot = c.spot;
+                if (c.spot) {
+                    light.spot_outer_cos = std::cos(glm::radians(c.outer_deg) * 0.5f);
+                    light.spot_inner_cos = std::cos(glm::radians(c.inner_deg) * 0.5f);
+                }
+                light.npr_mode = c.mode;
+                light.npr_data = glm::vec4(c.npr0, c.npr1, c.npr2, c.npr3);
+                demo_lights.push_back(light);
+                ++pushed_lights;
             }
-            light.npr_mode = c.mode;
-            light.npr_data = glm::vec4(c.npr0, c.npr1, c.npr2, c.npr3);
-            demo_lights.push_back(light);
         }
-        deren::utility::log("GameToon rig: {} captured punctual lights pushed through the scene light UBO", std::size(captured));
+        deren::utility::log("GameToon rig: {} captured punctual lights pushed through the scene light UBO across {} character copy/copies", pushed_lights, game_toon_copies);
     }
 
     // 14. Main render loop: until the window closes or ESC is pressed.
@@ -1707,7 +1783,7 @@ int main(int argc, char** argv) {
                     has_center = true;
                 }
             }
-            runtime.set_head_basis(deren::engine::head_ubo{
+            publish_head_basis(deren::engine::head_ubo{
                 .front = glm::vec4(world_forward, 1.0f),
                 .right = glm::vec4(world_right, 0.0f),
                 .up = glm::vec4(glm::normalize(glm::cross(world_right, world_forward)), 0.0f),
@@ -1733,7 +1809,7 @@ int main(int argc, char** argv) {
                 // is a BAKED pose with `skins = 0` - this branch is never taken, so the face arm keeps the socket's
                 // own default instead of building a normal about the world origin.
                 glm::vec3 const head_center(joint[3][0], joint[3][1], joint[3][2]);
-                runtime.set_head_basis(deren::engine::head_ubo{.front = glm::vec4(basis.front, 0.0f), .right = glm::vec4(basis.right, 0.0f), .up = glm::vec4(basis.up, 0.0f), .center = glm::vec4(head_center, 1.0f)});
+                publish_head_basis(deren::engine::head_ubo{.front = glm::vec4(basis.front, 0.0f), .right = glm::vec4(basis.right, 0.0f), .up = glm::vec4(basis.up, 0.0f), .center = glm::vec4(head_center, 1.0f)});
                 static bool logged_head_probe = false;
                 if (!logged_head_probe) {
                     logged_head_probe = true;

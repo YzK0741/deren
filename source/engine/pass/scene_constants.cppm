@@ -44,7 +44,9 @@ export namespace deren::engine::pass {
                 requests.push_back(value);
             }
             value.id = render_resource::resource_id::head_ubo;
-            value.buffer.size = sizeof(deren::engine::head_ubo);
+            // ONE head frame per GameToon character: the shader indexes this array with the character index carried
+            // in the primitive's push flags, so one character's face never shades against another's head.
+            value.buffer.size = sizeof(deren::engine::head_ubo) * deren::engine::max_game_toon_characters;
             if (head_required) {
                 requests.push_back(value);
             }

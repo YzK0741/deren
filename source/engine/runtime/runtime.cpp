@@ -3274,6 +3274,14 @@ namespace deren::engine {
     }
 
     void runtime::set_head_basis(head_ubo const& basis) noexcept {
+        this->set_head_basis(0u, basis);
+    }
+
+    void runtime::set_head_basis(uint32_t const index, head_ubo const& basis) noexcept {
+        if (index >= max_game_toon_characters) {
+            deren::utility::log("head frame: refusing character index {} (max {}), keeping the fallback", index, max_game_toon_characters);
+            return;
+        }
         // CPU-side only, the same rule set_exposure and set_brdf_model follow: remember it here and let
         // pace_and_acquire copy it into the paced slot's buffer, so a call from a GUI callback or from the import
         // path can never write memory a frame in flight is reading.
@@ -3297,14 +3305,14 @@ namespace deren::engine {
         // `headCenter` is what `Recalculate normal` subtracts from the fragment's world position, and a frame whose
         // axes were refused still has a centre - keeping the previous one while a new one is known would make the
         // sphere normal jump between two objects' heads.
-        this->head_state.center = basis.center;
+        this->head_states[index].center = basis.center;
         if (!std::isfinite(front_len_sq) || !std::isfinite(right_len_sq) || !std::isfinite(up_len_sq) || front_len_sq <= 1e-8f || right_len_sq <= 1e-8f || up_len_sq <= 1e-8f) {
             deren::utility::log("head frame: refusing a degenerate basis (lengths {} {} {}), keeping the fallback", front_len_sq, right_len_sq, up_len_sq);
             return;
         }
-        this->head_state.front = glm::vec4(glm::normalize(front), basis.front.w);
-        this->head_state.right = glm::vec4(glm::normalize(right), 0.0f);
-        this->head_state.up = glm::vec4(glm::normalize(up), 0.0f);
+        this->head_states[index].front = glm::vec4(glm::normalize(front), basis.front.w);
+        this->head_states[index].right = glm::vec4(glm::normalize(right), 0.0f);
+        this->head_states[index].up = glm::vec4(glm::normalize(up), 0.0f);
     }
 
     void runtime::set_tone_mapping(int32_t mode) noexcept {
@@ -3700,6 +3708,10 @@ namespace deren::engine {
         //         the material index (texture indices / factors / flags live in the GPU table) ----
         result->push.material_index = this->register_material(info);
         result->push.model = info.model_matrix;
+        // WHICH GAME-TOON CHARACTER THIS LEAF BELONGS TO: carried in the high bits of the flag word because the
+        // 96-byte push block has no spare member (see `character_index`), and bit 0 stays the instancing flag the
+        // draw paths already read. Zero leaves the flag word exactly as it was.
+        result->push.flags = (info.character_index & 0xffu) << 8u;
         // Its own motion slot, where advance_motion_transforms() will keep the world matrix this
         // leaf had one frame ago - and which pbr.vert reads to build the object half of TAA's motion
         // vector. Allocated here rather than per draw because the shader needs a STABLE index.
@@ -3724,6 +3736,7 @@ namespace deren::engine {
         // `environment` argument). Two lists read it - the toon character stage and the shadow casters -
         // and both are built here, in the host, every frame.
         result->environment = info.environment;
+        result->character_index = info.character_index;
         return result;
     }
 

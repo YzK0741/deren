@@ -35,10 +35,11 @@ DescriptorHandle<Sampler2D> combined_at(uint texture_slot, uint sampler_slot)
 #define material_at(slot, index) heap_at<StructuredBuffer<Material>>(slot)[index]
 #define camera_at(slot) heap_at<ConstantBuffer<CameraUBO>>(slot)
 #define light_at(slot) heap_at<ConstantBuffer<LightUBO>>(slot)
-// THE FACE SDF'S HEAD FRAME (scene block slot 749): three axes per frame slot, resolved by the application from
-// the character's head bone or from the reference's fallback and uploaded every frame - see head_ubo in
-// vulkan/primitive.cppm. The struct is declared by the stage that reads it, like every other block here.
-#define head_frame_at(slot) heap_at<ConstantBuffer<HeadUBO>>(slot)
+// THE FACE SDF'S HEAD FRAMES (scene block slot 749): one head frame per GameToon character, per frame slot,
+// resolved by the application from each character's head bone or from the reference's fallback and uploaded every
+// frame - see head_ubo in vulkan/primitive.cppm. The primitive's character index rides in the high bits of the push
+// flags (bit 0 stays the instancing flag), so one character's face never shades against another's head.
+#define head_frame_at(slot) heap_at<StructuredBuffer<HeadUBO>>(slot)[(push.flags >> 8u) & 0xffu]
 /// the TOON LIGHT RIG, one block for the run - see `deren::vulkan::toon_rig` and the stage's own `ToonRigUBO`.
 #define toon_rig_at(slot) heap_at<ConstantBuffer<ToonRigUBO>>(slot)
 /// THE MATERIAL COLOURS, one flat `float4` array: read as `toon_colour_at(slot, material * kLanes + lane)`, because

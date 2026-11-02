@@ -327,6 +327,15 @@ namespace deren::app_config {
         // three-way choice is where that precedence lives); a normal run asks for one model at a time.
         bool game_toon = false;
         /**
+         * HOW MANY COPIES OF THE GAME-TOON CHARACTER TO STAGE ([render] game_toon_copies, 1..4).
+         *
+         * The character stage already draws a list of leaves; what this exercises is the per-character head
+         * frame, so every copy is the SAME imported model at a different X offset with its own head basis. One
+         * is the shipping path and must stay byte-identical. Values outside the range are clamped by `main.cpp`,
+         * which is where `max_game_toon_characters` lives; the option is ignored unless `game_toon` is on.
+         */
+        int32_t game_toon_copies = 1;
+        /**
          * THE FRAME'S STATIC SURROUND AS A SECOND MODEL ([render] background_glb): the path of a glTF/GLB
          * whose geometry is the environment rather than the subject. Empty by default and that default is the
          * feature's contract: with no path the frame is exactly the frame this renderer produced before the

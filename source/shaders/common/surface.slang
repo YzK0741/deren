@@ -83,7 +83,7 @@ float4 frame_texture_sample_lod0(uint texture_index, float2 uv);
 // exist to keep the block layout identical.
 struct PushConstants {
     uint material_index; // index into the material table (material data lives on the GPU)
-    uint flags;          // bit0: instanced draw -> model from instances[...]; bit3: double-sided
+    uint flags;          // bit0: instanced draw -> model from instances[...]; bit3: double-sided; bits 8..15: GameToon character index
     uint skin_base;      // start of this primitive's joint block in skins.matrices (0 = identity)
     uint morph_base;     // float index of this primitive's morph block in morph_data.morphs (0 = none)
     uint morph_targets;  // number of morph targets (0 = not morphable)
